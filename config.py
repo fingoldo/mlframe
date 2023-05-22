@@ -1,0 +1,2 @@
+THOUSANDS_SEPARATOR = "_"
+
