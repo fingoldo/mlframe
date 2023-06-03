@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 from pyutilz.pythonlib import ensure_installed
 
-ensure_installed("numpy pandas pywt")
+ensure_installed("numpy pandas PyWavelets")
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
