@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 from pyutilz.pythonlib import ensure_installed
 
-ensure_installed("numpy pandas")
+ensure_installed("numpy pandas pywt")
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
@@ -251,7 +251,7 @@ def create_aggregated_features(
                             if not targets:
                                 features_names.extend([captions_vars_sep.join([dataset_name, var, "wgt", weighting_var, feat]) for feat in numaggs_names])
 
-                    # 5) exponentially weighted row_vals with some alphas, like [0.6, 0.9]:
+                    # 5) exponentially weighted raw_vals with some alphas, like [0.6, 0.9]:
                     for alpha in ewma_alphas:
                         row_features.extend(compute_numaggs(ewma(raw_vals, alpha), **numaggs_kwds))
                         if not targets:
