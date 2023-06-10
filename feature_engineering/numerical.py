@@ -70,8 +70,9 @@ def compute_numerical_aggregates_numba(
     E mid2(abs(x-mid1(X))) where mid1, mid2=averages of any kind
     E Функции ошибок иногда и классные признаки...
     V What happens first: min or max? Add relative percentage of min/max indices
+    E Add absolute values of min/max indices?
     V Добавить количество пересечений средних и медианного значений, линии slope? (trend reversions)
-        Хотя это можно в т.ч. получить, вызвав стату над нормированным или детендированным рядом (x-X_avg) или (x-(slope*x+x[0]))
+        Хотя это можно в т.ч. получить, вызвав стату над нормированным или детрендированным рядом (x-X_avg) или (x-(slope*x+x[0]))
     V убрать гэпы. это статистика второго порядка и должна считаться отдельно. причем можно считать от разностей или от отношений.
     V взвешенные статы считать отдельным вызовом ( и не только среднеарифметические, а ВСЕ).
     Добавить
@@ -82,9 +83,9 @@ def compute_numerical_aggregates_numba(
         E? среднее винзоризированное (https://ru.wikipedia.org/wiki/%D0%92%D0%B8%D0%BD%D0%B7%D0%BE%D1%80%D0%B8%D0%B7%D0%BE%D0%B2%D0%B0%D0%BD%D0%BD%D0%BE%D0%B5_%D1%81%D1%80%D0%B5%D0%B4%D0%BD%D0%B5%D0%B5).
         E? tukey mean
         E drawdowns, negative drawdowns (for shorts)
-        numpeaks
+        E numpeaks
         V hurst
-        fit variable to a number of known distributions!! their params become new features
+        E fit variable to a number of known distributions!! their params become new features
     """
 
     size = len(arr)
