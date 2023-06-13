@@ -77,15 +77,15 @@ def compute_numerical_aggregates_numba(
     V взвешенные статы считать отдельным вызовом ( и не только среднеарифметические, а ВСЕ).
     Добавить
         V среднее кубическое,
-        E усечённое,
         V entropy
+        V hurst
         V R2
         E? среднее винзоризированное (https://ru.wikipedia.org/wiki/%D0%92%D0%B8%D0%BD%D0%B7%D0%BE%D1%80%D0%B8%D0%B7%D0%BE%D0%B2%D0%B0%D0%BD%D0%BD%D0%BE%D0%B5_%D1%81%D1%80%D0%B5%D0%B4%D0%BD%D0%B5%D0%B5).
+        E? усечённое,
         E? tukey mean
-        E drawdowns, negative drawdowns (for shorts)
-        E numpeaks
-        V hurst
         E fit variable to a number of known distributions!! their params become new features
+        E drawdowns, negative drawdowns (for shorts), dd duration (%)
+        E numpeaks
     """
 
     size = len(arr)
@@ -112,6 +112,10 @@ def compute_numerical_aggregates_numba(
 
     maximum, minimum = first, first
     max_index, min_index = 0, 0
+    max_pos_dd, max_pos_dd_duration = 0.0, 0
+    max_neg_dd, max_neg_dd_duration = 0.0, 0
+
+    pos_dd_start_idx, neg_dd_start_idx = 0, 0
 
     for i, next_value in enumerate(arr):
         arithmetic_mean += next_value
@@ -128,6 +132,35 @@ def compute_numerical_aggregates_numba(
         elif next_value < minimum:
             minimum = next_value
             min_index = i
+
+        # Drawdowns
+
+        # pos
+        dd = maximum - next_value
+        if dd > 0.0:
+            if dd > max_pos_dd:
+                max_pos_dd = dd
+            if not pos_dd_start_idx:
+                pos_dd_start_idx = i
+        else:
+            if pos_dd_start_idx:
+                dd_dur = i - pos_dd_start_idx
+                pos_dd_start_idx = 0
+                if dd_dur > max_pos_dd_duration:
+                    max_pos_dd_duration = dd_dur
+        # neg
+        dd = next_value - minimum
+        if dd > 0.0:
+            if dd > max_neg_dd:
+                max_neg_dd = dd
+            if not neg_dd_start_idx:
+                neg_dd_start_idx = i
+        else:
+            if neg_dd_start_idx:
+                dd_dur = i - neg_dd_start_idx
+                neg_dd_start_idx = 0
+                if dd_dur > max_neg_dd_duration:
+                    max_neg_dd_duration = dd_dur
 
         if next_value:
             cnt_nonzero = cnt_nonzero + 1
@@ -147,6 +180,15 @@ def compute_numerical_aggregates_numba(
                         geometric_mean = np.log(float(geometric_mean))
                 else:
                     geometric_mean += np.log(next_value)
+
+    if pos_dd_start_idx:
+        dd_dur = i - pos_dd_start_idx
+        if dd_dur > max_pos_dd_duration:
+            max_pos_dd_duration = dd_dur
+    if neg_dd_start_idx:
+        dd_dur = i - neg_dd_start_idx
+        if dd_dur > max_neg_dd_duration:
+            max_neg_dd_duration = dd_dur
 
     if npositive:
         if not geomean_log_mode:
@@ -179,6 +221,10 @@ def compute_numerical_aggregates_numba(
         maximum,
         (min_index + 1) / size,
         (max_index + 1) / size,
+        max_pos_dd,
+        max_neg_dd,
+        max_pos_dd_duration / size,
+        max_neg_dd_duration / size,
     ]
 
 
@@ -404,7 +450,7 @@ def compute_numaggs(
     max_modes: int = 10,
     sampling_frequency: int = 100,
     spectral_method: str = "welch",
-    hurst_kwargs: dict = dict(min_window=10, max_window=None, windows_log_step=0.25, take_diffs=True),
+    hurst_kwargs: dict = dict(min_window=10, max_window=None, windows_log_step=0.25, take_diffs=False),
     directional_only: bool = False,
 ):
     """Compute a plethora of numerical aggregates for all values in an array.
@@ -434,7 +480,13 @@ def compute_numaggs(
 
 def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, **kwargs) -> tuple:
     return tuple(
-        (["arimean", "ratio"] if directional_only else "arimean,quadmean,qubmean,geomean,harmmean,nonzero,ratio,npos,nint,min,max,minr,maxr".split(","))
+        (
+            ["arimean", "ratio"]
+            if directional_only
+            else "arimean,quadmean,qubmean,geomean,harmmean,nonzero,ratio,npos,nint,min,max,minr,maxr,max_pos_dd,max_neg_dd,max_pos_dd_durationr,max_neg_dd_durationr".split(
+                ","
+            )
+        )
         + ([] if directional_only else "nuniques,modmin,modmax,modmean,modqty".split(","))
         + ([] if directional_only else ["q" + str(q) for q in q])
         + ("slope,r,meancross,slopecross".split(",") if directional_only else "mad,std,skew,kurt,slope,r,meancross,slopecross".split(","))  # ,mi
