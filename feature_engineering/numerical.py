@@ -33,6 +33,9 @@ from entropy_estimators import continuous
 from sklearn.feature_selection import mutual_info_regression
 from mlframe.feature_engineering.hurst import compute_hurst_exponent
 
+from scipy.stats import entropy, kstest
+from scipy import stats
+
 import warnings
 
 warnings.filterwarnings("ignore", message="nperseg =")
@@ -56,6 +59,23 @@ def cont_entropy(arr: np.ndarray, bins: str = "auto") -> float:
 
 entropy_funcs = (cont_entropy, continuous.get_h, app_entropy, svd_entropy, sample_entropy, petrosian_fd, perm_entropy, katz_fd, detrended_fluctuation)
 entropy_funcs_names = [f.__name__ for f in entropy_funcs]
+
+distributions = (stats.levy_l, stats.logistic, stats.pareto)
+default_dist_responses = dict(levy_l=[np.nan, np.nan], logistic=[np.nan, np.nan], pareto=[np.nan, np.nan, np.nan])
+
+
+def get_distributions_features_names() -> list:
+    distributions_features_names = []
+    for dist in distributions:
+        for i in range(len(default_dist_responses[dist.name])):
+            distributions_features_names.append(dist.name + str(i + 1))
+        distributions_features_names.append(dist.name + "_kss")
+        distributions_features_names.append(dist.name + "_kspval")
+    return distributions_features_names
+
+
+distributions_features_names = get_distributions_features_names()
+
 
 default_quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]  # list vs ndarray gives advantage 125 µs ± 2.79 µs per loop vs 140 µs ± 8.11 µs per loop
 
@@ -429,7 +449,7 @@ def compute_mutual_info_regression(arr: np.ndarray, xvals: np.ndarray = np.array
     return mi[0]
 
 
-def compute_entropy_fetures(arr: np.ndarray, nonzero: int, sampling_frequency: int = 100, spectral_method: str = "welch") -> list:
+def compute_entropy_features(arr: np.ndarray, nonzero: int, sampling_frequency: int = 100, spectral_method: str = "welch") -> list:
     # hjorth_mobility, hjorth_complexity = hjorth_params(arr)
     # hjorth_mobility,
     # hjorth_complexity,
@@ -439,6 +459,25 @@ def compute_entropy_fetures(arr: np.ndarray, nonzero: int, sampling_frequency: i
         return [np.nan] * len(entropy_funcs)
     else:
         return [f(arr) for f in entropy_funcs]
+
+
+def fit_distribution(dist: object, data: np.ndarray, method: str = "mle"):
+    try:
+        params = dist.fit(data, method=method)
+    except Exception as e:
+        return default_dist_responses[dist.name] + [np.nan, np.nan]
+    else:
+        dist_fitted = dist(*params)
+        ks_stat, ks_pval = kstest(data, dist_fitted.cdf)
+
+        return *params, ks_stat, ks_pval
+
+
+def compute_distributional_features(arr: np.ndarray) -> list:
+    res = []
+    for dist in (stats.levy_l, stats.logistic, stats.pareto):
+        res.extend(fit_distribution(dist=dist, data=arr))
+    return res
 
 
 def compute_numaggs(
@@ -452,6 +491,7 @@ def compute_numaggs(
     spectral_method: str = "welch",
     hurst_kwargs: dict = dict(min_window=10, max_window=None, windows_log_step=0.25, take_diffs=False),
     directional_only: bool = False,
+    distributional: bool = True,
 ):
     """Compute a plethora of numerical aggregates for all values in an array.
     Converts an arbitrarily length array into fixed number of aggregates.
@@ -473,12 +513,13 @@ def compute_numaggs(
         + (
             []
             if directional_only
-            else compute_entropy_fetures(arr=arr, sampling_frequency=sampling_frequency, spectral_method=spectral_method, nonzero=nonzero)
+            else compute_entropy_features(arr=arr, sampling_frequency=sampling_frequency, spectral_method=spectral_method, nonzero=nonzero)
         )
+        + (compute_distributional_features(arr=arr) if distributional else [])
     )
 
 
-def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, **kwargs) -> tuple:
+def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, distributional: bool = True, **kwargs) -> tuple:
     return tuple(
         (
             ["arimean", "ratio"]
@@ -493,4 +534,5 @@ def get_numaggs_names(q: list = default_quantiles, directional_only: bool = Fals
         # + ["mutual_info_regression",]
         + ["hursth", "hurstc"]
         + ([] if directional_only else entropy_funcs_names)
+        + (distributions_features_names if distributional else [])
     )
