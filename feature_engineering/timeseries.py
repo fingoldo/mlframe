@@ -41,7 +41,7 @@ from scipy.fftpack import fft
 from scipy import signal
 import pywt
 
-cCOMPACT_WAVELETS = False
+cCOMPACT_WAVELETS = True
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Inits
@@ -205,87 +205,87 @@ def create_aggregated_features(
             if window_df[var].dtype.name in (
                 "category",
             ):  # we do not list "object", "str" to exclude pure textual columns. They can be added explicilty though.
-                if process_categoricals:
-                    compute_countaggs(window_df[var], **countaggs_kwds)
+                if process_categoricals or (counts_processing_mask_regexp and counts_processing_mask_regexp.search(var)):
+                    row_features.extend(compute_countaggs(window_df[var], **countaggs_kwds))
                     if not targets:
                         features_names.extend([captions_vars_sep.join([dataset_name, var, "vlscnt", feat]) for feat in countaggs_names])
-            elif "datetime" in window_df[var].dtype.name or window_df[var].dtype.name in ("object", "str"):
-                pass
             else:
-                # 1) as is: raw_vals
-                raw_vals = window_df[var].values
-                idx = np.isfinite(raw_vals)
-                raw_vals = raw_vals[idx]
-                simple_numerical_features = compute_numaggs(raw_vals, **numaggs_kwds)
-                row_features.extend(simple_numerical_features)
-                if not targets:
-                    features_names.extend([captions_vars_sep.join([dataset_name, var, feat]) for feat in numaggs_names])
+                if not ("datetime" in window_df[var].dtype.name or window_df[var].dtype.name in ("object", "str")):
 
-                if not reduced_featureset:
-                    # differences = np.diff(raw_vals, 1)
-
-                    # 2) ratios: div0(raw_vals[1:], raw_vals[:-1], fill=0.0)
-                    ratios = smart_ratios(
-                        raw_vals[1:],
-                        raw_vals[:-1],
-                        span_correction=span_corrections.get(var, span_corrections.get("", 1e2)),
-                        na_fill=na_fills.get(var, na_fills.get("")),
-                    )
-                    row_features.extend(compute_numaggs(ratios, **numaggs_kwds))
+                    # 1) as is: raw_vals
+                    raw_vals = window_df[var].values
+                    idx = np.isfinite(raw_vals)
+                    raw_vals = raw_vals[idx]
+                    simple_numerical_features = compute_numaggs(raw_vals, **numaggs_kwds)
+                    row_features.extend(simple_numerical_features)
                     if not targets:
-                        features_names.extend([captions_vars_sep.join([dataset_name, var, "rat", feat]) for feat in numaggs_names])
+                        features_names.extend([captions_vars_sep.join([dataset_name, var, feat]) for feat in numaggs_names])
 
-                    # 3) wavelets of raw_vals
-                    if waveletname:
-                        for i, coeffs in enumerate(pywt.wavedec(raw_vals, waveletname)):
-                            row_features.extend(compute_numaggs(coeffs, **numaggs_kwds))
-                            if not targets:
-                                features_names.extend([captions_vars_sep.join([dataset_name, var, waveletname, str(i), feat]) for feat in numaggs_names])
-                            if cCOMPACT_WAVELETS:
-                                break  # just one wavelet qt for now...
+                    if not reduced_featureset:
+                        # differences = np.diff(raw_vals, 1)
 
-                    # 4) raw_vals weighted by second var, if the main var is not related to second var (has no second var in its name)
-                    for weighting_var, (weighting_values, weighting_sum) in weighting.items():
-                        if weighting_var not in var:
-                            row_features.extend(compute_numaggs((raw_vals / weighting_sum) * weighting_values[idx], **numaggs_kwds))
-                            if not targets:
-                                features_names.extend([captions_vars_sep.join([dataset_name, var, "wgt", weighting_var, feat]) for feat in numaggs_names])
-
-                    # 5) exponentially weighted raw_vals with some alphas, like [0.6, 0.9]:
-                    for alpha in ewma_alphas:
-                        row_features.extend(compute_numaggs(ewma(raw_vals, alpha), **numaggs_kwds))
+                        # 2) ratios: div0(raw_vals[1:], raw_vals[:-1], fill=0.0)
+                        ratios = smart_ratios(
+                            raw_vals[1:],
+                            raw_vals[:-1],
+                            span_correction=span_corrections.get(var, span_corrections.get("", 1e2)),
+                            na_fill=na_fills.get(var, na_fills.get("")),
+                        )
+                        row_features.extend(compute_numaggs(ratios, **numaggs_kwds))
                         if not targets:
-                            features_names.extend([captions_vars_sep.join([dataset_name, var, "ewma", str(alpha), feat]) for feat in numaggs_names])
+                            features_names.extend([captions_vars_sep.join([dataset_name, var, "rat", feat]) for feat in numaggs_names])
 
-                    # 6) log, or cubic root, or some other non-linear transform (yeo-johnson) of raw_vals
-                    if var in nonnormal_vars:
-                        for nonlinear_func in nonlinear_transforms:
-                            transform_name = nonlinear_func.__name__
-                            row_features.extend(compute_numaggs(nonlinear_func(raw_vals), **numaggs_kwds))
+                        # 3) wavelets of raw_vals
+                        if waveletname:
+                            for i, coeffs in enumerate(pywt.wavedec(raw_vals, waveletname)):
+                                row_features.extend(compute_numaggs(coeffs, **numaggs_kwds))
+                                if not targets:
+                                    features_names.extend([captions_vars_sep.join([dataset_name, var, waveletname, str(i), feat]) for feat in numaggs_names])
+                                if cCOMPACT_WAVELETS:
+                                    break  # just one wavelet qt for now...
+
+                        # 4) raw_vals weighted by second var, if the main var is not related to second var (has no second var in its name)
+                        for weighting_var, (weighting_values, weighting_sum) in weighting.items():
+                            if weighting_var not in var:
+                                row_features.extend(compute_numaggs((raw_vals / weighting_sum) * weighting_values[idx], **numaggs_kwds))
+                                if not targets:
+                                    features_names.extend([captions_vars_sep.join([dataset_name, var, "wgt", weighting_var, feat]) for feat in numaggs_names])
+
+                        # 5) exponentially weighted raw_vals with some alphas, like [0.6, 0.9]:
+                        for alpha in ewma_alphas:
+                            row_features.extend(compute_numaggs(ewma(raw_vals, alpha), **numaggs_kwds))
                             if not targets:
-                                features_names.extend([captions_vars_sep.join([dataset_name, var, transform_name, feat]) for feat in numaggs_names])
+                                features_names.extend([captions_vars_sep.join([dataset_name, var, "ewma", str(alpha), feat]) for feat in numaggs_names])
 
-                    # 7) robust subset of raw_vals, ie, within 0.1 and 0.9 quantiles. Or, better, using Tukey fences to identify outliers.
-                    if q1_idx and q3_idx:
-                        Q3 = simple_numerical_features[q3_idx]
-                        Q1 = simple_numerical_features[q1_idx]
-                        IQR = Q3 - Q1
-                        Lower_Bound = Q1 - 1.5 * IQR
-                        Upper_Bound = Q3 + 1.5 * IQR
+                        # 6) log, or cubic root, or some other non-linear transform (yeo-johnson) of raw_vals
+                        if var in nonnormal_vars:
+                            for nonlinear_func in nonlinear_transforms:
+                                transform_name = nonlinear_func.__name__
+                                row_features.extend(compute_numaggs(nonlinear_func(raw_vals), **numaggs_kwds))
+                                if not targets:
+                                    features_names.extend([captions_vars_sep.join([dataset_name, var, transform_name, feat]) for feat in numaggs_names])
 
-                        robust_subset = raw_vals[(raw_vals >= Lower_Bound) & (raw_vals <= Upper_Bound)]
-                        if len(robust_subset) == 0:
-                            row_features.extend([np.nan] * len(numaggs_names))
-                        else:
-                            row_features.extend(compute_numaggs(robust_subset, **numaggs_kwds))
-                        if not targets:
-                            features_names.extend([captions_vars_sep.join([dataset_name, var, "rbst", feat]) for feat in numaggs_names])
+                        # 7) robust subset of raw_vals, ie, within 0.1 and 0.9 quantiles. Or, better, using Tukey fences to identify outliers.
+                        if q1_idx and q3_idx:
+                            Q3 = simple_numerical_features[q3_idx]
+                            Q1 = simple_numerical_features[q1_idx]
+                            IQR = Q3 - Q1
+                            Lower_Bound = Q1 - 1.5 * IQR
+                            Upper_Bound = Q3 + 1.5 * IQR
 
-                    # 8) for some variables, especially with many repeated values, or categorical, we can do value_counts(normalize=True or False).
-                    if counts_processing_mask_regexp and counts_processing_mask_regexp.search(var):
-                        compute_countaggs(window_df[var], **countaggs_kwds)
-                        if not targets:
-                            features_names.extend([captions_vars_sep.join([dataset_name, var, "vlscnt", feat]) for feat in countaggs_names])
+                            robust_subset = raw_vals[(raw_vals >= Lower_Bound) & (raw_vals <= Upper_Bound)]
+                            if len(robust_subset) == 0:
+                                row_features.extend([np.nan] * len(numaggs_names))
+                            else:
+                                row_features.extend(compute_numaggs(robust_subset, **numaggs_kwds))
+                            if not targets:
+                                features_names.extend([captions_vars_sep.join([dataset_name, var, "rbst", feat]) for feat in numaggs_names])
+
+                # 8) for some variables, especially with many repeated values, or categorical, we can do value_counts(normalize=True or False).
+                if counts_processing_mask_regexp and counts_processing_mask_regexp.search(var):
+                    row_features.extend(compute_countaggs(window_df[var], **countaggs_kwds))
+                    if not targets:
+                        features_names.extend([captions_vars_sep.join([dataset_name, var, "vlscnt", feat]) for feat in countaggs_names])
     if reduced_featureset:
         return
     if subsets:
