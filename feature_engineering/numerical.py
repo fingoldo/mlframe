@@ -103,8 +103,8 @@ def compute_numerical_aggregates_numba(
         E? среднее винзоризированное (https://ru.wikipedia.org/wiki/%D0%92%D0%B8%D0%BD%D0%B7%D0%BE%D1%80%D0%B8%D0%B7%D0%BE%D0%B2%D0%B0%D0%BD%D0%BD%D0%BE%D0%B5_%D1%81%D1%80%D0%B5%D0%B4%D0%BD%D0%B5%D0%B5).
         E? усечённое,
         E? tukey mean
-        E fit variable to a number of known distributions!! their params become new features
-        E drawdowns, negative drawdowns (for shorts), dd duration (%)
+        V fit variable to a number of known distributions!! their params become new features
+        V drawdowns, negative drawdowns (for shorts), dd duration (%)
         E numpeaks
     """
 
