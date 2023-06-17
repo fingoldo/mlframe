@@ -137,7 +137,7 @@ def compute_numerical_aggregates_numba(
     max_neg_dd, max_neg_dd_duration = 0.0, 0
 
     pos_dd_start_idx, neg_dd_start_idx = 0, 0
-    nmaxupdates,nminupdates=0,0
+    nmaxupdates, nminupdates = 0, 0
 
     for i, next_value in enumerate(arr):
         arithmetic_mean += next_value
@@ -151,11 +151,11 @@ def compute_numerical_aggregates_numba(
         if next_value > maximum:
             maximum = next_value
             max_index = i
-            nmaxupdates+=1
+            nmaxupdates += 1
         elif next_value < minimum:
             minimum = next_value
             min_index = i
-            nminupdates+=1
+            nminupdates += 1
 
         # Drawdowns
 
@@ -249,7 +249,8 @@ def compute_numerical_aggregates_numba(
         max_neg_dd,
         max_pos_dd_duration / size,
         max_neg_dd_duration / size,
-        nmaxupdates,nminupdates
+        nmaxupdates,
+        nminupdates,
     ]
 
 
