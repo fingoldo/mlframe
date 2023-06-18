@@ -213,12 +213,22 @@ def create_aggregated_features(
                     if not targets:
                         features_names.extend([captions_vars_sep.join([dataset_name, var, "vlscnt", feat]) for feat in countaggs_names])
             else:
-                if not ("datetime" in window_df[var].dtype.name or window_df[var].dtype.name in ("object", "str")):
+                if not (window_df[var].dtype.name in ("object", "str")):
+                    if "datetime" in window_df[var].dtype.name:
+                        raw_vals = (window_df[var].shift(1) - window_df[var]).dt.total_seconds()[1:].values
+                    else:
+                        raw_vals = window_df[var].values
 
-                    # 1) as is: raw_vals
-                    raw_vals = window_df[var].values
+                    # safe values without nans and infs
+
                     idx = np.isfinite(raw_vals)
                     raw_vals = raw_vals[idx]
+
+                    row_features.append(idx.sum())
+                    if not targets:
+                        features_names.append(captions_vars_sep.join([dataset_name, var, "n_nonfinite"]))
+
+                    # 1) as is: numaggs of raw_vals
                     simple_numerical_features = compute_numaggs(raw_vals, **numaggs_kwds)
                     row_features.extend(simple_numerical_features)
                     if not targets:
@@ -263,10 +273,13 @@ def create_aggregated_features(
                         # 5.1) rolling
                         for window, method, method_params in rolling:
                             vals = getattr(window_df[var].rolling(**window), method)(**method_params).values
+                            safe_idx = np.isfinite(vals)
+                            vals = vals[safe_idx]
                             row_features.extend(compute_numaggs(vals, **numaggs_kwds))
                             if not targets:
                                 specs = slugify(dict(**window, method=method, **method_params))
                                 features_names.extend([captions_vars_sep.join([dataset_name, var, "rolling", specs, feat]) for feat in numaggs_names])
+
                         # 6) log, or cubic root, or some other non-linear transform (yeo-johnson) of raw_vals
                         if var in nonnormal_vars:
                             for nonlinear_func in nonlinear_transforms:

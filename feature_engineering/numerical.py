@@ -131,8 +131,8 @@ def compute_numerical_aggregates_numba(
 
     arithmetic_mean, quadratic_mean, qubic_mean, harmonic_mean = 0.0, 0.0, 0.0, 0.0
 
-    maximum, minimum = first, first
     max_index, min_index = 0, 0
+    maximum, minimum = first, first    
     max_pos_dd, max_pos_dd_duration = 0.0, 0
     max_neg_dd, max_neg_dd_duration = 0.0, 0
 
@@ -464,8 +464,8 @@ def compute_entropy_features(arr: np.ndarray, nonzero: int, sampling_frequency: 
     if nonzero < 10:
         return [np.nan] * len(entropy_funcs)
     else:
-        safe_arr = arr[~np.isnan(arr)]
-        return [f(safe_arr) for f in entropy_funcs]
+        # safe_arr = arr[~np.isnan(arr)]
+        return [f(arr) for f in entropy_funcs]
 
 
 def fit_distribution(dist: object, data: np.ndarray, method: str = "mle"):
