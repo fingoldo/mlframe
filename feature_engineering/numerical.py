@@ -57,7 +57,7 @@ def cont_entropy(arr: np.ndarray, bins: str = "auto") -> float:
     return ent
 
 
-entropy_funcs = (cont_entropy, continuous.get_h, app_entropy, svd_entropy, sample_entropy, petrosian_fd, perm_entropy, katz_fd, detrended_fluctuation)
+entropy_funcs = (cont_entropy, continuous.get_h, app_entropy) # , svd_entropy, sample_entropy, petrosian_fd, perm_entropy, katz_fd, detrended_fluctuation
 entropy_funcs_names = [f.__name__ for f in entropy_funcs]
 
 distributions = (stats.levy_l, stats.logistic, stats.pareto)
