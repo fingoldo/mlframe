@@ -132,7 +132,7 @@ def compute_numerical_aggregates_numba(
     arithmetic_mean, quadratic_mean, qubic_mean, harmonic_mean = 0.0, 0.0, 0.0, 0.0
 
     max_index, min_index = 0, 0
-    maximum, minimum = first, first    
+    maximum, minimum = first, first
     max_pos_dd, max_pos_dd_duration = 0.0, 0
     max_neg_dd, max_neg_dd_duration = 0.0, 0
 
@@ -498,7 +498,7 @@ def compute_numaggs(
     spectral_method: str = "welch",
     hurst_kwargs: dict = dict(min_window=10, max_window=None, windows_log_step=0.25, take_diffs=False),
     directional_only: bool = False,
-    distributional: bool = True,
+    distributional: bool = False,
 ):
     """Compute a plethora of numerical aggregates for all values in an array.
     Converts an arbitrarily length array into fixed number of aggregates.
@@ -526,7 +526,7 @@ def compute_numaggs(
     )
 
 
-def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, distributional: bool = True, **kwargs) -> tuple:
+def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, distributional: bool = False, **kwargs) -> tuple:
     return tuple(
         (
             ["arimean", "ratio"]
