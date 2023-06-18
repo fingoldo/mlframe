@@ -32,6 +32,7 @@ from pyutilz.numpylib import smart_ratios
 import pandas as pd, numpy as np
 
 from pyutilz.system import tqdmu
+from pyutilz.strings import slugify
 from pyutilz.pythonlib import get_human_readable_set_size
 from pyutilz.parallel import applyfunc_parallel
 from functools import partial
@@ -147,6 +148,7 @@ def create_aggregated_features(
     na_fills: dict = {"": 1e3},
     span_corrections: dict = {"": 1e2},
     ewma_alphas: Sequence = (),
+    rolling: Sequence = (),
     nonlinear_transforms=[np.cbrt],
     nonnormal_vars: Sequence = (),
     waveletname="rbio3.1",
@@ -172,6 +174,7 @@ def create_aggregated_features(
         3) wavelets of raw_vals
         4) raw_vals weighted by second var, if the main var is not related to second var (has no second var in its name)
         5) exponentially weighted row_wals, for example with alphas=[0.6]: ewma(prices.Price.values, 0.6) **ordered feature
+        5.1) rolling with optional scipy windows: rolling=[(dict(window=2,win_type='parzen'),mean,dict(sym=False))]
         6) log, or cubic root, or some other non-linear transform (yeo-johnson) of raw_vals (benefitial for non-normally distributed vars)
         7) robust subset of raw_vals, ie, within 0.1 and 0.9 quantiles
         8) for some variables, especially with many repeated values, or categorical, we can do value_counts(normalize=True or False). Further we can return
@@ -257,6 +260,13 @@ def create_aggregated_features(
                             if not targets:
                                 features_names.extend([captions_vars_sep.join([dataset_name, var, "ewma", str(alpha), feat]) for feat in numaggs_names])
 
+                        # 5.1) rolling
+                        for window, method, method_params in rolling:
+                            vals = getattr(window_df[var].rolling(**window), method)(**method_params).values
+                            row_features.extend(compute_numaggs(vals, **numaggs_kwds))
+                            if not targets:
+                                specs = slugify(dict(**window, method=method, **method_params))
+                                features_names.extend([captions_vars_sep.join([dataset_name, var, "rolling", specs, feat]) for feat in numaggs_names])
                         # 6) log, or cubic root, or some other non-linear transform (yeo-johnson) of raw_vals
                         if var in nonnormal_vars:
                             for nonlinear_func in nonlinear_transforms:

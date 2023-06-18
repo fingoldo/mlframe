@@ -464,7 +464,8 @@ def compute_entropy_features(arr: np.ndarray, nonzero: int, sampling_frequency: 
     if nonzero < 10:
         return [np.nan] * len(entropy_funcs)
     else:
-        return [f(arr) for f in entropy_funcs]
+        safe_arr = arr[~np.isnan(arr)]
+        return [f(safe_arr) for f in entropy_funcs]
 
 
 def fit_distribution(dist: object, data: np.ndarray, method: str = "mle"):
