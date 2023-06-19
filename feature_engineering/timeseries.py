@@ -257,7 +257,7 @@ def create_aggregated_features(
                     for weighting_var in weighting_vars:
                         if weighting_var not in var:
                             weighting_values = window_df.loc[idx,weighting_var].values                       
-                            row_features.extend(compute_numaggs((raw_vals[idx] / weighting_values.sum()) * weighting_values, **numaggs_kwds))
+                            row_features.extend(compute_numaggs((raw_vals/ weighting_values.sum()) * weighting_values, **numaggs_kwds))
                             if not targets:
                                 features_names.extend([captions_vars_sep.join([dataset_name, var, "wgt", weighting_var, feat]) for feat in numaggs_names])
 
