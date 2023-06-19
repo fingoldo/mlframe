@@ -138,12 +138,13 @@ def create_aggregated_features(
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # common settings
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
-    vars_mask_regexp: object = None,
-    reduced_featureset: bool = False,
+    vars_mask_regexp: object = None,    
     captions_vars_sep: str = "-",
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # numericals
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    ratios_features: bool = True,
+    robust_features: bool = False,
     weighting_vars: Sequence = (),
     na_fills: dict = {"": 1e3},
     span_corrections: dict = {"": 1e2},
@@ -234,7 +235,7 @@ def create_aggregated_features(
                     if not targets:
                         features_names.extend([captions_vars_sep.join([dataset_name, var, feat]) for feat in numaggs_names])
 
-                    if not reduced_featureset:
+                    if ratios_features:
                         # differences = np.diff(raw_vals, 1)
 
                         # 2) ratios: div0(raw_vals[1:], raw_vals[:-1], fill=0.0)
@@ -248,47 +249,48 @@ def create_aggregated_features(
                         if not targets:
                             features_names.extend([captions_vars_sep.join([dataset_name, var, "rat", feat]) for feat in numaggs_names])
 
-                        # 3) wavelets of raw_vals
-                        if waveletname:
-                            for i, coeffs in enumerate(pywt.wavedec(raw_vals, waveletname)):
-                                row_features.extend(compute_numaggs(coeffs, **numaggs_kwds))
-                                if not targets:
-                                    features_names.extend([captions_vars_sep.join([dataset_name, var, waveletname, str(i), feat]) for feat in numaggs_names])
-                                if cCOMPACT_WAVELETS:
-                                    break  # just one wavelet qt for now...
-
-                        # 4) raw_vals weighted by second var, if the main var is not related to second var (has no second var in its name)
-                        for weighting_var, (weighting_values, weighting_sum) in weighting.items():
-                            if weighting_var not in var:
-                                row_features.extend(compute_numaggs((raw_vals / weighting_sum) * weighting_values[idx], **numaggs_kwds))
-                                if not targets:
-                                    features_names.extend([captions_vars_sep.join([dataset_name, var, "wgt", weighting_var, feat]) for feat in numaggs_names])
-
-                        # 5) exponentially weighted raw_vals with some alphas, like [0.6, 0.9]:
-                        for alpha in ewma_alphas:
-                            row_features.extend(compute_numaggs(ewma(raw_vals, alpha), **numaggs_kwds))
+                    # 3) wavelets of raw_vals
+                    if waveletname:
+                        for i, coeffs in enumerate(pywt.wavedec(raw_vals, waveletname)):
+                            row_features.extend(compute_numaggs(coeffs, **numaggs_kwds))
                             if not targets:
-                                features_names.extend([captions_vars_sep.join([dataset_name, var, "ewma", str(alpha), feat]) for feat in numaggs_names])
+                                features_names.extend([captions_vars_sep.join([dataset_name, var, waveletname, str(i), feat]) for feat in numaggs_names])
+                            if cCOMPACT_WAVELETS:
+                                break  # just one wavelet qt for now...
 
-                        # 5.1) rolling
-                        for window, method, method_params in rolling:
-                            vals = getattr(window_df[var].rolling(**window), method)(**method_params).values
-                            safe_idx = np.isfinite(vals)
-                            vals = vals[safe_idx]
-                            row_features.extend(compute_numaggs(vals, **numaggs_kwds))
+                    # 4) raw_vals weighted by second var, if the main var is not related to second var (has no second var in its name)
+                    for weighting_var, (weighting_values, weighting_sum) in weighting.items():
+                        if weighting_var not in var:
+                            row_features.extend(compute_numaggs((raw_vals / weighting_sum) * weighting_values[idx], **numaggs_kwds))
                             if not targets:
-                                specs = slugify(dict(**window, method=method, **method_params))
-                                features_names.extend([captions_vars_sep.join([dataset_name, var, "rolling", specs, feat]) for feat in numaggs_names])
+                                features_names.extend([captions_vars_sep.join([dataset_name, var, "wgt", weighting_var, feat]) for feat in numaggs_names])
 
-                        # 6) log, or cubic root, or some other non-linear transform (yeo-johnson) of raw_vals
-                        if var in nonnormal_vars:
-                            for nonlinear_func in nonlinear_transforms:
-                                transform_name = nonlinear_func.__name__
-                                row_features.extend(compute_numaggs(nonlinear_func(raw_vals), **numaggs_kwds))
-                                if not targets:
-                                    features_names.extend([captions_vars_sep.join([dataset_name, var, transform_name, feat]) for feat in numaggs_names])
+                    # 5) exponentially weighted raw_vals with some alphas, like [0.6, 0.9]:
+                    for alpha in ewma_alphas:
+                        row_features.extend(compute_numaggs(ewma(raw_vals, alpha), **numaggs_kwds))
+                        if not targets:
+                            features_names.extend([captions_vars_sep.join([dataset_name, var, "ewma", str(alpha), feat]) for feat in numaggs_names])
 
-                        # 7) robust subset of raw_vals, ie, within 0.1 and 0.9 quantiles. Or, better, using Tukey fences to identify outliers.
+                    # 5.1) rolling
+                    for window, method, method_params in rolling:
+                        vals = getattr(window_df[var].rolling(**window), method)(**method_params).values
+                        safe_idx = np.isfinite(vals)
+                        vals = vals[safe_idx]
+                        row_features.extend(compute_numaggs(vals, **numaggs_kwds))
+                        if not targets:
+                            specs = slugify(dict(**window, method=method, **method_params))
+                            features_names.extend([captions_vars_sep.join([dataset_name, var, "rolling", specs, feat]) for feat in numaggs_names])
+
+                    # 6) log, or cubic root, or some other non-linear transform (yeo-johnson) of raw_vals
+                    if var in nonnormal_vars:
+                        for nonlinear_func in nonlinear_transforms:
+                            transform_name = nonlinear_func.__name__
+                            row_features.extend(compute_numaggs(nonlinear_func(raw_vals), **numaggs_kwds))
+                            if not targets:
+                                features_names.extend([captions_vars_sep.join([dataset_name, var, transform_name, feat]) for feat in numaggs_names])
+
+                    # 7) robust subset of raw_vals, ie, within 0.1 and 0.9 quantiles. Or, better, using Tukey fences to identify outliers.
+                    if robust_features:
                         if q1_idx and q3_idx:
                             Q3 = simple_numerical_features[q3_idx]
                             Q1 = simple_numerical_features[q1_idx]
