@@ -211,7 +211,7 @@ def create_aggregated_features(
             else:
                 if not (window_df[var].dtype.name in ("object", "str")):
                     if "datetime" in window_df[var].dtype.name:
-                        raw_vals = (window_df[var].shift(1) - window_df[var]).dt.total_seconds()[1:].values
+                        raw_vals = (window_df[var].shift(1) - window_df[var]).dt.total_seconds().values
                     else:
                         raw_vals = window_df[var].values
 
