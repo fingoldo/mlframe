@@ -188,11 +188,6 @@ def create_aggregated_features(
     if len(window_df) <= 1:
         return
 
-    weighting = {}
-    for weighting_var in weighting_vars:
-        weighting_values = window_df[weighting_var].values
-        weighting[weighting_var] = (weighting_values, weighting_values.sum())
-
     if not numaggs_kwds:
         numaggs_names, q1_idx, q3_idx = default_numaggs_names, default_q1_idx, default_q3_idx
     else:
@@ -259,9 +254,10 @@ def create_aggregated_features(
                                 break  # just one wavelet qt for now...
 
                     # 4) raw_vals weighted by second var, if the main var is not related to second var (has no second var in its name)
-                    for weighting_var, (weighting_values, weighting_sum) in weighting.items():
+                    for weighting_var in weighting_vars:
                         if weighting_var not in var:
-                            row_features.extend(compute_numaggs((raw_vals / weighting_sum) * weighting_values[idx], **numaggs_kwds))
+                            weighting_values = window_df.loc[idx,weighting_var].values                       
+                            row_features.extend(compute_numaggs((raw_vals[idx] / weighting_values.sum()) * weighting_values, **numaggs_kwds))
                             if not targets:
                                 features_names.extend([captions_vars_sep.join([dataset_name, var, "wgt", weighting_var, feat]) for feat in numaggs_names])
 
@@ -311,8 +307,7 @@ def create_aggregated_features(
                     row_features.extend(compute_countaggs(window_df[var], **countaggs_kwds))
                     if not targets:
                         features_names.extend([captions_vars_sep.join([dataset_name, var, "vlscnt", feat]) for feat in countaggs_names])
-    if reduced_featureset:
-        return
+
     if subsets:
         for subset_var, subset_var_values in subsets.items():
             if subset_var in checked_subsets:
