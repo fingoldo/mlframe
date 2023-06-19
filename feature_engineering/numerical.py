@@ -499,6 +499,7 @@ def compute_numaggs(
     hurst_kwargs: dict = dict(min_window=10, max_window=None, windows_log_step=0.25, take_diffs=False),
     directional_only: bool = False,
     distributional: bool = False,
+    return_float32:bool=True
 ):
     """Compute a plethora of numerical aggregates for all values in an array.
     Converts an arbitrarily length array into fixed number of aggregates.
@@ -511,7 +512,7 @@ def compute_numaggs(
         nonzero = 0
     else:
         nonzero = res[5]
-    return (
+    final= (
         res
         + ([] if directional_only else compute_nunique_modes_quantiles_numpy(arr=arr, q=q, quantile_method=quantile_method, max_modes=max_modes))
         + compute_moments_slope_mi(arr=arr, mean_value=arithmetic_mean, xvals=xvals, directional_only=directional_only)
@@ -525,6 +526,10 @@ def compute_numaggs(
         + (compute_distributional_features(arr=arr) if distributional else [])
     )
 
+    if return_float32:
+        return np.array(final,dtype=np.float32)
+    else:
+        return final
 
 def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, distributional: bool = False, **kwargs) -> tuple:
     return tuple(
