@@ -167,7 +167,7 @@ def evaluate_estimators(
             # Fit that estimator to the train set
             # ****************************************************************************************************************************
 
-            if val_size is not None:  # and ("CatBoost" in type(est).__name__)
+            if val_size is not None and (("CatBoost" in type(est).__name__) or ('TransformedTargetRegressor' in type(est).__name__ and ("CatBoost" in type(est.regressor).__name__))):
 
                 # ----------------------------------------------------------------------------------------------------------------------------
                 # Just a classifier with early stopping... Need to get early stopping set for it...
@@ -193,7 +193,6 @@ def evaluate_estimators(
                     pipe.fit(X_train, est__eval_set=eval_set, est__plot=plot, est__init_model=init_model)
                 else:
                     pipe.fit(X_train, y_train, est__eval_set=eval_set, est__plot=plot, est__init_model=init_model)
-
             else:
                 if type(X_train) in (Pool, str):
                     pipe.fit(X_train)
