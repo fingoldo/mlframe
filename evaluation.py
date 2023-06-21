@@ -167,7 +167,7 @@ def evaluate_estimators(
             # Fit that estimator to the train set
             # ****************************************************************************************************************************
 
-            if val_size is not None and "CatBoost" in type(est).__name__:
+            if val_size is not None:  # and ("CatBoost" in type(est).__name__)
 
                 # ----------------------------------------------------------------------------------------------------------------------------
                 # Just a classifier with early stopping... Need to get early stopping set for it...
