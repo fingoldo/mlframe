@@ -138,7 +138,7 @@ def create_aggregated_features(
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # common settings
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
-    vars_mask_regexp: object = None,    
+    vars_mask_regexp: object = None,
     captions_vars_sep: str = "-",
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # numericals
@@ -256,8 +256,8 @@ def create_aggregated_features(
                     # 4) raw_vals weighted by second var, if the main var is not related to second var (has no second var in its name)
                     for weighting_var in weighting_vars:
                         if weighting_var not in var:
-                            weighting_values = window_df.loc[idx,weighting_var].values                       
-                            row_features.extend(compute_numaggs((raw_vals/ weighting_values.sum()) * weighting_values, **numaggs_kwds))
+                            weighting_values = window_df.loc[idx, weighting_var].values
+                            row_features.extend(compute_numaggs((raw_vals / weighting_values.sum()) * weighting_values, **numaggs_kwds))
                             if not targets:
                                 features_names.extend([captions_vars_sep.join([dataset_name, var, "wgt", weighting_var, feat]) for feat in numaggs_names])
 
@@ -335,7 +335,8 @@ def create_aggregated_features(
                     checked_subsets=checked_subsets + [subset_var],
                     subset_token=subset_token,
                     nested_subsets=nested_subsets,
-                    reduced_featureset=reduced_featureset,
+                    ratios_features=ratios_features,
+                    robust_features=robust_features,
                 )
 
 
