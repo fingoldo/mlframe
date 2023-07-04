@@ -62,7 +62,7 @@ def crps(y: np.ndarray, y_preds: np.ndarray) -> float:
 # ----------------------------------------------------------------------------------------------------------------------------
 METRICS_TO_SHOW = {
     #
-    # "R2": r2_score,
+    "R2": r2_score,
     # "EV": explained_variance_score,
     #
     # "MSE": mean_squared_error,
@@ -80,20 +80,26 @@ METRICS_TO_SHOW = {
 }
 
 
-def show_custom_calibration_plot(
+def make_custom_calibration_plot(
     y: np.ndarray,
     probs: np.ndarray,
     nclasses: int,
+    classes=[],
     nbins: int = 100,
     competing_probs: list = [],
     X: np.ndarray = None,
     display_labels: dict = {},
     figsize: tuple = (15, 5),
 ):
-    """Custom implementanion"""
-
+    """Custom implementanion of calibration plot"""
+    
+    metrics={}
+    if not classes:
+        classes=range(nclasses)
+    else:
+        nclasses=len(classes)
     fig, ax_probs = plt.subplots(ncols=nclasses, nrows=1, sharex=False, sharey=False, figsize=figsize)
-    for pos_label in range(nclasses):
+    for pos_label in classes:
 
         title = f"Calibration plot for {display_labels.get(pos_label,'class '+str(pos_label))}:"
         # fig.suptitle(title)
@@ -110,7 +116,8 @@ def show_custom_calibration_plot(
         else:
             raise TypeError("Unexpected y type: %s", type(y))
 
-        show_classifier_calibration(y_true, prob_pos, legend_label="Model Probs", ax=ax_probs[pos_label], title=title, append=False, nbins=nbins)
+        class_performance_metrics=show_classifier_calibration(y_true, prob_pos, legend_label="Model Probs", ax=ax_probs if nclasses==1 else ax_probs[pos_label], title=title, append=False, nbins=nbins)
+        metrics[pos_label]=class_performance_metrics
 
         # Same axis, competing probs, if any
 
@@ -127,8 +134,8 @@ def show_custom_calibration_plot(
             if type(prob_pos) != np.ndarray:
                 prob_pos = prob_pos.values
             var_name = "_".join(var_name.split("_")[1:])
-            show_classifier_calibration(y_true, prob_pos, legend_label=var_name, ax=ax_probs[pos_label], title=title, append=True, nbins=nbins)
-    plt.show()
+            show_classifier_calibration(y_true, prob_pos, legend_label=var_name, ax=ax_probs[pos_label], title=title, append=True, nbins=nbins)    
+    return fig,metrics
 
 
 # @njit()
@@ -211,7 +218,7 @@ def show_classifier_calibration(
             ax.scatter(x, y, alpha=alpha, label=metrics_formatted, s=marker_size)
         l = r
     x_min, x_max = np.min(x), np.max(x)
-    y_min, y_max = np.min(y), np.max(y)
+    #y_min, y_max = np.min(y), np.max(y)
     is_profit = "profit" in title.lower()
     ax.legend(loc="lower right")
     if not append:
@@ -237,3 +244,5 @@ def show_classifier_calibration(
             return pd.DataFrame(data, columns=["Predicted ROI", "TotalWinnings", "NBets", "Real ROI"])
         else:
             return pd.DataFrame(data, columns=["Prob", "Won", "Predicted", "Freq"])
+    else:
+        return performances

@@ -50,7 +50,7 @@ from pyutilz.system import tqdmu
 from pyutilz.pythonlib import get_human_readable_set_size
 from pyutilz.logginglib import initialize_function_log, finalize_function_log, log_loaded_rows, log_activity, log_result
 
-from mlframe.calibration import show_custom_calibration_plot
+from mlframe.calibration import make_custom_calibration_plot
 
 from catboost import Pool, sum_models
 
@@ -130,7 +130,7 @@ def evaluate_estimators(
     baseline_model=None,
 ):
     """
-    Fit a series of estimators on the same dataset, (and, possibly, same preprocessing pipeline)
+    Fit a series of estimators to the same dataset, (and, possibly, same preprocessing pipeline)
     record & compare performances.
 
     target_wrapper: lambda est: TransformedTargetRegressor(regressor=est,func=np.log1p,inverse_func=np.expm1)
@@ -336,16 +336,17 @@ def evaluate_estimators(
                                 plt.tight_layout()
                                 plt.show()
                         else:
-                            show_custom_calibration_plot(
-                                X=X_test_test,
+                            fig=make_custom_calibration_plot(                                
                                 y=y_test_test,
                                 probs=probs,
-                                competing_probs=competing_probs,
                                 nclasses=nclasses,
                                 nbins=calibration_nbins,
                                 display_labels=display_labels,
                                 figsize=figsize,
+                                competing_probs=competing_probs,
+                                X=X_test_test,                                
                             )
+                            fig.show()
 
     return pipe, classification_report_text, classification_report_dict, cm
 
