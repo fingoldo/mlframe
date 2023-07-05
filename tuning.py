@@ -40,8 +40,8 @@ from sklearn.model_selection import cross_validate
 
 from enum import Enum, auto
 
-# Task = Enum("Task", ["Regression", "Multiregression", "Classification", "Multiclassification", "MultilabelClassification", "Ranking"])
-class Task(Enum):
+# MLTaskType = Enum("MLTaskType", ["Regression", "Multiregression", "Classification", "Multiclassification", "MultilabelClassification", "Ranking"])
+class MLTaskType(Enum):
     Regression = auto()
     Multiregression = auto()
     Classification = auto()
@@ -527,7 +527,7 @@ class CatboostParamsOptimizer(ParamsOptimizer):
         GPU_ENABLED: bool = False,
         groups: bool = False,
         need_training_continuation: bool = False,
-        task: Task = Task.Regression,
+        task: MLTaskType = MLTaskType.Regression,
         params_override: dict = {},
         delete_params: Sequence = [],
     ):
@@ -654,7 +654,7 @@ class CatboostParamsOptimizer(ParamsOptimizer):
             "task_type": ["GPU" if GPU_ENABLED else "CPU"],
         }
         if False:
-            if task == Task.Regression:
+            if task == MLTaskType.Regression:
                 self.params["loss_function"] = "MAE MAPE Poisson Quantile RMSE LogLinQuantile LogCosh".split() + [
                     "Lq:q=" + str(loguniform(1, 100).rvs()),
                     "Expectile:alpha=" + str(loguniform(0.01, 1 - 0.01).rvs()),
@@ -673,10 +673,10 @@ class CatboostParamsOptimizer(ParamsOptimizer):
                     ] = (
                         "Median Uniform UniformAndQuantiles MaxLogSum MinEntropy GreedyLogSum".split()
                     )  # The quantization type for the label value. Only used for regression problems.
-            elif task == Task.Multiregression:
+            elif task == MLTaskType.Multiregression:
                 self.params["loss_function"] = "MultiRMSE MultiRMSEWithMissingValues".split()
                 self.params["eval_metric"] = self.params["loss_function"]
-            elif task == Task.Classification:
+            elif task == MLTaskType.Classification:
                 self.params["loss_function"] = "Logloss CrossEntropy".split()
                 self.params["eval_metric"] = (
                     self.params["loss_function"]
@@ -684,15 +684,15 @@ class CatboostParamsOptimizer(ParamsOptimizer):
                     + ["F:beta=" + str(loguniform(0.01, 100).rvs())]
                 )  # CtrFactor cannot be used for overfitting detection or selecting best iteration on validation
                 # QueryAUC : Groupwise loss/metrics require nontrivial groups
-            elif task == Task.Multiclassification:
+            elif task == MLTaskType.Multiclassification:
                 self.params["loss_function"] = "MultiClass MultiClassOneVsAll".split()
                 self.params["eval_metric"] = (
                     self.params["loss_function"] + " Precision Recall F F1 TotalF1 MCC Accuracy HingeLoss HammingLoss ZeroOneLoss Kappa WKappa AUC".split()
                 )
-            elif task == Task.MultilabelClassification:
+            elif task == MLTaskType.MultilabelClassification:
                 self.params["loss_function"] = "MultiLogloss MultiCrossEntropy".split()
                 self.params["eval_metric"] = self.params["loss_function"] + " Precision Recall F F1 Accuracy HammingLoss".split()
-            elif task == Task.Ranking:
+            elif task == MLTaskType.Ranking:
                 self.params[
                     "loss_function"
                 ] = "PairLogit PairLogitPairwise YetiRank YetiRankPairwise StochasticFilter StochasticRank QueryCrossEntropy QueryRMSE QuerySoftMax".split()
@@ -704,7 +704,7 @@ class CatboostParamsOptimizer(ParamsOptimizer):
                 raise ValueError("Unknown task %s", task)
 
             # all kinds of classification
-            if task in (Task.Classification, Task.Multiclassification, Task.MultilabelClassification):
+            if task in (MLTaskType.Classification, MLTaskType.Multiclassification, MLTaskType.MultilabelClassification):
                 self.params["auto_class_weights"] = [
                     None,
                     "Balanced",
