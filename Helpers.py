@@ -29,6 +29,7 @@ def PrintTimeSeriesSplitExample():
 ########################################################################################################################################################################################################################################
 # Assessing output distribution
 ########################################################################################################################################################################################################################################
+
 def PlotTargetClassesDistribution(y):
     import matplotlib.pyplot as plt
     import numpy as np
@@ -52,3 +53,19 @@ def test_stationarity(timeseries, w):
         print('This time series is stationary')
     else:
         print('This time series is NON-stationary')
+
+########################################################################################################################################################################################################################################
+# MLFLOW
+########################################################################################################################################################################################################################################
+
+
+def log_classification_report_to_mlflow(cr: dict, step: int,separate_metrics=("accuracy",),source:str=""):
+    """Logging all metrics from a dict-like classification_report as flat MLFlow entries."""
+
+    for metric in separate_metrics:
+        if metric in cr:
+            mlflow.log_metric(source+metric, cr.pop(metric), step=step)
+    for class_or_avg, metrics_dict in cr.items():
+        prefix=class_or_avg if class_or_avg in ('macro avg', 'weighted avg') else 'class '+str(class_or_avg)
+        for metric, value in metrics_dict.items():
+            mlflow.log_metric(source+prefix + "_" + metric, value, step=step)
