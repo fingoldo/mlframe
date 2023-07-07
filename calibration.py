@@ -90,6 +90,7 @@ def make_custom_calibration_plot(
     X: np.ndarray = None,
     display_labels: dict = {},
     figsize: tuple = (15, 5),
+    skip_plotting:bool=False,
 ):
     """Custom implementanion of calibration plot"""
     
@@ -98,7 +99,12 @@ def make_custom_calibration_plot(
         classes=range(nclasses)
     else:
         nclasses=len(classes)
-    fig, ax_probs = plt.subplots(ncols=nclasses, nrows=1, sharex=False, sharey=False, figsize=figsize)
+    
+    if skip_plotting:
+        fig, ax_probs=None,None
+    else:
+        fig, ax_probs = plt.subplots(ncols=nclasses, nrows=1, sharex=False, sharey=False, figsize=figsize)
+    
     for pos_label in classes:
 
         title = f"Calibration plot for {display_labels.get(pos_label,'class '+str(pos_label))}:"
@@ -116,7 +122,7 @@ def make_custom_calibration_plot(
         else:
             raise TypeError("Unexpected y type: %s", type(y))
 
-        class_performance_metrics=show_classifier_calibration(y_true, prob_pos, legend_label="Model Probs", ax=ax_probs if nclasses==1 else ax_probs[pos_label], title=title, append=False, nbins=nbins)
+        class_performance_metrics=show_classifier_calibration(y_true, prob_pos, legend_label="Model Probs", ax=ax_probs if nclasses==1 else ax_probs[pos_label], title=title, append=False, nbins=nbins,skip_plotting=skip_plotting)
         metrics[pos_label]=class_performance_metrics
 
         # Same axis, competing probs, if any
@@ -187,6 +193,7 @@ def show_classifier_calibration(
     legend_label: str = None,
     append: bool = False,
     metrics_to_show: dict = METRICS_TO_SHOW,
+    skip_plotting:bool=False
 ):
 
     s = len(y_true)
@@ -207,38 +214,41 @@ def show_classifier_calibration(
         except Exception as e:
             logging.exception(e)
             return
-        metrics_formatted = " ".join([f"{metric_name}: {round(metric_value,metrics_digits)}" for metric_name, metric_value in performances.items()])
+        
+        if not skip_plotting:
+            metrics_formatted = " ".join([f"{metric_name}: {round(metric_value,metrics_digits)}" for metric_name, metric_value in performances.items()])
 
-        if legend_label:
-            metrics_formatted = legend_label + ": " + metrics_formatted
+            if legend_label:
+                metrics_formatted = legend_label + ": " + metrics_formatted
 
-        if connected:
-            ax.plot(x, y, alpha=alpha, label=metrics_formatted, markersize=marker_size, marker="o")
-        else:
-            ax.scatter(x, y, alpha=alpha, label=metrics_formatted, s=marker_size)
-        l = r
-    x_min, x_max = np.min(x), np.max(x)
-    #y_min, y_max = np.min(y), np.max(y)
-    is_profit = "profit" in title.lower()
-    ax.legend(loc="lower right")
-    if not append:
-        # Set general params for the first time
-        ax.plot([x_min, x_max], [x_min, x_max], "g--", label="Perfect")
-        try:
-            ax.set_xlabel("Expected")
-            ax.set_ylabel("Real")
-            ax.set_title("%s, %d bins, %d points" % (title, nbins, len(y_true)))
-        except:
-            pass
+            if connected:
+                ax.plot(x, y, alpha=alpha, label=metrics_formatted, markersize=marker_size, marker="o")
+            else:
+                ax.scatter(x, y, alpha=alpha, label=metrics_formatted, s=marker_size)
+            l = r
+    if not skip_plotting:
+        x_min, x_max = np.min(x), np.max(x)
+        #y_min, y_max = np.min(y), np.max(y)
+        is_profit = "profit" in title.lower()
+        ax.legend(loc="lower right")
+        if not append:
+            # Set general params for the first time
+            ax.plot([x_min, x_max], [x_min, x_max], "g--", label="Perfect")
+            try:
+                ax.set_xlabel("Expected")
+                ax.set_ylabel("Real")
+                ax.set_title("%s, %d bins, %d points" % (title, nbins, len(y_true)))
+            except:
+                pass
 
-        if is_profit:
-            ax.axhline(0.0, color="g", linestyle="--")
-            ax.axvline(0.0, color="g", linestyle="--")
-        # if x_max>=1:
-        #    ax.ylim([-.10, 1])
-        #    ax.xlim([-.10, 1])
-    # plt.show(block=False)
-    # plt.pause(0.001)
+            if is_profit:
+                ax.axhline(0.0, color="g", linestyle="--")
+                ax.axvline(0.0, color="g", linestyle="--")
+            # if x_max>=1:
+            #    ax.ylim([-.10, 1])
+            #    ax.xlim([-.10, 1])
+        # plt.show(block=False)
+        # plt.pause(0.001)
     if show_table:
         if is_profit:
             return pd.DataFrame(data, columns=["Predicted ROI", "TotalWinnings", "NBets", "Real ROI"])
