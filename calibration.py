@@ -26,6 +26,7 @@ ensure_installed("pandas numpy properscoring scikit-learn")
 
 from typing import *
 
+from numba import njit
 import pandas as pd, numpy as np
 from matplotlib import pyplot as plt
 
@@ -103,14 +104,14 @@ def make_custom_calibration_plot(
     if skip_plotting:
         fig, ax_probs=None,None
     else:
-        fig, ax_probs = plt.subplots(ncols=nclasses, nrows=1, sharex=False, sharey=False, figsize=figsize)
+        fig, ax_probs = plt.subplots(ncols=nclasses, nrows=1, sharex=False, sharey=False, figsize=figsize,)
     
     for pos_label in classes:
 
         title = f"Calibration plot for {display_labels.get(pos_label,'class '+str(pos_label))}:"
         # fig.suptitle(title)
 
-        if type(probs) == np.ndarray:
+        if isinstance(probs, np.ndarray):
             prob_pos = probs[:, pos_label]
         else:
             prob_pos = probs.iloc[:, pos_label].values
@@ -141,19 +142,21 @@ def make_custom_calibration_plot(
                 prob_pos = prob_pos.values
             var_name = "_".join(var_name.split("_")[1:])
             show_classifier_calibration(y_true, prob_pos, legend_label=var_name, ax=ax_probs[pos_label], title=title, append=True, nbins=nbins)    
+    if skip_plotting:
+        plt.close(fig)
     return fig,metrics
 
 
-# @njit()
-def estimate_calibration_quality_binned(
+@njit()
+def bin_predictions(
     y_true: np.array,
-    y_predicted: np.array,
-    nbins: int = 20,
-    metrics_to_show: dict = METRICS_TO_SHOW,
-):
-    indices = np.argsort(y_predicted)
-    pockets_predicted, pockets_true, data = [], [], []
-    s = len(y_predicted)
+    y_pred: np.array,
+    indices: np.array,
+    nbins: int = 20,):
+    
+    pockets_predicted, pockets_true = np.zeros(nbins,dtype=np.float64),np.zeros(nbins,dtype=np.float64)
+    data = np.zeros((nbins,4),dtype=np.float64)
+    s = len(y_pred)
     l = 0
     bin_size = s // nbins
     for i in range(nbins):
@@ -161,32 +164,47 @@ def estimate_calibration_quality_binned(
             r = s
         else:
             r = l + bin_size
-        avg_x = np.mean(y_predicted[indices[l:r]])
+        avg_x = np.mean(y_pred[indices[l:r]])
         avg_y = np.mean(y_true[indices[l:r]])
-        pockets_predicted.append(avg_x)
-        pockets_true.append(avg_y)
-        data.append([avg_x, avg_y * (r - l), r - l, avg_y])
+        pockets_predicted[i]=avg_x
+        pockets_true[i]=avg_y
+        data[i,:]=np.array([avg_x, avg_y * (r - l), r - l, avg_y],dtype=np.float64)
         l = r
-    pockets_predicted, pockets_true = np.array(pockets_predicted), np.array(pockets_true)
+    return pockets_predicted, pockets_true,data
+
+def estimate_calibration_quality_binned(
+    y_true: np.array,
+    y_pred: np.array,
+    nbins: int = 20,
+    indices: np.array=None,
+    metrics_to_show: dict = METRICS_TO_SHOW,
+):
+    if indices is None: indices = np.argsort(y_pred)
+    pockets_predicted, pockets_true,data=bin_predictions(
+    y_true=y_true,
+    y_pred=y_pred,
+    indices=indices,
+    nbins=nbins)
     # r2 = np.corrcoef(pockets_predicted, pockets_true)[0, 1] ** 2
 
     return (
         pockets_predicted,
         pockets_true,
         data,
-        {fname: (f(y_true, y_predicted) if f == brier_score_loss else f(pockets_true, pockets_predicted)) for fname, f in metrics_to_show.items()},
+        {fname: (f(y_true, y_pred) if f == brier_score_loss else f(pockets_true, pockets_predicted)) for fname, f in metrics_to_show.items()},
     )
 
 
 def show_classifier_calibration(
-    y_true,
-    y_predicted,
-    title,
-    nbins=20,
-    alpha=0.40,
-    show_table=False,
-    nintervals=1,
-    ax=None,
+    y_true:np.ndarray,
+    y_pred:np.ndarray,
+    indices:np.ndarray,
+    title:str,
+    nbins:int=20,
+    alpha:float=0.40,
+    show_table:bool=False,
+    nintervals:int=1,
+    ax:object=None,
     marker_size: int = 15,
     metrics_digits: int = 4,
     connected: bool = True,
@@ -210,7 +228,7 @@ def show_classifier_calibration(
             r = l + step
 
         try:
-            x, y, data, performances = estimate_calibration_quality_binned(y_true[l:r], y_predicted[l:r], nbins=nbins, metrics_to_show=metrics_to_show)
+            x, y, data, performances = estimate_calibration_quality_binned(y_true[l:r], y_pred[l:r], nbins=nbins,indices=indices, metrics_to_show=metrics_to_show)
         except Exception as e:
             logging.exception(e)
             return

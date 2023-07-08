@@ -1,3 +1,23 @@
+# *****************************************************************************************************************************************************
+# IMPORTS
+# *****************************************************************************************************************************************************
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# LOGGING
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Normal Imports
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
+import mlflow
+
 ########################################################################################################################################################################################################################################
 # Helper functions
 ########################################################################################################################################################################################################################################
@@ -58,7 +78,17 @@ def test_stationarity(timeseries, w):
 # MLFLOW
 ########################################################################################################################################################################################################################################
 
-
+def flatten_classification_report(cr: dict, separate_metrics=("accuracy",),source:str="")->dict:
+    res={}
+    for metric in separate_metrics:
+        if metric in cr:
+            res[source+metric]= cr.pop(metric)
+    for class_or_avg, metrics_dict in cr.items():
+        prefix=class_or_avg if class_or_avg in ('macro avg', 'weighted avg') else 'class '+str(class_or_avg)
+        for metric, value in metrics_dict.items():
+            res[source+prefix + "_" + metric]= value
+    return res
+            
 def log_classification_report_to_mlflow(cr: dict, step: int,separate_metrics=("accuracy",),source:str=""):
     """Logging all metrics from a dict-like classification_report as flat MLFlow entries."""
 
@@ -69,3 +99,18 @@ def log_classification_report_to_mlflow(cr: dict, step: int,separate_metrics=("a
         prefix=class_or_avg if class_or_avg in ('macro avg', 'weighted avg') else 'class '+str(class_or_avg)
         for metric, value in metrics_dict.items():
             mlflow.log_metric(source+prefix + "_" + metric, value, step=step)
+
+def embed_website_to_mlflow(url:str,fname:str="url",extension:str='.html',width:int=700,height:int=450):
+    """Creates a html file with desired url embedded to be shown nicely in MLFlow UI."""
+
+    website_embed = f'''<!DOCTYPE html>
+    <html>
+    <iframe src="{url}" style='width: {width}px; height: {height}px' sandbox='allow-same-origin allow-scripts'>
+    </iframe>
+    </html>'''
+
+    if fname[:-len(extension)].lower()==extension:
+        extension=""
+
+    with open(fname+extension, "w") as f:
+        f.write(website_embed)   
