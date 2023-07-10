@@ -1,4 +1,4 @@
-"""Assesing quality of a classifier in terms of how often probabilities predicted by it convert into real events.
+"""Assesing quality of a classifier in terms of how often probabilities predicted by it convert into real occurences.
 """
 # ****************************************************************************************************************************
 # Imports
@@ -198,8 +198,8 @@ def estimate_calibration_quality_binned(
 def show_classifier_calibration(
     y_true:np.ndarray,
     y_pred:np.ndarray,
-    indices:np.ndarray,
     title:str,
+    indices:np.ndarray=None,
     nbins:int=20,
     alpha:float=0.40,
     show_table:bool=False,

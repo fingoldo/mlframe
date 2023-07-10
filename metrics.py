@@ -1,20 +1,111 @@
-class PerformanceEstimator():
-    def __init__(self,greater_is_better=False):
-        self.greater_is_better=greater_is_better
-    def estimate_performance(self,x,y,fold_indices,predictions):
-        pass
-    def greater_is_better(self):
-        return self.greater_is_better
+import numpy as np
+from numba import njit
 
-class GroupBalancedLogMeanAbsoluteError(PerformanceEstimator):
-    def __init__(self,groups):
-        self.greater_is_better=False
-        self.groups=groups
-    def estimate_performance(self,x,y,fold_indices,predictions):
-        from sklearn.metrics import mean_absolute_error
-        errs=[]
-        groups=self.groups[fold_indices]
-        for group in np.unique(groups):
-            idx=(groups==group)
-            errs.append(np.log(mean_absolute_error(y[idx],predictions[idx])))
-        return np.mean(errs)
+
+def fast_auc(y_true: np.array, y_score: np.array) -> float:
+    """np.argsort needs to stay out of njitted func."""
+    desc_score_indices = np.argsort(y_score)[::-1]
+    return fast_numba_auc_nonw(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
+
+
+@njit()
+def fast_numba_auc_nonw(y_true: np.array, y_score: np.array, desc_score_indices: np.array) -> float:
+    """code taken from fastauc lib."""
+    y_score = y_score[desc_score_indices]
+    y_true = y_true[desc_score_indices]
+
+    last_counted_fps = 0
+    last_counted_tps = 0
+    tps, fps = 0, 0
+    auc = 0
+
+    l = len(y_true) - 1
+    for i in range(l + 1):
+        tps += y_true[i]
+        fps += 1 - y_true[i]
+        if i == l or y_score[i + 1] != y_score[i]:
+            auc += (fps - last_counted_fps) * (last_counted_tps + tps)
+            last_counted_fps = fps
+            last_counted_tps = tps
+    return auc / (tps * fps * 2)
+
+
+@njit()
+def fast_classification_report(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, zero_division: int = 0):
+    """Custom classification report, proof of concept."""
+
+    N_AVG_ARRAYS = 3  # precisions, recalls, f1s
+
+    # storage inits
+    weighted_averages = np.empty(N_AVG_ARRAYS, dtype=np.float64)
+    macro_averages = np.empty(N_AVG_ARRAYS, dtype=np.float64)
+    supports = np.zeros(nclasses, dtype=np.int64)
+    allpreds = np.zeros(nclasses, dtype=np.int64)
+    misses = np.zeros(nclasses, dtype=np.int64)
+    hits = np.zeros(nclasses, dtype=np.int64)
+
+    # count stats
+    for true_class, predicted_class in zip(y_true, y_pred):
+        supports[true_class] += 1
+        allpreds[predicted_class] += 1
+        if predicted_class == true_class:
+            hits[predicted_class] += 1
+        else:
+            misses[predicted_class] += 1
+
+    # main calcs
+    accuracy = hits.sum() / len(y_true)
+    balanced_accuracy = np.nan_to_num(hits / supports, copy=True, nan=zero_division).mean()
+
+    recalls = hits / supports
+    precisions = hits / allpreds
+    f1s = 2 * (precisions * recalls) / (precisions + recalls)
+
+    # fix nans & compute averages
+    for arr in (precisions, recalls, f1s):
+        np.nan_to_num(arr, copy=False, nan=zero_division)
+        weighted_averages[i] = (arr * supports).sum() / len(y_true)
+        macro_averages[i] = arr.mean()
+
+    return hits, misses, accuracy, balanced_accuracy, supports, precisions, recalls, f1s, macro_averages, weighted_averages
+
+
+@njit()
+def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
+    """Computes bins of predicted vs actual events frequencies. Corresponds to sklearn's UNIFORM strategy."""
+
+    pockets_predicted = np.zeros(nbins, dtype=np.int64)
+    pockets_true = np.zeros(nbins, dtype=np.int64)
+    multiplier = nbins
+
+    for true_class, predicted_prob in zip(y_true, y_pred):
+        idx = int(predicted_prob * multiplier)
+        pockets_predicted[idx] += 1
+        pockets_true[idx] += true_class
+
+    idx = np.nonzero(pockets_predicted > 0)[0]
+
+    hits = pockets_true[idx]
+    freqs_predicted, freqs_true = idx / nbins, hits / pockets_predicted[idx]
+
+    return freqs_predicted, freqs_true, hits
+
+
+def show_calibration_plot(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray):
+    """Plots reliability digaram from the binned predictions."""
+
+    plt.scatter(freqs_predicted, freqs_true, marker="o", s=5000 * hits / hits.sum(), c=hits, label="Real")
+    x_min, x_max = np.min(freqs_predicted), np.max(freqs_predicted)
+    plt.plot([x_min, x_max], [x_min, x_max], "g--", label="Perfect")
+
+
+@njit()
+def fast_calibration_report(
+    y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100,
+):
+    """Bins predictions, then computes regresison-like error metrics between desired and real binned probs."""
+
+    freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
+    diffs = np.abs((freqs_predicted - freqs_true))
+    calibration_mae, calibration_std = np.mean(diffs), np.std(diffs)
+    return calibration_mae, calibration_std
