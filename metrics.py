@@ -62,10 +62,12 @@ def fast_classification_report(y_true: np.ndarray, y_pred: np.ndarray, nclasses:
     f1s = 2 * (precisions * recalls) / (precisions + recalls)
 
     # fix nans & compute averages
+    i=0
     for arr in (precisions, recalls, f1s):
         np.nan_to_num(arr, copy=False, nan=zero_division)
         weighted_averages[i] = (arr * supports).sum() / len(y_true)
         macro_averages[i] = arr.mean()
+        i+=1
 
     return hits, misses, accuracy, balanced_accuracy, supports, precisions, recalls, f1s, macro_averages, weighted_averages
 
@@ -101,11 +103,13 @@ def show_calibration_plot(freqs_predicted: np.ndarray, freqs_true: np.ndarray, h
 
 @njit()
 def fast_calibration_report(
-    y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100,
+    y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100,show_plot:bool=True
 ):
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs."""
 
     freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
     diffs = np.abs((freqs_predicted - freqs_true))
     calibration_mae, calibration_std = np.mean(diffs), np.std(diffs)
+    if show_plot:
+        show_calibration_plot(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits)
     return calibration_mae, calibration_std
