@@ -120,6 +120,13 @@ def fast_calibration_report(
     
     if plot_file or show_plots:
         show_calibration_plot(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits,
-                              plot_title=f"Calibration MAE={calibration_mae:.4f} +-{calibration_std:.4f}",show_plots=show_plots,plot_file=plot_file,figsize=figsize)
+                              plot_title=f"Calibration MAE={calibration_mae:.4f} ± {calibration_std:.4f}",show_plots=show_plots,plot_file=plot_file,figsize=figsize)
     
     return calibration_mae, calibration_std
+
+def predictions_time_instability(preds:np.ndarray)->float:
+     """Computes how stable are true values or predictions over time.
+     It's hard to use predictions that change upside down from point to point.
+     For binary classification instability ranges from 0 to 1, for regression from 0 to any value depending on the target stats.
+     """
+     return preds.diff().abs().mean()

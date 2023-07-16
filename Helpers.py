@@ -78,7 +78,7 @@ def test_stationarity(timeseries, w):
 # MLFLOW
 ########################################################################################################################################################################################################################################
 
-def flatten_classification_report(cr: dict, separate_metrics=("accuracy",),source:str="")->dict:
+def flatten_classification_report(cr: dict, separate_metrics=("accuracy","balanced_accuracy","roc_auc"),source:str="")->dict:
     res={}
     for metric in separate_metrics:
         if metric in cr:
