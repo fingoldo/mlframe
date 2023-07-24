@@ -163,7 +163,7 @@ def is_variable_truly_continuous(
 
     mb float32 vars without fractional part, with big span and nunique<1000 must be categorical (nominal or ordinal-remapped)?
     kind of, it's unlikely if even an integer var ranging from -2 to +2 billions on 11M rows will have only 331 unique vals, right?
-    not speaking of tryly floating, with fractional digits
+    not speaking of truly floating, with fractional digits
 
     what about var such as 10001.132456,10001.3464545,10001.26344432...?
     it can be impactful and very well floating, but will it be distinguished as numeric or not with default max_fract_digits=1?
@@ -578,7 +578,8 @@ def analyse_and_clean_features(
                                 )
                                 col_is_boolean, col_is_object, col_is_datetime, col_is_categorical, col_is_numeric = classify_column_types(df=df, col=col)
                         else:
-                            constant_features.add(col)
+                            #nmerged=1 and nan_vals_already_in_index=0. No point in merging just one category.
+                            pass
             if nunique == 2 and not col_is_datetime:
                 # 6. Replaces nan with some other value when there is only one option except NAN. Like, for numerics, -real_val if real_val<>0, else real_val+1.
                 # For category, "NOT "+option_name.
