@@ -1,5 +1,6 @@
 import numpy as np
 from numba import njit
+from math import floor
 from matplotlib import pyplot as plt
 
 
@@ -91,15 +92,14 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     for true_class, predicted_prob in zip(y_true, y_pred):
         # idx = int(predicted_prob * multiplier)
         dist = predicted_prob - min_val
-        print(dist * multiplier)
-        ind = np.floor(dist * multiplier)
+        ind = floor(dist * multiplier)
         pockets_predicted[ind] += 1
         pockets_true[ind] += true_class
 
     idx = np.nonzero(pockets_predicted > 0)[0]
 
     hits = pockets_true[idx]
-    freqs_predicted, freqs_true = min_val + (np.arange(nbins)[idx] + 1) * span / (nbins * 2), hits / pockets_predicted[idx]
+    freqs_predicted, freqs_true = min_val + (np.arange(nbins)[idx] + 0.5) * span / nbins, hits / pockets_predicted[idx]
 
     return freqs_predicted, freqs_true, hits
 
