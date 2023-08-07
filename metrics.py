@@ -77,8 +77,8 @@ def fast_classification_report(y_true: np.ndarray, y_pred: np.ndarray, nclasses:
 def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
     """Computes bins of predicted vs actual events frequencies. Corresponds to sklearn's UNIFORM strategy."""
 
-    pockets_predicted = np.zeros(nbins * 2, dtype=np.int64)
-    pockets_true = np.zeros(nbins * 2, dtype=np.int64)
+    pockets_predicted = np.zeros(nbins, dtype=np.int64)
+    pockets_true = np.zeros(nbins, dtype=np.int64)
 
     min_val, max_val = 1.0, 0.0
     for predicted_prob in y_pred:
@@ -87,20 +87,19 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
         elif predicted_prob < min_val:
             min_val = predicted_prob
     span = max_val - min_val
-    # multiplier = nbins
     multiplier = nbins / span
     for true_class, predicted_prob in zip(y_true, y_pred):
         # idx = int(predicted_prob * multiplier)
-        dist = predicted_prob - min_val + 1e5
-        idx = int(dist * multiplier)
-        print(idx)
-        pockets_predicted[idx] += 1
-        pockets_true[idx] += true_class
+        dist = predicted_prob - min_val
+        print(dist * multiplier)
+        ind = np.floor(dist * multiplier)
+        pockets_predicted[ind] += 1
+        pockets_true[ind] += true_class
 
     idx = np.nonzero(pockets_predicted > 0)[0]
 
     hits = pockets_true[idx]
-    freqs_predicted, freqs_true = (2 * idx + 1) / (2 * nbins), hits / pockets_predicted[idx]
+    freqs_predicted, freqs_true = min_val + (np.arange(nbins)[idx] + 1) * span / (nbins * 2), hits / pockets_predicted[idx]
 
     return freqs_predicted, freqs_true, hits
 
