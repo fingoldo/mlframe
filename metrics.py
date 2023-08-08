@@ -90,9 +90,7 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     span = max_val - min_val
     multiplier = nbins / span
     for true_class, predicted_prob in zip(y_true, y_pred):
-        # idx = int(predicted_prob * multiplier)
-        dist = predicted_prob - min_val
-        ind = floor(dist * multiplier)
+        ind = floor((predicted_prob - min_val) * multiplier)
         pockets_predicted[ind] += 1
         pockets_true[ind] += true_class
 
