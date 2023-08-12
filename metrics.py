@@ -96,8 +96,8 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
 
     idx = np.nonzero(pockets_predicted > 0)[0]
 
-    hits = pockets_true[idx]
-    freqs_predicted, freqs_true = min_val + (np.arange(nbins)[idx] + 0.5) * span / nbins, hits / pockets_predicted[idx]
+    hits = pockets_predicted[idx]
+    freqs_predicted, freqs_true = min_val + (np.arange(nbins)[idx] + 0.5) * span / nbins, pockets_true[idx] / pockets_predicted[idx]
 
     return freqs_predicted, freqs_true, hits
 
