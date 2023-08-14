@@ -31,7 +31,9 @@ from mlframe.boruta_shap import BorutaShap
 
 from sklearn.preprocessing import KBinsDiscretizer
 from itertools import combinations
+from numba.core import types
 from numba import njit
+import numba
 import math
 
 
@@ -124,8 +126,10 @@ def merge_vars(
     var_nbins: Sequence,
     dtype=np.int64,
     min_occupancy: int = None,
+    current_nclasses: int = 1,
+    final_classes: np.ndarray = np.array([], dtype=np.int64),
     verbose: bool = False,
-) -> np.ndarray:
+) -> tuple:
     """Melts multiple vectors (partitioned into bins or categories) into one-dimensional one.
     Data columns are assumed to be ordinal-encoded already (by KBinsDiscretizer or similar).
     Bins, scarcely populated in higher dimension, may be merged with nearest neighbours (in eucl. distance).
@@ -133,8 +137,9 @@ def merge_vars(
     Process truly numerical vars first? To be able to distribute scarcely populated bins more meaningfully, according to the distances.
     What order is best to use in regard of number of categories and variance of their population density? Big-small,big-small, etc? Starting from most (un)evenly distributed?
     """
-    current_nclasses = 1
-    final_classes = np.zeros(len(data), dtype=dtype)
+
+    if len(final_classes) == 0:
+        final_classes = np.zeros(len(data), dtype=dtype)
     for var_number, var_index in enumerate(vars_indices):
 
         expected_nclasses = current_nclasses * var_nbins[var_index]
@@ -175,7 +180,7 @@ def merge_vars(
             if var_number == len(vars_indices) - 1:
                 freqs = freqs[freqs > 0]
         current_nclasses = expected_nclasses - nzeros
-    return final_classes, freqs / len(data)
+    return final_classes, freqs / len(data), current_nclasses
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -195,22 +200,30 @@ def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
 def mi(data, x: np.ndarray, y: np.ndarray, var_nbins: np.ndarray, verbose: bool = False) -> float:
     """Computes Mutual Information of X, Y via entropy calculations."""
 
-    classes_x, freqs_x = merge_vars(data=data, vars_indices=x, var_is_nominal=None, var_nbins=var_nbins, verbose=verbose)
+    classes_x, freqs_x, _ = merge_vars(data=data, vars_indices=x, var_is_nominal=None, var_nbins=var_nbins, verbose=verbose)
     entropy_x = entropy(freqs=freqs_x)
     if verbose:
         print(f"entropy_x={entropy_x}, nclasses_x={len(freqs_x)} ({classes_x.min()} to {classes_x.max()})")
 
-    _, freqs_y = merge_vars(data=data, vars_indices=y, var_is_nominal=None, var_nbins=var_nbins, verbose=verbose)
+    _, freqs_y, _ = merge_vars(data=data, vars_indices=y, var_is_nominal=None, var_nbins=var_nbins, verbose=verbose)
     entropy_y = entropy(freqs=freqs_y)
     if verbose:
         print(f"entropy_y={entropy_y}, nclasses_y={len(freqs_y)}")
 
-    classes_xy, freqs_xy = merge_vars(data=data, vars_indices=set(x) | set(y), var_is_nominal=None, var_nbins=var_nbins, verbose=verbose)
+    classes_xy, freqs_xy, _ = merge_vars(data=data, vars_indices=set(x) | set(y), var_is_nominal=None, var_nbins=var_nbins, verbose=verbose)
     entropy_xy = entropy(freqs=freqs_xy)
     if verbose:
         print(f"entropy_xy={entropy_xy}, nclasses_x={len(freqs_xy)} ({classes_xy.min()} to {classes_xy.max()})")
 
     return entropy_x + entropy_y - entropy_xy
+
+
+@njit()
+def arr2str(arr: Sequence) -> str:
+    s = ""
+    for el in arr:
+        s += str(el)
+    return s
 
 
 @njit()
@@ -232,21 +245,39 @@ def conditional_mi(
     When y is constant, and both X(candidates) and Z (veteranes) repeat a lot, there's room to optimize.
     Also when parts of X repeat a lot (2, 3 way interactions). Z and Y are always 1-dim.
     """
-
+    key = ""
     if entropy_z < 0:
-        _, freqs_z = merge_vars(data=data, vars_indices=z, var_is_nominal=None, var_nbins=var_nbins)  # always 1-dim
-        entropy_z = entropy(freqs=freqs_z)
+        if entropy_cache is not None:
+            key = arr2str(z)
+            entropy_z = entropy_cache.get(key, -1)
+        if entropy_z < 0:
+            _, freqs_z, _ = merge_vars(data=data, vars_indices=z, var_is_nominal=None, var_nbins=var_nbins)  # always 1-dim
+            entropy_z = entropy(freqs=freqs_z)
+            if entropy_cache is not None:
+                entropy_cache[key] = entropy_z
 
     if entropy_xz < 0:
-        _, freqs_xz = merge_vars(data=data, vars_indices=[*x, *z], var_is_nominal=None, var_nbins=var_nbins)
-        entropy_xz = entropy(freqs=freqs_xz)
+        indices = sorted([*x, *z])
+        if entropy_cache is not None:
+            key = arr2str(indices)
+            entropy_xz = entropy_cache.get(key, -1)
+        if entropy_xz < 0:
+            _, freqs_xz, _ = merge_vars(data=data, vars_indices=indices, var_is_nominal=None, var_nbins=var_nbins)
+            entropy_xz = entropy(freqs=freqs_xz)
+            if entropy_cache is not None:
+                entropy_cache[key] = entropy_xz
 
-    if entropy_yz < 0:
-        _, freqs_yz = merge_vars(data=data, vars_indices=[*y, *z], var_is_nominal=None, var_nbins=var_nbins)  # always 2-dim
-        entropy_yz = entropy(freqs=freqs_yz)
+    classes_yz, freqs_yz, current_nclasses_yz = merge_vars(data=data, vars_indices=[*y, *z], var_is_nominal=None, var_nbins=var_nbins)  # always 2-dim
+    entropy_yz = entropy(freqs=freqs_yz)
 
-    _, freqs_xyz = merge_vars(
-        data=data, vars_indices=[*y, *z, *x], var_is_nominal=None, var_nbins=var_nbins
+    _, freqs_xyz, _ = merge_vars(
+        # data=data, vars_indices=[*y, *z, *x], var_is_nominal=None, var_nbins=var_nbins
+        data=data,
+        vars_indices=x,
+        var_is_nominal=None,
+        var_nbins=var_nbins,
+        current_nclasses=current_nclasses_yz,
+        final_classes=classes_yz,
     )  # upper classes of [*y, *z] can serve here. (2+x)-dim, ie 3 to 5 dim.
 
     return entropy_xz + entropy_yz - entropy_z - entropy(freqs=freqs_xyz)
@@ -293,8 +324,8 @@ def mi_direct(
     npermutations: int = 10,
 ) -> tuple:
 
-    classes_x, freqs_x = merge_vars(data=data, vars_indices=np.array(x, dtype=dtype), var_is_nominal=None, var_nbins=var_nbins)
-    classes_y, freqs_y = merge_vars(data=data, vars_indices=np.array(y, dtype=dtype), var_is_nominal=None, var_nbins=var_nbins)
+    classes_x, freqs_x, _ = merge_vars(data=data, vars_indices=np.array(x, dtype=dtype), var_is_nominal=None, var_nbins=var_nbins)
+    classes_y, freqs_y, _ = merge_vars(data=data, vars_indices=np.array(y, dtype=dtype), var_is_nominal=None, var_nbins=var_nbins)
     if verbose:
         print(f"nclasses_x={len(freqs_x)} ({classes_x.min()} to {classes_x.max()}), nclasses_y={len(freqs_y)} ({classes_y.min()} to {classes_y.max()})")
 
@@ -314,19 +345,21 @@ def mi_direct(
             y_var_nbins = var_nbins[np.array(y)]
 
         for i in range(npermutations):
-            if len(x) > 1:
-                for idx in range(len(x)):
-                    np.random.shuffle(x_copy[:, idx])
-                classes_x, freqs_x = merge_vars(data=x_copy, vars_indices=np.arange(len(x)), var_is_nominal=None, var_nbins=x_var_nbins)
-            else:
-                np.random.shuffle(classes_x)
+            # if len(x) > 1:
+            #     for idx in range(len(x)):
+            #         np.random.shuffle(x_copy[:, idx])
+            #     classes_x, freqs_x, _ = merge_vars(data=x_copy, vars_indices=np.arange(len(x)), var_is_nominal=None, var_nbins=x_var_nbins)
+            # else:
+            #     np.random.shuffle(classes_x)
 
-            if len(y) > 1:
-                for idx in range(len(y)):
-                    np.random.shuffle(y_copy[:, idx])
-                classes_y, freqs_y = merge_vars(data=y_copy, vars_indices=np.arange(len(y)), var_is_nominal=None, var_nbins=y_var_nbins)
-            else:
-                np.random.shuffle(classes_y)
+            # if len(y) > 1:
+            #     for idx in range(len(y)):
+            #         np.random.shuffle(y_copy[:, idx])
+            #     classes_y, freqs_y, _ = merge_vars(data=y_copy, vars_indices=np.arange(len(y)), var_is_nominal=None, var_nbins=y_var_nbins)
+            # else:
+            #     np.random.shuffle(classes_y)
+
+            np.random.shuffle(classes_y)
 
             mi = compute_mi_from_classes(classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y, freqs_y=freqs_y, dtype=dtype)
             if mi >= original_mi:
@@ -391,7 +424,10 @@ def screen_predictors(
     cached_MIs = dict()
     cached_cond_MIs = dict()
     cached_confident_MIs = dict()
-
+    entropy_cache = numba.typed.Dict.empty(
+        key_type=types.unicode_type,  # types.UniTuple(types.int64, 3),
+        value_type=types.float64,
+    )
     # ---------------------------------------------------------------------------------------------------------------
     # prepare data buffer
     # ---------------------------------------------------------------------------------------------------------------
@@ -608,6 +644,7 @@ def screen_predictors(
                                     bootstrapped_gain=next_best_gain,
                                     npermutations=npermutations,
                                     max_failed=max_failed,
+                                    entropy_cache=entropy_cache,
                                 )
                             # ---------------------------------------------------------------------------------------------------------------
                             # Report this particular best candidate
@@ -718,6 +755,7 @@ def get_fleuret_criteria_confidence(
     bootstrapped_gain: float,
     npermutations: int,
     max_failed: int,
+    entropy_cache: dict = None,
 ) -> tuple:
 
     nfailed = 0
@@ -737,7 +775,7 @@ def get_fleuret_criteria_confidence(
             # for idx in [Z]:
             #     np.random.shuffle(data_copy[:, idx])
 
-            additional_knowledge = conditional_mi(data=data_copy, x=x, y=y, z=(Z,), var_is_nominal=None, var_nbins=var_nbins)
+            additional_knowledge = conditional_mi(data=data_copy, x=x, y=y, z=(Z,), var_is_nominal=None, var_nbins=var_nbins, entropy_cache=entropy_cache)
 
             if additional_knowledge < current_gain:
 
@@ -833,7 +871,7 @@ def postprocess_candidates(
     entropies = {}
     mutualinfos = {}
     for X in tqdmu(selected_vars, desc="Marginal stats", leave=False):
-        _, freqs = merge_vars(data=data, vars_indices=[X], var_nbins=var_nbins, var_is_nominal=None)
+        _, freqs, _ = merge_vars(data=data, vars_indices=[X], var_nbins=var_nbins, var_is_nominal=None)
         factor_entropy = entropy(freqs=freqs)
         entropies[X] = factor_entropy
 
