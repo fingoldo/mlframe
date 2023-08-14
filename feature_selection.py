@@ -237,8 +237,9 @@ def conditional_mi(
     entropy_z: float = -1.0,
     entropy_xz: float = -1.0,
     entropy_yz: float = -1.0,
+    entropy_xyz: float = -1.0,
     entropy_cache: dict = None,
-    classes_cache: dict = None,
+    can_use_y_cache: bool = False,
 ) -> float:
     """
     Conditional Mutual Information about Y by X given Z = I (X ;Y | Z ) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)
@@ -246,6 +247,7 @@ def conditional_mi(
     Also when parts of X repeat a lot (2, 3 way interactions). Z and Y are always 1-dim.
     """
     key = ""
+
     if entropy_z < 0:
         if entropy_cache is not None:
             key = arr2str(z)
@@ -267,20 +269,48 @@ def conditional_mi(
             if entropy_cache is not None:
                 entropy_cache[key] = entropy_xz
 
-    classes_yz, freqs_yz, current_nclasses_yz = merge_vars(data=data, vars_indices=[*y, *z], var_is_nominal=None, var_nbins=var_nbins)  # always 2-dim
-    entropy_yz = entropy(freqs=freqs_yz)
+    current_nclasses_yz = 1
+    if can_use_y_cache:
+        if entropy_yz < 0:
+            indices = sorted([*y, *z])
+            if entropy_cache is not None:
+                key = arr2str(indices)
+                entropy_yz = entropy_cache.get(key, -1)
+            if entropy_yz < 0:
+                classes_yz, freqs_yz, current_nclasses_yz = merge_vars(data=data, vars_indices=indices, var_is_nominal=None, var_nbins=var_nbins)
+                entropy_yz = entropy(freqs=freqs_yz)
+                if entropy_cache is not None:
+                    entropy_cache[key] = entropy_yz
+    else:
+        classes_yz, freqs_yz, current_nclasses_yz = merge_vars(data=data, vars_indices=[*y, *z], var_is_nominal=None, var_nbins=var_nbins)  # always 2-dim
+        entropy_yz = entropy(freqs=freqs_yz)
 
-    _, freqs_xyz, _ = merge_vars(
-        # data=data, vars_indices=[*y, *z, *x], var_is_nominal=None, var_nbins=var_nbins
-        data=data,
-        vars_indices=x,
-        var_is_nominal=None,
-        var_nbins=var_nbins,
-        current_nclasses=current_nclasses_yz,
-        final_classes=classes_yz,
-    )  # upper classes of [*y, *z] can serve here. (2+x)-dim, ie 3 to 5 dim.
+    if entropy_xyz < 0:
+        if can_use_y_cache:
+            indices = sorted([*x, *y, *z])
+            if entropy_cache is not None:
+                key = arr2str(indices)
+                entropy_xyz = entropy_cache.get(key, -1)
+        if entropy_xyz < 0:
+            if current_nclasses_yz == 1:
+                classes_yz, freqs_yz, current_nclasses_yz = merge_vars(
+                    data=data, vars_indices=[*y, *z], var_is_nominal=None, var_nbins=var_nbins
+                )  # always 2-dim
 
-    return entropy_xz + entropy_yz - entropy_z - entropy(freqs=freqs_xyz)
+            _, freqs_xyz, _ = merge_vars(
+                # data=data, vars_indices=[*y, *z, *x], var_is_nominal=None, var_nbins=var_nbins
+                data=data,
+                vars_indices=x,
+                var_is_nominal=None,
+                var_nbins=var_nbins,
+                current_nclasses=current_nclasses_yz,
+                final_classes=classes_yz,
+            )  # upper classes of [*y, *z] can serve here. (2+x)-dim, ie 3 to 5 dim.
+            entropy_xyz = entropy(freqs=freqs_xyz)
+            if entropy_cache is not None and can_use_y_cache:
+                entropy_cache[key] = entropy_xz
+
+    return entropy_xz + entropy_yz - entropy_z - entropy_xyz
 
 
 @njit()
@@ -533,7 +563,16 @@ def screen_predictors(
                                     if key in cached_cond_MIs:
                                         additional_knowledge = cached_cond_MIs[key]
                                     else:
-                                        additional_knowledge = conditional_mi(data=data, x=X, y=y, z=(Z,), var_is_nominal=None, var_nbins=var_nbins)  # TODO
+                                        additional_knowledge = conditional_mi(
+                                            data=data,
+                                            x=X,
+                                            y=y,
+                                            z=(Z,),
+                                            var_is_nominal=None,
+                                            var_nbins=var_nbins,
+                                            entropy_cache=entropy_cache,
+                                            can_use_y_cache=True,
+                                        )
                                         cached_cond_MIs[key] = additional_knowledge
 
                                     if additional_knowledge < current_gain:
