@@ -119,9 +119,9 @@ def find_impactful_features(
 @njit()
 def merge_vars(
     data: np.ndarray,
-    vars_indices: np.ndarray,
-    var_is_nominal: np.ndarray,
-    var_nbins: np.ndarray,
+    vars_indices: Sequence,
+    var_is_nominal: Sequence,
+    var_nbins: Sequence,
     dtype=np.int64,
     min_occupancy: int = None,
     verbose: bool = False,
@@ -216,23 +216,40 @@ def mi(data, x: np.ndarray, y: np.ndarray, var_nbins: np.ndarray, verbose: bool 
 @njit()
 def conditional_mi(
     data: np.ndarray,
-    x: np.ndarray,
-    y: np.ndarray,
-    z: np.ndarray,
-    var_is_nominal: np.ndarray,
-    var_nbins: np.ndarray,
+    x: tuple,
+    y: tuple,
+    z: tuple,
+    var_is_nominal: Sequence,
+    var_nbins: Sequence,
+    entropy_z: float = -1.0,
+    entropy_xz: float = -1.0,
+    entropy_yz: float = -1.0,
+    entropy_cache: dict = None,
+    classes_cache: dict = None,
 ) -> float:
     """
     Conditional Mutual Information about Y by X given Z = I (X ;Y | Z ) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)
+    When y is constant, and both X(candidates) and Z (veteranes) repeat a lot, there's room to optimize.
+    Also when parts of X repeat a lot (2, 3 way interactions). Z and Y are always 1-dim.
     """
 
-    _, freqs_xz = merge_vars(data=data, vars_indices=[*x, *z], var_is_nominal=None, var_nbins=var_nbins)
-    _, freqs_z = merge_vars(data=data, vars_indices=[*z], var_is_nominal=None, var_nbins=var_nbins)
+    if entropy_z < 0:
+        _, freqs_z = merge_vars(data=data, vars_indices=z, var_is_nominal=None, var_nbins=var_nbins)  # always 1-dim
+        entropy_z = entropy(freqs=freqs_z)
 
-    _, freqs_yz = merge_vars(data=data, vars_indices=[*y, *z], var_is_nominal=None, var_nbins=var_nbins)
-    _, freqs_xyz = merge_vars(data=data, vars_indices=[*x, *y, *z], var_is_nominal=None, var_nbins=var_nbins)
+    if entropy_xz < 0:
+        _, freqs_xz = merge_vars(data=data, vars_indices=[*x, *z], var_is_nominal=None, var_nbins=var_nbins)
+        entropy_xz = entropy(freqs=freqs_xz)
 
-    return entropy(freqs=freqs_xz) + entropy(freqs=freqs_yz) - entropy(freqs=freqs_z) - entropy(freqs=freqs_xyz)
+    if entropy_yz < 0:
+        _, freqs_yz = merge_vars(data=data, vars_indices=[*y, *z], var_is_nominal=None, var_nbins=var_nbins)  # always 2-dim
+        entropy_yz = entropy(freqs=freqs_yz)
+
+    _, freqs_xyz = merge_vars(
+        data=data, vars_indices=[*y, *z, *x], var_is_nominal=None, var_nbins=var_nbins
+    )  # upper classes of [*y, *z] can serve here. (2+x)-dim, ie 3 to 5 dim.
+
+    return entropy_xz + entropy_yz - entropy_z - entropy(freqs=freqs_xyz)
 
 
 @njit()
@@ -347,11 +364,11 @@ def screen_predictors(
     dtype=np.int64,
     max_subset_size: int = 1,
     max_joint_subset_size: int = 3,
-    min_nonzero_confidence: float = 0.99999,
+    min_nonzero_confidence: float = 0.98,
     npermutations: int = 10_000,
-    min_gain: float = 0.01,
-    max_cons_confirmation_failures: int = 100,
-    prewarm_npermutations: int = 5,
+    min_gain: float = 0.00001,
+    max_cons_confirmation_failures: int = 10,
+    prewarm_npermutations: int = 100,
     verbose: bool = False,
 ) -> float:
     """Finds best predictors for the target.
@@ -378,6 +395,7 @@ def screen_predictors(
     # ---------------------------------------------------------------------------------------------------------------
     # prepare data buffer
     # ---------------------------------------------------------------------------------------------------------------
+
     data_copy = data.copy()
 
     for subset_size in tqdmu(range(1, max_subset_size + 1), desc="Subset size"):
@@ -479,7 +497,7 @@ def screen_predictors(
                                     if key in cached_cond_MIs:
                                         additional_knowledge = cached_cond_MIs[key]
                                     else:
-                                        additional_knowledge = conditional_mi(data=data, x=X, y=y, z=(Z,), var_is_nominal=None, var_nbins=var_nbins)
+                                        additional_knowledge = conditional_mi(data=data, x=X, y=y, z=(Z,), var_is_nominal=None, var_nbins=var_nbins)  # TODO
                                         cached_cond_MIs[key] = additional_knowledge
 
                                     if additional_knowledge < current_gain:
@@ -581,38 +599,16 @@ def screen_predictors(
                                 # external bootstrapped recheck. is minimal MI of candidate X with Y given all current Zs THAT BIG as next_best_gain?
                                 # ---------------------------------------------------------------------------------------------------------------
 
-                                bootstrapped_gain = next_best_gain
-                                nfailed = 0
-
-                                # permute X,Y,Z npermutations times
-
-                                for i in range(npermutations):
-
-                                    current_gain = 1e30
-                                    for Z in selected_vars:
-
-                                        for idx in y:
-                                            np.random.shuffle(data_copy[:, idx])
-                                        for idx in candidates[next_best_candidate]:
-                                            np.random.shuffle(data_copy[:, idx])
-                                        for idx in [Z]:
-                                            np.random.shuffle(data_copy[:, idx])
-
-                                        additional_knowledge = conditional_mi(
-                                            data=data_copy, x=candidates[next_best_candidate], y=y, z=(Z,), var_is_nominal=None, var_nbins=var_nbins
-                                        )
-
-                                        if additional_knowledge < current_gain:
-
-                                            current_gain = additional_knowledge
-
-                                    if current_gain >= next_best_gain:
-                                        nfailed += 1
-                                        if nfailed >= max_failed:
-                                            bootstrapped_gain = 0.0
-                                            break
-                                confidence = 1 - nfailed / (i + 1)
-
+                                bootstrapped_gain, confidence = get_fleuret_criteria_confidence(
+                                    data_copy=data_copy,
+                                    var_nbins=var_nbins,
+                                    x=candidates[next_best_candidate],
+                                    y=y,
+                                    selected_vars=selected_vars,
+                                    bootstrapped_gain=next_best_gain,
+                                    npermutations=npermutations,
+                                    max_failed=max_failed,
+                                )
                             # ---------------------------------------------------------------------------------------------------------------
                             # Report this particular best candidate
                             # ---------------------------------------------------------------------------------------------------------------
@@ -710,6 +706,51 @@ def screen_predictors(
     # postprocess_candidates(selected_vars)
 
     return selected_vars, predictors
+
+
+@njit()
+def get_fleuret_criteria_confidence(
+    data_copy: np.ndarray,
+    var_nbins: np.ndarray,
+    x: tuple,
+    y: tuple,
+    selected_vars: list,
+    bootstrapped_gain: float,
+    npermutations: int,
+    max_failed: int,
+) -> tuple:
+
+    nfailed = 0
+    # permute X,Y,Z npermutations times
+
+    for i in range(npermutations):
+
+        current_gain = 1e30
+
+        for idx in y:
+            np.random.shuffle(data_copy[:, idx])
+        # for idx in x:
+        #     np.random.shuffle(data_copy[:, idx])
+
+        for Z in selected_vars:
+
+            # for idx in [Z]:
+            #     np.random.shuffle(data_copy[:, idx])
+
+            additional_knowledge = conditional_mi(data=data_copy, x=x, y=y, z=(Z,), var_is_nominal=None, var_nbins=var_nbins)
+
+            if additional_knowledge < current_gain:
+
+                current_gain = additional_knowledge
+
+        if current_gain >= bootstrapped_gain:
+            nfailed += 1
+            if nfailed >= max_failed:
+                bootstrapped_gain = 0.0
+                break
+    confidence = 1 - nfailed / (i + 1)
+
+    return bootstrapped_gain, confidence
 
 
 def find_best_partial_gain(
