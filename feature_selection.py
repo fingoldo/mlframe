@@ -425,6 +425,7 @@ def screen_predictors(
     x: np.ndarray = None,
     min_occupancy: int = None,
     dtype=np.int64,
+    min_subset_size: int = 1,
     max_subset_size: int = 1,
     max_joint_subset_size: int = 3,
     min_nonzero_confidence: float = 0.98,
@@ -455,16 +456,17 @@ def screen_predictors(
     cached_cond_MIs = dict()
     cached_confident_MIs = dict()
     entropy_cache = numba.typed.Dict.empty(
-        key_type=types.unicode_type,  # types.UniTuple(types.int64, 3),
+        key_type=types.unicode_type,
         value_type=types.float64,
     )
+    
     # ---------------------------------------------------------------------------------------------------------------
     # prepare data buffer
     # ---------------------------------------------------------------------------------------------------------------
 
     data_copy = data.copy()
 
-    for subset_size in tqdmu(range(1, max_subset_size + 1)[::-1], desc="Subset size"):
+    for subset_size in tqdmu(range(min_subset_size, max_subset_size + 1), desc="Subset size"):  # [::-1]
 
         # ---------------------------------------------------------------------------------------------------------------
         # Generate candidates
