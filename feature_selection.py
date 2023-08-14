@@ -344,8 +344,8 @@ def compute_mi_from_classes(
 @njit()
 def mi_direct(
     data,
-    x: np.ndarray,
-    y: np.ndarray,
+    x: tuple,
+    y: tuple,
     var_nbins: np.ndarray,
     min_occupancy: int = None,
     dtype=np.int64,
@@ -354,8 +354,8 @@ def mi_direct(
     npermutations: int = 10,
 ) -> tuple:
 
-    classes_x, freqs_x, _ = merge_vars(data=data, vars_indices=np.array(x, dtype=dtype), var_is_nominal=None, var_nbins=var_nbins)
-    classes_y, freqs_y, _ = merge_vars(data=data, vars_indices=np.array(y, dtype=dtype), var_is_nominal=None, var_nbins=var_nbins)
+    classes_x, freqs_x, _ = merge_vars(data=data, vars_indices=x, var_is_nominal=None, var_nbins=var_nbins)
+    classes_y, freqs_y, _ = merge_vars(data=data, vars_indices=y, var_is_nominal=None, var_nbins=var_nbins)
     if verbose:
         print(f"nclasses_x={len(freqs_x)} ({classes_x.min()} to {classes_x.max()}), nclasses_y={len(freqs_y)} ({classes_y.min()} to {classes_y.max()})")
 
@@ -366,13 +366,13 @@ def mi_direct(
         nfailed = 0
         max_failed = int(npermutations * (1 - min_nonzero_confidence))
 
-        # copy data for safe shuffling
-        if len(x) > 1:
-            x_copy = data[:, np.array(x)].copy()
-            x_var_nbins = var_nbins[np.array(x)]
-        if len(y) > 1:
-            y_copy = data[:, np.array(y)].copy()
-            y_var_nbins = var_nbins[np.array(y)]
+        # # copy data for safe shuffling
+        # if len(x) > 1:
+        #     x_copy = data[:, np.array(x)].copy()
+        #     x_var_nbins = var_nbins[np.array(x)]
+        # if len(y) > 1:
+        #     y_copy = data[:, np.array(y)].copy()
+        #     y_var_nbins = var_nbins[np.array(y)]
 
         for i in range(npermutations):
             # if len(x) > 1:
@@ -464,7 +464,7 @@ def screen_predictors(
 
     data_copy = data.copy()
 
-    for subset_size in tqdmu(range(1, max_subset_size + 1), desc="Subset size"):
+    for subset_size in tqdmu(range(1, max_subset_size + 1)[::-1], desc="Subset size"):
 
         # ---------------------------------------------------------------------------------------------------------------
         # Generate candidates
