@@ -410,7 +410,8 @@ def screen_predictors(
                 for cand_idx, X in enumerate(tqdmu(candidates, leave=False, desc="Gain evals")):
                     if (cand_idx in failed_candidates) or (cand_idx in added_candidates):
                         continue
-
+                    if expected_gains[cand_idx]:
+                        continue
                     if subset_size > 1:  # disabled for single predictors 'cause Fleuret formula won't detect pairs predictors
 
                         # ---------------------------------------------------------------------------------------------------------------
@@ -627,6 +628,7 @@ def screen_predictors(
                                     added_candidates=added_candidates,
                                     candidates=candidates,
                                     selected_vars=selected_vars,
+                                    skip_indices=(next_best_candidate,),
                                 )
                                 if best_partial_gain > next_best_gain:
                                     if verbose:
@@ -635,6 +637,10 @@ def screen_predictors(
                                             confidence,
                                             "requires re-checking other candidates, as now its expected_gain is only",
                                             next_best_gain,
+                                            "vs",
+                                            best_partial_gain,
+                                            "of",
+                                            get_candidate_name(candidates[best_key], cols),
                                         )
                                     break
                                 else:
@@ -703,14 +709,16 @@ def screen_predictors(
 
     # postprocess_candidates(selected_vars)
 
-    return predictors
+    return selected_vars, predictors
 
 
-def find_best_partial_gain(partial_gains: dict, failed_candidates: set, added_candidates: set, candidates: list, selected_vars: list) -> float:
+def find_best_partial_gain(
+    partial_gains: dict, failed_candidates: set, added_candidates: set, candidates: list, selected_vars: list, skip_indices: tuple = ()
+) -> float:
     best_partial_gain = -1e30
     best_key = None
     for key, value in partial_gains.items():
-        if (key not in failed_candidates) and (key not in added_candidates):
+        if (key not in failed_candidates) and (key not in added_candidates) and (key not in skip_indices):
             skip_cand = False
             for subel in candidates[key]:
                 if subel in selected_vars:
@@ -733,6 +741,7 @@ def postprocess_candidates(
     min_nonzero_confidence: float = 0.99999,
     npermutations: int = 10_000,
     max_subset_size: int = 1,
+    ensure_target_influence: bool = True,
     verbose: bool = True,
 ):
     """Post-analysis of prescreened candidates.
@@ -746,22 +755,22 @@ def postprocess_candidates(
     # ---------------------------------------------------------------------------------------------------------------
     # Make sure with confidence that every candidate is related to target
     # ---------------------------------------------------------------------------------------------------------------
-
-    removed = []
-    for X in tqdmu(selected_vars, desc="Ensuring target influence", leave=False):
-        bootstrapped_mi, confidence = mi_direct(
-            data,
-            x=[X],
-            y=y,
-            var_nbins=var_nbins,
-            min_nonzero_confidence=min_nonzero_confidence,
-            npermutations=npermutations,
-        )
-        if bootstrapped_mi == 0:
-            if verbose:
-                print("Factor", X, "not related to target with confidence", confidence)
-                removed.append(X)
-    selected_vars = [el for el in selected_vars if el not in removed]
+    if ensure_target_influence:
+        removed = []
+        for X in tqdmu(selected_vars, desc="Ensuring target influence", leave=False):
+            bootstrapped_mi, confidence = mi_direct(
+                data,
+                x=[X],
+                y=y,
+                var_nbins=var_nbins,
+                min_nonzero_confidence=min_nonzero_confidence,
+                npermutations=npermutations,
+            )
+            if bootstrapped_mi == 0:
+                if verbose:
+                    print("Factor", X, "not related to target with confidence", confidence)
+                    removed.append(X)
+        selected_vars = [el for el in selected_vars if el not in removed]
 
     # ---------------------------------------------------------------------------------------------------------------
     # Repeat Fleuret process as many times as there is candidates left.
