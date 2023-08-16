@@ -27,6 +27,7 @@ import pandas as pd, numpy as np
 
 from pyutilz.system import tqdmu
 from mlframe.boruta_shap import BorutaShap
+from timeit import default_timer as timer
 
 
 from sklearn.preprocessing import KBinsDiscretizer
@@ -36,6 +37,11 @@ from numba import njit
 import numba
 import math
 
+# ----------------------------------------------------------------------------------------------------------------------------
+# Inits
+# ----------------------------------------------------------------------------------------------------------------------------
+
+LARGE_CONST:float=1e30
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Old code
@@ -120,10 +126,10 @@ def find_impactful_features(
 
 @njit()
 def merge_vars(
-    data: np.ndarray,
+    factors_data: np.ndarray,
     vars_indices: Sequence,
     var_is_nominal: Sequence,
-    var_nbins: Sequence,
+    factors_nbins: Sequence,
     dtype=np.int64,
     min_occupancy: int = None,
     current_nclasses: int = 1,
@@ -131,7 +137,7 @@ def merge_vars(
     verbose: bool = False,
 ) -> tuple:
     """Melts multiple vectors (partitioned into bins or categories) into one-dimensional one.
-    Data columns are assumed to be ordinal-encoded already (by KBinsDiscretizer or similar).
+    factors_data columns are assumed to be ordinal-encoded already (by KBinsDiscretizer or similar).
     Bins, scarcely populated in higher dimension, may be merged with nearest neighbours (in eucl. distance).
 
     Process truly numerical vars first? To be able to distribute scarcely populated bins more meaningfully, according to the distances.
@@ -139,12 +145,12 @@ def merge_vars(
     """
 
     if len(final_classes) == 0:
-        final_classes = np.zeros(len(data), dtype=dtype)
+        final_classes = np.zeros(len(factors_data), dtype=dtype)
     for var_number, var_index in enumerate(vars_indices):
 
-        expected_nclasses = current_nclasses * var_nbins[var_index]
+        expected_nclasses = current_nclasses * factors_nbins[var_index]
         freqs = np.zeros(expected_nclasses, dtype=dtype)
-        values = data[:, var_index].astype(dtype)
+        values = factors_data[:, var_index].astype(dtype)
         if verbose:
             print(f"var={var_index}, classes from {values.min()} to {values.max()}")
         for sample_row, sample_class in enumerate(values):
@@ -180,7 +186,7 @@ def merge_vars(
             if var_number == len(vars_indices) - 1:
                 freqs = freqs[freqs > 0]
         current_nclasses = expected_nclasses - nzeros
-    return final_classes, freqs / len(data), current_nclasses
+    return final_classes, freqs / len(factors_data), current_nclasses
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -197,20 +203,20 @@ def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
 
 
 @njit()
-def mi(data, x: np.ndarray, y: np.ndarray, var_nbins: np.ndarray, verbose: bool = False) -> float:
+def mi(factors_data, x: np.ndarray, y: np.ndarray, factors_nbins: np.ndarray, verbose: bool = False) -> float:
     """Computes Mutual Information of X, Y via entropy calculations."""
 
-    classes_x, freqs_x, _ = merge_vars(data=data, vars_indices=x, var_is_nominal=None, var_nbins=var_nbins, verbose=verbose)
+    classes_x, freqs_x, _ = merge_vars(factors_data=factors_data, vars_indices=x, var_is_nominal=None, factors_nbins=factors_nbins, verbose=verbose)
     entropy_x = entropy(freqs=freqs_x)
     if verbose:
         print(f"entropy_x={entropy_x}, nclasses_x={len(freqs_x)} ({classes_x.min()} to {classes_x.max()})")
 
-    _, freqs_y, _ = merge_vars(data=data, vars_indices=y, var_is_nominal=None, var_nbins=var_nbins, verbose=verbose)
+    _, freqs_y, _ = merge_vars(factors_data=factors_data, vars_indices=y, var_is_nominal=None, factors_nbins=factors_nbins, verbose=verbose)
     entropy_y = entropy(freqs=freqs_y)
     if verbose:
         print(f"entropy_y={entropy_y}, nclasses_y={len(freqs_y)}")
 
-    classes_xy, freqs_xy, _ = merge_vars(data=data, vars_indices=set(x) | set(y), var_is_nominal=None, var_nbins=var_nbins, verbose=verbose)
+    classes_xy, freqs_xy, _ = merge_vars(factors_data=factors_data, vars_indices=set(x) | set(y), var_is_nominal=None, factors_nbins=factors_nbins, verbose=verbose)
     entropy_xy = entropy(freqs=freqs_xy)
     if verbose:
         print(f"entropy_xy={entropy_xy}, nclasses_x={len(freqs_xy)} ({classes_xy.min()} to {classes_xy.max()})")
@@ -228,12 +234,12 @@ def arr2str(arr: Sequence) -> str:
 
 @njit()
 def conditional_mi(
-    data: np.ndarray,
+    factors_data: np.ndarray,
     x: tuple,
     y: tuple,
     z: tuple,
     var_is_nominal: Sequence,
-    var_nbins: Sequence,
+    factors_nbins: Sequence,
     entropy_z: float = -1.0,
     entropy_xz: float = -1.0,
     entropy_yz: float = -1.0,
@@ -253,7 +259,7 @@ def conditional_mi(
             key = arr2str(z)
             entropy_z = entropy_cache.get(key, -1)
         if entropy_z < 0:
-            _, freqs_z, _ = merge_vars(data=data, vars_indices=z, var_is_nominal=None, var_nbins=var_nbins)  # always 1-dim
+            _, freqs_z, _ = merge_vars(factors_data=factors_data, vars_indices=z, var_is_nominal=None, factors_nbins=factors_nbins)  # always 1-dim
             entropy_z = entropy(freqs=freqs_z)
             if entropy_cache is not None:
                 entropy_cache[key] = entropy_z
@@ -264,7 +270,7 @@ def conditional_mi(
             key = arr2str(indices)
             entropy_xz = entropy_cache.get(key, -1)
         if entropy_xz < 0:
-            _, freqs_xz, _ = merge_vars(data=data, vars_indices=indices, var_is_nominal=None, var_nbins=var_nbins)
+            _, freqs_xz, _ = merge_vars(factors_data=factors_data, vars_indices=indices, var_is_nominal=None, factors_nbins=factors_nbins)
             entropy_xz = entropy(freqs=freqs_xz)
             if entropy_cache is not None:
                 entropy_cache[key] = entropy_xz
@@ -277,12 +283,12 @@ def conditional_mi(
                 key = arr2str(indices)
                 entropy_yz = entropy_cache.get(key, -1)
             if entropy_yz < 0:
-                classes_yz, freqs_yz, current_nclasses_yz = merge_vars(data=data, vars_indices=indices, var_is_nominal=None, var_nbins=var_nbins)
+                classes_yz, freqs_yz, current_nclasses_yz = merge_vars(factors_data=factors_data, vars_indices=indices, var_is_nominal=None, factors_nbins=factors_nbins)
                 entropy_yz = entropy(freqs=freqs_yz)
                 if entropy_cache is not None:
                     entropy_cache[key] = entropy_yz
     else:
-        classes_yz, freqs_yz, current_nclasses_yz = merge_vars(data=data, vars_indices=[*y, *z], var_is_nominal=None, var_nbins=var_nbins)  # always 2-dim
+        classes_yz, freqs_yz, current_nclasses_yz = merge_vars(factors_data=factors_data, vars_indices=[*y, *z], var_is_nominal=None, factors_nbins=factors_nbins)  # always 2-dim
         entropy_yz = entropy(freqs=freqs_yz)
 
     if entropy_xyz < 0:
@@ -294,15 +300,15 @@ def conditional_mi(
         if entropy_xyz < 0:
             if current_nclasses_yz == 1:
                 classes_yz, freqs_yz, current_nclasses_yz = merge_vars(
-                    data=data, vars_indices=[*y, *z], var_is_nominal=None, var_nbins=var_nbins
+                    factors_data=factors_data, vars_indices=[*y, *z], var_is_nominal=None, factors_nbins=factors_nbins
                 )  # always 2-dim
 
             _, freqs_xyz, _ = merge_vars(
-                # data=data, vars_indices=[*y, *z, *x], var_is_nominal=None, var_nbins=var_nbins
-                data=data,
+                # factors_data=factors_data, vars_indices=[*y, *z, *x], var_is_nominal=None, factors_nbins=factors_nbins
+                factors_data=factors_data,
                 vars_indices=x,
                 var_is_nominal=None,
-                var_nbins=var_nbins,
+                factors_nbins=factors_nbins,
                 current_nclasses=current_nclasses_yz,
                 final_classes=classes_yz,
             )  # upper classes of [*y, *z] can serve here. (2+x)-dim, ie 3 to 5 dim.
@@ -343,49 +349,49 @@ def compute_mi_from_classes(
 
 @njit()
 def mi_direct(
-    data,
+    factors_data,
     x: tuple,
     y: tuple,
-    var_nbins: np.ndarray,
+    factors_nbins: np.ndarray,
     min_occupancy: int = None,
     dtype=np.int64,
     verbose: bool = False,
     min_nonzero_confidence: float = 0.95,
-    npermutations: int = 10,
+    full_npermutations: int = 10,
 ) -> tuple:
 
-    classes_x, freqs_x, _ = merge_vars(data=data, vars_indices=x, var_is_nominal=None, var_nbins=var_nbins)
-    classes_y, freqs_y, _ = merge_vars(data=data, vars_indices=y, var_is_nominal=None, var_nbins=var_nbins)
+    classes_x, freqs_x, _ = merge_vars(factors_data=factors_data, vars_indices=x, var_is_nominal=None, factors_nbins=factors_nbins)
+    classes_y, freqs_y, _ = merge_vars(factors_data=factors_data, vars_indices=y, var_is_nominal=None, factors_nbins=factors_nbins)
     if verbose:
         print(f"nclasses_x={len(freqs_x)} ({classes_x.min()} to {classes_x.max()}), nclasses_y={len(freqs_y)} ({classes_y.min()} to {classes_y.max()})")
 
     original_mi = compute_mi_from_classes(classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y, freqs_y=freqs_y, dtype=dtype)
 
-    if npermutations:
+    if original_mi>0 and full_npermutations>0:
         # inits
         nfailed = 0
-        max_failed = int(npermutations * (1 - min_nonzero_confidence))
+        max_failed = int(full_npermutations * (1 - min_nonzero_confidence))
 
-        # # copy data for safe shuffling
+        # # copy factors_data for safe shuffling
         # if len(x) > 1:
-        #     x_copy = data[:, np.array(x)].copy()
-        #     x_var_nbins = var_nbins[np.array(x)]
+        #     x_copy = factors_data[:, np.array(x)].copy()
+        #     x_var_nbins = factors_nbins[np.array(x)]
         # if len(y) > 1:
-        #     y_copy = data[:, np.array(y)].copy()
-        #     y_var_nbins = var_nbins[np.array(y)]
+        #     y_copy = factors_data[:, np.array(y)].copy()
+        #     y_var_nbins = factors_nbins[np.array(y)]
 
-        for i in range(npermutations):
+        for i in range(full_npermutations):
             # if len(x) > 1:
             #     for idx in range(len(x)):
             #         np.random.shuffle(x_copy[:, idx])
-            #     classes_x, freqs_x, _ = merge_vars(data=x_copy, vars_indices=np.arange(len(x)), var_is_nominal=None, var_nbins=x_var_nbins)
+            #     classes_x, freqs_x, _ = merge_vars(factors_data=x_copy, vars_indices=np.arange(len(x)), var_is_nominal=None, factors_nbins=x_var_nbins)
             # else:
             #     np.random.shuffle(classes_x)
 
             # if len(y) > 1:
             #     for idx in range(len(y)):
             #         np.random.shuffle(y_copy[:, idx])
-            #     classes_y, freqs_y, _ = merge_vars(data=y_copy, vars_indices=np.arange(len(y)), var_is_nominal=None, var_nbins=y_var_nbins)
+            #     classes_y, freqs_y, _ = merge_vars(factors_data=y_copy, vars_indices=np.arange(len(y)), var_is_nominal=None, factors_nbins=y_var_nbins)
             # else:
             #     np.random.shuffle(classes_y)
 
@@ -411,46 +417,266 @@ def mi_direct(
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-def get_candidate_name(candidate_indices: list, cols: list) -> str:
-    cand_name = "-".join([cols[el] for el in candidate_indices])
+def get_candidate_name(candidate_indices: list, factors_names: list) -> str:
+    cand_name = "-".join([factors_names[el] for el in candidate_indices])
     return cand_name
+
+
+def should_skip_candidate(
+    cand_idx: int,
+    X: tuple,
+    interactions_order: int,    
+    failed_candidates: set,
+    added_candidates: set,
+    expected_gains: np.ndarray,
+    selected_vars: list,
+    selected_interactions_vars: list,
+    only_unknown_interactions: bool = True,
+    
+) -> bool:
+    """Decides if current candidate for predictors should be skipped 
+    ('cause of being already accepted, failed, computed).
+    """
+    if (cand_idx in failed_candidates) or (cand_idx in added_candidates) or expected_gains[cand_idx]:
+        return True
+
+    if interactions_order > 1:  # disabled for single predictors 'cause Fleuret formula won't detect pairs predictors
+
+        # ---------------------------------------------------------------------------------------------------------------
+        # Check if any of sub-elements is already selected at this stage
+        # ---------------------------------------------------------------------------------------------------------------
+
+        skip_cand = False
+        for subel in X:
+            if subel in selected_interactions_vars:
+                skip_cand = True
+                break
+        if skip_cand:
+            return True
+
+        # ---------------------------------------------------------------------------------------------------------------
+        # Or all selected at the lower stages
+        # ---------------------------------------------------------------------------------------------------------------
+
+        skip_cand = [(subel in selected_vars) for subel in X]
+        if (only_unknown_interactions and any(skip_cand)) or all(skip_cand):
+            return True
+
+def evaluate_candidate(cand_idx:int,X:tuple,
+    factors_data:np.ndarray,factors_nbins:np.ndarray,
+    expected_gains:np.ndarray,partial_gains:dict,
+    selected_vars:list,baseline_npermutations:int,
+    mrmr_relevance_algo:str="fleuret",
+    mrmr_redundancy_algo:str="fleuret",    
+    cached_MIs:dict,cached_confident_MIs:dict,cached_cond_MIs:dict)->None:
+
+    # ---------------------------------------------------------------------------------------------------------------
+    # Is this candidate any good for target 1-vs-1?
+    # ---------------------------------------------------------------------------------------------------------------
+
+    if X in cached_confident_MIs: #use cached_confident_MIs first here as they are more reliable. (but not fill them)
+        direct_gain = cached_confident_MIs[X]
+    else:
+        if X in cached_MIs: 
+            direct_gain = cached_MIs[X]
+        else:
+            direct_gain, _ = mi_direct(factors_data, x=X, y=y, factors_nbins=factors_nbins, min_nonzero_confidence=1.0, full_npermutations=baseline_npermutations)
+            cached_MIs[X] = direct_gain
+
+    if direct_gain > 0:
+        if selected_vars:
+
+            # ---------------------------------------------------------------------------------------------------------------
+            # some factors already selected.
+            # best gain from including X is the minimum of I (X ;Y | Z ) over every Z in already selected_vars.
+            # but imaging some variable is correlated to every real predictor plus has random noise. It's real value is zero.
+            # only computing I (X ;Y | Z ) will still leave significant impact. but if we sum I(X,Z) over Zs we'll see it shares
+            # all its knowledge with the rest of factors and has no value by itself. But to see that, we must already have all real factors included in S.
+            # otherwise, such 'connected-to-all' trash variables will dominate the scene. So how to handle them?
+            # Solution is to compute sum(X,Z) not only at the step of adding Z, but to repeat this procedure for all Zs once new X is added.
+            # Maybe some Zs will render useless by adding that new X.
+            # ---------------------------------------------------------------------------------------------------------------
+            
+            if cand_idx in partial_gains:
+                current_gain, last_checked_z = partial_gains[cand_idx]
+            else:
+                current_gain = LARGE_CONST
+                last_checked_z = -1
+            
+            positive_mode=False
+
+            for z_idx, Z in enumerate(selected_vars):
+
+                if z_idx > last_checked_z:
+
+                    # ---------------------------------------------------------------------------------------------------------------
+                    # additional_knowledge = I (X ;Y | Z ) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)
+                    # I (X,Z) would be entropy_x + entropy_z - entropy_xz. we don't have only H(X) which can be computed before checking Zs
+                    # ---------------------------------------------------------------------------------------------------------------
+
+                    key = (X, (Z,))
+                    if key in cached_cond_MIs:
+                        additional_knowledge = cached_cond_MIs[key]
+                    else:
+                        additional_knowledge = conditional_mi(
+                            factors_data=factors_data,
+                            x=X,
+                            y=y,
+                            z=(Z,),
+                            var_is_nominal=None,
+                            factors_nbins=factors_nbins,
+                            entropy_cache=entropy_cache,
+                            can_use_y_cache=True,
+                        )
+                        cached_cond_MIs[key] = additional_knowledge
+                    
+                    # ---------------------------------------------------------------------------------------------------------------
+                    # account for possible extra knowledge from conditioning on Z
+                    # that must update best_gain globally. log such cases. Note that we do not guarantee finding them in order,
+                    # but they are too precious to ignore. Adding this will also allow to skip higher order interactions
+                    # containing all of already approved candidates.
+                    # ---------------------------------------------------------------------------------------------------------------
+
+                    if additional_knowledge > direct_gain:
+                        if verbose:
+                            logger.info(f"Candidate {get_candidate_name(X)} together with factor {get_candidate_name(Z)} has synergetic influence {additional_knowledge:5f} on target {target} (direct MI={direct_gain:5f})")                                        
+                        if not positive_mode:
+                            current_gain=additional_knowledge
+                            positive_mode=True
+                        else:
+                            # rare chance that a candidate has many excellent relationships
+                            if additional_knowledge > current_gain:
+                                current_gain=additional_knowledge
+
+                    if not positive_mode and (additional_knowledge < current_gain):
+
+                        current_gain = additional_knowledge
+
+                        if current_gain <= best_gain:
+
+                            # ---------------------------------------------------------------------------------------------------------------
+                            # no point checking other Zs, 'cause current_gain already won't be better than the best_gain 
+                            # (if best_gain was estimated confidently, which we'll check at the end.)
+                            # ---------------------------------------------------------------------------------------------------------------
+
+                            partial_gains[cand_idx] = current_gain, z_idx
+                            current_gain = 0
+                            break
+
+            else:  # there was no break. current_gain computed fully.
+                partial_gains[cand_idx] = current_gain, z_idx
+                expected_gains[cand_idx] = current_gain
+        else:
+            # no factors selected yet. current_gain is just direct_gain
+            current_gain = direct_gain
+            expected_gains[cand_idx] = current_gain
+    else:
+        current_gain = 0
 
 
 # @njit()
 def screen_predictors(
-    data: np.ndarray,
-    y: np.ndarray,
-    cols: list,
-    var_nbins: np.ndarray,
-    x: np.ndarray = None,
-    min_occupancy: int = None,
+    # factors
+    factors_data: np.ndarray,
+    factors_nbins: Sequence[int],
+    factors_names: Sequence[str]=None, 
+    factors_to_use: Sequence[int]=None,
+    # targets
+    targets_data: np.ndarray,
+    targets_nbins: Sequence[int],
+    y: Sequence[int],
+    targets:Union[dict,Sequence[Sequence]]=None,
+    # algorithm
+    mrmr_relevance_algo:str="fleuret",
+    mrmr_redundancy_algo:str="fleuret",
+    # performance
     dtype=np.int64,
-    min_subset_size: int = 1,
-    max_subset_size: int = 1,
-    max_joint_subset_size: int = 3,
-    min_nonzero_confidence: float = 0.98,
-    npermutations: int = 10_000,
-    min_gain: float = 0.00001,
-    max_cons_confirmation_failures: int = 10,
-    prewarm_npermutations: int = 100,
-    verbose: bool = False,
+    # confidence
+    min_occupancy: int = None,
+    min_nonzero_confidence: float = 0.99,
+    full_npermutations: int = 10_000,
+    baseline_npermutations: int = 100,
+    # stopping conditions
+    min_relevance_gain: float = 0.00001,
+    max_consec_unconfirmed: int = 10,
+    max_run_time_mins:int=None,
+    interactions_min_order: int = 1,
+    interactions_max_order: int = 1,
+    interactions_order_reversed:bool=False,
+    max_joint_interactions_order: int = 3,
+    only_unknown_interactions: bool = True,
+    # verbosity and formatting
+    verbose: int = 1,
+    ndigits:int=5,
 ) -> float:
     """Finds best predictors for the target.
     x must be n-x-m array of integers (ordinal encoded)
     Parameters:
-        npermutations: when computing every MI, repeat calculations with randomly shuffled indices that many times
+        full_npermutations: when computing every MI, repeat calculations with randomly shuffled indices that many times
         min_nonzero_confidence: if in random permutation tests this or higher % of cases had worse current_gain than original, current_gain value is considered valid, otherwise, it's set to zero.
     Returns:
         1) best set of non-redundant single features influencing the target
-        2) subsets of size 2..max_subset_size influencing the target. Sucg subsets will eb candidate for predictors and OtherVarsEncoding.
+        2) subsets of size 2..interactions_max_order influencing the target. Such subsets will be candidates for predictors and OtherVarsEncoding.
+        3) all 1-vs-1 influencers (not necessarily in mRMR)
+    Parameters:
+        only_unknown_interactions: True for speed, False for completeness of higher order interactions discovery.
+        verbose: int  1=log only important info,>1=also log additional details
+        mrmr_relevance_algo:str 
+                        "fleuret": max(min(I(X,Y|Z)),max(I(X,Y|Z)-I(X,Y))) Possible to use n-way interactions here.
+                        "pld": I(X,Y)
+        mrmr_redundancy_algo:str 
+                        "fleuret": 0 ('cause redundancy already accounted for)                        
+                        "pld_max": max(I(veterane,cand)) Possible to use n-way interactions here.
+                        "pld_mean": mean(I(veterane,cand)) Possible to use n-way interactions here.
     """
-    if x is None:
-        x = set(range(data.shape[1])) - set(y)
-    selected_vars = []  # stores just indices. can't use set 'cause the order is important for efficient computing
+    # ---------------------------------------------------------------------------------------------------------------
+    # Input checks
+    # ---------------------------------------------------------------------------------------------------------------
+
+    assert mrmr_relevance_algo in ("fleuret","pld")
+    assert mrmr_redundancy_algo in ("fleuret","pld_max","pld_mean")
+
+    assert len(factors_data)>=10
+    if targets_data is None:
+        targets_data=factors_data
+    else:
+        assert len(factors_data)==len(targets_data)
+    
+    if targets_nbins is None:
+        targets_nbins=factors_nbins    
+    
+    assert targets_data.shape[1]==len(targets_nbins)
+    assert factors_data.shape[1]==len(factors_nbins)
+
+    if len(factors_names)==0:
+        factors_names=["F"+str(i) for i in range(len(factors_data))]
+    else:
+        assert factors_data.shape[1]==len(factors_names)
+    
+    # warn if inputs are identical to targets
+    if factors_data.shape==targets_data.shape:
+        if np.shares_memory(factors_data,targets_data):
+        if factors_to_use is None:
+         
+            if verbose>1:
+                logger.info("factors_data and targets_data share the same memory. factors_to_use will be determinted automatically to not contain any target columns.")
+        x = set(range(factors_data.shape[1])) - set(y)
+        else:
+
+            assert not set(y).issubset(set(x))
+
+    # ---------------------------------------------------------------------------------------------------------------
+    # Inits
+    # ---------------------------------------------------------------------------------------------------------------
+
+    start_time=timer()
+    run_out_of_time=False
+
+    max_failed = int(full_npermutations * (1 - min_nonzero_confidence))
+
     selected_interactions_vars = []
+    selected_vars = []  # stores just indices. can't use set 'cause the order is important for efficient computing
     predictors = []  # stores more details.
-    assert not set(y).issubset(set(x))
-    max_failed = int(npermutations * (1 - min_nonzero_confidence))
 
     cached_MIs = dict()
     cached_cond_MIs = dict()
@@ -459,242 +685,115 @@ def screen_predictors(
         key_type=types.unicode_type,
         value_type=types.float64,
     )
+
+    data_copy = factors_data.copy()
+
+    subsets=range(interactions_min_order, interactions_max_order + 1)
+    if interactions_order_reversed:        
+        subsets=subsets[::-1]
     
-    # ---------------------------------------------------------------------------------------------------------------
-    # prepare data buffer
-    # ---------------------------------------------------------------------------------------------------------------
+    for interactions_order in (subsets_pbar:=tqdmu(subsets, desc="Interactions order")):
 
-    data_copy = data.copy()
-
-    for subset_size in tqdmu(range(min_subset_size, max_subset_size + 1), desc="Subset size"):  # [::-1]
+        if run_out_of_time: break
+        subsets_pbar.set_description(f"{interactions_order}-way interactions")
 
         # ---------------------------------------------------------------------------------------------------------------
         # Generate candidates
         # ---------------------------------------------------------------------------------------------------------------
 
-        if subset_size == 1:
-            candidates = [(el,) for el in x]
-        else:
-            candidates = [tuple(el) for el in combinations(x, subset_size)]  # if all([subel not in selected_vars for subel in el])
+        candidates = [tuple(el) for el in combinations(x, interactions_order)]
 
-        min_gain_reached = False
-        nunconfirmed = 0
+        # ---------------------------------------------------------------------------------------------------------------
+        # Subset level inits
+        # ---------------------------------------------------------------------------------------------------------------
+
         partial_gains = {}
-        failed_candidates = set()
         added_candidates = set()
-        ncons_confirmation_failures = 0
-        for _ in tqdmu(range(len(candidates)), leave=False, desc="Candidates"):
+        failed_candidates = set()
+        min_gain_reached = False
+        nconsec_unconfirmed = 0
+
+        for _ in tqdmu(range(len(candidates)), leave=False, desc="Confirmed predictors"):
+
+            if run_out_of_time: break
 
             # ---------------------------------------------------------------------------------------------------------------
             # Find candidate X with the highest current_gain given already selected factors
             # ---------------------------------------------------------------------------------------------------------------
 
-            best_gain = 0
+            best_gain = min_relevance_gain-1
             expected_gains = np.zeros(len(candidates), dtype=np.float64)
 
             while True:  # confirmation loop (by random permutations)
-                for cand_idx, X in enumerate(tqdmu(candidates, leave=False, desc="Gain evals")):
-                    if (cand_idx in failed_candidates) or (cand_idx in added_candidates):
+                for cand_idx, X in enumerate(tqdmu(candidates, leave=False, desc="Candidates")):
+
+                    if should_skip_candidate(cand_idx=cand_idx,X=X,interactions_order=interactions_order,only_unknown_interactions=only_unknown_interactions,
+                        failed_candidates=failed_candidates,added_candidates=added_candidates,expected_gains=expected_gains,selected_vars=selected_vars,
+                        selected_interactions_vars=selected_interactions_vars):
                         continue
-                    if expected_gains[cand_idx]:
-                        continue
-                    if subset_size > 1:  # disabled for single predictors 'cause Fleuret formula won't detect pairs predictors
-
-                        # ---------------------------------------------------------------------------------------------------------------
-                        # Check if any of sub-elements is already selected at this stage
-                        # ---------------------------------------------------------------------------------------------------------------
-
-                        skip_cand = False
-                        for subel in X:
-                            if subel in selected_interactions_vars:
-                                skip_cand = True
-                                break
-                        if skip_cand:
-                            continue
-
-                        # ---------------------------------------------------------------------------------------------------------------
-                        # Or all selected at the lower stages
-                        # ---------------------------------------------------------------------------------------------------------------
-
-                        skip_cand = all([(subel in selected_vars) for subel in X])
-                        if skip_cand:
-                            continue
+                    
+                    current_gain,_=evaluate_candidate(cand_idx=cand_idx,X=X,
+                        mrmr_relevance_algo=mrmr_relevance_algo,
+                        mrmr_redundancy_algo=mrmr_redundancy_algo,
+                        expected_gains=expected_gains=expected_gains,selected_vars=selected_vars,cached_MIs=cached_MIs,cached_confident_MIs=cached_confident_MIs,cached_cond_MIs=cached_cond_MIs)
+                
 
                     # ---------------------------------------------------------------------------------------------------------------
-                    # Is this candidate any good for target 1-vs-1?
-                    # ---------------------------------------------------------------------------------------------------------------
-
-                    if X in cached_MIs:
-                        direct_gain = cached_MIs[X]
-                    else:
-                        direct_gain, _ = mi_direct(data, x=X, y=y, var_nbins=var_nbins, min_nonzero_confidence=1.0, npermutations=prewarm_npermutations)
-                        cached_MIs[X] = direct_gain
-
-                    if direct_gain > 0:
-                        if selected_vars:
-
-                            # ---------------------------------------------------------------------------------------------------------------
-                            # some factors already selected.
-                            # best gain from including X is the minimum of I (X ;Y | Z ) over every Z in already selected_vars.
-                            # but imaging some variable is correlated to every real predictor plus has random noise. It's real value is zero.
-                            # only computing I (X ;Y | Z ) will still leave significant impact. but if we sum I(X,Z) over Zs we'll see it shares
-                            # all its knowledge with the rest of factors and has no value by itself. But to see that, we must already have all real factors included in S.
-                            # otherwise, such 'connected-to-all' trash variables will dominate the scene. So how to handle them?
-                            # Solution is to compute sum(X,Z) not only at the step of adding Z, but to repeat this procedure for all Zs once new X is added.
-                            # Maybe some Zs will render useless by adding that new X.
-                            # ---------------------------------------------------------------------------------------------------------------
-
-                            if cand_idx in partial_gains:
-                                current_gain, last_checked_z = partial_gains[cand_idx]
-                            else:
-                                current_gain = 1e30
-                                last_checked_z = -1
-
-                            # max_joint_subset_size
-
-                            for z_idx, Z in enumerate(selected_vars):
-
-                                if z_idx > last_checked_z:
-
-                                    # ---------------------------------------------------------------------------------------------------------------
-                                    # additional_knowledge = I (X ;Y | Z ) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)
-                                    # I (X,Z) would be entropy_x + entropy_z - entropy_xz. we don't have only H(X) which can be computed before checking Zs
-                                    # ---------------------------------------------------------------------------------------------------------------
-
-                                    key = (X, (Z,))
-                                    if key in cached_cond_MIs:
-                                        additional_knowledge = cached_cond_MIs[key]
-                                    else:
-                                        additional_knowledge = conditional_mi(
-                                            data=data,
-                                            x=X,
-                                            y=y,
-                                            z=(Z,),
-                                            var_is_nominal=None,
-                                            var_nbins=var_nbins,
-                                            entropy_cache=entropy_cache,
-                                            can_use_y_cache=True,
-                                        )
-                                        cached_cond_MIs[key] = additional_knowledge
-
-                                    if additional_knowledge < current_gain:
-
-                                        current_gain = additional_knowledge
-
-                                        if current_gain <= best_gain:
-
-                                            # ---------------------------------------------------------------------------------------------------------------
-                                            # no point checking other Zs, 'cause current_gain already won't be better than the best_gain (if best_gain was estimated confidently.)
-                                            # ---------------------------------------------------------------------------------------------------------------
-
-                                            partial_gains[cand_idx] = current_gain, z_idx
-                                            current_gain = 0
-                                            break
-                            else:  # nobreak
-                                partial_gains[cand_idx] = current_gain, z_idx
-                                expected_gains[cand_idx] = current_gain
-
-                        else:
-                            # no factors selected yet. current_gain is just direct_gain
-                            current_gain = direct_gain
-                            expected_gains[cand_idx] = current_gain
-                    else:
-                        current_gain = 0
-
-                    # ---------------------------------------------------------------------------------------------------------------
-                    # save best known candidate to be able to use early stopping
+                    # Save best known candidate, to be able to use early stopping
                     # ---------------------------------------------------------------------------------------------------------------
 
                     if current_gain > best_gain:
                         best_candidate = X
                         best_gain = current_gain
-                        if verbose:
-                            print(f"\t{get_candidate_name(best_candidate,cols)} is so far the best candidate with best_gain={best_gain:.10f}")
+                        if verbose>1:
+                            print(f"\t{get_candidate_name(best_candidate,factors_names)} is so far the best candidate with best_gain={best_gain:.10f}")
                     else:
+                        if verbose>1 and  current_gain > min_relevance_gain:
+                            print(f"\t\t{get_candidate_name(X,factors_names)} current_gain={current_gain:.{ndigits}f}")
 
-                        if False and current_gain > min_gain:
-                            if verbose:
-                                print(f"\t\t{get_candidate_name(X,cols)} current_gain={current_gain:.10f}")
+                    run_out_of_time=timer()-start_time>max_run_time_minutes
+                    if run_out_of_time:
+                        logging.info(f"Time limit exhausted. Finalizing the search.")
+                        break                
+
+                if best_gain < min_relevance_gain:
+                    if verbose:
+                        logger.info("Minimum expected gain reached.")   
+                    break  # exit confirmation while loop
 
                 # ---------------------------------------------------------------------------------------------------------------
-                # now need to confirm best expected gain with a permutation test
+                # Now need to confirm best expected gain with a permutation test
                 # ---------------------------------------------------------------------------------------------------------------
 
-                if npermutations:
+                if full_npermutations:
                     cand_confirmed = False
                     any_cand_considered = False
-                    for n, next_best_candidate in enumerate(np.argsort(expected_gains)[::-1]):
-                        next_best_gain = expected_gains[next_best_candidate]
-                        if next_best_gain >= min_gain:  # only can consider here candidates fully checked against every Z
+                    for n, next_best_candidate_idx in enumerate(np.argsort(expected_gains)[::-1]):
+                        next_best_gain = expected_gains[next_best_candidate_idx]
+                        if next_best_gain >= min_relevance_gain:  # only can consider here candidates fully checked against every Z
                             any_cand_considered = True
-                            if verbose:
-                                print("confirming candidate", get_candidate_name(candidates[next_best_candidate], cols), "next_best_gain=", next_best_gain)
+                            if verbose>1:
+                                print("confirming candidate", get_candidate_name(candidates[next_best_candidate_idx], factors_names), "next_best_gain=", next_best_gain)
 
-                            # ---------------------------------------------------------------------------------------------------------------
-                            # Compute confidence by bootstrap
-                            # ---------------------------------------------------------------------------------------------------------------
-
-                            if candidates[next_best_candidate] in cached_confident_MIs:
-                                bootstrapped_gain, confidence = cached_confident_MIs[candidates[next_best_candidate]]
-                            else:
-                                bootstrapped_gain, confidence = mi_direct(
-                                    data,
-                                    x=candidates[next_best_candidate],
-                                    y=y,
-                                    var_nbins=var_nbins,
-                                    min_nonzero_confidence=min_nonzero_confidence,
-                                    npermutations=npermutations,
-                                )
-                                cached_confident_MIs[candidates[next_best_candidate]] = bootstrapped_gain, confidence
-
-                            if bootstrapped_gain > 0 and selected_vars:  # additional check of Fleuret criteria
-
-                                if n > 0:
-
-                                    # ---------------------------------------------------------------------------------------------------------------
-                                    # for cands other than the top one, if best partial gain <= next_best_gain, we can proceed with confirming next_best_gain. else we have to recompute partial gains
-                                    # ---------------------------------------------------------------------------------------------------------------
-                                    best_partial_gain, best_key = find_best_partial_gain(
-                                        partial_gains=partial_gains,
-                                        failed_candidates=failed_candidates,
-                                        added_candidates=added_candidates,
-                                        candidates=candidates,
-                                        selected_vars=selected_vars,
-                                    )
-
-                                    if best_partial_gain > next_best_gain:
-                                        if verbose:
-                                            print(
-                                                "Have no best_candidate anymore. Need to recompute partial gains. best_partial_gain of candidate",
-                                                get_candidate_name(candidates[best_key], cols),
-                                                "was",
-                                                best_partial_gain,
-                                            )
-                                        break
-
-                                # ---------------------------------------------------------------------------------------------------------------
-                                # external bootstrapped recheck. is minimal MI of candidate X with Y given all current Zs THAT BIG as next_best_gain?
-                                # ---------------------------------------------------------------------------------------------------------------
-
-                                bootstrapped_gain, confidence = get_fleuret_criteria_confidence(
-                                    data_copy=data_copy,
-                                    var_nbins=var_nbins,
-                                    x=candidates[next_best_candidate],
-                                    y=y,
-                                    selected_vars=selected_vars,
-                                    bootstrapped_gain=next_best_gain,
-                                    npermutations=npermutations,
-                                    max_failed=max_failed,
-                                    entropy_cache=entropy_cache,
-                                )
+                            bootstrapped_gain,confidence=evaluate_candidate(cand_idx=cand_idx,X=X,
+                                mrmr_relevance_algo=mrmr_relevance_algo,
+                                mrmr_redundancy_algo=mrmr_redundancy_algo,
+                                expected_gains=expected_gains=expected_gains,selected_vars=selected_vars,cached_MIs=cached_MIs,cached_confident_MIs=cached_confident_MIs,cached_cond_MIs=cached_cond_MIs)                            
+                            
                             # ---------------------------------------------------------------------------------------------------------------
                             # Report this particular best candidate
                             # ---------------------------------------------------------------------------------------------------------------
 
                             if bootstrapped_gain > 0:
-                                # bad confidence can make us consider other candidates!
+                                
+                                nconsec_unconfirmed = 0
+
+                                # ---------------------------------------------------------------------------------------------------------------
+                                # Bad confidence can make us consider other candidates!
+                                # ---------------------------------------------------------------------------------------------------------------
+
                                 next_best_gain = next_best_gain * confidence
-                                expected_gains[next_best_candidate] = next_best_gain
+                                expected_gains[next_best_candidate_idx] = next_best_gain
 
                                 best_partial_gain, best_key = find_best_partial_gain(
                                     partial_gains=partial_gains,
@@ -702,83 +801,80 @@ def screen_predictors(
                                     added_candidates=added_candidates,
                                     candidates=candidates,
                                     selected_vars=selected_vars,
-                                    skip_indices=(next_best_candidate,),
+                                    skip_indices=(next_best_candidate_idx,),
                                 )
                                 if best_partial_gain > next_best_gain:
-                                    if verbose:
+                                    if verbose>1:
                                         print(
                                             "Candidate's lowered confidence",
                                             confidence,
-                                            "requires re-checking other candidates, as now its expected_gain is only",
+                                            "requires re-checking other candidates, as now its expected gain is only",
                                             next_best_gain,
                                             "vs",
                                             best_partial_gain,
                                             "of",
-                                            get_candidate_name(candidates[best_key], cols),
+                                            get_candidate_name(candidates[best_key], factors_names),
                                         )
-                                    break
-                                else:
-                                    ncons_confirmation_failures = 0
+                                    break # out of best candidates confirmation, to retry all cands evaluation
+                                else:                                    
                                     cand_confirmed = True
-                                    if verbose:
+                                    if verbose>1:
                                         print("\tconfirmed with confidence", confidence)
-                                    break
+                                    break # out of best candidates confirmation, to add candidate to the list, and go to more candidates
                             else:
-                                expected_gains[next_best_candidate] = 0.0
-                                failed_candidates.add(next_best_candidate)
-                                if verbose:
+                                expected_gains[next_best_candidate_idx] = 0.0
+                                failed_candidates.add(next_best_candidate_idx)
+                                if verbose>1:
                                     print("\tconfirmation failed with confidence", confidence)
 
-                                ncons_confirmation_failures += 1
-                                if ncons_confirmation_failures > max_cons_confirmation_failures:
+                                nconsec_unconfirmed += 1
+                                if max_consec_unconfirmed and (nconsec_unconfirmed > max_consec_unconfirmed):
                                     if verbose:
-                                        print("max_cons_confirmation_failures=", ncons_confirmation_failures, "reached!")
-                                    min_gain_reached = True
-                                    break
-                                if next_best_gain < min_gain:
-                                    if verbose:
-                                        print("min_gain=", next_best_gain, "reached!")
-                                    min_gain_reached = True
-                                    break
-
-                                best_gain = 0
-                        else:  # next_best_gain = 0
-                            break  # to find more good valid candidates
-
+                                        logger.info(f"Maximum consecutive confirmation failures reached.")
+                                    break # out of best candidates confirmation, to finish the level
+                        else:  # next_best_gain = 0                                                     
+                            break # nothing wrong, just retry all cands evaluation
+                    
                     # ---------------------------------------------------------------------------------------------------------------
-                    # let's act upon results of the permutation test
+                    # Let's act upon results of the permutation test
                     # ---------------------------------------------------------------------------------------------------------------
 
                     if cand_confirmed:
-                        added_candidates.add(next_best_candidate)
-                        expected_gains[next_best_candidate] = 0.0  # so it won't be selected again
-                        best_candidate = candidates[next_best_candidate]
+                        added_candidates.add(next_best_candidate_idx) # so it won't be selected again
+                        best_candidate = candidates[next_best_candidate_idx]
                         best_gain = next_best_gain
                         break  # exit confirmation while loop
                     else:
                         if not any_cand_considered:
-                            best_gain = 0
+                            best_gain = min_relevance_gain-1
                             if verbose:
-                                print("No more candidates to confirm.")
+                                logger.info("No more candidates to confirm.")
                             break  # exit confirmation while loop
                         else:
-                            if min_gain_reached:
-                                break  # exit while
-                else:  # if no npermutations is specified
+                            if max_consec_unconfirmed and nconsec_unconfirmed > max_consec_unconfirmed:
+                                break  # exit confirmation while loop
+                            else:
+                                pass # retry all cands evaluation
+                else:  # if no full_npermutations is specified
                     break  # exit confirmation while loop
-            if best_gain >= min_gain and ncons_confirmation_failures <= max_cons_confirmation_failures:
-                for cand in best_candidate:
-                    if cand not in selected_vars:
-                        selected_vars.append(cand)
-                        if subset_size > 1:
-                            selected_interactions_vars.append(cand)
-                # if verbose:
-                cand_name = get_candidate_name(best_candidate, cols)
-                logger.info(f"added new candidate {cand_name} to the list with best_gain={best_gain:.10f}")
+                
+            # ---------------------------------------------------------------------------------------------------------------
+            # Add best candidate to the list, if criteria are met, or proceed to the next interactions_order
+            # ---------------------------------------------------------------------------------------------------------------
+
+            if best_gain >= min_relevance_gain:
+                for var in best_candidate:
+                    if var not in selected_vars:
+                        selected_vars.append(var)
+                        if interactions_order > 1:
+                            selected_interactions_vars.append(var)                
+                cand_name = get_candidate_name(best_candidate, factors_names)
+                if verbose: 
+                    logger.info(f"Added new predictor {cand_name} to the list with expected gain={best_gain:.{ndigits}f}")
                 predictors.append({"name": cand_name, "indices": best_candidate, "gain": best_gain, "confidence": confidence})
             else:
-                # if verbose:
-                print(f"Can't add anything valuable anymore for subset_size={subset_size}")
+                if verbose:
+                    logger.info(f"Can't add anything valuable anymore for interactions_order={interactions_order}")
                 break
 
     # postprocess_candidates(selected_vars)
@@ -789,20 +885,20 @@ def screen_predictors(
 @njit()
 def get_fleuret_criteria_confidence(
     data_copy: np.ndarray,
-    var_nbins: np.ndarray,
+    factors_nbins: np.ndarray,
     x: tuple,
     y: tuple,
     selected_vars: list,
     bootstrapped_gain: float,
-    npermutations: int,
+    full_npermutations: int,
     max_failed: int,
     entropy_cache: dict = None,
 ) -> tuple:
 
     nfailed = 0
-    # permute X,Y,Z npermutations times
+    # permute X,Y,Z full_npermutations times
 
-    for i in range(npermutations):
+    for i in range(full_npermutations):
 
         current_gain = 1e30
 
@@ -816,7 +912,7 @@ def get_fleuret_criteria_confidence(
             # for idx in [Z]:
             #     np.random.shuffle(data_copy[:, idx])
 
-            additional_knowledge = conditional_mi(data=data_copy, x=x, y=y, z=(Z,), var_is_nominal=None, var_nbins=var_nbins, entropy_cache=entropy_cache)
+            additional_knowledge = conditional_mi(factors_data=data_copy, x=x, y=y, z=(Z,), var_is_nominal=None, factors_nbins=factors_nbins, entropy_cache=entropy_cache)
 
             if additional_knowledge < current_gain:
 
@@ -855,12 +951,12 @@ def find_best_partial_gain(
 
 def postprocess_candidates(
     selected_vars: list,
-    data: np.ndarray,
+    factors_data: np.ndarray,
     y: np.ndarray,
-    var_nbins: np.ndarray,
+    factors_nbins: np.ndarray,
     min_nonzero_confidence: float = 0.99999,
-    npermutations: int = 10_000,
-    max_subset_size: int = 1,
+    full_npermutations: int = 10_000,
+    interactions_max_order: int = 1,
     ensure_target_influence: bool = True,
     verbose: bool = True,
 ):
@@ -879,12 +975,12 @@ def postprocess_candidates(
         removed = []
         for X in tqdmu(selected_vars, desc="Ensuring target influence", leave=False):
             bootstrapped_mi, confidence = mi_direct(
-                data,
+                factors_data,
                 x=[X],
                 y=y,
-                var_nbins=var_nbins,
+                factors_nbins=factors_nbins,
                 min_nonzero_confidence=min_nonzero_confidence,
-                npermutations=npermutations,
+                full_npermutations=full_npermutations,
             )
             if bootstrapped_mi == 0:
                 if verbose:
@@ -912,18 +1008,18 @@ def postprocess_candidates(
     entropies = {}
     mutualinfos = {}
     for X in tqdmu(selected_vars, desc="Marginal stats", leave=False):
-        _, freqs, _ = merge_vars(data=data, vars_indices=[X], var_nbins=var_nbins, var_is_nominal=None)
+        _, freqs, _ = merge_vars(factors_data=factors_data, vars_indices=[X], factors_nbins=factors_nbins, var_is_nominal=None)
         factor_entropy = entropy(freqs=freqs)
         entropies[X] = factor_entropy
 
     for a, b in tqdmu(combinations(selected_vars, 2), desc="Interactions", leave=False):
         bootstrapped_mi, confidence = mi_direct(
-            data,
+            factors_data,
             x=[a],
             y=[b],
-            var_nbins=var_nbins,
+            factors_nbins=factors_nbins,
             min_nonzero_confidence=min_nonzero_confidence,
-            npermutations=npermutations,
+            full_npermutations=full_npermutations,
         )
         if bootstrapped_mi > 0:
             mutualinfos[(a, b)] = bootstrapped_mi
