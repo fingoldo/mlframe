@@ -43,6 +43,11 @@ import math
 
 LARGE_CONST: float = 1e30
 
+caching_hits_xyz = 0
+caching_hits_z = 0
+caching_hits_xz = 0
+caching_hits_yz = 0
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Old code
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -254,6 +259,8 @@ def conditional_mi(
     When y is constant, and both X(candidates) and Z (veteranes) repeat a lot, there's room to optimize.
     Also when parts of X repeat a lot (2, 3 way interactions). Z and Y are always 1-dim.
     """
+    # global caching_hits_xyz, caching_hits_z, caching_hits_xz, caching_hits_yz
+
     key = ""
 
     if entropy_z < 0:
@@ -265,6 +272,8 @@ def conditional_mi(
             entropy_z = entropy(freqs=freqs_z)
             if entropy_cache is not None:
                 entropy_cache[key] = entropy_z
+        # else:
+        #    caching_hits_z += 1
 
     if entropy_xz < 0:
         indices = sorted([*x, *z])
@@ -276,6 +285,8 @@ def conditional_mi(
             entropy_xz = entropy(freqs=freqs_xz)
             if entropy_cache is not None:
                 entropy_cache[key] = entropy_xz
+        # else:
+        #    caching_hits_xz += 1
 
     current_nclasses_yz = 1
     if can_use_y_cache:
@@ -291,6 +302,8 @@ def conditional_mi(
                 entropy_yz = entropy(freqs=freqs_yz)
                 if entropy_cache is not None:
                     entropy_cache[key] = entropy_yz
+            # else:
+            #    caching_hits_yz += 1
     else:
         classes_yz, freqs_yz, current_nclasses_yz = merge_vars(
             factors_data=factors_data, vars_indices=[*y, *z], var_is_nominal=None, factors_nbins=factors_nbins
@@ -321,6 +334,8 @@ def conditional_mi(
             entropy_xyz = entropy(freqs=freqs_xyz)
             if entropy_cache is not None and can_use_y_cache:
                 entropy_cache[key] = entropy_xz
+        # else:
+        #    caching_hits_xyz += 1
 
     return entropy_xz + entropy_yz - entropy_z - entropy_xyz
 
@@ -774,7 +789,7 @@ def screen_predictors(
     if interactions_order_reversed:
         subsets = subsets[::-1]
 
-    for interactions_order in (subsets_pbar := tqdmu(subsets, desc="Interactions order")):
+    for interactions_order in (subsets_pbar := tqdmu(subsets, desc="Interactions order", leave=False)):
 
         if run_out_of_time:
             break
@@ -790,13 +805,15 @@ def screen_predictors(
         # Subset level inits
         # ---------------------------------------------------------------------------------------------------------------
 
+        total_disproved = 0
+        total_checked = 0
         partial_gains = {}
         added_candidates = set()
         failed_candidates = set()
         min_gain_reached = False
         nconsec_unconfirmed = 0
 
-        for _ in tqdmu(range(len(candidates)), leave=False, desc="Confirmed predictors"):
+        for _ in (predictors_pbar := tqdmu(range(len(candidates)), leave=False, desc="Confirmed predictors")):
 
             if run_out_of_time:
                 break
@@ -809,7 +826,7 @@ def screen_predictors(
             expected_gains = np.zeros(len(candidates), dtype=np.float64)
 
             while True:  # confirmation loop (by random permutations)
-                for cand_idx, X in enumerate(tqdmu(candidates, leave=False, desc="Candidates")):
+                for cand_idx, X in enumerate(candidates_pbar := tqdmu(candidates, leave=False, desc="Candidates")):
 
                     if should_skip_candidate(
                         cand_idx=cand_idx,
@@ -861,10 +878,10 @@ def screen_predictors(
                         if verbose > 1 and current_gain > min_relevance_gain:
                             print(f"\t\t{get_candidate_name(X,factors_names=factors_names)} current_gain={current_gain:.{ndigits}f}")
 
-                    if max_runtime_mins:
-                        run_out_of_time = timer() - start_time > max_runtime_mins
+                    if max_runtime_mins and not run_out_of_time:
+                        run_out_of_time = (timer() - start_time) > max_runtime_mins * 60
                         if run_out_of_time:
-                            logging.info(f"Time limit exhausted. Finalizing the search.")
+                            logging.info(f"Time limit exhausted. Finalizing the search...")
                             break
 
                 if best_gain < min_relevance_gain:
@@ -897,7 +914,7 @@ def screen_predictors(
                                 )
 
                                 if best_partial_gain > next_best_gain:
-                                    if verbose:
+                                    if verbose > 1:
                                         print(
                                             "Have no best_candidate anymore. Need to recompute partial gains. best_partial_gain of candidate",
                                             get_candidate_name(candidates[best_key], factors_names=factors_names),
@@ -918,7 +935,7 @@ def screen_predictors(
                             # ---------------------------------------------------------------------------------------------------------------
                             # Compute confidence by bootstrap
                             # ---------------------------------------------------------------------------------------------------------------
-
+                            total_checked += 1
                             if X in cached_confident_MIs:
                                 bootstrapped_gain, confidence = cached_confident_MIs[X]
                             else:
@@ -998,6 +1015,7 @@ def screen_predictors(
                                     print("\tconfirmation failed with confidence", confidence)
 
                                 nconsec_unconfirmed += 1
+                                total_disproved += 1
                                 if max_consec_unconfirmed and (nconsec_unconfirmed > max_consec_unconfirmed):
                                     if verbose:
                                         logger.info(f"Maximum consecutive confirmation failures reached.")
@@ -1046,11 +1064,15 @@ def screen_predictors(
                 predictors.append({"name": cand_name, "indices": best_candidate, "gain": best_gain, "confidence": confidence})
             else:
                 if verbose:
-                    logger.info(f"Can't add anything valuable anymore for interactions_order={interactions_order}")
+                    logger.info(
+                        f"Can't add anything valuable anymore for interactions_order={interactions_order}. Total candidates disproved: {total_disproved:_}/{total_checked:_} ({total_disproved*100/total_checked:.2f}%)"
+                    )
                 break
 
     # postprocess_candidates(selected_vars)
-
+    # print(caching_hits_xyz, caching_hits_z, caching_hits_xz, caching_hits_yz)
+    if verbose:
+        logger.info(f"Finished.")
     return selected_vars, predictors
 
 
