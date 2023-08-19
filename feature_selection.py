@@ -23,10 +23,14 @@ ensure_installed("numpy pandas")
 from typing import *
 
 import pandas as pd, numpy as np
+import cupy as cp
 
 
 from pyutilz.system import tqdmu
-from mlframe.boruta_shap import BorutaShap
+from pyutilz.parallel import mem_map_array
+from pyutilz.numbalib import set_random_seed, arr2str, python_dict_2_numba_dict
+
+# from mlframe.boruta_shap import BorutaShap
 from timeit import default_timer as timer
 
 
@@ -37,16 +41,58 @@ from numba import njit
 import numba
 import math
 
+from joblib import Parallel, delayed
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
 # ----------------------------------------------------------------------------------------------------------------------------
 
+MAX_JOBLIB_NBYTES = 1e3
+NMAX_NONPARALLEL_ITERS = 2
 LARGE_CONST: float = 1e30
+GPU_MAX_BLOCK_SIZE = 1024
 
 caching_hits_xyz = 0
 caching_hits_z = 0
 caching_hits_xz = 0
 caching_hits_yz = 0
+
+compute_joint_hist_cuda = cp.RawKernel(
+    r"""
+extern "C" __global__
+void compute_joint_hist_cuda(const int *classes_x, const int *classes_y, int *joint_counts, int n, int nbins_y) {
+    int tid = blockDim.x * blockIdx.x + threadIdx.x;
+    if (tid<n){
+        atomicAdd(&joint_counts[classes_x[tid]*nbins_y+classes_y[tid]],1);
+    }
+}
+""",
+    "compute_joint_hist_cuda",
+)
+compute_mi_from_classes_cuda = cp.RawKernel(
+    r"""
+extern "C" __global__
+void compute_mi_from_classes_cuda(const int *classes_x, const double *freqs_x,const int *classes_y, const double *freqs_y, int *joint_counts, double *totals, int n,int nbins_x,int nbins_y) {
+    int tid = blockDim.x * blockIdx.x + threadIdx.x;    
+    if (tid==0){
+        double total = 0.0;
+        for (int i=0;i<nbins_x;++i){
+            float prob_x = freqs_x[i];
+            for (int j=0;j<nbins_y;++j){
+                int jc = joint_counts[i*2+j];
+                if (jc>0){
+                    float prob_y = freqs_y[j];
+                    double jf=(float)jc/ (float)n;
+                    total += jf* log(jf / (prob_x * prob_y));
+                }
+            }
+        }    
+        totals[0]=total;
+    }
+}
+""",
+    "compute_mi_from_classes_cuda",
+)
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Old code
@@ -135,10 +181,10 @@ def merge_vars(
     vars_indices: Sequence,
     var_is_nominal: Sequence,
     factors_nbins: Sequence,
-    dtype=np.int64,
+    dtype=np.int32,
     min_occupancy: int = None,
     current_nclasses: int = 1,
-    final_classes: np.ndarray = np.array([], dtype=np.int64),
+    final_classes: np.ndarray = None,  # , dtype=np.int32
     verbose: bool = False,
 ) -> tuple:
     """Melts multiple vectors (partitioned into bins or categories) into one-dimensional one.
@@ -149,7 +195,7 @@ def merge_vars(
     What order is best to use in regard of number of categories and variance of their population density? Big-small,big-small, etc? Starting from most (un)evenly distributed?
     """
 
-    if len(final_classes) == 0:
+    if final_classes is None:
         final_classes = np.zeros(len(factors_data), dtype=dtype)
     for var_number, var_index in enumerate(vars_indices):
 
@@ -208,35 +254,29 @@ def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
 
 
 @njit()
-def mi(factors_data, x: np.ndarray, y: np.ndarray, factors_nbins: np.ndarray, verbose: bool = False) -> float:
+def mi(factors_data, x: np.ndarray, y: np.ndarray, factors_nbins: np.ndarray, verbose: bool = False, dtype=np.int32) -> float:
     """Computes Mutual Information of X, Y via entropy calculations."""
 
-    classes_x, freqs_x, _ = merge_vars(factors_data=factors_data, vars_indices=x, var_is_nominal=None, factors_nbins=factors_nbins, verbose=verbose)
+    classes_x, freqs_x, _ = merge_vars(
+        factors_data=factors_data, vars_indices=x, var_is_nominal=None, factors_nbins=factors_nbins, verbose=verbose, dtype=dtype
+    )
     entropy_x = entropy(freqs=freqs_x)
     if verbose:
         print(f"entropy_x={entropy_x}, nclasses_x={len(freqs_x)} ({classes_x.min()} to {classes_x.max()})")
 
-    _, freqs_y, _ = merge_vars(factors_data=factors_data, vars_indices=y, var_is_nominal=None, factors_nbins=factors_nbins, verbose=verbose)
+    _, freqs_y, _ = merge_vars(factors_data=factors_data, vars_indices=y, var_is_nominal=None, factors_nbins=factors_nbins, verbose=verbose, dtype=dtype)
     entropy_y = entropy(freqs=freqs_y)
     if verbose:
         print(f"entropy_y={entropy_y}, nclasses_y={len(freqs_y)}")
 
     classes_xy, freqs_xy, _ = merge_vars(
-        factors_data=factors_data, vars_indices=set(x) | set(y), var_is_nominal=None, factors_nbins=factors_nbins, verbose=verbose
+        factors_data=factors_data, vars_indices=set(x) | set(y), var_is_nominal=None, factors_nbins=factors_nbins, verbose=verbose, dtype=dtype
     )
     entropy_xy = entropy(freqs=freqs_xy)
     if verbose:
         print(f"entropy_xy={entropy_xy}, nclasses_x={len(freqs_xy)} ({classes_xy.min()} to {classes_xy.max()})")
 
     return entropy_x + entropy_y - entropy_xy
-
-
-@njit()
-def arr2str(arr: Sequence) -> str:
-    s = ""
-    for el in arr:
-        s += str(el)
-    return s
 
 
 @njit()
@@ -253,6 +293,7 @@ def conditional_mi(
     entropy_xyz: float = -1.0,
     entropy_cache: dict = None,
     can_use_y_cache: bool = False,
+    dtype=np.int32,
 ) -> float:
     """
     Conditional Mutual Information about Y by X given Z = I (X ;Y | Z ) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)
@@ -268,7 +309,7 @@ def conditional_mi(
             key = arr2str(z)
             entropy_z = entropy_cache.get(key, -1)
         if entropy_z < 0:
-            _, freqs_z, _ = merge_vars(factors_data=factors_data, vars_indices=z, var_is_nominal=None, factors_nbins=factors_nbins)  # always 1-dim
+            _, freqs_z, _ = merge_vars(factors_data=factors_data, vars_indices=z, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)  # always 1-dim
             entropy_z = entropy(freqs=freqs_z)
             if entropy_cache is not None:
                 entropy_cache[key] = entropy_z
@@ -281,7 +322,7 @@ def conditional_mi(
             key = arr2str(indices)
             entropy_xz = entropy_cache.get(key, -1)
         if entropy_xz < 0:
-            _, freqs_xz, _ = merge_vars(factors_data=factors_data, vars_indices=indices, var_is_nominal=None, factors_nbins=factors_nbins)
+            _, freqs_xz, _ = merge_vars(factors_data=factors_data, vars_indices=indices, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
             entropy_xz = entropy(freqs=freqs_xz)
             if entropy_cache is not None:
                 entropy_cache[key] = entropy_xz
@@ -297,7 +338,7 @@ def conditional_mi(
                 entropy_yz = entropy_cache.get(key, -1)
             if entropy_yz < 0:
                 classes_yz, freqs_yz, current_nclasses_yz = merge_vars(
-                    factors_data=factors_data, vars_indices=indices, var_is_nominal=None, factors_nbins=factors_nbins
+                    factors_data=factors_data, vars_indices=indices, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype
                 )
                 entropy_yz = entropy(freqs=freqs_yz)
                 if entropy_cache is not None:
@@ -306,7 +347,7 @@ def conditional_mi(
             #    caching_hits_yz += 1
     else:
         classes_yz, freqs_yz, current_nclasses_yz = merge_vars(
-            factors_data=factors_data, vars_indices=[*y, *z], var_is_nominal=None, factors_nbins=factors_nbins
+            factors_data=factors_data, vars_indices=[*y, *z], var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype
         )  # always 2-dim
         entropy_yz = entropy(freqs=freqs_yz)
 
@@ -319,7 +360,7 @@ def conditional_mi(
         if entropy_xyz < 0:
             if current_nclasses_yz == 1:
                 classes_yz, freqs_yz, current_nclasses_yz = merge_vars(
-                    factors_data=factors_data, vars_indices=[*y, *z], var_is_nominal=None, factors_nbins=factors_nbins
+                    factors_data=factors_data, vars_indices=[*y, *z], var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype
                 )  # always 2-dim
 
             _, freqs_xyz, _ = merge_vars(
@@ -330,6 +371,7 @@ def conditional_mi(
                 factors_nbins=factors_nbins,
                 current_nclasses=current_nclasses_yz,
                 final_classes=classes_yz,
+                dtype=dtype,
             )  # upper classes of [*y, *z] can serve here. (2+x)-dim, ie 3 to 5 dim.
             entropy_xyz = entropy(freqs=freqs_xyz)
             if entropy_cache is not None and can_use_y_cache:
@@ -342,91 +384,225 @@ def conditional_mi(
 
 @njit()
 def compute_mi_from_classes(
-    classes_x,
-    freqs_x,
-    classes_y,
-    freqs_y,
-    dtype=np.int64,
+    classes_x: np.ndarray,
+    freqs_x: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    dtype=np.int32,
 ) -> float:
+
     joint_counts = np.zeros((len(freqs_x), len(freqs_y)), dtype=dtype)
     for i, j in zip(classes_x, classes_y):
         joint_counts[i, j] += 1
-
     joint_freqs = joint_counts / len(classes_x)
 
     total = 0.0
-    nzeros = 0
     for i in range(len(freqs_x)):
         prob_x = freqs_x[i]
         for j in range(len(freqs_y)):
-            prob_y = freqs_y[j]
             jf = joint_freqs[i, j]
             if jf:
+                prob_y = freqs_y[j]
                 total += jf * math.log(jf / (prob_x * prob_y))
-            else:
-                nzeros += 1
     return total
 
 
 @njit()
+def distribute_permutations(npermutations: int, nworkers: int) -> list:
+
+    avg_perms_per_worker = npermutations // nworkers
+    diff = npermutations - avg_perms_per_worker * nworkers
+    workload = [avg_perms_per_worker] * nworkers
+    if diff > 0:
+        workload[-1] = workload[-1] + diff
+    return workload
+
+
+# @njit()
 def mi_direct(
     factors_data,
     x: tuple,
     y: tuple,
     factors_nbins: np.ndarray,
     min_occupancy: int = None,
-    dtype=np.int64,
-    verbose: bool = False,
-    min_nonzero_confidence: float = 0.95,
+    dtype=np.int32,
     npermutations: int = 10,
+    max_failed: int = None,
+    min_nonzero_confidence: float = 0.95,
+    classes_y: np.ndarray = None,
+    classes_y_safe: cp.ndarray = None,
+    freqs_y: np.ndarray = None,
+    nworkers: int = 1,
+    workers_pool: object = None,
 ) -> tuple:
 
-    classes_x, freqs_x, _ = merge_vars(factors_data=factors_data, vars_indices=x, var_is_nominal=None, factors_nbins=factors_nbins)
-    classes_y, freqs_y, _ = merge_vars(factors_data=factors_data, vars_indices=y, var_is_nominal=None, factors_nbins=factors_nbins)
-    if verbose:
-        print(f"nclasses_x={len(freqs_x)} ({classes_x.min()} to {classes_x.max()}), nclasses_y={len(freqs_y)} ({classes_y.min()} to {classes_y.max()})")
+    classes_x, freqs_x, _ = merge_vars(factors_data=factors_data, vars_indices=x, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
+    if classes_y is None:
+        classes_y, freqs_y, _ = merge_vars(factors_data=factors_data, vars_indices=y, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
 
     original_mi = compute_mi_from_classes(classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y, freqs_y=freqs_y, dtype=dtype)
 
     if original_mi > 0 and npermutations > 0:
-        # inits
-        nfailed = 0
-        max_failed = int(npermutations * (1 - min_nonzero_confidence))
 
-        # # copy factors_data for safe shuffling
-        # if len(x) > 1:
-        #     x_copy = factors_data[:, np.array(x)].copy()
-        #     x_var_nbins = factors_nbins[np.array(x)]
-        # if len(y) > 1:
-        #     y_copy = factors_data[:, np.array(y)].copy()
-        #     y_var_nbins = factors_nbins[np.array(y)]
+        # Inits
+
+        nfailed = 0
+        if not max_failed:
+            max_failed = int(npermutations * (1 - min_nonzero_confidence))
+            if max_failed <= 1:
+                max_failed = 1
+
+        if nworkers > 1 and npermutations > NMAX_NONPARALLEL_ITERS:
+
+            # logger.info("Memmapping classes_x...")
+            # classes_x_memmap = mem_map_array(obj=classes_x, file_name="classes_x", mmap_mode="r")
+
+            if workers_pool is None:
+                workers_pool = Parallel(n_jobs=nworkers, max_nbytes=MAX_JOBLIB_NBYTES)
+
+            res = workers_pool(
+                delayed(parallel_mi)(
+                    classes_x=classes_x,
+                    freqs_x=freqs_x,
+                    classes_y=classes_y_safe,
+                    freqs_y=freqs_y,
+                    dtype=dtype,
+                    npermutations=worker_npermutations,
+                    original_mi=original_mi,
+                    max_failed=max_failed,
+                )
+                for worker_npermutations in distribute_permutations(npermutations=npermutations, nworkers=nworkers)
+            )
+
+            i = 0
+            for worker_nfailed, worker_i in res:
+                nfailed += worker_nfailed
+                i += worker_i
+
+            if nfailed >= max_failed:
+                original_mi = 0.0
+
+        else:
+
+            if classes_y_safe is None:
+                classes_y_safe = classes_y.copy()
+
+            for i in range(npermutations):
+
+                np.random.shuffle(classes_y_safe)
+                mi = compute_mi_from_classes(classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y_safe, freqs_y=freqs_y, dtype=dtype)
+
+                if mi >= original_mi:
+                    nfailed += 1
+                    if nfailed >= max_failed:
+                        original_mi = 0.0
+                        break
+
+        confidence = 1 - nfailed / (i + 1)
+
+    else:
+        confidence = 0
+
+    return original_mi, confidence
+
+
+@njit()
+def parallel_mi(
+    classes_x: np.ndarray,
+    freqs_x: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    npermutations: int,
+    original_mi: float,
+    max_failed: int,
+    dtype=np.int32,
+) -> int:
+
+    # print("In parallel_mi. Copying classes_y...")
+    nfailed = 0
+    classes_y_safe = np.asarray(classes_y).copy()
+    # print("In parallel_mi. Copied.")
+    for i in range(npermutations):
+
+        np.random.shuffle(classes_y_safe)
+        mi = compute_mi_from_classes(classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y_safe, freqs_y=freqs_y, dtype=dtype)
+
+        if mi >= original_mi:
+            nfailed += 1
+            if nfailed >= max_failed:
+                break
+    return nfailed, i + 1
+
+
+def mi_direct_gpu(
+    factors_data,
+    x: tuple,
+    y: tuple,
+    factors_nbins: np.ndarray,
+    min_occupancy: int = None,
+    dtype=np.int32,
+    npermutations: int = 10,
+    max_failed: int = None,
+    min_nonzero_confidence: float = 0.95,
+    classes_y: np.ndarray = None,
+    classes_y_safe: cp.ndarray = None,
+    freqs_y: np.ndarray = None,
+    freqs_y_safe: cp.ndarray = None,
+    use_gpu: bool = True,
+) -> tuple:
+
+    classes_x, freqs_x, _ = merge_vars(factors_data=factors_data, vars_indices=x, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
+    if classes_y is None:
+        classes_y, freqs_y, _ = merge_vars(factors_data=factors_data, vars_indices=y, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
+
+    original_mi = compute_mi_from_classes(classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y, freqs_y=freqs_y, dtype=dtype)
+
+    if original_mi > 0 and npermutations > 0:
+
+        # Inits
+
+        if not max_failed:
+            max_failed = int(npermutations * (1 - min_nonzero_confidence))
+            if max_failed <= 1:
+                max_failed = 1
+
+        if classes_y_safe is None:
+            classes_y_safe = cp.asarray(classes_y).astype(cp.int32)
+        if freqs_y_safe is None:
+            freqs_y_safe = cp.asarray(freqs_y)
+
+        totals = cp.zeros(1, dtype=np.float64)
+        joint_counts = cp.zeros((len(freqs_x), len(freqs_y)), dtype=cp.int32)
+
+        block_size = GPU_MAX_BLOCK_SIZE
+        grid_size = math.ceil(len(classes_x) / block_size)
+
+        classes_x = cp.asarray(classes_x.astype(np.int32))
+        freqs_x = cp.asarray(freqs_x)
 
         for i in range(npermutations):
-            # if len(x) > 1:
-            #     for idx in range(len(x)):
-            #         np.random.shuffle(x_copy[:, idx])
-            #     classes_x, freqs_x, _ = merge_vars(factors_data=x_copy, vars_indices=np.arange(len(x)), var_is_nominal=None, factors_nbins=x_var_nbins)
-            # else:
-            #     np.random.shuffle(classes_x)
 
-            # if len(y) > 1:
-            #     for idx in range(len(y)):
-            #         np.random.shuffle(y_copy[:, idx])
-            #     classes_y, freqs_y, _ = merge_vars(factors_data=y_copy, vars_indices=np.arange(len(y)), var_is_nominal=None, factors_nbins=y_var_nbins)
-            # else:
-            #     np.random.shuffle(classes_y)
+            cp.random.shuffle(classes_y_safe)
+            joint_counts.fill(0)
+            compute_joint_hist_cuda(
+                (grid_size,),
+                (block_size,),
+                (classes_x, classes_y_safe, joint_counts, len(classes_x), len(freqs_y)),
+            )
+            compute_mi_from_classes_cuda(
+                (1,),
+                (1,),
+                (classes_x, freqs_x, classes_y_safe, freqs_y_safe, joint_counts, totals, len(classes_x), len(freqs_x), len(freqs_y)),
+            )
 
-            np.random.shuffle(classes_y)
+            mi = totals.get()[0]
 
-            mi = compute_mi_from_classes(classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y, freqs_y=freqs_y, dtype=dtype)
             if mi >= original_mi:
                 nfailed += 1
                 if nfailed >= max_failed:
                     original_mi = 0.0
                     break
         confidence = 1 - nfailed / (i + 1)
-        if verbose:
-            print("confidence=", confidence, "nfailed=", nfailed)
     else:
         confidence = 0
 
@@ -483,7 +659,7 @@ def should_skip_candidate(
             return True
 
 
-@njit()
+# @njit()
 def get_fleuret_criteria_confidence(
     data_copy: np.ndarray,
     factors_nbins: np.ndarray,
@@ -493,28 +669,106 @@ def get_fleuret_criteria_confidence(
     bootstrapped_gain: float,
     npermutations: int,
     max_failed: int,
+    nworkers: int = 1,
+    workers_pool: object = None,
     entropy_cache: dict = None,
+    dtype=np.int32,
 ) -> tuple:
 
     nfailed = 0
-    # permute X,Y,Z npermutations times
+
+    if nworkers > 1 and npermutations > NMAX_NONPARALLEL_ITERS:
+
+        entropy_cache_dict = dict(entropy_cache)
+        if workers_pool is None:
+            workers_pool = Parallel(n_jobs=nworkers, max_nbytes=MAX_JOBLIB_NBYTES)
+        res = workers_pool(
+            delayed(parallel_fleuret)(
+                data=data_copy,
+                factors_nbins=factors_nbins,
+                x=x,
+                y=y,
+                selected_vars=selected_vars,
+                npermutations=worker_npermutations,
+                bootstrapped_gain=bootstrapped_gain,
+                max_failed=max_failed,
+                entropy_cache=entropy_cache_dict,
+                dtype=dtype,
+            )
+            for worker_npermutations in distribute_permutations(npermutations=npermutations, nworkers=nworkers)
+        )
+
+        i = 0
+        for worker_nfailed, worker_i in res:
+            nfailed += worker_nfailed
+            i += worker_i
+
+        if nfailed >= max_failed:
+            bootstrapped_gain = 0.0
+
+    else:
+
+        for i in range(npermutations):
+
+            current_gain = LARGE_CONST
+
+            for idx in y:
+                np.random.shuffle(data_copy[:, idx])
+
+            for Z in selected_vars:
+
+                additional_knowledge = conditional_mi(
+                    factors_data=data_copy, x=x, y=y, z=(Z,), var_is_nominal=None, factors_nbins=factors_nbins, entropy_cache=entropy_cache, dtype=dtype
+                )
+
+                if additional_knowledge < current_gain:
+
+                    current_gain = additional_knowledge
+
+            if current_gain >= bootstrapped_gain:
+                nfailed += 1
+                if nfailed >= max_failed:
+                    bootstrapped_gain = 0.0
+                    break
+    confidence = 1 - nfailed / (i + 1)
+
+    return bootstrapped_gain, confidence
+
+
+def parallel_fleuret(
+    data: np.ndarray,
+    factors_nbins: np.ndarray,
+    x: tuple,
+    y: tuple,
+    selected_vars: list,
+    npermutations: int,
+    bootstrapped_gain: float,
+    max_failed: int,
+    entropy_cache: dict = None,
+    dtype=np.int32,
+):
+
+    data_copy = data.copy()
+
+    entropy_cache_dict = numba.typed.Dict.empty(
+        key_type=types.unicode_type,
+        value_type=types.float64,
+    )
+    python_dict_2_numba_dict(python_dict=entropy_cache, numba_dict=entropy_cache_dict)
+
+    nfailed = 0
 
     for i in range(npermutations):
 
-        current_gain = 1e30
+        current_gain = LARGE_CONST
 
         for idx in y:
             np.random.shuffle(data_copy[:, idx])
-        # for idx in x:
-        #     np.random.shuffle(data_copy[:, idx])
 
         for Z in selected_vars:
 
-            # for idx in [Z]:
-            #     np.random.shuffle(data_copy[:, idx])
-
             additional_knowledge = conditional_mi(
-                factors_data=data_copy, x=x, y=y, z=(Z,), var_is_nominal=None, factors_nbins=factors_nbins, entropy_cache=entropy_cache
+                factors_data=data_copy, x=x, y=y, z=(Z,), var_is_nominal=None, factors_nbins=factors_nbins, entropy_cache=entropy_cache_dict, dtype=dtype
             )
 
             if additional_knowledge < current_gain:
@@ -524,11 +778,9 @@ def get_fleuret_criteria_confidence(
         if current_gain >= bootstrapped_gain:
             nfailed += 1
             if nfailed >= max_failed:
-                bootstrapped_gain = 0.0
                 break
-    confidence = 1 - nfailed / (i + 1)
 
-    return bootstrapped_gain, confidence
+    return nfailed, i + 1
 
 
 def evaluate_candidate(
@@ -543,12 +795,18 @@ def evaluate_candidate(
     partial_gains: dict,
     selected_vars: list,
     baseline_npermutations: int,
-    cached_MIs: dict,
-    cached_confident_MIs: dict,
-    cached_cond_MIs: dict,
+    classes_y: np.ndarray = None,
+    classes_y_safe: np.ndarray = None,
+    freqs_y: np.ndarray = None,
+    freqs_y_safe: np.ndarray = None,
+    use_gpu: bool = True,
+    cached_MIs: dict = None,
+    cached_confident_MIs: dict = None,
+    cached_cond_MIs: dict = None,
     entropy_cache: dict = None,
     mrmr_relevance_algo: str = "fleuret",
     mrmr_redundancy_algo: str = "fleuret",
+    dtype=np.int32,
     verbose: int = 1,
     ndigits: int = 5,
 ) -> None:
@@ -563,7 +821,33 @@ def evaluate_candidate(
         if X in cached_MIs:
             direct_gain = cached_MIs[X]
         else:
-            direct_gain, _ = mi_direct(factors_data, x=X, y=y, factors_nbins=factors_nbins, min_nonzero_confidence=1.0, npermutations=baseline_npermutations)
+            if use_gpu:
+                direct_gain, _ = mi_direct_gpu(
+                    factors_data,
+                    x=X,
+                    y=y,
+                    factors_nbins=factors_nbins,
+                    classes_y=classes_y,
+                    classes_y_safe=classes_y_safe,
+                    freqs_y=freqs_y,
+                    freqs_y_safe=freqs_y_safe,
+                    min_nonzero_confidence=1.0,
+                    npermutations=baseline_npermutations,
+                    dtype=dtype,
+                )
+            else:
+                direct_gain, _ = mi_direct(
+                    factors_data,
+                    x=X,
+                    y=y,
+                    factors_nbins=factors_nbins,
+                    classes_y=classes_y,
+                    classes_y_safe=classes_y_safe,
+                    freqs_y=freqs_y,
+                    min_nonzero_confidence=1.0,
+                    npermutations=baseline_npermutations,
+                    dtype=dtype,
+                )
             cached_MIs[X] = direct_gain
 
     if direct_gain > 0:
@@ -612,6 +896,7 @@ def evaluate_candidate(
                                 factors_nbins=factors_nbins,
                                 entropy_cache=entropy_cache,
                                 can_use_y_cache=True,
+                                dtype=dtype,
                             )
                             cached_cond_MIs[key] = additional_knowledge
 
@@ -685,7 +970,10 @@ def screen_predictors(
     mrmr_relevance_algo: str = "fleuret",
     mrmr_redundancy_algo: str = "fleuret",
     # performance
-    dtype=np.int64,
+    dtype=np.int32,
+    random_seed: int = None,
+    use_gpu: bool = False,
+    nworkers: int = 1,
     # confidence
     min_occupancy: int = None,
     min_nonzero_confidence: float = 0.99,
@@ -769,7 +1057,18 @@ def screen_predictors(
     start_time = timer()
     run_out_of_time = False
 
+    if random_seed is not None:
+        np.random.seed(random_seed)
+        cp.random.seed(random_seed)
+        set_random_seed(random_seed)
+
     max_failed = int(full_npermutations * (1 - min_nonzero_confidence))
+    if max_failed <= 1:
+        max_failed = 1
+    if verbose:
+        logger.info(
+            f"Starting with full_npermutations={full_npermutations:_}, min_nonzero_confidence={min_nonzero_confidence:.{ndigits}f}, max_failed={max_failed:_}"
+        )
 
     selected_interactions_vars = []
     selected_vars = []  # stores just indices. can't use set 'cause the order is important for efficient computing
@@ -784,6 +1083,20 @@ def screen_predictors(
     )
 
     data_copy = factors_data.copy()
+
+    classes_y, freqs_y, _ = merge_vars(factors_data=factors_data, vars_indices=y, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
+    classes_y_safe = classes_y.copy()
+
+    if use_gpu:
+        classes_y_safe = cp.asarray(classes_y.astype(np.int32))
+        freqs_y_safe = cp.asarray(freqs_y)
+    else:
+        freqs_y_safe = None
+
+    if nworkers > 1:
+        #    global classes_y_memmap
+        #    classes_y_memmap = mem_map_array(obj=classes_y, file_name="classes_y", mmap_mode="r")
+        workers_pool = Parallel(n_jobs=nworkers, max_nbytes=MAX_JOBLIB_NBYTES)
 
     subsets = range(interactions_min_order, interactions_max_order + 1)
     if interactions_order_reversed:
@@ -849,6 +1162,11 @@ def screen_predictors(
                         factors_data=factors_data,
                         factors_nbins=factors_nbins,
                         factors_names=factors_names,
+                        classes_y=classes_y,
+                        classes_y_safe=classes_y_safe,
+                        freqs_y=freqs_y,
+                        use_gpu=use_gpu,
+                        freqs_y_safe=freqs_y_safe,
                         partial_gains=partial_gains,
                         baseline_npermutations=baseline_npermutations,
                         mrmr_relevance_algo=mrmr_relevance_algo,
@@ -899,9 +1217,11 @@ def screen_predictors(
                     for n, next_best_candidate_idx in enumerate(np.argsort(expected_gains)[::-1]):
                         next_best_gain = expected_gains[next_best_candidate_idx]
                         if next_best_gain >= min_relevance_gain:  # only can consider here candidates fully checked against every Z
+
                             X = candidates[next_best_candidate_idx]
+
                             # ---------------------------------------------------------------------------------------------------------------
-                            # for cands other than the top one, if best partial gain <= next_best_gain, we can proceed with confirming next_best_gain. else we have to recompute partial gains
+                            # For cands other than the top one, if best partial gain <= next_best_gain, we can proceed with confirming next_best_gain. else we have to recompute partial gains
                             # ---------------------------------------------------------------------------------------------------------------
 
                             if n > 0:
@@ -935,18 +1255,42 @@ def screen_predictors(
                             # ---------------------------------------------------------------------------------------------------------------
                             # Compute confidence by bootstrap
                             # ---------------------------------------------------------------------------------------------------------------
+
                             total_checked += 1
                             if X in cached_confident_MIs:
                                 bootstrapped_gain, confidence = cached_confident_MIs[X]
                             else:
-                                bootstrapped_gain, confidence = mi_direct(
-                                    factors_data,
-                                    x=X,
-                                    y=y,
-                                    factors_nbins=factors_nbins,
-                                    min_nonzero_confidence=min_nonzero_confidence,
-                                    npermutations=full_npermutations,
-                                )
+                                if use_gpu:
+                                    bootstrapped_gain, confidence = mi_direct_gpu(
+                                        factors_data,
+                                        x=X,
+                                        y=y,
+                                        factors_nbins=factors_nbins,
+                                        classes_y=classes_y,
+                                        freqs_y=freqs_y,
+                                        freqs_y_safe=freqs_y_safe,
+                                        classes_y_safe=classes_y_safe,
+                                        min_nonzero_confidence=min_nonzero_confidence,
+                                        npermutations=full_npermutations,
+                                    )
+                                else:
+                                    if len(selected_vars) < 5:
+                                        eval_start = timer()
+                                    bootstrapped_gain, confidence = mi_direct(
+                                        factors_data,
+                                        x=X,
+                                        y=y,
+                                        factors_nbins=factors_nbins,
+                                        classes_y=classes_y,
+                                        freqs_y=freqs_y,
+                                        classes_y_safe=classes_y_safe,
+                                        min_nonzero_confidence=min_nonzero_confidence,
+                                        npermutations=full_npermutations,
+                                        nworkers=nworkers,
+                                        workers_pool=workers_pool,
+                                    )
+                                    if len(selected_vars) < 5:
+                                        print("mi_direct bootstrapped eval took", timer() - eval_start)
                                 cached_confident_MIs[X] = bootstrapped_gain, confidence
 
                             if bootstrapped_gain > 0 and selected_vars:  # additional check of Fleuret criteria
@@ -954,7 +1298,8 @@ def screen_predictors(
                                 # ---------------------------------------------------------------------------------------------------------------
                                 # external bootstrapped recheck. is minimal MI of candidate X with Y given all current Zs THAT BIG as next_best_gain?
                                 # ---------------------------------------------------------------------------------------------------------------
-
+                                if len(selected_vars) < 5:
+                                    eval_start = timer()
                                 bootstrapped_gain, confidence = get_fleuret_criteria_confidence(
                                     data_copy=data_copy,
                                     factors_nbins=factors_nbins,
@@ -965,8 +1310,11 @@ def screen_predictors(
                                     npermutations=full_npermutations,
                                     max_failed=max_failed,
                                     entropy_cache=entropy_cache,
+                                    nworkers=nworkers,
+                                    workers_pool=workers_pool,
                                 )
-
+                                if len(selected_vars) < 5:
+                                    print("get_fleuret_criteria_confidence bootstrapped eval took", timer() - eval_start)
                             # ---------------------------------------------------------------------------------------------------------------
                             # Report this particular best candidate
                             # ---------------------------------------------------------------------------------------------------------------
@@ -1064,22 +1412,27 @@ def screen_predictors(
                 predictors.append({"name": cand_name, "indices": best_candidate, "gain": best_gain, "confidence": confidence})
             else:
                 if verbose:
-                    logger.info(
-                        f"Can't add anything valuable anymore for interactions_order={interactions_order}. Total candidates disproved: {total_disproved:_}/{total_checked:_} ({total_disproved*100/total_checked:.2f}%)"
-                    )
+                    if total_checked > 0:
+                        details = f" Total candidates disproved: {total_disproved:_}/{total_checked:_} ({total_disproved*100/total_checked:.2f}%)"
+                    else:
+                        details = ""
+                    logger.info(f"Can't add anything valuable anymore for interactions_order={interactions_order}.{details}")
+                predictors_pbar.total = len(candidates)
+                predictors_pbar.close()
                 break
 
     # postprocess_candidates(selected_vars)
     # print(caching_hits_xyz, caching_hits_z, caching_hits_xz, caching_hits_yz)
     if verbose:
         logger.info(f"Finished.")
+
     return selected_vars, predictors
 
 
 def find_best_partial_gain(
     partial_gains: dict, failed_candidates: set, added_candidates: set, candidates: list, selected_vars: list, skip_indices: tuple = ()
 ) -> float:
-    best_partial_gain = -1e30
+    best_partial_gain = -LARGE_CONST
     best_key = None
     for key, value in partial_gains.items():
         if (key not in failed_candidates) and (key not in added_candidates) and (key not in skip_indices):
@@ -1102,10 +1455,14 @@ def postprocess_candidates(
     factors_data: np.ndarray,
     y: np.ndarray,
     factors_nbins: np.ndarray,
+    classes_y: np.ndarray = None,
+    freqs_y: np.ndarray = None,
+    classes_y_safe: np.ndarray = None,
     min_nonzero_confidence: float = 0.99999,
     npermutations: int = 10_000,
     interactions_max_order: int = 1,
     ensure_target_influence: bool = True,
+    dtype=np.int32,
     verbose: bool = True,
 ):
     """Post-analysis of prescreened candidates.
@@ -1127,6 +1484,9 @@ def postprocess_candidates(
                 x=[X],
                 y=y,
                 factors_nbins=factors_nbins,
+                classes_y=classes_y,
+                freqs_y=freqs_y,
+                classes_y_safe=classes_y_safe,
                 min_nonzero_confidence=min_nonzero_confidence,
                 npermutations=npermutations,
             )
@@ -1156,7 +1516,7 @@ def postprocess_candidates(
     entropies = {}
     mutualinfos = {}
     for X in tqdmu(selected_vars, desc="Marginal stats", leave=False):
-        _, freqs, _ = merge_vars(factors_data=factors_data, vars_indices=[X], factors_nbins=factors_nbins, var_is_nominal=None)
+        _, freqs, _ = merge_vars(factors_data=factors_data, vars_indices=[X], factors_nbins=factors_nbins, var_is_nominal=None, dtype=dtype)
         factor_entropy = entropy(freqs=freqs)
         entropies[X] = factor_entropy
 
@@ -1166,6 +1526,9 @@ def postprocess_candidates(
             x=[a],
             y=[b],
             factors_nbins=factors_nbins,
+            classes_y=classes_y,
+            freqs_y=freqs_y,
+            classes_y_safe=classes_y_safe,
             min_nonzero_confidence=min_nonzero_confidence,
             npermutations=npermutations,
         )
