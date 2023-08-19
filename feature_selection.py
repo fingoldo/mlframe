@@ -454,7 +454,7 @@ def mi_direct(
             if max_failed <= 1:
                 max_failed = 1
 
-        if nworkers > 1 and npermutations > NMAX_NONPARALLEL_ITERS:
+        if nworkers and nworkers > 1 and npermutations > NMAX_NONPARALLEL_ITERS:
 
             # logger.info("Memmapping classes_x...")
             # classes_x_memmap = mem_map_array(obj=classes_x, file_name="classes_x", mmap_mode="r")
@@ -868,6 +868,9 @@ def evaluate_candidates(
     best_candidate = None
     expected_gains = {}
 
+    global logger
+    logger = logging.getLogger(__name__)
+
     entropy_cache_dict = numba.typed.Dict.empty(
         key_type=types.unicode_type,
         value_type=types.float64,
@@ -903,6 +906,7 @@ def evaluate_candidates(
             entropy_cache=entropy_cache_dict,
             verbose=verbose,
             ndigits=ndigits,
+            dtype=dtype,
         )
 
         best_gain, best_candidate, run_out_of_time = handle_best_candidate(
@@ -949,10 +953,12 @@ def handle_best_candidate(
         best_candidate = X
         best_gain = current_gain
         if verbose > 1:
-            print(f"\t{get_candidate_name(best_candidate,factors_names=factors_names)} is so far the best candidate with best_gain={best_gain:.{ndigits}f}")
+            logger.info(
+                f"\t{get_candidate_name(best_candidate,factors_names=factors_names)} is so far the best candidate with best_gain={best_gain:.{ndigits}f}"
+            )
     else:
         if min_relevance_gain and verbose > 1 and current_gain > min_relevance_gain:
-            print(f"\t\t{get_candidate_name(X,factors_names=factors_names)} current_gain={current_gain:.{ndigits}f}")
+            logger.info(f"\t\t{get_candidate_name(X,factors_names=factors_names)} current_gain={current_gain:.{ndigits}f}")
 
     if max_runtime_mins and not run_out_of_time:
         run_out_of_time = (timer() - start_time) > max_runtime_mins * 60
@@ -1270,13 +1276,15 @@ def screen_predictors(
     else:
         freqs_y_safe = None
 
-    if nworkers > 1:
+    if nworkers and nworkers > 1:
         #    global classes_y_memmap
         #    classes_y_memmap = mem_map_array(obj=classes_y, file_name="classes_y", mmap_mode="r")
         if verbose:
             logger.info("Starting parallel pool...")
         workers_pool = Parallel(n_jobs=nworkers)  # , max_nbytes=MAX_JOBLIB_NBYTES
         workers_pool(delayed(test)(i) for i in range(nworkers))
+    else:
+        workers_pool = None
 
     subsets = range(interactions_min_order, interactions_max_order + 1)
     if interactions_order_reversed:
@@ -1321,6 +1329,7 @@ def screen_predictors(
             # ---------------------------------------------------------------------------------------------------------------
 
             best_gain = min_relevance_gain - 1
+            best_candidate = None
             expected_gains = np.zeros(len(candidates), dtype=np.float64)
 
             while True:  # confirmation loop (by random permutations)
@@ -1345,7 +1354,7 @@ def screen_predictors(
 
                     feasible_candidates.append((cand_idx, X))
 
-                if nworkers > 1 and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS:
+                if nworkers and nworkers > 1 and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS:
 
                     res = workers_pool(
                         delayed(evaluate_candidates)(
@@ -1393,7 +1402,6 @@ def screen_predictors(
 
                         # sync caches
                         for local_storage, global_storage in [
-                            (worker_partial_gains, partial_gains),
                             (worker_expected_gains, expected_gains),
                             (worker_cached_MIs, cached_MIs),
                             (worker_cached_cond_MIs, cached_cond_MIs),
@@ -1402,6 +1410,14 @@ def screen_predictors(
                             for key, value in local_storage.items():
                                 global_storage[key] = value
 
+                        for cand_idx, (worker_current_gain, worker_z_idx) in worker_partial_gains.items():
+                            if cand_idx in partial_gains:
+                                current_gain, z_idx = partial_gains[cand_idx]
+                            else:
+                                z_idx = -2
+                            if worker_z_idx > z_idx:
+                                partial_gains[cand_idx] = (worker_current_gain, worker_z_idx)
+
                     if max_runtime_mins and not run_out_of_time:
                         run_out_of_time = (timer() - start_time) > max_runtime_mins * 60
                         if run_out_of_time:
@@ -1409,7 +1425,7 @@ def screen_predictors(
                             break
 
                     if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
-                        logger.info(f"evaluate_candidates took {timer() - eval_start} sec.")
+                        logger.info(f"evaluate_candidates took {timer() - eval_start:.1f} sec.")
 
                 else:
                     for cand_idx, X in (candidates_pbar := tqdmu(feasible_candidates, leave=False, desc="Candidates")):
@@ -1501,11 +1517,8 @@ def screen_predictors(
 
                             any_cand_considered = True
                             if verbose > 1:
-                                print(
-                                    "confirming candidate",
-                                    get_candidate_name(X, factors_names=factors_names),
-                                    "next_best_gain=",
-                                    next_best_gain,
+                                logger.info(
+                                    f"confirming candidate {get_candidate_name(X, factors_names=factors_names)}, next_best_gain={next_best_gain:.{ndigits}f}"
                                 )
 
                             # ---------------------------------------------------------------------------------------------------------------
@@ -1546,7 +1559,7 @@ def screen_predictors(
                                         workers_pool=workers_pool,
                                     )
                                     if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
-                                        logger.info(f"mi_direct bootstrapped eval took {timer() - eval_start} sec.")
+                                        logger.info(f"mi_direct bootstrapped eval took {timer() - eval_start:.1f} sec.")
                                 cached_confident_MIs[X] = bootstrapped_gain, confidence
 
                             if bootstrapped_gain > 0 and selected_vars:  # additional check of Fleuret criteria
@@ -1557,7 +1570,7 @@ def screen_predictors(
                                 if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                                     eval_start = timer()
 
-                                if nworkers > 1 and full_npermutations > NMAX_NONPARALLEL_ITERS:
+                                if nworkers and nworkers > 1 and full_npermutations > NMAX_NONPARALLEL_ITERS:
                                     bootstrapped_gain, confidence, parallel_entropy_cache = get_fleuret_criteria_confidence_parallel(
                                         data_copy=data_copy,
                                         factors_nbins=factors_nbins,
@@ -1586,7 +1599,7 @@ def screen_predictors(
                                         entropy_cache=entropy_cache,
                                     )
                                 if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
-                                    logger.info(f"get_fleuret_criteria_confidence bootstrapped eval took {timer() - eval_start} sec.")
+                                    logger.info(f"get_fleuret_criteria_confidence bootstrapped eval took {timer() - eval_start:.1f} sec.")
                             # ---------------------------------------------------------------------------------------------------------------
                             # Report this particular best candidate
                             # ---------------------------------------------------------------------------------------------------------------
@@ -1613,19 +1626,19 @@ def screen_predictors(
                                 if best_partial_gain > next_best_gain:
                                     if verbose > 1:
                                         logger.info(
-                                            f"\tCandidate's lowered confidence {confidence} requires re-checking other candidates, as now its expected gain is only {next_best_gain:.{ndigits}f}, vs {best_partial_gain:.{ndigits}f}, of {get_candidate_name(candidates[best_key], factors_names=factors_names)}"
+                                            f"\t\tCandidate's lowered confidence {confidence} requires re-checking other candidates, as now its expected gain is only {next_best_gain:.{ndigits}f}, vs {best_partial_gain:.{ndigits}f}, of {get_candidate_name(candidates[best_key], factors_names=factors_names)}"
                                         )
                                     break  # out of best candidates confirmation, to retry all cands evaluation
                                 else:
                                     cand_confirmed = True
                                     if verbose > 1:
-                                        logger.info(f"\tconfirmed with confidence {confidence:.{ndigits}f}")
+                                        logger.info(f"\t\tconfirmed with confidence {confidence:.{ndigits}f}")
                                     break  # out of best candidates confirmation, to add candidate to the list, and go to more candidates
                             else:
                                 expected_gains[next_best_candidate_idx] = 0.0
                                 failed_candidates.add(next_best_candidate_idx)
                                 if verbose > 1:
-                                    logger.info(f"\tconfirmation failed with {confidence:.{ndigits}f}")
+                                    logger.info(f"\t\tconfirmation failed with confidence {confidence:.{ndigits}f}")
 
                                 nconsec_unconfirmed += 1
                                 total_disproved += 1
