@@ -659,8 +659,52 @@ def should_skip_candidate(
             return True
 
 
-# @njit()
+@njit()
 def get_fleuret_criteria_confidence(
+    data_copy: np.ndarray,
+    factors_nbins: np.ndarray,
+    x: tuple,
+    y: tuple,
+    selected_vars: list,
+    bootstrapped_gain: float,
+    npermutations: int,
+    max_failed: int,
+    entropy_cache: dict = None,
+    dtype=np.int32,
+) -> tuple:
+    """This sub is kept separate to allow njitted single-core execution (call to workers_pool would prevent njitting)."""
+
+    nfailed = 0
+
+    for i in range(npermutations):
+
+        current_gain = LARGE_CONST
+
+        for idx in y:
+            np.random.shuffle(data_copy[:, idx])
+
+        for Z in selected_vars:
+
+            additional_knowledge = conditional_mi(
+                factors_data=data_copy, x=x, y=y, z=(Z,), var_is_nominal=None, factors_nbins=factors_nbins, entropy_cache=entropy, dtype=dtype
+            )
+
+            if additional_knowledge < current_gain:
+
+                current_gain = additional_knowledge
+
+        if current_gain >= bootstrapped_gain:
+            nfailed += 1
+            if nfailed >= max_failed:
+                bootstrapped_gain = 0.0
+                break
+
+    confidence = 1 - nfailed / (i + 1)
+
+    return bootstrapped_gain, confidence
+
+
+def get_fleuret_criteria_confidence_parallel(
     data_copy: np.ndarray,
     factors_nbins: np.ndarray,
     x: tuple,
@@ -676,60 +720,34 @@ def get_fleuret_criteria_confidence(
 ) -> tuple:
 
     nfailed = 0
+    entropy_cache_dict = dict(entropy_cache) # entropy_cache needs to be unjitted before sending to joblib.
 
-    if nworkers > 1 and npermutations > NMAX_NONPARALLEL_ITERS:
-
-        entropy_cache_dict = dict(entropy_cache)
-        if workers_pool is None:
-            workers_pool = Parallel(n_jobs=nworkers, max_nbytes=MAX_JOBLIB_NBYTES)
-        res = workers_pool(
-            delayed(parallel_fleuret)(
-                data=data_copy,
-                factors_nbins=factors_nbins,
-                x=x,
-                y=y,
-                selected_vars=selected_vars,
-                npermutations=worker_npermutations,
-                bootstrapped_gain=bootstrapped_gain,
-                max_failed=max_failed,
-                entropy_cache=entropy_cache_dict,
-                dtype=dtype,
-            )
-            for worker_npermutations in distribute_permutations(npermutations=npermutations, nworkers=nworkers)
+    if workers_pool is None:
+        workers_pool = Parallel(n_jobs=nworkers, max_nbytes=MAX_JOBLIB_NBYTES)
+    res = workers_pool(
+        delayed(parallel_fleuret)(
+            data=data_copy,
+            factors_nbins=factors_nbins,
+            x=x,
+            y=y,
+            selected_vars=selected_vars,
+            npermutations=worker_npermutations,
+            bootstrapped_gain=bootstrapped_gain,
+            max_failed=max_failed,
+            entropy_cache=entropy_cache_dict,
+            dtype=dtype,
         )
+        for worker_npermutations in distribute_permutations(npermutations=npermutations, nworkers=nworkers)
+    )
 
-        i = 0
-        for worker_nfailed, worker_i in res:
-            nfailed += worker_nfailed
-            i += worker_i
+    i = 0
+    for worker_nfailed, worker_i in res:
+        nfailed += worker_nfailed
+        i += worker_i
 
-        if nfailed >= max_failed:
-            bootstrapped_gain = 0.0
+    if nfailed >= max_failed:
+        bootstrapped_gain = 0.0
 
-    else:
-
-        for i in range(npermutations):
-
-            current_gain = LARGE_CONST
-
-            for idx in y:
-                np.random.shuffle(data_copy[:, idx])
-
-            for Z in selected_vars:
-
-                additional_knowledge = conditional_mi(
-                    factors_data=data_copy, x=x, y=y, z=(Z,), var_is_nominal=None, factors_nbins=factors_nbins, entropy_cache=entropy_cache, dtype=dtype
-                )
-
-                if additional_knowledge < current_gain:
-
-                    current_gain = additional_knowledge
-
-            if current_gain >= bootstrapped_gain:
-                nfailed += 1
-                if nfailed >= max_failed:
-                    bootstrapped_gain = 0.0
-                    break
     confidence = 1 - nfailed / (i + 1)
 
     return bootstrapped_gain, confidence
@@ -747,7 +765,7 @@ def parallel_fleuret(
     entropy_cache: dict = None,
     dtype=np.int32,
 ):
-
+    """Stub that gets called by joblib directly. Njits entropy_cache, allocates data copy. Calls fast njitted core sub."""
     data_copy = data.copy()
 
     entropy_cache_dict = numba.typed.Dict.empty(
@@ -755,6 +773,23 @@ def parallel_fleuret(
         value_type=types.float64,
     )
     python_dict_2_numba_dict(python_dict=entropy_cache, numba_dict=entropy_cache_dict)
+
+    return parallel_fleuret_core(data=data_copy,factors_nbins=factors_nbins,x=x,   y=y,selected_vars=selected_vars,npermutations=npermutations,bootstrapped_gain=bootstrapped_gain,max_failed=max_failed,entropy_cache=entropy_cache_dict,   dtype=dtype)
+
+@njit()
+def parallel_fleuret_core(
+    data_copy: np.ndarray,
+    factors_nbins: np.ndarray,
+    x: tuple,
+    y: tuple,
+    selected_vars: list,
+    npermutations: int,
+    bootstrapped_gain: float,
+    max_failed: int,
+    entropy_cache: dict = None,
+    dtype=np.int32,
+):
+    """Sub to njit work with random shuffling as well."""
 
     nfailed = 0
 
@@ -768,7 +803,7 @@ def parallel_fleuret(
         for Z in selected_vars:
 
             additional_knowledge = conditional_mi(
-                factors_data=data_copy, x=x, y=y, z=(Z,), var_is_nominal=None, factors_nbins=factors_nbins, entropy_cache=entropy_cache_dict, dtype=dtype
+                factors_data=data_copy, x=x, y=y, z=(Z,), var_is_nominal=None, factors_nbins=factors_nbins, entropy_cache=entropy_cache, dtype=dtype
             )
 
             if additional_knowledge < current_gain:
@@ -780,7 +815,7 @@ def parallel_fleuret(
             if nfailed >= max_failed:
                 break
 
-    return nfailed, i + 1
+    return nfailed, i + 1    
 
 
 def evaluate_candidate(
