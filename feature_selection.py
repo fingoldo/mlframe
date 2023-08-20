@@ -636,7 +636,7 @@ def should_skip_candidate(
     ('cause of being already accepted, failed, computed).
     """
 
-    nexisting=0
+    nexisting = 0
 
     if (cand_idx in failed_candidates) or (cand_idx in added_candidates) or expected_gains[cand_idx]:
         return True, nexisting
@@ -666,6 +666,7 @@ def should_skip_candidate(
 
     return False, nexisting
 
+
 @njit()
 def get_fleuret_criteria_confidence(
     data_copy: np.ndarray,
@@ -677,6 +678,7 @@ def get_fleuret_criteria_confidence(
     npermutations: int,
     max_failed: int,
     entropy_cache: dict = None,
+    extra_x_shuffling: bool = True,
     dtype=np.int32,
 ) -> tuple:
     """This sub is kept separate to allow njitted single-core execution (call to workers_pool would prevent njitting)."""
@@ -689,6 +691,10 @@ def get_fleuret_criteria_confidence(
 
         for idx in y:
             np.random.shuffle(data_copy[:, idx])
+
+        if extra_x_shuffling:
+            for idx in x:
+                np.random.shuffle(data_copy[:, idx])
 
         for Z in selected_vars:
 
@@ -723,6 +729,7 @@ def get_fleuret_criteria_confidence_parallel(
     nworkers: int = 1,
     workers_pool: object = None,
     entropy_cache: dict = None,
+    extra_x_shuffling: bool = True,
     dtype=np.int32,
 ) -> tuple:
 
@@ -742,6 +749,7 @@ def get_fleuret_criteria_confidence_parallel(
             bootstrapped_gain=bootstrapped_gain,
             max_failed=max_failed,
             entropy_cache=entropy_cache_dict,
+            extra_x_shuffling=extra_x_shuffling,
             dtype=dtype,
         )
         for worker_npermutations in distribute_permutations(npermutations=npermutations, nworkers=nworkers)
@@ -772,6 +780,7 @@ def parallel_fleuret(
     bootstrapped_gain: float,
     max_failed: int,
     entropy_cache: dict = None,
+    extra_x_shuffling: bool = True,
     dtype=np.int32,
 ):
     """Stub that gets called by joblib directly. Njits entropy_cache, allocates data copy. Calls fast njitted core sub."""
@@ -793,6 +802,7 @@ def parallel_fleuret(
         bootstrapped_gain=bootstrapped_gain,
         max_failed=max_failed,
         entropy_cache=entropy_cache_dict,
+        extra_x_shuffling=extra_x_shuffling,
         dtype=dtype,
     )
 
@@ -810,6 +820,7 @@ def parallel_fleuret_core(
     bootstrapped_gain: float,
     max_failed: int,
     entropy_cache: dict = None,
+    extra_x_shuffling: bool = True,
     dtype=np.int32,
 ):
     """Sub to njit work with random shuffling as well."""
@@ -822,8 +833,10 @@ def parallel_fleuret_core(
 
         for idx in y:
             np.random.shuffle(data_copy[:, idx])
-        for idx in x:
-            np.random.shuffle(data_copy[:, idx])
+
+        if extra_x_shuffling:
+            for idx in x:
+                np.random.shuffle(data_copy[:, idx])
 
         for Z in selected_vars:
 
@@ -1000,6 +1013,8 @@ def evaluate_candidate(
     entropy_cache: dict = None,
     mrmr_relevance_algo: str = "fleuret",
     mrmr_redundancy_algo: str = "fleuret",
+    max_interactions_order:int=1,
+    extra_knowledge_multipler:float=None,
     dtype=np.int32,
     verbose: int = 1,
     ndigits: int = 5,
@@ -1048,7 +1063,7 @@ def evaluate_candidate(
         if selected_vars:
 
             # ---------------------------------------------------------------------------------------------------------------
-            # some factors already selected.
+            # Some factors already selected.
             # best gain from including X is the minimum of I (X ;Y | Z ) over every Z in already selected_vars.
             # but imaging some variable is correlated to every real predictor plus has random noise. It's real value is zero.
             # only computing I (X ;Y | Z ) will still leave significant impact. but if we sum I(X,Z) over Zs we'll see it shares
@@ -1064,83 +1079,90 @@ def evaluate_candidate(
                 current_gain = LARGE_CONST
                 last_checked_z = -1
 
-            positive_mode = False
+            positive_mode = False            
+            stopped_early=False
 
-            for z_idx, Z in enumerate(selected_vars):
+            for level in range(max_interactions_order):
+                
+                for z_idx, Z in enumerate( [tuple(el) for el in combinations(x, interactions_order)]):
 
-                if z_idx > last_checked_z:
+                    if z_idx > last_checked_z:
 
-                    if mrmr_relevance_algo == "fleuret":
+                        if mrmr_relevance_algo == "fleuret":
+
+                            # ---------------------------------------------------------------------------------------------------------------
+                            # additional_knowledge = I (X ;Y | Z ) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)
+                            # I (X,Z) would be entropy_x + entropy_z - entropy_xz.
+                            # ---------------------------------------------------------------------------------------------------------------
+
+                            key = (X, Z)
+                            if key in cached_cond_MIs:
+                                additional_knowledge = cached_cond_MIs[key]
+                            else:
+
+                                additional_knowledge = conditional_mi(
+                                    factors_data=factors_data,
+                                    x=X,
+                                    y=y,
+                                    z=Z,
+                                    var_is_nominal=None,
+                                    factors_nbins=factors_nbins,
+                                    entropy_cache=entropy_cache,
+                                    can_use_y_cache=True,
+                                    dtype=dtype,
+                                )
+
+                                if nexisting > 0:
+                                    additional_knowledge = additional_knowledge ** (nexisting + 1)
+
+                                cached_cond_MIs[key] = additional_knowledge
 
                         # ---------------------------------------------------------------------------------------------------------------
-                        # additional_knowledge = I (X ;Y | Z ) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)
-                        # I (X,Z) would be entropy_x + entropy_z - entropy_xz. we don't have only H(X) which can be computed before checking Zs
+                        # Account for possible extra knowledge from conditioning on Z?
+                        # that must update best_gain globally. log such cases. Note that we do not guarantee finding them in order,
+                        # but they are too precious to ignore. Adding this will also allow to skip higher order interactions
+                        # containing all of already approved candidates.
                         # ---------------------------------------------------------------------------------------------------------------
 
-                        key = (X, (Z,))
-                        if key in cached_cond_MIs:
-                            additional_knowledge = cached_cond_MIs[key]
-                        else:
-
-                            additional_knowledge = conditional_mi(
-                                factors_data=factors_data,
-                                x=X,
-                                y=y,
-                                z=(Z,),
-                                var_is_nominal=None,
-                                factors_nbins=factors_nbins,
-                                entropy_cache=entropy_cache,
-                                can_use_y_cache=True,
-                                dtype=dtype,
-                            )
-
-                            if nexisting > 0:
-                                additional_knowledge = additional_knowledge ** (nexisting + 1)
-
-                            cached_cond_MIs[key] = additional_knowledge
-
-                    # ---------------------------------------------------------------------------------------------------------------
-                    # account for possible extra knowledge from conditioning on Z
-                    # that must update best_gain globally. log such cases. Note that we do not guarantee finding them in order,
-                    # but they are too precious to ignore. Adding this will also allow to skip higher order interactions
-                    # containing all of already approved candidates.
-                    # ---------------------------------------------------------------------------------------------------------------
-
-                    if False and additional_knowledge > direct_gain * 1.5:
-                        bwarn = False
-                        if not positive_mode:
-                            current_gain = additional_knowledge
-                            positive_mode = True
-                            bwarn = True
-                        else:
-                            # rare chance that a candidate has many excellent relationships
-                            if additional_knowledge > current_gain:
+                        if extra_knowledge_multipler and additional_knowledge > direct_gain * extra_knowledge_multipler:
+                            bwarn = False
+                            if not positive_mode:
                                 current_gain = additional_knowledge
+                                positive_mode = True
                                 bwarn = True
+                            else:
+                                # rare chance that a candidate has many excellent relationships
+                                if additional_knowledge > current_gain:
+                                    current_gain = additional_knowledge
+                                    bwarn = True
 
-                        if bwarn:
-                            if verbose:
-                                if current_gain > best_gain:
-                                    logger.info(
-                                        f"\tCandidate {get_candidate_name(X,factors_names=factors_names)} together with factor {get_candidate_name((Z,),factors_names=factors_names)} has synergetic influence {additional_knowledge:{ndigits}f} (direct MI={direct_gain:{ndigits}f})"
-                                    )
+                            if bwarn:
+                                if verbose:
+                                    if current_gain > best_gain:
+                                        logger.info(
+                                            f"\tCandidate {get_candidate_name(X,factors_names=factors_names)} together with factor {get_candidate_name(Z,factors_names=factors_names)} has synergetic influence {additional_knowledge:{ndigits}f} (direct MI={direct_gain:{ndigits}f})"
+                                        )
 
-                    if not positive_mode and (additional_knowledge < current_gain):
+                        if not positive_mode and (additional_knowledge < current_gain):
 
-                        current_gain = additional_knowledge
+                            current_gain = additional_knowledge
 
-                        if current_gain <= best_gain:
+                            if current_gain <= best_gain:
 
-                            # ---------------------------------------------------------------------------------------------------------------
-                            # no point checking other Zs, 'cause current_gain already won't be better than the best_gain
-                            # (if best_gain was estimated confidently, which we'll check at the end.)
-                            # ---------------------------------------------------------------------------------------------------------------
+                                # ---------------------------------------------------------------------------------------------------------------
+                                # no point checking other Zs, 'cause current_gain already won't be better than the best_gain
+                                # (if best_gain was estimated confidently, which we'll check at the end.)
+                                # ---------------------------------------------------------------------------------------------------------------
+                                if level==0:
+                                    partial_gains[cand_idx] = current_gain, z_idx
+                                current_gain = 0  # ?
+                                stopped_early=True
+                                break
+                if level==0:
+                    partial_gains[cand_idx] = current_gain, z_idx                    
+                if stopped_early=: break
 
-                            partial_gains[cand_idx] = current_gain, z_idx
-                            current_gain = 0  # ?
-                            break
-
-            else:  # there was no break. current_gain computed fully.
+            if not stopped_early:  # there was no break. current_gain computed fully.
                 partial_gains[cand_idx] = current_gain, z_idx
                 expected_gains[cand_idx] = current_gain
         else:
@@ -1172,7 +1194,9 @@ def screen_predictors(
     # algorithm
     mrmr_relevance_algo: str = "fleuret",
     mrmr_redundancy_algo: str = "fleuret",
+    reduce_gain_on_subelement_chosen: bool = True,
     # performance
+    extra_x_shuffling: bool = True,
     dtype=np.int32,
     random_seed: int = None,
     use_gpu: bool = False,
@@ -1180,7 +1204,7 @@ def screen_predictors(
     # confidence
     min_occupancy: int = None,
     min_nonzero_confidence: float = 0.99,
-    full_npermutations: int = 10_000,
+    full_npermutations: int = 1_000,
     baseline_npermutations: int = 100,
     # stopping conditions
     min_relevance_gain: float = 0.00001,
@@ -1369,7 +1393,7 @@ def screen_predictors(
                     if skip:
                         continue
 
-                    feasible_candidates.append((cand_idx, X, nexisting))
+                    feasible_candidates.append((cand_idx, X, nexisting if reduce_gain_on_subelement_chosen else 0))
 
                 if nworkers and nworkers > 1 and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS:
 
@@ -1599,6 +1623,7 @@ def screen_predictors(
                                         npermutations=full_npermutations,
                                         max_failed=max_failed,
                                         entropy_cache=entropy_cache,
+                                        extra_x_shuffling=extra_x_shuffling,
                                         nworkers=nworkers,
                                         workers_pool=workers_pool,
                                     )
@@ -1615,6 +1640,7 @@ def screen_predictors(
                                         npermutations=full_npermutations,
                                         max_failed=max_failed,
                                         entropy_cache=entropy_cache,
+                                        extra_x_shuffling=extra_x_shuffling,
                                     )
                                 if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                                     logger.info(f"get_fleuret_criteria_confidence bootstrapped eval took {timer() - eval_start:.1f} sec.")
