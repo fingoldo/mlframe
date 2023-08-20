@@ -631,12 +631,15 @@ def should_skip_candidate(
     selected_vars: list,
     selected_interactions_vars: list,
     only_unknown_interactions: bool = True,
-) -> bool:
+) -> tuple:
     """Decides if current candidate for predictors should be skipped
     ('cause of being already accepted, failed, computed).
     """
+
+    nexisting=0
+
     if (cand_idx in failed_candidates) or (cand_idx in added_candidates) or expected_gains[cand_idx]:
-        return True
+        return True, nexisting
 
     if interactions_order > 1:  # disabled for single predictors 'cause Fleuret formula won't detect pairs predictors
 
@@ -650,16 +653,18 @@ def should_skip_candidate(
                 skip_cand = True
                 break
         if skip_cand:
-            return True
+            return True, nexisting
 
         # ---------------------------------------------------------------------------------------------------------------
         # Or all selected at the lower stages
         # ---------------------------------------------------------------------------------------------------------------
 
         skip_cand = [(subel in selected_vars) for subel in X]
+        nexisting = sum(skip_cand)
         if (only_unknown_interactions and any(skip_cand)) or all(skip_cand):
-            return True
+            return True, nexisting
 
+    return False, nexisting
 
 @njit()
 def get_fleuret_criteria_confidence(
@@ -817,8 +822,12 @@ def parallel_fleuret_core(
 
         for idx in y:
             np.random.shuffle(data_copy[:, idx])
+        for idx in x:
+            np.random.shuffle(data_copy[:, idx])
 
         for Z in selected_vars:
+
+            # np.random.shuffle(data_copy[:, Z])
 
             additional_knowledge = conditional_mi(
                 factors_data=data_copy, x=x, y=y, z=(Z,), var_is_nominal=None, factors_nbins=factors_nbins, entropy_cache=entropy_cache, dtype=dtype
@@ -879,12 +888,13 @@ def evaluate_candidates(
 
     classes_y_safe = classes_y.copy()
 
-    for cand_idx, X in workload:
+    for cand_idx, X, nexisting in (candidates_pbar := tqdmu(workload, leave=False, desc="Thread Candidates")):
 
         current_gain = evaluate_candidate(
             cand_idx=cand_idx,
             X=X,
             y=y,
+            nexisting=nexisting,
             best_gain=best_gain,
             factors_data=factors_data,
             factors_nbins=factors_nbins,
@@ -970,6 +980,7 @@ def evaluate_candidate(
     cand_idx: int,
     X: tuple,
     y: Sequence[int],
+    nexisting: int,
     best_gain: float,
     factors_data: np.ndarray,
     factors_nbins: np.ndarray,
@@ -1070,6 +1081,7 @@ def evaluate_candidate(
                         if key in cached_cond_MIs:
                             additional_knowledge = cached_cond_MIs[key]
                         else:
+
                             additional_knowledge = conditional_mi(
                                 factors_data=factors_data,
                                 x=X,
@@ -1081,6 +1093,10 @@ def evaluate_candidate(
                                 can_use_y_cache=True,
                                 dtype=dtype,
                             )
+
+                            if nexisting > 0:
+                                additional_knowledge = additional_knowledge ** (nexisting + 1)
+
                             cached_cond_MIs[key] = additional_knowledge
 
                     # ---------------------------------------------------------------------------------------------------------------
@@ -1090,7 +1106,7 @@ def evaluate_candidate(
                     # containing all of already approved candidates.
                     # ---------------------------------------------------------------------------------------------------------------
 
-                    if False and additional_knowledge > direct_gain:
+                    if False and additional_knowledge > direct_gain * 1.5:
                         bwarn = False
                         if not positive_mode:
                             current_gain = additional_knowledge
@@ -1174,7 +1190,7 @@ def screen_predictors(
     interactions_max_order: int = 1,
     interactions_order_reversed: bool = False,
     max_joint_interactions_order: int = 3,
-    only_unknown_interactions: bool = True,
+    only_unknown_interactions: bool = False,
     # verbosity and formatting
     verbose: int = 1,
     ndigits: int = 5,
@@ -1339,7 +1355,7 @@ def screen_predictors(
 
                 feasible_candidates = []
                 for cand_idx, X in enumerate(candidates):
-                    if should_skip_candidate(
+                    skip, nexisting = should_skip_candidate(
                         cand_idx=cand_idx,
                         X=X,
                         interactions_order=interactions_order,
@@ -1349,10 +1365,11 @@ def screen_predictors(
                         expected_gains=expected_gains,
                         selected_vars=selected_vars,
                         selected_interactions_vars=selected_interactions_vars,
-                    ):
+                    )
+                    if skip:
                         continue
 
-                    feasible_candidates.append((cand_idx, X))
+                    feasible_candidates.append((cand_idx, X, nexisting))
 
                 if nworkers and nworkers > 1 and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS:
 
@@ -1424,16 +1441,14 @@ def screen_predictors(
                             logging.info(f"Time limit exhausted. Finalizing the search...")
                             break
 
-                    if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
-                        logger.info(f"evaluate_candidates took {timer() - eval_start:.1f} sec.")
-
                 else:
-                    for cand_idx, X in (candidates_pbar := tqdmu(feasible_candidates, leave=False, desc="Candidates")):
+                    for cand_idx, X, nexisting in (candidates_pbar := tqdmu(feasible_candidates, leave=False, desc="Candidates")):
 
                         current_gain = evaluate_candidate(
                             cand_idx=cand_idx,
                             X=X,
                             y=y,
+                            nexisting=nexisting,
                             best_gain=best_gain,
                             factors_data=factors_data,
                             factors_nbins=factors_nbins,
@@ -1473,6 +1488,9 @@ def screen_predictors(
                             if verbose:
                                 logging.info(f"Time limit exhausted. Finalizing the search...")
                             break
+
+                if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
+                    logger.info(f"evaluate_candidates took {timer() - eval_start:.1f} sec.")
 
                 if best_gain < min_relevance_gain:
                     if verbose:
