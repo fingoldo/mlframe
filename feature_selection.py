@@ -308,7 +308,7 @@ def conditional_mi(
 
     if entropy_z < 0:
         if entropy_cache is not None:
-            key = arr2str(z)
+            key = arr2str(sorted(z))
             entropy_z = entropy_cache.get(key, -1)
         if entropy_z < 0:
             _, freqs_z, _ = merge_vars(factors_data=factors_data, vars_indices=z, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)  # always 1-dim
@@ -377,11 +377,14 @@ def conditional_mi(
             )  # upper classes of [*y, *z] can serve here. (2+x)-dim, ie 3 to 5 dim.
             entropy_xyz = entropy(freqs=freqs_xyz)
             if entropy_cache is not None and can_use_y_cache:
-                entropy_cache[key] = entropy_xz
+                entropy_cache[key] = entropy_xyz
         # else:
         #    caching_hits_xyz += 1
-
-    return entropy_xz + entropy_yz - entropy_z - entropy_xyz
+    res = entropy_xz + entropy_yz - entropy_z - entropy_xyz
+    if res < 0.0:
+        # print(x, y, z, res, can_use_y_cache)
+        res = 0.0
+    return res
 
 
 @njit()
@@ -667,56 +670,6 @@ def should_skip_candidate(
     return False, nexisting
 
 
-@njit()
-def get_fleuret_criteria_confidence(
-    data_copy: np.ndarray,
-    factors_nbins: np.ndarray,
-    x: tuple,
-    y: tuple,
-    selected_vars: list,
-    bootstrapped_gain: float,
-    npermutations: int,
-    max_failed: int,
-    entropy_cache: dict = None,
-    extra_x_shuffling: bool = True,
-    dtype=np.int32,
-) -> tuple:
-    """This sub is kept separate to allow njitted single-core execution (call to workers_pool would prevent njitting)."""
-
-    nfailed = 0
-
-    for i in range(npermutations):
-
-        current_gain = LARGE_CONST
-
-        for idx in y:
-            np.random.shuffle(data_copy[:, idx])
-
-        if extra_x_shuffling:
-            for idx in x:
-                np.random.shuffle(data_copy[:, idx])
-
-        for Z in selected_vars:
-
-            additional_knowledge = conditional_mi(
-                factors_data=data_copy, x=x, y=y, z=(Z,), var_is_nominal=None, factors_nbins=factors_nbins, entropy_cache=entropy_cache, dtype=dtype
-            )
-
-            if additional_knowledge < current_gain:
-
-                current_gain = additional_knowledge
-
-        if current_gain >= bootstrapped_gain:
-            nfailed += 1
-            if nfailed >= max_failed:
-                bootstrapped_gain = 0.0
-                break
-
-    confidence = 1 - nfailed / (i + 1)
-
-    return bootstrapped_gain, confidence
-
-
 def get_fleuret_criteria_confidence_parallel(
     data_copy: np.ndarray,
     factors_nbins: np.ndarray,
@@ -739,7 +692,7 @@ def get_fleuret_criteria_confidence_parallel(
     if workers_pool is None:
         workers_pool = Parallel(n_jobs=nworkers, max_nbytes=MAX_JOBLIB_NBYTES)
     res = workers_pool(
-        delayed(parallel_fleuret)(
+        delayed(get_fleuret_criteria_confidence)(
             data=data_copy,
             factors_nbins=factors_nbins,
             x=x,
@@ -755,17 +708,17 @@ def get_fleuret_criteria_confidence_parallel(
         for worker_npermutations in distribute_permutations(npermutations=npermutations, nworkers=nworkers)
     )
 
-    i = 0
+    nchecked = 0
     for worker_nfailed, worker_i, entropy_cache_dict in res:
         nfailed += worker_nfailed
-        i += worker_i
+        nchecked += worker_i
         for key, value in entropy_cache_dict.items():
             entropy_cache[key] = value
 
     if nfailed >= max_failed:
         bootstrapped_gain = 0.0
 
-    confidence = 1 - nfailed / (i + 1)
+    confidence = 1 - nfailed / nchecked
 
     return bootstrapped_gain, confidence, entropy_cache
 
@@ -809,8 +762,8 @@ def parallel_fleuret(
     return nfailed, i, dict(entropy_cache_dict)
 
 
-@njit()
-def parallel_fleuret_core(
+# @njit()
+def get_fleuret_criteria_confidence(
     data_copy: np.ndarray,
     factors_nbins: np.ndarray,
     x: tuple,
@@ -822,7 +775,7 @@ def parallel_fleuret_core(
     entropy_cache: dict = None,
     extra_x_shuffling: bool = True,
     dtype=np.int32,
-):
+) -> tuple:
     """Sub to njit work with random shuffling as well."""
 
     nfailed = 0
@@ -903,7 +856,7 @@ def evaluate_candidates(
 
     for cand_idx, X, nexisting in (candidates_pbar := tqdmu(workload, leave=False, desc="Thread Candidates")):
 
-        current_gain = evaluate_candidate(
+        current_gain, sink_reasons = evaluate_candidate(
             cand_idx=cand_idx,
             X=X,
             y=y,
@@ -1013,12 +966,15 @@ def evaluate_candidate(
     entropy_cache: dict = None,
     mrmr_relevance_algo: str = "fleuret",
     mrmr_redundancy_algo: str = "fleuret",
-    max_interactions_order:int=1,
-    extra_knowledge_multipler:float=None,
+    max_interactions_order: int = 2,
+    extra_knowledge_multipler: float = None,
+    sink_threshold: float = None,
     dtype=np.int32,
     verbose: int = 1,
     ndigits: int = 5,
 ) -> None:
+
+    sink_reasons = set()
 
     # ---------------------------------------------------------------------------------------------------------------
     # Is this candidate any good for target 1-vs-1?
@@ -1074,19 +1030,20 @@ def evaluate_candidate(
             # ---------------------------------------------------------------------------------------------------------------
 
             if cand_idx in partial_gains:
-                current_gain, last_checked_z = partial_gains[cand_idx]
+                current_gain, last_checked_k = partial_gains[cand_idx]
             else:
                 current_gain = LARGE_CONST
-                last_checked_z = -1
+                last_checked_k = -1
 
-            positive_mode = False            
-            stopped_early=False
+            positive_mode = False
+            stopped_early = False
 
-            for level in range(max_interactions_order):
-                
-                for z_idx, Z in enumerate( [tuple(el) for el in combinations(x, interactions_order)]):
+            k = 0
+            for interactions_order in range(max_interactions_order):
 
-                    if z_idx > last_checked_z:
+                for Z in combinations(selected_vars, interactions_order + 1):
+
+                    if k > last_checked_k:
 
                         if mrmr_relevance_algo == "fleuret":
 
@@ -1115,6 +1072,8 @@ def evaluate_candidate(
                                 if nexisting > 0:
                                     additional_knowledge = additional_knowledge ** (nexisting + 1)
 
+                                if additional_knowledge < 0.0:
+                                    print(X, Z, additional_knowledge)
                                 cached_cond_MIs[key] = additional_knowledge
 
                         # ---------------------------------------------------------------------------------------------------------------
@@ -1147,23 +1106,29 @@ def evaluate_candidate(
 
                             current_gain = additional_knowledge
 
-                            if current_gain <= best_gain:
+                            if best_gain and current_gain <= best_gain:
 
                                 # ---------------------------------------------------------------------------------------------------------------
-                                # no point checking other Zs, 'cause current_gain already won't be better than the best_gain
+                                # No point checking other Zs, 'cause current_gain already won't be better than the best_gain
                                 # (if best_gain was estimated confidently, which we'll check at the end.)
                                 # ---------------------------------------------------------------------------------------------------------------
-                                if level==0:
-                                    partial_gains[cand_idx] = current_gain, z_idx
+
+                                partial_gains[cand_idx] = current_gain, k
+
+                                # let's also fix what Z caused X (the most) to sink
+
+                                if sink_threshold and current_gain < sink_threshold:
+                                    sink_reasons.add(Z)
+
                                 current_gain = 0  # ?
-                                stopped_early=True
+                                stopped_early = True
                                 break
-                if level==0:
-                    partial_gains[cand_idx] = current_gain, z_idx                    
-                if stopped_early=: break
+                    k += 1
+                if stopped_early:
+                    break
 
             if not stopped_early:  # there was no break. current_gain computed fully.
-                partial_gains[cand_idx] = current_gain, z_idx
+                partial_gains[cand_idx] = current_gain, k
                 expected_gains[cand_idx] = current_gain
         else:
             # no factors selected yet. current_gain is just direct_gain
@@ -1172,7 +1137,7 @@ def evaluate_candidate(
     else:
         current_gain = 0
 
-    return current_gain
+    return current_gain, sink_reasons
 
 
 def test(a):
@@ -1468,7 +1433,7 @@ def screen_predictors(
                 else:
                     for cand_idx, X, nexisting in (candidates_pbar := tqdmu(feasible_candidates, leave=False, desc="Candidates")):
 
-                        current_gain = evaluate_candidate(
+                        current_gain, sink_reasons = evaluate_candidate(
                             cand_idx=cand_idx,
                             X=X,
                             y=y,
@@ -1508,6 +1473,7 @@ def screen_predictors(
                             verbose=verbose,
                             ndigits=ndigits,
                         )
+
                         if run_out_of_time:
                             if verbose:
                                 logging.info(f"Time limit exhausted. Finalizing the search...")
@@ -1630,7 +1596,7 @@ def screen_predictors(
                                     for key, value in parallel_entropy_cache.items():
                                         entropy_cache[key] = value
                                 else:
-                                    bootstrapped_gain, confidence = get_fleuret_criteria_confidence(
+                                    nfailed, nchecked = get_fleuret_criteria_confidence(
                                         data_copy=data_copy,
                                         factors_nbins=factors_nbins,
                                         x=X,
@@ -1642,6 +1608,11 @@ def screen_predictors(
                                         entropy_cache=entropy_cache,
                                         extra_x_shuffling=extra_x_shuffling,
                                     )
+
+                                    confidence = 1 - nfailed / nchecked
+                                    if nfailed >= max_failed:
+                                        bootstrapped_gain = 0.0
+
                                 if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                                     logger.info(f"get_fleuret_criteria_confidence bootstrapped eval took {timer() - eval_start:.1f} sec.")
                             # ---------------------------------------------------------------------------------------------------------------
@@ -1798,6 +1769,7 @@ def postprocess_candidates(
     # ---------------------------------------------------------------------------------------------------------------
     # Make sure with confidence that every candidate is related to target
     # ---------------------------------------------------------------------------------------------------------------
+
     if ensure_target_influence:
         removed = []
         for X in tqdmu(selected_vars, desc="Ensuring target influence", leave=False):
@@ -1835,14 +1807,16 @@ def postprocess_candidates(
     что эти другие факторы имеют много уникального знания о таргете помимо X: sum(I(Y;Z|X))>e;
     все остальные "середнячки".    
     """
+
     entropies = {}
     mutualinfos = {}
+
     for X in tqdmu(selected_vars, desc="Marginal stats", leave=False):
         _, freqs, _ = merge_vars(factors_data=factors_data, vars_indices=[X], factors_nbins=factors_nbins, var_is_nominal=None, dtype=dtype)
         factor_entropy = entropy(freqs=freqs)
         entropies[X] = factor_entropy
 
-    for a, b in tqdmu(combinations(selected_vars, 2), desc="Interactions", leave=False):
+    for a, b in tqdmu(combinations(selected_vars, 2), desc="1-way interactions", leave=False):
         bootstrapped_mi, confidence = mi_direct(
             factors_data,
             x=[a],
@@ -1856,4 +1830,21 @@ def postprocess_candidates(
         )
         if bootstrapped_mi > 0:
             mutualinfos[(a, b)] = bootstrapped_mi
+
+    for y in tqdmu(selected_vars, desc="2-way interactions", leave=False):
+        for pair in combinations(set(selected_vars) - set([y]), 2):
+            bootstrapped_mi, confidence = mi_direct(
+                factors_data,
+                x=pair,
+                y=[y],
+                factors_nbins=factors_nbins,
+                classes_y=classes_y,
+                freqs_y=freqs_y,
+                classes_y_safe=classes_y_safe,
+                min_nonzero_confidence=min_nonzero_confidence,
+                npermutations=npermutations,
+            )
+            if bootstrapped_mi > 0:
+                mutualinfos[(y, pair)] = bootstrapped_mi
+
     return entropies, mutualinfos
