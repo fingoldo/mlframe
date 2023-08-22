@@ -29,6 +29,18 @@ def fast_numba_auc_nonw(y_true: np.array, y_score: np.array, desc_score_indices:
             last_counted_tps = tps
     return auc / (tps * fps * 2)
 
+@njit()
+def fast_precision(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, zero_division: int = 0):
+    # storage inits
+    misses = np.zeros(nclasses, dtype=np.int64)
+    hits = np.zeros(nclasses, dtype=np.int64)    
+    # count stats
+    for true_class, predicted_class in zip(y_true, y_pred):
+        allpreds[predicted_class] += 1
+        if predicted_class == true_class:
+            hits[predicted_class] += 1    
+    precisions = hits / allpreds
+    return precisions[-1]
 
 @njit()
 def fast_classification_report(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, zero_division: int = 0):
