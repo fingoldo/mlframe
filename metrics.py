@@ -126,6 +126,15 @@ def show_calibration_plot(
         plt.close(fig)
 
 
+@njit()
+def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
+    freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
+    diffs = np.abs((freqs_predicted - freqs_true))
+    calibration_mae, calibration_std = np.mean(diffs), np.std(diffs)
+
+    return calibration_mae, calibration_std
+
+
 def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, show_plots: bool = True, plot_file: str = "", figsize: tuple = (12, 6)):
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs."""
 
