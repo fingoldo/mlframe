@@ -692,7 +692,7 @@ def get_fleuret_criteria_confidence_parallel(
     if workers_pool is None:
         workers_pool = Parallel(n_jobs=nworkers, max_nbytes=MAX_JOBLIB_NBYTES)
     res = workers_pool(
-        delayed(get_fleuret_criteria_confidence)(
+        delayed(parallel_fleuret)(
             data=data_copy,
             factors_nbins=factors_nbins,
             x=x,
@@ -745,7 +745,7 @@ def parallel_fleuret(
     )
     python_dict_2_numba_dict(python_dict=entropy_cache, numba_dict=entropy_cache_dict)
 
-    nfailed, i = parallel_fleuret_core(
+    nfailed, i = get_fleuret_criteria_confidence(
         data_copy=data_copy,
         factors_nbins=factors_nbins,
         x=x,
@@ -762,7 +762,7 @@ def parallel_fleuret(
     return nfailed, i, dict(entropy_cache_dict)
 
 
-# @njit()
+@njit()
 def get_fleuret_criteria_confidence(
     data_copy: np.ndarray,
     factors_nbins: np.ndarray,
@@ -831,6 +831,7 @@ def evaluate_candidates(
     entropy_cache: dict = None,
     mrmr_relevance_algo: str = "fleuret",
     mrmr_redundancy_algo: str = "fleuret",
+    max_veteranes_interactions_order: int = 1,
     dtype=np.int32,
     max_runtime_mins: int = None,
     start_time: float = None,
@@ -874,6 +875,7 @@ def evaluate_candidates(
             baseline_npermutations=baseline_npermutations,
             mrmr_relevance_algo=mrmr_relevance_algo,
             mrmr_redundancy_algo=mrmr_redundancy_algo,
+            max_veteranes_interactions_order=max_veteranes_interactions_order,
             expected_gains=expected_gains,
             selected_vars=selected_vars,
             cached_MIs=cached_MIs,
@@ -966,7 +968,7 @@ def evaluate_candidate(
     entropy_cache: dict = None,
     mrmr_relevance_algo: str = "fleuret",
     mrmr_redundancy_algo: str = "fleuret",
-    max_interactions_order: int = 2,
+    max_veteranes_interactions_order: int = 2,
     extra_knowledge_multipler: float = None,
     sink_threshold: float = None,
     dtype=np.int32,
@@ -1039,7 +1041,7 @@ def evaluate_candidate(
             stopped_early = False
 
             k = 0
-            for interactions_order in range(max_interactions_order):
+            for interactions_order in range(max_veteranes_interactions_order):
 
                 for Z in combinations(selected_vars, interactions_order + 1):
 
@@ -1178,7 +1180,7 @@ def screen_predictors(
     interactions_min_order: int = 1,
     interactions_max_order: int = 1,
     interactions_order_reversed: bool = False,
-    max_joint_interactions_order: int = 3,
+    max_veteranes_interactions_order: int = 1,
     only_unknown_interactions: bool = False,
     # verbosity and formatting
     verbose: int = 1,
@@ -1378,6 +1380,7 @@ def screen_predictors(
                             baseline_npermutations=baseline_npermutations,
                             mrmr_relevance_algo=mrmr_relevance_algo,
                             mrmr_redundancy_algo=mrmr_redundancy_algo,
+                            max_veteranes_interactions_order=max_veteranes_interactions_order,
                             selected_vars=selected_vars,
                             cached_MIs=cached_MIs,
                             cached_confident_MIs=cached_confident_MIs,
@@ -1451,6 +1454,7 @@ def screen_predictors(
                             baseline_npermutations=baseline_npermutations,
                             mrmr_relevance_algo=mrmr_relevance_algo,
                             mrmr_redundancy_algo=mrmr_redundancy_algo,
+                            max_veteranes_interactions_order=max_veteranes_interactions_order,
                             expected_gains=expected_gains,
                             selected_vars=selected_vars,
                             cached_MIs=cached_MIs,
