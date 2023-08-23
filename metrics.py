@@ -109,7 +109,10 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     idx = np.nonzero(pockets_predicted > 0)[0]
 
     hits = pockets_predicted[idx]
-    freqs_predicted, freqs_true = min_val + (np.arange(nbins)[idx] + 0.5) * span / nbins, pockets_true[idx] / pockets_predicted[idx]
+    if len(hits)>0:
+        freqs_predicted, freqs_true = (min_val + (np.arange(nbins)[idx] + 0.5) * span / nbins).astype(np.float64), pockets_true[idx] / pockets_predicted[idx]
+    else:
+        freqs_predicted, freqs_true=np.array((),dtype=np.float64),np.array((),dtype=np.float64)
 
     return freqs_predicted, freqs_true, hits
 
@@ -139,20 +142,26 @@ def show_calibration_plot(
 
 
 @njit()
+def calibration_metrics_from_freqs(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray):
+    if len(hits)>0:
+        diffs = np.abs((freqs_predicted - freqs_true))
+        calibration_mae, calibration_std = np.mean(diffs), np.std(diffs)
+    else:
+        calibration_mae, calibration_std=1.0,1.0
+    
+    return calibration_mae, calibration_std    
+
+@njit()
 def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
     freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
-    diffs = np.abs((freqs_predicted - freqs_true))
-    calibration_mae, calibration_std = np.mean(diffs), np.std(diffs)
-
-    return calibration_mae, calibration_std
+    return calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits)
 
 
 def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, show_plots: bool = True, plot_file: str = "", figsize: tuple = (12, 6)):
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs."""
 
     freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
-    diffs = np.abs((freqs_predicted - freqs_true))
-    calibration_mae, calibration_std = np.mean(diffs), np.std(diffs)
+    calibration_mae, calibration_std = calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits)
 
     if plot_file or show_plots:
         show_calibration_plot(
