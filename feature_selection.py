@@ -28,7 +28,7 @@ import cupy as cp
 
 from pyutilz.system import tqdmu
 from pyutilz.parallel import mem_map_array, split_list_into_chunks
-from pyutilz.numbalib import set_random_seed, arr2str, python_dict_2_numba_dict
+from pyutilz.numbalib import set_random_seed, arr2str, python_dict_2_numba_dict, generate_combinations_recursive_njit
 
 # from mlframe.boruta_shap import BorutaShap
 from timeit import default_timer as timer
@@ -680,6 +680,13 @@ def get_fleuret_criteria_confidence_parallel(
     bootstrapped_gain: float,
     npermutations: int,
     max_failed: int,
+    nexisting: int,
+    mrmr_relevance_algo: str = "fleuret",
+    mrmr_redundancy_algo: str = "fleuret",
+    max_veteranes_interactions_order: int = 1,
+    extra_knowledge_multipler: float = -1.0,
+    sink_threshold: float = -1.0,
+    cached_cond_MIs: dict = None,
     nworkers: int = 1,
     workers_pool: object = None,
     entropy_cache: dict = None,
@@ -688,7 +695,6 @@ def get_fleuret_criteria_confidence_parallel(
 ) -> tuple:
 
     nfailed = 0
-    entropy_cache_dict = dict(entropy_cache)  # entropy_cache needs to be unjitted before sending to joblib.
 
     if workers_pool is None:
         workers_pool = Parallel(n_jobs=nworkers, max_nbytes=MAX_JOBLIB_NBYTES)
@@ -702,7 +708,14 @@ def get_fleuret_criteria_confidence_parallel(
             npermutations=worker_npermutations,
             bootstrapped_gain=bootstrapped_gain,
             max_failed=max_failed,
-            entropy_cache=entropy_cache_dict,
+            nexisting=nexisting,
+            mrmr_relevance_algo=mrmr_relevance_algo,
+            mrmr_redundancy_algo=mrmr_redundancy_algo,
+            max_veteranes_interactions_order=max_veteranes_interactions_order,
+            extra_knowledge_multipler=extra_knowledge_multipler,
+            sink_threshold=sink_threshold,
+            cached_cond_MIs=dict(cached_cond_MIs),  # cached_cond_MIs needs to be unjitted before sending to joblib.
+            entropy_cache=dict(entropy_cache),  # entropy_cache needs to be unjitted before sending to joblib.
             extra_x_shuffling=extra_x_shuffling,
             dtype=dtype,
         )
@@ -733,6 +746,13 @@ def parallel_fleuret(
     npermutations: int,
     bootstrapped_gain: float,
     max_failed: int,
+    nexisting: int,
+    mrmr_relevance_algo: str = "fleuret",
+    mrmr_redundancy_algo: str = "fleuret",
+    max_veteranes_interactions_order: int = 1,
+    extra_knowledge_multipler: float = -1.0,
+    sink_threshold: float = -1.0,
+    cached_cond_MIs: dict = None,
     entropy_cache: dict = None,
     extra_x_shuffling: bool = True,
     dtype=np.int32,
@@ -746,6 +766,12 @@ def parallel_fleuret(
     )
     python_dict_2_numba_dict(python_dict=entropy_cache, numba_dict=entropy_cache_dict)
 
+    cached_cond_MIs_dict = numba.typed.Dict.empty(
+        key_type=types.unicode_type,
+        value_type=types.float64,
+    )
+    python_dict_2_numba_dict(python_dict=cached_cond_MIs, numba_dict=cached_cond_MIs_dict)
+
     nfailed, i = get_fleuret_criteria_confidence(
         data_copy=data_copy,
         factors_nbins=factors_nbins,
@@ -755,6 +781,11 @@ def parallel_fleuret(
         npermutations=npermutations,
         bootstrapped_gain=bootstrapped_gain,
         max_failed=max_failed,
+        nexisting=nexisting,
+        mrmr_relevance_algo=mrmr_relevance_algo,
+        mrmr_redundancy_algo=mrmr_redundancy_algo,
+        max_veteranes_interactions_order=max_veteranes_interactions_order,
+        cached_cond_MIs=cached_cond_MIs_dict,
         entropy_cache=entropy_cache_dict,
         extra_x_shuffling=extra_x_shuffling,
         dtype=dtype,
@@ -773,6 +804,13 @@ def get_fleuret_criteria_confidence(
     npermutations: int,
     bootstrapped_gain: float,
     max_failed: int,
+    nexisting: int,
+    mrmr_relevance_algo: str = "fleuret",
+    mrmr_redundancy_algo: str = "fleuret",
+    max_veteranes_interactions_order: int = 1,
+    extra_knowledge_multipler: float = -1.0,
+    sink_threshold: float = -1.0,
+    cached_cond_MIs: dict = None,
     entropy_cache: dict = None,
     extra_x_shuffling: bool = True,
     dtype=np.int32,
@@ -783,8 +821,6 @@ def get_fleuret_criteria_confidence(
 
     for i in range(npermutations):
 
-        current_gain = LARGE_CONST
-
         for idx in y:
             np.random.shuffle(data_copy[:, idx])
 
@@ -792,17 +828,28 @@ def get_fleuret_criteria_confidence(
             for idx in x:
                 np.random.shuffle(data_copy[:, idx])
 
-        for Z in selected_vars:
-
-            # np.random.shuffle(data_copy[:, Z])
-
-            additional_knowledge = conditional_mi(
-                factors_data=data_copy, x=x, y=y, z=(Z,), var_is_nominal=None, factors_nbins=factors_nbins, entropy_cache=entropy_cache, dtype=dtype
-            )
-
-            if additional_knowledge < current_gain:
-
-                current_gain = additional_knowledge
+        stopped_early, current_gain, k, sink_reasons = evaluate_gain(
+            current_gain=LARGE_CONST,
+            last_checked_k=-1,
+            X=x,
+            y=y,
+            best_gain=None,
+            factors_data=data_copy,
+            factors_nbins=factors_nbins,
+            selected_vars=selected_vars,
+            nexisting=nexisting,
+            direct_gain=bootstrapped_gain,
+            mrmr_relevance_algo=mrmr_relevance_algo,
+            mrmr_redundancy_algo=mrmr_redundancy_algo,
+            max_veteranes_interactions_order=max_veteranes_interactions_order,
+            extra_knowledge_multipler=extra_knowledge_multipler,
+            sink_threshold=sink_threshold,
+            cached_cond_MIs=cached_cond_MIs,
+            entropy_cache=entropy_cache,
+            can_use_x_cache=not extra_x_shuffling,
+            can_use_y_cache=False,
+            confidence_mode=True,
+        )
 
         if current_gain >= bootstrapped_gain:
             nfailed += 1
@@ -854,6 +901,12 @@ def evaluate_candidates(
     )
     python_dict_2_numba_dict(python_dict=entropy_cache, numba_dict=entropy_cache_dict)
 
+    cached_cond_MIs_dict = numba.typed.Dict.empty(
+        key_type=types.unicode_type,
+        value_type=types.float64,
+    )
+    python_dict_2_numba_dict(python_dict=cached_cond_MIs, numba_dict=cached_cond_MIs_dict)
+
     classes_y_safe = classes_y.copy()
 
     for cand_idx, X, nexisting in (candidates_pbar := tqdmu(workload, leave=False, desc="Thread Candidates")):
@@ -881,7 +934,7 @@ def evaluate_candidates(
             selected_vars=selected_vars,
             cached_MIs=cached_MIs,
             cached_confident_MIs=cached_confident_MIs,
-            cached_cond_MIs=cached_cond_MIs,
+            cached_cond_MIs=cached_cond_MIs_dict,
             entropy_cache=entropy_cache_dict,
             verbose=verbose,
             ndigits=ndigits,
@@ -906,6 +959,8 @@ def evaluate_candidates(
 
     for key, value in entropy_cache_dict.items():
         entropy_cache[key] = value
+    for key, value in cached_cond_MIs_dict.items():
+        cached_cond_MIs[key] = value
 
     return best_gain, best_candidate, partial_gains, expected_gains, cached_MIs, cached_cond_MIs, entropy_cache
 
@@ -945,9 +1000,128 @@ def handle_best_candidate(
     return best_gain, best_candidate, run_out_of_time
 
 
+@njit()
+def evaluate_gain(
+    current_gain: float,
+    last_checked_k: int,
+    direct_gain: float,
+    X: Sequence[int],
+    y: Sequence[int],
+    nexisting: int,
+    best_gain: float,
+    factors_data: np.ndarray,
+    factors_nbins: np.ndarray,
+    selected_vars: list,
+    mrmr_relevance_algo: str = "fleuret",
+    mrmr_redundancy_algo: str = "fleuret",
+    max_veteranes_interactions_order: int = 2,
+    extra_knowledge_multipler: float = -1.0,
+    sink_threshold: float = -1.0,
+    entropy_cache: dict = None,
+    cached_cond_MIs: dict = None,
+    can_use_x_cache=False,
+    can_use_y_cache=False,
+    dtype=np.int32,
+    confidence_mode: bool = False,
+) -> tuple:
+
+    positive_mode = False
+    stopped_early = False
+    sink_reasons = None
+
+    k = 0
+    for interactions_order in range(max_veteranes_interactions_order):
+
+        for Z in generate_combinations_recursive_njit(np.array(selected_vars, dtype=np.int32), interactions_order + 1):
+
+            if k > last_checked_k:
+
+                if mrmr_relevance_algo == "fleuret":
+
+                    # ---------------------------------------------------------------------------------------------------------------
+                    # additional_knowledge = I (X ;Y | Z ) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)
+                    # I (X,Z) would be entropy_x + entropy_z - entropy_xz.
+                    # ---------------------------------------------------------------------------------------------------------------
+                    key_found = False
+                    if not confidence_mode:
+                        key = arr2str(X) + "_" + arr2str(Z)
+                        if key in cached_cond_MIs:
+                            additional_knowledge = cached_cond_MIs[key]
+                            key_found = True
+
+                    if not key_found:
+
+                        additional_knowledge = conditional_mi(
+                            factors_data=factors_data,
+                            x=X,
+                            y=y,
+                            z=Z,
+                            var_is_nominal=None,
+                            factors_nbins=factors_nbins,
+                            entropy_cache=entropy_cache,
+                            can_use_x_cache=can_use_x_cache,
+                            can_use_y_cache=can_use_y_cache,
+                            dtype=dtype,
+                        )
+
+                        if nexisting > 0:
+                            additional_knowledge = additional_knowledge ** (nexisting + 1)
+
+                        if not confidence_mode:
+                            cached_cond_MIs[key] = additional_knowledge
+
+                # ---------------------------------------------------------------------------------------------------------------
+                # Account for possible extra knowledge from conditioning on Z?
+                # that must update best_gain globally. log such cases. Note that we do not guarantee finding them in order,
+                # but they are too precious to ignore. Adding this will also allow to skip higher order interactions
+                # containing all of already approved candidates.
+                # ---------------------------------------------------------------------------------------------------------------
+
+                if extra_knowledge_multipler > 0 and additional_knowledge > direct_gain * extra_knowledge_multipler:
+                    bwarn = False
+                    if not positive_mode:
+                        current_gain = additional_knowledge
+                        positive_mode = True
+                        bwarn = True
+                    else:
+                        # rare chance that a candidate has many excellent relationships
+                        if additional_knowledge > current_gain:
+                            current_gain = additional_knowledge
+                            bwarn = True
+
+                    # if bwarn:
+                    #    if verbose:
+                    #        if current_gain > best_gain:
+                    #            logger.info(
+                    #                f"\tCandidate {get_candidate_name(X,factors_names=factors_names)} together with factor {get_candidate_name(Z,factors_names=factors_names)} has synergetic influence {additional_knowledge:{ndigits}f} (direct MI={direct_gain:{ndigits}f})"
+                    #            )
+
+                if not positive_mode and (additional_knowledge < current_gain):
+
+                    current_gain = additional_knowledge
+
+                    if best_gain is not None and current_gain <= best_gain:
+
+                        # ---------------------------------------------------------------------------------------------------------------
+                        # No point checking other Zs, 'cause current_gain already won't be better than the best_gain
+                        # (if best_gain was estimated confidently, which we'll check at the end.)
+                        # ---------------------------------------------------------------------------------------------------------------
+
+                        # let's also fix what Z caused X (the most) to sink
+
+                        if sink_threshold > -1 and current_gain < sink_threshold:
+                            sink_reasons = Z
+
+                        stopped_early = True
+                        return stopped_early, current_gain, k, sink_reasons
+            k += 1
+
+    return stopped_early, current_gain, k, sink_reasons
+
+
 def evaluate_candidate(
     cand_idx: int,
-    X: tuple,
+    X: Sequence[int],
     y: Sequence[int],
     nexisting: int,
     best_gain: float,
@@ -970,8 +1144,8 @@ def evaluate_candidate(
     mrmr_relevance_algo: str = "fleuret",
     mrmr_redundancy_algo: str = "fleuret",
     max_veteranes_interactions_order: int = 2,
-    extra_knowledge_multipler: float = None,
-    sink_threshold: float = None,
+    extra_knowledge_multipler: float = -1.0,
+    sink_threshold: float = -1.0,
     dtype=np.int32,
     verbose: int = 1,
     ndigits: int = 5,
@@ -1038,99 +1212,30 @@ def evaluate_candidate(
                 current_gain = LARGE_CONST
                 last_checked_k = -1
 
-            positive_mode = False
-            stopped_early = False
+            stopped_early, current_gain, k, sink_reasons = evaluate_gain(
+                current_gain=current_gain,
+                last_checked_k=last_checked_k,
+                direct_gain=direct_gain,
+                X=X,
+                y=y,
+                nexisting=nexisting,
+                best_gain=best_gain,
+                factors_data=factors_data,
+                factors_nbins=factors_nbins,
+                selected_vars=selected_vars,
+                mrmr_relevance_algo=mrmr_relevance_algo,
+                mrmr_redundancy_algo=mrmr_redundancy_algo,
+                max_veteranes_interactions_order=max_veteranes_interactions_order,
+                extra_knowledge_multipler=extra_knowledge_multipler,
+                sink_threshold=sink_threshold,
+                entropy_cache=entropy_cache,
+                cached_cond_MIs=cached_cond_MIs,
+                can_use_x_cache=True,
+                can_use_y_cache=True,
+            )
 
-            k = 0
-            for interactions_order in range(max_veteranes_interactions_order):
-
-                for Z in combinations(selected_vars, interactions_order + 1):
-
-                    if k > last_checked_k:
-
-                        if mrmr_relevance_algo == "fleuret":
-
-                            # ---------------------------------------------------------------------------------------------------------------
-                            # additional_knowledge = I (X ;Y | Z ) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)
-                            # I (X,Z) would be entropy_x + entropy_z - entropy_xz.
-                            # ---------------------------------------------------------------------------------------------------------------
-
-                            key = (X, Z)
-                            if key in cached_cond_MIs:
-                                additional_knowledge = cached_cond_MIs[key]
-                            else:
-
-                                additional_knowledge = conditional_mi(
-                                    factors_data=factors_data,
-                                    x=X,
-                                    y=y,
-                                    z=Z,
-                                    var_is_nominal=None,
-                                    factors_nbins=factors_nbins,
-                                    entropy_cache=entropy_cache,
-                                    can_use_x_cache=True,
-                                    can_use_y_cache=True,
-                                    dtype=dtype,
-                                )
-
-                                if nexisting > 0:
-                                    additional_knowledge = additional_knowledge ** (nexisting + 1)
-
-                                cached_cond_MIs[key] = additional_knowledge
-
-                        # ---------------------------------------------------------------------------------------------------------------
-                        # Account for possible extra knowledge from conditioning on Z?
-                        # that must update best_gain globally. log such cases. Note that we do not guarantee finding them in order,
-                        # but they are too precious to ignore. Adding this will also allow to skip higher order interactions
-                        # containing all of already approved candidates.
-                        # ---------------------------------------------------------------------------------------------------------------
-
-                        if extra_knowledge_multipler and additional_knowledge > direct_gain * extra_knowledge_multipler:
-                            bwarn = False
-                            if not positive_mode:
-                                current_gain = additional_knowledge
-                                positive_mode = True
-                                bwarn = True
-                            else:
-                                # rare chance that a candidate has many excellent relationships
-                                if additional_knowledge > current_gain:
-                                    current_gain = additional_knowledge
-                                    bwarn = True
-
-                            if bwarn:
-                                if verbose:
-                                    if current_gain > best_gain:
-                                        logger.info(
-                                            f"\tCandidate {get_candidate_name(X,factors_names=factors_names)} together with factor {get_candidate_name(Z,factors_names=factors_names)} has synergetic influence {additional_knowledge:{ndigits}f} (direct MI={direct_gain:{ndigits}f})"
-                                        )
-
-                        if not positive_mode and (additional_knowledge < current_gain):
-
-                            current_gain = additional_knowledge
-
-                            if best_gain and current_gain <= best_gain:
-
-                                # ---------------------------------------------------------------------------------------------------------------
-                                # No point checking other Zs, 'cause current_gain already won't be better than the best_gain
-                                # (if best_gain was estimated confidently, which we'll check at the end.)
-                                # ---------------------------------------------------------------------------------------------------------------
-
-                                partial_gains[cand_idx] = current_gain, k
-
-                                # let's also fix what Z caused X (the most) to sink
-
-                                if sink_threshold and current_gain < sink_threshold:
-                                    sink_reasons.add(Z)
-
-                                current_gain = 0  # ?
-                                stopped_early = True
-                                break
-                    k += 1
-                if stopped_early:
-                    break
-
+            partial_gains[cand_idx] = current_gain, k
             if not stopped_early:  # there was no break. current_gain computed fully.
-                partial_gains[cand_idx] = current_gain, k
                 expected_gains[cand_idx] = current_gain
         else:
             # no factors selected yet. current_gain is just direct_gain
@@ -1265,9 +1370,13 @@ def screen_predictors(
     predictors = []  # stores more details.
 
     cached_MIs = dict()
-    cached_cond_MIs = dict()
+    # cached_cond_MIs = dict()
     cached_confident_MIs = dict()
     entropy_cache = numba.typed.Dict.empty(
+        key_type=types.unicode_type,
+        value_type=types.float64,
+    )
+    cached_cond_MIs = numba.typed.Dict.empty(
         key_type=types.unicode_type,
         value_type=types.float64,
     )
@@ -1384,7 +1493,7 @@ def screen_predictors(
                             selected_vars=selected_vars,
                             cached_MIs=cached_MIs,
                             cached_confident_MIs=cached_confident_MIs,
-                            cached_cond_MIs=cached_cond_MIs,
+                            cached_cond_MIs=dict(cached_cond_MIs),
                             entropy_cache=dict(entropy_cache),
                             max_runtime_mins=max_runtime_mins,
                             start_time=start_time,
@@ -1575,7 +1684,8 @@ def screen_predictors(
                                 cached_confident_MIs[X] = bootstrapped_gain, confidence
 
                             if bootstrapped_gain > 0 and selected_vars:  # additional check of Fleuret criteria
-
+                                skip_cand = [(subel in selected_vars) for subel in X]
+                                nexisting = sum(skip_cand)
                                 # ---------------------------------------------------------------------------------------------------------------
                                 # external bootstrapped recheck. is minimal MI of candidate X with Y given all current Zs THAT BIG as next_best_gain?
                                 # ---------------------------------------------------------------------------------------------------------------
@@ -1592,6 +1702,11 @@ def screen_predictors(
                                         bootstrapped_gain=next_best_gain,
                                         npermutations=full_npermutations,
                                         max_failed=max_failed,
+                                        nexisting=nexisting,
+                                        mrmr_relevance_algo=mrmr_relevance_algo,
+                                        mrmr_redundancy_algo=mrmr_redundancy_algo,
+                                        max_veteranes_interactions_order=max_veteranes_interactions_order,
+                                        cached_cond_MIs=cached_cond_MIs,
                                         entropy_cache=entropy_cache,
                                         extra_x_shuffling=extra_x_shuffling,
                                         nworkers=nworkers,
@@ -1609,6 +1724,11 @@ def screen_predictors(
                                         bootstrapped_gain=next_best_gain,
                                         npermutations=full_npermutations,
                                         max_failed=max_failed,
+                                        nexisting=nexisting,
+                                        mrmr_relevance_algo=mrmr_relevance_algo,
+                                        mrmr_redundancy_algo=mrmr_redundancy_algo,
+                                        max_veteranes_interactions_order=max_veteranes_interactions_order,
+                                        cached_cond_MIs=cached_cond_MIs,
                                         entropy_cache=entropy_cache,
                                         extra_x_shuffling=extra_x_shuffling,
                                     )
