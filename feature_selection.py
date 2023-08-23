@@ -294,6 +294,7 @@ def conditional_mi(
     entropy_yz: float = -1.0,
     entropy_xyz: float = -1.0,
     entropy_cache: dict = None,
+    can_use_x_cache: bool = False,
     can_use_y_cache: bool = False,
     dtype=np.int32,
 ) -> float:
@@ -320,13 +321,13 @@ def conditional_mi(
 
     if entropy_xz < 0:
         indices = sorted([*x, *z])
-        if entropy_cache is not None:
+        if can_use_x_cache and entropy_cache is not None:
             key = arr2str(indices)
             entropy_xz = entropy_cache.get(key, -1)
         if entropy_xz < 0:
             _, freqs_xz, _ = merge_vars(factors_data=factors_data, vars_indices=indices, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
             entropy_xz = entropy(freqs=freqs_xz)
-            if entropy_cache is not None:
+            if can_use_x_cache and entropy_cache is not None:
                 entropy_cache[key] = entropy_xz
         # else:
         #    caching_hits_xz += 1
@@ -354,7 +355,7 @@ def conditional_mi(
         entropy_yz = entropy(freqs=freqs_yz)
 
     if entropy_xyz < 0:
-        if can_use_y_cache:
+        if can_use_y_cache and can_use_x_cache:
             indices = sorted([*x, *y, *z])
             if entropy_cache is not None:
                 key = arr2str(indices)
@@ -376,7 +377,7 @@ def conditional_mi(
                 dtype=dtype,
             )  # upper classes of [*y, *z] can serve here. (2+x)-dim, ie 3 to 5 dim.
             entropy_xyz = entropy(freqs=freqs_xyz)
-            if entropy_cache is not None and can_use_y_cache:
+            if entropy_cache is not None and can_use_y_cache and can_use_x_cache:
                 entropy_cache[key] = entropy_xyz
         # else:
         #    caching_hits_xyz += 1
@@ -1067,6 +1068,7 @@ def evaluate_candidate(
                                     var_is_nominal=None,
                                     factors_nbins=factors_nbins,
                                     entropy_cache=entropy_cache,
+                                    can_use_x_cache=True,
                                     can_use_y_cache=True,
                                     dtype=dtype,
                                 )
@@ -1074,8 +1076,6 @@ def evaluate_candidate(
                                 if nexisting > 0:
                                     additional_knowledge = additional_knowledge ** (nexisting + 1)
 
-                                if additional_knowledge < 0.0:
-                                    print(X, Z, additional_knowledge)
                                 cached_cond_MIs[key] = additional_knowledge
 
                         # ---------------------------------------------------------------------------------------------------------------
