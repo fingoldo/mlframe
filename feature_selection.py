@@ -1444,8 +1444,8 @@ def screen_predictors(
             # Find candidate X with the highest current_gain given already selected factors
             # ---------------------------------------------------------------------------------------------------------------
 
-            best_gain = min_relevance_gain - 1
             best_candidate = None
+            best_gain = min_relevance_gain - 1
             expected_gains = np.zeros(len(candidates), dtype=np.float64)
 
             while True:  # confirmation loop (by random permutations)
@@ -1885,13 +1885,45 @@ def postprocess_candidates(
     """Post-analysis of prescreened candidates.
 
     1) repeat standard Fleuret screening process. maybe some vars will be removed when taken into account all other candidates.
-    2) in the final set, compute for every factor
+    2)
+    3) in the final set, compute for every factor
         a) MI with every remaining predictor (and 2,3 way subsets)
 
     """
-
     # ---------------------------------------------------------------------------------------------------------------
-    # Make sure with confidence that every candidate is related to target
+    # Repeat standard Fleuret screening process. maybe some vars will be removed when taken into account all other candidates.
+    # ---------------------------------------------------------------------------------------------------------------
+    for cand_idx, X, nexisting in (candidates_pbar := tqdmu(selected_vars, leave=False, desc="Finalizing Candidates")):
+        current_gain, sink_reasons = evaluate_candidate(
+            cand_idx=cand_idx,
+            X=X,
+            y=y,
+            nexisting=nexisting,
+            best_gain=best_gain,
+            factors_data=factors_data,
+            factors_nbins=factors_nbins,
+            factors_names=factors_names,
+            classes_y=classes_y,
+            classes_y_safe=classes_y_safe,
+            freqs_y=freqs_y,
+            use_gpu=use_gpu,
+            freqs_y_safe=freqs_y_safe,
+            partial_gains=partial_gains,
+            baseline_npermutations=baseline_npermutations,
+            mrmr_relevance_algo=mrmr_relevance_algo,
+            mrmr_redundancy_algo=mrmr_redundancy_algo,
+            max_veteranes_interactions_order=max_veteranes_interactions_order,
+            expected_gains=expected_gains,
+            selected_vars=selected_vars,
+            cached_MIs=cached_MIs,
+            cached_confident_MIs=cached_confident_MIs,
+            cached_cond_MIs=cached_cond_MIs,
+            entropy_cache=entropy_cache,
+            verbose=verbose,
+            ndigits=ndigits,
+        )
+    # ---------------------------------------------------------------------------------------------------------------
+    # Make sure with confidence that every candidate is related to the target
     # ---------------------------------------------------------------------------------------------------------------
 
     if ensure_target_influence:
