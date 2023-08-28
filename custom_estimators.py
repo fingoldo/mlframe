@@ -23,6 +23,7 @@ ensure_installed("numpy pandas scikit-learn")
 from typing import *
 import pandas as pd, numpy as np
 from scipy.ndimage.interpolation import shift
+from sklearn.preprocessing import KBinsDiscretizer
 from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin, RegressorMixin, MultiOutputMixin
 
 from numbers import Number
@@ -32,6 +33,23 @@ from sklearn.preprocessing import PowerTransformer
 
 power_transformer_obj = PowerTransformer(method="box-cox")
 
+
+class PdKBinsDiscretizer(KBinsDiscretizer):
+
+    def __init__(self, n_bins=5, encode='onehot', strategy='quantile', dtype=None, subsample='warn', random_state=None):
+        super().__init__(n_bins=n_bins,encode=encode, strategy=strategy, dtype=dtype, subsample=subsample, random_state=random_state)
+
+    def transform(self, X):
+        if isinstance(X,pd.DataFrame):
+            col_names = X.columns.values.tolist()
+        else:
+            col_names=None
+        
+        X = super().transform(X)
+        if col_names:
+            return pd.DataFrame(data=X, columns=col_names)
+        else:
+            return X
 
 class ArithmAvgClassifier(BaseEstimator, ClassifierMixin):
     def __init__(self, nprobs):

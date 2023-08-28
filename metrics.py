@@ -1,4 +1,4 @@
-import numpy as np
+import numpy as np, pandas as pd
 from numba import njit
 from math import floor
 from matplotlib import pyplot as plt
@@ -177,7 +177,7 @@ def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int =
     return calibration_mae, calibration_std
 
 
-def predictions_time_instability(preds: np.ndarray) -> float:
+def predictions_time_instability(preds: pd.Series) -> float:
     """Computes how stable are true values or predictions over time.
     It's hard to use predictions that change upside down from point to point.
     For binary classification instability ranges from 0 to 1, for regression from 0 to any value depending on the target stats.
