@@ -182,4 +182,4 @@ def predictions_time_instability(preds: pd.Series) -> float:
     It's hard to use predictions that change upside down from point to point.
     For binary classification instability ranges from 0 to 1, for regression from 0 to any value depending on the target stats.
     """
-    return preds.diff().abs().mean()
+    return np.abs(np.diff(preds)).mean()
