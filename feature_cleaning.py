@@ -439,8 +439,9 @@ def analyse_and_clean_features(
 
     iterable_columns = df.columns
     if verbose:
-        logger.info("Analyzing %s features...", len(iterable_columns))
-        iterable_columns = tqdmu(iterable_columns)
+        mes=f"Analyzing {len(iterable_columns)} features..."
+        logger.info(mes)
+        iterable_columns = tqdmu(iterable_columns,desc=mes,leave=True)
 
     if analyse_mask is None:
         sub_df = df
