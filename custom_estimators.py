@@ -23,7 +23,7 @@ ensure_installed("numpy pandas scikit-learn")
 from typing import *
 import pandas as pd, numpy as np
 from scipy.ndimage.interpolation import shift
-from sklearn.preprocessing import KBinsDiscretizer
+from sklearn.preprocessing import KBinsDiscretizer,OrdinalEncoder
 from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin, RegressorMixin, MultiOutputMixin
 
 from numbers import Number
@@ -32,6 +32,23 @@ from scipy.special import boxcox
 from sklearn.preprocessing import PowerTransformer
 
 power_transformer_obj = PowerTransformer(method="box-cox")
+
+class PdOrdinalEncoder(OrdinalEncoder):
+    
+    def __init__(self, categories='auto', dtype=np.float32, handle_unknown='error', unknown_value=None, encoded_missing_value=np.nan, min_frequency=None, max_categories=None):
+        super().__init__(categories=categories,dtype=dtype,handle_unknown=handle_unknown,unknown_value=unknown_value,encoded_missing_value=encoded_missing_value,min_frequency=min_frequency,max_categories=max_categories)
+    
+    def transform(self, X):
+        if isinstance(X,pd.DataFrame):
+            col_names = X.columns.values.tolist()
+        else:
+            col_names=None
+        
+        X = super().transform(X)
+        if col_names:
+            return pd.DataFrame(data=X, columns=col_names).astype(np.int32)
+        else:
+            return X.astype(np.int32)
 
 
 class PdKBinsDiscretizer(KBinsDiscretizer):
@@ -47,9 +64,9 @@ class PdKBinsDiscretizer(KBinsDiscretizer):
         
         X = super().transform(X)
         if col_names:
-            return pd.DataFrame(data=X, columns=col_names)
+            return pd.DataFrame(data=X, columns=col_names).astype(np.int32)
         else:
-            return X
+            return X.astype(np.int32)
 
 class ArithmAvgClassifier(BaseEstimator, ClassifierMixin):
     def __init__(self, nprobs):
