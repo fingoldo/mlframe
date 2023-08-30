@@ -1066,6 +1066,9 @@ def evaluate_gain(
 
                         if nexisting > 0:
                             additional_knowledge = additional_knowledge ** (nexisting + 1)
+                        # else:
+                        #    if len(X) > 1:
+                        #        additional_knowledge = additional_knowledge ** (len(X) + 1)
 
                         if not confidence_mode:
                             cached_cond_MIs[key] = additional_knowledge
