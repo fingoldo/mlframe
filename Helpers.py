@@ -16,7 +16,9 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
+from enum import Enum
 import mlflow
+
 
 ########################################################################################################################################################################################################################################
 # Helper functions
@@ -115,19 +117,29 @@ def embed_website_to_mlflow(url:str,fname:str="url",extension:str='.html',width:
     with open(fname+extension, "w") as f:
         f.write(website_embed)
 
-def get_or_create_mlflow_run(run_name: str, parent_run_id: str = None, experiment_name: str = None, experiment_id: str = None) -> Tuple[object, bool]:
+def get_or_create_mlflow_run(run_name: str, parent_run_id: str = None, experiment_name: str = None, experiment_id: str = None,tags:dict={}) -> Tuple[object, bool]:
     """Tries to find a run by name within current mlflow experiment.
     If not found, creates new one.
     """
-    runs = mlflow.search_runs(experiment_names=[experiment_name], filter_string=f'run_name = "{run_name}"', output_format="list")
+    filter_string=f'run_name = "{run_name}"'
+    if parent_run_id:
+        filter_string+=f' and tag.mlflow.parentRunId = "{parent_run_id}"'
+
+    runs = mlflow.search_runs(experiment_names=[experiment_name], filter_string=filter_string, output_format="list",)
     if runs:
         for run in runs:
             return run, True
     else:
         if experiment_name:
             mlflow.set_experiment(experiment_name=experiment_name)
+        run_tags={"mlflow.parentRunId": parent_run_id} if parent_run_id else None
+        if tags:
+            if run_tags is None:
+                run_tags=tags
+            else:
+                run_tags.update(tags)
         run = mlflow.start_run(
-            run_name=run_name, experiment_id=experiment_id, tags={"mlflow.parentRunId": parent_run_id} if parent_run_id else None
+            run_name=run_name, experiment_id=experiment_id, tags=run_tags
         )  # parent_run.info.run_id
         mlflow.end_run()
         return run, False
@@ -136,7 +148,13 @@ def create_mlflow_run_label(params: dict, category: str = None) -> str:
     label = []
     for key, value in params.items():
         if value:
-            label.append(f"{key}={value}")
+            if isinstance(value, Enum):
+                label.append(f"{key}={value.name}")
+            else:
+                if type(value) == type:
+                    label.append(f"{key}={value.__name__}")
+                else:
+                    label.append(f"{key}={value}")
     label = ",".join(label)
     if category:
         label = f"{category}:{label}"

@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 from pyutilz.pythonlib import ensure_installed  # lint: disable=ungrouped-imports,disable=wrong-import-order
 
-ensure_installed("pandas")
+# ensure_installed("pandas")
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports

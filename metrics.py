@@ -1,8 +1,16 @@
-import numpy as np, pandas as pd
+# ----------------------------------------------------------------------------------------------------------------------------
+# Normal Imports
+# ----------------------------------------------------------------------------------------------------------------------------
+
+from typing import *
 from numba import njit
 from math import floor
+import numpy as np, pandas as pd
 from matplotlib import pyplot as plt
 
+# ----------------------------------------------------------------------------------------------------------------------------
+# Core
+# ----------------------------------------------------------------------------------------------------------------------------
 
 def fast_auc(y_true: np.array, y_score: np.array) -> float:
     """np.argsort needs to stay out of njitted func."""
@@ -183,3 +191,52 @@ def predictions_time_instability(preds: pd.Series) -> float:
     For binary classification instability ranges from 0 to 1, for regression from 0 to any value depending on the target stats.
     """
     return np.abs(np.diff(preds)).mean()
+
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Errors & scorers
+# ----------------------------------------------------------------------------------------------------------------------------
+
+
+class CB_CALIB_ERROR:
+    def is_max_optimal(self):
+        return False  # greater is better
+
+    def evaluate(self, approxes, target, weight):
+        output_weight = 1  # weight is not used
+
+        # predictions=expit(approxes[0])
+        predictions = 1 / (1 + np.exp(-approxes[0]))
+
+        calibration_mae, calibration_std = fast_calibration_metrics(y_true=target, y_pred=predictions)
+        return calibration_mae + calibration_std / 10, output_weight
+
+    def get_final_error(self, error, weight):
+        return error
+
+
+class CB_PRECISION:
+    def is_max_optimal(self):
+        return False  # greater is better
+
+    def evaluate(self, approxes, target, weight):
+        output_weight = 1  # weight is not used
+
+        # predictions=expit(approxes[0])
+        predictions = 1 / (1 + np.exp(-approxes[0]))
+
+        return fast_precision(y_true=target, y_pred=(predictions >= 0.5).astype(np.int8), zero_division=0), output_weight
+
+    def get_final_error(self, error, weight):
+        return error
+
+
+def calib_error(labels: np.ndarray, predt: np.ndarray) -> float:
+    """Calibration error."""
+
+    calibration_mae, calibration_std = fast_calibration_metrics(y_true=labels, y_pred=predt)
+    return calibration_mae + calibration_std / 10
+
+
+def calib_error_keras(labels: np.ndarray, predt: np.ndarray) -> float:
+    return calib_error(labels=labels.numpy()[:, -1], predt=predt.numpy()[:, -1],)

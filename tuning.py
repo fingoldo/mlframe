@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 from pyutilz.pythonlib import ensure_installed
 
-ensure_installed("pandas numpy scipy")
+# ensure_installed("pandas numpy scipy")
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports

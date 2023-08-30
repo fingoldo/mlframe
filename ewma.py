@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 from pyutilz.pythonlib import ensure_installed
 
-ensure_installed("numpy")
+# ensure_installed("numpy")
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports

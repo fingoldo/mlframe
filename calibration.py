@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 from pyutilz.pythonlib import ensure_installed
 
-ensure_installed("pandas numpy properscoring scikit-learn")
+# ensure_installed("pandas numpy properscoring") #  scikit-learn
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports

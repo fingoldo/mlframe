@@ -8,16 +8,17 @@ import pandas as pd
 from pyutilz.system import tqdmu
 
 
-def prepare_df_for_catboost(df: object, columns_to_drop: Sequence = [], text_features: Sequence = [], cat_features: list = [], na_filler: str = "") -> None:
+def prepare_df_for_catboost(df: object, columns_to_drop: Sequence = [], text_features: Sequence = [], cat_features: list = [], na_filler: str = "",ensure_categorical:bool=True,verbose:bool=False) -> None:
     """
-    Catboost needs NAs replaced by a string value.
+    Catboost needs NAs in cat features replaced by a string value.
     Possibly extends cat_features list.
+    ensure_categorical:bool=True makes further processing also suitable for xgboost.
     """
     cols = set(df.columns)
 
     for var in tqdmu(text_features, desc="Processing textual features for CatBoost...", leave=False):
-        if var in cols:
-            if var not in columns_to_drop:
+        if var in cols and var not in columns_to_drop:
+            if df[var].isna().any():
                 df[var] = df[var].fillna(na_filler)
 
     for var in tqdmu(cols, desc="Processing categorical features for CatBoost...", leave=False):
@@ -25,14 +26,13 @@ def prepare_df_for_catboost(df: object, columns_to_drop: Sequence = [], text_fea
             if df[var].isna().any():
                 df[var] = df[var].astype(str).fillna(na_filler).astype('category')
             if var not in cat_features:
-                logging.info(f"{var} appended to cat_features")
-                #df[var] = df[var].astype(str) #(?)
+                if verbose: logging.info(f"{var} appended to cat_features")
                 cat_features.append(var)
         else:
             if var in cat_features:
                 if df[var].isna().any():
                     df[var] = df[var].fillna(na_filler)
-                df[var] = df[var].astype('category')
+                if ensure_categorical: df[var] = df[var].astype('category')
 
 
 def prepare_df_for_xgboost(df: object, cat_features: Sequence = [], ) -> None:
@@ -47,5 +47,5 @@ def prepare_df_for_xgboost(df: object, cat_features: Sequence = [], ) -> None:
                 #df[var] = df[var].astype(str) #(?)
                 cat_features.append(var)            
         else:
-            if var in cat_features:
+            if var in cat_features and ensure_categorical:
                 df[var] = df[var].astype('category')
