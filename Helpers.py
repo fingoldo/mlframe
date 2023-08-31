@@ -144,7 +144,7 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: str = None, experimen
         mlflow.end_run()
         return run, False
     
-def create_mlflow_run_label(params: dict, category: str = None) -> str:
+def create_mlflow_run_label(params: dict={}, category: str = None) -> str:
     label = []
     for key, value in params.items():
         if value:
@@ -157,5 +157,8 @@ def create_mlflow_run_label(params: dict, category: str = None) -> str:
                     label.append(f"{key}={value}")
     label = ",".join(label)
     if category:
-        label = f"{category}:{label}"
+        if label:
+            label = f"{category}:{label}"
+        else:
+            label = f"{category}"
     return label
