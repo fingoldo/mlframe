@@ -12,6 +12,7 @@ from matplotlib import pyplot as plt
 # Core
 # ----------------------------------------------------------------------------------------------------------------------------
 
+
 def fast_auc(y_true: np.array, y_score: np.array) -> float:
     """np.argsort needs to stay out of njitted func."""
     desc_score_indices = np.argsort(y_score)[::-1]
@@ -39,18 +40,20 @@ def fast_numba_auc_nonw(y_true: np.array, y_score: np.array, desc_score_indices:
             last_counted_tps = tps
     return auc / (tps * fps * 2)
 
+
 @njit()
 def fast_precision(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, zero_division: int = 0):
     # storage inits
     misses = np.zeros(nclasses, dtype=np.int64)
-    hits = np.zeros(nclasses, dtype=np.int64)    
+    hits = np.zeros(nclasses, dtype=np.int64)
     # count stats
     for true_class, predicted_class in zip(y_true, y_pred):
         allpreds[predicted_class] += 1
         if predicted_class == true_class:
-            hits[predicted_class] += 1    
+            hits[predicted_class] += 1
     precisions = hits / allpreds
     return precisions[-1]
+
 
 @njit()
 def fast_classification_report(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, zero_division: int = 0):
@@ -117,10 +120,10 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     idx = np.nonzero(pockets_predicted > 0)[0]
 
     hits = pockets_predicted[idx]
-    if len(hits)>0:
+    if len(hits) > 0:
         freqs_predicted, freqs_true = (min_val + (np.arange(nbins)[idx] + 0.5) * span / nbins).astype(np.float64), pockets_true[idx] / pockets_predicted[idx]
     else:
-        freqs_predicted, freqs_true=np.array((),dtype=np.float64),np.array((),dtype=np.float64)
+        freqs_predicted, freqs_true = np.array((), dtype=np.float64), np.array((), dtype=np.float64)
 
     return freqs_predicted, freqs_true, hits
 
@@ -151,13 +154,14 @@ def show_calibration_plot(
 
 @njit()
 def calibration_metrics_from_freqs(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray):
-    if len(hits)>0:
+    if len(hits) > 0:
         diffs = np.abs((freqs_predicted - freqs_true))
         calibration_mae, calibration_std = np.mean(diffs), np.std(diffs)
     else:
-        calibration_mae, calibration_std=1.0,1.0
-    
-    return calibration_mae, calibration_std    
+        calibration_mae, calibration_std = 1.0, 1.0
+
+    return calibration_mae, calibration_std
+
 
 @njit()
 def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
@@ -239,4 +243,7 @@ def calib_error(labels: np.ndarray, predt: np.ndarray) -> float:
 
 
 def calib_error_keras(labels: np.ndarray, predt: np.ndarray) -> float:
-    return calib_error(labels=labels.numpy()[:, -1], predt=predt.numpy()[:, -1],)
+    return calib_error(
+        labels=labels.numpy()[:, -1],
+        predt=predt.numpy()[:, -1],
+    )
