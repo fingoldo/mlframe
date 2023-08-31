@@ -119,7 +119,7 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
         for true_class, predicted_prob in zip(y_true, y_pred):
             ind = floor((predicted_prob - min_val) * multiplier)
             pockets_predicted[ind] += 1
-            pockets_true[ind] += true_class        
+            pockets_true[ind] += true_class   
     else:
         ind =0
         for true_class, predicted_prob in zip(y_true, y_pred):
@@ -163,12 +163,12 @@ def show_calibration_plot(
 
 @njit()
 def calibration_metrics_from_freqs(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray, nbins: int):
+    calibration_coverage=len(hits)/nbins
     if len(hits)>0:
         diffs = np.abs((freqs_predicted - freqs_true))        
-        calibration_mae, calibration_std = np.mean(diffs), np.std(diffs)
-        calibration_coverage=nbins/len(hits)
+        calibration_mae, calibration_std = np.mean(diffs), np.std(diffs)        
     else:
-        calibration_mae, calibration_std,calibration_coverage=1.0,1.0,0
+        calibration_mae, calibration_std=1.0,1.0
     
     return calibration_mae, calibration_std,calibration_coverage
 
@@ -243,12 +243,12 @@ class CB_PRECISION:
     def get_final_error(self, error, weight):
         return error
 
-@njit()
+#@njit()
 def calib_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Calibration error."""
 
     calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred)
-    return (calibration_mae + calibration_std / 5)/(calibration_coverage+1e-7)
+    return (calibration_mae + calibration_std / 5)/(calibration_coverage)
 
 
 def calib_error_keras(y_true: np.ndarray, y_pred: np.ndarray) -> float:
