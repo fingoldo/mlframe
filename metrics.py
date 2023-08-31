@@ -104,6 +104,8 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     pockets_predicted = np.zeros(nbins, dtype=np.int64)
     pockets_true = np.zeros(nbins, dtype=np.int64)
 
+    # compute span
+
     min_val, max_val = 1.0, 0.0
     for predicted_prob in y_pred:
         if predicted_prob > max_val:
@@ -111,11 +113,18 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
         elif predicted_prob < min_val:
             min_val = predicted_prob
     span = max_val - min_val
-    multiplier = nbins / span
-    for true_class, predicted_prob in zip(y_true, y_pred):
-        ind = floor((predicted_prob - min_val) * multiplier)
-        pockets_predicted[ind] += 1
-        pockets_true[ind] += true_class
+
+    if span>0:
+        multiplier = nbins / span
+        for true_class, predicted_prob in zip(y_true, y_pred):
+            ind = floor((predicted_prob - min_val) * multiplier)
+            pockets_predicted[ind] += 1
+            pockets_true[ind] += true_class        
+    else:
+        ind =0
+        for true_class, predicted_prob in zip(y_true, y_pred):
+            pockets_predicted[ind] += 1
+            pockets_true[ind] += true_class
 
     idx = np.nonzero(pockets_predicted > 0)[0]
 
@@ -153,40 +162,41 @@ def show_calibration_plot(
 
 
 @njit()
-def calibration_metrics_from_freqs(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray):
-    if len(hits) > 0:
-        diffs = np.abs((freqs_predicted - freqs_true))
+def calibration_metrics_from_freqs(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray, nbins: int):
+    if len(hits)>0:
+        diffs = np.abs((freqs_predicted - freqs_true))        
         calibration_mae, calibration_std = np.mean(diffs), np.std(diffs)
+        calibration_coverage=nbins/len(hits)
     else:
-        calibration_mae, calibration_std = 1.0, 1.0
-
-    return calibration_mae, calibration_std
+        calibration_mae, calibration_std,calibration_coverage=1.0,1.0,0
+    
+    return calibration_mae, calibration_std,calibration_coverage
 
 
 @njit()
 def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
     freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
-    return calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits)
+    return calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins)
 
 
-def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, show_plots: bool = True, plot_file: str = "", figsize: tuple = (12, 6)):
+def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, show_plots: bool = True, plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=4):
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs."""
 
     freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
-    calibration_mae, calibration_std = calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits)
+    calibration_mae, calibration_std,calibration_coverage = calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins)
 
     if plot_file or show_plots:
         show_calibration_plot(
             freqs_predicted=freqs_predicted,
             freqs_true=freqs_true,
             hits=hits,
-            plot_title=f"Calibration MAE={calibration_mae:.4f} ± {calibration_std:.4f}",
+            plot_title=f"Calibration MAE={calibration_mae:.{ndigits}f} ± {calibration_std:.{ndigits}f}, cov. {calibration_coverage*100:.{ndigits}f}%",
             show_plots=show_plots,
             plot_file=plot_file,
             figsize=figsize,
         )
 
-    return calibration_mae, calibration_std
+    return calibration_mae, calibration_std, calibration_coverage
 
 
 def predictions_time_instability(preds: pd.Series) -> float:
@@ -212,8 +222,7 @@ class CB_CALIB_ERROR:
         # predictions=expit(approxes[0])
         predictions = 1 / (1 + np.exp(-approxes[0]))
 
-        calibration_mae, calibration_std = fast_calibration_metrics(y_true=target, y_pred=predictions)
-        return calibration_mae + calibration_std / 10, output_weight
+        return calib_error(y_true=target, y_pred=predictions), output_weight
 
     def get_final_error(self, error, weight):
         return error
@@ -234,16 +243,13 @@ class CB_PRECISION:
     def get_final_error(self, error, weight):
         return error
 
-
-def calib_error(labels: np.ndarray, predt: np.ndarray) -> float:
+@njit()
+def calib_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Calibration error."""
 
-    calibration_mae, calibration_std = fast_calibration_metrics(y_true=labels, y_pred=predt)
-    return calibration_mae + calibration_std / 10
+    calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred)
+    return (calibration_mae + calibration_std / 5)/(calibration_coverage+1e-7)
 
 
-def calib_error_keras(labels: np.ndarray, predt: np.ndarray) -> float:
-    return calib_error(
-        labels=labels.numpy()[:, -1],
-        predt=predt.numpy()[:, -1],
-    )
+def calib_error_keras(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    return calib_error(y_true=y_true.numpy()[:, -1], y_pred=y_pred.numpy()[:, -1],)

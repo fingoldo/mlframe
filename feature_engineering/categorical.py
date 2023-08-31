@@ -18,7 +18,7 @@ from pyutilz.pythonlib import (
     ensure_installed,
 )  # lint: disable=ungrouped-imports,disable=wrong-import-order
 
-ensure_installed("numpy pandas scipy")
+# ensure_installed("numpy pandas scipy")
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
