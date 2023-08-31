@@ -218,8 +218,7 @@ class CB_CALIB_ERROR:
         # predictions=expit(approxes[0])
         predictions = 1 / (1 + np.exp(-approxes[0]))
 
-        calibration_mae, calibration_std = fast_calibration_metrics(y_true=target, y_pred=predictions)
-        return calibration_mae + calibration_std / 10, output_weight
+        return calib_error(y_true=target, y_pred=predictions), output_weight
 
     def get_final_error(self, error, weight):
         return error
@@ -240,13 +239,13 @@ class CB_PRECISION:
     def get_final_error(self, error, weight):
         return error
 
-
-def calib_error(labels: np.ndarray, predt: np.ndarray) -> float:
+@njit()
+def calib_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Calibration error."""
 
-    calibration_mae, calibration_std = fast_calibration_metrics(y_true=labels, y_pred=predt)
-    return calibration_mae + calibration_std / 10
+    calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred)
+    return (calibration_mae + calibration_std / 5)/(calibration_coverage+1e-7)
 
 
-def calib_error_keras(labels: np.ndarray, predt: np.ndarray) -> float:
-    return calib_error(labels=labels.numpy()[:, -1], predt=predt.numpy()[:, -1],)
+def calib_error_keras(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    return calib_error(y_true=y_true.numpy()[:, -1], y_pred=y_pred.numpy()[:, -1],)
