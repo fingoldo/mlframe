@@ -13,14 +13,14 @@ from matplotlib import pyplot as plt
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-def fast_auc(y_true: np.array, y_score: np.array) -> float:
+def fast_auc(y_true: np.ndarray, y_score: np.ndarray) -> float:
     """np.argsort needs to stay out of njitted func."""
     desc_score_indices = np.argsort(y_score)[::-1]
     return fast_numba_auc_nonw(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
 
 
 @njit()
-def fast_numba_auc_nonw(y_true: np.array, y_score: np.array, desc_score_indices: np.array) -> float:
+def fast_numba_auc_nonw(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices: np.ndarray) -> float:
     """code taken from fastauc lib."""
     y_score = y_score[desc_score_indices]
     y_true = y_true[desc_score_indices]
@@ -44,7 +44,7 @@ def fast_numba_auc_nonw(y_true: np.array, y_score: np.array, desc_score_indices:
 @njit()
 def fast_precision(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, zero_division: int = 0):
     # storage inits
-    misses = np.zeros(nclasses, dtype=np.int64)
+    allpreds = np.zeros(nclasses, dtype=np.int64)
     hits = np.zeros(nclasses, dtype=np.int64)
     # count stats
     for true_class, predicted_class in zip(y_true, y_pred):
@@ -249,6 +249,10 @@ def calib_error(calibration_mae:float , calibration_std:float, calibration_cover
     """Integral calibration error."""
 
     return (calibration_mae + calibration_std * std_weight)/(calibration_coverage)
+
+def calib_error_xgboost(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred)
+    return calib_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage)
 
 
 def calib_error_keras(y_true: np.ndarray, y_pred: np.ndarray) -> float:

@@ -75,6 +75,7 @@ def get_distributions_features_names() -> list:
 
 
 distributions_features_names = get_distributions_features_names()
+basic_features_names = "arimean,quadmean,qubmean,geomean,harmmean,nonzero,ratio,npos,nint,min,max,minr,maxr,max_pos_dd,max_neg_dd,max_pos_dd_durationr,max_neg_dd_durationr,nmaxupdates,nminupdates".split(",")
 
 
 default_quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]  # list vs ndarray gives advantage 125 µs ± 2.79 µs per loop vs 140 µs ± 8.11 µs per loop
@@ -536,9 +537,7 @@ def get_numaggs_names(q: list = default_quantiles, directional_only: bool = Fals
         (
             ["arimean", "ratio"]
             if directional_only
-            else "arimean,quadmean,qubmean,geomean,harmmean,nonzero,ratio,npos,nint,min,max,minr,maxr,max_pos_dd,max_neg_dd,max_pos_dd_durationr,max_neg_dd_durationr,nmaxupdates,nminupdates".split(
-                ","
-            )
+            else basic_features_names
         )
         + ([] if directional_only else "nuniques,modmin,modmax,modmean,modqty".split(","))
         + ([] if directional_only else ["q" + str(q) for q in q])
