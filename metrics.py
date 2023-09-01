@@ -220,9 +220,10 @@ class CB_CALIB_ERROR:
         output_weight = 1  # weight is not used
 
         # predictions=expit(approxes[0])
-        predictions = 1 / (1 + np.exp(-approxes[0]))
+        y_pred = 1 / (1 + np.exp(-approxes[0]))
+        calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=target, y_pred=y_pred)
 
-        return calib_error(y_true=target, y_pred=predictions), output_weight
+        return calib_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage), output_weight
 
     def get_final_error(self, error, weight):
         return error
@@ -235,21 +236,21 @@ class CB_PRECISION:
     def evaluate(self, approxes, target, weight):
         output_weight = 1  # weight is not used
 
-        # predictions=expit(approxes[0])
-        predictions = 1 / (1 + np.exp(-approxes[0]))
+        # y_pred=expit(approxes[0])
+        y_pred = 1 / (1 + np.exp(-approxes[0]))
 
-        return fast_precision(y_true=target, y_pred=(predictions >= 0.5).astype(np.int8), zero_division=0), output_weight
+        return fast_precision(y_true=target, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0), output_weight
 
     def get_final_error(self, error, weight):
         return error
 
 #@njit()
-def calib_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Calibration error."""
+def calib_error(calibration_mae:float , calibration_std:float, calibration_coverage:float,std_weight:float=0.5) -> float:
+    """Integral calibration error."""
 
-    calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred)
-    return (calibration_mae + calibration_std / 5)/(calibration_coverage)
+    return (calibration_mae + calibration_std * std_weight)/(calibration_coverage)
 
 
 def calib_error_keras(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    return calib_error(y_true=y_true.numpy()[:, -1], y_pred=y_pred.numpy()[:, -1],)
+    calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true.numpy()[:, -1], y_pred=y_pred.numpy()[:, -1])
+    return calib_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage)
