@@ -27,6 +27,15 @@ class CategoricalsHandling(Enum):
     CE = auto()
     # NativeOrSklearn = auto()  # CE cat columns if no native possible
     # Sklearn = auto()
+"""            # native=
+            # 1) xgboost native: dtypes are changed to categorical
+            # 2) catboost native: extra params passed to the fit or model init methods (cat_features= can also be text_features/embedding_features);
+            # 3) keras native:
+            #     StringLookup (small or moderate # of unique values) or Hashing (lots of unique values) for string dtypes
+            #        and
+            #     CategoryEncoding (known # of unique values) or IntegerLookup (infinite # of unique values) for numeric dtypes
+            #        (maps string to onehot, multihot,count,tfidf) + .adapt for the layer on the train set
+            #     followed by Embedding (accepts only positive integers of a fixed range, that's why prev 2 are needed)"""    
 
 
 class MissingHandling(Enum):

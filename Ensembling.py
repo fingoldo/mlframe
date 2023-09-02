@@ -28,5 +28,6 @@ def ensemble_probs(predicted_probs,true_labels:np.ndarray)->pd.DataFrame:
     row_features=[]
     for i in range(len(predicted_probs)):
         simple_numerical_features = compute_numerical_aggregates_numba(arr=predicted_probs[i,:], geomean_log_mode=False, directional_only=False)
-        row_features.extend(simple_numerical_features)
-    res=pd.DataFrame(data=row_features,columns=basic_features_names)["arimean,quadmean,qubmean,geomean,harmmean".split(",")]
+        row_features.append(simple_numerical_features)    
+    
+    return pd.DataFrame(data=row_features,columns=basic_features_names)["arimean,quadmean,qubmean,geomean,harmmean".split(",")]

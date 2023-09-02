@@ -245,10 +245,10 @@ class CB_PRECISION:
         return error
 
 #@njit()
-def calib_error(calibration_mae:float , calibration_std:float, calibration_coverage:float,std_weight:float=0.5) -> float:
+def calib_error(calibration_mae:float , calibration_std:float, calibration_coverage:float,std_weight:float=0.5,cov_degree:float=0.5) -> float:
     """Integral calibration error."""
 
-    return (calibration_mae + calibration_std * std_weight)/(calibration_coverage)
+    return (calibration_mae + calibration_std * std_weight)/(calibration_coverage**cov_degree)
 
 def calib_error_xgboost(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred)
