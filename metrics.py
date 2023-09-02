@@ -38,7 +38,11 @@ def fast_numba_auc_nonw(y_true: np.ndarray, y_score: np.ndarray, desc_score_indi
             auc += (fps - last_counted_fps) * (last_counted_tps + tps)
             last_counted_fps = fps
             last_counted_tps = tps
-    return auc / (tps * fps * 2)
+    tmp=tps * fps* 2
+    if tmp>0:
+        return auc / tmp
+    else:
+        return 0
 
 
 @njit()
@@ -223,7 +227,7 @@ class CB_CALIB_ERROR:
         y_pred = 1 / (1 + np.exp(-approxes[0]))
         calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=target, y_pred=y_pred)
 
-        return calib_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage), output_weight
+        return njitted_calib_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage), output_weight
 
     def get_final_error(self, error, weight):
         return error
@@ -248,7 +252,11 @@ class CB_PRECISION:
 def calib_error(calibration_mae:float , calibration_std:float, calibration_coverage:float,std_weight:float=0.5,cov_degree:float=0.5) -> float:
     """Integral calibration error."""
 
-    return (calibration_mae + calibration_std * std_weight)/(calibration_coverage**cov_degree)
+    if calibration_coverage==0.0:
+        return 1e5
+    else:
+        return (calibration_mae + calibration_std * std_weight)/(calibration_coverage**cov_degree)
+njitted_calib_error=njit(calib_error)
 
 def calib_error_xgboost(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred)
