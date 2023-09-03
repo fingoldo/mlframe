@@ -33,7 +33,7 @@ def plot_feature_importance(
 
     if plot_file or show_plots:
         fig = plt.figure(figsize=figsize)
-        ax = plt.gca(visible=True)
+        ax = plt.gca() # visible=True
         ax.barh(range(len(sorted_idx)), feature_importances[sorted_idx], align="center")
         ax.set(yticks=range(len(sorted_idx)), yticklabels=sorted_columns)
         ax.set_title(f"{kind} feature importances")
