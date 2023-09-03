@@ -166,11 +166,13 @@ def show_calibration_plot(
 
 
 @njit()
-def calibration_metrics_from_freqs(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray, nbins: int):
+def calibration_metrics_from_freqs(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray, nbins: int,array_size:int):
     calibration_coverage=len(hits)/nbins
     if len(hits)>0:
-        diffs = np.abs((freqs_predicted - freqs_true))        
-        calibration_mae, calibration_std = np.mean(diffs), np.std(diffs)        
+        diffs = np.abs((freqs_predicted - freqs_true))   
+        weights=hits/array_size
+        calibration_mae =np.sum(diffs*weights)
+        calibration_std=np.sqrt(np.sum(((diffs-calibration_mae)**2)*weights))
     else:
         calibration_mae, calibration_std=1.0,1.0
     
@@ -180,7 +182,7 @@ def calibration_metrics_from_freqs(freqs_predicted: np.ndarray, freqs_true: np.n
 @njit()
 def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
     freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
-    return calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins)
+    return calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins,array_size=len(y_true))
 
 
 def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, show_plots: bool = True, plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=4):
