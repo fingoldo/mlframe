@@ -17,8 +17,7 @@ logger = logging.getLogger(__name__)
 
 from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
 import pandas as pd, numpy as np
-from enum import Enum
-import mlflow
+from matplotlib import pyplot as plt
 
 # *****************************************************************************************************************************************************
 # Feature importances
