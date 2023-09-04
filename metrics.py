@@ -189,7 +189,7 @@ def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int =
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs."""
 
     freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
-    calibration_mae, calibration_std,calibration_coverage = calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins)
+    calibration_mae, calibration_std,calibration_coverage = calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins,array_size=len(y_true))
 
     if plot_file or show_plots:
         show_calibration_plot(
