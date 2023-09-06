@@ -1,4 +1,4 @@
-"""Feature selection within ML pipelines. Wrappers method. Currently includes recursive feature elimination."""
+"""Feature selection within ML pipelines. Wrappers methods. Currently includes recursive feature elimination."""
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # LOGGING
@@ -22,8 +22,13 @@ while True:
         import cupy as cp
 
         from pyutilz.system import tqdmu
+        from pyutilz.pythonlib import store_func_params_in_object
         from sklearn.base import is_classifier, is_regressor, BaseEstimator, TransformerMixin
         from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold, StratifiedShuffleSplit, GroupKFold, GroupShuffleSplit
+        from sklearn.dummy import DummyClassifier, DummyRegressor
+        from sklearn.metrics import make_scorer, mean_squared_error
+
+        from mlframe.metrics import calib_error
 
         from enum import Enum, auto
         from timeit import default_timer as timer
@@ -54,9 +59,9 @@ LARGE_CONST: float = 1e30
 
 
 class OptimumSearch(Enum):
-    Brent = "Brent"
-    SurrogateModel = "SurrogateModel"
-    GaussianProcess = "GaussianProcess"
+    ScipyLocal = "ScipyLocal"  # Brent
+    ScipyGlobal = "ScipyGlobal"  # direct, diff evol, shgo
+    SurrogateModel = "SurrogateModel"  # GaussianProcess or Catboost with uncertainty, or quantile regression
     ExhaustiveRandom = "ExhaustiveRandom"
     ExhaustiveDichotomic = "ExhaustiveDichotomic"
 
@@ -73,9 +78,9 @@ class VotesAggregation(Enum):
 
 
 class RFECV(BaseEstimator, TransformerMixin):
-    """Finds subset of features having best CV score, by iterative narrowing down set of candidates having highest importance, as per estimator.
+    """Finds subset of features having best CV score, by iterative narrowing down set of top_n candidates having highest importance, as per estimator's FI scores.
 
-    Optimizes mean CV scores (possibly translated into ranks) divided by the features number.
+    Optimizes mean CV scores (possibly accounting for variation, possibly translated into ranks) divided by the features number.
 
     Uses several optimization methods:
         exhaustive search
@@ -85,14 +90,16 @@ class RFECV(BaseEstimator, TransformerMixin):
 
     Main problem: impactful, but correlated factors all get low importance and will be thrown away (probably only for forests, not boostings).
     Other problem: due to noise some random features can become "important". Solution: use CV to calculate fold FI, then combine across the folds (by voting).
+    When estimating featureset quality at another TopN, use different splits & combine new FIs with all known before, to mitigate noise even more.
 
 
-    Optionally creates (and saves) a chart of optimization path.
+    Optionally plots (and saves) the optimization path - checked top_n and corresponding scores.
+    If surrogate models are used, also shows predicted scores along with confidence bounds.
 
     Challenges:
         CV performance itself can be a multi-component value! Say, both ROC AUC and CALIB metrics can be considered. Voting can be a solution.
-        estimator might itself be a HPT search.
-        it could be good to have several estimators. their importance evaluations must be accounted for simultaneously (voting).
+        Estimator might itself be a HPT search instance. Or a pipeline.
+        It could be good to have several estimators. Their importance evaluations must be accounted for simultaneously (voting).
         Estimator might need eval_set or similar (eval_frac).
 
 
@@ -156,9 +163,13 @@ class RFECV(BaseEstimator, TransformerMixin):
         max_runtime_mins: float = None,
         max_refits: int = None,
         cv: Union[object, int, None] = 3,
-        shuffle: bool = True,
-        scoring: Union[str, Callable, None] = None,
-        top_predictors_search_method: OptimumSearch = OptimumSearch.Brent,
+        cv_shuffle: Union[bool, None] = None,
+        early_stopping_val_nsplits: Union[int, None] = 4,
+        scoring_func: Union[Callable, None] = None,
+        scoring_greater_is_better: Union[bool, None] = None,
+        scoring_needs_proba: Union[bool, None] = None,
+        scoring_needs_threshold: Union[bool, None] = None,
+        top_predictors_search_method: OptimumSearch = OptimumSearch.ScipyLocal,
         votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
         importance_getter: Union[str, Callable] = "auto",
         random_state: int = None,
@@ -172,19 +183,15 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         # save params
 
-        self.cv_ = cv
-        self.verbose_ = verbose
-        self.estimator_ = estimator
-        self.max_refits_ = max_refits
-        self.max_runtime_mins_ = max_runtime_mins
-        self.votes_aggregation_method_ = votes_aggregation_method
-        self.top_predictors_search_method_ = top_predictors_search_method
+        store_func_params_in_object(obj=self)
 
     def fit(self, X, y, groups=None):
 
         # ---------------------------------------------------------------------------------------------------------------
         # Inits
         # ---------------------------------------------------------------------------------------------------------------
+
+        load_object_params_into_func(obj=self, locals=locals())
 
         start_time = timer()
         run_out_of_time = False
@@ -193,6 +200,11 @@ class RFECV(BaseEstimator, TransformerMixin):
             np.random.seed(random_seed)
             cp.random.seed(random_seed)
             set_random_seed(random_seed)
+
+        current_FIs = np.zeros(X.shape[1], dtype=np.float32)
+        evaluated_FIs = {}
+
+        model_type_name = type(estimator).__name__
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Init cv
@@ -203,22 +215,48 @@ class RFECV(BaseEstimator, TransformerMixin):
                 cv = 3
             if is_classifier(estimator):
                 if groups is not None:
-                    cv = StratifiedGroupKFold(n_splits=cv, shuffle=shuffle, random_state=random_state)
+                    cv = StratifiedGroupKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
                 else:
-                    cv = StratifiedKFold(n_splits=cv, shuffle=shuffle, random_state=random_state)
+                    cv = StratifiedKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
             else:
                 if groups is not None:
-                    cv = GroupKFold(n_splits=cv, shuffle=shuffle, random_state=random_state)
+                    cv = GroupKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
                 else:
-                    cv = KFold(n_splits=cv, shuffle=shuffle, random_state=random_state)
+                    cv = KFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
 
         if verbose:
             iters_pbar = tqdmu(desc="RFECV iterations", leave=leave_progressbars)
 
         # ----------------------------------------------------------------------------------------------------------------------------
+        # Init scoring
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        if scoring_func is None:
+            if is_classifier(estimator):
+                scoring_func = calib_error
+                scoring_needs_proba = True
+                scoring_needs_threshold = False
+                scoring_greater_is_better = False
+            elif is_regressor(estimator):
+                scoring_func = mean_squared_error
+                scoring_needs_proba = False
+                scoring_needs_threshold = False
+                scoring_greater_is_better = False
+            else:
+                raise ValueError(f"Unexpected estimator type: {estimator}")
+
+        # ----------------------------------------------------------------------------------------------------------------------------
         # Dummy baselines must serve as fitness @ 0 features.
         # ----------------------------------------------------------------------------------------------------------------------------
 
+        for i, (train_index, test_index) in enumerate(cv.split(X=X, y=y, groups=groups)):
+
+            if is_classifier(estimator):
+                for strategy in "most_frequent prior stratified uniform".split():
+                    model = DummyClassifier(strategy=strategy)
+                    model.fit(X=None, y=Y_train[target_name])
+                    score = scoring_func(y_true=,y_pred=)
+        
         # ----------------------------------------------------------------------------------------------------------------------------
         # First step is to try all features.
         # ----------------------------------------------------------------------------------------------------------------------------
@@ -234,18 +272,42 @@ class RFECV(BaseEstimator, TransformerMixin):
             # ----------------------------------------------------------------------------------------------------------------------------
 
             # ----------------------------------------------------------------------------------------------------------------------------
-            # Each split better be different. so, even if random_seed is provided, random_seed to the cv is generated separtely (and deterministically) each time based on the original random_seed.
+            # Each split better be different. so, even if random_seed is provided, random_seed to the cv is generated separately (and deterministically) each time based on the original random_seed.
             # ----------------------------------------------------------------------------------------------------------------------------
 
-            splitter = group_kfold.split(X=X, y=y, groups=groups)
-            if verbose:
-                cv_pbar = tqdmu(desc="CV folds", leave=leave_progressbars)
+            def estimate_fis_and_cv_perf(X, y, groups, cv, verbose, leave_progressbars):
 
-            for i, (train_index, test_index) in enumerate(splitter):
-                if isinstance(X, pd.DataFrame):
-                    estimator.fit(X=X.iloc[train_index, :], y=y.iloc[train_index, :], **fit_params)
-                else:
-                    estimator.fit(X=X[train_index, :], y=y[train_index, :], **fit_params)
+                splitter = cv.split(X=X, y=y, groups=groups)
+                if verbose:
+                    splitter = tqdmu(splitter, desc="CV folds", leave=leave_progressbars)
+
+                for i, (train_index, test_index) in enumerate(splitter):
+                    
+                    if isinstance(X, pd.DataFrame):
+                        X_train, y_train = X.iloc[train_index, :], y = y.iloc[train_index, :]
+                        X_test, y_test = X.iloc[test_index, :], y = y.iloc[test_index, :]
+                    else:
+                        X_train, y_train = X[train_index, :], y = y[train_index, :]
+                        X_test, y_test = X[test_index, :], y = y[test_index, :]
+
+                    if early_stopping_val_nsplits:
+
+                        # if estimator is known, apply early stopping
+
+                        if model_type_name in XGBOOST_MODEL_TYPES:
+                            fit_kwargs = dict(verbose=verbose)
+
+                            if ES == EarlyStopping.NativeOrNo:            
+                                model.set_params(early_stopping_rounds=early_stopping_rounds)
+
+                                if pipe:
+                                    X_val_processed= pre_pipeline.transform(X_val)
+                                else:
+                                    X_val_processed=X_val
+                            
+                                fit_kwargs["eval_set"] = ((X_val_processed, Y_val),)                        
+
+                    estimator.fit(X=X_train, y=y_train, **fit_params)
 
             # ----------------------------------------------------------------------------------------------------------------------------
             # Checking exit conditions
