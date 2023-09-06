@@ -1,4 +1,4 @@
-"""Feature selection within ML pipelines."""
+"""Feature selection within ML pipelines. Based on filters. Currently includes mRMR."""
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # LOGGING
@@ -52,7 +52,7 @@ NMAX_NONPARALLEL_ITERS = 2
 MAX_ITERATIONS_TO_TRACK = 5
 
 LARGE_CONST: float = 1e30
-GPU_MAX_BLOCK_SIZE = 1024
+GPU_MAX_BLOCK_SIZE:int = 1024
 
 caching_hits_xyz = 0
 caching_hits_z = 0
