@@ -35,6 +35,8 @@ while True:
         from timeit import default_timer as timer
         from pyutilz.numbalib import set_random_seed
 
+        import random
+
         from votenrank import Leaderboard
 
     except Exception as e:
@@ -159,7 +161,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
     def __init__(
         self,
-        estimator: object,
+        estimator: BaseEstimator,
         fit_params: dict = {},
         max_runtime_mins: float = None,
         max_refits: int = None,
@@ -184,7 +186,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         store_func_params_in_object(obj=self)
 
-    def fit(self, X, y, groups=None):
+    def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None):
 
         # ---------------------------------------------------------------------------------------------------------------
         # Inits
@@ -330,13 +332,8 @@ class RFECV(BaseEstimator, TransformerMixin):
                 score = scoring(estimator, X_test, y_test)
                 scores.append(score)
                 feature_importances[f"{nsteps}_{nfold}"] = get_feature_importances(
-                    model=estimator, data=X_test, reference_data=X_val, importance_getter=importance_getter
+                    model=estimator, current_features=current_features, data=X_test, reference_data=X_val, importance_getter=importance_getter
                 )
-
-                # ----------------------------------------------------------------------------------------------------------------------------
-                # At each step, feature importances must be recalculated in light of recent training on a smaller subset.
-                # The features already thrown away all receive constant importance update of the sanme size, to keep up with number of trains.
-                # ----------------------------------------------------------------------------------------------------------------------------
 
                 if 0 not in evaluated_scores_mean:
 
@@ -431,13 +428,70 @@ def add_scores(pos: int, scores: list, evaluated_scores_mean: dict, evaluated_sc
     evaluated_scores_std[pos] = np.std(scores)
 
 
-def get_feature_importances(model: object) -> dict:
-    pass
+def get_feature_importances(
+    model: object,
+    current_features: list,
+    importance_getter: Union[str, Callable],
+    data: Union[pd.DataFrame, np.ndarray, None] = None,
+    reference_data: Union[pd.DataFrame, np.ndarray, None] = None,
+) -> dict:
+
+    if isinstance(importance_getter, str):
+        res = getattr(model, importance_getter)
+    else:
+        res = importance_getter(model=model, data=data, reference_data=reference_data)
+
+    assert len(res) == len(current_features)
+    return res
 
 
-def get_next_features_subset(nsteps: int, original_features) -> list:
+def get_next_features_subset(
+    nsteps: int,
+    original_features: list,
+    feature_importances: pd.DataFrame,
+    evaluated_scores_mean: dict,
+    evaluated_scores_std: dict,
+    top_predictors_search_method: OptimumSearch = OptimumSearch.ScipyLocal,
+    votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
+) -> list:
+
     # ----------------------------------------------------------------------------------------------------------------------------
     # First step is to try all features.
     # ----------------------------------------------------------------------------------------------------------------------------
+
     if nsteps == 0:
         return original_features
+    else:
+        remaining = list(set(np.arange(len(original_features))) - set(evaluated_scores_mean.keys()))
+        if len(remaining) == 0:
+            return []
+        else:
+            if top_predictors_search_method == OptimumSearch.ExhaustiveRandom:
+                next_top_n = random.choice(remaining)
+
+            if next_top_n:
+
+                # ----------------------------------------------------------------------------------------------------------------------------
+                # At each step, feature importances must be recalculated in light of recent training on a smaller subset.
+                # The features already thrown away all receive constant importance update of the sanme size, to keep up with number of trains.
+                # ----------------------------------------------------------------------------------------------------------------------------
+                                
+                lb = Leaderboard(table=feature_importances)
+                if votes_aggregation_method==VotesAggregation.Borda:
+                    ranks=lb.borda_ranking()
+                elif votes_aggregation_method==VotesAggregation.AM:
+                    ranks=lb.mean_ranking(mean_type='arithmetic')
+                elif votes_aggregation_method==VotesAggregation.GM:
+                    ranks=lb.mean_ranking(mean_type='geometric')
+                elif votes_aggregation_method==VotesAggregation.Copeland:
+                    ranks=lb.copeland_ranking()
+                elif votes_aggregation_method==VotesAggregation.Dowdall:
+                    ranks=lb.dowdall_ranking()
+                elif votes_aggregation_method==VotesAggregation.Minimax:
+                    ranks=lb.minimax_ranking()
+                elif votes_aggregation_method==VotesAggregation.OG:
+                    ranks=lb.optimality_gap_ranking()
+                elif votes_aggregation_method==VotesAggregation.Plurality:
+                    ranks=lb.plurality_ranking()
+
+                return ranks.index.values.tolist()[:next_top_n]
