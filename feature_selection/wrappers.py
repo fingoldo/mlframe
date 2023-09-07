@@ -313,13 +313,15 @@ class RFECV(BaseEstimator, TransformerMixin):
 
                     if model_type_name in XGBOOST_MODEL_TYPES:
                         model.set_params(early_stopping_rounds=early_stopping_rounds)
-                        fit_kwargs["eval_set"] = ((X_val, Y_val),)
+                        fit_kwargs["eval_set"] = ((X_val, y_val),)
                     elif model_type_name in LGBM_MODEL_TYPES:
+                        import lightgbm as lgb
+
                         fit_kwargs["callbacks"] = [lgb.early_stopping(stopping_rounds=early_stopping_rounds)]
-                        fit_kwargs["eval_set"] = (X_val, Y_val)
+                        fit_kwargs["eval_set"] = (X_val, y_val)
                     elif model_type_name in CATBOOST_MODEL_TYPES:
                         fit_kwargs["use_best_model"] = True
-                        fit_kwargs["eval_set"] = X_val, Y_val
+                        fit_kwargs["eval_set"] = X_val, y_val
                         fit_kwargs["early_stopping_rounds"] = early_stopping_rounds
                     else:
                         raise ValueError(f"eval_set params not known for estimator type: {estimator}")
@@ -423,7 +425,7 @@ def split_into_train_test(X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFr
     return X_train, y_train, X_test, y_test
 
 
-def add_scores(scores: list, evaluated_scores_mean: dict, evaluated_scores_std: dict) -> None:
+def add_scores(pos: int, scores: list, evaluated_scores_mean: dict, evaluated_scores_std: dict) -> None:
     scores = np.array(scores)
     evaluated_scores_mean[pos] = np.mean(scores)
     evaluated_scores_std[pos] = np.std(scores)
