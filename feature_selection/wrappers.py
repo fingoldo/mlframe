@@ -22,12 +22,13 @@ while True:
         import cupy as cp
 
         from pyutilz.system import tqdmu
-        from pyutilz.pythonlib import store_func_params_in_object
+        from pyutilz.pythonlib import store_func_params_in_object, load_object_params_into_func
         from sklearn.base import is_classifier, is_regressor, BaseEstimator, TransformerMixin
-        from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold, StratifiedShuffleSplit, GroupKFold, GroupShuffleSplit
+        from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold, StratifiedShuffleSplit, GroupKFold, GroupShuffleSplit, KFold
         from sklearn.dummy import DummyClassifier, DummyRegressor
         from sklearn.metrics import make_scorer, mean_squared_error
 
+        from mlframe.config import *
         from mlframe.metrics import calib_error
 
         from enum import Enum, auto
@@ -169,7 +170,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         scoring: Union[object, None] = None,
         top_predictors_search_method: OptimumSearch = OptimumSearch.ScipyLocal,
         votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
-        importance_getter: Union[str, Callable] = "auto",
+        importance_getter: Union[str, Callable, None] = None,
         random_state: int = None,
         leave_progressbars: bool = True,
         verbose: Union[bool, int] = 0,
@@ -251,15 +252,15 @@ class RFECV(BaseEstimator, TransformerMixin):
             else:
                 raise ValueError(f"Scoring not known for estimator type: {estimator}")
 
-        def get_next_features_subset(nsteps: int, original_features) -> list:
-            # ----------------------------------------------------------------------------------------------------------------------------
-            # First step is to try all features.
-            # ----------------------------------------------------------------------------------------------------------------------------
-            if nsteps == 0:
-                return original_features
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Init importance_getter
+        # ----------------------------------------------------------------------------------------------------------------------------
 
-        nsteps = 0
+        if importance_getter is None or importance_getter == "auto":
+            importance_getter = "feature_importances_"
+
         dummy_scores = []
+        nsteps = 0
         while True:
 
             if verbose:
@@ -276,7 +277,17 @@ class RFECV(BaseEstimator, TransformerMixin):
             if verbose:
                 splitter = tqdmu(splitter, desc="CV folds", leave=leave_progressbars)
 
-            for i, (train_index, test_index) in enumerate(splitter):
+            current_features = get_next_features_subset(
+                nsteps=nsteps,
+                original_features=original_features,
+                feature_importances=feature_importances,
+                evaluated_scores_mean=evaluated_scores_mean,
+                evaluated_scores_std=evaluated_scores_std,
+                top_predictors_search_method=top_predictors_search_method,
+                votes_aggregation_method=votes_aggregation_method,
+            )
+
+            for nfold, (train_index, test_index) in enumerate(splitter):
 
                 X_train, y_train, X_test, y_test = split_into_train_test(X=X, y=y, train_index=train_index, test_index=test_index)
 
@@ -314,9 +325,11 @@ class RFECV(BaseEstimator, TransformerMixin):
                         raise ValueError(f"eval_set params not known for estimator type: {estimator}")
 
                 estimator.fit(X=X_train, y=y_train, **fit_params)
-                score = scoring(model, X_test, y_test)
+                score = scoring(estimator, X_test, y_test)
                 scores.append(score)
-                feature_importances[f"{nsteps}_{i}"] = get_feature_importances(model, X_test)
+                feature_importances[f"{nsteps}_{nfold}"] = get_feature_importances(
+                    model=estimator, data=X_test, reference_data=X_val, importance_getter=importance_getter
+                )
 
                 # ----------------------------------------------------------------------------------------------------------------------------
                 # At each step, feature importances must be recalculated in light of recent training on a smaller subset.
@@ -329,7 +342,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     # Dummy baselines must serve as fitness @ 0 features.
                     # ----------------------------------------------------------------------------------------------------------------------------
 
-                    best_score = -LARGE_CONST
+                    best_dummy_score = -LARGE_CONST
 
                     if is_classifier(estimator):
                         dummy_model_type = DummyClassifier
@@ -346,18 +359,22 @@ class RFECV(BaseEstimator, TransformerMixin):
                         for strategy in strategies.split():
                             model = dummy_model_type(strategy=strategy)
                             model.fit(X=X_train, y=y_train)
-                            score = scoring(model, X_test, y_test)
-                            if score > best_score:
-                                best_score = score
+                            dummy_score = scoring(model, X_test, y_test)
+                            if score > best_dummy_score:
+                                best_dummy_score = dummy_score
 
-                    dummy_scores.append(best_score)
+                    dummy_scores.append(best_dummy_score)
 
             if 0 not in evaluated_scores_mean:
-                add_scores(scores=dummy_scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std)
+                add_scores(pos=0, scores=dummy_scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std)
+
+            add_scores(pos=len(current_features), scores=scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std)
 
             # ----------------------------------------------------------------------------------------------------------------------------
             # Checking exit conditions
             # ----------------------------------------------------------------------------------------------------------------------------
+
+            nsteps += 1
 
             if max_runtime_mins and not run_out_of_time:
                 run_out_of_time = (timer() - start_time) > max_runtime_mins * 60
@@ -377,6 +394,12 @@ class RFECV(BaseEstimator, TransformerMixin):
         self.support_ = summary["selected_features"]
         self.support_names_ = summary["selected_features_names"]
         self.n_features_ = len(self.support_)
+
+        # last time vote for feature_importances using all info up to date
+        self.feature_importances_
+
+        if verbose:
+            logger.info(f"{self.n_features_:_} predictive factors selected out of {len(original_features):_} during {nsteps:_} rounds.")
 
         return self
 
@@ -400,11 +423,19 @@ def split_into_train_test(X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFr
     return X_train, y_train, X_test, y_test
 
 
-def add_scores(scores: list) -> None:
-    dummy_scores = np.array(scores)
-    evaluated_scores_mean[0] = np.mean(scores)
-    evaluated_scores_std[0] = np.std(scores)
+def add_scores(scores: list, evaluated_scores_mean: dict, evaluated_scores_std: dict) -> None:
+    scores = np.array(scores)
+    evaluated_scores_mean[pos] = np.mean(scores)
+    evaluated_scores_std[pos] = np.std(scores)
 
 
 def get_feature_importances(model: object) -> dict:
     pass
+
+
+def get_next_features_subset(nsteps: int, original_features) -> list:
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # First step is to try all features.
+    # ----------------------------------------------------------------------------------------------------------------------------
+    if nsteps == 0:
+        return original_features
