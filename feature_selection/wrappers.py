@@ -259,7 +259,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 return original_features
 
         nsteps = 0
-        dummy_scores=[]
+        dummy_scores = []
         while True:
 
             if verbose:
@@ -353,7 +353,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     dummy_scores.append(best_score)
 
             if 0 not in evaluated_scores_mean:
-                add_scores(scores=dummy_scores,evaluated_scores_mean=evaluated_scores_mean,evaluated_scores_std=evaluated_scores_std)
+                add_scores(scores=dummy_scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std)
 
             # ----------------------------------------------------------------------------------------------------------------------------
             # Checking exit conditions
@@ -399,10 +399,12 @@ def split_into_train_test(X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFr
 
     return X_train, y_train, X_test, y_test
 
-def add_scores(scores:list)->None:
-    dummy_scores=np.array(scores)
+
+def add_scores(scores: list) -> None:
+    dummy_scores = np.array(scores)
     evaluated_scores_mean[0] = np.mean(scores)
     evaluated_scores_std[0] = np.std(scores)
-    
+
+
 def get_feature_importances(model: object) -> dict:
     pass
