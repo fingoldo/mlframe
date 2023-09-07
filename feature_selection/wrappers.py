@@ -165,10 +165,8 @@ class RFECV(BaseEstimator, TransformerMixin):
         cv: Union[object, int, None] = 3,
         cv_shuffle: Union[bool, None] = None,
         early_stopping_val_nsplits: Union[int, None] = 4,
-        scoring_func: Union[Callable, None] = None,
-        scoring_greater_is_better: Union[bool, None] = None,
-        scoring_needs_proba: Union[bool, None] = None,
-        scoring_needs_threshold: Union[bool, None] = None,
+        early_stopping_rounds: Union[int, None] = None,
+        scoring: Union[object, None] = None,
         top_predictors_search_method: OptimumSearch = OptimumSearch.ScipyLocal,
         votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
         importance_getter: Union[str, Callable] = "auto",
@@ -201,10 +199,16 @@ class RFECV(BaseEstimator, TransformerMixin):
             cp.random.seed(random_seed)
             set_random_seed(random_seed)
 
-        current_FIs = np.zeros(X.shape[1], dtype=np.float32)
-        evaluated_FIs = {}
+        feature_importances = pd.DataFrame()
+        evaluated_scores_mean = {}
+        evaluated_scores_std = {}
 
         model_type_name = type(estimator).__name__
+
+        if isinstance(X, pd.DataFrame):
+            original_features = X.columns.tolist()
+        else:
+            original_features = np.arange(X.shape[1])
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Init cv
@@ -224,6 +228,14 @@ class RFECV(BaseEstimator, TransformerMixin):
                 else:
                     cv = KFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
 
+        if early_stopping_val_nsplits:
+            val_cv = cv.copy()
+            val_cv.n_splits = early_stopping_val_nsplits
+            if not early_stopping_rounds:
+                early_stopping_rounds = 20  # TODO: derive as 1/5 of nestimators
+        else:
+            val_cv = None
+
         if verbose:
             iters_pbar = tqdmu(desc="RFECV iterations", leave=leave_progressbars)
 
@@ -231,83 +243,117 @@ class RFECV(BaseEstimator, TransformerMixin):
         # Init scoring
         # ----------------------------------------------------------------------------------------------------------------------------
 
-        if scoring_func is None:
+        if scoring is None:
             if is_classifier(estimator):
-                scoring_func = calib_error
-                scoring_needs_proba = True
-                scoring_needs_threshold = False
-                scoring_greater_is_better = False
+                scoring = make_scorer(score_func=calib_error, needs_proba=True, needs_threshold=False, greater_is_better=False)
             elif is_regressor(estimator):
-                scoring_func = mean_squared_error
-                scoring_needs_proba = False
-                scoring_needs_threshold = False
-                scoring_greater_is_better = False
+                scoring = make_scorer(score_func=mean_squared_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
             else:
-                raise ValueError(f"Unexpected estimator type: {estimator}")
+                raise ValueError(f"Scoring not known for estimator type: {estimator}")
 
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Dummy baselines must serve as fitness @ 0 features.
-        # ----------------------------------------------------------------------------------------------------------------------------
-
-        for i, (train_index, test_index) in enumerate(cv.split(X=X, y=y, groups=groups)):
-
-            if is_classifier(estimator):
-                for strategy in "most_frequent prior stratified uniform".split():
-                    model = DummyClassifier(strategy=strategy)
-                    model.fit(X=None, y=Y_train[target_name])
-                    score = scoring_func(y_true=,y_pred=)
-        
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # First step is to try all features.
-        # ----------------------------------------------------------------------------------------------------------------------------
+        def get_next_features_subset(nsteps: int, original_features) -> list:
+            # ----------------------------------------------------------------------------------------------------------------------------
+            # First step is to try all features.
+            # ----------------------------------------------------------------------------------------------------------------------------
+            if nsteps == 0:
+                return original_features
 
         nsteps = 0
+        dummy_scores = []
         while True:
+
             if verbose:
                 iters_pbar.n += 1
 
             # ----------------------------------------------------------------------------------------------------------------------------
-            # At each step, feature importances must be recalculated in light of recent training on a smaller subset.
-            # The features already thrown away all receive constant importance update of the sanme size, to keep up with number of trains.
+            # Each split better be different. so, even if random_seed is provided, random_seed to the cv is generated separately
+            # (and deterministically) each time based on the original random_seed.
             # ----------------------------------------------------------------------------------------------------------------------------
 
-            # ----------------------------------------------------------------------------------------------------------------------------
-            # Each split better be different. so, even if random_seed is provided, random_seed to the cv is generated separately (and deterministically) each time based on the original random_seed.
-            # ----------------------------------------------------------------------------------------------------------------------------
+            scores = []
 
-            def estimate_fis_and_cv_perf(X, y, groups, cv, verbose, leave_progressbars):
+            splitter = cv.split(X=X, y=y, groups=groups)
+            if verbose:
+                splitter = tqdmu(splitter, desc="CV folds", leave=leave_progressbars)
 
-                splitter = cv.split(X=X, y=y, groups=groups)
-                if verbose:
-                    splitter = tqdmu(splitter, desc="CV folds", leave=leave_progressbars)
+            for i, (train_index, test_index) in enumerate(splitter):
 
-                for i, (train_index, test_index) in enumerate(splitter):
-                    
-                    if isinstance(X, pd.DataFrame):
-                        X_train, y_train = X.iloc[train_index, :], y = y.iloc[train_index, :]
-                        X_test, y_test = X.iloc[test_index, :], y = y.iloc[test_index, :]
+                X_train, y_train, X_test, y_test = split_into_train_test(X=X, y=y, train_index=train_index, test_index=test_index)
+
+                if val_cv:
+
+                    # ----------------------------------------------------------------------------------------------------------------------------
+                    # Make additional early stoppping split
+                    # ----------------------------------------------------------------------------------------------------------------------------
+
+                    if isinstance(groups, pd.Series):
+                        train_groups = groups.iloc[train_index]
                     else:
-                        X_train, y_train = X[train_index, :], y = y[train_index, :]
-                        X_test, y_test = X[test_index, :], y = y[test_index, :]
+                        train_groups = groups[train_index]
 
-                    if early_stopping_val_nsplits:
+                    for true_train_index, val_index in val_cv.split(X=X_train, y=y_train, groups=train_groups):
+                        break  # need only 1 iteration of 2nd split
 
-                        # if estimator is known, apply early stopping
+                    X_train, y_train, X_val, y_val = split_into_train_test(X=X_train, y=y_train, train_index=true_train_index, test_index=val_index)
 
-                        if model_type_name in XGBOOST_MODEL_TYPES:
-                            fit_kwargs = dict(verbose=verbose)
+                    # ----------------------------------------------------------------------------------------------------------------------------
+                    # If estimator is known, apply early stopping
+                    # ----------------------------------------------------------------------------------------------------------------------------
 
-                            if ES == EarlyStopping.NativeOrNo:            
-                                model.set_params(early_stopping_rounds=early_stopping_rounds)
+                    if model_type_name in XGBOOST_MODEL_TYPES:
+                        model.set_params(early_stopping_rounds=early_stopping_rounds)
+                        fit_kwargs["eval_set"] = ((X_val, Y_val),)
+                    elif model_type_name in LGBM_MODEL_TYPES:
+                        fit_kwargs["callbacks"] = [lgb.early_stopping(stopping_rounds=early_stopping_rounds)]
+                        fit_kwargs["eval_set"] = (X_val, Y_val)
+                    elif model_type_name in CATBOOST_MODEL_TYPES:
+                        fit_kwargs["use_best_model"] = True
+                        fit_kwargs["eval_set"] = X_val, Y_val
+                        fit_kwargs["early_stopping_rounds"] = early_stopping_rounds
+                    else:
+                        raise ValueError(f"eval_set params not known for estimator type: {estimator}")
 
-                                if pipe:
-                                    X_val_processed= pre_pipeline.transform(X_val)
-                                else:
-                                    X_val_processed=X_val
-                            
-                                fit_kwargs["eval_set"] = ((X_val_processed, Y_val),)                        
+                estimator.fit(X=X_train, y=y_train, **fit_params)
+                score = scoring(model, X_test, y_test)
+                scores.append(score)
+                feature_importances[f"{nsteps}_{i}"] = get_feature_importances(model, X_test)
 
-                    estimator.fit(X=X_train, y=y_train, **fit_params)
+                # ----------------------------------------------------------------------------------------------------------------------------
+                # At each step, feature importances must be recalculated in light of recent training on a smaller subset.
+                # The features already thrown away all receive constant importance update of the sanme size, to keep up with number of trains.
+                # ----------------------------------------------------------------------------------------------------------------------------
+
+                if 0 not in evaluated_scores_mean:
+
+                    # ----------------------------------------------------------------------------------------------------------------------------
+                    # Dummy baselines must serve as fitness @ 0 features.
+                    # ----------------------------------------------------------------------------------------------------------------------------
+
+                    best_score = -LARGE_CONST
+
+                    if is_classifier(estimator):
+                        dummy_model_type = DummyClassifier
+                        strategies = "most_frequent prior stratified uniform"
+                    elif is_regressor(estimator):
+                        dummy_model_type = DummyRegressor
+                        strategies = "mean median"
+                    else:
+                        strategies = None
+                        if verbose:
+                            logger.info(f"Unexpected estimator type: {estimator}")
+
+                    if strategies:
+                        for strategy in strategies.split():
+                            model = dummy_model_type(strategy=strategy)
+                            model.fit(X=X_train, y=y_train)
+                            score = scoring(model, X_test, y_test)
+                            if score > best_score:
+                                best_score = score
+
+                    dummy_scores.append(best_score)
+
+            if 0 not in evaluated_scores_mean:
+                add_scores(scores=dummy_scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std)
 
             # ----------------------------------------------------------------------------------------------------------------------------
             # Checking exit conditions
@@ -316,12 +362,12 @@ class RFECV(BaseEstimator, TransformerMixin):
             if max_runtime_mins and not run_out_of_time:
                 run_out_of_time = (timer() - start_time) > max_runtime_mins * 60
                 if run_out_of_time:
-                    logger.info("max_runtime_mins={max_runtime_mins:_.1f} reached.")
+                    logger.info(f"max_runtime_mins={max_runtime_mins:_.1f} reached.")
                     break
 
             if max_refits and nsteps >= max_refits:
                 if verbose:
-                    logger.info("max_refits={max_refits:_} reached.")
+                    logger.info(f"max_refits={max_refits:_} reached.")
                 break
 
         # ----------------------------------------------------------------------------------------------------------------------------
@@ -339,3 +385,26 @@ class RFECV(BaseEstimator, TransformerMixin):
             return X[self.support_names_]
         else:
             return X[self.support_]
+
+
+def split_into_train_test(X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, np.ndarray], train_index: np.ndarray, test_index: np.ndarray) -> tuple:
+    """Split X & y according to indices & dtypes."""
+
+    if isinstance(X, pd.DataFrame):
+        X_train, y_train = X.iloc[train_index, :], y = y.iloc[train_index, :]
+        X_test, y_test = X.iloc[test_index, :], y = y.iloc[test_index, :]
+    else:
+        X_train, y_train = X[train_index, :], y = y[train_index, :]
+        X_test, y_test = X[test_index, :], y = y[test_index, :]
+
+    return X_train, y_train, X_test, y_test
+
+
+def add_scores(scores: list) -> None:
+    dummy_scores = np.array(scores)
+    evaluated_scores_mean[0] = np.mean(scores)
+    evaluated_scores_std[0] = np.std(scores)
+
+
+def get_feature_importances(model: object) -> dict:
+    pass
