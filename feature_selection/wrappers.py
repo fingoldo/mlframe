@@ -22,7 +22,7 @@ while True:
         import cupy as cp
 
         from pyutilz.system import tqdmu
-        from pyutilz.pythonlib import store_func_params_in_object, load_object_params_into_func
+        from pyutilz.pythonlib import store_params_in_object, load_object_params_into_func, get_parent_func_args
         from sklearn.base import is_classifier, is_regressor, BaseEstimator, TransformerMixin
         from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold, StratifiedShuffleSplit, GroupKFold, GroupShuffleSplit, KFold
         from sklearn.dummy import DummyClassifier, DummyRegressor
@@ -36,12 +36,16 @@ while True:
         from pyutilz.numbalib import set_random_seed
 
         import random
+        import copy
 
         from votenrank import Leaderboard
 
     except Exception as e:
 
         logger.warning(e)
+
+        if "cannot import name" in str(e):
+            raise (e)
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Packages auto-install
@@ -61,7 +65,7 @@ while True:
 LARGE_CONST: float = 1e30
 
 
-class OptimumSearch(Enum):
+class OptimumSearch(str, Enum):
     ScipyLocal = "ScipyLocal"  # Brent
     ScipyGlobal = "ScipyGlobal"  # direct, diff evol, shgo
     SurrogateModel = "SurrogateModel"  # GaussianProcess or Catboost with uncertainty, or quantile regression
@@ -69,7 +73,7 @@ class OptimumSearch(Enum):
     ExhaustiveDichotomic = "ExhaustiveDichotomic"
 
 
-class VotesAggregation(Enum):
+class VotesAggregation(str, Enum):
     Minimax = "Minimax"
     OG = "OG"
     Borda = "Borda"
@@ -180,11 +184,12 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         # checks
 
-        assert isinstance(estimator, (BaseEstimator,))
+        # assert isinstance(estimator, (BaseEstimator,))
 
         # save params
 
-        store_func_params_in_object(obj=self)
+        params = get_parent_func_args()
+        store_params_in_object(obj=self, params=params)
 
     def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None):
 
@@ -192,17 +197,31 @@ class RFECV(BaseEstimator, TransformerMixin):
         # Inits
         # ---------------------------------------------------------------------------------------------------------------
 
-        load_object_params_into_func(obj=self, locals=locals())
+        estimator = self.estimator
+        fit_params = copy.copy(self.fit_params)
+        max_runtime_mins = self.max_runtime_mins
+        max_refits = self.max_refits
+        cv = self.cv
+        cv_shuffle = self.cv_shuffle
+        early_stopping_val_nsplits = self.early_stopping_val_nsplits
+        early_stopping_rounds = self.early_stopping_rounds
+        scoring = self.scoring
+        top_predictors_search_method = self.top_predictors_search_method
+        votes_aggregation_method = self.votes_aggregation_method
+        importance_getter = self.importance_getter
+        random_state = self.random_state
+        leave_progressbars = self.leave_progressbars
+        verbose = self.verbose
 
         start_time = timer()
         run_out_of_time = False
 
-        if random_seed is not None:
-            np.random.seed(random_seed)
-            cp.random.seed(random_seed)
-            set_random_seed(random_seed)
+        if random_state is not None:
+            np.random.seed(random_state)
+            cp.random.seed(random_state)
+            set_random_seed(random_state)
 
-        feature_importances = pd.DataFrame()
+        feature_importances = {}
         evaluated_scores_mean = {}
         evaluated_scores_std = {}
 
@@ -232,7 +251,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     cv = KFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
 
         if early_stopping_val_nsplits:
-            val_cv = cv.copy()
+            val_cv = copy.copy(cv)
             val_cv.n_splits = early_stopping_val_nsplits
             if not early_stopping_rounds:
                 early_stopping_rounds = 20  # TODO: derive as 1/5 of nestimators
@@ -240,7 +259,7 @@ class RFECV(BaseEstimator, TransformerMixin):
             val_cv = None
 
         if verbose:
-            iters_pbar = tqdmu(desc="RFECV iterations", leave=leave_progressbars)
+            iters_pbar = tqdmu(desc="RFECV iterations", leave=leave_progressbars, total=len(original_features))
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Init scoring
@@ -266,18 +285,18 @@ class RFECV(BaseEstimator, TransformerMixin):
         while True:
 
             if verbose:
-                iters_pbar.n += 1
+                iters_pbar.update(1)
 
             # ----------------------------------------------------------------------------------------------------------------------------
-            # Each split better be different. so, even if random_seed is provided, random_seed to the cv is generated separately
-            # (and deterministically) each time based on the original random_seed.
+            # Each split better be different. so, even if random_state is provided, random_state to the cv is generated separately
+            # (and deterministically) each time based on the original random_state.
             # ----------------------------------------------------------------------------------------------------------------------------
 
             scores = []
 
             splitter = cv.split(X=X, y=y, groups=groups)
             if verbose:
-                splitter = tqdmu(splitter, desc="CV folds", leave=leave_progressbars)
+                splitter = tqdmu(splitter, desc="CV folds", leave=False, total=cv.n_splits)
 
             current_features = get_next_features_subset(
                 nsteps=nsteps,
@@ -291,7 +310,9 @@ class RFECV(BaseEstimator, TransformerMixin):
 
             for nfold, (train_index, test_index) in enumerate(splitter):
 
-                X_train, y_train, X_test, y_test = split_into_train_test(X=X, y=y, train_index=train_index, test_index=test_index)
+                X_train, y_train, X_test, y_test = split_into_train_test(
+                    X=X, y=y, train_index=train_index, test_index=test_index, features_indices=current_features
+                )
 
                 if val_cv:
 
@@ -299,10 +320,13 @@ class RFECV(BaseEstimator, TransformerMixin):
                     # Make additional early stoppping split
                     # ----------------------------------------------------------------------------------------------------------------------------
 
-                    if isinstance(groups, pd.Series):
-                        train_groups = groups.iloc[train_index]
+                    if groups is not None:
+                        if isinstance(groups, pd.Series):
+                            train_groups = groups.iloc[train_index]
+                        else:
+                            train_groups = groups[train_index]
                     else:
-                        train_groups = groups[train_index]
+                        train_groups = None
 
                     for true_train_index, val_index in val_cv.split(X=X_train, y=y_train, groups=train_groups):
                         break  # need only 1 iteration of 2nd split
@@ -315,18 +339,20 @@ class RFECV(BaseEstimator, TransformerMixin):
 
                     if model_type_name in XGBOOST_MODEL_TYPES:
                         model.set_params(early_stopping_rounds=early_stopping_rounds)
-                        fit_kwargs["eval_set"] = ((X_val, y_val),)
+                        fit_params["eval_set"] = ((X_val, y_val),)
                     elif model_type_name in LGBM_MODEL_TYPES:
                         import lightgbm as lgb
 
-                        fit_kwargs["callbacks"] = [lgb.early_stopping(stopping_rounds=early_stopping_rounds)]
-                        fit_kwargs["eval_set"] = (X_val, y_val)
+                        fit_params["callbacks"] = [lgb.early_stopping(stopping_rounds=early_stopping_rounds)]
+                        fit_params["eval_set"] = (X_val, y_val)
                     elif model_type_name in CATBOOST_MODEL_TYPES:
-                        fit_kwargs["use_best_model"] = True
-                        fit_kwargs["eval_set"] = X_val, y_val
-                        fit_kwargs["early_stopping_rounds"] = early_stopping_rounds
+                        fit_params["use_best_model"] = True
+                        fit_params["eval_set"] = X_val, y_val
+                        fit_params["early_stopping_rounds"] = early_stopping_rounds
                     else:
                         raise ValueError(f"eval_set params not known for estimator type: {estimator}")
+                else:
+                    X_val = None
 
                 estimator.fit(X=X_train, y=y_train, **fit_params)
                 score = scoring(estimator, X_test, y_test)
@@ -409,15 +435,25 @@ class RFECV(BaseEstimator, TransformerMixin):
             return X[self.support_]
 
 
-def split_into_train_test(X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, np.ndarray], train_index: np.ndarray, test_index: np.ndarray) -> tuple:
+def split_into_train_test(
+    X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, np.ndarray], train_index: np.ndarray, test_index: np.ndarray, features_indices: np.ndarray = None
+) -> tuple:
     """Split X & y according to indices & dtypes."""
 
     if isinstance(X, pd.DataFrame):
-        X_train, y_train = X.iloc[train_index, :], y = y.iloc[train_index, :]
-        X_test, y_test = X.iloc[test_index, :], y = y.iloc[test_index, :]
+        X_train, y_train = (X.iloc[train_index, :] if features_indices is None else X.iloc[train_index, features_indices]), (
+            y.iloc[train_index, :] if isinstance(y, pd.DataFrame) else y.iloc[train_index]
+        )
+        X_test, y_test = (X.iloc[test_index, :] if features_indices is None else X.iloc[test_index, features_indices]), (
+            y.iloc[test_index, :] if isinstance(y, pd.DataFrame) else y.iloc[test_index]
+        )
     else:
-        X_train, y_train = X[train_index, :], y = y[train_index, :]
-        X_test, y_test = X[test_index, :], y = y[test_index, :]
+        X_train, y_train = (X[train_index, :] if features_indices is None else X[train_index, :][:, features_indices]), (
+            y[train_index, :] if len(y.shape) > 1 else y[train_index]
+        )
+        X_test, y_test = (X[test_index, :] if features_indices is None else X[test_index, :][:, features_indices]), (
+            y[test_index, :] if len(y.shape) > 1 else y[test_index]
+        )
 
     return X_train, y_train, X_test, y_test
 
@@ -442,7 +478,7 @@ def get_feature_importances(
         res = importance_getter(model=model, data=data, reference_data=reference_data)
 
     assert len(res) == len(current_features)
-    return res
+    return {feature_index: feature_importance for feature_index, feature_importance in zip(current_features, res)}
 
 
 def get_next_features_subset(
@@ -475,23 +511,23 @@ def get_next_features_subset(
                 # At each step, feature importances must be recalculated in light of recent training on a smaller subset.
                 # The features already thrown away all receive constant importance update of the sanme size, to keep up with number of trains.
                 # ----------------------------------------------------------------------------------------------------------------------------
-                                
-                lb = Leaderboard(table=feature_importances)
-                if votes_aggregation_method==VotesAggregation.Borda:
-                    ranks=lb.borda_ranking()
-                elif votes_aggregation_method==VotesAggregation.AM:
-                    ranks=lb.mean_ranking(mean_type='arithmetic')
-                elif votes_aggregation_method==VotesAggregation.GM:
-                    ranks=lb.mean_ranking(mean_type='geometric')
-                elif votes_aggregation_method==VotesAggregation.Copeland:
-                    ranks=lb.copeland_ranking()
-                elif votes_aggregation_method==VotesAggregation.Dowdall:
-                    ranks=lb.dowdall_ranking()
-                elif votes_aggregation_method==VotesAggregation.Minimax:
-                    ranks=lb.minimax_ranking()
-                elif votes_aggregation_method==VotesAggregation.OG:
-                    ranks=lb.optimality_gap_ranking()
-                elif votes_aggregation_method==VotesAggregation.Plurality:
-                    ranks=lb.plurality_ranking()
+
+                lb = Leaderboard(table=pd.DataFrame(feature_importances))
+                if votes_aggregation_method == VotesAggregation.Borda:
+                    ranks = lb.borda_ranking()
+                elif votes_aggregation_method == VotesAggregation.AM:
+                    ranks = lb.mean_ranking(mean_type="arithmetic")
+                elif votes_aggregation_method == VotesAggregation.GM:
+                    ranks = lb.mean_ranking(mean_type="geometric")
+                elif votes_aggregation_method == VotesAggregation.Copeland:
+                    ranks = lb.copeland_ranking()
+                elif votes_aggregation_method == VotesAggregation.Dowdall:
+                    ranks = lb.dowdall_ranking()
+                elif votes_aggregation_method == VotesAggregation.Minimax:
+                    ranks = lb.minimax_ranking()
+                elif votes_aggregation_method == VotesAggregation.OG:
+                    ranks = lb.optimality_gap_ranking()
+                elif votes_aggregation_method == VotesAggregation.Plurality:
+                    ranks = lb.plurality_ranking()
 
                 return ranks.index.values.tolist()[:next_top_n]
