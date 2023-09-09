@@ -34,6 +34,7 @@ while True:
         from enum import Enum, auto
         from timeit import default_timer as timer
         from pyutilz.numbalib import set_random_seed
+        import matplotlib.pyplot as plt
 
         import random
         import copy
@@ -176,10 +177,14 @@ class RFECV(BaseEstimator, TransformerMixin):
         scoring: Union[object, None] = None,
         top_predictors_search_method: OptimumSearch = OptimumSearch.ScipyLocal,
         votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
+        use_all_fi_runs: bool = True,
+        use_last_fi_run_only: bool = False,
+        use_one_freshest_fi_run: bool = False,
         importance_getter: Union[str, Callable, None] = None,
         random_state: int = None,
         leave_progressbars: bool = True,
         verbose: Union[bool, int] = 0,
+        cat_features: Union[Sequence, None] = None,
     ):
 
         # checks
@@ -208,10 +213,14 @@ class RFECV(BaseEstimator, TransformerMixin):
         scoring = self.scoring
         top_predictors_search_method = self.top_predictors_search_method
         votes_aggregation_method = self.votes_aggregation_method
+        use_all_fi_runs = self.use_all_fi_runs
+        use_last_fi_run_only = self.use_last_fi_run_only
+        use_one_freshest_fi_run = self.use_one_freshest_fi_run
         importance_getter = self.importance_getter
         random_state = self.random_state
         leave_progressbars = self.leave_progressbars
         verbose = self.verbose
+        cat_features = self.cat_features
 
         start_time = timer()
         run_out_of_time = False
@@ -280,9 +289,10 @@ class RFECV(BaseEstimator, TransformerMixin):
         if importance_getter is None or importance_getter == "auto":
             importance_getter = "feature_importances_"
 
-        dummy_scores = []
         nsteps = 0
-        while True:
+        dummy_scores = []
+        selected_features = {}
+        while nsteps < len(original_features):
 
             if verbose:
                 iters_pbar.update(1)
@@ -304,9 +314,17 @@ class RFECV(BaseEstimator, TransformerMixin):
                 feature_importances=feature_importances,
                 evaluated_scores_mean=evaluated_scores_mean,
                 evaluated_scores_std=evaluated_scores_std,
+                use_all_fi_runs=use_all_fi_runs,
+                use_last_fi_run_only=use_last_fi_run_only,
+                use_one_freshest_fi_run=use_one_freshest_fi_run,
                 top_predictors_search_method=top_predictors_search_method,
                 votes_aggregation_method=votes_aggregation_method,
             )
+
+            if current_features is None or len(current_features) == 0:
+                break
+
+            selected_features[len(current_features)] = current_features
 
             for nfold, (train_index, test_index) in enumerate(splitter):
 
@@ -349,6 +367,8 @@ class RFECV(BaseEstimator, TransformerMixin):
                         fit_params["use_best_model"] = True
                         fit_params["eval_set"] = X_val, y_val
                         fit_params["early_stopping_rounds"] = early_stopping_rounds
+                        if cat_features:
+                            fit_params["cat_features"] = [var for var in cat_features if var in current_features]
                     else:
                         raise ValueError(f"eval_set params not known for estimator type: {estimator}")
                 else:
@@ -357,9 +377,12 @@ class RFECV(BaseEstimator, TransformerMixin):
                 estimator.fit(X=X_train, y=y_train, **fit_params)
                 score = scoring(estimator, X_test, y_test)
                 scores.append(score)
-                feature_importances[f"{nsteps}_{nfold}"] = get_feature_importances(
+                fi = get_feature_importances(
                     model=estimator, current_features=current_features, data=X_test, reference_data=X_val, importance_getter=importance_getter
                 )
+                feature_importances[f"{nsteps}_{nfold}"] = fi
+
+                print(f"feature_importances[{nsteps}_{nfold}]=" + str({key: value for key, value in fi.items() if value > 0}))
 
                 if 0 not in evaluated_scores_mean:
 
@@ -416,12 +439,31 @@ class RFECV(BaseEstimator, TransformerMixin):
         # Saving best result found so far as final
         # ----------------------------------------------------------------------------------------------------------------------------
 
-        self.support_ = summary["selected_features"]
-        self.support_names_ = summary["selected_features_names"]
-        self.n_features_ = len(self.support_)
+        plt.figure()
+        plt.xlabel("Number of features selected")
+        plt.ylabel("Mean test score")
+
+        checked_top_n = sorted(evaluated_scores_mean.keys())
+        cv_mean_perf = [evaluated_scores_mean[n] for n in checked_top_n]
+        cv_std_perf = [evaluated_scores_std[n] for n in checked_top_n]
+
+        plt.errorbar(
+            checked_top_n,
+            cv_mean_perf,
+            yerr=cv_std_perf,
+        )
+        plt.title("Recursive Feature Elimination \nwith correlated features")
+        plt.show()
+
+        ultimate_perf = np.array(cv_mean_perf) - np.array(cv_std_perf) / 2
+        best_top_n = checked_top_n[np.argmax(ultimate_perf)]
+
+        # self.support_ = summary["selected_features"]
+        self.selected_features = selected_features[best_top_n]
+        self.n_features_ = best_top_n
 
         # last time vote for feature_importances using all info up to date
-        self.feature_importances_
+        self.feature_importances_ = get_actual_features_ranking(feature_importances=feature_importances, votes_aggregation_method=votes_aggregation_method)
 
         if verbose:
             logger.info(f"{self.n_features_:_} predictive factors selected out of {len(original_features):_} during {nsteps:_} rounds.")
@@ -441,10 +483,10 @@ def split_into_train_test(
     """Split X & y according to indices & dtypes."""
 
     if isinstance(X, pd.DataFrame):
-        X_train, y_train = (X.iloc[train_index, :] if features_indices is None else X.iloc[train_index, features_indices]), (
+        X_train, y_train = (X.iloc[train_index, :] if features_indices is None else X.iloc[train_index, :][features_indices]), (
             y.iloc[train_index, :] if isinstance(y, pd.DataFrame) else y.iloc[train_index]
         )
-        X_test, y_test = (X.iloc[test_index, :] if features_indices is None else X.iloc[test_index, features_indices]), (
+        X_test, y_test = (X.iloc[test_index, :] if features_indices is None else X.iloc[test_index, :][features_indices]), (
             y.iloc[test_index, :] if isinstance(y, pd.DataFrame) else y.iloc[test_index]
         )
     else:
@@ -487,6 +529,9 @@ def get_next_features_subset(
     feature_importances: pd.DataFrame,
     evaluated_scores_mean: dict,
     evaluated_scores_std: dict,
+    use_all_fi_runs: bool,
+    use_last_fi_run_only: bool,
+    use_one_freshest_fi_run: bool,
     top_predictors_search_method: OptimumSearch = OptimumSearch.ScipyLocal,
     votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
 ) -> list:
@@ -498,7 +543,7 @@ def get_next_features_subset(
     if nsteps == 0:
         return original_features
     else:
-        remaining = list(set(np.arange(len(original_features))) - set(evaluated_scores_mean.keys()))
+        remaining = list(set(np.arange(1, len(original_features))) - set(evaluated_scores_mean.keys()))
         if len(remaining) == 0:
             return []
         else:
@@ -511,23 +556,47 @@ def get_next_features_subset(
                 # At each step, feature importances must be recalculated in light of recent training on a smaller subset.
                 # The features already thrown away all receive constant importance update of the sanme size, to keep up with number of trains.
                 # ----------------------------------------------------------------------------------------------------------------------------
+                if use_last_fi_run_only:
+                    fi_to_consider = {key: value for key, value in feature_importances.items() if len(value) == len(original_features)}
+                else:
+                    if use_all_fi_runs:
+                        fi_to_consider = feature_importances
+                    else:
+                        if use_one_freshest_fi_run:
+                            for key, value in feature_importances.items():
+                                if len(value) >= next_top_n:
+                                    print(f"using FI of {len(value)} features for next_top_n={next_top_n}")
+                                    fi_to_consider = {key: value}
+                                    break
+                        else:
+                            fi_to_consider = {key: value for key, value in feature_importances.items() if len(value) > next_top_n}
 
-                lb = Leaderboard(table=pd.DataFrame(feature_importances))
-                if votes_aggregation_method == VotesAggregation.Borda:
-                    ranks = lb.borda_ranking()
-                elif votes_aggregation_method == VotesAggregation.AM:
-                    ranks = lb.mean_ranking(mean_type="arithmetic")
-                elif votes_aggregation_method == VotesAggregation.GM:
-                    ranks = lb.mean_ranking(mean_type="geometric")
-                elif votes_aggregation_method == VotesAggregation.Copeland:
-                    ranks = lb.copeland_ranking()
-                elif votes_aggregation_method == VotesAggregation.Dowdall:
-                    ranks = lb.dowdall_ranking()
-                elif votes_aggregation_method == VotesAggregation.Minimax:
-                    ranks = lb.minimax_ranking()
-                elif votes_aggregation_method == VotesAggregation.OG:
-                    ranks = lb.optimality_gap_ranking()
-                elif votes_aggregation_method == VotesAggregation.Plurality:
-                    ranks = lb.plurality_ranking()
+                ranks = get_actual_features_ranking(feature_importances=fi_to_consider, votes_aggregation_method=votes_aggregation_method)
 
-                return ranks.index.values.tolist()[:next_top_n]
+                print(f"next_top_n={next_top_n}, features chosen={ranks[:next_top_n]}")
+
+                return ranks[:next_top_n]
+
+
+def get_actual_features_ranking(feature_importances: dict, votes_aggregation_method: VotesAggregation) -> list:
+
+    lb = Leaderboard(table=pd.DataFrame(feature_importances))
+    if votes_aggregation_method == VotesAggregation.Borda:
+        ranks = lb.borda_ranking()
+    elif votes_aggregation_method == VotesAggregation.AM:
+        ranks = lb.mean_ranking(mean_type="arithmetic")
+    elif votes_aggregation_method == VotesAggregation.GM:
+        ranks = lb.mean_ranking(mean_type="geometric")
+    elif votes_aggregation_method == VotesAggregation.Copeland:
+        ranks = lb.copeland_ranking()
+    elif votes_aggregation_method == VotesAggregation.Dowdall:
+        ranks = lb.dowdall_ranking()
+    elif votes_aggregation_method == VotesAggregation.Minimax:
+        ranks = lb.minimax_ranking()
+    elif votes_aggregation_method == VotesAggregation.OG:
+        ranks = lb.optimality_gap_ranking()
+    elif votes_aggregation_method == VotesAggregation.Plurality:
+        ranks = lb.plurality_ranking()
+
+    print(ranks)
+    return ranks.index.values.tolist()
