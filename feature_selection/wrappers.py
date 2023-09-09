@@ -22,18 +22,21 @@ while True:
         import cupy as cp
 
         from pyutilz.system import tqdmu
-        from pyutilz.pythonlib import store_params_in_object, load_object_params_into_func, get_parent_func_args
-        from sklearn.base import is_classifier, is_regressor, BaseEstimator, TransformerMixin
-        from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold, StratifiedShuffleSplit, GroupKFold, GroupShuffleSplit, KFold
-        from sklearn.dummy import DummyClassifier, DummyRegressor
-        from sklearn.metrics import make_scorer, mean_squared_error
+        from pyutilz.numbalib import set_random_seed
+        from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
         from mlframe.config import *
         from mlframe.metrics import calib_error
+        from mlframe.preprocessing import pack_val_set_into_fit_params
+
+        from sklearn.dummy import DummyClassifier, DummyRegressor
+        from sklearn.metrics import make_scorer, mean_squared_error
+        from sklearn.base import is_classifier, is_regressor, BaseEstimator, TransformerMixin
+        from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold, StratifiedShuffleSplit, GroupKFold, GroupShuffleSplit, KFold
 
         from enum import Enum, auto
         from timeit import default_timer as timer
-        from pyutilz.numbalib import set_random_seed
+
         import matplotlib.pyplot as plt
 
         import random
@@ -234,8 +237,6 @@ class RFECV(BaseEstimator, TransformerMixin):
         evaluated_scores_mean = {}
         evaluated_scores_std = {}
 
-        model_type_name = type(estimator).__name__
-
         if isinstance(X, pd.DataFrame):
             original_features = X.columns.tolist()
         else:
@@ -356,27 +357,15 @@ class RFECV(BaseEstimator, TransformerMixin):
                     # ----------------------------------------------------------------------------------------------------------------------------
                     # If estimator is known, apply early stopping
                     # ----------------------------------------------------------------------------------------------------------------------------
-                    def pack_val_set_into_fit_params(model: object, X_val: pd.DataFrame, y_val: pd.DataFrame, fit_params: dict = {}) -> dict:
-                        if model_type_name in XGBOOST_MODEL_TYPES:
-                            model.set_params(early_stopping_rounds=early_stopping_rounds)
-                            fit_params["eval_set"] = ((X_val, y_val),)
-                        elif model_type_name in LGBM_MODEL_TYPES:
-                            import lightgbm as lgb
 
-                            fit_params["callbacks"] = [lgb.early_stopping(stopping_rounds=early_stopping_rounds)]
-                            fit_params["eval_set"] = (X_val, y_val)
-                        elif model_type_name in CATBOOST_MODEL_TYPES:
-                            fit_params["use_best_model"] = True
-                            fit_params["eval_set"] = X_val, y_val
-                            fit_params["early_stopping_rounds"] = early_stopping_rounds
-                            if cat_features:
-                                fit_params["cat_features"] = [var for var in cat_features if var in current_features]
-                        else:
-                            raise ValueError(f"eval_set params not known for estimator type: {model}")
-
-                        return fit_params
-
-                    fit_params = pack_val_set_into_fit_params(model=estimator, X_val=X_val, y_val=y_val, fit_params=fit_params)
+                    fit_params = pack_val_set_into_fit_params(
+                        model=estimator,
+                        X_val=X_val,
+                        y_val=y_val,
+                        early_stopping_rounds=early_stopping_rounds,
+                        fit_params=fit_params,
+                        cat_features=[var for var in cat_features if var in current_features],
+                    )
 
                 else:
                     X_val = None
