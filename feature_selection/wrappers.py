@@ -356,23 +356,28 @@ class RFECV(BaseEstimator, TransformerMixin):
                     # ----------------------------------------------------------------------------------------------------------------------------
                     # If estimator is known, apply early stopping
                     # ----------------------------------------------------------------------------------------------------------------------------
+                    def pack_val_set_into_fit_params(model: object, X_val: pd.DataFrame, y_val: pd.DataFrame, fit_params: dict = {}) -> dict:
+                        if model_type_name in XGBOOST_MODEL_TYPES:
+                            model.set_params(early_stopping_rounds=early_stopping_rounds)
+                            fit_params["eval_set"] = ((X_val, y_val),)
+                        elif model_type_name in LGBM_MODEL_TYPES:
+                            import lightgbm as lgb
 
-                    if model_type_name in XGBOOST_MODEL_TYPES:
-                        model.set_params(early_stopping_rounds=early_stopping_rounds)
-                        fit_params["eval_set"] = ((X_val, y_val),)
-                    elif model_type_name in LGBM_MODEL_TYPES:
-                        import lightgbm as lgb
+                            fit_params["callbacks"] = [lgb.early_stopping(stopping_rounds=early_stopping_rounds)]
+                            fit_params["eval_set"] = (X_val, y_val)
+                        elif model_type_name in CATBOOST_MODEL_TYPES:
+                            fit_params["use_best_model"] = True
+                            fit_params["eval_set"] = X_val, y_val
+                            fit_params["early_stopping_rounds"] = early_stopping_rounds
+                            if cat_features:
+                                fit_params["cat_features"] = [var for var in cat_features if var in current_features]
+                        else:
+                            raise ValueError(f"eval_set params not known for estimator type: {model}")
 
-                        fit_params["callbacks"] = [lgb.early_stopping(stopping_rounds=early_stopping_rounds)]
-                        fit_params["eval_set"] = (X_val, y_val)
-                    elif model_type_name in CATBOOST_MODEL_TYPES:
-                        fit_params["use_best_model"] = True
-                        fit_params["eval_set"] = X_val, y_val
-                        fit_params["early_stopping_rounds"] = early_stopping_rounds
-                        if cat_features:
-                            fit_params["cat_features"] = [var for var in cat_features if var in current_features]
-                    else:
-                        raise ValueError(f"eval_set params not known for estimator type: {estimator}")
+                        return fit_params
+
+                    fit_params = pack_val_set_into_fit_params(model=estimator, X_val=X_val, y_val=y_val, fit_params=fit_params)
+
                 else:
                     X_val = None
 
