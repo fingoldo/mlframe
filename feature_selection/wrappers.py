@@ -171,7 +171,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         max_runtime_mins: float = None,
         max_refits: int = None,
         cv: Union[object, int, None] = 3,
-        cv_shuffle: Union[bool, None] = None,
+        cv_shuffle: bool = True,
         early_stopping_val_nsplits: Union[int, None] = 4,
         early_stopping_rounds: Union[int, None] = None,
         scoring: Union[object, None] = None,
@@ -258,6 +258,8 @@ class RFECV(BaseEstimator, TransformerMixin):
                     cv = GroupKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
                 else:
                     cv = KFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
+            if verbose:
+                logger.info(f"Using cv={cv}")
 
         if early_stopping_val_nsplits:
             val_cv = copy.copy(cv)
