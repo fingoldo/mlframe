@@ -500,6 +500,8 @@ def compute_numaggs(
     hurst_kwargs: dict = dict(min_window=10, max_window=None, windows_log_step=0.25, take_diffs=False),
     directional_only: bool = False,
     distributional: bool = False,
+    entropy: bool = True,
+    hurst: bool = True,
     return_float32:bool=True
 ):
     """Compute a plethora of numerical aggregates for all values in an array.
@@ -518,10 +520,10 @@ def compute_numaggs(
         + ([] if directional_only else compute_nunique_modes_quantiles_numpy(arr=arr, q=q, quantile_method=quantile_method, max_modes=max_modes))
         + compute_moments_slope_mi(arr=arr, mean_value=arithmetic_mean, xvals=xvals, directional_only=directional_only)
         # + [compute_mutual_info_regression(arr=arr, xvals=xvals)]
-        + [*compute_hurst_exponent(arr=arr, **hurst_kwargs)]
+        + ([*compute_hurst_exponent(arr=arr, **hurst_kwargs)] if hurst else [])
         + (
             []
-            if directional_only
+            if (directional_only or not entropy)
             else compute_entropy_features(arr=arr, sampling_frequency=sampling_frequency, spectral_method=spectral_method, nonzero=nonzero)
         )
         + (compute_distributional_features(arr=arr) if distributional else [])
@@ -532,7 +534,7 @@ def compute_numaggs(
     else:
         return final
 
-def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, distributional: bool = False, **kwargs) -> tuple:
+def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, distributional: bool = False,    entropy: bool = True,    hurst: bool = True, **kwargs) -> tuple:
     return tuple(
         (
             ["arimean", "ratio"]
@@ -543,7 +545,7 @@ def get_numaggs_names(q: list = default_quantiles, directional_only: bool = Fals
         + ([] if directional_only else ["q" + str(q) for q in q])
         + ("slope,r,meancross,slopecross".split(",") if directional_only else "mad,std,skew,kurt,slope,r,meancross,slopecross".split(","))  # ,mi
         # + ["mutual_info_regression",]
-        + ["hursth", "hurstc"]
-        + ([] if directional_only else entropy_funcs_names)
+        + (["hursth", "hurstc"] if hurst else [])
+        + ([] if (directional_only or not entropy) else entropy_funcs_names)
         + (distributions_features_names if distributional else [])
     )
