@@ -24,18 +24,19 @@ from matplotlib import pyplot as plt
 # *****************************************************************************************************************************************************
 
 def plot_feature_importance(
-    feature_importances: np.ndarray, columns: Sequence, kind: str, n: int = 20, figsize: tuple = (12, 6), show_plots: bool = True, plot_file: str = ""
+    feature_importances: np.ndarray, columns: Sequence, kind: str, n: int = 20, figsize: tuple = (12, 6), positive_fi_only: bool = True, show_plots: bool = True, plot_file: str = ""
 ):
 
-    sorted_idx = np.argsort(feature_importances)[-n:]
+    sorted_idx = np.argsort(feature_importances)
     sorted_columns = np.array(columns)[sorted_idx]
     df = pd.Series(data=feature_importances[sorted_idx], index=sorted_columns, name="fi").to_frame().sort_values(by="fi", ascending=False)
+    if positive_fi_only: df=df[df.fi>0.0]
 
     if plot_file or show_plots:
         fig = plt.figure(figsize=figsize)
         ax = plt.gca() # visible=True
-        ax.barh(range(len(sorted_idx)), feature_importances[sorted_idx], align="center")
-        ax.set(yticks=range(len(sorted_idx)), yticklabels=sorted_columns)
+        ax.barh(range(len(sorted_idx[-n:])), feature_importances[sorted_idx[-n:]], align="center")
+        ax.set(yticks=range(len(sorted_idx[-n:])), yticklabels=sorted_columns)
         ax.set_title(f"{kind} feature importances")
 
         if plot_file:

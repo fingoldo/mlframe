@@ -268,3 +268,19 @@ def calib_error_xgboost(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 def calib_error_keras(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true.numpy()[:, -1], y_pred=y_pred.numpy()[:, -1])
     return calib_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage)
+
+@njit()
+def brier_score_loss(y_true:np.ndarray,y_prob:np.ndarray)->float:
+    return np.mean((y_true - y_prob) ** 2)
+
+@njit()
+def probability_separation_score(y_true: np.ndarray, y_prob: np.ndarray, class_label: int = 1, std_weight: float = 0.5) -> float:
+    idx = y_true == class_label
+    res = np.mean(y_prob[idx])
+    if std_weight != 0.0:
+        addend = np.std(y_prob[idx]) * std_weight
+        if class_label == 1:
+            res = res - addend
+        else:
+            res = res + addend
+    return res
