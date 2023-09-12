@@ -24,7 +24,7 @@ import mlflow
 # MLFLOW
 ########################################################################################################################################################################################################################################
 
-def flatten_classification_report(cr: dict, separate_metrics=("accuracy","balanced_accuracy","roc_auc"),source:str="")->dict:
+def flatten_classification_report(cr: dict, separate_metrics=("accuracy","balanced_accuracy","brier_score_loss","roc_auc"),source:str="")->dict:
     res={}
     for metric in separate_metrics:
         if metric in cr:
