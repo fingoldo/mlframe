@@ -276,11 +276,18 @@ def brier_score_loss(y_true:np.ndarray,y_prob:np.ndarray)->float:
 @njit()
 def probability_separation_score(y_true: np.ndarray, y_prob: np.ndarray, class_label: int = 1, std_weight: float = 0.5) -> float:
     idx = y_true == class_label
-    res = np.mean(y_prob[idx])
-    if std_weight != 0.0:
-        addend = np.std(y_prob[idx]) * std_weight
+    if idx.sum()==0:
+        return np.nan
         if class_label == 1:
-            res = res - addend
+            res=0.0
         else:
-            res = res + addend
+            res=1.0
+    else:
+        res = np.mean(y_prob[idx])
+        if std_weight != 0.0:
+            addend = np.std(y_prob[idx]) * std_weight
+            if class_label == 1:
+                res = res - addend
+            else:
+                res = res + addend
     return res
