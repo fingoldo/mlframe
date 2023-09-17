@@ -77,15 +77,6 @@ def get_distributions_features_names() -> list:
 
 distributions_features_names = get_distributions_features_names()
 
-def get_basic_feature_names(return_drawdown_stats:bool=False,return_profit_factor:bool=False,):
-    res="arimean,quadmean,qubmean,geomean,harmmean,nonzero,ratio,npos,nint,min,max,minr,maxr,max_pos_dd,max_neg_dd,longest_pos_dd_durationr,longest_neg_dd_durationr,nmaxupdates,nminupdates,mean_pos_dd,mean_neg_dd,longest_pos_dd_startr,longest_pos_dd_endr,longest_neg_dd_startr,longest_neg_dd_endr".split(",")
-    if return_profit_factor:
-        res.append('profit_factor')
-    if return_drawdown_stats:
-        res.append('return_drawdown_stats')
-    
-    return res
-
 default_quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]  # list vs ndarray gives advantage 125 µs ± 2.79 µs per loop vs 140 µs ± 8.11 µs per loop
 
 
@@ -239,7 +230,7 @@ def compute_numerical_aggregates_numba(
         quadratic_mean=quadratic_mean-arithmetic_mean
         qubic_mean=qubic_mean-arithmetic_mean
         geometric_mean=geometric_mean-arithmetic_mean
-        harmonic_mean=harmonic_mean-arithmetic_mea
+        harmonic_mean=harmonic_mean-arithmetic_mean
 
     res= [
         arithmetic_mean,
@@ -269,6 +260,16 @@ def compute_numerical_aggregates_numba(
         res.extend(compute_numerical_aggregates_numba(arr=neg_dds,geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False))
         res.extend(compute_numerical_aggregates_numba(arr=neg_dd_durs/(size-1),geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False))
 
+    return res
+
+def get_basic_feature_names(return_drawdown_stats:bool=False,return_profit_factor:bool=False,):
+    basic_fields="arimean,quadmean,qubmean,geomean,harmmean,nonzero,ratio,npos,nint,min,max,minr,maxr,nmaxupdates,nminupdates".split(",")
+    if return_profit_factor:        
+        res.append('profit_factor')
+    if return_drawdown_stats:
+        for var in "pos_dd ps_dd_dur neg_dd neg_dd_dur".split():
+            res.extend([var+"_"+field for field in basic_fields])
+    
     return res
 
 def compute_nunique_modes_quantiles_numpy(arr: np.ndarray, q: list = default_quantiles, quantile_method: str = "median_unbiased", max_modes: int = 10) -> list:
@@ -520,13 +521,14 @@ def compute_numaggs(
     return_hurst: bool = True,
     return_float32:bool=True,
     return_profit_factor:bool=False,
+    return_drawdown_stats:bool=True,
 ):
     """Compute a plethora of numerical aggregates for all values in an array.
     Converts an arbitrarily length array into fixed number of aggregates.
     """
     if len(arr) == 0:
         return [np.nan] * len(get_numaggs_names(q=q, directional_only=directional_only))
-    res = compute_numerical_aggregates_numba(arr, geomean_log_mode=geomean_log_mode, directional_only=directional_only,return_profit_factor=return_profit_factor)
+    res = compute_numerical_aggregates_numba(arr, geomean_log_mode=geomean_log_mode, directional_only=directional_only,return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats)
     arithmetic_mean = res[0]
     if directional_only:
         nonzero = 0
@@ -551,12 +553,12 @@ def compute_numaggs(
     else:
         return final
 
-def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, return_distributional: bool = False,    return_entropy: bool = True,    return_hurst: bool = True, **kwargs) -> tuple:
+def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, return_distributional: bool = False,return_entropy: bool = True,return_hurst: bool = True,return_profit_factor:bool=False, return_drawdown_stats:bool=True, **kwargs) -> tuple:
     return tuple(
         (
             ["arimean", "ratio"]
             if directional_only
-            else get_basic_feature_names(return_profit_factor=return_profit_factor)
+            else get_basic_feature_names(return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats)
         )
         + ([] if directional_only else "nuniques,modmin,modmax,modmean,modqty".split(","))
         + ([] if directional_only else ["q" + str(q) for q in q])
