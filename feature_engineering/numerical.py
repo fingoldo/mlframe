@@ -63,6 +63,7 @@ entropy_funcs_names = [f.__name__ for f in entropy_funcs]
 distributions = (stats.levy_l, stats.logistic, stats.pareto)
 default_dist_responses = dict(levy_l=[np.nan, np.nan], logistic=[np.nan, np.nan], pareto=[np.nan, np.nan, np.nan])
 
+LARGE_CONST=1e6
 
 def get_distributions_features_names() -> list:
     distributions_features_names = []
@@ -75,8 +76,15 @@ def get_distributions_features_names() -> list:
 
 
 distributions_features_names = get_distributions_features_names()
-basic_features_names = "arimean,quadmean,qubmean,geomean,harmmean,nonzero,ratio,npos,nint,min,max,minr,maxr,max_pos_dd,max_neg_dd,max_pos_dd_durationr,max_neg_dd_durationr,nmaxupdates,nminupdates".split(",")
 
+def get_basic_feature_names(return_drawdown_stats:bool=False,return_profit_factor:bool=False,):
+    res="arimean,quadmean,qubmean,geomean,harmmean,nonzero,ratio,npos,nint,min,max,minr,maxr,max_pos_dd,max_neg_dd,longest_pos_dd_durationr,longest_neg_dd_durationr,nmaxupdates,nminupdates,mean_pos_dd,mean_neg_dd,longest_pos_dd_startr,longest_pos_dd_endr,longest_neg_dd_startr,longest_neg_dd_endr".split(",")
+    if return_profit_factor:
+        res.append('profit_factor')
+    if return_drawdown_stats:
+        res.append('return_drawdown_stats')
+    
+    return res
 
 default_quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]  # list vs ndarray gives advantage 125 µs ± 2.79 µs per loop vs 140 µs ± 8.11 µs per loop
 
@@ -86,6 +94,9 @@ def compute_numerical_aggregates_numba(
     arr: np.ndarray,
     geomean_log_mode: bool = False,
     directional_only: bool = False,
+    whiten_means: bool = True,
+    return_drawdown_stats:bool=False,
+    return_profit_factor:bool=False,
 ) -> list:
     """Compute statistical aggregates over 1d array of float32 values.
     E mid2(abs(x-mid1(X))) where mid1, mid2=averages of any kind
@@ -124,6 +135,7 @@ def compute_numerical_aggregates_numba(
         return [arithmetic_mean, ratio]
 
     ninteger, npositive, cnt_nonzero = 0, 0, 0
+    sum_positive,sum_negative=0.0,0.0
 
     if not geomean_log_mode:
         geometric_mean = 1.0
@@ -132,13 +144,20 @@ def compute_numerical_aggregates_numba(
 
     arithmetic_mean, quadratic_mean, qubic_mean, harmonic_mean = 0.0, 0.0, 0.0, 0.0
 
-    max_index, min_index = 0, 0
     maximum, minimum = first, first
-    max_pos_dd, max_pos_dd_duration = 0.0, 0
-    max_neg_dd, max_neg_dd_duration = 0.0, 0
+    max_index, min_index = 0, 0    
 
-    pos_dd_start_idx, neg_dd_start_idx = 0, 0
-    nmaxupdates, nminupdates = 0, 0
+    if return_drawdown_stats:
+        
+        pos_dd_start_idx, neg_dd_start_idx = 0, 0
+
+        pos_dds=np.empty(shape=size,dtype=np.float32)
+        pos_dd_durs=np.empty(shape=size,dtype=np.float32)
+        
+        neg_dds=np.empty(shape=size,dtype=np.float32)
+        neg_dd_durs=np.empty(shape=size,dtype=np.float32)        
+
+    nmaxupdates, nminupdates = 0, 0    
 
     for i, next_value in enumerate(arr):
         arithmetic_mean += next_value
@@ -158,34 +177,24 @@ def compute_numerical_aggregates_numba(
             min_index = i
             nminupdates += 1
 
+        # ----------------------------------------------------------------------------------------------------------------------------
         # Drawdowns
+        # ----------------------------------------------------------------------------------------------------------------------------
 
-        # pos
-        dd = maximum - next_value
-        if dd > 0.0:
-            if dd > max_pos_dd:
-                max_pos_dd = dd
-            if not pos_dd_start_idx:
-                pos_dd_start_idx = i
-        else:
-            if pos_dd_start_idx:
-                dd_dur = i - pos_dd_start_idx
-                pos_dd_start_idx = 0
-                if dd_dur > max_pos_dd_duration:
-                    max_pos_dd_duration = dd_dur
-        # neg
-        dd = next_value - minimum
-        if dd > 0.0:
-            if dd > max_neg_dd:
-                max_neg_dd = dd
-            if not neg_dd_start_idx:
-                neg_dd_start_idx = i
-        else:
-            if neg_dd_start_idx:
-                dd_dur = i - neg_dd_start_idx
-                neg_dd_start_idx = 0
-                if dd_dur > max_neg_dd_duration:
-                    max_neg_dd_duration = dd_dur
+        if return_drawdown_stats:
+            # pos
+            dd = maximum - next_value
+            pos_dds[i]=dd
+            if dd== 0.0:                
+                pos_dd_start_idx=i
+            pos_dd_durs[i] = i - pos_dd_start_idx
+
+            # neg
+            dd = next_value - minimum
+            neg_dds[i]=dd
+            if dd== 0.0:                
+                neg_dd_start_idx=i
+            neg_dd_durs[i] = i - neg_dd_start_idx
 
         if next_value:
             cnt_nonzero = cnt_nonzero + 1
@@ -197,6 +206,7 @@ def compute_numerical_aggregates_numba(
 
             if next_value > 0:
                 npositive = npositive + 1
+                sum_positive+=next_value
                 if not geomean_log_mode:
                     geometric_mean *= next_value
                     if geometric_mean > 1e100 or geometric_mean < 1e-100:
@@ -205,15 +215,8 @@ def compute_numerical_aggregates_numba(
                         geometric_mean = np.log(float(geometric_mean))
                 else:
                     geometric_mean += np.log(next_value)
-
-    if pos_dd_start_idx:
-        dd_dur = i - pos_dd_start_idx
-        if dd_dur > max_pos_dd_duration:
-            max_pos_dd_duration = dd_dur
-    if neg_dd_start_idx:
-        dd_dur = i - neg_dd_start_idx
-        if dd_dur > max_neg_dd_duration:
-            max_neg_dd_duration = dd_dur
+            else:
+                sum_negative+=next_value
 
     if npositive:
         if not geomean_log_mode:
@@ -232,7 +235,13 @@ def compute_numerical_aggregates_numba(
     quadratic_mean = np.sqrt(quadratic_mean / size)
     qubic_mean = (qubic_mean / size) ** (1 / 3)
 
-    return [
+    if whiten_means:
+        quadratic_mean=quadratic_mean-arithmetic_mean
+        qubic_mean=qubic_mean-arithmetic_mean
+        geometric_mean=geometric_mean-arithmetic_mean
+        harmonic_mean=harmonic_mean-arithmetic_mea
+
+    res= [
         arithmetic_mean,
         quadratic_mean,
         qubic_mean,
@@ -245,15 +254,22 @@ def compute_numerical_aggregates_numba(
         minimum,
         maximum,
         (min_index + 1) / size,
-        (max_index + 1) / size,
-        max_pos_dd,
-        max_neg_dd,
-        max_pos_dd_duration / size,
-        max_neg_dd_duration / size,
+        (max_index + 1) / size,        
         nmaxupdates,
         nminupdates,
     ]
 
+    if return_profit_factor:
+        profit_factor=sum_positive/-sum_negative if sum_negative!=0.0 else (0.0 if sum_positive==0.0 else 1e3)
+        res.append(profit_factor)
+
+    if return_drawdown_stats:
+        res.extend(compute_numerical_aggregates_numba(arr=pos_dds,geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False))
+        res.extend(compute_numerical_aggregates_numba(arr=pos_dd_durs/(size-1),geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False))
+        res.extend(compute_numerical_aggregates_numba(arr=neg_dds,geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False))
+        res.extend(compute_numerical_aggregates_numba(arr=neg_dd_durs/(size-1),geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False))
+
+    return res
 
 def compute_nunique_modes_quantiles_numpy(arr: np.ndarray, q: list = default_quantiles, quantile_method: str = "median_unbiased", max_modes: int = 10) -> list:
     """For a 1d array, computes aggregates:
@@ -347,10 +363,10 @@ def compute_moments_slope_mi(
     directional_only: bool = False,
 ) -> list:
     """Добавить:
-    V RANSAC-регрессию или что-то подобное, устойчивое к выбросам?
-    V Количество пересечений не просто среднего, а ещё и квантилей. Для финансовых приложений это мб полезно, тк есть гипотеза,
+    ? RANSAC-регрессию или что-то подобное, устойчивое к выбросам?
+    E Количество пересечений не просто среднего, а ещё и квантилей. Для финансовых приложений это мб полезно, тк есть гипотеза,
         что если цена тестирует уровень много раз в течение дня, она его в итоге пробъёт (https://youtu.be/2DrBc35VLvE?t=129).
-    V Можно для начала добавить отношение крайних квантилей к макс/мин.
+    ? Можно для начала добавить отношение крайних квантилей к макс/мин.
     """
     slope_over, slope_under = 0.0, 0.0
     mad, std, skew, kurt = 0.0, 0.0, 0.0, 0.0
@@ -499,17 +515,18 @@ def compute_numaggs(
     spectral_method: str = "welch",
     hurst_kwargs: dict = dict(min_window=10, max_window=None, windows_log_step=0.25, take_diffs=False),
     directional_only: bool = False,
-    distributional: bool = False,
-    entropy: bool = True,
-    hurst: bool = True,
-    return_float32:bool=True
+    return_distributional: bool = False,
+    return_entropy: bool = True,
+    return_hurst: bool = True,
+    return_float32:bool=True,
+    return_profit_factor:bool=False,
 ):
     """Compute a plethora of numerical aggregates for all values in an array.
     Converts an arbitrarily length array into fixed number of aggregates.
     """
     if len(arr) == 0:
         return [np.nan] * len(get_numaggs_names(q=q, directional_only=directional_only))
-    res = compute_numerical_aggregates_numba(arr, geomean_log_mode=geomean_log_mode, directional_only=directional_only)
+    res = compute_numerical_aggregates_numba(arr, geomean_log_mode=geomean_log_mode, directional_only=directional_only,return_profit_factor=return_profit_factor)
     arithmetic_mean = res[0]
     if directional_only:
         nonzero = 0
@@ -520,13 +537,13 @@ def compute_numaggs(
         + ([] if directional_only else compute_nunique_modes_quantiles_numpy(arr=arr, q=q, quantile_method=quantile_method, max_modes=max_modes))
         + compute_moments_slope_mi(arr=arr, mean_value=arithmetic_mean, xvals=xvals, directional_only=directional_only)
         # + [compute_mutual_info_regression(arr=arr, xvals=xvals)]
-        + ([*compute_hurst_exponent(arr=arr, **hurst_kwargs)] if hurst else [])
+        + ([*compute_hurst_exponent(arr=arr, **hurst_kwargs)] if return_hurst else [])
         + (
             []
-            if (directional_only or not entropy)
+            if (directional_only or not return_entropy)
             else compute_entropy_features(arr=arr, sampling_frequency=sampling_frequency, spectral_method=spectral_method, nonzero=nonzero)
         )
-        + (compute_distributional_features(arr=arr) if distributional else [])
+        + (compute_distributional_features(arr=arr) if return_distributional else [])
     )
 
     if return_float32:
@@ -534,18 +551,18 @@ def compute_numaggs(
     else:
         return final
 
-def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, distributional: bool = False,    entropy: bool = True,    hurst: bool = True, **kwargs) -> tuple:
+def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, return_distributional: bool = False,    return_entropy: bool = True,    return_hurst: bool = True, **kwargs) -> tuple:
     return tuple(
         (
             ["arimean", "ratio"]
             if directional_only
-            else basic_features_names
+            else get_basic_feature_names(return_profit_factor=return_profit_factor)
         )
         + ([] if directional_only else "nuniques,modmin,modmax,modmean,modqty".split(","))
         + ([] if directional_only else ["q" + str(q) for q in q])
         + ("slope,r,meancross,slopecross".split(",") if directional_only else "mad,std,skew,kurt,slope,r,meancross,slopecross".split(","))  # ,mi
         # + ["mutual_info_regression",]
-        + (["hursth", "hurstc"] if hurst else [])
-        + ([] if (directional_only or not entropy) else entropy_funcs_names)
-        + (distributions_features_names if distributional else [])
+        + (["hursth", "hurstc"] if return_hurst else [])
+        + ([] if (directional_only or not return_entropy) else entropy_funcs_names)
+        + (distributions_features_names if return_distributional else [])
     )

@@ -143,6 +143,7 @@ def create_aggregated_features(
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # numericals
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    differences_features: bool = True,
     ratios_features: bool = True,
     robust_features: bool = False,
     weighting_vars: Sequence = (),
@@ -230,9 +231,18 @@ def create_aggregated_features(
                     if not targets:
                         features_names.extend([captions_vars_sep.join([dataset_name, var, feat]) for feat in numaggs_names])
 
-                    if ratios_features:
-                        # differences = np.diff(raw_vals, 1)
+                    if differences_features:
+                        differences = np.diff(raw_vals, 1)
 
+                        custom_numaggs_kwds=numaggs_kwds.copy()
+                        custom_numaggs_kwds['return_drawdown_stats']=False
+                        custom_numaggs_kwds['return_profitfactor']=True
+                        row_features.extend(compute_numaggs(differences, **custom_numaggs_kwds))
+                        custom_numaggs_names=list(get_numaggs_names(custom_numaggs_kwds))
+                        if not targets:
+                            features_names.extend([captions_vars_sep.join([dataset_name, var, "dif", feat]) for feat in custom_numaggs_names])
+
+                    if ratios_features:
                         # 2) ratios: div0(raw_vals[1:], raw_vals[:-1], fill=0.0)
                         ratios = smart_ratios(
                             raw_vals[1:],
@@ -240,9 +250,14 @@ def create_aggregated_features(
                             span_correction=span_corrections.get(var, span_corrections.get("", 1e2)),
                             na_fill=na_fills.get(var, na_fills.get("")),
                         )
-                        row_features.extend(compute_numaggs(ratios, **numaggs_kwds))
+
+                        custom_numaggs_kwds=numaggs_kwds.copy()
+                        custom_numaggs_kwds['return_drawdown_stats']=False
+                        custom_numaggs_kwds['return_profitfactor']=True
+                        row_features.extend(compute_numaggs(ratios, **custom_numaggs_kwds))
+                        custom_numaggs_names=list(get_numaggs_names(custom_numaggs_kwds))
                         if not targets:
-                            features_names.extend([captions_vars_sep.join([dataset_name, var, "rat", feat]) for feat in numaggs_names])
+                            features_names.extend([captions_vars_sep.join([dataset_name, var, "rat", feat]) for feat in custom_numaggs_names])
 
                     # 3) wavelets of raw_vals
                     if waveletname:
