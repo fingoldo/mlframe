@@ -149,8 +149,24 @@ def compute_numerical_aggregates_numba(
         neg_dd_durs=np.empty(shape=size,dtype=np.float32)        
 
     nmaxupdates, nminupdates = 0, 0    
+    
+    n_last_crossings,n_last_touches=0,0
+    prev_d = None
 
     for i, next_value in enumerate(arr):
+
+        d = next_value - last
+        if prev_d is not None:
+            mul=d * prev_d 
+            if mul< 0:
+                n_last_crossings += 1
+            elif mul==0.0:
+                n_last_touches += 1
+        else:
+            if next_value==last:
+                n_last_touches += 1
+        prev_d=d
+                          
         arithmetic_mean += next_value
 
         temp_value = next_value * next_value
@@ -248,6 +264,8 @@ def compute_numerical_aggregates_numba(
         (max_index + 1) / size,        
         nmaxupdates,
         nminupdates,
+        n_last_crossings,
+        n_last_touches,
     ]
 
     if return_profit_factor:
@@ -263,7 +281,8 @@ def compute_numerical_aggregates_numba(
     return res
 
 def get_basic_feature_names(return_drawdown_stats:bool=False,return_profit_factor:bool=False,):
-    basic_fields="arimean,quadmean,qubmean,geomean,harmmean,nonzero,ratio,npos,nint,min,max,minr,maxr,nmaxupdates,nminupdates".split(",")
+    basic_fields="arimean,quadmean,qubmean,geomean,harmmean,nonzero,ratio,npos,nint,min,max,minr,maxr,nmaxupdates,nminupdates,lastcross,lasttouch".split(",")
+    res=basic_fields.copy()
     if return_profit_factor:        
         res.append('profit_factor')
     if return_drawdown_stats:
@@ -277,7 +296,7 @@ def compute_nunique_modes_quantiles_numpy(arr: np.ndarray, q: list = default_qua
     nunique
     modes:min,max,mean
     list of quantiles (0 and 1 included by default, therefore, min/max)
-    Can NOT be numba jitted.
+    Can NOT be numba jitted (yet).
     """
     size = len(arr)
     vals, counts = np.unique(arr, return_counts=True)
@@ -521,7 +540,7 @@ def compute_numaggs(
     return_hurst: bool = True,
     return_float32:bool=True,
     return_profit_factor:bool=False,
-    return_drawdown_stats:bool=True,
+    return_drawdown_stats:bool=False,
 ):
     """Compute a plethora of numerical aggregates for all values in an array.
     Converts an arbitrarily length array into fixed number of aggregates.
@@ -534,6 +553,7 @@ def compute_numaggs(
         nonzero = 0
     else:
         nonzero = res[5]
+    
     final= (
         res
         + ([] if directional_only else compute_nunique_modes_quantiles_numpy(arr=arr, q=q, quantile_method=quantile_method, max_modes=max_modes))
@@ -553,7 +573,7 @@ def compute_numaggs(
     else:
         return final
 
-def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, return_distributional: bool = False,return_entropy: bool = True,return_hurst: bool = True,return_profit_factor:bool=False, return_drawdown_stats:bool=True, **kwargs) -> tuple:
+def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, return_distributional: bool = False,return_entropy: bool = True,return_hurst: bool = True,return_profit_factor:bool=False, return_drawdown_stats:bool=False, **kwargs) -> tuple:
     return tuple(
         (
             ["arimean", "ratio"]

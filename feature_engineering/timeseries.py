@@ -155,6 +155,8 @@ def create_aggregated_features(
     nonnormal_vars: Sequence = (),
     waveletname="rbio3.1",
     numaggs_kwds: dict = {},
+    splitting_vars:dict={},
+    drawdown_vars:dict={},
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # categoricals
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -226,20 +228,53 @@ def create_aggregated_features(
                         features_names.append(captions_vars_sep.join([dataset_name, var, "n_nonfinite"]))
 
                     # 1) as is: numaggs of raw_vals
-                    simple_numerical_features = compute_numaggs(raw_vals, **numaggs_kwds)
+
+                    if var in drawdown_vars:
+                        custom_numaggs_kwds=numaggs_kwds.copy()
+                        custom_numaggs_kwds['return_drawdown_stats']=True
+                        custom_numaggs_names=list(get_numaggs_names(**custom_numaggs_kwds))
+                    else:
+                        custom_numaggs_kwds=numaggs_kwds
+                        custom_numaggs_names=numaggs_names
+
+                    simple_numerical_features = compute_numaggs(raw_vals, **custom_numaggs_kwds)
                     row_features.extend(simple_numerical_features)
                     if not targets:
-                        features_names.extend([captions_vars_sep.join([dataset_name, var, feat]) for feat in numaggs_names])
+                        features_names.extend([captions_vars_sep.join([dataset_name, var, feat]) for feat in custom_numaggs_names])
 
+                    if splitting_vars and var in splitting_vars:
+                        splitting_vals=[]
+                        if not targets:
+                            splitting_ratios_names=[]
+                        subvars=splitting_vars[var]
+                        for col in ('minr','maxr'):
+                            try:
+                                col_idx=numaggs_names.index(col)
+                            except Exception as e:
+                                logger.warning(f"Could not find col={col} in numagg fields {numaggs_names}")
+                            else:
+                                index=int(simple_numerical_features[col_idx]*len(window_df))
+                                for subvar in subvars:
+                                    pre_sum=window_df[subvar].iloc[:index].sum()
+                                    post_sum=window_df[subvar].iloc[index:].sum()
+                                    tot=(pre_sum+post_sum)
+                                    splitting_vals.append(pre_sum/tot if tot else (0 if pre_sum==0.0 else 1e3))
+                                    if not targets:
+                                        splitting_ratios_names.append(captions_vars_sep.join([dataset_name, var, col,subvar,'split']))
+
+                        row_features.extend(splitting_vals)
+                        if not targets:
+                            print(len(splitting_vals),len(splitting_ratios_names))
+                            features_names.extend(splitting_ratios_names)
+                    
                     if differences_features:
                         differences = np.diff(raw_vals, 1)
 
                         custom_numaggs_kwds=numaggs_kwds.copy()
-                        custom_numaggs_kwds['return_drawdown_stats']=False
-                        custom_numaggs_kwds['return_profitfactor']=True
-                        row_features.extend(compute_numaggs(differences, **custom_numaggs_kwds))
-                        custom_numaggs_names=list(get_numaggs_names(custom_numaggs_kwds))
+                        custom_numaggs_kwds['return_profit_factor']=True
+                        row_features.extend(compute_numaggs(differences, **custom_numaggs_kwds))                        
                         if not targets:
+                            custom_numaggs_names=list(get_numaggs_names(**custom_numaggs_kwds))
                             features_names.extend([captions_vars_sep.join([dataset_name, var, "dif", feat]) for feat in custom_numaggs_names])
 
                     if ratios_features:
@@ -252,11 +287,10 @@ def create_aggregated_features(
                         )
 
                         custom_numaggs_kwds=numaggs_kwds.copy()
-                        custom_numaggs_kwds['return_drawdown_stats']=False
-                        custom_numaggs_kwds['return_profitfactor']=True
-                        row_features.extend(compute_numaggs(ratios, **custom_numaggs_kwds))
-                        custom_numaggs_names=list(get_numaggs_names(custom_numaggs_kwds))
+                        custom_numaggs_kwds['return_profit_factor']=True
+                        row_features.extend(compute_numaggs(ratios, **custom_numaggs_kwds))                        
                         if not targets:
+                            custom_numaggs_names=list(get_numaggs_names(**custom_numaggs_kwds))
                             features_names.extend([captions_vars_sep.join([dataset_name, var, "rat", feat]) for feat in custom_numaggs_names])
 
                     # 3) wavelets of raw_vals
