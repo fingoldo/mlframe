@@ -139,6 +139,7 @@ def create_aggregated_features(
     # common settings
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     vars_mask_regexp: object = None,
+    vars_mask_exclude_regexp: object = None,
     captions_vars_sep: str = "-",
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # numericals
@@ -153,7 +154,7 @@ def create_aggregated_features(
     rolling: Sequence = (),
     nonlinear_transforms=[np.cbrt],
     nonnormal_vars: Sequence = (),
-    waveletname="rbio3.1",
+    waveletname="", #"rbio3.1",
     numaggs_kwds: dict = {},
     splitting_vars:dict={},
     drawdown_vars:dict={},
@@ -202,7 +203,7 @@ def create_aggregated_features(
         countaggs_names = default_countaggs_names
 
     for var in window_df.columns:
-        if vars_mask_regexp is None or vars_mask_regexp.search(var):
+        if (vars_mask_regexp is None or vars_mask_regexp.search(var)) and (vars_mask_exclude_regexp is None or not vars_mask_exclude_regexp.search(var)):
             # is this categorical?
             if window_df[var].dtype.name in (
                 "category",
@@ -255,8 +256,12 @@ def create_aggregated_features(
                             else:
                                 index=int(simple_numerical_features[col_idx]*len(window_df))
                                 for subvar in subvars:
-                                    pre_sum=window_df[subvar].iloc[:index].sum()
-                                    post_sum=window_df[subvar].iloc[index:].sum()
+                                    if "datetime" in window_df[subvar].dtype.name:
+                                        pre_sum=(window_df[subvar].iloc[index]-window_df[subvar].iloc[0]).total_seconds()
+                                        post_sum=(window_df[subvar].iloc[-1]-window_df[subvar].iloc[index]).total_seconds()
+                                    else:
+                                        pre_sum=window_df[subvar].iloc[:index].sum()
+                                        post_sum=window_df[subvar].iloc[index:].sum()
                                     tot=(pre_sum+post_sum)
                                     splitting_vals.append(pre_sum/tot if tot else (0 if pre_sum==0.0 else 1e3))
                                     if not targets:
@@ -264,7 +269,6 @@ def create_aggregated_features(
 
                         row_features.extend(splitting_vals)
                         if not targets:
-                            print(len(splitting_vals),len(splitting_ratios_names))
                             features_names.extend(splitting_ratios_names)
                     
                     if differences_features:
@@ -279,6 +283,7 @@ def create_aggregated_features(
 
                     if ratios_features:
                         # 2) ratios: div0(raw_vals[1:], raw_vals[:-1], fill=0.0)
+                        #print(var)
                         ratios = smart_ratios(
                             raw_vals[1:],
                             raw_vals[:-1],
@@ -324,7 +329,7 @@ def create_aggregated_features(
                         row_features.extend(compute_numaggs(vals, **numaggs_kwds))
                         if not targets:
                             specs = slugify(dict(**window, method=method, **method_params))
-                            features_names.extend([captions_vars_sep.join([dataset_name, var, "rolling", specs, feat]) for feat in numaggs_names])
+                            features_names.extend([captions_vars_sep.join([dataset_name, var, "rol", specs, feat]) for feat in numaggs_names])
 
                     # 6) log, or cubic root, or some other non-linear transform (yeo-johnson) of raw_vals
                     if var in nonnormal_vars:
@@ -370,22 +375,33 @@ def create_aggregated_features(
                     targets=targets,
                     features_names=features_names,
                     vars_mask_regexp=vars_mask_regexp,
+                    vars_mask_exclude_regexp=vars_mask_exclude_regexp,
                     captions_vars_sep=captions_vars_sep,
+                    #
                     weighting_vars=weighting_vars,
                     ewma_alphas=ewma_alphas,
                     nonlinear_transforms=nonlinear_transforms,
                     nonnormal_vars=nonnormal_vars,
-                    q1_idx=q1_idx,
-                    q3_idx=q3_idx,
-                    default_numaggs_names=default_numaggs_names,
+                    differences_features=differences_features,
+                    ratios_features=ratios_features,
+                    robust_features=robust_features,
+                    rolling=rolling,
+                    waveletname=waveletname,
+                    numaggs_kwds=numaggs_kwds,
+                    splitting_vars=splitting_vars,
+                    drawdown_vars=drawdown_vars,
+                    #        
+                    #q1_idx=q1_idx,
+                    #q3_idx=q3_idx,
+                    #default_numaggs_names=default_numaggs_names,
                     na_fills=na_fills,
                     span_corrections=span_corrections,
+                    #
                     subsets={} if not nested_subsets else subsets,
                     checked_subsets=checked_subsets + [subset_var],
                     subset_token=subset_token,
                     nested_subsets=nested_subsets,
-                    ratios_features=ratios_features,
-                    robust_features=robust_features,
+
                 )
 
 

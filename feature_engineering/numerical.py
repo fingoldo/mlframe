@@ -29,6 +29,7 @@ from typing import *
 import numba
 import numpy as np
 from antropy import *
+from astropy.stats import histogram
 from entropy_estimators import continuous
 from sklearn.feature_selection import mutual_info_regression
 from mlframe.feature_engineering.hurst import compute_hurst_exponent
@@ -47,10 +48,10 @@ warnings.simplefilter(action="ignore", category=RuntimeWarning)
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-def cont_entropy(arr: np.ndarray, bins: str = "auto") -> float:
+def cont_entropy(arr: np.ndarray, bins: str = "scott") -> float:
     """Entropy of a continuous distribution"""
     try:
-        hist, bin_edges = np.histogram(arr, bins=bins, density=True)
+        hist, bin_edges = histogram(arr, bins=bins) # np.histogram(arr, bins=bins, density=True)
         ent = -(hist * np.log(hist + 1e-60)).sum()
     except Exception as e:
         return np.nan
@@ -265,7 +266,7 @@ def compute_numerical_aggregates_numba(
         nmaxupdates,
         nminupdates,
         n_last_crossings,
-        n_last_touches,
+        n_last_touches-1,
     ]
 
     if return_profit_factor:
@@ -535,6 +536,7 @@ def compute_numaggs(
     spectral_method: str = "welch",
     hurst_kwargs: dict = dict(min_window=10, max_window=None, windows_log_step=0.25, take_diffs=False),
     directional_only: bool = False,
+    whiten_means:bool=True,
     return_distributional: bool = False,
     return_entropy: bool = True,
     return_hurst: bool = True,
@@ -547,7 +549,7 @@ def compute_numaggs(
     """
     if len(arr) == 0:
         return [np.nan] * len(get_numaggs_names(q=q, directional_only=directional_only))
-    res = compute_numerical_aggregates_numba(arr, geomean_log_mode=geomean_log_mode, directional_only=directional_only,return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats)
+    res = compute_numerical_aggregates_numba(arr, geomean_log_mode=geomean_log_mode, directional_only=directional_only,return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats,whiten_means=whiten_means)
     arithmetic_mean = res[0]
     if directional_only:
         nonzero = 0
