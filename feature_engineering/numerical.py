@@ -64,7 +64,7 @@ entropy_funcs_names = [f.__name__ for f in entropy_funcs]
 distributions = (stats.levy_l, stats.logistic, stats.pareto)
 default_dist_responses = dict(levy_l=[np.nan, np.nan], logistic=[np.nan, np.nan], pareto=[np.nan, np.nan, np.nan])
 
-LARGE_CONST=1e6
+LARGE_CONST=1e3
 
 def get_distributions_features_names() -> list:
     distributions_features_names = []
@@ -267,10 +267,13 @@ def compute_numerical_aggregates_numba(
         nminupdates,
         n_last_crossings,
         n_last_touches-1,
+        last/arithmetic_mean if arithmetic_mean else LARGE_CONST,
+        last/maximum if maximum else LARGE_CONST,
+        minimum/last if last else LARGE_CONST,
     ]
 
     if return_profit_factor:
-        profit_factor=sum_positive/-sum_negative if sum_negative!=0.0 else (0.0 if sum_positive==0.0 else 1e3)
+        profit_factor=sum_positive/-sum_negative if sum_negative!=0.0 else (0.0 if sum_positive==0.0 else LARGE_CONST)
         res.append(profit_factor)
 
     if return_drawdown_stats:
@@ -282,7 +285,7 @@ def compute_numerical_aggregates_numba(
     return res
 
 def get_basic_feature_names(return_drawdown_stats:bool=False,return_profit_factor:bool=False,):
-    basic_fields="arimean,quadmean,qubmean,geomean,harmmean,nonzero,ratio,npos,nint,min,max,minr,maxr,nmaxupdates,nminupdates,lastcross,lasttouch".split(",")
+    basic_fields="arimean,quadmean,qubmean,geomean,harmmean,nonzero,ratio,npos,nint,min,max,minr,maxr,nmaxupdates,nminupdates,lastcross,lasttouch,last_to_arimean,last_to_max,min_to_last".split(",")
     res=basic_fields.copy()
     if return_profit_factor:        
         res.append('profit_factor')
@@ -329,8 +332,23 @@ def compute_nunique_modes_quantiles_numpy(arr: np.ndarray, q: list = default_qua
 
     nuniques = len(vals)
 
-    return [nuniques, modes_min, modes_max, modes_mean, modes_qty] + np.quantile(arr, q, method=quantile_method).tolist()
+    quantiles=np.quantile(arr, q, method=quantile_method)
 
+    return [nuniques, modes_min, modes_max, modes_mean, modes_qty] + quantiles.tolist()+compute_ncrossings(arr=arr,marks=quantiles).tolist()
+
+def compute_ncrossings(arr: np.ndarray,marks: np.ndarray,dtype=np.int32)->np.ndarray:
+    n_crossings = np.zeros(len(marks),dtype=dtype)
+    prev_ds = np.full(len(marks),dtype=np.float32,fill_value=np.nan)
+
+    for next_value in arr:
+        for i,mark in enumerate(marks):
+            d = next_value - mark
+            if prev_ds[i] is not None:
+                if d * prev_ds[i] < 0:
+                    n_crossings[i] += 1
+            prev_ds[i] = d
+
+    return n_crossings
 
 @numba.njit(fastmath=True)
 def compute_nunique_mode_quantiles_numba(arr: np.ndarray, q: list = default_quantiles) -> tuple:
@@ -478,6 +496,7 @@ def compute_moments_slope_mi(
                 if d * prev_d < 0:
                     n_slope_crossings += 1
             prev_d = d
+    
     if not directional_only:
         return [mad, std, skew, kurt, slope, r, n_mean_crossings, n_slope_crossings]  # , mi
     else:
@@ -583,7 +602,7 @@ def get_numaggs_names(q: list = default_quantiles, directional_only: bool = Fals
             else get_basic_feature_names(return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats)
         )
         + ([] if directional_only else "nuniques,modmin,modmax,modmean,modqty".split(","))
-        + ([] if directional_only else ["q" + str(q) for q in q])
+        + ([] if directional_only else (["q" + str(q) for q in q]+["ncrs" + str(q) for q in q]))
         + ("slope,r,meancross,slopecross".split(",") if directional_only else "mad,std,skew,kurt,slope,r,meancross,slopecross".split(","))  # ,mi
         # + ["mutual_info_regression",]
         + (["hursth", "hurstc"] if return_hurst else [])

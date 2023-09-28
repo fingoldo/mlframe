@@ -226,7 +226,7 @@ def create_aggregated_features(
 
                     row_features.append(idx.sum())
                     if not targets:
-                        features_names.append(captions_vars_sep.join([dataset_name, var, "n_nonfinite"]))
+                        features_names.append(captions_vars_sep.join([dataset_name, var, "n_finite"]))
 
                     # 1) as is: numaggs of raw_vals
 
