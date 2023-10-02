@@ -132,7 +132,7 @@ def get_ts_window_name(window_var: str, window_size: float, window_index_name: s
 def create_aggregated_features(
     window_df: pd.DataFrame,
     row_features: list,
-    targets: list,
+    create_features_names: bool,
     features_names: list,
     dataset_name: str,
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -179,7 +179,7 @@ def create_aggregated_features(
         3) wavelets of raw_vals
         4) raw_vals weighted by second var, if the main var is not related to second var (has no second var in its name)
         5) exponentially weighted row_wals, for example with alphas=[0.6]: ewma(prices.Price.values, 0.6) **ordered feature
-        5.1) rolling with optional scipy windows: rolling=[(dict(window=2,win_type='parzen'),mean,dict(sym=False))]
+        5.1) rolling with optional scipy windows: rolling=[(dict(window=2,win_type='parzen'),'mean',dict(sym=False))]
         6) log, or cubic root, or some other non-linear transform (yeo-johnson) of raw_vals (benefitial for non-normally distributed vars)
         7) robust subset of raw_vals, ie, within 0.1 and 0.9 quantiles
         8) for some variables, especially with many repeated values, or categorical, we can do value_counts(normalize=True or False). Further we can return
@@ -198,11 +198,12 @@ def create_aggregated_features(
         numaggs_names, q1_idx, q3_idx = get_numaggs_metadata(numaggs_kwds)
 
     if not countaggs_kwds:
-        countaggs_names = list(get_countaggs_names(**countaggs_kwds))
-    else:
         countaggs_names = default_countaggs_names
+    else:
+        countaggs_names = list(get_countaggs_names(**countaggs_kwds))        
 
     for var in window_df.columns:
+        if var in subsets: continue
         if (vars_mask_regexp is None or vars_mask_regexp.search(var)) and (vars_mask_exclude_regexp is None or not vars_mask_exclude_regexp.search(var)):
             # is this categorical?
             if window_df[var].dtype.name in (
@@ -210,7 +211,7 @@ def create_aggregated_features(
             ):  # we do not list "object", "str" to exclude pure textual columns. They can be added explicilty though.
                 if process_categoricals or (counts_processing_mask_regexp and counts_processing_mask_regexp.search(var)):
                     row_features.extend(compute_countaggs(window_df[var], **countaggs_kwds))
-                    if not targets:
+                    if create_features_names:
                         features_names.extend([captions_vars_sep.join([dataset_name, var, "vlscnt", feat]) for feat in countaggs_names])
             else:
                 if not (window_df[var].dtype.name in ("object", "str")):
@@ -225,7 +226,7 @@ def create_aggregated_features(
                     raw_vals = raw_vals[idx]
 
                     row_features.append(idx.sum())
-                    if not targets:
+                    if create_features_names:
                         features_names.append(captions_vars_sep.join([dataset_name, var, "n_finite"]))
 
                     # 1) as is: numaggs of raw_vals
@@ -240,12 +241,12 @@ def create_aggregated_features(
 
                     simple_numerical_features = compute_numaggs(raw_vals, **custom_numaggs_kwds)
                     row_features.extend(simple_numerical_features)
-                    if not targets:
+                    if create_features_names:
                         features_names.extend([captions_vars_sep.join([dataset_name, var, feat]) for feat in custom_numaggs_names])
 
                     if splitting_vars and var in splitting_vars:
                         splitting_vals=[]
-                        if not targets:
+                        if create_features_names:
                             splitting_ratios_names=[]
                         subvars=splitting_vars[var]
                         for col in ('minr','maxr'):
@@ -264,11 +265,11 @@ def create_aggregated_features(
                                         post_sum=window_df[subvar].iloc[index:].sum()
                                     tot=(pre_sum+post_sum)
                                     splitting_vals.append(pre_sum/tot if tot else (0 if pre_sum==0.0 else 1e3))
-                                    if not targets:
+                                    if create_features_names:
                                         splitting_ratios_names.append(captions_vars_sep.join([dataset_name, var, col,subvar,'split']))
 
                         row_features.extend(splitting_vals)
-                        if not targets:
+                        if create_features_names:
                             features_names.extend(splitting_ratios_names)
                     
                     if differences_features:
@@ -277,7 +278,7 @@ def create_aggregated_features(
                         custom_numaggs_kwds=numaggs_kwds.copy()
                         custom_numaggs_kwds['return_profit_factor']=True
                         row_features.extend(compute_numaggs(differences, **custom_numaggs_kwds))                        
-                        if not targets:
+                        if create_features_names:
                             custom_numaggs_names=list(get_numaggs_names(**custom_numaggs_kwds))
                             features_names.extend([captions_vars_sep.join([dataset_name, var, "dif", feat]) for feat in custom_numaggs_names])
 
@@ -294,7 +295,7 @@ def create_aggregated_features(
                         custom_numaggs_kwds=numaggs_kwds.copy()
                         custom_numaggs_kwds['return_profit_factor']=True
                         row_features.extend(compute_numaggs(ratios, **custom_numaggs_kwds))                        
-                        if not targets:
+                        if create_features_names:
                             custom_numaggs_names=list(get_numaggs_names(**custom_numaggs_kwds))
                             features_names.extend([captions_vars_sep.join([dataset_name, var, "rat", feat]) for feat in custom_numaggs_names])
 
@@ -302,7 +303,7 @@ def create_aggregated_features(
                     if waveletname:
                         for i, coeffs in enumerate(pywt.wavedec(raw_vals, waveletname)):
                             row_features.extend(compute_numaggs(coeffs, **numaggs_kwds))
-                            if not targets:
+                            if create_features_names:
                                 features_names.extend([captions_vars_sep.join([dataset_name, var, waveletname, str(i), feat]) for feat in numaggs_names])
                             if cCOMPACT_WAVELETS:
                                 break  # just one wavelet qt for now...
@@ -312,22 +313,23 @@ def create_aggregated_features(
                         if weighting_var not in var:
                             weighting_values = window_df.loc[idx, weighting_var].values
                             row_features.extend(compute_numaggs((raw_vals / weighting_values.sum()) * weighting_values, **numaggs_kwds))
-                            if not targets:
+                            if create_features_names:
                                 features_names.extend([captions_vars_sep.join([dataset_name, var, "wgt", weighting_var, feat]) for feat in numaggs_names])
 
                     # 5) exponentially weighted raw_vals with some alphas, like [0.6, 0.9]:
                     for alpha in ewma_alphas:
                         row_features.extend(compute_numaggs(ewma(raw_vals, alpha), **numaggs_kwds))
-                        if not targets:
+                        if create_features_names:
                             features_names.extend([captions_vars_sep.join([dataset_name, var, "ewma", str(alpha), feat]) for feat in numaggs_names])
 
                     # 5.1) rolling
                     for window, method, method_params in rolling:
+                        if "datetime" in window_df[var].dtype.name: continue
                         vals = getattr(window_df[var].rolling(**window), method)(**method_params).values
                         safe_idx = np.isfinite(vals)
                         vals = vals[safe_idx]
                         row_features.extend(compute_numaggs(vals, **numaggs_kwds))
-                        if not targets:
+                        if create_features_names:
                             specs = slugify(dict(**window, method=method, **method_params))
                             features_names.extend([captions_vars_sep.join([dataset_name, var, "rol", specs, feat]) for feat in numaggs_names])
 
@@ -336,7 +338,7 @@ def create_aggregated_features(
                         for nonlinear_func in nonlinear_transforms:
                             transform_name = nonlinear_func.__name__
                             row_features.extend(compute_numaggs(nonlinear_func(raw_vals), **numaggs_kwds))
-                            if not targets:
+                            if create_features_names:
                                 features_names.extend([captions_vars_sep.join([dataset_name, var, transform_name, feat]) for feat in numaggs_names])
 
                     # 7) robust subset of raw_vals, ie, within 0.1 and 0.9 quantiles. Or, better, using Tukey fences to identify outliers.
@@ -353,13 +355,13 @@ def create_aggregated_features(
                                 row_features.extend([np.nan] * len(numaggs_names))
                             else:
                                 row_features.extend(compute_numaggs(robust_subset, **numaggs_kwds))
-                            if not targets:
+                            if create_features_names:
                                 features_names.extend([captions_vars_sep.join([dataset_name, var, "rbst", feat]) for feat in numaggs_names])
 
                 # 8) for some variables, especially with many repeated values, or categorical, we can do value_counts(normalize=True or False).
                 if counts_processing_mask_regexp and counts_processing_mask_regexp.search(var):
                     row_features.extend(compute_countaggs(window_df[var], **countaggs_kwds))
-                    if not targets:
+                    if create_features_names:
                         features_names.extend([captions_vars_sep.join([dataset_name, var, "vlscnt", feat]) for feat in countaggs_names])
 
     if subsets:
@@ -370,37 +372,46 @@ def create_aggregated_features(
                 subset_df = window_df[window_df[subset_var] == subset_var_value]
                 create_aggregated_features(
                     window_df=subset_df,
-                    dataset_name=dataset_name + subset_token + subset_var + "=" + str(subset_var_value),
                     row_features=row_features,
-                    targets=targets,
+                    create_features_names=create_features_names,
                     features_names=features_names,
+                    dataset_name=dataset_name + subset_token + subset_var + "=" + str(subset_var_value),
+                    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+                    # common settings
+                    # -----------------------------------------------------------------------------------------------------------------------------------------------------
                     vars_mask_regexp=vars_mask_regexp,
                     vars_mask_exclude_regexp=vars_mask_exclude_regexp,
                     captions_vars_sep=captions_vars_sep,
-                    #
-                    weighting_vars=weighting_vars,
-                    ewma_alphas=ewma_alphas,
-                    nonlinear_transforms=nonlinear_transforms,
-                    nonnormal_vars=nonnormal_vars,
+                    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+                    # numericals
+                    # -----------------------------------------------------------------------------------------------------------------------------------------------------
                     differences_features=differences_features,
                     ratios_features=ratios_features,
                     robust_features=robust_features,
+                    weighting_vars=weighting_vars,
+                    na_fills=na_fills,
+                    span_corrections=span_corrections,  
+                    ewma_alphas=ewma_alphas,
                     rolling=rolling,
+                    nonlinear_transforms=nonlinear_transforms,
+                    nonnormal_vars=nonnormal_vars,
                     waveletname=waveletname,
                     numaggs_kwds=numaggs_kwds,
                     splitting_vars=splitting_vars,
-                    drawdown_vars=drawdown_vars,
-                    #        
-                    #q1_idx=q1_idx,
-                    #q3_idx=q3_idx,
-                    #default_numaggs_names=default_numaggs_names,
-                    na_fills=na_fills,
-                    span_corrections=span_corrections,
-                    #
+                    drawdown_vars=drawdown_vars,                 
+                    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+                    # categoricals
+                    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+                    process_categoricals=process_categoricals,
+                    counts_processing_mask_regexp=counts_processing_mask_regexp,
+                    countaggs_kwds=countaggs_kwds,
+                    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+                    # subsets
+                    # -----------------------------------------------------------------------------------------------------------------------------------------------------
                     subsets={} if not nested_subsets else subsets,
                     checked_subsets=checked_subsets + [subset_var],
                     subset_token=subset_token,
-                    nested_subsets=nested_subsets,
+                    nested_subsets=nested_subsets,               
 
                 )
 
@@ -481,7 +492,7 @@ def create_windowed_features(
             forward_direction=True,
             window_features_names=future_vars_names,
             window_features=None if targets_creation_fcn else row_targets,
-            targets=targets,
+            create_features_names=targets,
             verbose=verbose,
         )
 
@@ -503,7 +514,7 @@ def create_windowed_features(
             forward_direction=False,
             window_features_names=past_vars_names,
             window_features=None if features_creation_fcn else row_features,
-            targets=targets,
+            create_features_names=targets,
             verbose=verbose,
         )
 
