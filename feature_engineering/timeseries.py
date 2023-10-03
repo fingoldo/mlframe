@@ -72,7 +72,7 @@ default_numaggs_names, default_q1_idx, default_q3_idx = get_numaggs_metadata()
 
 
 @njit()
-def find_next_cumsum_left_index(window_var_values: np.ndarray, amount: float, right_index: int = None, min_samples: int = 1) -> tuple:
+def find_next_cumsum_left_index(window_var_values: np.ndarray, amount: float, right_index: int = None, min_samples: int = 1,use_abs:bool=False) -> tuple:
     """Calculating windows having required turnovers."""
     total = 0.0
     if right_index <= 0:
@@ -83,13 +83,17 @@ def find_next_cumsum_left_index(window_var_values: np.ndarray, amount: float, ri
     for i in range(1, right_index):
         if not np.isnan(window_var_values[right_index - i]):
             total += window_var_values[right_index - i]
-            if total >= amount and i >= min_samples:
-                return right_index - i, total
+            if use_abs:
+                if np.abs(total) >= amount and i >= min_samples:
+                    return right_index - i, total                
+            else:
+                if total >= amount and i >= min_samples:
+                    return right_index - i, total
 
     return 0, total
 
 
-def find_next_cumsum_right_index(window_var_values: np.ndarray, amount: float, left_index: int = None, min_samples: int = 1) -> tuple:
+def find_next_cumsum_right_index(window_var_values: np.ndarray, amount: float, left_index: int = None, min_samples: int = 1,use_abs:bool=False) -> tuple:
     """Calculating windows having required turnovers."""
     total = 0.0
     l = len(window_var_values)
@@ -101,8 +105,12 @@ def find_next_cumsum_right_index(window_var_values: np.ndarray, amount: float, l
     for i in range(1, (l - left_index)):
         if not np.isnan(window_var_values[left_index + i]):
             total += window_var_values[left_index + i]
-            if total >= amount and i >= min_samples:
-                return left_index + i, total
+            if use_abs:
+                if np.abs(total) >= amount and i >= min_samples:
+                    return left_index + i, total                
+            else:                
+                if total >= amount and i >= min_samples:
+                    return left_index + i, total
 
     return l - 1, total
 
