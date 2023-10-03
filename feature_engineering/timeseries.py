@@ -49,13 +49,15 @@ cCOMPACT_WAVELETS = True
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
-def get_numaggs_metadata(numaggs_kwds: dict = {}):
-    numaggs_names = list(get_numaggs_names(**numaggs_kwds))
+def get_numaggs_metadata(numaggs_kwds: dict = {},numaggs_names:list=[]):
+    
+    if not numaggs_names:
+        numaggs_names = list(get_numaggs_names(**numaggs_kwds))
 
     try:
         q1_idx = numaggs_names.index("q0.25")
         q3_idx = numaggs_names.index("q0.75")
-    except ValueError:
+    except ValueError as e:
         q1_idx, q3_idx = None, None
 
     return numaggs_names, q1_idx, q3_idx
@@ -158,6 +160,7 @@ def create_aggregated_features(
     numaggs_kwds: dict = {},
     splitting_vars:dict={},
     drawdown_vars:dict={},
+    groupby_vars:dict={}, #{'ticker':['Volume']}=deals.groupby("ticker").Volume.agg("sum").values / deals.Volume.sum()
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # categoricals
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -192,10 +195,10 @@ def create_aggregated_features(
     if len(window_df) <= 1:
         return
 
-    if not numaggs_kwds:
-        numaggs_names, q1_idx, q3_idx = default_numaggs_names, default_q1_idx, default_q3_idx
-    else:
+    if numaggs_kwds:
         numaggs_names, q1_idx, q3_idx = get_numaggs_metadata(numaggs_kwds)
+    else:
+        numaggs_names, q1_idx, q3_idx = default_numaggs_names, default_q1_idx, default_q3_idx
 
     if not countaggs_kwds:
         countaggs_names = default_countaggs_names
@@ -203,8 +206,19 @@ def create_aggregated_features(
         countaggs_names = list(get_countaggs_names(**countaggs_kwds))        
 
     for var in window_df.columns:
-        if var in subsets: continue
+        if var in subsets or var in checked_subsets: continue
         if (vars_mask_regexp is None or vars_mask_regexp.search(var)) and (vars_mask_exclude_regexp is None or not vars_mask_exclude_regexp.search(var)):
+
+            if var in groupby_vars:
+                groupby=window_df.groupby(var,observed=True)
+                for sum_var in groupby_vars[var]:
+                    total=window_df[sum_var].sum()
+                    raw_vals=groupby[sum_var].agg("sum").values
+                    if total: raw_vals=raw_vals/ total
+                    row_features.extend(compute_numaggs(raw_vals, **numaggs_kwds))
+                    if create_features_names:
+                        features_names.extend([captions_vars_sep.join([dataset_name, sum_var, "grpby", var, feat]) for feat in numaggs_names])            
+            
             # is this categorical?
             if window_df[var].dtype.name in (
                 "category",
@@ -216,7 +230,7 @@ def create_aggregated_features(
             else:
                 if not (window_df[var].dtype.name in ("object", "str")):
                     if "datetime" in window_df[var].dtype.name:
-                        raw_vals = (window_df[var].shift(1) - window_df[var]).dt.total_seconds().values
+                        raw_vals = window_df[var].diff(1).dt.total_seconds().values
                     else:
                         raw_vals = window_df[var].values
 
@@ -234,15 +248,15 @@ def create_aggregated_features(
                     if var in drawdown_vars:
                         custom_numaggs_kwds=numaggs_kwds.copy()
                         custom_numaggs_kwds['return_drawdown_stats']=True
-                        custom_numaggs_names=list(get_numaggs_names(**custom_numaggs_kwds))
+                        simple_numaggs_names=list(get_numaggs_names(**custom_numaggs_kwds))
                     else:
                         custom_numaggs_kwds=numaggs_kwds
-                        custom_numaggs_names=numaggs_names
+                        simple_numaggs_names=numaggs_names
 
                     simple_numerical_features = compute_numaggs(raw_vals, **custom_numaggs_kwds)
                     row_features.extend(simple_numerical_features)
                     if create_features_names:
-                        features_names.extend([captions_vars_sep.join([dataset_name, var, feat]) for feat in custom_numaggs_names])
+                        features_names.extend([captions_vars_sep.join([dataset_name, var, feat]) for feat in simple_numaggs_names])
 
                     if splitting_vars and var in splitting_vars:
                         splitting_vals=[]
@@ -330,7 +344,8 @@ def create_aggregated_features(
                         vals = vals[safe_idx]
                         row_features.extend(compute_numaggs(vals, **numaggs_kwds))
                         if create_features_names:
-                            specs = slugify(dict(**window, method=method, **method_params))
+                            specs = ",".join([f"{key}={value}" for key,value in dict(**window, m=method, **method_params).items()])
+                            specs=specs.replace("win_type","t").replace("window","w")
                             features_names.extend([captions_vars_sep.join([dataset_name, var, "rol", specs, feat]) for feat in numaggs_names])
 
                     # 6) log, or cubic root, or some other non-linear transform (yeo-johnson) of raw_vals
@@ -343,21 +358,22 @@ def create_aggregated_features(
 
                     # 7) robust subset of raw_vals, ie, within 0.1 and 0.9 quantiles. Or, better, using Tukey fences to identify outliers.
                     if robust_features:
+                        _, q1_idx, q3_idx = get_numaggs_metadata(numaggs_names=simple_numaggs_names)
                         if q1_idx and q3_idx:
                             Q3 = simple_numerical_features[q3_idx]
                             Q1 = simple_numerical_features[q1_idx]
                             IQR = Q3 - Q1
                             Lower_Bound = Q1 - 1.5 * IQR
-                            Upper_Bound = Q3 + 1.5 * IQR
-
+                            Upper_Bound = Q3 + 1.5 * IQR                            
                             robust_subset = raw_vals[(raw_vals >= Lower_Bound) & (raw_vals <= Upper_Bound)]
+                            #logger.info(f"Var={var}, Q1={Q1}, Q3={Q3}, len(robust_subset)={len(robust_subset)}")
+
                             if len(robust_subset) == 0:
                                 row_features.extend([np.nan] * len(numaggs_names))
                             else:
                                 row_features.extend(compute_numaggs(robust_subset, **numaggs_kwds))
                             if create_features_names:
-                                features_names.extend([captions_vars_sep.join([dataset_name, var, "rbst", feat]) for feat in numaggs_names])
-
+                                features_names.extend([captions_vars_sep.join([dataset_name, var, "rbst", feat]) for feat in numaggs_names])                            
                 # 8) for some variables, especially with many repeated values, or categorical, we can do value_counts(normalize=True or False).
                 if counts_processing_mask_regexp and counts_processing_mask_regexp.search(var):
                     row_features.extend(compute_countaggs(window_df[var], **countaggs_kwds))
@@ -398,7 +414,8 @@ def create_aggregated_features(
                     waveletname=waveletname,
                     numaggs_kwds=numaggs_kwds,
                     splitting_vars=splitting_vars,
-                    drawdown_vars=drawdown_vars,                 
+                    drawdown_vars=drawdown_vars,
+                    groupby_vars=groupby_vars,                 
                     # -----------------------------------------------------------------------------------------------------------------------------------------------------
                     # categoricals
                     # -----------------------------------------------------------------------------------------------------------------------------------------------------

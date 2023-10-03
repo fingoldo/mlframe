@@ -120,7 +120,7 @@ def compute_numerical_aggregates_numba(
     if first:
         ratio = last / first
     else:
-        ratio = np.nan
+        ratio = LARGE_CONST*np.sign(first)
 
     if directional_only:
         arithmetic_mean = np.mean(arr)
