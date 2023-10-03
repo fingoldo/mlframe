@@ -154,8 +154,8 @@ def create_aggregated_features(
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # numericals
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
-    differences_features: bool = True,
-    ratios_features: bool = True,
+    differences_features: bool = False,
+    ratios_features: bool = False,
     robust_features: bool = False,
     weighting_vars: Sequence = (),
     na_fills: dict = {"": 1e3},
@@ -172,7 +172,7 @@ def create_aggregated_features(
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # categoricals
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
-    process_categoricals: bool = True,  # categoricals will be processed as counts data
+    process_categoricals: bool = False,  # categoricals will be processed as counts data
     counts_processing_mask_regexp: object = None,  # separate variables can be processed as counts as well
     countaggs_kwds: dict = {},
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
