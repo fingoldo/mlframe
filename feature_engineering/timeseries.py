@@ -346,7 +346,9 @@ def create_aggregated_features(
 
                     # 5.1) rolling
                     for window, method, method_params in rolling:
-                        if "datetime" in window_df[var].dtype.name: continue
+                        if "datetime" in window_df[var].dtype.name: 
+                            logger.warning(f"Cant't use rolling features for var {var} 'cause of datetime-like dtype.")
+                            break
                         vals = getattr(window_df[var].rolling(**window), method)(**method_params).values
                         safe_idx = np.isfinite(vals)
                         vals = vals[safe_idx]
