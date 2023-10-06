@@ -21,7 +21,9 @@ import joblib
 from joblib import delayed
 import pandas as pd, numpy as np
 from pyutilz.parallel import parallel_run
-from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names, basic_features_names,compute_numerical_aggregates_numba
+from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names, compute_numerical_aggregates_numba,get_basic_feature_names
+
+basic_features_names=get_basic_feature_names(return_drawdown_stats=False,return_profit_factor=False,)
 
 # *****************************************************************************************************************************************************
 # Core ensembling functionality
@@ -39,13 +41,13 @@ def batch_numaggs(predictions: np.ndarray, get_numaggs_names_len:int, numaggs_kw
         row_features[i, :] = numerical_features
     return row_features
 
-def enrich_ensemble_preds_with_numaggs(predictions:np.ndarray,models_names:Sequence=[],means_only:bool=False,keep_probs:bool=True,numaggs_kwds: dict = {},n_jobs:int=1,only_physical_cores:bool=True)->pd.DataFrame:
+def enrich_ensemble_preds_with_numaggs(predictions:np.ndarray,models_names:Sequence=[],means_only:bool=False,keep_probs:bool=True,numaggs_kwds: dict = {'whiten_means':False},n_jobs:int=1,only_physical_cores:bool=True)->pd.DataFrame:
     """Probs are non-negative that allows more averages to be applied"""
     
     if predictions.shape[1]>=10:
-        numaggs_kwds.update(dict(directional_only=False, hurst=True, entropy=True))
+        numaggs_kwds.update(dict(directional_only=False, return_hurst=True, return_entropy=True))
     else:
-        numaggs_kwds.update(dict(directional_only=False, hurst=False, entropy=False))
+        numaggs_kwds.update(dict(directional_only=False, return_hurst=False, return_entropy=False))
 
     if means_only:
         numaggs_names=basic_features_names        
