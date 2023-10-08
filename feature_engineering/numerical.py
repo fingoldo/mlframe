@@ -80,6 +80,17 @@ distributions_features_names = get_distributions_features_names()
 
 default_quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]  # list vs ndarray gives advantage 125 µs ± 2.79 µs per loop vs 140 µs ± 8.11 µs per loop
 
+@numba.njit(fastmath=True)
+def compute_minmax_stats_numba(arr: np.ndarray)->tuple:
+    minval,maxval,argmin,argmax=arr[0],arr[0],0,0
+    for i,el in enumerate(arr)
+        if el<minval:
+            minval=el
+            argmin=i
+        elif el>maxval:
+            maxval=el
+            argmax=i
+    return minval,maxval,argmin,argmax
 
 @numba.njit(fastmath=True)
 def compute_numerical_aggregates_numba(
