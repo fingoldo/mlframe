@@ -83,7 +83,7 @@ default_quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]  # list vs ndarray gives a
 @numba.njit(fastmath=True)
 def compute_minmax_stats_numba(arr: np.ndarray)->tuple:
     minval,maxval,argmin,argmax=arr[0],arr[0],0,0
-    for i,el in enumerate(arr)
+    for i,el in enumerate(arr):
         if el<minval:
             minval=el
             argmin=i
@@ -278,9 +278,9 @@ def compute_numerical_aggregates_numba(
         nminupdates,
         n_last_crossings,
         n_last_touches-1,
-        last/arithmetic_mean if arithmetic_mean else LARGE_CONST,
-        last/maximum if maximum else LARGE_CONST,
-        minimum/last if last else LARGE_CONST,
+        arithmetic_mean/first if first else LARGE_CONST,
+        first/maximum if maximum else LARGE_CONST,
+        minimum/first if first else LARGE_CONST,
     ]
 
     if return_profit_factor:
@@ -296,7 +296,7 @@ def compute_numerical_aggregates_numba(
     return res
 
 def get_basic_feature_names(return_drawdown_stats:bool=False,return_profit_factor:bool=False,):
-    basic_fields="arimean,quadmean,qubmean,geomean,harmmean,nonzero,ratio,npos,nint,min,max,minr,maxr,nmaxupdates,nminupdates,lastcross,lasttouch,last_to_arimean,last_to_max,min_to_last".split(",")
+    basic_fields="arimean,quadmean,qubmean,geomean,harmmean,nonzero,ratio,npos,nint,min,max,minr,maxr,nmaxupdates,nminupdates,lastcross,lasttouch,arimean_to_first,first_to_max,min_to_first".split(",")
     res=basic_fields.copy()
     if return_profit_factor:        
         res.append('profit_factor')

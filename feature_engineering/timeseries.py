@@ -267,32 +267,8 @@ def create_aggregated_features(
                         features_names.extend([captions_vars_sep.join([dataset_name, var, feat]) for feat in simple_numaggs_names])
 
                     if splitting_vars and var in splitting_vars:
-                        splitting_vals=[]
-                        if create_features_names:
-                            splitting_ratios_names=[]
-                        subvars=splitting_vars[var]
-                        for col in ('minr','maxr'):
-                            try:
-                                col_idx=numaggs_names.index(col)
-                            except Exception as e:
-                                logger.warning(f"Could not find col={col} in numagg fields {numaggs_names}")
-                            else:
-                                index=int(simple_numerical_features[col_idx]*len(window_df))
-                                for subvar in subvars:
-                                    if "datetime" in window_df[subvar].dtype.name:
-                                        pre_sum=(window_df[subvar].iloc[index]-window_df[subvar].iloc[0]).total_seconds()
-                                        post_sum=(window_df[subvar].iloc[-1]-window_df[subvar].iloc[index]).total_seconds()
-                                    else:
-                                        pre_sum=window_df[subvar].iloc[:index].sum()
-                                        post_sum=window_df[subvar].iloc[index:].sum()
-                                    tot=(pre_sum+post_sum)
-                                    splitting_vals.append(pre_sum/tot if tot else (0 if pre_sum==0.0 else 1e3))
-                                    if create_features_names:
-                                        splitting_ratios_names.append(captions_vars_sep.join([dataset_name, var, col,subvar,'split']))
-
-                        row_features.extend(splitting_vals)
-                        if create_features_names:
-                            features_names.extend(splitting_ratios_names)
+                        compute_splitting_stats(window_df=window_df,dataset_name=dataset_name,splitting_vars=splitting_vars,var=var,numaggs_names=simple_numaggs_names,numaggs_values=simple_numerical_features,
+                                                row_features=row_features,features_names=features_names,create_features_names=create_features_names,captions_vars_sep=captions_vars_sep)
                     
                     if differences_features:
                         differences = np.diff(raw_vals, 1)
@@ -442,6 +418,34 @@ def create_aggregated_features(
 
                 )
 
+def compute_splitting_stats(window_df:pd.DataFrame,dataset_name:str,splitting_vars:dict,var:str,numaggs_names:list,numaggs_values:list,
+                                row_features:list,features_names:list,create_features_names:bool,captions_vars_sep:str="-")->None:
+    splitting_vals=[]
+    if create_features_names:
+        splitting_ratios_names=[]
+    subvars=splitting_vars[var]
+    for col in ('minr','maxr'):
+        try:
+            col_idx=numaggs_names.index(col)
+        except Exception as e:
+            logger.warning(f"Could not find col={col} in numagg fields {numaggs_names}")
+        else:
+            index=int(numaggs_values[col_idx]*len(window_df))
+            for subvar in subvars:
+                if "datetime" in window_df[subvar].dtype.name:
+                    pre_sum=(window_df[subvar].iloc[index]-window_df[subvar].iloc[0]).total_seconds()
+                    post_sum=(window_df[subvar].iloc[-1]-window_df[subvar].iloc[index]).total_seconds()
+                else:
+                    pre_sum=window_df[subvar].iloc[:index].sum()
+                    post_sum=window_df[subvar].iloc[index:].sum()
+                tot=(pre_sum+post_sum)
+                splitting_vals.append(pre_sum/tot if tot else (0 if pre_sum==0.0 else 1e3))
+                if create_features_names:
+                    splitting_ratios_names.append(captions_vars_sep.join([dataset_name, var, col,subvar,'split']))
+    
+    row_features.extend(splitting_vals)
+    if create_features_names:
+        features_names.extend(splitting_ratios_names)
 
 def create_windowed_features(
     start_index: int = 0,
