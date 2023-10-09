@@ -81,16 +81,29 @@ distributions_features_names = get_distributions_features_names()
 default_quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]  # list vs ndarray gives advantage 125 µs ± 2.79 µs per loop vs 140 µs ± 8.11 µs per loop
 
 @numba.njit(fastmath=True)
-def compute_minmax_stats_numba(arr: np.ndarray)->tuple:
+def compute_simple_stats_numba(arr: np.ndarray)->tuple:
     minval,maxval,argmin,argmax=arr[0],arr[0],0,0
-    for i,el in enumerate(arr):
-        if el<minval:
-            minval=el
+    size=len(arr)
+    sum,std=0.0,0.0
+
+    for i,next_value in enumerate(arr):
+        if next_value<minval:
+            minval=next_value
             argmin=i
-        elif el>maxval:
-            maxval=el
+        elif next_value>maxval:
+            maxval=next_value
             argmax=i
-    return minval,maxval,argmin,argmax
+    mean_value=sum/size
+
+    for i,next_value in enumerate(arr):
+        d = next_value - mean_value
+        summand = d * d
+        std = std + summand
+    std = np.sqrt(std / size)            
+    return minval,maxval,argmin,argmax,mean_value,std
+
+def get_simple_stats_names()->list:
+    return "min,max,argmin,argmax,mean,std".split(",")
 
 @numba.njit(fastmath=True)
 def compute_numerical_aggregates_numba(
@@ -295,8 +308,8 @@ def compute_numerical_aggregates_numba(
 
     return res
 
-def get_basic_feature_names(return_drawdown_stats:bool=False,return_profit_factor:bool=False,):
-    basic_fields="arimean,quadmean,qubmean,geomean,harmmean,nonzero,ratio,npos,nint,min,max,minr,maxr,nmaxupdates,nminupdates,lastcross,lasttouch,arimean_to_first,first_to_max,min_to_first".split(",")
+def get_basic_feature_names(whiten_means: bool = True,return_drawdown_stats:bool=False,return_profit_factor:bool=False,):
+    basic_fields=("arimean,"+("quadmean,qubmean,geomean,harmmean" if not whiten_means else "quadmeanw,qubmeanw,geomeanw,harmmeanw")+",nonzero,ratio,npos,nint,min,max,minr,maxr,nmaxupdates,nminupdates,lastcross,lasttouch,arimean_to_first,first_to_max,min_to_first").split(",")
     res=basic_fields.copy()
     if return_profit_factor:        
         res.append('profit_factor')
@@ -311,6 +324,7 @@ def compute_nunique_modes_quantiles_numpy(arr: np.ndarray, q: list = default_qua
     nunique
     modes:min,max,mean
     list of quantiles (0 and 1 included by default, therefore, min/max)
+    number of quantiles crossings
     Can NOT be numba jitted (yet).
     """
     size = len(arr)
@@ -414,7 +428,7 @@ def compute_moments_slope_mi(
 ) -> list:
     """Добавить:
     ? RANSAC-регрессию или что-то подобное, устойчивое к выбросам?
-    E Количество пересечений не просто среднего, а ещё и квантилей. Для финансовых приложений это мб полезно, тк есть гипотеза,
+    V Количество пересечений не просто среднего, а ещё и квантилей. Для финансовых приложений это мб полезно, тк есть гипотеза,
         что если цена тестирует уровень много раз в течение дня, она его в итоге пробъёт (https://youtu.be/2DrBc35VLvE?t=129).
     ? Можно для начала добавить отношение крайних квантилей к макс/мин.
     """
@@ -605,12 +619,12 @@ def compute_numaggs(
     else:
         return final
 
-def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, return_distributional: bool = False,return_entropy: bool = True,return_hurst: bool = True,return_profit_factor:bool=False, return_drawdown_stats:bool=False, **kwargs) -> tuple:
+def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, whiten_means:bool=True,return_distributional: bool = False,return_entropy: bool = True,return_hurst: bool = True,return_profit_factor:bool=False, return_drawdown_stats:bool=False, **kwargs) -> tuple:
     return tuple(
         (
             ["arimean", "ratio"]
             if directional_only
-            else get_basic_feature_names(return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats)
+            else get_basic_feature_names(whiten_means=whiten_means,return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats)
         )
         + ([] if directional_only else "nuniques,modmin,modmax,modmean,modqty".split(","))
         + ([] if directional_only else (["q" + str(q) for q in q]+["ncrs" + str(q) for q in q]))
