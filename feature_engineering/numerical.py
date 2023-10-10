@@ -314,7 +314,7 @@ def get_basic_feature_names(whiten_means: bool = True,return_drawdown_stats:bool
     if return_profit_factor:        
         res.append('profit_factor')
     if return_drawdown_stats:
-        for var in "pos_dd ps_dd_dur neg_dd neg_dd_dur".split():
+        for var in "pos_dd pos_dd_dur neg_dd neg_dd_dur".split():
             res.extend([var+"_"+field for field in basic_fields])
     
     return res
