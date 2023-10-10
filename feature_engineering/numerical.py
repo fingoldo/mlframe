@@ -285,8 +285,8 @@ def compute_numerical_aggregates_numba(
         ninteger,
         minimum,
         maximum,
-        (min_index + 1) / size,
-        (max_index + 1) / size,        
+        (min_index+ 1) / size if size else 0,         #
+        (max_index+ 1) / size if size else 0,         #
         nmaxupdates,
         nminupdates,
         n_last_crossings,

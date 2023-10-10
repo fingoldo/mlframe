@@ -430,7 +430,7 @@ def compute_splitting_stats(window_df:pd.DataFrame,dataset_name:str,splitting_va
         except Exception as e:
             logger.warning(f"Could not find col={col} in numagg fields {numaggs_names}")
         else:
-            index=int(numaggs_values[col_idx]*len(window_df))
+            index=int(numaggs_values[col_idx]*len(window_df))-1
             for subvar in subvars:
                 if "datetime" in window_df[subvar].dtype.name:
                     pre_sum=(window_df[subvar].iloc[index]-window_df[subvar].iloc[0]).total_seconds()
