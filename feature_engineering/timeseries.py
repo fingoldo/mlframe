@@ -92,7 +92,7 @@ def find_next_cumsum_left_index(window_var_values: np.ndarray, amount: float, ri
 
     return 0, total
 
-
+@njit()
 def find_next_cumsum_right_index(window_var_values: np.ndarray, amount: float, left_index: int = None, min_samples: int = 1,use_abs:bool=False) -> tuple:
     """Calculating windows having required turnovers."""
     total = 0.0
@@ -169,6 +169,7 @@ def create_aggregated_features(
     splitting_vars:dict={},
     drawdown_vars:dict={},
     groupby_vars:dict={}, #{'ticker':['Volume']}=deals.groupby("ticker").Volume.agg("sum").values / deals.Volume.sum()
+    return_n_finite:bool=False,
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # categoricals
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -247,9 +248,10 @@ def create_aggregated_features(
                     idx = np.isfinite(raw_vals)
                     raw_vals = raw_vals[idx]
 
-                    row_features.append(idx.sum())
-                    if create_features_names:
-                        features_names.append(captions_vars_sep.join([dataset_name, var, "n_finite"]))
+                    if return_n_finite:
+                        row_features.append(idx.sum())
+                        if create_features_names:
+                            features_names.append(captions_vars_sep.join([dataset_name, var, "n_finite"]))
 
                     # 1) as is: numaggs of raw_vals
 
@@ -401,7 +403,8 @@ def create_aggregated_features(
                     numaggs_kwds=numaggs_kwds,
                     splitting_vars=splitting_vars,
                     drawdown_vars=drawdown_vars,
-                    groupby_vars=groupby_vars,                 
+                    groupby_vars=groupby_vars,
+                    return_n_finite=return_n_finite,
                     # -----------------------------------------------------------------------------------------------------------------------------------------------------
                     # categoricals
                     # -----------------------------------------------------------------------------------------------------------------------------------------------------

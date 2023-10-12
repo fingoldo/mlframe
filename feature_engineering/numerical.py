@@ -47,6 +47,8 @@ warnings.simplefilter(action="ignore", category=RuntimeWarning)
 # Inits
 # ----------------------------------------------------------------------------------------------------------------------------
 
+fastmath = False
+empty_float32_array=np.array([], dtype=np.float32)
 
 def cont_entropy(arr: np.ndarray, bins: str = "scott") -> float:
     """Entropy of a continuous distribution"""
@@ -80,7 +82,7 @@ distributions_features_names = get_distributions_features_names()
 
 default_quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]  # list vs ndarray gives advantage 125 µs ± 2.79 µs per loop vs 140 µs ± 8.11 µs per loop
 
-@numba.njit(fastmath=True)
+@numba.njit(fastmath=fastmath)
 def compute_simple_stats_numba(arr: np.ndarray)->tuple:
     minval,maxval,argmin,argmax=arr[0],arr[0],0,0
     size=len(arr)
@@ -105,7 +107,7 @@ def compute_simple_stats_numba(arr: np.ndarray)->tuple:
 def get_simple_stats_names()->list:
     return "min,max,argmin,argmax,mean,std".split(",")
 
-@numba.njit(fastmath=True)
+@numba.njit(fastmath=fastmath)
 def compute_numerical_aggregates_numba(
     arr: np.ndarray,
     geomean_log_mode: bool = False,
@@ -113,6 +115,7 @@ def compute_numerical_aggregates_numba(
     whiten_means: bool = True,
     return_drawdown_stats:bool=False,
     return_profit_factor:bool=False,
+    return_n_zer_pos_int:bool=True,
 ) -> list:
     """Compute statistical aggregates over 1d array of float32 values.
     E mid2(abs(x-mid1(X))) where mid1, mid2=averages of any kind
@@ -142,13 +145,13 @@ def compute_numerical_aggregates_numba(
     first = arr[0]
     last = arr[-1]
     if first:
-        ratio = last / first
+        last_to_first = last / first
     else:
-        ratio = LARGE_CONST*np.sign(first)
+        last_to_first = LARGE_CONST*np.sign(last)
 
     if directional_only:
         arithmetic_mean = np.mean(arr)
-        return [arithmetic_mean, ratio]
+        return [arithmetic_mean, last_to_first]
 
     ninteger, npositive, cnt_nonzero = 0, 0, 0
     sum_positive,sum_negative=0.0,0.0
@@ -231,10 +234,11 @@ def compute_numerical_aggregates_numba(
         if next_value:
             cnt_nonzero = cnt_nonzero + 1
             harmonic_mean += 1 / next_value
-
-            frac = next_value % 1
-            if not frac:
-                ninteger = ninteger + 1
+            
+            if return_n_zer_pos_int:
+                frac = next_value % 1
+                if not frac:
+                    ninteger = ninteger + 1
 
             if next_value > 0:
                 npositive = npositive + 1
@@ -278,39 +282,48 @@ def compute_numerical_aggregates_numba(
         quadratic_mean,
         qubic_mean,
         geometric_mean,
-        harmonic_mean,
-        cnt_nonzero,
-        ratio,
-        npositive,
-        ninteger,
+        harmonic_mean,        
         minimum,
         maximum,
-        (min_index+ 1) / size if size else 0,         #
-        (max_index+ 1) / size if size else 0,         #
+        (min_index+ 1) / size if size else 0,
+        (max_index+ 1) / size if size else 0,
         nmaxupdates,
         nminupdates,
         n_last_crossings,
         n_last_touches-1,
-        arithmetic_mean/first if first else LARGE_CONST,
-        first/maximum if maximum else LARGE_CONST,
-        minimum/first if first else LARGE_CONST,
+        arithmetic_mean/first if first else LARGE_CONST*np.sign(arithmetic_mean),
+        first/maximum if maximum else LARGE_CONST*np.sign(first),
+        minimum/first if first else LARGE_CONST*np.sign(minimum),
+        last_to_first,
     ]
+
+    if return_n_zer_pos_int:
+        res.append(cnt_nonzero)
+        res.append(npositive)
+        res.append(ninteger)  
 
     if return_profit_factor:
         profit_factor=sum_positive/-sum_negative if sum_negative!=0.0 else (0.0 if sum_positive==0.0 else LARGE_CONST)
-        res.append(profit_factor)
+        
 
     if return_drawdown_stats:
-        res.extend(compute_numerical_aggregates_numba(arr=pos_dds,geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False))
-        res.extend(compute_numerical_aggregates_numba(arr=pos_dd_durs/(size-1),geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False))
-        res.extend(compute_numerical_aggregates_numba(arr=neg_dds,geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False))
-        res.extend(compute_numerical_aggregates_numba(arr=neg_dd_durs/(size-1),geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False))
+        res.extend(compute_numerical_aggregates_numba(arr=pos_dds,geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int))
+        res.extend(compute_numerical_aggregates_numba(arr=pos_dd_durs/(size-1),geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int))
+        res.extend(compute_numerical_aggregates_numba(arr=neg_dds,geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int))
+        res.extend(compute_numerical_aggregates_numba(arr=neg_dd_durs/(size-1),geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int))
 
     return res
 
-def get_basic_feature_names(whiten_means: bool = True,return_drawdown_stats:bool=False,return_profit_factor:bool=False,):
-    basic_fields=("arimean,"+("quadmean,qubmean,geomean,harmmean" if not whiten_means else "quadmeanw,qubmeanw,geomeanw,harmmeanw")+",nonzero,ratio,npos,nint,min,max,minr,maxr,nmaxupdates,nminupdates,lastcross,lasttouch,arimean_to_first,first_to_max,min_to_first").split(",")
+def get_basic_feature_names(whiten_means: bool = True,return_drawdown_stats:bool=False,return_profit_factor:bool=False,return_n_zer_pos_int:bool=True,):
+    basic_fields=("arimean,"+("quadmean,qubmean,geomean,harmmean" if not whiten_means else "quadmeanw,qubmeanw,geomeanw,harmmeanw")+",nonzero,npos,nint,min,max,minr,maxr,nmaxupdates,nminupdates,lastcross,lasttouch,arimean_to_first,first_to_max,min_to_first,last_to_first").split(",")
+
+    if return_n_zer_pos_int:
+        basic_fields.append('cnt_nonzero')
+        basic_fields.append('npositive')
+        basic_fields.append('ninteger') 
+    
     res=basic_fields.copy()
+
     if return_profit_factor:        
         res.append('profit_factor')
     if return_drawdown_stats:
@@ -375,7 +388,7 @@ def compute_ncrossings(arr: np.ndarray,marks: np.ndarray,dtype=np.int32)->np.nda
 
     return n_crossings
 
-@numba.njit(fastmath=True)
+@numba.njit(fastmath=fastmath)
 def compute_nunique_mode_quantiles_numba(arr: np.ndarray, q: list = default_quantiles) -> tuple:
     """
     NOT RECOMMENDED. use compute_nunique_modes_quantiles_numpy instead, it's faster and more functional.
@@ -419,11 +432,11 @@ def compute_nunique_mode_quantiles_numba(arr: np.ndarray, q: list = default_quan
     return numUnique, mode, quantiles
 
 
-# @numba.njit(fastmath=True)
+@numba.njit(fastmath=fastmath)
 def compute_moments_slope_mi(
     arr: np.ndarray,
     mean_value: float,
-    xvals: np.ndarray = np.array([], dtype=np.float32),
+    xvals: np.ndarray = None, # empty_float32_array,
     directional_only: bool = False,
 ) -> list:
     """Добавить:
@@ -437,8 +450,8 @@ def compute_moments_slope_mi(
 
     size = len(arr)
 
-    if not len(xvals):
-        xvals = np.array(np.arange(size))
+    if xvals is None: #len(xvals)==0:
+        xvals = np.arange(size,dtype=np.float32)
         # xvals_mean = 1 / 2 * (2 * 0 + (size - 1) * 1)
     xvals_mean = np.mean(xvals)
 
@@ -571,7 +584,7 @@ def compute_distributional_features(arr: np.ndarray) -> list:
 
 def compute_numaggs(
     arr: np.ndarray,
-    xvals: np.ndarray = np.array([], dtype=np.float32),
+    xvals: np.ndarray = None,
     geomean_log_mode: bool = False,
     q: list = default_quantiles,
     quantile_method: str = "median_unbiased",
@@ -587,13 +600,14 @@ def compute_numaggs(
     return_float32:bool=True,
     return_profit_factor:bool=False,
     return_drawdown_stats:bool=False,
+    return_n_zer_pos_int:bool=True,
 ):
     """Compute a plethora of numerical aggregates for all values in an array.
     Converts an arbitrarily length array into fixed number of aggregates.
     """
     if len(arr) == 0:
-        return [np.nan] * len(get_numaggs_names(q=q, directional_only=directional_only))
-    res = compute_numerical_aggregates_numba(arr, geomean_log_mode=geomean_log_mode, directional_only=directional_only,return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats,whiten_means=whiten_means)
+        return [np.nan] * len(get_numaggs_names(q=q, directional_only=directional_only,whiten_means=whiten_means,return_distributional=return_distributional,return_entropy=return_entropy,return_hurst=return_hurst,return_profit_factor=return_profit_factor, return_drawdown_stats=return_drawdown_stats,return_n_zer_pos_int=return_n_zer_pos_int))
+    res = compute_numerical_aggregates_numba(arr, geomean_log_mode=geomean_log_mode, directional_only=directional_only,whiten_means=whiten_means,return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats,return_n_zer_pos_int=return_n_zer_pos_int)
     arithmetic_mean = res[0]
     if directional_only:
         nonzero = 0
@@ -619,12 +633,13 @@ def compute_numaggs(
     else:
         return final
 
-def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, whiten_means:bool=True,return_distributional: bool = False,return_entropy: bool = True,return_hurst: bool = True,return_profit_factor:bool=False, return_drawdown_stats:bool=False, **kwargs) -> tuple:
+def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, whiten_means:bool=True,return_distributional: bool = False,return_entropy: bool = True,return_hurst: bool = True,
+                        return_profit_factor:bool=False, return_drawdown_stats:bool=False,return_n_zer_pos_int:bool=True, **kwargs) -> tuple:
     return tuple(
         (
             ["arimean", "ratio"]
             if directional_only
-            else get_basic_feature_names(whiten_means=whiten_means,return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats)
+            else get_basic_feature_names(whiten_means=whiten_means,return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats,return_n_zer_pos_int=return_n_zer_pos_int)
         )
         + ([] if directional_only else "nuniques,modmin,modmax,modmean,modqty".split(","))
         + ([] if directional_only else (["q" + str(q) for q in q]+["ncrs" + str(q) for q in q]))
