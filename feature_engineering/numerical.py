@@ -86,22 +86,23 @@ default_quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]  # list vs ndarray gives a
 def compute_simple_stats_numba(arr: np.ndarray)->tuple:
     minval,maxval,argmin,argmax=arr[0],arr[0],0,0
     size=len(arr)
-    sum,std=0.0,0.0
+    total,std=0.0,0.0
 
     for i,next_value in enumerate(arr):
+        total+=next_value
         if next_value<minval:
             minval=next_value
             argmin=i
         elif next_value>maxval:
             maxval=next_value
             argmax=i
-    mean_value=sum/size
+    mean_value=total/size
 
     for i,next_value in enumerate(arr):
         d = next_value - mean_value
         summand = d * d
         std = std + summand
-    std = np.sqrt(std / size)            
+    std = np.sqrt(std / size)
     return minval,maxval,argmin,argmax,mean_value,std
 
 def get_simple_stats_names()->list:
@@ -300,27 +301,28 @@ def compute_numerical_aggregates_numba(
     if return_n_zer_pos_int:
         res.append(cnt_nonzero)
         res.append(npositive)
-        res.append(ninteger)  
+        res.append(ninteger)
 
     if return_profit_factor:
         profit_factor=sum_positive/-sum_negative if sum_negative!=0.0 else (0.0 if sum_positive==0.0 else LARGE_CONST)
+        res.append(profit_factor)
         
 
     if return_drawdown_stats:
-        res.extend(compute_numerical_aggregates_numba(arr=pos_dds,geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int))
-        res.extend(compute_numerical_aggregates_numba(arr=pos_dd_durs/(size-1),geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int))
-        res.extend(compute_numerical_aggregates_numba(arr=neg_dds,geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int))
-        res.extend(compute_numerical_aggregates_numba(arr=neg_dd_durs/(size-1),geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int))
+        res.extend(compute_numerical_aggregates_numba(arr=pos_dds[1:],geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int))
+        res.extend(compute_numerical_aggregates_numba(arr=pos_dd_durs[1:]/(size-1),geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int))
+        res.extend(compute_numerical_aggregates_numba(arr=neg_dds[1:],geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int))
+        res.extend(compute_numerical_aggregates_numba(arr=neg_dd_durs[1:]/(size-1),geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int))
 
     return res
 
 def get_basic_feature_names(whiten_means: bool = True,return_drawdown_stats:bool=False,return_profit_factor:bool=False,return_n_zer_pos_int:bool=True,):
-    basic_fields=("arimean,"+("quadmean,qubmean,geomean,harmmean" if not whiten_means else "quadmeanw,qubmeanw,geomeanw,harmmeanw")+",nonzero,npos,nint,min,max,minr,maxr,nmaxupdates,nminupdates,lastcross,lasttouch,arimean_to_first,first_to_max,min_to_first,last_to_first").split(",")
+    basic_fields=("arimean,"+("quadmean,qubmean,geomean,harmmean" if not whiten_means else "quadmeanw,qubmeanw,geomeanw,harmmeanw")+",min,max,minr,maxr,nmaxupdates,nminupdates,lastcross,lasttouch,arimean_to_first,first_to_max,min_to_first,last_to_first").split(",")
 
     if return_n_zer_pos_int:
-        basic_fields.append('cnt_nonzero')
-        basic_fields.append('npositive')
-        basic_fields.append('ninteger') 
+        basic_fields.append('nonzero')
+        basic_fields.append('npos')
+        basic_fields.append('nint') 
     
     res=basic_fields.copy()
 
