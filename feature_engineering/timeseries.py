@@ -442,7 +442,7 @@ def compute_splitting_stats(window_df:pd.DataFrame,dataset_name:str,splitting_va
                     pre_sum=window_df[subvar].iloc[:index].sum()
                     post_sum=window_df[subvar].iloc[index:].sum()
                 tot=(pre_sum+post_sum)
-                splitting_vals.append(pre_sum/tot if tot else (0 if pre_sum==0.0 else 1e3))
+                splitting_vals.append(pre_sum/tot if tot else 0)
                 if create_features_names:
                     splitting_ratios_names.append(captions_vars_sep.join([dataset_name, var, col,subvar,'split']))
     
