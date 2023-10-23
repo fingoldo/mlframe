@@ -221,12 +221,13 @@ def create_aggregated_features(
             if var in groupby_vars:
                 groupby=window_df.groupby(var,observed=True)
                 for sum_var in groupby_vars[var]:
-                    total=window_df[sum_var].sum()
-                    raw_vals=groupby[sum_var].agg("sum").values
-                    if total: raw_vals=raw_vals/ total
-                    row_features.extend(compute_numaggs(raw_vals, **numaggs_kwds))
-                    if create_features_names:
-                        features_names.extend([captions_vars_sep.join([dataset_name, sum_var, "grpby", var, feat]) for feat in numaggs_names])            
+                    if sum_var in window_df:
+                        total=window_df[sum_var].sum()
+                        raw_vals=groupby[sum_var].agg("sum").values
+                        if total: raw_vals=raw_vals/ total
+                        row_features.extend(compute_numaggs(raw_vals, **numaggs_kwds))
+                        if create_features_names:
+                            features_names.extend([captions_vars_sep.join([dataset_name, sum_var, "grpby", var, feat]) for feat in numaggs_names])            
             
             # is this categorical?
             if window_df[var].dtype.name in (
@@ -268,9 +269,10 @@ def create_aggregated_features(
                     if create_features_names:
                         features_names.extend([captions_vars_sep.join([dataset_name, var, feat]) for feat in simple_numaggs_names])
 
-                    if splitting_vars and var in splitting_vars:
-                        compute_splitting_stats(window_df=window_df,dataset_name=dataset_name,splitting_vars=splitting_vars,var=var,numaggs_names=simple_numaggs_names,numaggs_values=simple_numerical_features,
-                                                row_features=row_features,features_names=features_names,create_features_names=create_features_names,captions_vars_sep=captions_vars_sep)
+                    if splitting_vars and (custom_numaggs_kwds.get('return_unsorted_stats')!=False):
+                        if splitting_vars and var in splitting_vars:
+                            compute_splitting_stats(window_df=window_df,dataset_name=dataset_name,splitting_vars=splitting_vars,var=var,numaggs_names=simple_numaggs_names,numaggs_values=simple_numerical_features,
+                                                    row_features=row_features,features_names=features_names,create_features_names=create_features_names,captions_vars_sep=captions_vars_sep)
                     
                     if differences_features:
                         differences = np.diff(raw_vals, 1)
@@ -301,16 +303,20 @@ def create_aggregated_features(
 
                     # 3) wavelets of raw_vals
                     if waveletname:
+                        custom_numaggs_kwds=numaggs_kwds.copy()
+                        custom_numaggs_kwds['return_hurst']=False
+                        custom_numaggs_kwds['return_entropy']=False #they all are constant anyways ()                        
                         for i, coeffs in enumerate(pywt.wavedec(raw_vals, waveletname)):
-                            row_features.extend(compute_numaggs(coeffs, **numaggs_kwds))
+                            row_features.extend(compute_numaggs(coeffs, **custom_numaggs_kwds))
                             if create_features_names:
-                                features_names.extend([captions_vars_sep.join([dataset_name, var, waveletname, str(i), feat]) for feat in numaggs_names])
+                                custom_numaggs_names=list(get_numaggs_names(**custom_numaggs_kwds))
+                                features_names.extend([captions_vars_sep.join([dataset_name, var, waveletname, str(i), feat]) for feat in custom_numaggs_names])
                             if cCOMPACT_WAVELETS:
                                 break  # just one wavelet qt for now...
 
                     # 4) raw_vals weighted by second var, if the main var is not related to second var (has no second var in its name)
                     for weighting_var in weighting_vars:
-                        if weighting_var not in var:
+                        if weighting_var not in var and weighting_var in window_df:
                             weighting_values = window_df.loc[idx, weighting_var].values
                             row_features.extend(compute_numaggs((raw_vals / weighting_values.sum()) * weighting_values, **numaggs_kwds))
                             if create_features_names:
@@ -325,14 +331,14 @@ def create_aggregated_features(
                     # 5.1) rolling
                     for window, method, method_params in rolling:
                         if "datetime" in window_df[var].dtype.name: 
-                            logger.warning(f"Cant't use rolling features for var {var} 'cause of datetime-like dtype.")
+                            #logger.warning(f"Cant't use rolling features for var {var} 'cause of datetime-like dtype.")
                             break
                         vals = getattr(window_df[var].rolling(**window), method)(**method_params).values
                         safe_idx = np.isfinite(vals)
                         vals = vals[safe_idx]
                         row_features.extend(compute_numaggs(vals, **numaggs_kwds))
                         if create_features_names:
-                            specs = ",".join([f"{key}={value}" for key,value in dict(**window, m=method, **method_params).items()])
+                            specs = ";".join([f"{key}={value}" for key,value in dict(**window, m=method, **method_params).items()]) # comma , refused by lgbm: lightgbm.basic.LightGBMError: Do not support special JSON characters in feature name.
                             specs=specs.replace("win_type","t").replace("window","w")
                             features_names.extend([captions_vars_sep.join([dataset_name, var, "rol", specs, feat]) for feat in numaggs_names])
 
@@ -370,7 +376,7 @@ def create_aggregated_features(
 
     if subsets:
         for subset_var, subset_var_values in subsets.items():
-            if subset_var in checked_subsets:
+            if subset_var in checked_subsets or subset_var not in window_df:
                 continue
             for subset_var_value in subset_var_values:
                 subset_df = window_df[window_df[subset_var] == subset_var_value]
@@ -379,7 +385,7 @@ def create_aggregated_features(
                     row_features=row_features,
                     create_features_names=create_features_names,
                     features_names=features_names,
-                    dataset_name=dataset_name + subset_token + subset_var + "=" + str(subset_var_value),
+                    dataset_name=None if dataset_name is None else (dataset_name + subset_token + subset_var + "=" + str(subset_var_value)),
                     # -----------------------------------------------------------------------------------------------------------------------------------------------------
                     # common settings
                     # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -435,16 +441,17 @@ def compute_splitting_stats(window_df:pd.DataFrame,dataset_name:str,splitting_va
         else:
             index=int(numaggs_values[col_idx]*len(window_df))-1
             for subvar in subvars:
-                if "datetime" in window_df[subvar].dtype.name:
-                    pre_sum=(window_df[subvar].iloc[index]-window_df[subvar].iloc[0]).total_seconds()
-                    post_sum=(window_df[subvar].iloc[-1]-window_df[subvar].iloc[index]).total_seconds()
-                else:
-                    pre_sum=window_df[subvar].iloc[:index].sum()
-                    post_sum=window_df[subvar].iloc[index:].sum()
-                tot=(pre_sum+post_sum)
-                splitting_vals.append(pre_sum/tot if tot else 0)
-                if create_features_names:
-                    splitting_ratios_names.append(captions_vars_sep.join([dataset_name, var, col,subvar,'split']))
+                if subvar in window_df:
+                    if "datetime" in window_df[subvar].dtype.name:
+                        pre_sum=(window_df[subvar].iloc[index]-window_df[subvar].iloc[0]).total_seconds()
+                        post_sum=(window_df[subvar].iloc[-1]-window_df[subvar].iloc[index]).total_seconds()
+                    else:
+                        pre_sum=window_df[subvar].iloc[:index].sum()
+                        post_sum=window_df[subvar].iloc[index:].sum()
+                    tot=(pre_sum+post_sum)
+                    splitting_vals.append(pre_sum/tot if tot else 0)
+                    if create_features_names:
+                        splitting_ratios_names.append(captions_vars_sep.join([dataset_name, var, col,subvar,'split']))
     
     row_features.extend(splitting_vals)
     if create_features_names:

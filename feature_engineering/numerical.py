@@ -118,6 +118,7 @@ def compute_numerical_aggregates_numba(
     return_profit_factor:bool=False,
     return_n_zer_pos_int:bool=True,
     return_exotic_means:bool=True,
+    return_unsorted_stats:bool=True,
 ) -> list:
     """Compute statistical aggregates over 1d array of float32 values.
     E mid2(abs(x-mid1(X))) where mid1, mid2=averages of any kind
@@ -183,19 +184,20 @@ def compute_numerical_aggregates_numba(
     n_last_crossings,n_last_touches=0,0
     prev_d = None
 
-    for i, next_value in enumerate(arr):
+    for i, next_value in enumerate(arr):        
 
-        d = next_value - last
-        if prev_d is not None:
-            mul=d * prev_d 
-            if mul< 0:
-                n_last_crossings += 1
-            elif mul==0.0:
-                n_last_touches += 1
-        else:
-            if next_value==last:
-                n_last_touches += 1
-        prev_d=d
+        if return_unsorted_stats:
+            d = next_value - last
+            if prev_d is not None:
+                mul=d * prev_d 
+                if mul< 0:
+                    n_last_crossings += 1
+                elif mul==0.0:
+                    n_last_touches += 1
+            else:
+                if next_value==last:
+                    n_last_touches += 1
+            prev_d=d
                           
         arithmetic_mean += next_value
         if return_exotic_means:
@@ -286,17 +288,19 @@ def compute_numerical_aggregates_numba(
         arithmetic_mean,   
         minimum,
         maximum,
-        (min_index+ 1) / size if size else 0,
-        (max_index+ 1) / size if size else 0,
-        nmaxupdates,
-        nminupdates,
-        n_last_crossings,
-        n_last_touches-1,
         arithmetic_mean/first if first else LARGE_CONST*np.sign(arithmetic_mean),
         first/maximum if maximum else LARGE_CONST*np.sign(first),
         minimum/first if first else LARGE_CONST*np.sign(minimum),
         last_to_first,
     ]
+
+    if return_unsorted_stats: # must be false for arrays known to be sorted
+        res.append((min_index+ 1) / size if size else 0)
+        res.append((max_index+ 1) / size if size else 0)
+        res.append(nmaxupdates)
+        res.append(nminupdates)
+        res.append(n_last_crossings)
+        res.append(n_last_touches-1)   
 
     if return_exotic_means:
         res.append(quadratic_mean)
@@ -315,16 +319,25 @@ def compute_numerical_aggregates_numba(
         
 
     if return_drawdown_stats:
-        res.extend(compute_numerical_aggregates_numba(arr=pos_dds[1:],geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means))
-        res.extend(compute_numerical_aggregates_numba(arr=pos_dd_durs[1:]/(size-1),geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means))
-        res.extend(compute_numerical_aggregates_numba(arr=neg_dds[1:],geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means))
-        res.extend(compute_numerical_aggregates_numba(arr=neg_dd_durs[1:]/(size-1),geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means))
+        res.extend(compute_numerical_aggregates_numba(arr=pos_dds[1:],geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means,return_unsorted_stats=return_unsorted_stats))
+        res.extend(compute_numerical_aggregates_numba(arr=pos_dd_durs[1:]/(size-1),geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means,return_unsorted_stats=return_unsorted_stats))
+        res.extend(compute_numerical_aggregates_numba(arr=neg_dds[1:],geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means,return_unsorted_stats=return_unsorted_stats))
+        res.extend(compute_numerical_aggregates_numba(arr=neg_dd_durs[1:]/(size-1),geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means,return_unsorted_stats=return_unsorted_stats))
 
     return res
 
-def get_basic_feature_names(whiten_means: bool = True,return_drawdown_stats:bool=False,return_profit_factor:bool=False,return_n_zer_pos_int:bool=True,return_exotic_means:bool=True):
-    basic_fields=("arimean,min,max,minr,maxr,nmaxupdates,nminupdates,lastcross,lasttouch,arimean_to_first,first_to_max,min_to_first,last_to_first").split(",")
-    
+def get_basic_feature_names(whiten_means: bool = True,return_drawdown_stats:bool=False,return_profit_factor:bool=False,
+                            return_n_zer_pos_int:bool=True,return_exotic_means:bool=True,return_unsorted_stats:bool=True,):
+    basic_fields=("arimean,min,max,arimean_to_first,first_to_max,min_to_first,last_to_first").split(",")
+
+    if return_unsorted_stats: # must be false for arrays known to be sorted
+        basic_fields.append("minr")
+        basic_fields.append("maxr")
+        basic_fields.append("nmaxupdates")
+        basic_fields.append("nminupdates")
+        basic_fields.append("lastcross")
+        basic_fields.append("lasttouch")
+
     if return_exotic_means:
         exotic_means=("quadmean,qubmean,geomean,harmmean" if not whiten_means else "quadmeanw,qubmeanw,geomeanw,harmmeanw").split(",")
         basic_fields.extend(exotic_means)
@@ -345,7 +358,7 @@ def get_basic_feature_names(whiten_means: bool = True,return_drawdown_stats:bool
     
     return res
 
-def compute_nunique_modes_quantiles_numpy(arr: np.ndarray, q: list = default_quantiles, quantile_method: str = "median_unbiased", max_modes: int = 10) -> list:
+def compute_nunique_modes_quantiles_numpy(arr: np.ndarray, q: list = default_quantiles, quantile_method: str = "median_unbiased", max_modes: int = 10,return_unsorted_stats:bool=True) -> list:
     """For a 1d array, computes aggregates:
     nunique
     modes:min,max,mean
@@ -353,39 +366,47 @@ def compute_nunique_modes_quantiles_numpy(arr: np.ndarray, q: list = default_qua
     number of quantiles crossings
     Can NOT be numba jitted (yet).
     """
-    size = len(arr)
-    vals, counts = np.unique(arr, return_counts=True)
+    if return_unsorted_stats:
+        vals, counts = np.unique(arr, return_counts=True)
 
-    max_modes = min(max_modes, len(counts))
+        max_modes = min(max_modes, len(counts))
 
-    modes_indices = np.argpartition(counts, -max_modes)[-max_modes:]
-    modes_indices = modes_indices[np.argsort(counts[modes_indices])][::-1]
+        modes_indices = np.argpartition(counts, -max_modes)[-max_modes:]
+        modes_indices = modes_indices[np.argsort(counts[modes_indices])][::-1]
 
-    first_mode_count = counts[modes_indices[0]]
+        first_mode_count = counts[modes_indices[0]]
 
-    if first_mode_count == 1:
-        modes_min, modes_max, modes_mean, modes_qty = np.nan, np.nan, np.nan, np.nan  # for higher stability. cnt=1 is not really a mode, rather a random pick.
+        if first_mode_count == 1:
+            modes_min, modes_max, modes_mean, modes_qty = np.nan, np.nan, np.nan, np.nan  # for higher stability. cnt=1 is not really a mode, rather a random pick.
+        else:
+            next_idx = modes_indices[0]
+            best_modes = [vals[next_idx]]
+            for i in range(1, max_modes):
+                next_idx = modes_indices[i]
+                next_mode_count = counts[next_idx]
+                if next_mode_count < first_mode_count:
+                    break
+                else:
+                    best_modes.append(vals[next_idx])
+            best_modes = np.asarray(best_modes)
+            modes_min = best_modes.min()
+            modes_max = best_modes.max()
+            modes_mean = best_modes.mean()
+            modes_qty = len(best_modes)
+
+        nuniques = len(vals)
+
+        res=[nuniques, modes_min, modes_max, modes_mean, modes_qty] 
     else:
-        next_idx = modes_indices[0]
-        best_modes = [vals[next_idx]]
-        for i in range(1, max_modes):
-            next_idx = modes_indices[i]
-            next_mode_count = counts[next_idx]
-            if next_mode_count < first_mode_count:
-                break
-            else:
-                best_modes.append(vals[next_idx])
-        best_modes = np.asarray(best_modes)
-        modes_min = best_modes.min()
-        modes_max = best_modes.max()
-        modes_mean = best_modes.mean()
-        modes_qty = len(best_modes)
-
-    nuniques = len(vals)
+        res=[]
 
     quantiles=np.quantile(arr, q, method=quantile_method)
+    res=res+ quantiles.tolist()
 
-    return [nuniques, modes_min, modes_max, modes_mean, modes_qty] + quantiles.tolist()+compute_ncrossings(arr=arr,marks=quantiles).tolist()
+    if return_unsorted_stats:
+        res=res+compute_ncrossings(arr=arr,marks=quantiles).tolist()
+
+    return res
 
 def compute_ncrossings(arr: np.ndarray,marks: np.ndarray,dtype=np.int32)->np.ndarray:
     n_crossings = np.zeros(len(marks),dtype=dtype)
@@ -563,18 +584,22 @@ def compute_mutual_info_regression(arr: np.ndarray, xvals: np.ndarray = np.array
     return mi[0]
 
 
-def compute_entropy_features(arr: np.ndarray, nonzero: int, sampling_frequency: int = 100, spectral_method: str = "welch") -> list:
+def compute_entropy_features(arr: np.ndarray, sampling_frequency: int = 100, spectral_method: str = "welch") -> list:
     # hjorth_mobility, hjorth_complexity = hjorth_params(arr)
     # hjorth_mobility,
     # hjorth_complexity,
     # spectral_entropy(arr, sf=sampling_frequency, method=spectral_method),)
     # num_zerocross(arr),
+
+    nonzero=(~np.isnan(arr)).sum()
     if nonzero < 10:
-        return [np.nan] * len(entropy_funcs)
+        return [0.0] * len(entropy_funcs)
     else:
         # safe_arr = arr[~np.isnan(arr)]
-        return [f(arr) for f in entropy_funcs]
+        return np.nan_to_num([f(arr) for f in entropy_funcs],posinf=0, neginf=0).tolist()
+    
 
+    return [f(arr) for f in entropy_funcs]
 
 def fit_distribution(dist: object, data: np.ndarray, method: str = "mle"):
     try:
@@ -615,29 +640,24 @@ def compute_numaggs(
     return_drawdown_stats:bool=False,
     return_n_zer_pos_int:bool=True,
     return_exotic_means:bool=True,
+    return_unsorted_stats:bool=True
 ):
     """Compute a plethora of numerical aggregates for all values in an array.
     Converts an arbitrarily length array into fixed number of aggregates.
     """
     if len(arr) == 0:
-        return [np.nan] * len(get_numaggs_names(q=q, directional_only=directional_only,whiten_means=whiten_means,return_distributional=return_distributional,return_entropy=return_entropy,return_hurst=return_hurst,return_profit_factor=return_profit_factor, return_drawdown_stats=return_drawdown_stats,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means))
-    res = compute_numerical_aggregates_numba(arr, geomean_log_mode=geomean_log_mode, directional_only=directional_only,whiten_means=whiten_means,return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means)
+        return [np.nan] * len(get_numaggs_names(q=q, directional_only=directional_only,whiten_means=whiten_means,return_distributional=return_distributional,return_entropy=return_entropy,return_hurst=return_hurst,return_profit_factor=return_profit_factor, return_drawdown_stats=return_drawdown_stats,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means,return_unsorted_stats=return_unsorted_stats))
+    res = compute_numerical_aggregates_numba(arr, geomean_log_mode=geomean_log_mode, directional_only=directional_only,whiten_means=whiten_means,return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means,return_unsorted_stats=return_unsorted_stats)
     arithmetic_mean = res[0]
-    if directional_only:
-        nonzero = 0
-    else:
-        nonzero = res[5]
     
     final= (
         res
-        + ([] if directional_only else compute_nunique_modes_quantiles_numpy(arr=arr, q=q, quantile_method=quantile_method, max_modes=max_modes))
+        + ([] if directional_only else compute_nunique_modes_quantiles_numpy(arr=arr, q=q, quantile_method=quantile_method, max_modes=max_modes,return_unsorted_stats=return_unsorted_stats))
         + compute_moments_slope_mi(arr=arr, mean_value=arithmetic_mean, xvals=xvals, directional_only=directional_only)
         # + [compute_mutual_info_regression(arr=arr, xvals=xvals)]
         + ([*compute_hurst_exponent(arr=arr, **hurst_kwargs)] if return_hurst else [])
         + (
-            []
-            if (directional_only or not return_entropy)
-            else compute_entropy_features(arr=arr, sampling_frequency=sampling_frequency, spectral_method=spectral_method, nonzero=nonzero)
+            [] if (directional_only or not return_entropy) else compute_entropy_features(arr=arr, sampling_frequency=sampling_frequency, spectral_method=spectral_method)
         )
         + (compute_distributional_features(arr=arr) if return_distributional else [])
     )
@@ -648,15 +668,17 @@ def compute_numaggs(
         return final
 
 def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, whiten_means:bool=True,return_distributional: bool = False,return_entropy: bool = True,return_hurst: bool = True,
-                        return_profit_factor:bool=False, return_drawdown_stats:bool=False,return_n_zer_pos_int:bool=True,return_exotic_means:bool=True, **kwargs) -> tuple:
+                        return_profit_factor:bool=False, return_drawdown_stats:bool=False,return_n_zer_pos_int:bool=True,return_exotic_means:bool=True,
+                        return_unsorted_stats:bool=True,  **kwargs) -> tuple:
     return tuple(
         (
             ["arimean", "ratio"]
             if directional_only
-            else get_basic_feature_names(whiten_means=whiten_means,return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means)
+            else get_basic_feature_names(whiten_means=whiten_means,return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means,return_unsorted_stats=return_unsorted_stats)
         )
-        + ([] if directional_only else "nuniques,modmin,modmax,modmean,modqty".split(","))
-        + ([] if directional_only else (["q" + str(q) for q in q]+["ncrs" + str(q) for q in q]))
+        + ([] if (directional_only or not return_unsorted_stats) else "nuniques,modmin,modmax,modmean,modqty".split(","))
+        + ([] if directional_only else (["q" + str(q) for q in q]))
+        +([] if not return_unsorted_stats else ["ncrs" + str(q) for q in q])
         + ("slope,r,meancross,slopecross".split(",") if directional_only else "mad,std,skew,kurt,slope,r,meancross,slopecross".split(","))  # ,mi
         # + ["mutual_info_regression",]
         + (["hursth", "hurstc"] if return_hurst else [])
