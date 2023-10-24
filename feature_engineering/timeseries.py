@@ -377,15 +377,28 @@ def create_aggregated_features(
     if subsets:
         for subset_var, subset_var_values in subsets.items():
             if subset_var in checked_subsets or subset_var not in window_df:
-                continue
+                continue        
+
             for subset_var_value in subset_var_values:
-                subset_df = window_df[window_df[subset_var] == subset_var_value]
+                idx=window_df[subset_var] == subset_var_value
+                subset_df = window_df[idx]
+                subset_direct=True
+                if len(subset_df)<=1:
+                    # empty subset. let's use reverse to keep ndims.
+                    subset_df = window_df[~idx]
+                    subset_direct=False
+                
+                row_features.append(subset_direct)
+                subset_dataset_name=None if dataset_name is None else dataset_name + subset_token + subset_var+ "=" + str(subset_var_value)
+                if create_features_names:
+                    features_names.append(subset_dataset_name+captions_vars_sep+"subset_direct")                
+
                 create_aggregated_features(
                     window_df=subset_df,
                     row_features=row_features,
                     create_features_names=create_features_names,
                     features_names=features_names,
-                    dataset_name=None if dataset_name is None else (dataset_name + subset_token + subset_var + "=" + str(subset_var_value)),
+                    dataset_name=subset_dataset_name,
                     # -----------------------------------------------------------------------------------------------------------------------------------------------------
                     # common settings
                     # -----------------------------------------------------------------------------------------------------------------------------------------------------
