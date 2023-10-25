@@ -201,8 +201,7 @@ def create_aggregated_features(
         9*) possibly, ratios of numfeatures over raw values of a smaller window compared to bigger windows
         10*) lags: closest same day of month, week, year. at least for Price! pd.offsets.DateOffset(months=1)
     """
-    if len(window_df) <= 1:
-        return
+    assert len(window_df)>1
 
     if numaggs_kwds:
         numaggs_names, q1_idx, q3_idx = get_numaggs_metadata(numaggs_kwds)
@@ -219,7 +218,7 @@ def create_aggregated_features(
         if (vars_mask_regexp is None or vars_mask_regexp.search(var)) and (vars_mask_exclude_regexp is None or not vars_mask_exclude_regexp.search(var)):
 
             if var in groupby_vars:
-                groupby=window_df.groupby(var,observed=False) #TODO! investigate: observed=True leads to missing blocks
+                groupby=window_df.groupby(var,observed=True) #TODO! investigate: observed=True leads to missing blocks??
                 for sum_var in groupby_vars[var]:
                     if sum_var in window_df:
                         total=window_df[sum_var].sum()
@@ -386,7 +385,7 @@ def create_aggregated_features(
                 subset_df = window_df[idx]
                 subset_direct=True
                 if len(subset_df)<=1:
-                    # empty subset. let's use reverse to keep ndims.
+                    logger.warning(f"Empty subset {subset_var}={subset_var_value} (size={len(subset_df)}). let's use reverse to keep ndims. Block length before was {len(row_features)}")
                     subset_df = window_df[~idx]
                     subset_direct=False
                 
@@ -441,6 +440,8 @@ def create_aggregated_features(
                     nested_subsets=nested_subsets,               
 
                 )
+                if not subset_direct:
+                    logger.warning(f"Block length after subset processing became {len(row_features)}")
 
 def compute_splitting_stats(window_df:pd.DataFrame,dataset_name:str,splitting_vars:dict,var:str,numaggs_names:list,numaggs_values:list,
                                 row_features:list,features_names:list,create_features_names:bool,captions_vars_sep:str="-")->None:
