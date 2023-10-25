@@ -219,7 +219,7 @@ def create_aggregated_features(
         if (vars_mask_regexp is None or vars_mask_regexp.search(var)) and (vars_mask_exclude_regexp is None or not vars_mask_exclude_regexp.search(var)):
 
             if var in groupby_vars:
-                groupby=window_df.groupby(var,observed=True)
+                groupby=window_df.groupby(var,observed=False) #TODO! investigate: observed=True leads to missing blocks
                 for sum_var in groupby_vars[var]:
                     if sum_var in window_df:
                         total=window_df[sum_var].sum()
@@ -305,14 +305,16 @@ def create_aggregated_features(
                     if waveletname:
                         custom_numaggs_kwds=numaggs_kwds.copy()
                         custom_numaggs_kwds['return_hurst']=False
-                        custom_numaggs_kwds['return_entropy']=False #they all are constant anyways ()                        
+                        custom_numaggs_kwds['return_entropy']=False #they all are constant anyways () 
+                        
+                        all_coeffs=[]                       
                         for i, coeffs in enumerate(pywt.wavedec(raw_vals, waveletname)):
-                            row_features.extend(compute_numaggs(coeffs, **custom_numaggs_kwds))
-                            if create_features_names:
-                                custom_numaggs_names=list(get_numaggs_names(**custom_numaggs_kwds))
-                                features_names.extend([captions_vars_sep.join([dataset_name, var, waveletname, str(i), feat]) for feat in custom_numaggs_names])
-                            if cCOMPACT_WAVELETS:
-                                break  # just one wavelet qt for now...
+                            all_coeffs.append(coeffs)
+                        all_coeffs=np.hstack(all_coeffs)
+                        row_features.extend(compute_numaggs(all_coeffs, **custom_numaggs_kwds))
+                        if create_features_names:
+                            custom_numaggs_names=list(get_numaggs_names(**custom_numaggs_kwds))
+                            features_names.extend([captions_vars_sep.join([dataset_name, var, waveletname, str(i), feat]) for feat in custom_numaggs_names])
 
                     # 4) raw_vals weighted by second var, if the main var is not related to second var (has no second var in its name)
                     for weighting_var in weighting_vars:
