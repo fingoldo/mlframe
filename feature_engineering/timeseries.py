@@ -313,7 +313,7 @@ def create_aggregated_features(
                         row_features.extend(compute_numaggs(all_coeffs, **custom_numaggs_kwds))
                         if create_features_names:
                             custom_numaggs_names=list(get_numaggs_names(**custom_numaggs_kwds))
-                            features_names.extend([captions_vars_sep.join([dataset_name, var, waveletname, str(i), feat]) for feat in custom_numaggs_names])
+                            features_names.extend([captions_vars_sep.join([dataset_name, var, waveletname, feat]) for feat in custom_numaggs_names])
 
                     # 4) raw_vals weighted by second var, if the main var is not related to second var (has no second var in its name)
                     for weighting_var in weighting_vars:
