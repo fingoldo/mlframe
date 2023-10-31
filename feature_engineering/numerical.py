@@ -86,7 +86,7 @@ default_quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]  # list vs ndarray gives a
 def compute_simple_stats_numba(arr: np.ndarray)->tuple:
     minval,maxval,argmin,argmax=arr[0],arr[0],0,0
     size=len(arr)
-    total,std=0.0,0.0
+    total,std_val=0.0,0.0
 
     for i,next_value in enumerate(arr):
         total+=next_value
@@ -101,9 +101,9 @@ def compute_simple_stats_numba(arr: np.ndarray)->tuple:
     for i,next_value in enumerate(arr):
         d = next_value - mean_value
         summand = d * d
-        std = std + summand
-    std = np.sqrt(std / size)
-    return minval,maxval,argmin,argmax,mean_value,std
+        std_val = std_val + summand
+    std_val = np.sqrt(std_val / size)
+    return minval,maxval,argmin,argmax,mean_value,std_val
 
 def get_simple_stats_names()->list:
     return "min,max,argmin,argmax,mean,std".split(",")
