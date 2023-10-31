@@ -100,7 +100,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
 
     Main problem: impactful, but correlated factors all get low importance and will be thrown away (probably only for forests, not boostings).
-    Other problem: due to noise some random features can become "important". Solution: use CV to calculate fold FI, then combine across the folds (by voting).
+    Other problem: due to noise some random features can become "important". Solution: use CV to calculate fold FI, then combine across folds (by voting).
     When estimating featureset quality at another TopN, use different splits & combine new FIs with all known before, to mitigate noise even more.
 
 
@@ -115,11 +115,11 @@ class RFECV(BaseEstimator, TransformerMixin):
 
 
     Parameters
-        ----------
+    ----------
         cv : int, cross-validation generator or an iterable, default=None
 
     Attributes
-        ----------
+    ----------
         classes_ : ndarray of shape (n_classes,)
             The classes labels. Only available when `estimator` is a classifier.
 
@@ -234,8 +234,8 @@ class RFECV(BaseEstimator, TransformerMixin):
             set_random_seed(random_state)
 
         feature_importances = {}
-        evaluated_scores_mean = {}
         evaluated_scores_std = {}
+        evaluated_scores_mean = {}
 
         if isinstance(X, pd.DataFrame):
             original_features = X.columns.tolist()
@@ -266,7 +266,7 @@ class RFECV(BaseEstimator, TransformerMixin):
             val_cv = copy.copy(cv)
             val_cv.n_splits = early_stopping_val_nsplits
             if not early_stopping_rounds:
-                early_stopping_rounds = 20  # TODO: derive as 1/5 of nestimators
+                early_stopping_rounds = 20  # TODO: derive as 1/5 of nestimators'
         else:
             val_cv = None
 
@@ -311,6 +311,10 @@ class RFECV(BaseEstimator, TransformerMixin):
             if verbose:
                 splitter = tqdmu(splitter, desc="CV folds", leave=False, total=cv.n_splits)
 
+            # ----------------------------------------------------------------------------------------------------------------------------
+            # Select current set of features to work on, based on ranking received so far, and the  search method
+            # ----------------------------------------------------------------------------------------------------------------------------
+
             current_features = get_next_features_subset(
                 nsteps=nsteps,
                 original_features=original_features,
@@ -333,12 +337,12 @@ class RFECV(BaseEstimator, TransformerMixin):
 
                 X_train, y_train, X_test, y_test = split_into_train_test(
                     X=X, y=y, train_index=train_index, test_index=test_index, features_indices=current_features
-                )
+                )  # this splits both dataframes & ndarrays in the same fashion
 
                 if val_cv:
 
                     # ----------------------------------------------------------------------------------------------------------------------------
-                    # Make additional early stoppping split
+                    # Make additional early stopping split from X_train
                     # ----------------------------------------------------------------------------------------------------------------------------
 
                     if groups is not None:
@@ -355,7 +359,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     X_train, y_train, X_val, y_val = split_into_train_test(X=X_train, y=y_train, train_index=true_train_index, test_index=val_index)
 
                     # ----------------------------------------------------------------------------------------------------------------------------
-                    # If estimator is known, apply early stopping
+                    # If estimator is known, apply early stopping to its fit params
                     # ----------------------------------------------------------------------------------------------------------------------------
 
                     fit_params = pack_val_set_into_fit_params(
@@ -364,11 +368,15 @@ class RFECV(BaseEstimator, TransformerMixin):
                         y_val=y_val,
                         early_stopping_rounds=early_stopping_rounds,
                         fit_params=fit_params,
-                        cat_features=[var for var in cat_features if var in current_features],
-                    )
+                        cat_features=[var for var in cat_features if var in current_features] if cat_features else None,
+                    )  # crafts fit params with early stopping tailored to particular model type.
 
                 else:
                     X_val = None
+
+                # ----------------------------------------------------------------------------------------------------------------------------
+                # Fit our estimator on current train fold. Score on test & and get its feature importances.
+                # ----------------------------------------------------------------------------------------------------------------------------
 
                 estimator.fit(X=X_train, y=y_train, **fit_params)
                 score = scoring(estimator, X_test, y_test)
@@ -378,7 +386,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 )
                 feature_importances[f"{nsteps}_{nfold}"] = fi
 
-                print(f"feature_importances[{nsteps}_{nfold}]=" + str({key: value for key, value in fi.items() if value > 0}))
+                # print(f"feature_importances[step{nsteps}_fold{nfold}]=" + str({key: value for key, value in fi.items() if value > 0}))
 
                 if 0 not in evaluated_scores_mean:
 
@@ -408,6 +416,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                                 best_dummy_score = dummy_score
 
                     dummy_scores.append(best_dummy_score)
+                    # print(f"Best dummy score (at 0 features, fold {nfold}): {best_dummy_score}")
 
             if 0 not in evaluated_scores_mean:
                 add_scores(pos=0, scores=dummy_scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std)
@@ -448,18 +457,25 @@ class RFECV(BaseEstimator, TransformerMixin):
             cv_mean_perf,
             yerr=cv_std_perf,
         )
+
+        comparison_base = 10
+        base_perf = np.array(cv_mean_perf) - np.array(cv_std_perf) / 2
+        ultimate_perf = base_perf / (np.log1p(np.arange(len(base_perf))) + comparison_base)
+        best_top_n = checked_top_n[np.argmax(ultimate_perf)]
+
+        plt.plot(ultimate_perf, c="g")
+
         plt.title("Recursive Feature Elimination \nwith correlated features")
         plt.show()
-
-        ultimate_perf = np.array(cv_mean_perf) - np.array(cv_std_perf) / 2
-        best_top_n = checked_top_n[np.argmax(ultimate_perf)]
+        print(f"base_perf=", base_perf)
+        print(f"ultimate_perf=", ultimate_perf)
 
         # self.support_ = summary["selected_features"]
         self.selected_features = selected_features[best_top_n]
         self.n_features_ = best_top_n
 
         # last time vote for feature_importances using all info up to date
-        self.feature_importances_ = get_actual_features_ranking(feature_importances=feature_importances, votes_aggregation_method=votes_aggregation_method)
+        # self.feature_importances_ = get_actual_features_ranking(feature_importances=feature_importances, votes_aggregation_method=votes_aggregation_method)
 
         if verbose:
             logger.info(f"{self.n_features_:_} predictive factors selected out of {len(original_features):_} during {nsteps:_} rounds.")
@@ -476,7 +492,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 def split_into_train_test(
     X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, np.ndarray], train_index: np.ndarray, test_index: np.ndarray, features_indices: np.ndarray = None
 ) -> tuple:
-    """Split X & y according to indices & dtypes."""
+    """Split X & y according to indices & dtypes. Basically this accounts for diffeent dtypes (pd.DataFrame, np.ndarray) to perform the same."""
 
     if isinstance(X, pd.DataFrame):
         X_train, y_train = (X.iloc[train_index, :] if features_indices is None else X.iloc[train_index, :][features_indices]), (
@@ -531,6 +547,7 @@ def get_next_features_subset(
     top_predictors_search_method: OptimumSearch = OptimumSearch.ScipyLocal,
     votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
 ) -> list:
+    """ """
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # First step is to try all features.
@@ -543,6 +560,7 @@ def get_next_features_subset(
         if len(remaining) == 0:
             return []
         else:
+
             if top_predictors_search_method == OptimumSearch.ExhaustiveRandom:
                 next_top_n = random.choice(remaining)
 
@@ -550,26 +568,32 @@ def get_next_features_subset(
 
                 # ----------------------------------------------------------------------------------------------------------------------------
                 # At each step, feature importances must be recalculated in light of recent training on a smaller subset.
-                # The features already thrown away all receive constant importance update of the sanme size, to keep up with number of trains.
+                # The features already thrown away all receive constant importance update of the same size, to keep up with number of trains.
                 # ----------------------------------------------------------------------------------------------------------------------------
+
                 if use_last_fi_run_only:
+                    # use train folds with specific length. key is nfeatures_nfold
                     fi_to_consider = {key: value for key, value in feature_importances.items() if len(value) == len(original_features)}
                 else:
                     if use_all_fi_runs:
+                        # use all fi data collected so far
                         fi_to_consider = feature_importances
                     else:
+                        # can only use runs prceeding next_top_n here.
                         if use_one_freshest_fi_run:
+                            # freshest preceeding
                             for key, value in feature_importances.items():
                                 if len(value) >= next_top_n:
                                     print(f"using FI of {len(value)} features for next_top_n={next_top_n}")
                                     fi_to_consider = {key: value}
                                     break
                         else:
+                            # all preceeding
                             fi_to_consider = {key: value for key, value in feature_importances.items() if len(value) > next_top_n}
 
                 ranks = get_actual_features_ranking(feature_importances=fi_to_consider, votes_aggregation_method=votes_aggregation_method)
 
-                print(f"next_top_n={next_top_n}, features chosen={ranks[:next_top_n]}")
+                # print(f"next_top_n={next_top_n}, features chosen={ranks[:next_top_n]}")
 
                 return ranks[:next_top_n]
 
@@ -594,5 +618,6 @@ def get_actual_features_ranking(feature_importances: dict, votes_aggregation_met
     elif votes_aggregation_method == VotesAggregation.Plurality:
         ranks = lb.plurality_ranking()
 
-    print(ranks)
+    # print("Current features ranks:")
+    # print(ranks)
     return ranks.index.values.tolist()

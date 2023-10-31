@@ -76,6 +76,7 @@ def prepare_df_for_xgboost(
 
 
 def pack_val_set_into_fit_params(model: object, X_val: pd.DataFrame, y_val: pd.DataFrame,early_stopping_rounds:int,cat_features:list=None, fit_params: dict = {}) -> dict:
+    """Crafts fir params with early stopping tailored to particular model type."""
 
     model_type_name = type(model).__name__
 
