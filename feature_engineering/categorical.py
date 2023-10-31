@@ -51,7 +51,7 @@ def compute_countaggs(
     counts_return_top_counts: bool = True,  # return top counts
     counts_return_top_values: bool = True,  # return top values
     counts_compute_values_numaggs: bool = False,  # if all values are in fact numerical, compute numaggs for them rather than their counts (ordered only, in order of their counts)
-    numerical_kwargs: dict = {},
+    numerical_kwargs: dict = dict(return_unsorted_stats=False),
 ):
     """For some variables, especially with many repeated values, or categorical, we can do value_counts(normalize=True or False). Further we can return
     1) Top N highest/lowest values along with their counts (missing are padded with NaNs)
@@ -101,7 +101,7 @@ def get_countaggs_names(
     counts_return_top_counts: bool = True,  # return top counts
     counts_return_top_values: bool = True,  # return top values
     counts_compute_values_numaggs: bool = True,  # if all values are in fact numerical, compute numaggs for them rather than their counts (ordered only, in order of their counts)
-    numerical_kwargs: dict = {},
+    numerical_kwargs: dict = dict(return_unsorted_stats=False),
 ) -> list:
 
     res = []
