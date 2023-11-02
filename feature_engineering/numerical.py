@@ -610,7 +610,7 @@ def fit_distribution(dist: object, data: np.ndarray, method: str = "mle"):
         dist_fitted = dist(*params)
         ks_stat, ks_pval = kstest(data, dist_fitted.cdf)
 
-        return *params, ks_stat, ks_pval
+        return np.nan_to_num(*params, ks_stat, ks_pval,posinf=0, neginf=0).tolist()
 
 
 def compute_distributional_features(arr: np.ndarray) -> list:
