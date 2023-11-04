@@ -63,7 +63,7 @@ def cont_entropy(arr: np.ndarray, bins: str = "scott") -> float:
 entropy_funcs = (cont_entropy, continuous.get_h, app_entropy, svd_entropy, sample_entropy, petrosian_fd, perm_entropy, katz_fd, detrended_fluctuation) # 
 entropy_funcs_names = [f.__name__ for f in entropy_funcs]
 
-distributions = (stats.levy_l, stats.logistic, stats.pareto)
+distributions = (stats.levy_l, ) # stats.logistic, stats.pareto
 default_dist_responses = dict(levy_l=[np.nan, np.nan], logistic=[np.nan, np.nan], pareto=[np.nan, np.nan, np.nan])
 
 LARGE_CONST=1e3
@@ -396,15 +396,15 @@ def compute_nunique_modes_quantiles_numpy(arr: np.ndarray, q: list = default_qua
 
         nuniques = len(vals)
 
-        res=[nuniques, modes_min, modes_max, modes_mean, modes_qty] 
+        res=(nuniques, modes_min, modes_max, modes_mean, modes_qty)
     else:
-        res=[]
+        res=()
 
     quantiles=np.quantile(arr, q, method=quantile_method)
-    res=res+ quantiles.tolist()
+    res=res+ tuple(quantiles) #.tolist()
 
     if return_unsorted_stats:
-        res=res+compute_ncrossings(arr=arr,marks=quantiles).tolist()
+        res=res+tuple(compute_ncrossings(arr=arr,marks=quantiles))#.tolist()
 
     return res
 
@@ -570,7 +570,7 @@ def compute_moments_slope_mi(
             prev_d = d
     
     if not directional_only:
-        return [mad, std, skew, kurt, slope, r, n_mean_crossings, n_slope_crossings]  # , mi
+        return [mad, std, skew, kurt, slope, r, n_mean_crossings, n_slope_crossings] # , mi
     else:
         return [slope, r, n_mean_crossings, n_slope_crossings]
 
@@ -593,13 +593,11 @@ def compute_entropy_features(arr: np.ndarray, sampling_frequency: int = 100, spe
 
     nonzero=(~np.isnan(arr)).sum()
     if nonzero < 10:
-        return [0.0] * len(entropy_funcs)
+        return (0.0,) * len(entropy_funcs)
     else:
         # safe_arr = arr[~np.isnan(arr)]
-        return np.nan_to_num([f(arr) for f in entropy_funcs],posinf=0, neginf=0).tolist()
+        return tuple(np.nan_to_num([f(arr) for f in entropy_funcs],posinf=0, neginf=0))
     
-
-    return [f(arr) for f in entropy_funcs]
 
 def fit_distribution(dist: object, data: np.ndarray, method: str = "mle"):
     try:
@@ -610,13 +608,13 @@ def fit_distribution(dist: object, data: np.ndarray, method: str = "mle"):
         dist_fitted = dist(*params)
         ks_stat, ks_pval = kstest(data, dist_fitted.cdf)
 
-        return *params, ks_stat, ks_pval
+        return tuple(np.nan_to_num([*params, ks_stat, ks_pval],posinf=0, neginf=0))
 
 
-def compute_distributional_features(arr: np.ndarray) -> list:
-    res = []
-    for dist in (stats.levy_l, stats.logistic, stats.pareto):
-        res.extend(fit_distribution(dist=dist, data=arr))
+def compute_distributional_features(arr: np.ndarray) -> tuple:
+    res = tuple()
+    for dist in distributions:
+        res=res+fit_distribution(dist=dist, data=arr)
     return res
 
 
@@ -646,13 +644,14 @@ def compute_numaggs(
     Converts an arbitrarily length array into fixed number of aggregates.
     """
     if len(arr) == 0:
-        return [np.nan] * len(get_numaggs_names(q=q, directional_only=directional_only,whiten_means=whiten_means,return_distributional=return_distributional,return_entropy=return_entropy,return_hurst=return_hurst,
+        return (np.nan,) * len(get_numaggs_names(q=q, directional_only=directional_only,whiten_means=whiten_means,return_distributional=return_distributional,return_entropy=return_entropy,return_hurst=return_hurst,
                                                 return_profit_factor=return_profit_factor, return_drawdown_stats=return_drawdown_stats,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means,
                                                 return_unsorted_stats=return_unsorted_stats))
     
     res = compute_numerical_aggregates_numba(arr, geomean_log_mode=geomean_log_mode, directional_only=directional_only,whiten_means=whiten_means,return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means,return_unsorted_stats=return_unsorted_stats)
     arithmetic_mean = res[0]
     
+    """
     final= (
         res
         + ([] if directional_only else compute_nunique_modes_quantiles_numpy(arr=arr, q=q, quantile_method=quantile_method, max_modes=max_modes,return_unsorted_stats=return_unsorted_stats))
@@ -664,11 +663,26 @@ def compute_numaggs(
         )
         + (compute_distributional_features(arr=arr) if return_distributional else [])
     )
+    """
+    res=tuple(res)
+    if not directional_only:
+        res=res+compute_nunique_modes_quantiles_numpy(arr=arr, q=q, quantile_method=quantile_method, max_modes=max_modes,return_unsorted_stats=return_unsorted_stats)
+
+    res=res+tuple(compute_moments_slope_mi(arr=arr, mean_value=arithmetic_mean, xvals=xvals, directional_only=directional_only))
+
+    if return_hurst:
+        res=res+compute_hurst_exponent(arr=arr, **hurst_kwargs)
+
+    if not (directional_only or not return_entropy):
+        res=res+compute_entropy_features(arr=arr, sampling_frequency=sampling_frequency, spectral_method=spectral_method)
+    if return_distributional:
+        res=res+tuple(compute_distributional_features(arr=arr))
+
 
     if return_float32:
-        return np.array(final,dtype=np.float32)
+        return np.array(res,dtype=np.float32)
     else:
-        return final
+        return res
 
 def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, whiten_means:bool=True,return_distributional: bool = False,return_entropy: bool = True,return_hurst: bool = True,
                         return_profit_factor:bool=False, return_drawdown_stats:bool=False,return_n_zer_pos_int:bool=True,return_exotic_means:bool=True,return_unsorted_stats:bool=True,  **kwargs) -> tuple:

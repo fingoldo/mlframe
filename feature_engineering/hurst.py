@@ -95,7 +95,7 @@ def precompute_hurst_exponent(
     return used_window_sizes, RS
 
 
-def compute_hurst_exponent(arr: np.ndarray, min_window: int = 5, max_window: int = None, windows_log_step: float = 0.25, take_diffs: bool = False):
+def compute_hurst_exponent(arr: np.ndarray, min_window: int = 5, max_window: int = None, windows_log_step: float = 0.25, take_diffs: bool = False)->tuple:
     """Main enrtypoint to compute a Hurst Exponent (and the constant) of a numerical array."""
     if len(arr) < min_window:
         return np.nan, np.nan
