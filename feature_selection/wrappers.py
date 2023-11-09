@@ -27,6 +27,7 @@ while True:
 
         from mlframe.config import *
         from mlframe.metrics import calib_error
+        from mlframe.baselines import get_best_dummy_score
         from mlframe.preprocessing import pack_val_set_into_fit_params
 
         from sklearn.dummy import DummyClassifier, DummyRegressor
@@ -65,8 +66,6 @@ while True:
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
 # ----------------------------------------------------------------------------------------------------------------------------
-
-LARGE_CONST: float = 1e30
 
 
 class OptimumSearch(str, Enum):
@@ -191,6 +190,8 @@ class RFECV(BaseEstimator, TransformerMixin):
         show_plot: bool = False,
         cat_features: Union[Sequence, None] = None,
         keep_estimators: bool = False,
+        estimators_save_path: str = None  # fitted estimators get saved into join(estimators_save_path,estimator_type_name,nestimator_nfeatures_nfold.dump)
+        # Required features and achieved ml metrics get saved in a dict join(estimators_save_path,required_features.dump).
     ):
 
         # checks
@@ -253,6 +254,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         if False and cat_features:
             cat_features = [(original_features.index(var) if isinstance(var, str) else var) for var in cat_features]
             print(cat_features)
+
         # ----------------------------------------------------------------------------------------------------------------------------
         # Init cv
         # ----------------------------------------------------------------------------------------------------------------------------
@@ -320,7 +322,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 iters_pbar.update(1)
 
             # ----------------------------------------------------------------------------------------------------------------------------
-            # Select current set of features to work on, based on ranking received so far, and the search method
+            # Select current set of features to work on, based on ranking received so far, and the optimum search method
             # ----------------------------------------------------------------------------------------------------------------------------
 
             current_features = get_next_features_subset(
@@ -428,29 +430,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     # ----------------------------------------------------------------------------------------------------------------------------
                     # Dummy baselines must serve as fitness @ 0 features.
                     # ----------------------------------------------------------------------------------------------------------------------------
-
-                    best_dummy_score = -LARGE_CONST
-
-                    if is_classifier(estimator):
-                        dummy_model_type = DummyClassifier
-                        strategies = "most_frequent prior stratified uniform"
-                    elif is_regressor(estimator):
-                        dummy_model_type = DummyRegressor
-                        strategies = "mean median"
-                    else:
-                        strategies = None
-                        if verbose:
-                            logger.info(f"Unexpected estimator type: {estimator}")
-
-                    if strategies:
-                        for strategy in strategies.split():
-                            model = dummy_model_type(strategy=strategy)
-                            model.fit(X=X_train, y=y_train)
-                            dummy_score = scoring(model, X_test, y_test)
-                            if score > best_dummy_score:
-                                best_dummy_score = dummy_score
-
-                    dummy_scores.append(best_dummy_score)
+                    dummy_scores.append(get_best_dummy_score(estimator=estimator, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test,scoring=scoring))
                     # print(f"Best dummy score (at 0 features, fold {nfold}): {best_dummy_score}")
 
             if 0 not in evaluated_scores_mean:
@@ -459,6 +439,7 @@ class RFECV(BaseEstimator, TransformerMixin):
             store_averaged_cv_scores(
                 pos=len(current_features), scores=scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std
             )
+            # if top_predictors_search_method == OptimumSearch.SurrogateModel: MlOptimizer.add_trials([(x,perf),])
 
             # ----------------------------------------------------------------------------------------------------------------------------
             # Checking exit conditions
@@ -676,6 +657,9 @@ def get_next_features_subset(
 
             if top_predictors_search_method == OptimumSearch.ExhaustiveRandom:
                 next_nfeatures_to_check = random.choice(remaining)
+            elif top_predictors_search_method == OptimumSearch.SurrogateModel:
+                pass
+                # next_nfeatures_to_check = MLOptimizer.suggest_next_candidate()
 
             if next_nfeatures_to_check:
 
