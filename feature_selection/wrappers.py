@@ -45,7 +45,7 @@ while True:
 
         from votenrank import Leaderboard
 
-    except Exception as e:
+    except ModuleNotFoundError as e:
 
         logger.warning(e)
 
