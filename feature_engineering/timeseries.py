@@ -385,7 +385,7 @@ def create_aggregated_features(
                 subset_df = window_df[idx]
                 subset_direct=True
                 if len(subset_df)<=1:
-                    logger.warning(f"Empty subset {subset_var}={subset_var_value} (size={len(subset_df)}). let's use reverse to keep ndims. Block length before was {len(row_features)}")
+                    #logger.warning(f"Empty subset {subset_var}={subset_var_value} (size={len(subset_df)}). let's use reverse to keep ndims. Block length before was {len(row_features)}")
                     subset_df = window_df[~idx]
                     subset_direct=False
                 
