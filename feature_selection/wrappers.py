@@ -27,6 +27,7 @@ while True:
 
         from mlframe.config import *
         from mlframe.metrics import calib_error
+        from mlframe.baselines import get_best_dummy_score
         from mlframe.preprocessing import pack_val_set_into_fit_params
 
         from sklearn.dummy import DummyClassifier, DummyRegressor
@@ -44,7 +45,7 @@ while True:
 
         from votenrank import Leaderboard
 
-    except Exception as e:
+    except ModuleNotFoundError as e:
 
         logger.warning(e)
 
@@ -65,8 +66,6 @@ while True:
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
 # ----------------------------------------------------------------------------------------------------------------------------
-
-LARGE_CONST: float = 1e30
 
 
 class OptimumSearch(str, Enum):
@@ -170,6 +169,8 @@ class RFECV(BaseEstimator, TransformerMixin):
         self,
         estimator: BaseEstimator,
         fit_params: dict = {},
+        feature_cost: float = 0.01 / 100,
+        smooth_perf: int = 3,
         max_runtime_mins: float = None,
         max_refits: int = None,
         cv: Union[object, int, None] = 3,
@@ -188,6 +189,9 @@ class RFECV(BaseEstimator, TransformerMixin):
         verbose: Union[bool, int] = 0,
         show_plot: bool = False,
         cat_features: Union[Sequence, None] = None,
+        keep_estimators: bool = False,
+        estimators_save_path: str = None  # fitted estimators get saved into join(estimators_save_path,estimator_type_name,nestimator_nfeatures_nfold.dump)
+        # Required features and achieved ml metrics get saved in a dict join(estimators_save_path,required_features.dump).
     ):
 
         # checks
@@ -225,6 +229,9 @@ class RFECV(BaseEstimator, TransformerMixin):
         verbose = self.verbose
         show_plot = self.show_plot
         cat_features = self.cat_features
+        keep_estimators = self.keep_estimators
+        feature_cost = self.feature_cost
+        smooth_perf = self.smooth_perf
 
         start_time = timer()
         ran_out_of_time = False
@@ -242,6 +249,11 @@ class RFECV(BaseEstimator, TransformerMixin):
             original_features = X.columns.tolist()
         else:
             original_features = np.arange(X.shape[1])
+
+        # ensure cat_features contains indices
+        if False and cat_features:
+            cat_features = [(original_features.index(var) if isinstance(var, str) else var) for var in cat_features]
+            print(cat_features)
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Init cv
@@ -310,18 +322,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 iters_pbar.update(1)
 
             # ----------------------------------------------------------------------------------------------------------------------------
-            # Each split better be different. so, even if random_state is provided, random_state to the cv is generated separately
-            # (and deterministically) each time based on the original random_state.
-            # ----------------------------------------------------------------------------------------------------------------------------
-
-            scores = []
-
-            splitter = cv.split(X=X, y=y, groups=groups)
-            if verbose:
-                splitter = tqdmu(splitter, desc="CV folds", leave=False, total=cv.n_splits)
-
-            # ----------------------------------------------------------------------------------------------------------------------------
-            # Select current set of features to work on, based on ranking received so far, and the search method
+            # Select current set of features to work on, based on ranking received so far, and the optimum search method
             # ----------------------------------------------------------------------------------------------------------------------------
 
             current_features = get_next_features_subset(
@@ -343,6 +344,17 @@ class RFECV(BaseEstimator, TransformerMixin):
             selected_features_per_nfeatures[len(current_features)] = current_features
 
             # ----------------------------------------------------------------------------------------------------------------------------
+            # Each split better be different. so, even if random_state is provided, random_state to the cv is generated separately
+            # (and deterministically) each time based on the original random_state.
+            # ----------------------------------------------------------------------------------------------------------------------------
+
+            scores = []
+
+            splitter = cv.split(X=X, y=y, groups=groups)
+            if verbose:
+                splitter = tqdmu(splitter, desc="CV folds", leave=False, total=cv.n_splits)
+
+            # ----------------------------------------------------------------------------------------------------------------------------
             # Evaluate currently selected set of features on CV
             # ----------------------------------------------------------------------------------------------------------------------------
 
@@ -351,7 +363,6 @@ class RFECV(BaseEstimator, TransformerMixin):
                 X_train, y_train, X_test, y_test = split_into_train_test(
                     X=X, y=y, train_index=train_index, test_index=test_index, features_indices=current_features
                 )  # this splits both dataframes & ndarrays in the same fashion
-
                 if val_cv:
 
                     # ----------------------------------------------------------------------------------------------------------------------------
@@ -375,14 +386,16 @@ class RFECV(BaseEstimator, TransformerMixin):
                     # If estimator is known, apply early stopping to its fit params
                     # ----------------------------------------------------------------------------------------------------------------------------
 
-                    fit_params = pack_val_set_into_fit_params(
+                    temp_cat_features = [current_features.index(var) for var in cat_features if var in current_features] if cat_features else None
+                    # print("current_features=", current_features, "temp_cat_features=", temp_cat_features)
+                    temp_fit_params = pack_val_set_into_fit_params(
                         model=estimator,
                         X_val=X_val,
                         y_val=y_val,
                         early_stopping_rounds=early_stopping_rounds,
-                        fit_params=fit_params,
-                        cat_features=[var for var in cat_features if var in current_features] if cat_features else None,
+                        cat_features=temp_cat_features,
                     )  # crafts fit params with early stopping tailored to particular model type.
+                    temp_fit_params.update(fit_params)
 
                 else:
                     X_val = None
@@ -391,8 +404,12 @@ class RFECV(BaseEstimator, TransformerMixin):
                 # Fit our estimator on current train fold. Score on test & and get its feature importances.
                 # ----------------------------------------------------------------------------------------------------------------------------
 
-                fitted_estimator = copy.copy(estimator)
-                fitted_estimator.fit(X=X_train, y=y_train, **fit_params)
+                if keep_estimators:
+                    fitted_estimator = copy.copy(estimator)
+                else:
+                    fitted_estimator = estimator
+
+                fitted_estimator.fit(X=X_train, y=y_train, **temp_fit_params)
 
                 score = scoring(fitted_estimator, X_test, y_test)
                 scores.append(score)
@@ -401,8 +418,10 @@ class RFECV(BaseEstimator, TransformerMixin):
                 )
 
                 key = f"{len(current_features)}_{nfold}"
-                fitted_estimators[key] = fitted_estimator
                 feature_importances[key] = fi
+
+                if keep_estimators:
+                    fitted_estimators[key] = fitted_estimator
 
                 # print(f"feature_importances[step{len(current_features)}_fold{nfold}]=" + str({key: value for key, value in fi.items() if value > 0}))
 
@@ -411,29 +430,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     # ----------------------------------------------------------------------------------------------------------------------------
                     # Dummy baselines must serve as fitness @ 0 features.
                     # ----------------------------------------------------------------------------------------------------------------------------
-
-                    best_dummy_score = -LARGE_CONST
-
-                    if is_classifier(estimator):
-                        dummy_model_type = DummyClassifier
-                        strategies = "most_frequent prior stratified uniform"
-                    elif is_regressor(estimator):
-                        dummy_model_type = DummyRegressor
-                        strategies = "mean median"
-                    else:
-                        strategies = None
-                        if verbose:
-                            logger.info(f"Unexpected estimator type: {estimator}")
-
-                    if strategies:
-                        for strategy in strategies.split():
-                            model = dummy_model_type(strategy=strategy)
-                            model.fit(X=X_train, y=y_train)
-                            dummy_score = scoring(model, X_test, y_test)
-                            if score > best_dummy_score:
-                                best_dummy_score = dummy_score
-
-                    dummy_scores.append(best_dummy_score)
+                    dummy_scores.append(get_best_dummy_score(estimator=estimator, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test,scoring=scoring))
                     # print(f"Best dummy score (at 0 features, fold {nfold}): {best_dummy_score}")
 
             if 0 not in evaluated_scores_mean:
@@ -442,6 +439,7 @@ class RFECV(BaseEstimator, TransformerMixin):
             store_averaged_cv_scores(
                 pos=len(current_features), scores=scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std
             )
+            # if top_predictors_search_method == OptimumSearch.SurrogateModel: MlOptimizer.add_trials([(x,perf),])
 
             # ----------------------------------------------------------------------------------------------------------------------------
             # Checking exit conditions
@@ -481,6 +479,11 @@ class RFECV(BaseEstimator, TransformerMixin):
             checked_nfeatures=checked_nfeatures,
             cv_mean_perf=cv_mean_perf,
             cv_std_perf=cv_std_perf,
+            feature_cost=feature_cost,
+            smooth_perf=smooth_perf,
+            use_all_fi_runs=use_all_fi_runs,
+            use_last_fi_run_only=use_last_fi_run_only,
+            use_one_freshest_fi_run=use_one_freshest_fi_run,
             votes_aggregation_method=votes_aggregation_method,
             verbose=verbose,
             show_plot=show_plot,
@@ -493,6 +496,11 @@ class RFECV(BaseEstimator, TransformerMixin):
         checked_nfeatures: np.ndarray,
         cv_mean_perf: np.ndarray,
         cv_std_perf: np.ndarray,
+        feature_cost: float = 0.01 / 100,
+        smooth_perf: int = 3,
+        use_all_fi_runs: bool = True,
+        use_last_fi_run_only: bool = False,
+        use_one_freshest_fi_run: bool = False,
         votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
         verbose: bool = False,
         comparison_base: float = 10,
@@ -503,8 +511,15 @@ class RFECV(BaseEstimator, TransformerMixin):
     ):
 
         base_perf = np.array(cv_mean_perf) - np.array(cv_std_perf) / 2
+        if smooth_perf:
+            smoothed_perf = pd.Series(base_perf).rolling(smooth_perf, center=True).mean().values
+            idx = np.isnan(smoothed_perf)
+            smoothed_perf[idx] = base_perf[idx]
+            base_perf = smoothed_perf
 
-        ultimate_perf = base_perf / (np.log1p(np.arange(len(base_perf))) + comparison_base)
+        # ultimate_perf = base_perf / (np.log1p(np.arange(len(base_perf))) + comparison_base)
+        ultimate_perf = base_perf - np.arange(len(base_perf)) * feature_cost
+
         best_idx = np.argmax(ultimate_perf)
         best_top_n = checked_nfeatures[best_idx]
 
@@ -516,7 +531,7 @@ class RFECV(BaseEstimator, TransformerMixin):
             ax1.set_xlabel("Number of features selected")
             ax1.set_ylabel("Mean CV score", c="b")
 
-            ax1.errorbar(checked_nfeatures, cv_mean_perf, yerr=cv_std_perf, c="b")
+            ax1.errorbar(checked_nfeatures, cv_mean_perf, yerr=cv_std_perf, c="b", alpha=0.4)
 
             ax2.plot(checked_nfeatures, ultimate_perf, c="g")
             ax1.plot(checked_nfeatures[best_idx], base_perf[best_idx], "ro")
@@ -533,13 +548,24 @@ class RFECV(BaseEstimator, TransformerMixin):
         # after making a cutoff decision:
 
         self.n_features_ = best_top_n
-        self.support_ = np.array([(i in self.selected_features_[best_top_n]) for i in range(self.n_features_in_)])
 
         # last time vote for feature_importances using all info up to date
-        self.ranking_ = get_actual_features_ranking(
+
+        fi_to_consider = select_appropriate_feature_importances(
             feature_importances=self.feature_importances_,
+            nfeatures=best_top_n,
+            n_original_features=self.n_features_in_,
+            use_all_fi_runs=use_all_fi_runs,
+            use_last_fi_run_only=use_last_fi_run_only,
+            use_one_freshest_fi_run=use_one_freshest_fi_run,
+        )
+
+        self.ranking_ = get_actual_features_ranking(
+            feature_importances=fi_to_consider,
             votes_aggregation_method=votes_aggregation_method,
         )
+
+        self.support_ = np.array([(i in self.ranking_[:best_top_n]) for i in self.feature_names_in_])
 
         if verbose:
             logger.info(f"{self.n_features_:_} predictive factors selected out of {self.n_features_in_:_} during {len(self.selected_features_):_} rounds.")
@@ -631,43 +657,67 @@ def get_next_features_subset(
 
             if top_predictors_search_method == OptimumSearch.ExhaustiveRandom:
                 next_nfeatures_to_check = random.choice(remaining)
+            elif top_predictors_search_method == OptimumSearch.SurrogateModel:
+                pass
+                # next_nfeatures_to_check = MLOptimizer.suggest_next_candidate()
 
             if next_nfeatures_to_check:
 
-                # ----------------------------------------------------------------------------------------------------------------------------
+                # ----------------------------- -----------------------------------------------------------------------------------------------
                 # At each step, feature importances must be recalculated in light of recent training on a smaller subset.
-                # The features already thrown away all receive constant importance update of the same size, to keep up with number of trains.
+                # The features already thrown away all receive constant importance update of the same size, to keep up with number of trains (?)
                 # ----------------------------------------------------------------------------------------------------------------------------
 
-                if use_last_fi_run_only:
-                    # use train folds with specific length. key is nfeatures_nfold
-                    fi_to_consider = {key: value for key, value in feature_importances.items() if len(value) == len(original_features)}
-                else:
-                    if use_all_fi_runs:
-                        # use all fi data collected so far
-                        fi_to_consider = feature_importances
-                    else:
-                        # can only use runs preceeding next_nfeatures_to_check here.
-                        if use_one_freshest_fi_run:
-                            # freshest preceeding
-                            fi_to_consider = {}
-                            for possible_nfeatures in range(next_nfeatures_to_check, len(original_features)):
-                                for key, value in feature_importances.items():
-                                    if len(value) == possible_nfeatures:
-
-                                        fi_to_consider[key] = value
-                                if fi_to_consider:
-                                    print(f"using freshest FI of {possible_nfeatures} features for next_nfeatures_to_check={next_nfeatures_to_check}")
-                                    break
-                        else:
-                            # all preceeding
-                            fi_to_consider = {key: value for key, value in feature_importances.items() if len(value) > next_nfeatures_to_check}
-
+                fi_to_consider = select_appropriate_feature_importances(
+                    feature_importances=feature_importances,
+                    nfeatures=next_nfeatures_to_check,
+                    n_original_features=len(original_features),
+                    use_all_fi_runs=use_all_fi_runs,
+                    use_last_fi_run_only=use_last_fi_run_only,
+                    use_one_freshest_fi_run=use_one_freshest_fi_run,
+                )
                 ranks = get_actual_features_ranking(feature_importances=fi_to_consider, votes_aggregation_method=votes_aggregation_method)
 
                 # print(f"next_nfeatures_to_check={next_nfeatures_to_check}, features chosen={ranks[:next_nfeatures_to_check]}")
 
                 return ranks[:next_nfeatures_to_check]
+            else:
+                return []
+
+
+def select_appropriate_feature_importances(
+    feature_importances: dict,
+    nfeatures: int,
+    n_original_features: int,
+    use_all_fi_runs: bool = True,
+    use_last_fi_run_only: bool = False,
+    use_one_freshest_fi_run: bool = False,
+) -> dict:
+
+    if use_last_fi_run_only:
+        # use train folds with specific length. key is nfeatures_nfold
+        fi_to_consider = {key: value for key, value in feature_importances.items() if len(value) == n_original_features}
+    else:
+        if use_all_fi_runs:
+            # use all fi data collected so far
+            fi_to_consider = {key: value for key, value in feature_importances.items() if len(value) > 1} if n_original_features > 1 else feature_importances
+        else:
+            # can only use runs preceeding nfeatures here.
+            if use_one_freshest_fi_run:
+                # freshest preceeding
+                fi_to_consider = {}
+                for possible_nfeatures in range(nfeatures + 1, n_original_features):
+                    for key, value in feature_importances.items():
+                        if len(value) == possible_nfeatures:
+
+                            fi_to_consider[key] = value
+                    if fi_to_consider:
+                        print(f"using freshest FI of {possible_nfeatures} features for nfeatures={nfeatures}")
+                        break
+            else:
+                # all preceeding
+                fi_to_consider = {key: value for key, value in feature_importances.items() if (len(value) > nfeatures and len(value) != 1)}
+    return fi_to_consider
 
 
 def get_actual_features_ranking(feature_importances: dict, votes_aggregation_method: VotesAggregation) -> list:
