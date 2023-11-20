@@ -8,30 +8,186 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+while True:
+    try:
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Normal Imports
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        from typing import *
+        import pandas as pd, numpy as np
+        from scipy.ndimage.interpolation import shift
+        from sklearn.preprocessing import KBinsDiscretizer,OrdinalEncoder
+        from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin, RegressorMixin, MultiOutputMixin
+
+        from numbers import Number
+
+        from scipy.special import boxcox
+        from sklearn.preprocessing import PowerTransformer
+
+        from collections.abc import Iterable
+        from sklearn.utils import _safe_indexing, check_array
+        from sklearn.compose import TransformedTargetRegressor
+        from sklearn.base import BaseEstimator, RegressorMixin, _fit_context, clone        
+
+    except ModuleNotFoundError as e:
+
+        logger.warning(e)
+
+        if "cannot import name" in str(e):
+            raise (e)
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Packages auto-install
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        from pyutilz.pythonlib import ensure_installed
+
+        ensure_installed("numpy pandas cupy scikit-learn")
+
+    else:
+        break       
+
 # ----------------------------------------------------------------------------------------------------------------------------
-# Packages
+# Inits
 # ----------------------------------------------------------------------------------------------------------------------------
-
-from pyutilz.pythonlib import ensure_installed
-
-# ensure_installed("numpy pandas") #  scikit-learn
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Normal Imports
-# ----------------------------------------------------------------------------------------------------------------------------
-
-from typing import *
-import pandas as pd, numpy as np
-from scipy.ndimage.interpolation import shift
-from sklearn.preprocessing import KBinsDiscretizer,OrdinalEncoder
-from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin, RegressorMixin, MultiOutputMixin
-
-from numbers import Number
-
-from scipy.special import boxcox
-from sklearn.preprocessing import PowerTransformer
 
 power_transformer_obj = PowerTransformer(method="box-cox")
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Core
+# ----------------------------------------------------------------------------------------------------------------------------
+
+
+class ESTransformedTargetRegressor(TransformedTargetRegressor):
+    """Adds custom early stopping capabilities to vanilla TransformedTargetRegressor."""
+    def __init__(
+        self,
+        regressor=None,
+        *,
+        transformer=None,
+        func=None,
+        inverse_func=None,
+        check_inverse=True,
+        es_fit_param_name:str=None,
+    ):
+        self.regressor = regressor
+        self.transformer = transformer
+        self.func = func
+        self.inverse_func = inverse_func
+        self.check_inverse = check_inverse
+        self.es_fit_param_name = es_fit_param_name
+        
+    def _transform_y(self, y):
+        y = check_array(
+            y,
+            input_name="y",
+            accept_sparse=False,
+            force_all_finite=True,
+            ensure_2d=False,
+            dtype="numeric",
+            allow_nd=True,
+        )
+        if y.ndim == 1:
+            y_2d = y.reshape(-1, 1)
+        else:
+            y_2d = y            
+        # transform y and convert back to 1d array if needed
+        y_trans = self.transformer_.transform(y_2d)
+        # FIXME: a FunctionTransformer can return a 1D array even when validate
+        # is set to True. Therefore, we need to check the number of dimension
+        # first.
+        if y_trans.ndim == 2 and y_trans.shape[1] == 1:
+            y_trans = y_trans.squeeze(axis=1)
+
+        return y_trans       
+    
+    def fit(self, X, y, **fit_params):
+            """Fit the model according to the given training data.
+
+            Parameters
+            ----------
+            X : {array-like, sparse matrix} of shape (n_samples, n_features)
+                Training vector, where `n_samples` is the number of samples and
+                `n_features` is the number of features.
+
+            y : array-like of shape (n_samples,)
+                Target values.
+
+            **fit_params : dict
+                Parameters passed to the `fit` method of the underlying
+                regressor.
+
+            Returns
+            -------
+            self : object
+                Fitted estimator.
+            """
+            if y is None:
+                raise ValueError(
+                    f"This {self.__class__.__name__} estimator "
+                    "requires y to be passed, but the target y is None."
+                )
+            y = check_array(
+                y,
+                input_name="y",
+                accept_sparse=False,
+                force_all_finite=True,
+                ensure_2d=False,
+                dtype="numeric",
+                allow_nd=True,
+            )
+
+            # store the number of dimension of the target to predict an array of
+            # similar shape at predict
+            self._training_dim = y.ndim
+
+            # transformers are designed to modify X which is 2d dimensional, we
+            # need to modify y accordingly.
+            if y.ndim == 1:
+                y_2d = y.reshape(-1, 1)
+            else:
+                y_2d = y
+            self._fit_transformer(y_2d)        
+            
+            y_trans=self._transform_y(y_2d)
+            if self.regressor is None:
+                from ..linear_model import LinearRegression
+
+                self.regressor_ = LinearRegression()
+            else:
+                self.regressor_ = clone(self.regressor)
+                
+            if self.es_fit_param_name:
+                """print(type(fit_params[self.es_fit_param_name]))
+                for idx, val_set in enumerate(fit_params[self.es_fit_param_name]):
+                    print(type(val_set))"""
+                es_param=[]
+                multisets=False
+                if self.es_fit_param_name in fit_params:
+                    for idx, val_set in enumerate(fit_params[self.es_fit_param_name]):
+                        if isinstance(val_set,(tuple,list)):
+                            print("isinstance(val_set,(tuple,list))")
+                            es_param.append((val_set[0],self._transform_y(val_set[1])))
+                            multisets=True
+                        else:
+                            if idx==1:
+                                es_param.append(self._transform_y(val_set))
+                            else:
+                                es_param.append(val_set)
+                            
+                if es_param: 
+                    """print(type(es_param))
+                    for idx, val_set in enumerate(es_param):
+                        print('after',type(val_set))"""
+                    fit_params[self.es_fit_param_name]=tuple(es_param) if not multisets else es_param
+            self.regressor_.fit(X, y_trans, **fit_params)
+
+            if hasattr(self.regressor_, "feature_names_in_"):
+                self.feature_names_in_ = self.regressor_.feature_names_in_
+
+            return self
 
 class PdOrdinalEncoder(OrdinalEncoder):
     

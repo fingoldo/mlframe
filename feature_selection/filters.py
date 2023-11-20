@@ -8,40 +8,52 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# Packages
-# ----------------------------------------------------------------------------------------------------------------------------
+while True:
+    try:
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Normal Imports
+        # ----------------------------------------------------------------------------------------------------------------------------
 
-from pyutilz.pythonlib import ensure_installed
+        from typing import *
 
-ensure_installed("numpy pandas")
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Normal Imports
-# ----------------------------------------------------------------------------------------------------------------------------
-
-from typing import *
-
-import pandas as pd, numpy as np
-import cupy as cp
+        import pandas as pd, numpy as np
+        import cupy as cp
 
 
-from pyutilz.system import tqdmu
-from pyutilz.parallel import mem_map_array, split_list_into_chunks
-from pyutilz.numbalib import set_random_seed, arr2str, python_dict_2_numba_dict, generate_combinations_recursive_njit
+        from pyutilz.system import tqdmu
+        from pyutilz.parallel import mem_map_array, split_list_into_chunks
+        from pyutilz.numbalib import set_random_seed, arr2str, python_dict_2_numba_dict, generate_combinations_recursive_njit
 
-# from mlframe.boruta_shap import BorutaShap
-from timeit import default_timer as timer
+        # from mlframe.boruta_shap import BorutaShap
+        from timeit import default_timer as timer
 
 
-from sklearn.preprocessing import KBinsDiscretizer
-from itertools import combinations
-from numba.core import types
-from numba import njit
-import numba
-import math
+        from sklearn.preprocessing import KBinsDiscretizer
+        from itertools import combinations
+        from numba.core import types
+        from numba import njit
+        import numba
+        import math
 
-from joblib import Parallel, delayed
+        from joblib import Parallel, delayed
+
+    except ModuleNotFoundError as e:
+
+        logger.warning(e)
+
+        if "cannot import name" in str(e):
+            raise (e)
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Packages auto-install
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        from pyutilz.pythonlib import ensure_installed
+
+        ensure_installed("numpy pandas cupy scikit-learn")
+
+    else:
+        break        
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
