@@ -168,7 +168,7 @@ class ESTransformedTargetRegressor(TransformedTargetRegressor):
                 if self.es_fit_param_name in fit_params:
                     for idx, val_set in enumerate(fit_params[self.es_fit_param_name]):
                         if isinstance(val_set,(tuple,list)):
-                            print("isinstance(val_set,(tuple,list))")
+                            # print("isinstance(val_set,(tuple,list))")
                             es_param.append((val_set[0],self._transform_y(val_set[1])))
                             multisets=True
                         else:
