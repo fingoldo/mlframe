@@ -143,8 +143,6 @@ def compute_numerical_aggregates_numba(
         V Number of MAX/MIN refreshers during period
         V numpeaks
     """
-    if False:
-        weights=np.arange(10)
 
     size = len(arr)
 
@@ -168,6 +166,7 @@ def compute_numerical_aggregates_numba(
         geometric_mean = 0.0
 
     arithmetic_mean, quadratic_mean, qubic_mean, harmonic_mean = 0.0, 0.0, 0.0, 0.0
+    weighted_arithmetic_mean=0.0
     if weights is not None:
         weighted_geometric_mean, weighted_arithmetic_mean, weighted_quadratic_mean, weighted_qubic_mean, weighted_harmonic_mean = geometric_mean, arithmetic_mean, quadratic_mean, qubic_mean, harmonic_mean
         sum_weights=0.0
@@ -323,45 +322,52 @@ def compute_numerical_aggregates_numba(
                 weighted_geometric_mean=weighted_geometric_mean-weighted_arithmetic_mean
                 weighted_harmonic_mean=weighted_harmonic_mean-weighted_arithmetic_mean                
 
-    res= [
-        arithmetic_mean,   
+    res= [arithmetic_mean]
+    if weights is not None:
+        res.append(weighted_arithmetic_mean)
+    res.extend((   
         minimum,
-        maximum,
+        maximum,)) #cant combine with the next statement as it's failing on interger inputs due to tuple dtypes mismatch
+    res.extend((
         arithmetic_mean/first if first else LARGE_CONST*np.sign(arithmetic_mean),
         first/maximum if maximum else LARGE_CONST*np.sign(first),
         minimum/first if first else LARGE_CONST*np.sign(minimum),
-        last_to_first,
-    ]
+        last_to_first,)
+    )
 
     if return_unsorted_stats: # must be false for arrays known to be sorted
-        res.extend(((min_index+ 1) / size if size else 0,(max_index+ 1) / size if size else 0,nmaxupdates,nminupdates,n_last_crossings,n_last_touches-1))
+        res.extend(((min_index+ 1) / size if size else 0,(max_index+ 1) / size if size else 0))
+        res.extend((nmaxupdates,nminupdates,n_last_crossings,n_last_touches-1))
+    
     if return_exotic_means:
         res.extend((quadratic_mean,qubic_mean,geometric_mean,harmonic_mean))
 
     if return_n_zer_pos_int:
         res.extend((cnt_nonzero,npositive,ninteger))
+    
+    if weights is not None:        
+        if return_exotic_means:
+            res.extend((weighted_quadratic_mean,weighted_qubic_mean,weighted_geometric_mean,weighted_harmonic_mean))
 
     if return_profit_factor:
         profit_factor=sum_positive/-sum_negative if sum_negative!=0.0 else (0.0 if sum_positive==0.0 else LARGE_CONST)
         res.append(profit_factor)
         
-
     if return_drawdown_stats:
-        res.extend(compute_numerical_aggregates_numba(arr=pos_dds[1:],geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means,return_unsorted_stats=return_unsorted_stats))
-        res.extend(compute_numerical_aggregates_numba(arr=pos_dd_durs[1:]/(size-1),geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means,return_unsorted_stats=return_unsorted_stats))
-        res.extend(compute_numerical_aggregates_numba(arr=neg_dds[1:],geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means,return_unsorted_stats=return_unsorted_stats))
-        res.extend(compute_numerical_aggregates_numba(arr=neg_dd_durs[1:]/(size-1),geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means,return_unsorted_stats=return_unsorted_stats))
-    
-    if weights is not None:
-        res.append(weighted_arithmetic_mean)
-        if return_exotic_means:
-            res.extend((weighted_quadratic_mean,weighted_qubic_mean,weighted_geometric_mean,weighted_harmonic_mean))            
+        res.extend(compute_numerical_aggregates_numba(arr=pos_dds[1:],weights=weights if weights is None else weights[1:],geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means,return_unsorted_stats=return_unsorted_stats))
+        res.extend(compute_numerical_aggregates_numba(arr=pos_dd_durs[1:]/(size-1),weights=weights if weights is None else weights[1:],geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means,return_unsorted_stats=return_unsorted_stats))
+        res.extend(compute_numerical_aggregates_numba(arr=neg_dds[1:],weights=weights if weights is None else weights[1:],geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means,return_unsorted_stats=return_unsorted_stats))
+        res.extend(compute_numerical_aggregates_numba(arr=neg_dd_durs[1:]/(size-1),weights=weights if weights is None else weights[1:],geomean_log_mode=geomean_log_mode,directional_only=directional_only,whiten_means=whiten_means,return_drawdown_stats=False,return_profit_factor=False,return_n_zer_pos_int=return_n_zer_pos_int,return_exotic_means=return_exotic_means,return_unsorted_stats=return_unsorted_stats))
+
     
     return res
 
-def get_basic_feature_names(whiten_means: bool = True,return_drawdown_stats:bool=False,return_profit_factor:bool=False,
+def get_basic_feature_names(weights: np.ndarray=None,whiten_means: bool = True,return_drawdown_stats:bool=False,return_profit_factor:bool=False,
                             return_n_zer_pos_int:bool=True,return_exotic_means:bool=True,return_unsorted_stats:bool=True,):
-    basic_fields=("arimean,min,max,arimean_to_first,first_to_max,min_to_first,last_to_first").split(",")
+    basic_fields=["arimean"]
+    if weights is not None:
+        basic_fields.append('warimean')    
+    basic_fields.extend("min,max,arimean_to_first,first_to_max,min_to_first,last_to_first".split(","))
 
     if return_unsorted_stats: # must be false for arrays known to be sorted
         basic_fields.append("minr")
@@ -372,14 +378,17 @@ def get_basic_feature_names(whiten_means: bool = True,return_drawdown_stats:bool
         basic_fields.append("lasttouch")
 
     if return_exotic_means:
-        exotic_means=("quadmean,qubmean,geomean,harmmean" if not whiten_means else "quadmeanw,qubmeanw,geomeanw,harmmeanw").split(",")
-        basic_fields.extend(exotic_means)
+        basic_fields.extend(("quadmean,qubmean,geomean,harmmean" if not whiten_means else "quadmeanw,qubmeanw,geomeanw,harmmeanw").split(","))
 
     if return_n_zer_pos_int:
         basic_fields.append('nonzero')
         basic_fields.append('npos')
         basic_fields.append('nint') 
-    
+
+    if weights is not None:
+        if return_exotic_means:
+            basic_fields.extend(("wquadmean,wqubmean,wgeomean,wharmmean" if not whiten_means else "wquadmeanw,wqubmeanw,wgeomeanw,wharmmeanw").split(","))  
+
     res=basic_fields.copy()
 
     if return_profit_factor:        
@@ -503,6 +512,8 @@ def compute_nunique_mode_quantiles_numba(arr: np.ndarray, q: list = default_quan
 def compute_moments_slope_mi(
     arr: np.ndarray,
     mean_value: float,
+    weights: np.ndarray = None,    
+    weighted_mean_value: float=None,
     xvals: np.ndarray = None, # empty_float32_array,
     directional_only: bool = False,
 ) -> list:
@@ -514,6 +525,9 @@ def compute_moments_slope_mi(
     """
     slope_over, slope_under = 0.0, 0.0
     mad, std, skew, kurt = 0.0, 0.0, 0.0, 0.0
+    if weights is not None:
+        sum_weights=0.0
+        weighted_mad, weighted_std, weighted_skew, weighted_kurt =mad, std, skew, kurt 
 
     size = len(arr)
 
@@ -522,12 +536,13 @@ def compute_moments_slope_mi(
         # xvals_mean = 1 / 2 * (2 * 0 + (size - 1) * 1)
     xvals_mean = np.mean(xvals)
 
-    n_mean_crossings = 0
+    n_mean_crossings = 0.0
     prev_d = None
 
     r_sum = 0.0
 
     for i, next_value in enumerate(arr):
+        
         sl_x = xvals[i] - xvals_mean
 
         slope_over += sl_x * next_value
@@ -541,21 +556,36 @@ def compute_moments_slope_mi(
                 n_mean_crossings += 1
         prev_d = d
 
-        mad = mad + abs(d)
+        mad += abs(d)
+        if weights is not None:
+            next_weight=weights[i]
+            w_d=next_value-weighted_mean_value
+            sum_weights+=next_weight
+            weighted_mad+=abs(w_d)*next_weight
 
         summand = d * d
-        std = std + summand
+        std += summand
+        if weights is not None:
+            w_summand = w_d * w_d
+            weighted_std+=w_summand*next_weight
 
         if not directional_only:
 
             summand = summand * d
-            skew = skew + summand
+            skew += summand
+            if weights is not None:
+                w_summand = w_summand * w_d
+                weighted_skew+=w_summand*next_weight            
 
-            kurt = kurt + summand * d
+            kurt += summand * d
+            if weights is not None:
+                weighted_skew+=w_summand*w_d*next_weight
 
     # mi = mutual_info_regression(xvals.reshape(-1, 1), arr, n_neighbors=2)  # n_neighbors=2 is strictly needed for short sequences
 
     std = np.sqrt(std / size)
+    if weights is not None:
+        weighted_std = np.sqrt(weighted_std / sum_weights)
 
     if not directional_only:
         mad = mad / size
@@ -564,12 +594,23 @@ def compute_moments_slope_mi(
             skew, kurt = 0.0, 0.0
         else:
             factor = size * std**3
-
             if factor:
                 skew = skew / factor
 
                 factor = factor * std
                 kurt = kurt / factor - 3.0
+
+        if weights is not None:
+            weighted_mad=weighted_mad/sum_weights
+            if weighted_std == 0:
+                weighted_skew, weighted_kurt = 0.0, 0.0
+            else:
+                factor = size * weighted_std**3
+                if factor:
+                    weighted_skew = weighted_skew / factor
+
+                    factor = factor * weighted_std
+                    weighted_kurt = weighted_kurt / factor - 3.0            
 
     if np.isclose(slope_under, 0) or np.isnan(slope_under):
         r = 0.0
@@ -593,7 +634,7 @@ def compute_moments_slope_mi(
 
         prev_d = None
         intercept = mean_value - slope * xvals_mean
-        n_slope_crossings = 0
+        n_slope_crossings = 0.0
 
         for i, next_value in enumerate(arr):
             d = next_value - (slope * xvals[i] + intercept)
@@ -602,11 +643,13 @@ def compute_moments_slope_mi(
                     n_slope_crossings += 1
             prev_d = d
     
+    res=[]
     if not directional_only:
-        return [mad, std, skew, kurt, slope, r, n_mean_crossings, n_slope_crossings] # , mi
-    else:
-        return [slope, r, n_mean_crossings, n_slope_crossings]
-
+        res.extend((mad, std, skew, kurt))
+        if weights is not None:
+            res.extend((weighted_mad, weighted_std, weighted_skew, weighted_kurt))    
+    res.extend((slope, r, n_mean_crossings, n_slope_crossings))
+    return res
 
 def compute_mutual_info_regression(arr: np.ndarray, xvals: np.ndarray = np.array([], dtype=np.float32)) -> float:
     if len(xvals):
@@ -686,26 +729,17 @@ def compute_numaggs(
             return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats,return_n_zer_pos_int=return_n_zer_pos_int,
             return_exotic_means=return_exotic_means,return_unsorted_stats=return_unsorted_stats)
     
-    arithmetic_mean = res[0]
+    arithmetic_mean=res[0]
+    if weights is not None:
+        weighted_arithmetic_mean=res[1]
+    else:
+        weighted_arithmetic_mean=0.0
     
-    """
-    final= (
-        res
-        + ([] if directional_only else compute_nunique_modes_quantiles_numpy(arr=arr, q=q, quantile_method=quantile_method, max_modes=max_modes,return_unsorted_stats=return_unsorted_stats))
-        + compute_moments_slope_mi(arr=arr, mean_value=arithmetic_mean, xvals=xvals, directional_only=directional_only)
-        # + [compute_mutual_info_regression(arr=arr, xvals=xvals)]
-        + ([*compute_hurst_exponent(arr=arr, **hurst_kwargs)] if return_hurst else [])
-        + (
-            [] if (directional_only or not return_entropy) else compute_entropy_features(arr=arr, sampling_frequency=sampling_frequency, spectral_method=spectral_method)
-        )
-        + (compute_distributional_features(arr=arr) if return_distributional else [])
-    )
-    """
     res=tuple(res)
     if not directional_only:
         res=res+compute_nunique_modes_quantiles_numpy(arr=arr, q=q, quantile_method=quantile_method, max_modes=max_modes,return_unsorted_stats=return_unsorted_stats)
 
-    res=res+tuple(compute_moments_slope_mi(arr=arr, mean_value=arithmetic_mean, xvals=xvals, directional_only=directional_only))
+    res=res+tuple(compute_moments_slope_mi(arr=arr,weights=weights, mean_value=arithmetic_mean,weighted_mean_value=weighted_arithmetic_mean,xvals=xvals, directional_only=directional_only))
 
     if return_hurst:
         res=res+compute_hurst_exponent(arr=arr, **hurst_kwargs)
@@ -721,21 +755,30 @@ def compute_numaggs(
     else:
         return res
 
-def get_numaggs_names(q: list = default_quantiles, directional_only: bool = False, whiten_means:bool=True,return_distributional: bool = False,return_entropy: bool = True,return_hurst: bool = True,
+def get_numaggs_names(weights: np.ndarray = None, q: list = default_quantiles, directional_only: bool = False, whiten_means:bool=True,return_distributional: bool = False,return_entropy: bool = True,return_hurst: bool = True,
                         return_profit_factor:bool=False, return_drawdown_stats:bool=False,return_n_zer_pos_int:bool=True,return_exotic_means:bool=True,return_unsorted_stats:bool=True,  **kwargs) -> tuple:
     return tuple(
         (
             ["arimean", "ratio"]
             if directional_only
-            else get_basic_feature_names(whiten_means=whiten_means,return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats,return_n_zer_pos_int=return_n_zer_pos_int,
+            else get_basic_feature_names(weights=weights, whiten_means=whiten_means,return_profit_factor=return_profit_factor,return_drawdown_stats=return_drawdown_stats,return_n_zer_pos_int=return_n_zer_pos_int,
                                          return_exotic_means=return_exotic_means,return_unsorted_stats=return_unsorted_stats)
         )
         + ([] if (directional_only or not return_unsorted_stats) else "nuniques,modmin,modmax,modmean,modqty".split(","))
         + ([] if directional_only else (["q" + str(q) for q in q]))
         +([] if not return_unsorted_stats else ["ncrs" + str(q) for q in q])
-        + ("slope,r,meancross,slopecross".split(",") if directional_only else "mad,std,skew,kurt,slope,r,meancross,slopecross".split(","))  # ,mi
+        + get_moments_slope_mi_feature_names(weights=weights,directional_only=directional_only)
         # + ["mutual_info_regression",]
         + (["hursth", "hurstc"] if return_hurst else [])
         + ([] if (directional_only or not return_entropy) else entropy_funcs_names)
         + (distributions_features_names if return_distributional else [])
     )
+
+def get_moments_slope_mi_feature_names(weights: np.ndarray = None,directional_only:bool=False):
+    res=[]
+    if not directional_only:
+        res.extend("mad,std,skew,kurt".split(","))
+        if weights is not None:
+            res.extend("wmad,wstd,wskew,wkurt".split(","))
+    res.extend("slope,r,meancross,slopecross".split(","))
+    return res
