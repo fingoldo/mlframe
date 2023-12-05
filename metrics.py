@@ -164,6 +164,11 @@ def show_calibration_plot(
     else:
         plt.close(fig)
 
+njit()
+def maximum_absolute_percentage_error(y_true:np.ndarray, y_pred:np.ndarray)->float:    
+    epsilon = np.finfo(np.float64).eps
+    mape = np.abs(y_pred - y_true) / np.maximum(np.abs(y_true), epsilon)
+    return np.nanmax(mape)
 
 @njit()
 def calibration_metrics_from_freqs(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray, nbins: int,array_size:int):

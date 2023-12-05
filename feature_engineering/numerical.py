@@ -213,11 +213,11 @@ def compute_numerical_aggregates_numba(
         if return_exotic_means:
             temp_value = next_value * next_value
             quadratic_mean += temp_value
-            if weights is not None: weighted_quadratic_mean += next_value*next_weight
+            if weights is not None: weighted_quadratic_mean += temp_value*next_weight
 
             temp_value = temp_value * next_value
             qubic_mean += temp_value
-            if weights is not None: weighted_qubic_mean += next_value*next_weight
+            if weights is not None: weighted_qubic_mean += temp_value*next_weight
 
         if next_value > maximum:
             maximum = next_value
@@ -274,7 +274,7 @@ def compute_numerical_aggregates_numba(
                     else:
                         addend=np.log(next_value)
                         geometric_mean += addend
-                        if weights is not None: weighted_harmonic_mean += next_weight*addend
+                        if weights is not None: weighted_geometric_mean += next_weight*addend
             else:
                 sum_negative+=next_value
 
@@ -299,14 +299,15 @@ def compute_numerical_aggregates_numba(
         if weights is not None:
             weighted_quadratic_mean = np.sqrt(weighted_quadratic_mean/sum_weights)
             weighted_qubic_mean = (weighted_qubic_mean/sum_weights) ** (1 / 3)
-            if npositive:
+            if npositive and sum_weights!=0.0:
                 if not geomean_log_mode:
                     weighted_geometric_mean = weighted_geometric_mean ** (1 / sum_weights)
                 else:
                     weighted_geometric_mean = np.exp(weighted_geometric_mean/sum_weights)
+                if weighted_geometric_mean==np.inf: weighted_geometric_mean=0.0
             else:
                 weighted_geometric_mean = np.nan
-            if harmonic_mean:
+            if weighted_harmonic_mean:
                 weighted_harmonic_mean = sum_weights / weighted_harmonic_mean
             else:
                 weighted_harmonic_mean = np.nan                        

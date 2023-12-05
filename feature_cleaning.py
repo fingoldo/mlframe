@@ -316,6 +316,34 @@ def is_variable_truly_continuous(
 
     return cont_ratio >= 1.0, outliers_percent
 
+def suggest_non_outlying_data_indices(values: np.ndarray, var: str = None, use_quantile: float = 0.01):
+    """Returns indices of 1d data array that are non-outlying"""
+    
+    if use_quantile > 0.5:
+        use_quantile = 1 - use_quantile
+    assert use_quantile > 0 and use_quantile < 1.0
+    use_quantiles = (use_quantile, 1 - use_quantile)
+
+    calculated_quantiles = np.nanquantile(values, use_quantiles)
+    tukey_fences_multiplier = get_tukey_fences_multiplier_for_quantile(quantile=use_quantile,)
+
+    iqr = calculated_quantiles[1] - calculated_quantiles[0]
+    l = calculated_quantiles[0] - tukey_fences_multiplier * iqr
+    r = calculated_quantiles[1] + tukey_fences_multiplier * iqr
+
+    idx_l = values < l
+    idx_r = values > r
+    n_less_l = (idx_l).sum()
+    n_more_r = (idx_r).sum()
+
+    idx = (~idx_l) & (~idx_r)
+
+    if var:
+        print(
+            f"{var}: from {np.nanmin(values):_.2f} to {np.nanmax(values):_.2f}, outliers: l={n_less_l:_}, r={n_more_r:_}, after cleaning: from {np.nanmin(values[idx]):_.2f} to {np.nanmax(values[idx]):_.2f}"
+        )
+
+    return idx
 
 def fragment_df_on_ram_usage_increase(df: pd.DataFrame, prev_mem_usage: float, max_increase_percent: float = 0.5) -> tuple:
     new_mem_usage = get_own_memory_usage()
