@@ -22,7 +22,7 @@ while True:
 
         from pyutilz.system import tqdmu
         from pyutilz.parallel import mem_map_array, split_list_into_chunks
-        from pyutilz.numbalib import set_random_seed, arr2str, python_dict_2_numba_dict, generate_combinations_recursive_njit
+        from pyutilz.numbalib import set_numba_random_seed, arr2str, python_dict_2_numba_dict, generate_combinations_recursive_njit
 
         # from mlframe.boruta_shap import BorutaShap
         from timeit import default_timer as timer
@@ -1374,7 +1374,7 @@ def screen_predictors(
     if random_seed is not None:
         np.random.seed(random_seed)
         cp.random.seed(random_seed)
-        set_random_seed(random_seed)
+        set_numba_random_seed(random_seed)
 
     max_failed = int(full_npermutations * (1 - min_nonzero_confidence))
     if max_failed <= 1:
