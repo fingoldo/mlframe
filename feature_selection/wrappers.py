@@ -22,7 +22,7 @@ while True:
         import cupy as cp
 
         from pyutilz.system import tqdmu
-        from pyutilz.numbalib import set_random_seed
+        from pyutilz.numbalib import set_numba_random_seed
         from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
         from mlframe.config import *
@@ -71,7 +71,7 @@ while True:
 class OptimumSearch(str, Enum):
     ScipyLocal = "ScipyLocal"  # Brent
     ScipyGlobal = "ScipyGlobal"  # direct, diff evol, shgo
-    SurrogateModel = "SurrogateModel"  # GaussianProcess or Catboost with uncertainty, or quantile regression
+    ModelBasedHeuristic = "ModelBasedHeuristic"  # GaussianProcess or Catboost with uncertainty, or quantile regression
     ExhaustiveRandom = "ExhaustiveRandom"
     ExhaustiveDichotomic = "ExhaustiveDichotomic"
 
@@ -95,21 +95,19 @@ class RFECV(BaseEstimator, TransformerMixin):
     Uses several optimization methods:
         exhaustive search
         random search
-        bayesian search.
+        model-based heuristic search.
 
+    Problems:
+        Impactful, but correlated factors all get low importance and will be thrown away (probably only for forests, not boostings?).
+        confirmed for boostings also! adding more predictors to original features worsens scores, whereas in theory it at least should not be worse!
 
-    A problem:
-        impactful, but correlated factors all get low importance and will be thrown away (probably only for forests, not boostings).
-    Solution:
-        mb try more than one estimator?
+        Due to noise some random features can become "important".
 
-    Other problem:
-        due to noise some random features can become "important".
     Solution:
         use CV to calculate fold FI, then combine across folds (by voting).
         When estimating featureset quality at another TopN, use different splits & combine new FIs with all known before, to mitigate noise even more.
 
-    Optionally plots (and saves) the optimization path - checked top_n and corresponding scores.
+    Optionally plots (and saves) the optimization path - checked nfeatures and corresponding scores.
     If surrogate models are used, also shows predicted scores along with confidence bounds.
 
     Challenges:
@@ -117,7 +115,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         Estimator might itself be a HPT search instance. Or a pipeline.
         It could be good to have several estimators. Their importance evaluations must be accounted for simultaneously (voting).
         Estimator might need eval_set or similar (eval_frac).
-
+        Different folds invocations could benefit from generating all possible hyper parameters. Even if FS does not care, collected info could be used further at the HPT step.
 
     Parameters
     ----------
@@ -239,7 +237,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         if random_state is not None:
             np.random.seed(random_state)
             cp.random.seed(random_state)
-            set_random_seed(random_state)
+            set_numba_random_seed(random_state)
 
         feature_importances = {}
         evaluated_scores_std = {}
@@ -249,11 +247,6 @@ class RFECV(BaseEstimator, TransformerMixin):
             original_features = X.columns.tolist()
         else:
             original_features = np.arange(X.shape[1])
-
-        # ensure cat_features contains indices
-        if False and cat_features:
-            cat_features = [(original_features.index(var) if isinstance(var, str) else var) for var in cat_features]
-            print(cat_features)
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Init cv
@@ -316,6 +309,9 @@ class RFECV(BaseEstimator, TransformerMixin):
         fitted_estimators = {}
         selected_features_per_nfeatures = {}
 
+        if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic: 
+            Optimizer=MBHOptimizer()
+
         while nsteps < len(original_features):
 
             if verbose:
@@ -336,6 +332,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 use_one_freshest_fi_run=use_one_freshest_fi_run,
                 top_predictors_search_method=top_predictors_search_method,
                 votes_aggregation_method=votes_aggregation_method,
+                Optimizer=Optimizer,
             )
 
             if current_features is None or len(current_features) == 0:
@@ -363,6 +360,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 X_train, y_train, X_test, y_test = split_into_train_test(
                     X=X, y=y, train_index=train_index, test_index=test_index, features_indices=current_features
                 )  # this splits both dataframes & ndarrays in the same fashion
+                
                 if val_cv:
 
                     # ----------------------------------------------------------------------------------------------------------------------------
@@ -387,7 +385,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     # ----------------------------------------------------------------------------------------------------------------------------
 
                     temp_cat_features = [current_features.index(var) for var in cat_features if var in current_features] if cat_features else None
-                    # print("current_features=", current_features, "temp_cat_features=", temp_cat_features)
+
                     temp_fit_params = pack_val_set_into_fit_params(
                         model=estimator,
                         X_val=X_val,
@@ -403,6 +401,8 @@ class RFECV(BaseEstimator, TransformerMixin):
                 # ----------------------------------------------------------------------------------------------------------------------------
                 # Fit our estimator on current train fold. Score on test & and get its feature importances.
                 # ----------------------------------------------------------------------------------------------------------------------------
+
+                # TODO! invoke different hyper parameters generation here
 
                 if keep_estimators:
                     fitted_estimator = copy.copy(estimator)
@@ -439,7 +439,8 @@ class RFECV(BaseEstimator, TransformerMixin):
             store_averaged_cv_scores(
                 pos=len(current_features), scores=scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std
             )
-            # if top_predictors_search_method == OptimumSearch.SurrogateModel: MlOptimizer.add_trials([(x,perf),])
+            if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic: 
+                Optimizer.add_trials([(len(current_features),np.array(scores).mean()),])
 
             # ----------------------------------------------------------------------------------------------------------------------------
             # Checking exit conditions
@@ -634,6 +635,7 @@ def get_next_features_subset(
     use_one_freshest_fi_run: bool,
     top_predictors_search_method: OptimumSearch = OptimumSearch.ScipyLocal,
     votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
+    Optimizer:object=None,
 ) -> list:
     """Generates a "next_nfeatures_to_check" candidate to evaluate.
     Decides on a subset of FIs to use (all, freshest preceeding, all preceeding).
@@ -657,9 +659,8 @@ def get_next_features_subset(
 
             if top_predictors_search_method == OptimumSearch.ExhaustiveRandom:
                 next_nfeatures_to_check = random.choice(remaining)
-            elif top_predictors_search_method == OptimumSearch.SurrogateModel:
-                pass
-                # next_nfeatures_to_check = MLOptimizer.suggest_next_candidate()
+            elif top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
+                next_nfeatures_to_check = Optimizer.suggest_candidate()
 
             if next_nfeatures_to_check:
 
