@@ -31,11 +31,15 @@ def prepare_df_for_catboost(
     Catboost needs NAs in cat features replaced by a string value.
     Possibly extends cat_features list.
     ensure_categorical:bool=True makes further processing also suitable for xgboost.
-    """
+    """    
+
+    if columns_to_drop:
+        df.drop(columns=columns_to_drop,inplace=True)
+
     cols = set(df.columns)
 
     for var in tqdmu(text_features, desc="Processing textual features for CatBoost...", leave=False):
-        if var in cols and var not in columns_to_drop:
+        if var in cols:
             if df[var].isna().any():
                 df[var] = df[var].fillna(na_filler)
 

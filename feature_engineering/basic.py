@@ -35,7 +35,7 @@ def create_date_features(
     cols: list,
     delete_original_cols: bool = True,
     bulk: bool = False,
-    methods: dict = {"day": np.int8, "weekday": np.int8, "week": np.int8, "quarter": np.int8, "month": np.int8, "year": np.int16},
+    methods: dict = {"day": np.int8, "weekday": np.int8, "month": np.int8}, # "week": np.int8, #, "quarter": np.int8 #  , "year": np.int16
 ) -> pd.DataFrame:
     if len(cols) == 0:
         return
