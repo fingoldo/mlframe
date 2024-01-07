@@ -149,8 +149,12 @@ def show_calibration_plot(
     plot_file: str = "",
     plot_title: str = "",
     figsize: tuple = (12, 6),
+    backend:str="plotly"
 ):
     """Plots reliability digaram from the binned predictions."""
+
+    assert backend in ("plotly","matplotlib")
+
     fig = plt.figure(figsize=figsize)
     plt.scatter(freqs_predicted, freqs_true, marker="o", s=5000 * hits / hits.sum(), c=hits, label="Real")
     x_min, x_max = np.min(freqs_predicted), np.max(freqs_predicted)
@@ -163,6 +167,7 @@ def show_calibration_plot(
         plt.show()
     else:
         plt.close(fig)
+    return fig
 
 njit()
 def maximum_absolute_percentage_error(y_true:np.ndarray, y_pred:np.ndarray)->float:    
@@ -190,14 +195,18 @@ def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     return calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins,array_size=len(y_true))
 
 
-def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, show_plots: bool = True, plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=4):
+def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, 
+                            show_plots: bool = True, plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=4,backend:str="plotly"):
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs."""
+    
+    assert backend in ("plotly","matplotlib")
 
     freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
     calibration_mae, calibration_std,calibration_coverage = calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins,array_size=len(y_true))
 
+    fig=None
     if plot_file or show_plots:
-        show_calibration_plot(
+        fig=show_calibration_plot(
             freqs_predicted=freqs_predicted,
             freqs_true=freqs_true,
             hits=hits,
@@ -205,9 +214,10 @@ def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int =
             show_plots=show_plots,
             plot_file=plot_file,
             figsize=figsize,
+            backend=backend
         )
 
-    return calibration_mae, calibration_std, calibration_coverage
+    return calibration_mae, calibration_std, calibration_coverage, fig
 
 
 def predictions_time_instability(preds: pd.Series) -> float:

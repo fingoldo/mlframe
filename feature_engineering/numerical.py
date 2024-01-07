@@ -85,23 +85,29 @@ default_quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]  # list vs ndarray gives a
 @numba.njit(fastmath=fastmath)
 def compute_simple_stats_numba(arr: np.ndarray)->tuple:
     minval,maxval,argmin,argmax=arr[0],arr[0],0,0
-    size=len(arr)
+    size=0
     total,std_val=0.0,0.0
 
     for i,next_value in enumerate(arr):
-        total+=next_value
-        if next_value<minval:
-            minval=next_value
-            argmin=i
-        elif next_value>maxval:
-            maxval=next_value
-            argmax=i
+        if np.isfinite(next_value):
+            size+=1
+            total+=next_value
+            if next_value<minval:
+                minval=next_value
+                argmin=i
+            elif next_value>maxval:
+                maxval=next_value
+                argmax=i
+
+    if size==0: size=len(arr)
+
     mean_value=total/size
 
     for i,next_value in enumerate(arr):
-        d = next_value - mean_value
-        summand = d * d
-        std_val = std_val + summand
+        if np.isfinite(next_value):
+            d = next_value - mean_value
+            summand = d * d
+            std_val = std_val + summand
     std_val = np.sqrt(std_val / size)
     return minval,maxval,argmin,argmax,mean_value,std_val
 
