@@ -8,6 +8,10 @@ from math import floor
 import numpy as np, pandas as pd
 from matplotlib import pyplot as plt
 
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.io import write_image
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Core
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -149,40 +153,79 @@ def show_calibration_plot(
     plot_file: str = "",
     plot_title: str = "",
     figsize: tuple = (12, 6),
-    backend:str="plotly"
+    backend:str="plotly",
+    label_freq:str="Frequency",
+    label_perfect:str="Perfect",
+    label_real:str="Real",
+    label_prob:str='Probability',
+    use_size:bool=False,
 ):
     """Plots reliability digaram from the binned predictions."""
 
     assert backend in ("plotly","matplotlib")
-
-    fig = plt.figure(figsize=figsize)
-    plt.scatter(freqs_predicted, freqs_true, marker="o", s=5000 * hits / hits.sum(), c=hits, label="Real")
+    
     x_min, x_max = np.min(freqs_predicted), np.max(freqs_predicted)
-    plt.plot([x_min, x_max], [x_min, x_max], "g--", label="Perfect")
-    if plot_title:
-        plt.title(plot_title)
-    if plot_file:
-        fig.savefig(plot_file)
-    if show_plots:
-        plt.show()
+
+    if backend =="matplotlib":
+        fig = plt.figure(figsize=figsize)
+        plt.scatter( x=freqs_predicted, y=freqs_true, marker="o", s=5000 * hits / hits.sum(), c=hits, label=label_freq)        
+        plt.plot([x_min, x_max], [x_min, x_max], "g--", label=label_perfect)
+        if plot_title:
+            plt.title(plot_title)
+        
+        if plot_file:
+            fig.savefig(plot_file)
+
+        if show_plots:
+            plt.show()
+        else:
+            plt.close(fig)
     else:
-        plt.close(fig)
+        
+        df=pd.DataFrame({label_prob:freqs_predicted, label_freq:freqs_true,"NCases":hits, })
+        hover_data={label_prob:":.2%",label_freq:":.2%","NCases":True}
+        print(hover_data)
+
+        if use_size:
+            df["size"]=5000 * hits / hits.sum()
+            hover_data["size"]=False
+
+        fig=go.Figure()
+        #fig = px.scatter(data_frame=df ,x=label_prob,y=label_freq,size="size" if use_size else None, color="NCases", labels={'x':label_prob, 'y':label_freq},hover_data=hover_data) 
+        fig.add_trace(go.Scatter(data_frame=df ,x=label_prob,y=label_freq,size="size" if use_size else None, color="NCases", labels={'x':label_prob, 'y':label_freq},hover_data=hover_data,name=label_real))
+        fig.add_trace(go.Scatter(x=[x_min, x_max],y=[x_min, x_max], line={"color": "green", "dash": 'dash'},name=label_perfect,mode="lines"))
+        fig.update(layout_coloraxis_showscale=False)
+        if plot_title:
+            fig.update_layout(title=plot_title)
+
+
+        if plot_file:
+            ext=plot_file.split(".")[-1]
+            if not ext: ext= "png"
+            write_image(fig, file=plot_file, format=ext)
+
+        if show_plots:
+            fig.show()                    
     return fig
 
-njit()
+@njit()
 def maximum_absolute_percentage_error(y_true:np.ndarray, y_pred:np.ndarray)->float:    
     epsilon = np.finfo(np.float64).eps
     mape = np.abs(y_pred - y_true) / np.maximum(np.abs(y_true), epsilon)
     return np.nanmax(mape)
 
 @njit()
-def calibration_metrics_from_freqs(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray, nbins: int,array_size:int):
-    calibration_coverage=len(hits)/nbins
+def calibration_metrics_from_freqs(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray, nbins: int,array_size:int,use_weights:bool=False):
+    calibration_coverage=len(set(np.round(freqs_predicted,int(np.log10(nbins)))))/nbins
     if len(hits)>0:
         diffs = np.abs((freqs_predicted - freqs_true))   
-        weights=hits/array_size
-        calibration_mae =np.sum(diffs*weights)
-        calibration_std=np.sqrt(np.sum(((diffs-calibration_mae)**2)*weights))
+        if use_weights:
+            weights=hits/array_size
+            calibration_mae =np.sum(diffs*weights)
+            calibration_std=np.sqrt(np.sum(((diffs-calibration_mae)**2)*weights))            
+        else:
+            calibration_mae =np.sum(diffs)
+            calibration_std=np.sqrt(np.sum(((diffs-calibration_mae)**2)))
     else:
         calibration_mae, calibration_std=1.0,1.0
     
@@ -202,6 +245,7 @@ def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int =
     assert backend in ("plotly","matplotlib")
 
     freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
+    min_hits,max_hits=np.min(hits),np.max(hits)
     calibration_mae, calibration_std,calibration_coverage = calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins,array_size=len(y_true))
 
     fig=None
@@ -210,7 +254,7 @@ def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int =
             freqs_predicted=freqs_predicted,
             freqs_true=freqs_true,
             hits=hits,
-            plot_title=f"Calibration MAE={calibration_mae:.{ndigits}f} ± {calibration_std:.{ndigits}f}, cov. {calibration_coverage*100:.{ndigits}f}%",
+            plot_title=f"Calibration MAE={calibration_mae:.{ndigits}f} ± {calibration_std:.{ndigits}f}, cov.={calibration_coverage*100:.{int(np.log10(nbins))}f}%, pop.=[{max_hits:_};{min_hits:_}]",
             show_plots=show_plots,
             plot_file=plot_file,
             figsize=figsize,
