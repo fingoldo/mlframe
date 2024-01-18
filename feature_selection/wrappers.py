@@ -29,6 +29,7 @@ while True:
         from mlframe.metrics import calib_error
         from mlframe.baselines import get_best_dummy_score
         from mlframe.preprocessing import pack_val_set_into_fit_params
+        from mlframe.optimization import *
 
         from sklearn.dummy import DummyClassifier, DummyRegressor
         from sklearn.metrics import make_scorer, mean_squared_error
@@ -309,8 +310,8 @@ class RFECV(BaseEstimator, TransformerMixin):
         fitted_estimators = {}
         selected_features_per_nfeatures = {}
 
-        if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic: 
-            Optimizer=MBHOptimizer()
+        if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
+            Optimizer=MBHOptimizer(search_space=np.arange(len(original_features)),direction=OptimizationDirection.Maximize,plotting=OptimizationProgressPlotting.OnScoreImprovement)
 
         while nsteps < len(original_features):
 
@@ -440,7 +441,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 pos=len(current_features), scores=scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std
             )
             if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic: 
-                Optimizer.add_trials([(len(current_features),np.array(scores).mean()),])
+                Optimizer.submit_evaluations(candidates=[len(current_features)],evaluations=[np.array(scores).mean()],durations=[None])
 
             # ----------------------------------------------------------------------------------------------------------------------------
             # Checking exit conditions
