@@ -643,10 +643,10 @@ def split_into_train_test(
 
     if isinstance(X, pd.DataFrame):
         X_train, y_train = (X.iloc[train_index, :] if features_indices is None else X.iloc[train_index, :][features_indices]), (
-            y.iloc[train_index, :] if isinstance(y, pd.DataFrame) else y.iloc[train_index]
+            y.iloc[train_index, :] if isinstance(y, pd.DataFrame) else y[train_index]
         )
         X_test, y_test = (X.iloc[test_index, :] if features_indices is None else X.iloc[test_index, :][features_indices]), (
-            y.iloc[test_index, :] if isinstance(y, pd.DataFrame) else y.iloc[test_index]
+            y.iloc[test_index, :] if isinstance(y, pd.DataFrame) else y[test_index]
         )
     else:
         X_train, y_train = (X[train_index, :] if features_indices is None else X[train_index, :][:, features_indices]), (
