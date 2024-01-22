@@ -210,7 +210,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         params = get_parent_func_args()
         store_params_in_object(obj=self, params=params)
 
-    def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None):
+    def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None,**fit_params):
 
         # ---------------------------------------------------------------------------------------------------------------
         # Inits
