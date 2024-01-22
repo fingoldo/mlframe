@@ -123,8 +123,8 @@ class MBHOptimizer():
         seeded_inputs: Sequence = [],  # seed items you want to be explored from start
         init_num_samples: Union[float, int] = 5,  # how many samples to generate & evaluate before fitting surrogate self.model
         init_evaluate_ascending: bool = False,
-        init_evaluate_descending: bool = False,
-        init_sampling_method: CandidateSamplingMethod = CandidateSamplingMethod.Random,  # random, equidistant, fibo, rev_fibo?
+        init_evaluate_descending: bool = True,
+        init_sampling_method: CandidateSamplingMethod = CandidateSamplingMethod.Equidistant,  # random, equidistant, fibo, rev_fibo?
         # EE dilemma
         exploitation_probability: float = 0.8,
         skip_best_candidate_prob: float=0.0, # pick the absolute best predicted candidate, or probabilistically the best
@@ -277,7 +277,7 @@ class MBHOptimizer():
             # ----------------------------------------------------------------------------------------------------------------------------
             # Checking pre-seeded first
             # ----------------------------------------------------------------------------------------------------------------------------
-            
+            print("pre_seeded_candidates=",self.pre_seeded_candidates)
             next_candidate=self.pre_seeded_candidates.pop(0)
             self.suggested_candidates[next_candidate]=eval_start_time
             return next_candidate            
@@ -425,6 +425,9 @@ class MBHOptimizer():
             
             self.known_candidates = np.append(self.known_candidates, [next_candidate]).astype(int)
             self.known_evaluations = np.append(self.known_evaluations, next_evaluation)
+
+            if next_candidate in self.pre_seeded_candidates:
+                self.pre_seeded_candidates.remove(next_candidate)
             
             start_ts=self.suggested_candidates.get(next_candidate)
             if start_ts:
@@ -468,7 +471,7 @@ def optimize_finite_onedimensional_search_space(search_space: Sequence,  # searc
     init_num_samples: Union[float, int] = 5,  # how many samples to generate & evaluate before fitting surrogate self.model
     init_evaluate_ascending: bool = False,
     init_evaluate_descending: bool = False,
-    init_sampling_method: CandidateSamplingMethod = CandidateSamplingMethod.Random,  # random, equidistant, fibo, rev_fibo?
+    init_sampling_method: CandidateSamplingMethod = CandidateSamplingMethod.Equidistant,  # random, equidistant, fibo, rev_fibo?
     # EE dilemma
     exploitation_probability: float = 0.8,
     skip_best_candidate_prob: float=0.0, # pick the absolute best predicted candidate, or probabilistically the best

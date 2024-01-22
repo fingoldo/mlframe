@@ -153,7 +153,7 @@ def show_calibration_plot(
     plot_file: str = "",
     plot_title: str = "",
     figsize: tuple = (12, 6),
-    backend:str="plotly",
+    backend:str="matplotlib",
     label_freq:str="Frequency",
     label_perfect:str="Perfect",
     label_real:str="Real",
@@ -239,7 +239,7 @@ def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
 
 
 def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, 
-                            show_plots: bool = True, plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=4,backend:str="plotly"):
+                            show_plots: bool = True, plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=4,backend:str="matplotlib"):
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs."""
     
     assert backend in ("plotly","matplotlib")

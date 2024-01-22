@@ -49,6 +49,7 @@ def get_best_dummy_score(
     X_test: Union[pd.DataFrame, np.ndarray],
     y_test: Union[pd.DataFrame, np.ndarray, pd.Series],
     scoring: object,
+    verbose:bool=False,
 ) -> float:
     """Given estimator type & train and test sets, finds the best respective dummy estimator"""
     best_dummy_score = -LARGE_CONST
@@ -68,6 +69,8 @@ def get_best_dummy_score(
             model = dummy_model_type(strategy=strategy)
             model.fit(X=X_train, y=y_train)
             dummy_score = scoring(model, X_test, y_test)
+            if verbose:
+                logger.info(f"strategy={strategy}, score={dummy_score:.6f}")
             if dummy_score > best_dummy_score:
                 best_dummy_score = dummy_score
 

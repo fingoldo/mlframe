@@ -88,7 +88,7 @@ class VotesAggregation(str, Enum):
     GM = "GM"
 
 
-class RFECV(BaseEstimator, TransformerMixin):
+class RFECV(SelectorMixin, MetaEstimatorMixin, BaseEstimator):
     """Finds subset of features having best CV score, by iterative narrowing down set of top_n candidates having highest importance, as per estimator's FI scores.
 
     Optimizes mean CV scores (possibly accounting for variation, possibly translated into ranks) divided by the features number.
@@ -168,20 +168,25 @@ class RFECV(BaseEstimator, TransformerMixin):
         self,
         estimator: BaseEstimator,
         fit_params: dict = {},
-        feature_cost: float = 0.01 / 100,
+        feature_cost: float = 0.00 / 100,
         smooth_perf: int = 3,
+        # stopping conditions
         max_runtime_mins: float = None,
         max_refits: int = None,
+        best_desired_score:float=None,
+        max_noimproving_iters:int=30,
+        # CV
         cv: Union[object, int, None] = 3,
         cv_shuffle: bool = True,
         early_stopping_val_nsplits: Union[int, None] = 4,
         early_stopping_rounds: Union[int, None] = None,
         scoring: Union[object, None] = None,
-        top_predictors_search_method: OptimumSearch = OptimumSearch.ScipyLocal,
+        top_predictors_search_method: OptimumSearch = OptimumSearch.ModelBasedHeuristic,
         votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
         use_all_fi_runs: bool = True,
         use_last_fi_run_only: bool = False,
         use_one_freshest_fi_run: bool = False,
+        use_fi_ranking:bool=False,
         importance_getter: Union[str, Callable, None] = None,
         random_state: int = None,
         leave_progressbars: bool = True,
@@ -189,11 +194,14 @@ class RFECV(BaseEstimator, TransformerMixin):
         show_plot: bool = False,
         cat_features: Union[Sequence, None] = None,
         keep_estimators: bool = False,
-        estimators_save_path: str = None  # fitted estimators get saved into join(estimators_save_path,estimator_type_name,nestimator_nfeatures_nfold.dump)
+        estimators_save_path: str = None,  # fitted estimators get saved into join(estimators_save_path,estimator_type_name,nestimator_nfeatures_nfold.dump)
         # Required features and achieved ml metrics get saved in a dict join(estimators_save_path,required_features.dump).
+        frac:float=None,
     ):
 
         # checks
+        if frac is not None:
+            assert frac>0.0 and frac<1.0
 
         # assert isinstance(estimator, (BaseEstimator,))
 
@@ -222,6 +230,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         use_all_fi_runs = self.use_all_fi_runs
         use_last_fi_run_only = self.use_last_fi_run_only
         use_one_freshest_fi_run = self.use_one_freshest_fi_run
+        use_fi_ranking=self.use_fi_ranking
         importance_getter = self.importance_getter
         random_state = self.random_state
         leave_progressbars = self.leave_progressbars
@@ -231,6 +240,9 @@ class RFECV(BaseEstimator, TransformerMixin):
         keep_estimators = self.keep_estimators
         feature_cost = self.feature_cost
         smooth_perf = self.smooth_perf
+        frac=self.frac
+        best_desired_score=self.best_desired_score
+        max_noimproving_iters=self.max_noimproving_iters
 
         start_time = timer()
         ran_out_of_time = False
@@ -311,7 +323,15 @@ class RFECV(BaseEstimator, TransformerMixin):
         selected_features_per_nfeatures = {}
 
         if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
-            Optimizer=MBHOptimizer(search_space=np.arange(len(original_features)),direction=OptimizationDirection.Maximize,plotting=OptimizationProgressPlotting.OnScoreImprovement)
+            Optimizer=MBHOptimizer(search_space=np.arange(len(original_features)+1),direction=OptimizationDirection.Maximize,
+                                   init_sampling_method = CandidateSamplingMethod.Equidistant,init_evaluate_ascending=False,init_evaluate_descending=True,
+                                   plotting=OptimizationProgressPlotting.OnScoreImprovement,seeded_inputs=[min(2,len(original_features))])
+        else:
+            Optimizer=None
+
+        n_noimproving_iters=0
+        best_score=-1e6
+
 
         while nsteps < len(original_features):
 
@@ -331,6 +351,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 use_all_fi_runs=use_all_fi_runs,
                 use_last_fi_run_only=use_last_fi_run_only,
                 use_one_freshest_fi_run=use_one_freshest_fi_run,
+                use_fi_ranking=use_fi_ranking,
                 top_predictors_search_method=top_predictors_search_method,
                 votes_aggregation_method=votes_aggregation_method,
                 Optimizer=Optimizer,
@@ -338,7 +359,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
             if current_features is None or len(current_features) == 0:
                 break  # nothing more to try
-
+            
             selected_features_per_nfeatures[len(current_features)] = current_features
 
             # ----------------------------------------------------------------------------------------------------------------------------
@@ -357,6 +378,11 @@ class RFECV(BaseEstimator, TransformerMixin):
             # ----------------------------------------------------------------------------------------------------------------------------
 
             for nfold, (train_index, test_index) in enumerate(splitter):
+
+                if frac:
+                    size=int(len(train_index)*frac)
+                    if size>10:
+                        train_index=np.random.choice(train_index,size=size)
 
                 X_train, y_train, X_test, y_test = split_into_train_test(
                     X=X, y=y, train_index=train_index, test_index=test_index, features_indices=current_features
@@ -397,6 +423,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     temp_fit_params.update(fit_params)
 
                 else:
+                    
                     X_val = None
 
                 # ----------------------------------------------------------------------------------------------------------------------------
@@ -417,6 +444,8 @@ class RFECV(BaseEstimator, TransformerMixin):
                 fi = get_feature_importances(
                     model=fitted_estimator, current_features=current_features, data=X_test, reference_data=X_val, importance_getter=importance_getter
                 )
+                #feature_indices,imp_values=list(fi.keys()),list(fi.values())
+                #print(np.array(feature_indices)[np.argsort(imp_values)[-10:]])
 
                 key = f"{len(current_features)}_{nfold}"
                 feature_importances[key] = fi
@@ -436,13 +465,17 @@ class RFECV(BaseEstimator, TransformerMixin):
 
             if 0 not in evaluated_scores_mean:
                 store_averaged_cv_scores(pos=0, scores=dummy_scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std)
+                if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic: 
+                    Optimizer.submit_evaluations(candidates=[0],evaluations=[np.array(dummy_scores).mean()],durations=[None])
 
-            store_averaged_cv_scores(
+            scores_mean, scores_std=store_averaged_cv_scores(
                 pos=len(current_features), scores=scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std
             )
-            if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic: 
-                Optimizer.submit_evaluations(candidates=[len(current_features)],evaluations=[np.array(scores).mean()],durations=[None])
+            if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:                 
+                Optimizer.submit_evaluations(candidates=[len(current_features)],evaluations=[scores_mean],durations=[None])
 
+                if verbose: logger.info(f"trying nfeatures={len(current_features)}, score={scores_mean:.6f}, len(train_index)={len(train_index)}, len(test_index)={len(test_index)}")
+            
             # ----------------------------------------------------------------------------------------------------------------------------
             # Checking exit conditions
             # ----------------------------------------------------------------------------------------------------------------------------
@@ -460,7 +493,27 @@ class RFECV(BaseEstimator, TransformerMixin):
                 if verbose:
                     logger.info(f"max_refits={max_refits:_} reached.")
                 break
+            
+            if scores_mean>=best_score:
+                best_score=scores_mean
+                n_noimproving_iters=0
+            else:
+                n_noimproving_iters+=1
 
+            if best_desired_score is not None and scores_mean>=best_desired_score:
+                if verbose:
+                    logger.info(f"best_desired_score {best_desired_score:_.6f} reached.")
+                break
+
+                if best_desired_score is not None and scores_mean<=best_desired_score:
+                    if verbose:
+                        logger.info(f"best_desired_score {best_desired_score:_.6f} reached.")
+                    break     
+
+            if max_noimproving_iters and n_noimproving_iters>=max_noimproving_iters:
+                if verbose: logger.info(f"Max # of noimproved iters reached: {n_noimproving_iters}")
+                break 
+                                        
         # ----------------------------------------------------------------------------------------------------------------------------
         # Saving best result found so far as final
         # ----------------------------------------------------------------------------------------------------------------------------
@@ -486,6 +539,7 @@ class RFECV(BaseEstimator, TransformerMixin):
             use_all_fi_runs=use_all_fi_runs,
             use_last_fi_run_only=use_last_fi_run_only,
             use_one_freshest_fi_run=use_one_freshest_fi_run,
+            use_fi_ranking=use_fi_ranking,
             votes_aggregation_method=votes_aggregation_method,
             verbose=verbose,
             show_plot=show_plot,
@@ -503,6 +557,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         use_all_fi_runs: bool = True,
         use_last_fi_run_only: bool = False,
         use_one_freshest_fi_run: bool = False,
+        use_fi_ranking:bool=False,
         votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
         verbose: bool = False,
         comparison_base: float = 10,
@@ -560,6 +615,7 @@ class RFECV(BaseEstimator, TransformerMixin):
             use_all_fi_runs=use_all_fi_runs,
             use_last_fi_run_only=use_last_fi_run_only,
             use_one_freshest_fi_run=use_one_freshest_fi_run,
+            use_fi_ranking=use_fi_ranking,
         )
 
         self.ranking_ = get_actual_features_ranking(
@@ -604,8 +660,11 @@ def split_into_train_test(
 
 def store_averaged_cv_scores(pos: int, scores: list, evaluated_scores_mean: dict, evaluated_scores_std: dict) -> None:
     scores = np.array(scores)
-    evaluated_scores_mean[pos] = np.mean(scores)
-    evaluated_scores_std[pos] = np.std(scores)
+    scores_mean,scores_std=np.mean(scores),np.std(scores)
+    evaluated_scores_mean[pos] = scores_mean
+    evaluated_scores_std[pos] = scores_std
+
+    return scores_mean, scores_std
 
 
 def get_feature_importances(
@@ -634,6 +693,7 @@ def get_next_features_subset(
     use_all_fi_runs: bool,
     use_last_fi_run_only: bool,
     use_one_freshest_fi_run: bool,
+    use_fi_ranking: bool,
     top_predictors_search_method: OptimumSearch = OptimumSearch.ScipyLocal,
     votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
     Optimizer:object=None,
@@ -663,7 +723,7 @@ def get_next_features_subset(
             elif top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
                 next_nfeatures_to_check = Optimizer.suggest_candidate()
 
-            if next_nfeatures_to_check:
+            if next_nfeatures_to_check is not None:
 
                 # ----------------------------- -----------------------------------------------------------------------------------------------
                 # At each step, feature importances must be recalculated in light of recent training on a smaller subset.
@@ -677,10 +737,12 @@ def get_next_features_subset(
                     use_all_fi_runs=use_all_fi_runs,
                     use_last_fi_run_only=use_last_fi_run_only,
                     use_one_freshest_fi_run=use_one_freshest_fi_run,
+                    use_fi_ranking=use_fi_ranking,
                 )
                 ranks = get_actual_features_ranking(feature_importances=fi_to_consider, votes_aggregation_method=votes_aggregation_method)
-
-                # print(f"next_nfeatures_to_check={next_nfeatures_to_check}, features chosen={ranks[:next_nfeatures_to_check]}")
+                #print(f"fi_to_consider={fi_to_consider}")
+                #print(f"ranks={ranks}")
+                #print(f"next_nfeatures_to_check={next_nfeatures_to_check}, features chosen={ranks[:next_nfeatures_to_check]}")
 
                 return ranks[:next_nfeatures_to_check]
             else:
@@ -694,6 +756,7 @@ def select_appropriate_feature_importances(
     use_all_fi_runs: bool = True,
     use_last_fi_run_only: bool = False,
     use_one_freshest_fi_run: bool = False,
+    use_fi_ranking:bool=False,
 ) -> dict:
 
     if use_last_fi_run_only:
@@ -719,6 +782,8 @@ def select_appropriate_feature_importances(
             else:
                 # all preceeding
                 fi_to_consider = {key: value for key, value in feature_importances.items() if (len(value) > nfeatures and len(value) != 1)}
+    if use_fi_ranking:
+        fi_to_consider={key:pd.Series(value).rank(ascending=True,pct=True).to_dict() for key,value in fi_to_consider.items()}
     return fi_to_consider
 
 
@@ -727,6 +792,8 @@ def get_actual_features_ranking(feature_importances: dict, votes_aggregation_met
     """Absolute FIs from estimators trained on CV for each nfeatures are stored separatly.
     They can be used to recompute final voted importances using any desired voting algo.
     But of course the exploration path was already lead by specific voting algo active at the fitting time.
+
+    GM, and esp Minimax & Plurality are suboptimal for FS.
     """
 
     lb = Leaderboard(table=pd.DataFrame(feature_importances))
@@ -743,7 +810,7 @@ def get_actual_features_ranking(feature_importances: dict, votes_aggregation_met
     elif votes_aggregation_method == VotesAggregation.Minimax:
         ranks = lb.minimax_ranking()
     elif votes_aggregation_method == VotesAggregation.OG:
-        ranks = lb.optimality_gap_ranking()
+        ranks = lb.optimality_gap_ranking(gamma=1)
     elif votes_aggregation_method == VotesAggregation.Plurality:
         ranks = lb.plurality_ranking()
 

@@ -18,7 +18,7 @@ while True:
 
         import pandas as pd, numpy as np
         import cupy as cp
-
+        import gc
 
         from pyutilz.system import tqdmu
         from pyutilz.parallel import mem_map_array, split_list_into_chunks
@@ -28,7 +28,8 @@ while True:
         from timeit import default_timer as timer
 
 
-        from sklearn.preprocessing import KBinsDiscretizer
+        from sklearn.preprocessing import KBinsDiscretizer,OrdinalEncoder
+        from sklearn.impute import SimpleImputer
         from itertools import combinations
         from numba.core import types
         from numba import njit
@@ -36,6 +37,12 @@ while True:
         import math
 
         from joblib import Parallel, delayed
+
+        from astropy.stats import histogram
+
+        from numba import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
+        import warnings
+
 
     except ModuleNotFoundError as e:
 
@@ -58,6 +65,10 @@ while True:
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
 # ----------------------------------------------------------------------------------------------------------------------------
+
+warnings.filterwarnings("ignore", module=".*_discretization")
+warnings.simplefilter("ignore", category=NumbaDeprecationWarning)
+warnings.simplefilter("ignore", category=NumbaPendingDeprecationWarning)
 
 MAX_JOBLIB_NBYTES = 1e3
 NMAX_NONPARALLEL_ITERS = 2
@@ -597,7 +608,7 @@ def mi_direct_gpu(
 
         classes_x = cp.asarray(classes_x.astype(np.int32))
         freqs_x = cp.asarray(freqs_x)
-
+        nfailed =0
         for i in range(npermutations):
 
             cp.random.shuffle(classes_y_safe)
@@ -1832,7 +1843,7 @@ def screen_predictors(
             # Add best candidate to the list, if criteria are met, or proceed to the next interactions_order
             # ---------------------------------------------------------------------------------------------------------------
 
-            if best_gain >= min_relevance_gain:
+            if best_gain >=(min_relevance_gain if interactions_order==1 else  min_relevance_gain**(1/(interactions_order+1))):
                 for var in best_candidate:
                     if var not in selected_vars:
                         selected_vars.append(var)
@@ -1840,7 +1851,7 @@ def screen_predictors(
                             selected_interactions_vars.append(var)
                 cand_name = get_candidate_name(best_candidate, factors_names=factors_names)
                 if verbose:
-                    logger.info(f"Added new predictor {cand_name} to the list with expected gain={best_gain:.{ndigits}f}")
+                    logger.info(f"Added new predictor {cand_name} to the list with expected gain={best_gain:.{ndigits}f} and confidence={confidence:.3f}")
                 predictors.append({"name": cand_name, "indices": best_candidate, "gain": best_gain, "confidence": confidence})
             else:
                 if verbose:
@@ -1858,7 +1869,12 @@ def screen_predictors(
     if verbose:
         logger.info(f"Finished.")
 
-    return selected_vars, predictors
+    any_influencing=set()
+    for vars_combination,(bootstrapped_gain, confidence) in cached_confident_MIs.items():
+        if bootstrapped_gain>0:
+            any_influencing.update(set(vars_combination))
+
+    return selected_vars, predictors,any_influencing
 
 
 def find_best_partial_gain(
@@ -2019,3 +2035,130 @@ def postprocess_candidates(
                 mutualinfos[(y, pair)] = bootstrapped_mi
 
     return entropies, mutualinfos
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------------------------------------------------------------
+
+
+def create_redundant_continuous_factor(
+    df: pd.DataFrame,
+    factors: Sequence[str],
+    agg_func: object = np.sum,
+    noise_percent: float = 5.0,
+    dist: object = None,
+    dist_args: tuple = (),
+    name: str = None,
+    sep: str = "_",
+) -> None:
+    """In a pandas dataframe, out of a few continuous factors, craft a new factor with known relationship and amount of redundancy."""
+    if dist:
+        rvs = getattr(dist, "rvs")
+        assert rvs
+        noise = rvs(*dist_args, size=len(df))
+    else:
+        noise = np.random.random(len(df))
+
+    # now the entire range of generated noise is scaled to the noise_percent of factors interaction's range
+    val_min, val_max = noise.min(), noise.max()
+    if np.isclose(val_max, val_min):
+        noise = np.zeros(len(noise), dtype=np.float32)
+    else:
+        noise = (noise - val_min) / (val_max - val_min)
+
+    if not name:
+        name = sep.join(factors) + sep + f"{noise_percent:.0f}%{dist.name if dist else ''}noise"
+
+    df[name] = agg_func(df[factors].values, axis=1) * (1 + (noise - 0.5) * noise_percent / 100)
+
+
+def categorize_dataset(
+    df: pd.DataFrame,
+    target: str,
+    method: str = "discretizer",
+    method_kwargs: dict = dict(strategy="uniform", n_bins=4),
+    min_ncats: int = 50,
+    astropy_sample_size: int = 10_000,
+    dtype=np.int32,
+):
+    """
+    Convert dataframe into ordinal-encoded one.
+    """
+
+    data = None
+    nuniques = df.nunique().to_dict()
+    numerical_cols = []
+    categorical_factors = []
+
+    ordinal_encoder = OrdinalEncoder()
+    imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
+    if method == "discretizer":
+        discretizer = KBinsDiscretizer(**method_kwargs, encode="ordinal")
+        bins = method_kwargs.get("n_bins")
+    else:
+        bins = method_kwargs.get("bins")
+        # if isinstance(bins, int):
+        #    bins = bins - 1
+
+    numerical_factors = df.select_dtypes(exclude=("category", "object", "bool"))
+    numerical_cols = numerical_factors.columns.values.tolist()
+
+    for col in tqdmu(numerical_cols, leave=False, desc="Binning of numericals"):
+        # gc.collect()
+        vals = imputer.fit_transform(numerical_factors[col].values.reshape(-1, 1))
+        if nuniques[col] > min_ncats:
+            if method == "discretizer":
+                if nuniques[col] > bins:
+                    new_vals = discretizer.fit_transform(vals)
+                else:
+                    new_vals = ordinal_encoder.fit_transform(vals)
+            else:
+                if method == "numpy":
+
+                    bin_edges = np.histogram_bin_edges(
+                        vals,
+                        bins=bins,
+                    )
+                elif method == "astropy":
+                    if bins == "blocks" and len(vals) >= astropy_sample_size:
+                        _, bin_edges = histogram(np.random.choice(vals.ravel(), size=astropy_sample_size, replace=False), bins=bins)
+                    elif bins == "knuth" and len(vals) >= astropy_sample_size:
+                        _, bin_edges = histogram(np.random.choice(vals.ravel(), size=astropy_sample_size, replace=False), bins=bins)
+                    else:
+                        _, bin_edges = histogram(vals, bins=bins)
+
+                if bin_edges[0] <= vals.min():
+                    bin_edges = bin_edges[1:]
+                new_vals = ordinal_encoder.fit_transform(np.digitize(vals, bins=bin_edges, right=True))
+
+        else:
+            new_vals = ordinal_encoder.fit_transform(vals)
+
+        if data is None:
+            data = new_vals
+        else:
+            data = np.append(data, new_vals, axis=1)
+
+    categorical_factors = df.select_dtypes(include=("category", "object", "bool"))
+    if categorical_factors.shape[1] > 0:
+        categorical_cols = categorical_factors.columns.values.tolist()
+        new_vals = ordinal_encoder.fit_transform(categorical_factors)
+        if data is None:
+            data = new_vals
+        else:
+            data = np.append(data, new_vals, axis=1)
+
+    data = data.astype(dtype)
+    nbins = data.max(axis=0) + 1
+
+    return data, numerical_cols + categorical_cols, nbins
+
+@njit
+def digitize(arr: np.ndarray, bins: np.ndarray, dtype=np.int32) -> np.ndarray:
+    res = np.empty(len(arr), dtype=dtype)
+    for i, val in enumerate(arr):
+        for j, bin_edge in enumerate(bins):
+            if val <= bin_edge:
+                res[i] = j
+                break
+    return res
