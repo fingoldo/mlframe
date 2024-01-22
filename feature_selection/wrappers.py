@@ -88,7 +88,7 @@ class VotesAggregation(str, Enum):
     GM = "GM"
 
 
-class RFECV(SelectorMixin, MetaEstimatorMixin, BaseEstimator):
+class RFECV(BaseEstimator, TransformerMixin):
     """Finds subset of features having best CV score, by iterative narrowing down set of top_n candidates having highest importance, as per estimator's FI scores.
 
     Optimizes mean CV scores (possibly accounting for variation, possibly translated into ranks) divided by the features number.
@@ -560,7 +560,6 @@ class RFECV(SelectorMixin, MetaEstimatorMixin, BaseEstimator):
         use_fi_ranking:bool=False,
         votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
         verbose: bool = False,
-        comparison_base: float = 10,
         show_plot: bool = False,
         plot_file=None,
         font_size: int = 12,
@@ -626,13 +625,15 @@ class RFECV(SelectorMixin, MetaEstimatorMixin, BaseEstimator):
         self.support_ = np.array([(i in self.ranking_[:best_top_n]) for i in self.feature_names_in_])
 
         if verbose:
-            logger.info(f"{self.n_features_:_} predictive factors selected out of {self.n_features_in_:_} during {len(self.selected_features_):_} rounds.")
+            dummy_gain=base_perf[0]/base_perf[best_top_n]
+            allfeat_gain=base_perf[-1]/base_perf[best_top_n]
+            logger.info(f"{self.n_features_:_} predictive factors selected out of {self.n_features_in_:_} during {len(self.selected_features_):_} rounds. Gain vs dummy={dummy_gain*100:.1f}%, gain vs all features={allfeat_gain*100:.1f}%")
 
     def transform(self, X, y=None):
         if isinstance(X, pd.DataFrame):
-            return X[self.support_names_]
+            return X.iloc[:,self.support_]
         else:
-            return X[self.support_]
+            return X[:,self.support_]
 
 
 def split_into_train_test(
