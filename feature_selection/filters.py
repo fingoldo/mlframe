@@ -2162,3 +2162,60 @@ def digitize(arr: np.ndarray, bins: np.ndarray, dtype=np.int32) -> np.ndarray:
                 res[i] = j
                 break
     return res
+
+class MRMR(BaseEstimator, TransformerMixin):
+    """Finds subset of features having best CV score, by iterative expanding set of candidates most relevant to the target and least redundant to already added candidates.
+
+    Parameters
+    ----------
+        cv : int, cross-validation generator or an iterable, default=None
+
+    Attributes
+    ----------
+
+
+    n_features_ : int
+        The number of selected features with cross-validation.
+
+    n_features_in_ : int
+        Number of features seen during :term:`fit`. Only defined if the
+        underlying estimator exposes such an attribute when fit.
+
+    feature_names_in_ : ndarray of shape (`n_features_in_`,)
+        Names of features seen during :term:`fit`. Defined only when `X`
+        has feature names that are all strings.
+
+    ranking_ ?: narray of shape (n_features,)
+        The feature ranking, such that `ranking_[i]`
+        corresponds to the ranking
+        position of the i-th feature.
+        Selected (i.e., estimated best)
+        features are assigned rank 1.
+
+    support_ : ndarray of shape (n_features,)
+        The mask of selected features.
+
+    """
+
+    def __init__(
+        self,
+        
+    ):
+
+        # checks
+        if frac is not None:
+            assert frac>0.0 and frac<1.0
+
+        # assert isinstance(estimator, (BaseEstimator,))
+
+        # save params
+
+        params = get_parent_func_args()
+        store_params_in_object(obj=self, params=params)
+
+    def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None,**fit_params):
+    def transform(self, X, y=None):
+        if isinstance(X, pd.DataFrame):
+            return X.iloc[:,self.support_]
+        else:
+            return X[:,self.support_]
