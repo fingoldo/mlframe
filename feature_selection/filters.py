@@ -2074,7 +2074,7 @@ def create_redundant_continuous_factor(
     df[name] = agg_func(df[factors].values, axis=1) * (1 + (noise - 0.5) * noise_percent / 100)
 
 
-def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,bins:int,astropy_sample_size:int,method_kwargs:dict,dtype=np.int32):    
+def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,bins:int,astropy_sample_size:int,method_kwargs:dict,dtype=np.int16):    
         
     ordinal_encoder = OrdinalEncoder()
     imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
@@ -2119,7 +2119,7 @@ def categorize_dataset(
     method_kwargs: dict = dict(strategy="uniform", n_bins=4),
     min_ncats: int = 50,
     astropy_sample_size: int = 10_000,
-    dtype=np.int32,
+    dtype=np.int16,
     n_jobs:int=-1,
     parallel_kwargs:dict={},
 ):
