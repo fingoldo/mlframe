@@ -2129,7 +2129,6 @@ def categorize_dataset(
     """
 
     data = None
-    #nuniques = df.nunique().to_dict()
     numerical_cols = []
     categorical_factors = []
 
