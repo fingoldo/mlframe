@@ -2122,7 +2122,8 @@ def categorize_dataset(
     min_ncats: int = 50,
     astropy_sample_size: int = 10_000,
     dtype=np.int32,
-    n_jobs:int=-1
+    n_jobs:int=-1,
+    parallel_kwargs:dict={},
 ):
     """
     Convert dataframe into ordinal-encoded one.
@@ -2145,7 +2146,7 @@ def categorize_dataset(
                         vals=df[col].values,min_ncats=min_ncats,method=method,bins=bins,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs) # ,nuniques=nuniques[col]
                 )
 
-    data = parallel_run(jobs,n_jobs=n_jobs)
+    data = parallel_run(jobs,n_jobs=n_jobs,**parallel_kwargs)
     data=np.hstack([el for el in data if el is not None])
 
     categorical_factors = df.select_dtypes(include=("category", "object", "bool"))
