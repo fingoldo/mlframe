@@ -2151,7 +2151,7 @@ def categorize_dataset(
     if categorical_factors.shape[1] > 0:
         categorical_cols = categorical_factors.columns.values.tolist()
         ordinal_encoder = OrdinalEncoder()
-        new_vals = ordinal_encoder.fit_transform(categorical_factors)
+        new_vals = ordinal_encoder.fit_transform(categorical_factors).astype(dtype)
         if data is None:
             data = new_vals
         else:
