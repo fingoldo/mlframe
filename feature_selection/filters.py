@@ -2074,11 +2074,13 @@ def create_redundant_continuous_factor(
     df[name] = agg_func(df[factors].values, axis=1) * (1 + (noise - 0.5) * noise_percent / 100)
 
 
-def categorize_1d_array(vals:np.ndarray,nuniques:dict,min_ncats:int,method:str,bins:int,astropy_sample_size:int,method_kwargs:dict):    
-    
+def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,bins:int,astropy_sample_size:int,method_kwargs:dict):    
+        
     ordinal_encoder = OrdinalEncoder()
     imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
     vals = imputer.fit_transform(vals.reshape(-1, 1))
+
+    nuniques=len(np.unique(vals))
 
     if nuniques> min_ncats:
         if method == "discretizer":
@@ -2127,7 +2129,7 @@ def categorize_dataset(
     """
 
     data = None
-    nuniques = df.nunique().to_dict()
+    #nuniques = df.nunique().to_dict()
     numerical_cols = []
     categorical_factors = []
 
@@ -2141,10 +2143,10 @@ def categorize_dataset(
     for col in tqdmu(numerical_cols, leave=False, desc="Binning of numericals"):
         jobs.append(
                     delayed(categorize_1d_array)(                        
-                        vals=df[col].values,nuniques=nuniques[col],min_ncats=min_ncats,method=method,bins=bins,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs)
+                        vals=df[col].values,min_ncats=min_ncats,method=method,bins=bins,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs) # ,nuniques=nuniques[col]
                 )
 
-    data = parallel_run(jobs,n_jobs=-1)
+    data = parallel_run(jobs,n_jobs=n_jobs)
     data=np.hstack([el for el in data if el is not None])
 
     categorical_factors = df.select_dtypes(include=("category", "object", "bool"))
