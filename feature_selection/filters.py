@@ -28,6 +28,7 @@ while True:
         # from mlframe.boruta_shap import BorutaShap
         from timeit import default_timer as timer
 
+        from scipy.stats import mode
 
         from sklearn.preprocessing import KBinsDiscretizer,OrdinalEncoder
         from sklearn.base import is_classifier, is_regressor, BaseEstimator, TransformerMixin
@@ -465,6 +466,7 @@ def mi_direct(
     freqs_y: np.ndarray = None,
     nworkers: int = 1,
     workers_pool: object = None,
+    parallel_kwargs:dict={},
 ) -> tuple:
 
     classes_x, freqs_x, _ = merge_vars(factors_data=factors_data, vars_indices=x, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
@@ -489,7 +491,7 @@ def mi_direct(
             # classes_x_memmap = mem_map_array(obj=classes_x, file_name="classes_x", mmap_mode="r")
 
             if workers_pool is None:
-                workers_pool = Parallel(n_jobs=nworkers, max_nbytes=MAX_JOBLIB_NBYTES)
+                workers_pool = Parallel(n_jobs=nworkers, **parallel_kwargs)
 
             res = workers_pool(
                 delayed(parallel_mi)(
@@ -714,6 +716,7 @@ def get_fleuret_criteria_confidence_parallel(
     cached_cond_MIs: dict = None,
     nworkers: int = 1,
     workers_pool: object = None,
+    parallel_kwargs:dict={},
     entropy_cache: dict = None,
     extra_x_shuffling: bool = True,
     dtype=np.int32,
@@ -722,7 +725,7 @@ def get_fleuret_criteria_confidence_parallel(
     nfailed = 0
 
     if workers_pool is None:
-        workers_pool = Parallel(n_jobs=nworkers, max_nbytes=MAX_JOBLIB_NBYTES)
+        workers_pool = Parallel(n_jobs=nworkers, **parallel_kwargs)
     res = workers_pool(
         delayed(parallel_fleuret)(
             data=data_copy,
@@ -1318,6 +1321,7 @@ def screen_predictors(
     # verbosity and formatting
     verbose: int = 1,
     ndigits: int = 5,
+    parallel_kwargs=dict(max_nbytes=MAX_JOBLIB_NBYTES),
 ) -> float:
     """Finds best predictors for the target.
     x must be n-x-m array of integers (ordinal encoded)
@@ -1425,7 +1429,7 @@ def screen_predictors(
         #    classes_y_memmap = mem_map_array(obj=classes_y, file_name="classes_y", mmap_mode="r")
         if verbose:
             logger.info("Starting parallel pool...")
-        workers_pool = Parallel(n_jobs=nworkers)  # , max_nbytes=MAX_JOBLIB_NBYTES
+        workers_pool = Parallel(n_jobs=nworkers,**parallel_kwargs)
         workers_pool(delayed(test)(i) for i in range(nworkers))
     else:
         workers_pool = None
@@ -1503,7 +1507,7 @@ def screen_predictors(
 
                     res = workers_pool(
                         delayed(evaluate_candidates)(
-                            workload=workload,  # cand_idx=cand_idx,X=X,
+                            workload=workload,
                             y=y,
                             best_gain=best_gain,
                             factors_data=factors_data,
@@ -1706,6 +1710,7 @@ def screen_predictors(
                                         npermutations=full_npermutations,
                                         nworkers=nworkers,
                                         workers_pool=workers_pool,
+                                        parallel_kwargs=parallel_kwargs,
                                     )
                                     if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                                         logger.info(f"mi_direct bootstrapped eval took {timer() - eval_start:.1f} sec.")
@@ -1739,6 +1744,7 @@ def screen_predictors(
                                         extra_x_shuffling=extra_x_shuffling,
                                         nworkers=nworkers,
                                         workers_pool=workers_pool,
+                                        parallel_kwargs=parallel_kwargs,
                                     )
                                     for key, value in parallel_entropy_cache.items():
                                         entropy_cache[key] = value
@@ -2077,12 +2083,35 @@ def create_redundant_continuous_factor(
 def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,bins:int,astropy_sample_size:int,method_kwargs:dict,dtype=np.int16):    
         
     ordinal_encoder = OrdinalEncoder()
-    imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
-    vals = imputer.fit_transform(vals.reshape(-1, 1))
 
-    nuniques=len(np.unique(vals))
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Booleans bust become int8
+    # ----------------------------------------------------------------------------------------------------------------------------
+    
+    if vals.dtype.name != 'category' and np.issubdtype(vals.dtype, np.bool_):
+        vals=vals.astype(np.int8)
 
-    if nuniques> min_ncats:
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Missings are imputed using rolling median (for ts safety)
+    # ----------------------------------------------------------------------------------------------------------------------------
+        
+    if pd.isna(vals).any():
+        #imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
+        #vals = imputer.fit_transform(vals.reshape(-1, 1))
+        vals=pd.Series(vals)
+        #vals=vals.fillna(vals.rolling(window=nan_rolling_window,min_periods=nan_rolling_min_periods).apply(lambda x: mode(x)[0])).fillna(nan_filler).values
+        vals=vals.fillna(nan_filler).values
+
+    vals=vals.reshape(-1, 1)
+
+    if vals.dtype.name != 'category':
+        nuniques=len(np.unique(vals[:min_ncats*10]))
+        if nuniques<= min_ncats:
+            nuniques=len(np.unique(vals))
+    else:
+        nuniques=min_ncats
+
+    if vals.dtype.name != 'category' and nuniques> min_ncats:
         if method == "discretizer":
             discretizer = KBinsDiscretizer(**method_kwargs, encode="ordinal")
             if nuniques> bins:
@@ -2111,7 +2140,7 @@ def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,bins:int,astrop
     else:
         new_vals = ordinal_encoder.fit_transform(vals)
     
-    return new_vals.astype(dtype)
+    return new_vals.ravel().astype(dtype)
 
 def categorize_dataset(
     df: pd.DataFrame,
@@ -2138,26 +2167,30 @@ def categorize_dataset(
 
     numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "bool")).columns.values.tolist()    
     jobs=[]
+    data=[]
     for col in tqdmu(numerical_cols, leave=False, desc="Binning of numericals"):
-        jobs.append(
-                    delayed(categorize_1d_array)(                        
-                        vals=df[col].values,min_ncats=min_ncats,method=method,bins=bins,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs,dtype=dtype)
-                )
+        if n_jobs==-1 or n_jobs>1:
+            jobs.append(
+                        delayed(categorize_1d_array)(                        
+                            vals=df[col].values,min_ncats=min_ncats,method=method,bins=bins,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs,dtype=dtype)
+                    )
+        else:
+            data.append(categorize_1d_array(                        
+                        vals=df[col].values,min_ncats=min_ncats,method=method,bins=bins,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs,dtype=dtype))
+    if n_jobs==-1 or n_jobs>1:
+        data = parallel_run(jobs,n_jobs=n_jobs,**parallel_kwargs)
+    data=np.vstack(data).T
 
-    data = parallel_run(jobs,n_jobs=n_jobs,**parallel_kwargs)
-    data=np.hstack([el for el in data if el is not None])
-
-    categorical_factors = df.select_dtypes(include=("category", "object", "bool"))
+    categorical_factors = df.select_dtypes(include=("category", "object"))
     if categorical_factors.shape[1] > 0:
         categorical_cols = categorical_factors.columns.values.tolist()
         ordinal_encoder = OrdinalEncoder()
-        new_vals = ordinal_encoder.fit_transform(categorical_factors)
+        new_vals = ordinal_encoder.fit_transform(categorical_factors).astype(dtype)
         if data is None:
             data = new_vals
         else:
             data = np.append(data, new_vals, axis=1)
 
-    data = data.astype(dtype)
     nbins = data.max(axis=0) + 1
 
     return data, numerical_cols + categorical_cols, nbins
