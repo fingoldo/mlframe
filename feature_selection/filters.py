@@ -465,6 +465,7 @@ def mi_direct(
     freqs_y: np.ndarray = None,
     nworkers: int = 1,
     workers_pool: object = None,
+    parallel_kwargs:dict={},
 ) -> tuple:
 
     classes_x, freqs_x, _ = merge_vars(factors_data=factors_data, vars_indices=x, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
@@ -489,7 +490,7 @@ def mi_direct(
             # classes_x_memmap = mem_map_array(obj=classes_x, file_name="classes_x", mmap_mode="r")
 
             if workers_pool is None:
-                workers_pool = Parallel(n_jobs=nworkers, max_nbytes=MAX_JOBLIB_NBYTES)
+                workers_pool = Parallel(n_jobs=nworkers, **parallel_kwargs)
 
             res = workers_pool(
                 delayed(parallel_mi)(
@@ -714,6 +715,7 @@ def get_fleuret_criteria_confidence_parallel(
     cached_cond_MIs: dict = None,
     nworkers: int = 1,
     workers_pool: object = None,
+    parallel_kwargs:dict={},
     entropy_cache: dict = None,
     extra_x_shuffling: bool = True,
     dtype=np.int32,
@@ -722,7 +724,7 @@ def get_fleuret_criteria_confidence_parallel(
     nfailed = 0
 
     if workers_pool is None:
-        workers_pool = Parallel(n_jobs=nworkers, max_nbytes=MAX_JOBLIB_NBYTES)
+        workers_pool = Parallel(n_jobs=nworkers, **parallel_kwargs)
     res = workers_pool(
         delayed(parallel_fleuret)(
             data=data_copy,
@@ -1318,6 +1320,7 @@ def screen_predictors(
     # verbosity and formatting
     verbose: int = 1,
     ndigits: int = 5,
+    parallel_kwargs=dict(max_nbytes=MAX_JOBLIB_NBYTES),
 ) -> float:
     """Finds best predictors for the target.
     x must be n-x-m array of integers (ordinal encoded)
@@ -1425,7 +1428,7 @@ def screen_predictors(
         #    classes_y_memmap = mem_map_array(obj=classes_y, file_name="classes_y", mmap_mode="r")
         if verbose:
             logger.info("Starting parallel pool...")
-        workers_pool = Parallel(n_jobs=nworkers)  # , max_nbytes=MAX_JOBLIB_NBYTES
+        workers_pool = Parallel(n_jobs=nworkers,**parallel_kwargs)
         workers_pool(delayed(test)(i) for i in range(nworkers))
     else:
         workers_pool = None
@@ -1503,7 +1506,7 @@ def screen_predictors(
 
                     res = workers_pool(
                         delayed(evaluate_candidates)(
-                            workload=workload,  # cand_idx=cand_idx,X=X,
+                            workload=workload,
                             y=y,
                             best_gain=best_gain,
                             factors_data=factors_data,
@@ -1706,6 +1709,7 @@ def screen_predictors(
                                         npermutations=full_npermutations,
                                         nworkers=nworkers,
                                         workers_pool=workers_pool,
+                                        parallel_kwargs=parallel_kwargs,
                                     )
                                     if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                                         logger.info(f"mi_direct bootstrapped eval took {timer() - eval_start:.1f} sec.")
@@ -1739,6 +1743,7 @@ def screen_predictors(
                                         extra_x_shuffling=extra_x_shuffling,
                                         nworkers=nworkers,
                                         workers_pool=workers_pool,
+                                        parallel_kwargs=parallel_kwargs,
                                     )
                                     for key, value in parallel_entropy_cache.items():
                                         entropy_cache[key] = value
@@ -2157,7 +2162,6 @@ def categorize_dataset(
         else:
             data = np.append(data, new_vals, axis=1)
 
-    data = data.astype(dtype)
     nbins = data.max(axis=0) + 1
 
     return data, numerical_cols + categorical_cols, nbins
