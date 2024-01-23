@@ -21,7 +21,8 @@ while True:
         import gc
 
         from pyutilz.system import tqdmu
-        from pyutilz.parallel import mem_map_array, split_list_into_chunks
+        from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
+        from pyutilz.parallel import mem_map_array, split_list_into_chunks,parallel_run        
         from pyutilz.numbalib import set_numba_random_seed, arr2str, python_dict_2_numba_dict, generate_combinations_recursive_njit
 
         # from mlframe.boruta_shap import BorutaShap
@@ -29,6 +30,7 @@ while True:
 
 
         from sklearn.preprocessing import KBinsDiscretizer,OrdinalEncoder
+        from sklearn.base import is_classifier, is_regressor, BaseEstimator, TransformerMixin
         from sklearn.impute import SimpleImputer
         from itertools import combinations
         from numba.core import types
@@ -2072,6 +2074,38 @@ def create_redundant_continuous_factor(
     df[name] = agg_func(df[factors].values, axis=1) * (1 + (noise - 0.5) * noise_percent / 100)
 
 
+def categorize_1d_array(vals:np.ndarray,imputer:object,nuniques:dict,min_ncats:int,method:str,bins:int,astropy_sample_size:int,discretizer:object,ordinal_encoder:object):
+    vals = imputer.fit_transform(vals.reshape(-1, 1))
+    if nuniques[col] > min_ncats:
+        if method == "discretizer":
+            if nuniques[col] > bins:
+                new_vals = discretizer.fit_transform(vals)
+            else:
+                new_vals = ordinal_encoder.fit_transform(vals)
+        else:
+            if method == "numpy":
+
+                bin_edges = np.histogram_bin_edges(
+                    vals,
+                    bins=bins,
+                )
+            elif method == "astropy":
+                if bins == "blocks" and len(vals) >= astropy_sample_size:
+                    _, bin_edges = histogram(np.random.choice(vals.ravel(), size=astropy_sample_size, replace=False), bins=bins)
+                elif bins == "knuth" and len(vals) >= astropy_sample_size:
+                    _, bin_edges = histogram(np.random.choice(vals.ravel(), size=astropy_sample_size, replace=False), bins=bins)
+                else:
+                    _, bin_edges = histogram(vals, bins=bins)
+
+            if bin_edges[0] <= vals.min():
+                bin_edges = bin_edges[1:]
+            new_vals = ordinal_encoder.fit_transform(np.digitize(vals, bins=bin_edges, right=True))
+
+    else:
+        new_vals = ordinal_encoder.fit_transform(vals)
+
+        return new_vals
+
 def categorize_dataset(
     df: pd.DataFrame,
     target: str,
@@ -2097,47 +2131,18 @@ def categorize_dataset(
         bins = method_kwargs.get("n_bins")
     else:
         bins = method_kwargs.get("bins")
-        # if isinstance(bins, int):
-        #    bins = bins - 1
 
-    numerical_factors = df.select_dtypes(exclude=("category", "object", "bool"))
-    numerical_cols = numerical_factors.columns.values.tolist()
-
+    numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "bool")).columns.values.tolist()    
+    jobs=[]
     for col in tqdmu(numerical_cols, leave=False, desc="Binning of numericals"):
-        # gc.collect()
-        vals = imputer.fit_transform(numerical_factors[col].values.reshape(-1, 1))
-        if nuniques[col] > min_ncats:
-            if method == "discretizer":
-                if nuniques[col] > bins:
-                    new_vals = discretizer.fit_transform(vals)
-                else:
-                    new_vals = ordinal_encoder.fit_transform(vals)
-            else:
-                if method == "numpy":
-
-                    bin_edges = np.histogram_bin_edges(
-                        vals,
-                        bins=bins,
+        jobs.append(
+                    delayed(categorize_1d_array)(                        
+                        vals=df[col].values,imputer=imputer,nuniques=nuniques,min_ncats=min_ncats,method=method,bins=bins,astropy_sample_size=astropy_sample_size,discretizer=discretizer,ordinal_encoder=ordinal_encoder
                     )
-                elif method == "astropy":
-                    if bins == "blocks" and len(vals) >= astropy_sample_size:
-                        _, bin_edges = histogram(np.random.choice(vals.ravel(), size=astropy_sample_size, replace=False), bins=bins)
-                    elif bins == "knuth" and len(vals) >= astropy_sample_size:
-                        _, bin_edges = histogram(np.random.choice(vals.ravel(), size=astropy_sample_size, replace=False), bins=bins)
-                    else:
-                        _, bin_edges = histogram(vals, bins=bins)
+                )
 
-                if bin_edges[0] <= vals.min():
-                    bin_edges = bin_edges[1:]
-                new_vals = ordinal_encoder.fit_transform(np.digitize(vals, bins=bin_edges, right=True))
-
-        else:
-            new_vals = ordinal_encoder.fit_transform(vals)
-
-        if data is None:
-            data = new_vals
-        else:
-            data = np.append(data, new_vals, axis=1)
+    data = parallel_run(jobs,)   
+    data=np.hstack(data)
 
     categorical_factors = df.select_dtypes(include=("category", "object", "bool"))
     if categorical_factors.shape[1] > 0:
@@ -2203,8 +2208,6 @@ class MRMR(BaseEstimator, TransformerMixin):
     ):
 
         # checks
-        if frac is not None:
-            assert frac>0.0 and frac<1.0
 
         # assert isinstance(estimator, (BaseEstimator,))
 
@@ -2214,6 +2217,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         store_params_in_object(obj=self, params=params)
 
     def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None,**fit_params):
+        pass
     def transform(self, X, y=None):
         if isinstance(X, pd.DataFrame):
             return X.iloc[:,self.support_]
