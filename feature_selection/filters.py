@@ -2074,7 +2074,7 @@ def create_redundant_continuous_factor(
     df[name] = agg_func(df[factors].values, axis=1) * (1 + (noise - 0.5) * noise_percent / 100)
 
 
-def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,bins:int,astropy_sample_size:int,method_kwargs:dict):    
+def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,bins:int,astropy_sample_size:int,dtype=np.int32,method_kwargs:dict):    
         
     ordinal_encoder = OrdinalEncoder()
     imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
@@ -2110,10 +2110,8 @@ def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,bins:int,astrop
 
     else:
         new_vals = ordinal_encoder.fit_transform(vals)
-
-    print(new_vals is None)
-    print(new_vals.shape)
-    return new_vals
+    
+    return new_vals.astype(dtype)
 
 def categorize_dataset(
     df: pd.DataFrame,
@@ -2143,7 +2141,7 @@ def categorize_dataset(
     for col in tqdmu(numerical_cols, leave=False, desc="Binning of numericals"):
         jobs.append(
                     delayed(categorize_1d_array)(                        
-                        vals=df[col].values,min_ncats=min_ncats,method=method,bins=bins,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs) # ,nuniques=nuniques[col]
+                        vals=df[col].values,min_ncats=min_ncats,method=method,bins=bins,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs,dtype=dtype)
                 )
 
     data = parallel_run(jobs,n_jobs=n_jobs,**parallel_kwargs)
