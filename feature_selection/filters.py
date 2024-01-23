@@ -2092,23 +2092,30 @@ def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,bins:int,astrop
     # Booleans bust become int8
     # ----------------------------------------------------------------------------------------------------------------------------
     
-    if np.issubdtype(vals.dtype, np.bool_):
+    if vals.dtype.name != 'category' and np.issubdtype(vals.dtype, np.bool_):
         vals=vals.astype(np.int8)
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # Missings are imputed using rolling median (for ts safety)
     # ----------------------------------------------------------------------------------------------------------------------------
         
-    if np.isnan(vals).any():
+    if pd.isna(vals).any():
         #imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
         #vals = imputer.fit_transform(vals.reshape(-1, 1))
         vals=pd.Series(vals)
-        vals=vals.fillna(vals.rolling(window=nan_rolling_window,min_periods=nan_rolling_min_periods).apply(lambda x: mode(x)[0])).fillna(nan_filler).values
+        #vals=vals.fillna(vals.rolling(window=nan_rolling_window,min_periods=nan_rolling_min_periods).apply(lambda x: mode(x)[0])).fillna(nan_filler).values
+        vals=vals.fillna(nan_filler).values
 
     vals=vals.reshape(-1, 1)
-    nuniques=len(np.unique(vals))
 
-    if nuniques> min_ncats:
+    if vals.dtype.name != 'category':
+        nuniques=len(np.unique(vals[:min_ncats*10]))
+        if nuniques<= min_ncats:
+            nuniques=len(np.unique(vals))
+    else:
+        nuniques=min_ncats
+
+    if vals.dtype.name != 'category' and nuniques> min_ncats:
         if method == "discretizer":
             discretizer = KBinsDiscretizer(**method_kwargs, encode="ordinal")
             if nuniques> bins:
@@ -2137,7 +2144,7 @@ def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,bins:int,astrop
     else:
         new_vals = ordinal_encoder.fit_transform(vals)
     
-    return new_vals.astype(dtype)
+    return new_vals.ravel().astype(dtype)
 
 def categorize_dataset(
     df: pd.DataFrame,
@@ -2164,16 +2171,21 @@ def categorize_dataset(
 
     numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "bool")).columns.values.tolist()    
     jobs=[]
+    data=[]
     for col in tqdmu(numerical_cols, leave=False, desc="Binning of numericals"):
-        jobs.append(
-                    delayed(categorize_1d_array)(                        
-                        vals=df[col].values,min_ncats=min_ncats,method=method,bins=bins,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs,dtype=dtype)
-                )
+        if n_jobs==-1 or n_jobs>1:
+            jobs.append(
+                        delayed(categorize_1d_array)(                        
+                            vals=df[col].values,min_ncats=min_ncats,method=method,bins=bins,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs,dtype=dtype)
+                    )
+        else:
+            data.append(categorize_1d_array(                        
+                        vals=df[col].values,min_ncats=min_ncats,method=method,bins=bins,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs,dtype=dtype))
+    if n_jobs==-1 or n_jobs>1:
+        data = parallel_run(jobs,n_jobs=n_jobs,**parallel_kwargs)
+    data=np.vstack(data).T
 
-    data = parallel_run(jobs,n_jobs=n_jobs,**parallel_kwargs)
-    data=np.hstack([el for el in data if el is not None])
-
-    categorical_factors = df.select_dtypes(include=("category", "object", "bool"))
+    categorical_factors = df.select_dtypes(include=("category", "object"))
     if categorical_factors.shape[1] > 0:
         categorical_cols = categorical_factors.columns.values.tolist()
         ordinal_encoder = OrdinalEncoder()
