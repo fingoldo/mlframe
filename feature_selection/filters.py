@@ -2083,7 +2083,7 @@ def create_redundant_continuous_factor(
 def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,bins:int,astropy_sample_size:int,method_kwargs:dict,dtype=np.int32,
     nan_rolling_min_periods:int=1,
     nan_rolling_window:int=100,
-    nan_filler:float32=0.0,
+    nan_filler:float=0.0,
 ):    
 
     ordinal_encoder = OrdinalEncoder()
@@ -2161,8 +2161,6 @@ def categorize_dataset(
         bins = method_kwargs.get("n_bins")
     else:
         bins = method_kwargs.get("bins")
-
-     target_train.astype(np.int8)
 
     numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "bool")).columns.values.tolist()    
     jobs=[]
