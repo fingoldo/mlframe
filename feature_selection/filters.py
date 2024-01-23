@@ -2074,11 +2074,16 @@ def create_redundant_continuous_factor(
     df[name] = agg_func(df[factors].values, axis=1) * (1 + (noise - 0.5) * noise_percent / 100)
 
 
-def categorize_1d_array(vals:np.ndarray,imputer:object,nuniques:dict,min_ncats:int,method:str,bins:int,astropy_sample_size:int,discretizer:object,ordinal_encoder:object):
+def categorize_1d_array(vals:np.ndarray,nuniques:dict,min_ncats:int,method:str,bins:int,astropy_sample_size:int,method_kwargs:dict):    
+    
+    ordinal_encoder = OrdinalEncoder()
+    imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
     vals = imputer.fit_transform(vals.reshape(-1, 1))
-    if nuniques[col] > min_ncats:
+
+    if nuniques> min_ncats:
         if method == "discretizer":
-            if nuniques[col] > bins:
+            discretizer = KBinsDiscretizer(**method_kwargs, encode="ordinal")
+            if nuniques> bins:
                 new_vals = discretizer.fit_transform(vals)
             else:
                 new_vals = ordinal_encoder.fit_transform(vals)
@@ -2104,16 +2109,18 @@ def categorize_1d_array(vals:np.ndarray,imputer:object,nuniques:dict,min_ncats:i
     else:
         new_vals = ordinal_encoder.fit_transform(vals)
 
-        return new_vals
+    print(new_vals is None)
+    print(new_vals.shape)
+    return new_vals
 
 def categorize_dataset(
     df: pd.DataFrame,
-    target: str,
     method: str = "discretizer",
     method_kwargs: dict = dict(strategy="uniform", n_bins=4),
     min_ncats: int = 50,
     astropy_sample_size: int = 10_000,
     dtype=np.int32,
+    n_jobs:int=-1
 ):
     """
     Convert dataframe into ordinal-encoded one.
@@ -2124,10 +2131,7 @@ def categorize_dataset(
     numerical_cols = []
     categorical_factors = []
 
-    ordinal_encoder = OrdinalEncoder()
-    imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
-    if method == "discretizer":
-        discretizer = KBinsDiscretizer(**method_kwargs, encode="ordinal")
+    if method == "discretizer":        
         bins = method_kwargs.get("n_bins")
     else:
         bins = method_kwargs.get("bins")
@@ -2137,16 +2141,16 @@ def categorize_dataset(
     for col in tqdmu(numerical_cols, leave=False, desc="Binning of numericals"):
         jobs.append(
                     delayed(categorize_1d_array)(                        
-                        vals=df[col].values,imputer=imputer,nuniques=nuniques,min_ncats=min_ncats,method=method,bins=bins,astropy_sample_size=astropy_sample_size,discretizer=discretizer,ordinal_encoder=ordinal_encoder
-                    )
+                        vals=df[col].values,nuniques=nuniques[col],min_ncats=min_ncats,method=method,bins=bins,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs)
                 )
 
-    data = parallel_run(jobs,)   
-    data=np.hstack(data)
+    data = parallel_run(jobs,n_jobs=-1)
+    data=np.hstack([el for el in data if el is not None])
 
     categorical_factors = df.select_dtypes(include=("category", "object", "bool"))
     if categorical_factors.shape[1] > 0:
         categorical_cols = categorical_factors.columns.values.tolist()
+        ordinal_encoder = OrdinalEncoder()
         new_vals = ordinal_encoder.fit_transform(categorical_factors)
         if data is None:
             data = new_vals
