@@ -309,6 +309,14 @@ def mi(factors_data, x: np.ndarray, y: np.ndarray, factors_nbins: np.ndarray, ve
 
     return entropy_x + entropy_y - entropy_xy
 
+@njit()
+def unpack_and_sort(x, z):
+    res = []
+    for el in x:
+        res.append(el)
+    for el in z:
+        res.append(el)
+    return sorted(res)
 
 @njit()
 def conditional_mi(
@@ -349,7 +357,10 @@ def conditional_mi(
         #    caching_hits_z += 1
 
     if entropy_xz < 0:
-        indices = sorted([*x, *z])
+
+        #indices = sorted([*x, *z])
+        indices=unpack_and_sort(x, z)
+
         if can_use_x_cache and entropy_cache is not None:
             key = arr2str(indices)
             entropy_xz = entropy_cache.get(key, -1)
@@ -364,7 +375,10 @@ def conditional_mi(
     current_nclasses_yz = 1
     if can_use_y_cache:
         if entropy_yz < 0:
-            indices = sorted([*y, *z])
+
+            #indices = sorted([*y, *z])
+            indices=unpack_and_sort(y, z)
+
             if entropy_cache is not None:
                 key = arr2str(indices)
                 entropy_yz = entropy_cache.get(key, -1)
@@ -379,20 +393,24 @@ def conditional_mi(
             #    caching_hits_yz += 1
     else:
         classes_yz, freqs_yz, current_nclasses_yz = merge_vars(
-            factors_data=factors_data, vars_indices=[*y, *z], var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype
+            factors_data=factors_data, vars_indices=unpack_and_sort(y, z), var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype # [*y, *z]
         )  # always 2-dim
         entropy_yz = entropy(freqs=freqs_yz)
 
     if entropy_xyz < 0:
         if can_use_y_cache and can_use_x_cache:
-            indices = sorted([*x, *y, *z])
+
+            #indices = sorted([*x, *y, *z])
+            indices = unpack_and_sort(x, y)
+            indices = unpack_and_sort(indices,z)
+
             if entropy_cache is not None:
                 key = arr2str(indices)
                 entropy_xyz = entropy_cache.get(key, -1)
         if entropy_xyz < 0:
             if current_nclasses_yz == 1:
                 classes_yz, freqs_yz, current_nclasses_yz = merge_vars(
-                    factors_data=factors_data, vars_indices=[*y, *z], var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype
+                    factors_data=factors_data, vars_indices=unpack_and_sort(y, z), var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype # [*y, *z]
                 )  # always 2-dim
 
             _, freqs_xyz, _ = merge_vars(
@@ -522,8 +540,8 @@ def mi_direct(
 
         else:
 
-            #if classes_y_safe is None:
-            #    classes_y_safe = classes_y.copy()
+            if classes_y_safe is None:
+                classes_y_safe = classes_y.copy()
 
             # Create a Generator instance with a specific RNG state            
             #seed=int.from_bytes(os.urandom(4), byteorder='little')
@@ -532,11 +550,13 @@ def mi_direct(
             for i in range(npermutations):
                 #logger.info(f"x={x} perm {i}")
                 #np.random.shuffle(classes_y_safe)
+                shuffle_arr(classes_y_safe)
                 # Shuffle the array using the local RNG
-                classes_y_shuffled=np.random.choice(classes_y, len(classes_y), replace=False)
+                #classes_y_shuffled=np.random.choice(classes_y, len(classes_y), replace=False)
                 #rng.shuffle(classes_y_safe)                                  
                 #logger.info(f"x={x} shuffled")
-                mi = compute_mi_from_classes(classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y_shuffled, freqs_y=freqs_y, dtype=dtype)
+                #mi = compute_mi_from_classes(classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y_shuffled, freqs_y=freqs_y, dtype=dtype)
+                mi = compute_mi_from_classes(classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y_safe, freqs_y=freqs_y, dtype=dtype)
 
                 if mi >= original_mi:
                     nfailed += 1
@@ -551,6 +571,9 @@ def mi_direct(
 
     return original_mi, confidence
 
+@njit()
+def shuffle_arr(arr:np.ndarray)->None:
+    np.random.shuffle(arr)
 
 @njit()
 def parallel_mi(
@@ -739,6 +762,8 @@ def get_fleuret_criteria_confidence_parallel(
 
     if workers_pool is None:
         workers_pool = Parallel(n_jobs=nworkers, **parallel_kwargs)
+
+    collect()
     res = workers_pool(
         delayed(parallel_fleuret)(
             data=data_copy,
@@ -952,7 +977,7 @@ def evaluate_candidates(
     )
     python_dict_2_numba_dict(python_dict=cached_cond_MIs, numba_dict=cached_cond_MIs_dict)
 
-    #classes_y_safe = classes_y.copy()
+    classes_y_safe = classes_y.copy()
     #np.random.seed(int.from_bytes(os.urandom(4), byteorder='little'))
 
     for cand_idx, X, nexisting in (candidates_pbar := tqdmu(workload, leave=False, desc="Thread Candidates")):
@@ -969,7 +994,7 @@ def evaluate_candidates(
             factors_nbins=factors_nbins,
             factors_names=factors_names,
             classes_y=classes_y,
-            classes_y_safe=None, # classes_y_safe
+            classes_y_safe=classes_y_safe,
             freqs_y=freqs_y,
             use_gpu=use_gpu,
             freqs_y_safe=freqs_y_safe,
