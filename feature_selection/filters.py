@@ -763,7 +763,7 @@ def get_fleuret_criteria_confidence_parallel(
     if workers_pool is None:
         workers_pool = Parallel(n_jobs=nworkers, **parallel_kwargs)
 
-    collect()
+    gc.collect()
     res = workers_pool(
         delayed(parallel_fleuret)(
             data=data_copy,
