@@ -16,8 +16,11 @@ while True:
 
         from typing import *
 
+        import copy
+
         import pandas as pd, numpy as np
         import cupy as cp
+        import os
         import gc
 
         from pyutilz.system import tqdmu
@@ -475,6 +478,8 @@ def mi_direct(
 
     original_mi = compute_mi_from_classes(classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y, freqs_y=freqs_y, dtype=dtype)
 
+    #logger.info(f"original_mi={original_mi}")
+
     if original_mi > 0 and npermutations > 0:
 
         # Inits
@@ -517,13 +522,21 @@ def mi_direct(
 
         else:
 
-            if classes_y_safe is None:
-                classes_y_safe = classes_y.copy()
+            #if classes_y_safe is None:
+            #    classes_y_safe = classes_y.copy()
+
+            # Create a Generator instance with a specific RNG state            
+            #seed=int.from_bytes(os.urandom(4), byteorder='little')
+            #rng = np.random.default_rng(seed)  
 
             for i in range(npermutations):
-
-                np.random.shuffle(classes_y_safe)
-                mi = compute_mi_from_classes(classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y_safe, freqs_y=freqs_y, dtype=dtype)
+                #logger.info(f"x={x} perm {i}")
+                #np.random.shuffle(classes_y_safe)
+                # Shuffle the array using the local RNG
+                classes_y_shuffled=np.random.choice(classes_y, len(classes_y), replace=False)
+                #rng.shuffle(classes_y_safe)                                  
+                #logger.info(f"x={x} shuffled")
+                mi = compute_mi_from_classes(classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y_shuffled, freqs_y=freqs_y, dtype=dtype)
 
                 if mi >= original_mi:
                     nfailed += 1
@@ -921,6 +934,8 @@ def evaluate_candidates(
     expected_gains = {}
 
     from pyutilz.logginglib import init_logging
+
+    global logger
     logger = init_logging(default_caller_name="scalping.py", format="%(asctime)s - %(levelname)s - %(funcName)s-line:%(lineno)d - %(message)s")    
 
     if verbose:
@@ -938,12 +953,12 @@ def evaluate_candidates(
     )
     python_dict_2_numba_dict(python_dict=cached_cond_MIs, numba_dict=cached_cond_MIs_dict)
 
-    classes_y_safe = classes_y.copy()
+    #classes_y_safe = classes_y.copy()
+    #np.random.seed(int.from_bytes(os.urandom(4), byteorder='little'))
 
     for cand_idx, X, nexisting in (candidates_pbar := tqdmu(workload, leave=False, desc="Thread Candidates")):
 
-        if verbose:
-            logger.info(f"Evaluating cand {X}")            
+        #if verbose: logger.info(f"Evaluating cand {X}")            
 
         current_gain, sink_reasons = evaluate_candidate(
             cand_idx=cand_idx,
@@ -955,7 +970,7 @@ def evaluate_candidates(
             factors_nbins=factors_nbins,
             factors_names=factors_names,
             classes_y=classes_y,
-            classes_y_safe=classes_y_safe,
+            classes_y_safe=None, # classes_y_safe
             freqs_y=freqs_y,
             use_gpu=use_gpu,
             freqs_y_safe=freqs_y_safe,
@@ -975,8 +990,7 @@ def evaluate_candidates(
             dtype=dtype,
         )
         
-        if verbose:
-            logger.info(f"X={X}, gain={current_gain}")
+        # if verbose: logger.info(f"X={X}, gain={current_gain}")
 
         best_gain, best_candidate, run_out_of_time = handle_best_candidate(
             current_gain=current_gain,
@@ -1193,7 +1207,7 @@ def evaluate_candidate(
     verbose: int = 1,
     ndigits: int = 5,
 ) -> None:
-
+    #logger.info("In evaluate_candidate")
     sink_reasons = set()
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -1221,6 +1235,7 @@ def evaluate_candidate(
                     dtype=dtype,
                 )
             else:
+                #logger.info("Computing mi_direct")
                 direct_gain, _ = mi_direct(
                     factors_data,
                     x=X,
@@ -1233,6 +1248,7 @@ def evaluate_candidate(
                     npermutations=baseline_npermutations,
                     dtype=dtype,
                 )
+                #logger.info("Computed mi_direct")
             cached_MIs[X] = direct_gain
 
     if direct_gain > 0:
