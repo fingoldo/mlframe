@@ -1687,40 +1687,42 @@ def screen_predictors(
                 # ---------------------------------------------------------------------------------------------------------------
                 # Now need to confirm best expected gain with a permutation test
                 # ---------------------------------------------------------------------------------------------------------------
+                
+                cand_confirmed = False
+                any_cand_considered = False
+                for n, next_best_candidate_idx in enumerate(np.argsort(expected_gains)[::-1]):
+                    next_best_gain = expected_gains[next_best_candidate_idx]
+                    if next_best_gain >= min_relevance_gain:  # only can consider here candidates fully checked against every Z
 
-                if full_npermutations:
-                    cand_confirmed = False
-                    any_cand_considered = False
-                    for n, next_best_candidate_idx in enumerate(np.argsort(expected_gains)[::-1]):
-                        next_best_gain = expected_gains[next_best_candidate_idx]
-                        if next_best_gain >= min_relevance_gain:  # only can consider here candidates fully checked against every Z
+                        X = candidates[next_best_candidate_idx]
 
-                            X = candidates[next_best_candidate_idx]
+                        # ---------------------------------------------------------------------------------------------------------------
+                        # For cands other than the top one, if best partial gain <= next_best_gain, we can proceed with confirming next_best_gain. else we have to recompute partial gains
+                        # ---------------------------------------------------------------------------------------------------------------
 
-                            # ---------------------------------------------------------------------------------------------------------------
-                            # For cands other than the top one, if best partial gain <= next_best_gain, we can proceed with confirming next_best_gain. else we have to recompute partial gains
-                            # ---------------------------------------------------------------------------------------------------------------
+                        if n > 0:
+                            best_partial_gain, best_key = find_best_partial_gain(
+                                partial_gains=partial_gains,
+                                failed_candidates=failed_candidates,
+                                added_candidates=added_candidates,
+                                candidates=candidates,
+                                selected_vars=selected_vars,
+                            )
 
-                            if n > 0:
-                                best_partial_gain, best_key = find_best_partial_gain(
-                                    partial_gains=partial_gains,
-                                    failed_candidates=failed_candidates,
-                                    added_candidates=added_candidates,
-                                    candidates=candidates,
-                                    selected_vars=selected_vars,
-                                )
+                            if best_partial_gain > next_best_gain:
+                                if verbose > 1:
+                                    print(
+                                        "Have no best_candidate anymore. Need to recompute partial gains. best_partial_gain of candidate",
+                                        get_candidate_name(candidates[best_key], factors_names=factors_names),
+                                        "was",
+                                        best_partial_gain,
+                                    )
+                                break  # out of best candidates confirmation, to retry all cands evaluation
 
-                                if best_partial_gain > next_best_gain:
-                                    if verbose > 1:
-                                        print(
-                                            "Have no best_candidate anymore. Need to recompute partial gains. best_partial_gain of candidate",
-                                            get_candidate_name(candidates[best_key], factors_names=factors_names),
-                                            "was",
-                                            best_partial_gain,
-                                        )
-                                    break  # out of best candidates confirmation, to retry all cands evaluation
+                        any_cand_considered = True
+                        
+                        if full_npermutations:
 
-                            any_cand_considered = True
                             if verbose > 1:
                                 logger.info(
                                     f"confirming candidate {get_candidate_name(X, factors_names=factors_names)}, next_best_gain={next_best_gain:.{ndigits}f}"
@@ -1767,138 +1769,145 @@ def screen_predictors(
                                     if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                                         logger.info(f"mi_direct bootstrapped eval took {timer() - eval_start:.1f} sec.")
                                 cached_confident_MIs[X] = bootstrapped_gain, confidence
+                        else:
+                            if X in cached_confident_MIs:
+                                bootstrapped_gain, confidence = cached_confident_MIs[X]
+                            else:
+                                bootstrapped_gain, confidence = next_best_gain,1.0
 
-                            if bootstrapped_gain > 0 and selected_vars:  # additional check of Fleuret criteria
-                                skip_cand = [(subel in selected_vars) for subel in X]
-                                nexisting = sum(skip_cand)
-                                # ---------------------------------------------------------------------------------------------------------------
-                                # external bootstrapped recheck. is minimal MI of candidate X with Y given all current Zs THAT BIG as next_best_gain?
-                                # ---------------------------------------------------------------------------------------------------------------
-                                if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
-                                    eval_start = timer()
-
-                                if nworkers and nworkers > 1 and full_npermutations > NMAX_NONPARALLEL_ITERS:
-                                    bootstrapped_gain, confidence, parallel_entropy_cache = get_fleuret_criteria_confidence_parallel(
-                                        data_copy=data_copy,
-                                        factors_nbins=factors_nbins,
-                                        x=X,
-                                        y=y,
-                                        selected_vars=selected_vars,
-                                        bootstrapped_gain=next_best_gain,
-                                        npermutations=full_npermutations,
-                                        max_failed=max_failed,
-                                        nexisting=nexisting,
-                                        mrmr_relevance_algo=mrmr_relevance_algo,
-                                        mrmr_redundancy_algo=mrmr_redundancy_algo,
-                                        max_veteranes_interactions_order=max_veteranes_interactions_order,
-                                        cached_cond_MIs=cached_cond_MIs,
-                                        entropy_cache=entropy_cache,
-                                        extra_x_shuffling=extra_x_shuffling,
-                                        nworkers=nworkers,
-                                        workers_pool=workers_pool,
-                                        parallel_kwargs=parallel_kwargs,
-                                    )
-                                    for key, value in parallel_entropy_cache.items():
-                                        entropy_cache[key] = value
-                                else:
-                                    nfailed, nchecked = get_fleuret_criteria_confidence(
-                                        data_copy=data_copy,
-                                        factors_nbins=factors_nbins,
-                                        x=X,
-                                        y=y,
-                                        selected_vars=selected_vars,
-                                        bootstrapped_gain=next_best_gain,
-                                        npermutations=full_npermutations,
-                                        max_failed=max_failed,
-                                        nexisting=nexisting,
-                                        mrmr_relevance_algo=mrmr_relevance_algo,
-                                        mrmr_redundancy_algo=mrmr_redundancy_algo,
-                                        max_veteranes_interactions_order=max_veteranes_interactions_order,
-                                        cached_cond_MIs=cached_cond_MIs,
-                                        entropy_cache=entropy_cache,
-                                        extra_x_shuffling=extra_x_shuffling,
-                                    )
-
-                                    confidence = 1 - nfailed / nchecked
-                                    if nfailed >= max_failed:
-                                        bootstrapped_gain = 0.0
-
-                                if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
-                                    logger.info(f"get_fleuret_criteria_confidence bootstrapped eval took {timer() - eval_start:.1f} sec.")
+                        if full_npermutations and bootstrapped_gain > 0 and selected_vars:  # additional check of Fleuret criteria
+                            
+                            skip_cand = [(subel in selected_vars) for subel in X]
+                            nexisting = sum(skip_cand)
                             
                             # ---------------------------------------------------------------------------------------------------------------
-                            # Report this particular best candidate
+                            # external bootstrapped recheck. is minimal MI of candidate X with Y given all current Zs THAT BIG as next_best_gain?
+                            # ---------------------------------------------------------------------------------------------------------------
+                            
+                            if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
+                                eval_start = timer()
+
+                            if nworkers and nworkers > 1 and full_npermutations > NMAX_NONPARALLEL_ITERS:
+                                bootstrapped_gain, confidence, parallel_entropy_cache = get_fleuret_criteria_confidence_parallel(
+                                    data_copy=data_copy,
+                                    factors_nbins=factors_nbins,
+                                    x=X,
+                                    y=y,
+                                    selected_vars=selected_vars,
+                                    bootstrapped_gain=next_best_gain,
+                                    npermutations=full_npermutations,
+                                    max_failed=max_failed,
+                                    nexisting=nexisting,
+                                    mrmr_relevance_algo=mrmr_relevance_algo,
+                                    mrmr_redundancy_algo=mrmr_redundancy_algo,
+                                    max_veteranes_interactions_order=max_veteranes_interactions_order,
+                                    cached_cond_MIs=cached_cond_MIs,
+                                    entropy_cache=entropy_cache,
+                                    extra_x_shuffling=extra_x_shuffling,
+                                    nworkers=nworkers,
+                                    workers_pool=workers_pool,
+                                    parallel_kwargs=parallel_kwargs,
+                                )
+                                for key, value in parallel_entropy_cache.items():
+                                    entropy_cache[key] = value
+                            else:
+                                nfailed, nchecked = get_fleuret_criteria_confidence(
+                                    data_copy=data_copy,
+                                    factors_nbins=factors_nbins,
+                                    x=X,
+                                    y=y,
+                                    selected_vars=selected_vars,
+                                    bootstrapped_gain=next_best_gain,
+                                    npermutations=full_npermutations,
+                                    max_failed=max_failed,
+                                    nexisting=nexisting,
+                                    mrmr_relevance_algo=mrmr_relevance_algo,
+                                    mrmr_redundancy_algo=mrmr_redundancy_algo,
+                                    max_veteranes_interactions_order=max_veteranes_interactions_order,
+                                    cached_cond_MIs=cached_cond_MIs,
+                                    entropy_cache=entropy_cache,
+                                    extra_x_shuffling=extra_x_shuffling,
+                                )
+
+                                confidence = 1 - nfailed / nchecked
+                                if nfailed >= max_failed:
+                                    bootstrapped_gain = 0.0
+
+                            if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
+                                logger.info(f"get_fleuret_criteria_confidence bootstrapped eval took {timer() - eval_start:.1f} sec.")
+                        
+                        # ---------------------------------------------------------------------------------------------------------------
+                        # Report this particular best candidate
+                        # ---------------------------------------------------------------------------------------------------------------
+
+                        if bootstrapped_gain > 0:
+
+                            nconsec_unconfirmed = 0
+
+                            # ---------------------------------------------------------------------------------------------------------------
+                            # Bad confidence can make us consider other candidates!
                             # ---------------------------------------------------------------------------------------------------------------
 
-                            if bootstrapped_gain > 0:
+                            next_best_gain = next_best_gain * confidence
+                            expected_gains[next_best_candidate_idx] = next_best_gain
 
-                                nconsec_unconfirmed = 0
-
-                                # ---------------------------------------------------------------------------------------------------------------
-                                # Bad confidence can make us consider other candidates!
-                                # ---------------------------------------------------------------------------------------------------------------
-
-                                next_best_gain = next_best_gain * confidence
-                                expected_gains[next_best_candidate_idx] = next_best_gain
-
-                                best_partial_gain, best_key = find_best_partial_gain(
-                                    partial_gains=partial_gains,
-                                    failed_candidates=failed_candidates,
-                                    added_candidates=added_candidates,
-                                    candidates=candidates,
-                                    selected_vars=selected_vars,
-                                    skip_indices=(next_best_candidate_idx,),
-                                )
-                                if best_partial_gain > next_best_gain:
-                                    if verbose > 1:
-                                        logger.info(
-                                            f"\t\tCandidate's lowered confidence {confidence} requires re-checking other candidates, as now its expected gain is only {next_best_gain:.{ndigits}f}, vs {best_partial_gain:.{ndigits}f}, of {get_candidate_name(candidates[best_key], factors_names=factors_names)}"
-                                        )
-                                    break  # out of best candidates confirmation, to retry all cands evaluation
-                                else:
-                                    cand_confirmed = True
+                            best_partial_gain, best_key = find_best_partial_gain(
+                                partial_gains=partial_gains,
+                                failed_candidates=failed_candidates,
+                                added_candidates=added_candidates,
+                                candidates=candidates,
+                                selected_vars=selected_vars,
+                                skip_indices=(next_best_candidate_idx,),
+                            )
+                            if best_partial_gain > next_best_gain:
+                                if verbose > 1:
+                                    logger.info(
+                                        f"\t\tCandidate's lowered confidence {confidence} requires re-checking other candidates, as now its expected gain is only {next_best_gain:.{ndigits}f}, vs {best_partial_gain:.{ndigits}f}, of {get_candidate_name(candidates[best_key], factors_names=factors_names)}"
+                                    )
+                                break  # out of best candidates confirmation, to retry all cands evaluation
+                            else:
+                                cand_confirmed = True
+                                if full_npermutations:
                                     if verbose > 1:
                                         logger.info(f"\t\tconfirmed with confidence {confidence:.{ndigits}f}")
-                                    break  # out of best candidates confirmation, to add candidate to the list, and go to more candidates
-                            else:
-                                expected_gains[next_best_candidate_idx] = 0.0
-                                failed_candidates.add(next_best_candidate_idx)
-                                if verbose > 1:
-                                    logger.info(f"\t\tconfirmation failed with confidence {confidence:.{ndigits}f}")
+                                break  # out of best candidates confirmation, to add candidate to the list, and go to more candidates
+                        else:
+                            expected_gains[next_best_candidate_idx] = 0.0
+                            failed_candidates.add(next_best_candidate_idx)
+                            if verbose > 1:
+                                logger.info(f"\t\tconfirmation failed with confidence {confidence:.{ndigits}f}")
 
-                                nconsec_unconfirmed += 1
-                                total_disproved += 1
-                                if max_consec_unconfirmed and (nconsec_unconfirmed > max_consec_unconfirmed):
-                                    if verbose:
-                                        logger.info(f"Maximum consecutive confirmation failures reached.")
-                                    break  # out of best candidates confirmation, to finish the level
+                            nconsec_unconfirmed += 1
+                            total_disproved += 1
+                            if max_consec_unconfirmed and (nconsec_unconfirmed > max_consec_unconfirmed):
+                                if verbose:
+                                    logger.info(f"Maximum consecutive confirmation failures reached.")
+                                break  # out of best candidates confirmation, to finish the level
 
-                        else:  # next_best_gain = 0
-                            break  # nothing wrong, just retry all cands evaluation
+                    else:  # next_best_gain = 0
+                        break  # nothing wrong, just retry all cands evaluation
 
-                    # ---------------------------------------------------------------------------------------------------------------
-                    # Let's act upon results of the permutation test
-                    # ---------------------------------------------------------------------------------------------------------------
+                # ---------------------------------------------------------------------------------------------------------------
+                # Let's act upon results of the permutation test
+                # ---------------------------------------------------------------------------------------------------------------
 
-                    if cand_confirmed:
-                        added_candidates.add(next_best_candidate_idx)  # so it won't be selected again
-                        best_candidate = X
-                        best_gain = next_best_gain
+                if cand_confirmed:
+                    added_candidates.add(next_best_candidate_idx)  # so it won't be selected again
+                    best_candidate = X
+                    best_gain = next_best_gain
+                    break  # exit confirmation while loop
+                else:
+                    if not any_cand_considered:
+                        best_gain = min_relevance_gain - 1
+                        if verbose:
+                            logger.info("No more candidates to confirm.")
                         break  # exit confirmation while loop
                     else:
-                        if not any_cand_considered:
+                        if max_consec_unconfirmed and (nconsec_unconfirmed > max_consec_unconfirmed):
                             best_gain = min_relevance_gain - 1
-                            if verbose:
-                                logger.info("No more candidates to confirm.")
                             break  # exit confirmation while loop
                         else:
-                            if max_consec_unconfirmed and (nconsec_unconfirmed > max_consec_unconfirmed):
-                                best_gain = min_relevance_gain - 1
-                                break  # exit confirmation while loop
-                            else:
-                                pass  # retry all cands evaluation
-                else:  # if no full_npermutations is specified
-                    break  # exit confirmation while loop
+                            pass  # retry all cands evaluation
 
             # ---------------------------------------------------------------------------------------------------------------
             # Add best candidate to the list, if criteria are met, or proceed to the next interactions_order
@@ -1916,7 +1925,7 @@ def screen_predictors(
                 if full_npermutations:
                     res["confidence"]=confidence
                 predictors.append(res)
-                
+
                 if verbose:
                     mes=f"Added new predictor {cand_name} to the list with expected gain={best_gain:.{ndigits}f}"
                     if full_npermutations:
