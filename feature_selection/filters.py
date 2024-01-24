@@ -968,6 +968,8 @@ def evaluate_candidates(
             ndigits=ndigits,
             dtype=dtype,
         )
+        if verbose:
+            logger.info(f"X={X}, gain={current_gain}")
 
         best_gain, best_candidate, run_out_of_time = handle_best_candidate(
             current_gain=current_gain,
