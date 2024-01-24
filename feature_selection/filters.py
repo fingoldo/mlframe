@@ -1517,7 +1517,6 @@ def screen_predictors(
         partial_gains = {}
         added_candidates = set()
         failed_candidates = set()
-        min_gain_reached = False
         nconsec_unconfirmed = 0
 
         for _ in (predictors_pbar := tqdmu(range(len(candidates)), leave=False, desc="Confirmed predictors")):
@@ -1826,6 +1825,7 @@ def screen_predictors(
 
                                 if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                                     logger.info(f"get_fleuret_criteria_confidence bootstrapped eval took {timer() - eval_start:.1f} sec.")
+                            
                             # ---------------------------------------------------------------------------------------------------------------
                             # Report this particular best candidate
                             # ---------------------------------------------------------------------------------------------------------------
@@ -1911,9 +1911,18 @@ def screen_predictors(
                         if interactions_order > 1:
                             selected_interactions_vars.append(var)
                 cand_name = get_candidate_name(best_candidate, factors_names=factors_names)
+                
+                res={"name": cand_name, "indices": best_candidate, "gain": best_gain}
+                if full_npermutations:
+                    res["confidence"]=confidence
+                predictors.append(res)
+                
                 if verbose:
-                    logger.info(f"Added new predictor {cand_name} to the list with expected gain={best_gain:.{ndigits}f} and confidence={confidence:.3f}")
-                predictors.append({"name": cand_name, "indices": best_candidate, "gain": best_gain, "confidence": confidence})
+                    mes=f"Added new predictor {cand_name} to the list with expected gain={best_gain:.{ndigits}f}"
+                    if full_npermutations:
+                        mes+=f" and confidence={confidence:.3f}"
+                    logger.info(mes)
+                
             else:
                 if verbose:
                     if total_checked > 0:
