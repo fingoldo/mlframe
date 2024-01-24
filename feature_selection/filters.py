@@ -2080,7 +2080,7 @@ def create_redundant_continuous_factor(
     df[name] = agg_func(df[factors].values, axis=1) * (1 + (noise - 0.5) * noise_percent / 100)
 
 
-def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,bins:int,astropy_sample_size:int,method_kwargs:dict,dtype=np.int16,nan_filler:float=0.0):    
+def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,astropy_sample_size:int,method_kwargs:dict,dtype=np.int16,nan_filler:float=0.0):    
         
     ordinal_encoder = OrdinalEncoder()
 
@@ -2111,10 +2111,15 @@ def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,bins:int,astrop
     else:
         nuniques=min_ncats
 
+    if method == "discretizer":        
+        bins = method_kwargs.get("n_bins")
+    else:
+        bins = method_kwargs.get("bins")        
+
     if vals.dtype.name != 'category' and nuniques> min_ncats:
-        if method == "discretizer":
-            discretizer = KBinsDiscretizer(**method_kwargs, encode="ordinal")
+        if method == "discretizer":            
             if nuniques> bins:
+                discretizer = KBinsDiscretizer(**method_kwargs, encode="ordinal")
                 new_vals = discretizer.fit_transform(vals)
             else:
                 new_vals = ordinal_encoder.fit_transform(vals)
@@ -2135,6 +2140,7 @@ def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,bins:int,astrop
 
             if bin_edges[0] <= vals.min():
                 bin_edges = bin_edges[1:]
+            
             new_vals = ordinal_encoder.fit_transform(np.digitize(vals, bins=bin_edges, right=True))
 
     else:
@@ -2160,11 +2166,6 @@ def categorize_dataset(
     numerical_cols = []
     categorical_factors = []
 
-    if method == "discretizer":        
-        bins = method_kwargs.get("n_bins")
-    else:
-        bins = method_kwargs.get("bins")
-
     numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "bool")).columns.values.tolist()    
     jobs=[]
     data=[]
@@ -2172,11 +2173,11 @@ def categorize_dataset(
         if n_jobs==-1 or n_jobs>1:
             jobs.append(
                         delayed(categorize_1d_array)(                        
-                            vals=df[col].values,min_ncats=min_ncats,method=method,bins=bins,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs,dtype=dtype)
+                            vals=df[col].values,min_ncats=min_ncats,method=method,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs,dtype=dtype)
                     )
         else:
             data.append(categorize_1d_array(                        
-                        vals=df[col].values,min_ncats=min_ncats,method=method,bins=bins,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs,dtype=dtype))
+                        vals=df[col].values,min_ncats=min_ncats,method=method,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs,dtype=dtype))
     if n_jobs==-1 or n_jobs>1:
         data = parallel_run(jobs,n_jobs=n_jobs,**parallel_kwargs)
     data=np.vstack(data).T
