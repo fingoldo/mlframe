@@ -920,8 +920,11 @@ def evaluate_candidates(
     best_candidate = None
     expected_gains = {}
 
-    global logger
-    logger = logging.getLogger(__name__)
+    from pyutilz.logginglib import init_logging
+    logger = init_logging(default_caller_name="scalping.py", format="%(asctime)s - %(levelname)s - %(funcName)s-line:%(lineno)d - %(message)s")    
+
+    if verbose:
+        logger.info("In evaluate_candidates")
 
     entropy_cache_dict = numba.typed.Dict.empty(
         key_type=types.unicode_type,
@@ -938,6 +941,9 @@ def evaluate_candidates(
     classes_y_safe = classes_y.copy()
 
     for cand_idx, X, nexisting in (candidates_pbar := tqdmu(workload, leave=False, desc="Thread Candidates")):
+
+        if verbose:
+            logger.info(f"Evaluating cand {X}")            
 
         current_gain, sink_reasons = evaluate_candidate(
             cand_idx=cand_idx,
@@ -968,6 +974,7 @@ def evaluate_candidates(
             ndigits=ndigits,
             dtype=dtype,
         )
+        
         if verbose:
             logger.info(f"X={X}, gain={current_gain}")
 
@@ -1284,6 +1291,7 @@ def evaluate_candidate(
 
 
 def test(a):
+    logger.info('test')
     return 0
 
 
