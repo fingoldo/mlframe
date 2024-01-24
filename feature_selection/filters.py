@@ -992,6 +992,9 @@ def evaluate_candidates(
     for key, value in cached_cond_MIs_dict.items():
         cached_cond_MIs[key] = value
 
+    if verbose:
+        logger.info(f"Batch finished.")
+
     return best_gain, best_candidate, partial_gains, expected_gains, cached_MIs, cached_cond_MIs, entropy_cache
 
 
