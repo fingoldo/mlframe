@@ -2254,6 +2254,7 @@ def categorize_dataset(
     data=np.vstack(data).T
 
     categorical_factors = df.select_dtypes(include=("category", "object"))
+    categorical_cols=[]
     if categorical_factors.shape[1] > 0:
         categorical_cols = categorical_factors.columns.values.tolist()
         ordinal_encoder = OrdinalEncoder()
