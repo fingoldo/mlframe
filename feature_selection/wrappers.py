@@ -22,7 +22,7 @@ while True:
         import cupy as cp
 
         from pyutilz.system import tqdmu
-        from mlframe.utils import set_random_seed        
+        from pyutilz.numbalib import set_numba_random_seed
         from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
         from mlframe.config import *
@@ -248,8 +248,9 @@ class RFECV(BaseEstimator, TransformerMixin):
         ran_out_of_time = False
 
         if random_state is not None:
-            set_random_seed(random_state)
-
+            np.random.seed(random_state)
+            cp.random.seed(random_state)
+            set_numba_random_seed(random_state)
 
         feature_importances = {}
         evaluated_scores_std = {}
@@ -624,8 +625,8 @@ class RFECV(BaseEstimator, TransformerMixin):
         self.support_ = np.array([(i in self.ranking_[:best_top_n]) for i in self.feature_names_in_])
 
         if verbose:
-            dummy_gain=base_perf[0]/base_perf[best_top_n]
-            allfeat_gain=base_perf[-1]/base_perf[best_top_n]
+            dummy_gain=base_perf[0]/base_perf[best_idx]
+            allfeat_gain=base_perf[-1]/base_perf[best_idx]
             logger.info(f"{self.n_features_:_} predictive factors selected out of {self.n_features_in_:_} during {len(self.selected_features_):_} rounds. Gain vs dummy={dummy_gain*100:.1f}%, gain vs all features={allfeat_gain*100:.1f}%")
 
     def transform(self, X, y=None):
