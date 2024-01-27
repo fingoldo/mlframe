@@ -22,7 +22,7 @@ while True:
         import cupy as cp
 
         from pyutilz.system import tqdmu
-        from pyutilz.numbalib import set_numba_random_seed
+        from mlframe.utils import set_random_seed        
         from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
         from mlframe.config import *
@@ -248,9 +248,8 @@ class RFECV(BaseEstimator, TransformerMixin):
         ran_out_of_time = False
 
         if random_state is not None:
-            np.random.seed(random_state)
-            cp.random.seed(random_state)
-            set_numba_random_seed(random_state)
+            set_random_seed(random_state)
+
 
         feature_importances = {}
         evaluated_scores_std = {}

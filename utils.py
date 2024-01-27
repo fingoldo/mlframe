@@ -2,24 +2,36 @@
 import os
 import random
 import numpy as np
+from pyutilz.numbalib import set_numba_random_seed
 
 
-def set_ml_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed: bool = False):
+def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed: bool = False):
     """Seed everything ml-related."""
     random.seed(seed)
-    np.random.seed(seed)
+    
+    try:
+        np.random.seed(seed)
+    except: pass
+    try:
+        cp.random.seed(seed)
+    except: pass        
+    try:
+        set_numba_random_seed(seed)    
+    except: pass
 
     if set_hash_seed:
         os.environ["PYTHONHASHSEED"] = str(seed)
 
     if set_torch_seed:
-        import torch  # pylint: disable=import-outside-toplevel
 
-        torch.manual_seed(seed)
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
-        torch.backends.cudnn.deterministic = True  # type: ignore
+        try:
+            import torch  # pylint: disable=import-outside-toplevel
 
+            torch.manual_seed(seed)
+            torch.cuda.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+            torch.backends.cudnn.deterministic = True  # type: ignore
+        except: pass
 
 def get_pipeline_last_element(clf) -> object:
     for elem_name, elem in clf.named_steps.items():

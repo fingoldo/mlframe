@@ -24,8 +24,9 @@ while True:
         import gc
 
         from pyutilz.system import tqdmu
+        from mlframe.utils import set_random_seed
         from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
-        from pyutilz.parallel import mem_map_array, split_list_into_chunks,parallel_run        
+        from pyutilz.parallel import mem_map_array, split_list_into_chunks,parallel_run                
         from pyutilz.numbalib import set_numba_random_seed, arr2str, python_dict_2_numba_dict, generate_combinations_recursive_njit
 
         # from mlframe.boruta_shap import BorutaShap
@@ -2313,7 +2314,13 @@ class MRMR(BaseEstimator, TransformerMixin):
 
     def __init__(
         self,
-        
+        # stopping conditions
+        max_runtime_mins: float = None,        
+        # CV
+        cv: Union[object, int, None] = 3,
+        cv_shuffle: bool = True,
+        random_state: int = None,
+        verbose: Union[bool, int] = 0,                
     ):
 
         # checks
@@ -2326,7 +2333,17 @@ class MRMR(BaseEstimator, TransformerMixin):
         store_params_in_object(obj=self, params=params)
 
     def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None,**fit_params):
-        pass
+        """We run N selections on data subsets, and pick only features that appear in all selections"""
+
+        start_time = timer()
+        ran_out_of_time = False
+
+        if random_state is not None:            
+            set_random_seed(random_state)
+
+        subsets_selections=pra
+        for selection in subsets_selections:
+
     def transform(self, X, y=None):
         if isinstance(X, pd.DataFrame):
             return X.iloc[:,self.support_]
