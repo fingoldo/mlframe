@@ -248,7 +248,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         ran_out_of_time = False
 
         if random_state is not None:
-            set_random_seed(random_state))
+            set_random_seed(random_state)
 
         feature_importances = {}
         evaluated_scores_std = {}
