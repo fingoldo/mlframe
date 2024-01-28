@@ -1079,7 +1079,7 @@ def handle_best_candidate(
     return best_gain, best_candidate, run_out_of_time
 
 
-@njit()
+#@njit()
 def evaluate_gain(
     current_gain: float,
     last_checked_k: int,
@@ -1111,6 +1111,7 @@ def evaluate_gain(
     k = 0
     for interactions_order in range(max_veteranes_interactions_order):
         combs=generate_combinations_recursive_njit(np.array(selected_vars, dtype=np.int32), interactions_order + 1)[::-1]
+        if X==(425,): logger.info(f"\t combs={combs}")
 
         for Z in combs:
 
@@ -1128,6 +1129,7 @@ def evaluate_gain(
                         key = arr2str(X) + "_" + arr2str(Z)
                         if key in cached_cond_MIs:
                             additional_knowledge = cached_cond_MIs[key]
+                            if X==(425,): logger.info(f"\t additional_knowledge from {Z} found to be {additional_knowledge}, k={k}, last_checked_k={last_checked_k}")
                             key_found = True
 
                     if not key_found:
@@ -1153,6 +1155,9 @@ def evaluate_gain(
 
                         if not confidence_mode:
                             cached_cond_MIs[key] = additional_knowledge
+
+                        print(X)
+                        if X==(425,): logger.info(f"\t additional_knowledge from {Z}={additional_knowledge}, k={k}, last_checked_k={last_checked_k}")
 
                 # ---------------------------------------------------------------------------------------------------------------
                 # Account for possible extra knowledge from conditioning on Z?
@@ -1294,6 +1299,7 @@ def evaluate_candidate(
 
             if cand_idx in partial_gains:
                 current_gain, last_checked_k = partial_gains[cand_idx]
+                if X==(425,): logger.info(f"\t cand_idx in partial_gains: {current_gain, last_checked_k}")
                 if best_gain is not None and (current_gain<=best_gain):
                     return current_gain, sink_reasons
             else:
@@ -1321,6 +1327,7 @@ def evaluate_candidate(
                 can_use_x_cache=True,
                 can_use_y_cache=True,
             )
+            if X==(425,): logger.info(f"\t stopped_early, current_gain, k, sink_reasons={stopped_early, current_gain, k, sink_reasons}")
 
             partial_gains[cand_idx] = current_gain, k
             if not stopped_early:  # there was no break. current_gain computed fully.
@@ -1525,7 +1532,7 @@ def screen_predictors(
         nconsec_unconfirmed = 0
 
         for n_confirmed_predictors in (predictors_pbar := tqdmu(range(len(candidates)), leave=False, desc="Confirmed predictors")):
-            
+            if n_confirmed_predictors>4: n_jobs=1
             if run_out_of_time:
                 break
 
