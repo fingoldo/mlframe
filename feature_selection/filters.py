@@ -1079,7 +1079,7 @@ def handle_best_candidate(
     return best_gain, best_candidate, run_out_of_time
 
 
-#@njit()
+@njit()
 def evaluate_gain(
     current_gain: float,
     last_checked_k: int,
@@ -1110,8 +1110,9 @@ def evaluate_gain(
 
     k = 0
     for interactions_order in range(max_veteranes_interactions_order):
+        combs=generate_combinations_recursive_njit(np.array(selected_vars, dtype=np.int32), interactions_order + 1)[::-1]
 
-        for Z in generate_combinations_recursive_njit(np.array(selected_vars, dtype=np.int32), interactions_order + 1):
+        for Z in combs:
 
             if k > last_checked_k:
 
@@ -1152,8 +1153,6 @@ def evaluate_gain(
 
                         if not confidence_mode:
                             cached_cond_MIs[key] = additional_knowledge
-
-                        if X==(60,): logger.info(f"\t additional_knowledge from {Z}={additional_knowledge}")
 
                 # ---------------------------------------------------------------------------------------------------------------
                 # Account for possible extra knowledge from conditioning on Z?
@@ -1295,7 +1294,8 @@ def evaluate_candidate(
 
             if cand_idx in partial_gains:
                 current_gain, last_checked_k = partial_gains[cand_idx]
-                if X==(60,): logger.info(f"\t cand_idx in partial_gains: {current_gain, last_checked_k}")
+                if best_gain is not None and (current_gain<=best_gain):
+                    return current_gain, sink_reasons
             else:
                 current_gain = LARGE_CONST
                 last_checked_k = -1
