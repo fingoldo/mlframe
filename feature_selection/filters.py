@@ -1205,7 +1205,7 @@ def evaluate_gain(
                         return stopped_early, current_gain, k, sink_reasons
             k += 1
 
-    return stopped_early, current_gain, k, sink_reasons
+    return stopped_early, current_gain, k-1, sink_reasons
 
 
 def evaluate_candidate(
