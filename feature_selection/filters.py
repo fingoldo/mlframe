@@ -1079,7 +1079,7 @@ def handle_best_candidate(
     return best_gain, best_candidate, run_out_of_time
 
 
-@njit()
+#@njit()
 def evaluate_gain(
     current_gain: float,
     last_checked_k: int,
@@ -1121,6 +1121,7 @@ def evaluate_gain(
                     # additional_knowledge = I (X ;Y | Z ) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)
                     # I (X,Z) would be entropy_x + entropy_z - entropy_xz.
                     # ---------------------------------------------------------------------------------------------------------------
+                    
                     key_found = False
                     if not confidence_mode:
                         key = arr2str(X) + "_" + arr2str(Z)
@@ -1151,6 +1152,8 @@ def evaluate_gain(
 
                         if not confidence_mode:
                             cached_cond_MIs[key] = additional_knowledge
+
+                        if X==(60,): logger.info(f"\t additional_knowledge from {Z}={additional_knowledge}")
 
                 # ---------------------------------------------------------------------------------------------------------------
                 # Account for possible extra knowledge from conditioning on Z?
@@ -1292,6 +1295,7 @@ def evaluate_candidate(
 
             if cand_idx in partial_gains:
                 current_gain, last_checked_k = partial_gains[cand_idx]
+                if X==(60,): logger.info(f"\t cand_idx in partial_gains: {current_gain, last_checked_k}")
             else:
                 current_gain = LARGE_CONST
                 last_checked_k = -1
@@ -1520,8 +1524,8 @@ def screen_predictors(
         failed_candidates = set()
         nconsec_unconfirmed = 0
 
-        for _ in (predictors_pbar := tqdmu(range(len(candidates)), leave=False, desc="Confirmed predictors")):
-
+        for n_confirmed_predictors in (predictors_pbar := tqdmu(range(len(candidates)), leave=False, desc="Confirmed predictors")):
+            if n_confirmed_predictors>4: n_jobs=1
             if run_out_of_time:
                 break
 
@@ -2239,33 +2243,40 @@ def categorize_dataset(
     categorical_factors = []
 
     numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "bool")).columns.values.tolist()    
-    jobs=[]
+
     data=[]
-    for col in tqdmu(numerical_cols, leave=False, desc="Binning of numericals"):
-        if n_jobs==-1 or n_jobs>1:
-            jobs.append(
-                        delayed(categorize_1d_array)(                        
-                            vals=df[col].values,min_ncats=min_ncats,method=method,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs,dtype=dtype)
-                    )
-        else:
-            data.append(categorize_1d_array(                        
-                        vals=df[col].values,min_ncats=min_ncats,method=method,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs,dtype=dtype))
     if n_jobs==-1 or n_jobs>1:
-        data = parallel_run(jobs,n_jobs=n_jobs,**parallel_kwargs)
+        fnc=delayed(categorize_1d_array)
+    else:
+        fnc=categorize_1d_array
+
+    for col in tqdmu(numerical_cols, leave=False, desc="Binning of numericals"):
+        data.append(fnc(vals=df[col].values,min_ncats=min_ncats,method=method,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs,dtype=dtype))
+        
+    if n_jobs==-1 or n_jobs>1:
+        data = parallel_run(data,n_jobs=n_jobs,**parallel_kwargs)
     data=np.vstack(data).T
 
-    categorical_factors = df.select_dtypes(include=("category", "object"))
+    categorical_factors = df.select_dtypes(include=("category", "object", "bool"))
     categorical_cols=[]
     if categorical_factors.shape[1] > 0:
         categorical_cols = categorical_factors.columns.values.tolist()
         ordinal_encoder = OrdinalEncoder()
-        new_vals = ordinal_encoder.fit_transform(categorical_factors).astype(dtype)
+        new_vals = ordinal_encoder.fit_transform(categorical_factors)
+        
+        max_cats=new_vals.max(axis=0)
+        exc_idx=max_cats>np.iinfo(dtype).max
+        n_max_cats=exc_idx.sum()
+        if n_max_cats:
+            logger.warning(f"{n_max_cats:_} factors exceeded dtype {dtype} and were truncated: {np.asarray(categorical_cols)[exc_idx]}")
+        new_vals=new_vals.astype(dtype)
+
         if data is None:
             data = new_vals
         else:
             data = np.append(data, new_vals, axis=1)
 
-    nbins = data.max(axis=0) + 1
+    nbins = data.max(axis=0).astype(np.int32)+1-data.min(axis=0).astype(np.int32)
 
     return data, numerical_cols + categorical_cols, nbins
 
@@ -2321,6 +2332,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         cv: Union[object, int, None] = 3,
         cv_shuffle: bool = True,
         random_state: int = None,
+        parallel_kwargs:dict={},
+        n_jobs:int=-1,
         verbose: Union[bool, int] = 0,                
     ):
 
@@ -2336,15 +2349,107 @@ class MRMR(BaseEstimator, TransformerMixin):
     def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None,**fit_params):
         """We run N selections on data subsets, and pick only features that appear in all selections"""
 
+
+        # ---------------------------------------------------------------------------------------------------------------
+        # Inits
+        # ---------------------------------------------------------------------------------------------------------------
+
         start_time = timer()
-        ran_out_of_time = False
+        ran_out_of_time = False     
+        
+        max_runtime_mins = self.max_runtime_mins
+        random_state=self.random_state
+        parallel_kwargs=self.parallel_kwargs,
+        n_jobs=self.n_jobs
+        verbose=self.verbose
+        cv_shuffle = self.cv_shuffle        
+        cv = self.cv
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Init cv
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        if cv is None or str(cv).isnumeric():
+            if cv is None:
+                cv = 3
+            if is_classifier(estimator):
+                if groups is not None:
+                    cv = StratifiedGroupKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
+                else:
+                    cv = StratifiedKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
+            else:
+                if groups is not None:
+                    cv = GroupKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
+                else:
+                    cv = KFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
+            if verbose:
+                logger.info(f"Using cv={cv}")        
+
+        # ---------------------------------------------------------------------------------------------------------------
+        # Discretize continuous data
+        # ---------------------------------------------------------------------------------------------------------------
+
+        data, cols, nbins = categorize_dataset(
+            df=X_train[idx],
+            method="discretizer",
+            method_kwargs=dict(strategy="quantile", n_bins=10),
+            # method="numpy",
+            # method_kwargs=dict(bins=4)
+            # method="astropy",
+            # method_kwargs=dict(bins="knuth")
+            # method_kwargs=dict(bins="blocks")
+            dtype=np.int16,
+            parallel_kwargs=dict(temp_folder=r"R:\Temp"),
+            n_jobs=16,
+        )
+
+        # ---------------------------------------------------------------------------------------------------------------
+        # Core
+        # ---------------------------------------------------------------------------------------------------------------
 
         if random_state is not None:            
-            set_random_seed(random_state)
+            set_random_seed(random_state) 
 
-        subsets_selections=pra
-        for selection in subsets_selections:
+        splitter = cv.split(X=X, y=y, groups=groups)
 
+        subsets_selections=[]
+        if n_jobs==-1 or n_jobs>1:
+            fnc=delayed(screen_predictors)
+        else:
+            fnc=screen_predictors
+            
+            if verbose:
+                splitter = tqdmu(splitter, desc="CV folds", leave=False, total=cv.n_splits)            
+
+        for nfold, (train_index, test_index) in enumerate(splitter):
+            subsets_selections.append(fnc(
+                            factors_data=data,
+                            y=[target_idx],
+                            factors_nbins=nbins,
+                            factors_names=cols,
+                            interactions_max_order=1,
+                            full_npermutations=0,
+                            baseline_npermutations=10,
+                            min_nonzero_confidence=1.0,
+                            max_consec_unconfirmed=20,
+                            min_relevance_gain=0.025,
+                            max_runtime_mins=None,
+                            max_veteranes_interactions_order=1,
+                            reduce_gain_on_subelement_chosen=True,
+                            random_seed=None,
+                            use_gpu=False,
+                            nworkers=16,
+                            verbose=2,
+                            ndigits=5,
+                            parallel_kwargs=dict(temp_folder=r"R:\Temp"),
+
+                    ))
+
+        if n_jobs==-1 or n_jobs>1:
+            subsets_selections = parallel_run(jobs,n_jobs=n_jobs,**parallel_kwargs)
+        
+        for selected_vars, predictors, any_influencing in subsets_selections:
+            pass
     def transform(self, X, y=None):
         if isinstance(X, pd.DataFrame):
             return X.iloc[:,self.support_]
