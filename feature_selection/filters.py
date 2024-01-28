@@ -1525,7 +1525,7 @@ def screen_predictors(
         nconsec_unconfirmed = 0
 
         for n_confirmed_predictors in (predictors_pbar := tqdmu(range(len(candidates)), leave=False, desc="Confirmed predictors")):
-            if n_confirmed_predictors>4: n_jobs=1
+            
             if run_out_of_time:
                 break
 
