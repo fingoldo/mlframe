@@ -2340,7 +2340,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         random_state: int = None,
         parallel_kwargs:dict={},
         n_jobs:int=-1,
-        verbose: Union[bool, int] = 0,                
+        verbose: Union[bool, int] = 0,    
+        # hidden
+        n_features_in_:int=0,
+        feature_names_in_:Sequence = None,
+        support_:np.ndarray = None,
+
     ):
 
         # checks
