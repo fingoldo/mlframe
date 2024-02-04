@@ -19,7 +19,7 @@ while True:
         import copy
 
         import pandas as pd, numpy as np
-        import cupy as cp
+        import cupy as cp # pip install cupy-cuda11x; python -m cupyx.tools.install_library --cuda 11.x --library cutensor
         import os
         import gc
 
@@ -64,7 +64,7 @@ while True:
 
         from pyutilz.pythonlib import ensure_installed
 
-        ensure_installed("numpy pandas cupy scikit-learn")
+        ensure_installed("numpy pandas cupy-cuda11x scikit-learn")
 
     else:
         break        
