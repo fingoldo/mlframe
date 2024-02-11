@@ -1964,7 +1964,16 @@ def screen_predictors(
         if bootstrapped_gain>0:
             any_influencing.update(set(vars_combination))
 
-    return selected_vars, predictors,any_influencing
+    """Выбрать группы/кластера скоррелированных факторов. Вместо использования 1 самого крутого, рассмотреть средние от всех
+        отброшенных факторов, имеющих высокое прямое direct_MI с таргетом, но близкое к 0 additional_knowledge с каждым 
+        "победившим" фактором, проверить, не могут ли они усилить свой победивший фактор через ансамблирование. Усиление в смысле
+        среднего и вариативности MI с таргетом на бутстрепе подвыборок?
+
+        key = arr2str(X) + "_" + arr2str(Z)
+        if key in cached_cond_MIs:
+            additional_knowledge = cached_cond_MIs[key]                        
+    """
+    return selected_vars, predictors,any_influencing,entropy_cache,cached_MIs,cached_MIs,cached_cond_MIs
 
 
 def find_best_partial_gain(
@@ -2233,7 +2242,7 @@ def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,astropy_sample_
 def categorize_dataset(
     df: pd.DataFrame,
     method: str = "discretizer",
-    method_kwargs: dict = dict(strategy="uniform", n_bins=4),
+    method_kwargs: dict = dict(strategy="quantile", n_bins=4),
     min_ncats: int = 50,
     astropy_sample_size: int = 10_000,
     dtype=np.int16,
