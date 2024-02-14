@@ -239,7 +239,7 @@ def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
 
 
 def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, 
-                            show_plots: bool = True, plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=4,backend:str="matplotlib"):
+                            show_plots: bool = True, plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=4,backend:str="matplotlib",title:str=""):
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs."""
     
     assert backend in ("plotly","matplotlib")
@@ -250,11 +250,14 @@ def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int =
 
     fig=None
     if plot_file or show_plots:
+        plot_title=f"Calibration MAE={calibration_mae:.{ndigits}f} ± {calibration_std:.{ndigits}f}, cov.={calibration_coverage*100:.{int(np.log10(nbins))}f}%, pop.=[{max_hits:_};{min_hits:_}]"
+        if title:
+            plot_title=title.strip()+" "+plot_title
         fig=show_calibration_plot(
             freqs_predicted=freqs_predicted,
             freqs_true=freqs_true,
             hits=hits,
-            plot_title=f"Calibration MAE={calibration_mae:.{ndigits}f} ± {calibration_std:.{ndigits}f}, cov.={calibration_coverage*100:.{int(np.log10(nbins))}f}%, pop.=[{max_hits:_};{min_hits:_}]",
+            plot_title=plot_title,
             show_plots=show_plots,
             plot_file=plot_file,
             figsize=figsize,
