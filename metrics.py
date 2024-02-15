@@ -233,9 +233,9 @@ def calibration_metrics_from_freqs(freqs_predicted: np.ndarray, freqs_true: np.n
 
 
 @njit()
-def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
+def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100,use_weights:bool=False):
     freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
-    return calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins,array_size=len(y_true))
+    return calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins,array_size=len(y_true),use_weights=use_weights)
 
 
 def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, 
@@ -281,6 +281,11 @@ def predictions_time_instability(preds: pd.Series) -> float:
 
 
 class CB_CALIB_ERROR:
+    
+    def __init__(self,std_weight:float=0.5,use_weights:bool=True) -> None:
+        self.std_weight=std_weight
+        self.use_weights=use_weights
+
     def is_max_optimal(self):
         return False  # greater is better
 
@@ -288,10 +293,26 @@ class CB_CALIB_ERROR:
         output_weight = 1  # weight is not used
 
         # predictions=expit(approxes[0])
-        y_pred = 1 / (1 + np.exp(-approxes[0]))
-        calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=target, y_pred=y_pred)
+        #print(approxes,target)
+        
+        total_error=0.0
+        weights_sum=0
+        for class_id in range(len(approxes)):
+            y_pred = 1 / (1 + np.exp(-approxes[class_id]))
 
-        return njitted_calib_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage), output_weight
+            y_true=(target==class_id).astype(np.int8)
+            weight=y_true.sum()
+            weights_sum+=weight
+
+            calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred,use_weights=self.use_weights)
+
+            desc_score_indices = np.argsort(y_pred)[::-1]
+            roc_auc=fast_numba_auc_nonw(y_true=y_true, y_score=y_pred, desc_score_indices=desc_score_indices)
+
+            multicrit_class_error=njitted_calib_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage,roc_auc=roc_auc,std_weight=self.std_weight)            
+            total_error+=multicrit_class_error*weight
+
+        return total_error/weights_sum, output_weight
 
     def get_final_error(self, error, weight):
         return error
@@ -313,13 +334,13 @@ class CB_PRECISION:
         return error
 
 #@njit()
-def calib_error(calibration_mae:float , calibration_std:float, calibration_coverage:float,std_weight:float=0.5,cov_degree:float=0.5) -> float:
+def calib_error(calibration_mae:float , calibration_std:float, calibration_coverage:float,roc_auc:float,std_weight:float=0.5,cov_degree:float=0.5) -> float:
     """Integral calibration error."""
 
     if calibration_coverage==0.0:
         return 1e5
     else:
-        return (calibration_mae + calibration_std * std_weight)/(calibration_coverage**cov_degree)
+        return (calibration_mae + calibration_std * std_weight-roc_auc)#/(calibration_coverage**cov_degree)
 njitted_calib_error=njit(calib_error)
 
 def calib_error_xgboost(y_true: np.ndarray, y_pred: np.ndarray) -> float:
