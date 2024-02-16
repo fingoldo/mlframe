@@ -281,10 +281,11 @@ def predictions_time_instability(preds: pd.Series) -> float:
 
 
 class CB_CALIB_ERROR:
-    
+    """
     def __init__(self,std_weight:float=0.5,use_weights:bool=True) -> None:
         self.std_weight=std_weight
         self.use_weights=use_weights
+    """
 
     def is_max_optimal(self):
         return False  # greater is better
@@ -304,12 +305,12 @@ class CB_CALIB_ERROR:
             weight=y_true.sum()
             weights_sum+=weight
 
-            calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred,use_weights=self.use_weights)
+            calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred,use_weights=True) # use_weights=self.use_weights
 
             desc_score_indices = np.argsort(y_pred)[::-1]
             roc_auc=fast_numba_auc_nonw(y_true=y_true, y_score=y_pred, desc_score_indices=desc_score_indices)
 
-            multicrit_class_error=njitted_calib_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage,roc_auc=roc_auc,std_weight=self.std_weight)            
+            multicrit_class_error=njitted_calib_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage,roc_auc=roc_auc,std_weight=0.1) # std_weight=self.std_weight
             total_error+=multicrit_class_error*weight
 
         return total_error/weights_sum, output_weight
