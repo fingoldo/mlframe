@@ -2239,7 +2239,7 @@ def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,astropy_sample_
     
     return new_vals.ravel().astype(dtype)
 
-def categorize_dataset(
+def categorize_dataset_old(
     df: pd.DataFrame,
     method: str = "discretizer",
     method_kwargs: dict = dict(strategy="quantile", n_bins=4),
@@ -2304,6 +2304,65 @@ def digitize(arr: np.ndarray, bins: np.ndarray, dtype=np.int32) -> np.ndarray:
                 res[i] = j
                 break
     return res
+
+def categorize_dataset(
+    df: pd.DataFrame,
+    method: str = "discretizer",
+    method_kwargs: dict = dict(strategy="quantile", n_bins=4),
+    min_ncats: int = 50,
+    astropy_sample_size: int = 10_000,
+    dtype=np.int16,
+    n_jobs:int=-1,
+    parallel_kwargs:dict={},
+):
+    """
+    Convert dataframe into ordinal-encoded one.
+    For cat columns uses OrdinalEncoder.
+    For the rest uses new discretize_2d_array.
+    Does not care for min_cats yet.
+    """
+
+    data = None
+    numerical_cols = []
+    categorical_factors = []
+
+    numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "bool")).columns.values.tolist()    
+
+    data=[]
+    if n_jobs==-1 or n_jobs>1:
+        fnc=delayed(categorize_1d_array)
+    else:
+        fnc=categorize_1d_array
+
+    for col in tqdmu(numerical_cols, leave=False, desc="Binning of numericals"):
+        data.append(fnc(vals=df[col].values,min_ncats=min_ncats,method=method,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs,dtype=dtype))
+        
+    if n_jobs==-1 or n_jobs>1:
+        data = parallel_run(data,n_jobs=n_jobs,**parallel_kwargs)
+    data=np.vstack(data).T
+
+    categorical_factors = df.select_dtypes(include=("category", "object", "bool"))
+    categorical_cols=[]
+    if categorical_factors.shape[1] > 0:
+        categorical_cols = categorical_factors.columns.values.tolist()
+        ordinal_encoder = OrdinalEncoder()
+        new_vals = ordinal_encoder.fit_transform(categorical_factors)
+        
+        max_cats=new_vals.max(axis=0)
+        exc_idx=max_cats>np.iinfo(dtype).max
+        n_max_cats=exc_idx.sum()
+        if n_max_cats:
+            logger.warning(f"{n_max_cats:_} factors exceeded dtype {dtype} and were truncated: {np.asarray(categorical_cols)[exc_idx]}")
+        new_vals=new_vals.astype(dtype)
+
+        if data is None:
+            data = new_vals
+        else:
+            data = np.append(data, new_vals, axis=1)
+
+    nbins = data.max(axis=0).astype(np.int32)+1-data.min(axis=0).astype(np.int32)
+
+    return data, numerical_cols + categorical_cols, nbins
 
 class MRMR(BaseEstimator, TransformerMixin):
     """Finds subset of features having best CV score, by iterative expanding set of candidates most relevant to the target and least redundant to already added candidates.
