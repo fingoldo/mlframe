@@ -222,10 +222,11 @@ def calibration_metrics_from_freqs(freqs_predicted: np.ndarray, freqs_true: np.n
         if use_weights:
             weights=hits/array_size
             calibration_mae =np.sum(diffs*weights)
+            #print(np.sum(diffs),hits,array_size,weights,calibration_mae,weights.sum())
             calibration_std=np.sqrt(np.sum(((diffs-calibration_mae)**2)*weights))            
         else:
-            calibration_mae =np.sum(diffs)
-            calibration_std=np.sqrt(np.sum(((diffs-calibration_mae)**2)))
+            calibration_mae =np.mean(diffs)
+            calibration_std=np.sqrt(np.mean(((diffs-calibration_mae)**2)))
     else:
         calibration_mae, calibration_std=1.0,1.0
     
@@ -239,7 +240,7 @@ def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
 
 
 def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, 
-                            show_plots: bool = True, plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=4,backend:str="matplotlib",title:str="",use_weights=True):
+                            show_plots: bool = True, plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=1,backend:str="matplotlib",title:str="",use_weights=True):
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs."""
     
     assert backend in ("plotly","matplotlib")
@@ -250,7 +251,7 @@ def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int =
 
     fig=None
     if plot_file or show_plots:
-        plot_title=f"Calibration MAE={calibration_mae:.{ndigits}f} ± {calibration_std:.{ndigits}f}, cov.={calibration_coverage*100:.{int(np.log10(nbins))}f}%, pop.=[{max_hits:_};{min_hits:_}]"
+        plot_title=f"Calibration MAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}% ± {calibration_std*100:.{ndigits}f}%, cov.={calibration_coverage*100:.{int(np.log10(nbins))}f}%, pop.=[{max_hits:_};{min_hits:_}]"
         if title:
             plot_title=title.strip()+" "+plot_title
         fig=show_calibration_plot(
