@@ -215,7 +215,7 @@ def maximum_absolute_percentage_error(y_true:np.ndarray, y_pred:np.ndarray)->flo
     return np.nanmax(mape)
 
 @njit()
-def calibration_metrics_from_freqs(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray, nbins: int,array_size:int,use_weights:bool=False):
+def calibration_metrics_from_freqs(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray, nbins: int,array_size:int,use_weights:bool=True):
     calibration_coverage=len(set(np.round(freqs_predicted,int(np.log10(nbins)))))/nbins
     if len(hits)>0:
         diffs = np.abs((freqs_predicted - freqs_true))   
@@ -239,14 +239,14 @@ def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
 
 
 def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, 
-                            show_plots: bool = True, plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=4,backend:str="matplotlib",title:str=""):
+                            show_plots: bool = True, plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=4,backend:str="matplotlib",title:str="",use_weights=True):
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs."""
     
     assert backend in ("plotly","matplotlib")
 
     freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
     min_hits,max_hits=np.min(hits),np.max(hits)
-    calibration_mae, calibration_std,calibration_coverage = calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins,array_size=len(y_true))
+    calibration_mae, calibration_std,calibration_coverage = calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins,array_size=len(y_true),use_weights=use_weights)
 
     fig=None
     if plot_file or show_plots:
