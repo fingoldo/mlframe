@@ -39,7 +39,8 @@ while True:
         from sklearn.impute import SimpleImputer
         from itertools import combinations
         from numba.core import types
-        from numba import njit
+        from mlframe.arrays import arrayMinMax
+        from numba import njit,jit
         import numba
         import math
 
@@ -1596,7 +1597,7 @@ def screen_predictors(
                             verbose=verbose,
                             ndigits=ndigits,
                         )
-                        for workload in split_list_into_chunks(feasible_candidates, len(feasible_candidates) // nworkers)
+                        for workload in split_list_into_chunks(feasible_candidates, max(1,len(feasible_candidates) // nworkers))
                     )
 
                     for (
@@ -2257,7 +2258,7 @@ def categorize_dataset_old(
     numerical_cols = []
     categorical_factors = []
 
-    numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "bool")).columns.values.tolist()    
+    numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "bool")).columns.values.tolist()
 
     data=[]
     if n_jobs==-1 or n_jobs>1:
@@ -2305,15 +2306,110 @@ def digitize(arr: np.ndarray, bins: np.ndarray, dtype=np.int32) -> np.ndarray:
                 break
     return res
 
+from numba import prange
+
+#@njit()
+def edges(arr,quantiles):
+    bin_edges= np.asarray(np.percentile(arr, quantiles))
+    return bin_edges
+
+@njit()
+def quantize_dig(arr,bins):
+    return np.digitize(arr, bins[1:-1], right=True)
+
+@njit()
+def quantize_search(arr,bins):
+    return  np.searchsorted(bins[1:-1], arr, side="right")
+
+@njit()
+def discretize_uniform(arr:np.ndarray,nbins:int,min_value:float=None,max_value:float=None,dtype:object=np.int8)->np.ndarray:
+    if min_value is None or max_value is None:
+        min_value,max_value=arrayMinMax(arr)
+    rev_bin_width=nbins/(max_value-min_value+min_value/2)
+    return ((arr-min_value)*rev_bin_width).astype(dtype)
+
+@njit()
+def discretize_array(arr:np.ndarray,nbins:int=10, method:str='quantile',min_value:float=None,max_value:float=None,dtype:object=np.int8)->np.ndarray:
+    """Discretize cont variable into bins.
+    
+    Optimized version with mix of pure numpy and njitting.
+
+    
+    %timeit quantize_search(df['a'].values,bins) #njitted
+    24.6 ms ± 191 µs per loop (mean ± std. dev. of 7 runs, 10 loops each)
+    time: 2 s (started: 2024-02-09 19:58:31 +03:00)
+
+    %timeit quantize_search(df['a'].values,bins) #just numpy
+    27.2 ms ± 219 µs per loop (mean ± std. dev. of 7 runs, 10 loops each)
+    time: 2.2 s (started: 2024-02-09 19:52:59 +03:00)
+
+    %timeit quantize_dig(df['a'].values, bins) #njitted
+    23.7 ms ± 222 µs per loop (mean ± std. dev. of 7 runs, 10 loops each)
+    time: 1.92 s (started: 2024-02-09 19:58:24 +03:00)
+
+    %timeit quantize_dig(df['a'].values, bins) #just numpy    
+    31.1 ms ± 292 µs per loop (mean ± std. dev. of 7 runs, 10 loops each)
+    time: 2.52 s (started: 2024-02-09 19:53:01 +03:00)    
+    
+    
+    """
+    if method=='uniform':
+        return discretize_uniform(arr=arr,nbins=nbins,min_value=min_value,max_value=max_value,dtype=dtype)
+    elif method=='quantile':
+        bins_edges=get_binning_edges(arr=arr,nbins=nbins,method=method,min_value=min_value,max_value=max_value) # pure numpy    
+    #return quantize_dig(arr,bins_edges).astype(dtype) #njitted
+    return quantize_search(arr,bins_edges).astype(dtype) #njitted
+
+@njit(parallel=True)
+def discretize_2d_array(arr:np.ndarray,nbins:int=10, method:str='quantile',min_values:float=None,max_values:float=None,dtype:object=np.int8)->np.ndarray:
+    """
+    """
+    
+    res=np.empty_like(arr,dtype=dtype)
+    
+    
+    for col in prange(arr.shape[1]):
+        res[:,col]=discretize_array(arr=arr[:,col],nbins=nbins, method=method,min_value=min_values[col] if min_values is not None else None,max_value=max_values[col] if max_values is not None else None,dtype=dtype)
+    return res
+
+@jit(nopython=False)
+def get_binning_edges(arr:np.ndarray,nbins:int=10,method:str='uniform',min_value:float=None,max_value:float=None):
+    """
+    np.quantiles works faster when unjitted
+    
+    %timeit edges(df['a'].values,quantiles) #njitted
+    83.9 ms ± 274 µs per loop (mean ± std. dev. of 7 runs, 10 loops each)
+    time: 6.81 s (started: 2024-02-09 17:36:50 +03:00)
+    
+    %timeit edges(df['a'].values,quantiles) #just numpy 
+    30.9 ms ± 541 µs per loop (mean ± std. dev. of 7 runs, 10 loops each)
+    time: 2.52 s (started: 2024-02-09 17:35:58 +03:00)    
+    """
+    if method == "uniform":
+        if min_value is None or max_value is None:
+            min_value,max_value=arrayMinMax(arr)        
+        bin_edges = np.linspace(min_value, max_value, nbins + 1)
+
+    elif method == "quantile":
+        quantiles = np.linspace(0, 100, nbins+ 1)
+        bin_edges= np.asarray(np.percentile(arr, quantiles))
+    
+    return bin_edges
+
+def discretize_sklearn(arr:np.ndarray,nbins:int=10, method:str='uniform',min_value:float=None,max_value:float=None,dtype:object=np.int8)->np.ndarray:
+    """Simplified vesrion taken from Sklearn's KBinsdiscretizer. 
+    np.searchsorted runs twice faster when unjitted (as of Feb 2024 at least), so the func is not njitted.
+    """
+    
+    bins_edges=get_binning_edges(arr=arr,nbins=nbins,method=method,min_value=min_value,max_value=max_value)
+    return np.searchsorted(bins_edges[1:-1], arr, side="right").astype(dtype)
+
 def categorize_dataset(
     df: pd.DataFrame,
-    method: str = "discretizer",
-    method_kwargs: dict = dict(strategy="quantile", n_bins=4),
+    method: str = "quantile",
+    n_bins:int=4,
     min_ncats: int = 50,
-    astropy_sample_size: int = 10_000,
     dtype=np.int16,
-    n_jobs:int=-1,
-    parallel_kwargs:dict={},
 ):
     """
     Convert dataframe into ordinal-encoded one.
@@ -2328,18 +2424,7 @@ def categorize_dataset(
 
     numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "bool")).columns.values.tolist()    
 
-    data=[]
-    if n_jobs==-1 or n_jobs>1:
-        fnc=delayed(categorize_1d_array)
-    else:
-        fnc=categorize_1d_array
-
-    for col in tqdmu(numerical_cols, leave=False, desc="Binning of numericals"):
-        data.append(fnc(vals=df[col].values,min_ncats=min_ncats,method=method,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs,dtype=dtype))
-        
-    if n_jobs==-1 or n_jobs>1:
-        data = parallel_run(data,n_jobs=n_jobs,**parallel_kwargs)
-    data=np.vstack(data).T
+    data=discretize_2d_array(arr=df[numerical_cols].values,nbins=n_bins, method=method,min_values=None,max_values=None,dtype=dtype)
 
     categorical_factors = df.select_dtypes(include=("category", "object", "bool"))
     categorical_cols=[]
@@ -2365,7 +2450,7 @@ def categorize_dataset(
     return data, numerical_cols + categorical_cols, nbins
 
 class MRMR(BaseEstimator, TransformerMixin):
-    """Finds subset of features having best CV score, by iterative expanding set of candidates most relevant to the target and least redundant to already added candidates.
+    """Finds subset of features having highest impact on target and least redundancy.
 
     Parameters
     ----------
@@ -2438,7 +2523,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         
         max_runtime_mins = self.max_runtime_mins
         random_state=self.random_state
-        parallel_kwargs=self.parallel_kwargs,
+        parallel_kwargs=self.parallel_kwargs
         n_jobs=self.n_jobs
         verbose=self.verbose
         cv_shuffle = self.cv_shuffle        
@@ -2451,16 +2536,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         if cv is None or str(cv).isnumeric():
             if cv is None:
                 cv = 3
-            if is_classifier(estimator):
-                if groups is not None:
-                    cv = StratifiedGroupKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
-                else:
-                    cv = StratifiedKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
+
+            if groups is not None:
+                cv = GroupKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
             else:
-                if groups is not None:
-                    cv = GroupKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
-                else:
-                    cv = KFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
+                cv = KFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
+            
             if verbose:
                 logger.info(f"Using cv={cv}")        
 
@@ -2468,20 +2549,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Discretize continuous data
         # ---------------------------------------------------------------------------------------------------------------
 
-        data, cols, nbins = categorize_dataset(
-            df=X_train[idx],
-            method="discretizer",
-            method_kwargs=dict(strategy="quantile", n_bins=10),
-            # method="numpy",
-            # method_kwargs=dict(bins=4)
-            # method="astropy",
-            # method_kwargs=dict(bins="knuth")
-            # method_kwargs=dict(bins="blocks")
-            dtype=np.int16,
-            parallel_kwargs=dict(temp_folder=r"R:\Temp"),
-            n_jobs=16,
-        )
-
+            data, cols, nbins = categorize_dataset(
+                df=df,
+                method="quantile",
+                n_bins=10,
+                dtype=np.int32,
+            )
         # ---------------------------------------------------------------------------------------------------------------
         # Core
         # ---------------------------------------------------------------------------------------------------------------
@@ -2517,10 +2590,10 @@ class MRMR(BaseEstimator, TransformerMixin):
                             reduce_gain_on_subelement_chosen=True,
                             random_seed=None,
                             use_gpu=False,
-                            nworkers=16,
+                            nworkers=n_jobs,
                             verbose=2,
                             ndigits=5,
-                            parallel_kwargs=dict(temp_folder=r"R:\Temp"),
+                            parallel_kwargs=parallel_kwargs,
 
                     ))
 

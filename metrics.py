@@ -240,18 +240,23 @@ def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
 
 
 def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, 
-                            show_plots: bool = True, plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=1,backend:str="matplotlib",title:str="",use_weights=True):
+                            show_plots: bool = True, plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=1,backend:str="matplotlib",title:str="",use_weights=True,verbose:bool=False):
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs."""
     
     assert backend in ("plotly","matplotlib")
 
+    brier_loss=brier_score_loss(y_true=y_true, y_prob=y_pred)
+
     freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
+    if verbose:
+        print("freqs_predicted",freqs_predicted)
+        print("freqs_true",freqs_true)
     min_hits,max_hits=np.min(hits),np.max(hits)
     calibration_mae, calibration_std,calibration_coverage = calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins,array_size=len(y_true),use_weights=use_weights)
 
     fig=None
     if plot_file or show_plots:
-        plot_title=f"Calibration MAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}% ± {calibration_std*100:.{ndigits}f}%, cov.={calibration_coverage*100:.{int(np.log10(nbins))}f}%, pop.=[{max_hits:_};{min_hits:_}]"
+        plot_title=f"BR={brier_loss*100:.{ndigits}f}% Calibration MAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}% ± {calibration_std*100:.{ndigits}f}%, cov.={calibration_coverage*100:.{int(np.log10(nbins))}f}%, pop.=[{max_hits:_};{min_hits:_}]"
         if title:
             plot_title=title.strip()+" "+plot_title
         fig=show_calibration_plot(
@@ -265,7 +270,7 @@ def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int =
             backend=backend
         )
 
-    return calibration_mae, calibration_std, calibration_coverage, fig
+    return brier_loss,calibration_mae, calibration_std, calibration_coverage, fig
 
 
 def predictions_time_instability(preds: pd.Series) -> float:
@@ -319,6 +324,33 @@ class CB_CALIB_ERROR:
     def get_final_error(self, error, weight):
         return error
 
+class CB_BRIER_LOSS:
+
+    def is_max_optimal(self):
+        return False  # greater is better
+
+    def evaluate(self, approxes, target, weight):
+        output_weight = 1  # weight is not used
+
+        # predictions=expit(approxes[0])
+        #print(approxes,target)
+        
+        total_error=0.0
+        weights_sum=0
+        for class_id in range(len(approxes)):
+            y_pred = 1 / (1 + np.exp(-approxes[class_id]))
+
+            y_true=(target==class_id).astype(np.int8)
+            weight=y_true.sum()
+            weights_sum+=weight
+
+            brier_loss=brier_score_loss(y_true=y_true,y_prob=y_pred)
+            total_error+=brier_loss*weight
+
+        return total_error/weights_sum, output_weight
+
+    def get_final_error(self, error, weight):
+        return error
 
 class CB_PRECISION:
     def is_max_optimal(self):
