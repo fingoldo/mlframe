@@ -35,6 +35,7 @@ while True:
         from scipy.stats import mode
 
         from sklearn.preprocessing import KBinsDiscretizer,OrdinalEncoder
+        from sklearn.model_selection import KFold
         from sklearn.base import is_classifier, is_regressor, BaseEstimator, TransformerMixin
         from sklearn.impute import SimpleImputer
         from itertools import combinations
@@ -463,11 +464,11 @@ def compute_mi_from_classes(
 
 
 @njit()
-def distribute_permutations(npermutations: int, nworkers: int) -> list:
+def distribute_permutations(npermutations: int, n_workers: int) -> list:
 
-    avg_perms_per_worker = npermutations // nworkers
-    diff = npermutations - avg_perms_per_worker * nworkers
-    workload = [avg_perms_per_worker] * nworkers
+    avg_perms_per_worker = npermutations // n_workers
+    diff = npermutations - avg_perms_per_worker * n_workers
+    workload = [avg_perms_per_worker] * n_workers
     if diff > 0:
         workload[-1] = workload[-1] + diff
     return workload
@@ -487,7 +488,7 @@ def mi_direct(
     classes_y: np.ndarray = None,
     classes_y_safe: cp.ndarray = None,
     freqs_y: np.ndarray = None,
-    nworkers: int = 1,
+    n_workers: int = 1,
     workers_pool: object = None,
     parallel_kwargs:dict={},
 ) -> tuple:
@@ -510,13 +511,13 @@ def mi_direct(
             if max_failed <= 1:
                 max_failed = 1
 
-        if nworkers and nworkers > 1 and npermutations > NMAX_NONPARALLEL_ITERS:
+        if n_workers and n_workers > 1 and npermutations > NMAX_NONPARALLEL_ITERS:
 
             # logger.info("Memmapping classes_x...")
             # classes_x_memmap = mem_map_array(obj=classes_x, file_name="classes_x", mmap_mode="r")
 
             if workers_pool is None:
-                workers_pool = Parallel(n_jobs=nworkers, **parallel_kwargs)
+                workers_pool = Parallel(n_jobs=n_workers, **parallel_kwargs)
 
             res = workers_pool(
                 delayed(parallel_mi)(
@@ -529,7 +530,7 @@ def mi_direct(
                     original_mi=original_mi,
                     max_failed=max_failed,
                 )
-                for worker_npermutations in distribute_permutations(npermutations=npermutations, nworkers=nworkers)
+                for worker_npermutations in distribute_permutations(npermutations=npermutations, n_workers=n_workers)
             )
 
             i = 0
@@ -752,7 +753,7 @@ def get_fleuret_criteria_confidence_parallel(
     extra_knowledge_multipler: float = -1.0,
     sink_threshold: float = -1.0,
     cached_cond_MIs: dict = None,
-    nworkers: int = 1,
+    n_workers: int = 1,
     workers_pool: object = None,
     parallel_kwargs:dict={},
     entropy_cache: dict = None,
@@ -763,7 +764,7 @@ def get_fleuret_criteria_confidence_parallel(
     nfailed = 0
 
     if workers_pool is None:
-        workers_pool = Parallel(n_jobs=nworkers, **parallel_kwargs)
+        workers_pool = Parallel(n_jobs=n_workers, **parallel_kwargs)
 
     gc.collect()
     res = workers_pool(
@@ -787,7 +788,7 @@ def get_fleuret_criteria_confidence_parallel(
             extra_x_shuffling=extra_x_shuffling,
             dtype=dtype,
         )
-        for worker_npermutations in distribute_permutations(npermutations=npermutations, nworkers=nworkers)
+        for worker_npermutations in distribute_permutations(npermutations=npermutations, n_workers=n_workers)
     )
 
     nchecked = 0
@@ -1353,12 +1354,12 @@ def screen_predictors(
     factors_data: np.ndarray,
     factors_nbins: Sequence[int],
     factors_names: Sequence[str] = None,
+    factors_names_to_use: Sequence[str] = None,
     factors_to_use: Sequence[int] = None,
     # targets
     targets_data: np.ndarray = None,
     targets_nbins: Sequence[int] = None,
     y: Sequence[int] = None,
-    targets: Union[dict, Sequence[Sequence]] = None,
     # algorithm
     mrmr_relevance_algo: str = "fleuret",
     mrmr_redundancy_algo: str = "fleuret",
@@ -1368,7 +1369,7 @@ def screen_predictors(
     dtype=np.int32,
     random_seed: int = None,
     use_gpu: bool = False,
-    nworkers: int = 1,
+    n_workers: int = 1,
     # confidence
     min_occupancy: int = None,
     min_nonzero_confidence: float = 0.99,
@@ -1435,13 +1436,25 @@ def screen_predictors(
     # warn if inputs are identical to targets
     if factors_data.shape == targets_data.shape:
         if np.shares_memory(factors_data, targets_data):
-            if factors_to_use is None:
-
+            if factors_to_use is None and factors_names_to_use is None:
                 if verbose > 1:
                     logger.info(
                         "factors_data and targets_data share the same memory. factors_to_use will be determined automatically to not contain any target columns."
                     )
                 x = set(range(factors_data.shape[1])) - set(y)
+            else:
+                if factors_to_use is not None:
+                    x=set(factors_to_use)- set(y)
+                    if verbose > 1:
+                        logger.info(
+                            f"Using only {len(factors_to_use):_} predefined factors: {factors_to_use}"
+                        )                    
+                else:
+                    x=[i for i,col_name in enumerate(factors_names) if col_name in factors_names_to_use and i!=y]
+                    if verbose > 1:
+                        logger.info(
+                            f"Using only {len(factors_names_to_use):_} predefined factors: {factors_names_to_use}"
+                        )                     
         else:
 
             assert not set(y).issubset(set(x))
@@ -1489,13 +1502,13 @@ def screen_predictors(
     else:
         freqs_y_safe = None
 
-    if nworkers and nworkers > 1:
+    if n_workers and n_workers > 1:
         #    global classes_y_memmap
         #    classes_y_memmap = mem_map_array(obj=classes_y, file_name="classes_y", mmap_mode="r")
         if verbose:
             logger.info("Starting parallel pool...")
-        workers_pool = Parallel(n_jobs=nworkers,**parallel_kwargs)
-        workers_pool(delayed(test)(i) for i in range(nworkers))
+        workers_pool = Parallel(n_jobs=n_workers,**parallel_kwargs)
+        workers_pool(delayed(test)(i) for i in range(n_workers))
     else:
         workers_pool = None
 
@@ -1567,7 +1580,7 @@ def screen_predictors(
 
                     feasible_candidates.append((cand_idx, X, nexisting if reduce_gain_on_subelement_chosen else 0))
 
-                if nworkers and nworkers > 1 and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS:
+                if n_workers and n_workers > 1 and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS:
 
                     res = workers_pool(
                         delayed(evaluate_candidates)(
@@ -1597,7 +1610,7 @@ def screen_predictors(
                             verbose=verbose,
                             ndigits=ndigits,
                         )
-                        for workload in split_list_into_chunks(feasible_candidates, max(1,len(feasible_candidates) // nworkers))
+                        for workload in split_list_into_chunks(feasible_candidates, max(1,len(feasible_candidates) // n_workers))
                     )
 
                     for (
@@ -1640,6 +1653,11 @@ def screen_predictors(
 
                 else:
                     for cand_idx, X, nexisting in (candidates_pbar := tqdmu(feasible_candidates, leave=False, desc="Candidates")):
+
+                        #tmp_idx=X[0]
+                        #print(X,factors_nbins[tmp_idx],factors_names[tmp_idx])
+                        #from time import sleep
+                        #sleep(5)
 
                         current_gain, sink_reasons = evaluate_candidate(
                             cand_idx=cand_idx,
@@ -1774,7 +1792,7 @@ def screen_predictors(
                                         classes_y_safe=classes_y_safe,
                                         min_nonzero_confidence=min_nonzero_confidence,
                                         npermutations=full_npermutations,
-                                        nworkers=nworkers,
+                                        n_workers=n_workers,
                                         workers_pool=workers_pool,
                                         parallel_kwargs=parallel_kwargs,
                                     )
@@ -1799,7 +1817,7 @@ def screen_predictors(
                             if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                                 eval_start = timer()
 
-                            if nworkers and nworkers > 1 and full_npermutations > NMAX_NONPARALLEL_ITERS:
+                            if n_workers and n_workers > 1 and full_npermutations > NMAX_NONPARALLEL_ITERS:
                                 bootstrapped_gain, confidence, parallel_entropy_cache = get_fleuret_criteria_confidence_parallel(
                                     data_copy=data_copy,
                                     factors_nbins=factors_nbins,
@@ -1816,7 +1834,7 @@ def screen_predictors(
                                     cached_cond_MIs=cached_cond_MIs,
                                     entropy_cache=entropy_cache,
                                     extra_x_shuffling=extra_x_shuffling,
-                                    nworkers=nworkers,
+                                    n_workers=n_workers,
                                     workers_pool=workers_pool,
                                     parallel_kwargs=parallel_kwargs,
                                 )
@@ -2322,14 +2340,14 @@ def quantize_search(arr,bins):
     return  np.searchsorted(bins[1:-1], arr, side="right")
 
 @njit()
-def discretize_uniform(arr:np.ndarray,nbins:int,min_value:float=None,max_value:float=None,dtype:object=np.int8)->np.ndarray:
+def discretize_uniform(arr:np.ndarray,n_bins:int,min_value:float=None,max_value:float=None,dtype:object=np.int8)->np.ndarray:
     if min_value is None or max_value is None:
         min_value,max_value=arrayMinMax(arr)
-    rev_bin_width=nbins/(max_value-min_value+min_value/2)
+    rev_bin_width=n_bins/(max_value-min_value+min_value/2)
     return ((arr-min_value)*rev_bin_width).astype(dtype)
 
 @njit()
-def discretize_array(arr:np.ndarray,nbins:int=10, method:str='quantile',min_value:float=None,max_value:float=None,dtype:object=np.int8)->np.ndarray:
+def discretize_array(arr:np.ndarray,n_bins:int=10, method:str='quantile',min_value:float=None,max_value:float=None,dtype:object=np.int8)->np.ndarray:
     """Discretize cont variable into bins.
     
     Optimized version with mix of pure numpy and njitting.
@@ -2354,14 +2372,14 @@ def discretize_array(arr:np.ndarray,nbins:int=10, method:str='quantile',min_valu
     
     """
     if method=='uniform':
-        return discretize_uniform(arr=arr,nbins=nbins,min_value=min_value,max_value=max_value,dtype=dtype)
+        return discretize_uniform(arr=arr,n_bins=n_bins,min_value=min_value,max_value=max_value,dtype=dtype)
     elif method=='quantile':
-        bins_edges=get_binning_edges(arr=arr,nbins=nbins,method=method,min_value=min_value,max_value=max_value) # pure numpy    
+        bins_edges=get_binning_edges(arr=arr,n_bins=n_bins,method=method,min_value=min_value,max_value=max_value) # pure numpy    
     #return quantize_dig(arr,bins_edges).astype(dtype) #njitted
     return quantize_search(arr,bins_edges).astype(dtype) #njitted
 
 @njit(parallel=True)
-def discretize_2d_array(arr:np.ndarray,nbins:int=10, method:str='quantile',min_values:float=None,max_values:float=None,dtype:object=np.int8)->np.ndarray:
+def discretize_2d_array(arr:np.ndarray,n_bins:int=10, method:str='quantile',min_ncats:int=50,min_values:float=None,max_values:float=None,dtype:object=np.int8)->np.ndarray:
     """
     """
     
@@ -2369,11 +2387,11 @@ def discretize_2d_array(arr:np.ndarray,nbins:int=10, method:str='quantile',min_v
     
     
     for col in prange(arr.shape[1]):
-        res[:,col]=discretize_array(arr=arr[:,col],nbins=nbins, method=method,min_value=min_values[col] if min_values is not None else None,max_value=max_values[col] if max_values is not None else None,dtype=dtype)
+        res[:,col]=discretize_array(arr=arr[:,col],n_bins=n_bins, method=method,min_value=min_values[col] if min_values is not None else None,max_value=max_values[col] if max_values is not None else None,dtype=dtype)
     return res
 
 @jit(nopython=False)
-def get_binning_edges(arr:np.ndarray,nbins:int=10,method:str='uniform',min_value:float=None,max_value:float=None):
+def get_binning_edges(arr:np.ndarray,n_bins:int=10,method:str='uniform',min_value:float=None,max_value:float=None):
     """
     np.quantiles works faster when unjitted
     
@@ -2388,20 +2406,20 @@ def get_binning_edges(arr:np.ndarray,nbins:int=10,method:str='uniform',min_value
     if method == "uniform":
         if min_value is None or max_value is None:
             min_value,max_value=arrayMinMax(arr)        
-        bin_edges = np.linspace(min_value, max_value, nbins + 1)
+        bin_edges = np.linspace(min_value, max_value, n_bins + 1)
 
     elif method == "quantile":
-        quantiles = np.linspace(0, 100, nbins+ 1)
+        quantiles = np.linspace(0, 100, n_bins+ 1)
         bin_edges= np.asarray(np.percentile(arr, quantiles))
     
     return bin_edges
 
-def discretize_sklearn(arr:np.ndarray,nbins:int=10, method:str='uniform',min_value:float=None,max_value:float=None,dtype:object=np.int8)->np.ndarray:
+def discretize_sklearn(arr:np.ndarray,n_bins:int=10, method:str='uniform',min_value:float=None,max_value:float=None,dtype:object=np.int8)->np.ndarray:
     """Simplified vesrion taken from Sklearn's KBinsdiscretizer. 
     np.searchsorted runs twice faster when unjitted (as of Feb 2024 at least), so the func is not njitted.
     """
     
-    bins_edges=get_binning_edges(arr=arr,nbins=nbins,method=method,min_value=min_value,max_value=max_value)
+    bins_edges=get_binning_edges(arr=arr,n_bins=n_bins,method=method,min_value=min_value,max_value=max_value)
     return np.searchsorted(bins_edges[1:-1], arr, side="right").astype(dtype)
 
 def categorize_dataset(
@@ -2424,7 +2442,7 @@ def categorize_dataset(
 
     numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "bool")).columns.values.tolist()    
 
-    data=discretize_2d_array(arr=df[numerical_cols].values,nbins=n_bins, method=method,min_values=None,max_values=None,dtype=dtype)
+    data=discretize_2d_array(arr=df[numerical_cols].values,n_bins=n_bins, method=method,min_ncats=min_ncats,min_values=None,max_values=None,dtype=dtype)
 
     categorical_factors = df.select_dtypes(include=("category", "object", "bool"))
     categorical_cols=[]
@@ -2445,7 +2463,7 @@ def categorize_dataset(
         else:
             data = np.append(data, new_vals, axis=1)
 
-    nbins = data.max(axis=0).astype(np.int32)+1-data.min(axis=0).astype(np.int32)
+    nbins = data.max(axis=0).astype(np.int32)+1#-data.min(axis=0).astype(np.int32)
 
     return data, numerical_cols + categorical_cols, nbins
 
@@ -2485,20 +2503,51 @@ class MRMR(BaseEstimator, TransformerMixin):
 
     def __init__(
         self,
+        # quantization
+        quantization_method:str="quantile",
+        quantization_nbins:int=10,
+        quantization_dtype:object=np.int16,
+        # factors
+        factors_names_to_use: Sequence[str] = None,
+        factors_to_use: Sequence[int] = None,
+        # algorithm
+        mrmr_relevance_algo: str = "fleuret",
+        mrmr_redundancy_algo: str = "fleuret",
+        reduce_gain_on_subelement_chosen: bool = True,
+        # performance
+        extra_x_shuffling: bool = True,
+        dtype=np.int32,
+        random_seed: int = None,
+        use_gpu: bool = False,
+        n_workers: int = 1,
+        # confidence
+        min_occupancy: int = None,
+        min_nonzero_confidence: float = 0.99,
+        full_npermutations: int = 1_000,
+        baseline_npermutations: int = 100,
         # stopping conditions
-        max_runtime_mins: float = None,        
+        min_relevance_gain: float = 0.00001,
+        max_consec_unconfirmed: int = 10,
+        max_runtime_mins: int = None,
+        interactions_min_order: int = 1,
+        interactions_max_order: int = 1,
+        interactions_order_reversed: bool = False,
+        max_veteranes_interactions_order: int = 1,
+        only_unknown_interactions: bool = False,
+        # verbosity and formatting
+        verbose: Union[bool, int] = 0,
+        ndigits: int = 5,
+        parallel_kwargs=dict(max_nbytes=MAX_JOBLIB_NBYTES),    
         # CV
         cv: Union[object, int, None] = 3,
         cv_shuffle: bool = True,
+        #service
         random_state: int = None,
-        parallel_kwargs:dict={},
-        n_jobs:int=-1,
-        verbose: Union[bool, int] = 0,    
+        n_jobs:int=-1,        
         # hidden
         n_features_in_:int=0,
         feature_names_in_:Sequence = None,
         support_:np.ndarray = None,
-
     ):
 
         # checks
@@ -2520,6 +2569,10 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         start_time = timer()
         ran_out_of_time = False     
+
+        quantization_method=self.quantization_method
+        quantization_nbins=self.quantization_nbins
+        dtype=self.dtype
         
         max_runtime_mins = self.max_runtime_mins
         random_state=self.random_state
@@ -2544,21 +2597,42 @@ class MRMR(BaseEstimator, TransformerMixin):
             
             if verbose:
                 logger.info(f"Using cv={cv}")        
+        
+
+
+        self.feature_names_in_=X.columns.tolist()
+        self.n_features_in_=len(self.feature_names_in_)
+                
+        # ---------------------------------------------------------------------------------------------------------------
+        # Temporarily inject targets
+        # ---------------------------------------------------------------------------------------------------------------
+                
+        target_prefix='targ_'+str(np.random.random())[3:9]
+        y_shape=y.shape
+        if len(y_shape)==2:
+            y_shape=y_shape[1]
+        else:
+            y_shape=1
+        target_names=[target_prefix+str(i) for i in range(y_shape)]
+        X[target_names]=y.reshape(-1,1)        
 
         # ---------------------------------------------------------------------------------------------------------------
         # Discretize continuous data
         # ---------------------------------------------------------------------------------------------------------------
 
-            data, cols, nbins = categorize_dataset(
-                df=df,
-                method="quantile",
-                n_bins=10,
-                dtype=np.int32,
-            )
+        data, cols, nbins = categorize_dataset(
+            df=X.ffill().bfill(),
+            method=self.quantization_method,
+            n_bins=self.quantization_nbins,
+            dtype=self.quantization_dtype,
+        )
+        target_indices=[cols.index(col) for col in target_names]
+
         # ---------------------------------------------------------------------------------------------------------------
         # Core
         # ---------------------------------------------------------------------------------------------------------------
 
+        """
         if random_state is not None:            
             set_random_seed(random_state) 
 
@@ -2577,7 +2651,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             subsets_selections.append(fnc(
                             factors_data=data,
                             y=[target_idx],
-                            factors_nbins=nbins,
+                            factors_nbins=n_bins,
                             factors_names=cols,
                             interactions_max_order=1,
                             full_npermutations=0,
@@ -2590,7 +2664,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                             reduce_gain_on_subelement_chosen=True,
                             random_seed=None,
                             use_gpu=False,
-                            nworkers=n_jobs,
+                            n_workers=n_jobs,
                             verbose=2,
                             ndigits=5,
                             parallel_kwargs=parallel_kwargs,
@@ -2602,6 +2676,68 @@ class MRMR(BaseEstimator, TransformerMixin):
         
         for selected_vars, predictors, any_influencing in subsets_selections:
             pass
+            
+        """
+        
+        """
+        #service
+        random_state: int = None,
+        n_jobs:int=-1,  
+        """      
+
+        selected_vars, predictors,any_influencing,entropy_cache,cached_MIs,cached_MIs,cached_cond_MIs=screen_predictors(
+                            factors_data=data,
+                            y=target_indices,
+                            factors_nbins=nbins,
+                            factors_names=cols,
+                            factors_names_to_use=self.factors_names_to_use,
+                            factors_to_use=self.factors_to_use,
+                            # algorithm
+                            mrmr_relevance_algo=self.mrmr_relevance_algo,
+                            mrmr_redundancy_algo=self.mrmr_redundancy_algo,
+                            reduce_gain_on_subelement_chosen=self.reduce_gain_on_subelement_chosen,
+                            # performance
+                            extra_x_shuffling=self.extra_x_shuffling,
+                            dtype=self.dtype,
+                            random_seed=self.random_seed,
+                            use_gpu=self.use_gpu,
+                            n_workers=self.n_workers,
+                            # confidence
+                            min_occupancy=self.min_occupancy,
+                            min_nonzero_confidence=self.min_nonzero_confidence,
+                            full_npermutations=self.full_npermutations,
+                            baseline_npermutations=self.baseline_npermutations,
+                            # stopping conditions
+                            min_relevance_gain=self.min_relevance_gain,
+                            max_consec_unconfirmed=self.max_consec_unconfirmed,
+                            max_runtime_mins=self.max_runtime_mins,
+                            interactions_min_order=self.interactions_min_order,
+                            interactions_max_order=self.interactions_max_order,
+                            interactions_order_reversed=self.interactions_order_reversed,
+                            max_veteranes_interactions_order=self.max_veteranes_interactions_order,
+                            only_unknown_interactions=self.only_unknown_interactions,
+                            # verbosity and formatting
+                            verbose=self.verbose,
+                            ndigits=self.ndigits,
+                            parallel_kwargs=self.parallel_kwargs                            
+                    )
+        # ---------------------------------------------------------------------------------------------------------------
+        # Drop Temporarily targets
+        # ---------------------------------------------------------------------------------------------------------------
+        
+        X.drop(columns=target_names,inplace=True)
+
+        # assign support
+
+        self.support_=selected_vars
+        if selected_vars:
+            self.n_features_=len(selected_vars)
+        else:
+            self.n_features_=0
+
+        if verbose:
+            logger.info(f"MRMR selected {self.n_features_:_} out of {self.n_features_in_:_} features: {predictors}")
+
     def transform(self, X, y=None):
         if isinstance(X, pd.DataFrame):
             return X.iloc[:,self.support_]
