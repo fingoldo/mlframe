@@ -101,14 +101,21 @@ def compute_simple_stats_numba(arr: np.ndarray)->tuple:
 
     if size==0: size=len(arr)
 
-    mean_value=total/size
+    if size:
+        mean_value=total/size
+    else:
+        mean_value=0.0
+        minval,maxval=0.0,0.0
 
     for i,next_value in enumerate(arr):
         if np.isfinite(next_value):
             d = next_value - mean_value
             summand = d * d
             std_val = std_val + summand
-    std_val = np.sqrt(std_val / size)
+    if size:
+        std_val = np.sqrt(std_val / size)
+    else:
+        std_val=0.0
     return minval,maxval,argmin,argmax,mean_value,std_val
 
 def get_simple_stats_names()->list:

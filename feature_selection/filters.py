@@ -1727,7 +1727,8 @@ def screen_predictors(
                         X = candidates[next_best_candidate_idx]
 
                         # ---------------------------------------------------------------------------------------------------------------
-                        # For cands other than the top one, if best partial gain <= next_best_gain, we can proceed with confirming next_best_gain. else we have to recompute partial gains
+                        # For cands other than the top one, if best partial gain <= next_best_gain, we can proceed with confirming next_best_gain. 
+                        # else we have to recompute partial gains
                         # ---------------------------------------------------------------------------------------------------------------
 
                         if n > 0:
@@ -1739,7 +1740,8 @@ def screen_predictors(
                                 selected_vars=selected_vars,
                             )
 
-                            if best_partial_gain > next_best_gain:
+                            if best_partial_gain > next_best_gain:                          
+                                best_gain=next_best_gain
                                 if verbose > 1:
                                     print(
                                         "Have no best_candidate anymore. Need to recompute partial gains. best_partial_gain of candidate",

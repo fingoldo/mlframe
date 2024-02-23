@@ -7,6 +7,7 @@ from numba import cuda,njit,prange
 ################################################################################################
 #ARRAY STATS
 ################################################################################################
+
 @njit(fastmath=True)
 def arrayMinMax(x,l=0,r=0):
     if r==0: r=len(x)
@@ -197,3 +198,19 @@ def arrayCountingArgSortAndUniqueValuesThreaded(array,maxval,mask=np.array([],np
                     argsorted[position] = index
                     position+= 1   
     return np.array(uniqueValues,np.int32),np.array(uniqueValuesIndices,np.int32),argsorted
+
+def topk_by_partition(input:np.ndarray, k:int, axis:int=None, ascending:bool=False)->tuple:
+    """Returns indices and values of TOP-k elements of an array"""
+    if not ascending:
+        input *= -1
+    ind = np.argpartition(input, k, axis=axis)
+    ind = np.take(ind, np.arange(k), axis=axis) # k non-sorted indices
+    input = np.take_along_axis(input, ind, axis=axis) # k non-sorted values
+
+    # sort within k elements
+    ind_part = np.argsort(input, axis=axis)
+    ind = np.take_along_axis(ind, ind_part, axis=axis)
+    if not ascending:
+        input *= -1
+    val = np.take_along_axis(input, ind_part, axis=axis) 
+    return ind, val
