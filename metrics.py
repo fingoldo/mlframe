@@ -170,6 +170,8 @@ def show_calibration_plot(
         fig = plt.figure(figsize=figsize)
         plt.scatter( x=freqs_predicted, y=freqs_true, marker="o", s=5000 * hits / hits.sum(), c=hits, label=label_freq)        
         plt.plot([x_min, x_max], [x_min, x_max], "g--", label=label_perfect)
+        plt.xlabel(label_prob)
+        plt.ylabel(label_freq)        
         if plot_title:
             plt.title(plot_title)
         
@@ -240,7 +242,8 @@ def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
 
 
 def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, 
-                            show_plots: bool = True, plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=1,backend:str="matplotlib",title:str="",use_weights=True,verbose:bool=False):
+                            show_plots: bool = True,show_points_density_in_title:bool=False,show_coverage_in_title:bool=False, plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=1,backend:str="matplotlib",title:str="",
+                            use_weights=True,verbose:bool=False):
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs."""
     
     assert backend in ("plotly","matplotlib")
@@ -256,7 +259,11 @@ def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int =
 
     fig=None
     if plot_file or show_plots:
-        plot_title=f"BR={brier_loss*100:.{ndigits}f}% Calibration MAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}% ± {calibration_std*100:.{ndigits}f}%, cov.={calibration_coverage*100:.{int(np.log10(nbins))}f}%, pop.=[{max_hits:_};{min_hits:_}]"
+        plot_title=f"BR={brier_loss*100:.{ndigits}f}% Calibration MAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}% ± {calibration_std*100:.{ndigits}f}%"
+        if show_coverage_in_title:
+            plot_title+=f", cov.={calibration_coverage*100:.{int(np.log10(nbins))}f}%"
+        if show_points_density_in_title:
+            plot_title+=f", dens.=[{max_hits:_};{min_hits:_}]"
         if title:
             plot_title=title.strip()+" "+plot_title
         fig=show_calibration_plot(
