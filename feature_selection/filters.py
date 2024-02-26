@@ -1994,7 +1994,7 @@ def screen_predictors(
         if key in cached_cond_MIs:
             additional_knowledge = cached_cond_MIs[key]                        
     """
-    return selected_vars, predictors,any_influencing,entropy_cache,cached_MIs,cached_MIs,cached_cond_MIs
+    return selected_vars, predictors,any_influencing,entropy_cache,cached_MIs,cached_confident_MIs,cached_cond_MIs,classes_y,classes_y_safe,freqs_y
 
 
 def find_best_partial_gain(
@@ -2564,7 +2564,6 @@ class MRMR(BaseEstimator, TransformerMixin):
     def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None,**fit_params):
         """We run N selections on data subsets, and pick only features that appear in all selections"""
 
-
         # ---------------------------------------------------------------------------------------------------------------
         # Inits
         # ---------------------------------------------------------------------------------------------------------------
@@ -2587,7 +2586,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ----------------------------------------------------------------------------------------------------------------------------
         # Init cv
         # ----------------------------------------------------------------------------------------------------------------------------
-
+        
+        """
         if cv is None or str(cv).isnumeric():
             if cv is None:
                 cv = 3
@@ -2598,9 +2598,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                 cv = KFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
             
             if verbose:
-                logger.info(f"Using cv={cv}")        
-        
-
+                logger.info(f"Using cv={cv}")
+        """
 
         self.feature_names_in_=X.columns.tolist()
         self.n_features_in_=len(self.feature_names_in_)
@@ -2687,7 +2686,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         n_jobs:int=-1,  
         """      
 
-        selected_vars, predictors,any_influencing,entropy_cache,cached_MIs,cached_MIs,cached_cond_MIs=screen_predictors(
+        selected_vars, predictors,any_influencing,entropy_cache,cached_MIs,cached_confident_MIs,cached_cond_MIs,classes_y,classes_y_safe,freqs_y=screen_predictors(
                             factors_data=data,
                             y=target_indices,
                             factors_nbins=nbins,
@@ -2729,7 +2728,9 @@ class MRMR(BaseEstimator, TransformerMixin):
         
         X.drop(columns=target_names,inplace=True)
 
+        # ---------------------------------------------------------------------------------------------------------------
         # assign support
+        # ---------------------------------------------------------------------------------------------------------------
 
         self.support_=selected_vars
         if selected_vars:
@@ -2737,6 +2738,120 @@ class MRMR(BaseEstimator, TransformerMixin):
         else:
             self.n_features_=0
 
+        # ---------------------------------------------------------------------------------------------------------------
+        # assign extra vars for upcoming vars improving
+        # ---------------------------------------------------------------------------------------------------------------
+        
+        self.cached_MIs_=cached_MIs
+        self.cached_cond_MIs_=cached_cond_MIs
+        self.cached_confident_MIs_=cached_confident_MIs   
+
+        from itertools import combinations
+        from pyutilz.pythonlib import sort_dict_by_value
+        
+        fe_npermutations=10
+        fe_min_nonzero_confidence=1.0
+        unary_transformations=[np.log,np.sin,np.cos]
+        binary_transformations=[np.multiply,np.add] # ,np.divide
+
+        for raw_vars_pair in combinations(np.arange(X.shape[1]),2):
+            # check that every element of a pair has computed its MI with target
+            for var in raw_vars_pair:
+                if (var,) not in cached_confident_MIs and (var,)  not in cached_MIs:
+                    mi,conf=mi_direct(
+                            data,
+                            x=(var,),
+                            y=target_indices,
+                            factors_nbins=nbins,
+                            classes_y=classes_y,
+                            classes_y_safe=classes_y_safe,
+                            freqs_y=freqs_y,
+                            min_nonzero_confidence=fe_min_nonzero_confidence,
+                            npermutations=fe_npermutations,
+                        )  
+                    cached_MIs[raw_vars_pair]=mi
+
+            # ensure that pair itself has computed its MI with target
+            if raw_vars_pair not in cached_confident_MIs and raw_vars_pair not in cached_MIs:
+                mi,conf=mi_direct(
+                    data,
+                    x=raw_vars_pair,
+                    y=target_indices,
+                    factors_nbins=nbins,
+                    classes_y=classes_y,
+                    classes_y_safe=classes_y_safe,
+                    freqs_y=freqs_y,
+                    min_nonzero_confidence=fe_min_nonzero_confidence,
+                    npermutations=fe_npermutations,
+                )   
+                cached_MIs[raw_vars_pair]=mi
+        
+        # ---------------------------------------------------------------------------------------------------------------
+        # For every pair of factors (A,B), select ones having MI((A,B),Y)>MI(A,Y)+MI(B,Y). Such ones must posess more special connection!
+        # ---------------------------------------------------------------------------------------------------------------
+
+        vars_usage_counter=DefaultDict(int)  
+        prospective_pairs=[]      
+        for raw_vars_pair,pair_mi in sort_dict_by_value(cached_MIs).items():
+            if len(raw_vars_pair)==2:
+                ind_elems_mi_sum=cached_MIs[(raw_vars_pair[0],)]+cached_MIs[(raw_vars_pair[1],)]
+                if pair_mi>ind_elems_mi_sum*1.1:
+                    print(f"{raw_vars_pair} will be considered for FE, {pair_mi:.4f}>{ind_elems_mi_sum:.4f}")
+                    prospective_pairs.append((raw_vars_pair,pair_mi))
+                    for var in raw_vars_pair:
+                        vars_usage_counter[var]+=1
+
+        # ---------------------------------------------------------------------------------------------------------------
+        # Starting from the most heavily connected pairs, create a big pool of original features+their unary transforms.
+        # unary_transforms=np.log
+        # ---------------------------------------------------------------------------------------------------------------
+
+        # individual vars referenced more than once go to the global pool, rest to the local (not stored).
+        
+        transformed_vars=np.empty(shape=(len(X),len(prospective_pairs)*len(unary_transformations)*2),dtype=np.float32)
+        vars_transformations={}
+        i=0        
+        for raw_vars_pair,pair_mi in prospective_pairs:
+            for var in raw_vars_pair:
+                for j,tr_func in enumerate(unary_transformations):
+                    transformed_vars[:,i]=tr_func(X.iloc[:,var].values)
+                    print(transformed_vars[:5,i])
+                    vars_transformations[(var,j)]=i
+                    i+=1
+                
+        # ---------------------------------------------------------------------------------------------------------------
+        # Then, for every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM).
+        # Record best pairs.
+        # ---------------------------------------------------------------------------------------------------------------
+        print("freqs_y=",freqs_y)
+        print("classes_y=",classes_y)
+        for raw_vars_pair,pair_mi in prospective_pairs:
+            for transformations_pair in combinations([(raw_vars_pair[0],i) for i in range(len(unary_transformations))]+[(raw_vars_pair[1],i) for i in range(len(unary_transformations))],2):
+                for bin_func in binary_transformations:
+                    transformed_values=bin_func(transformed_vars[vars_transformations[transformations_pair[0]]],transformed_vars[vars_transformations[transformations_pair[1]]])
+                    print("transformed_values=",transformed_values[:10])
+                    discretized_transformed_values=discretize_array(arr=transformed_values,n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)           
+                    print("discretized_transformed_values=",discretized_transformed_values[:10])
+                    fe_mi,fe_conf=mi_direct(
+                                        discretized_transformed_values.reshape(-1,1),
+                                        x=[0],
+                                        y=None,
+                                        factors_nbins=[self.quantization_nbins],
+                                        classes_y=classes_y,
+                                        classes_y_safe=classes_y_safe,
+                                        freqs_y=freqs_y,
+                                        min_nonzero_confidence=fe_min_nonzero_confidence,
+                                        npermutations=0,
+                                    )
+                    if fe_mi>0:
+                        print(f"MI of transformed pair {transformations_pair}={fe_mi:.4f} which is above MI of the plain pair {pair_mi:.4f}!!!")
+
+        # Possibly decide on eliminating original features? (if constructed ones cover 90%+ of MI)   
+                                     
+        # ---------------------------------------------------------------------------------------------------------------
+        # Report final FS results
+        # ---------------------------------------------------------------------------------------------------------------
+            
         if verbose:
             logger.info(f"MRMR selected {self.n_features_:_} out of {self.n_features_in_:_} features: {predictors}")
 
