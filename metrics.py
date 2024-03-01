@@ -242,7 +242,8 @@ def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
 
 
 def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, 
-                            show_plots: bool = True,show_points_density_in_title:bool=False,show_coverage_in_title:bool=False, plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=1,backend:str="matplotlib",title:str="",
+                            show_plots: bool = True,show_points_density_in_title:bool=False,show_roc_auc_in_title:bool=False,show_coverage_in_title:bool=False,
+                            plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=2,backend:str="matplotlib",title:str="",
                             use_weights=True,verbose:bool=False):
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs."""
     
@@ -259,9 +260,12 @@ def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int =
 
     fig=None
     if plot_file or show_plots:
-        plot_title=f"BR={brier_loss*100:.{ndigits}f}% Calibration MAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}% ± {calibration_std*100:.{ndigits}f}%"
+        plot_title=f"BR={brier_loss*100:.{ndigits}f}% Calibration MAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}%±{calibration_std*100:.{ndigits}f}%"
+
         if show_coverage_in_title:
             plot_title+=f", cov.={calibration_coverage*100:.{int(np.log10(nbins))}f}%"
+        if show_roc_auc_in_title:
+            plot_title+=f", ROC AUC={fast_auc(y_true=y_true, y_score=y_pred):.3f}"
         if show_points_density_in_title:
             plot_title+=f", dens.=[{max_hits:_};{min_hits:_}]"
         if title:
@@ -375,13 +379,13 @@ class CB_PRECISION:
         return error
 
 #@njit()
-def calib_error(calibration_mae:float , calibration_std:float, calibration_coverage:float,roc_auc:float,std_weight:float=0.5,cov_degree:float=0.5) -> float:
+def calib_error(calibration_mae:float , calibration_std:float, calibration_coverage:float,roc_auc:float,std_weight:float=0.5,roc_auc_weight:float=0.0001,cov_degree:float=0.5) -> float:
     """Integral calibration error."""
 
     if calibration_coverage==0.0:
         return 1e5
     else:
-        return (calibration_mae + calibration_std * std_weight-roc_auc)#/(calibration_coverage**cov_degree)
+        return (calibration_mae + calibration_std * std_weight-roc_auc* roc_auc_weight)#/(calibration_coverage**cov_degree)
 njitted_calib_error=njit(calib_error)
 
 def calib_error_xgboost(y_true: np.ndarray, y_pred: np.ndarray) -> float:

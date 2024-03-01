@@ -33,6 +33,10 @@ while True:
         from timeit import default_timer as timer
 
         from scipy.stats import mode
+        from scipy import special as sp
+        from itertools import combinations
+        from numpy.polynomial.hermite import hermval
+        from pyutilz.pythonlib import sort_dict_by_value        
 
         from sklearn.preprocessing import KBinsDiscretizer,OrdinalEncoder
         from sklearn.model_selection import KFold
@@ -2744,17 +2748,35 @@ class MRMR(BaseEstimator, TransformerMixin):
         
         self.cached_MIs_=cached_MIs
         self.cached_cond_MIs_=cached_cond_MIs
-        self.cached_confident_MIs_=cached_confident_MIs   
-
-        from itertools import combinations
-        from pyutilz.pythonlib import sort_dict_by_value
+        self.cached_confident_MIs_=cached_confident_MIs
         
-        fe_npermutations=10
+        
+        fe_npermutations=0
+        fe_min_pair_mi_prevalence=1.1
         fe_min_nonzero_confidence=1.0
-        unary_transformations=[np.log,np.sin,np.cos]
-        binary_transformations=[np.multiply,np.add] # ,np.divide
+             
+        polynomial_transformations={'identity':lambda x: x,}
+        for _ in range(42):
+            length=np.random.randint(3,8)
+            #coef=(np.random.random(length)-0.5)*1
+            coef=np.empty(shape=length,dtype=np.float32)
+            for i in range(length):
+                coef[i]=np.random.normal((1.0 if i==1 else 0.0),scale=0.05)
 
-        for raw_vars_pair in combinations(np.arange(X.shape[1]),2):
+            polynomial_transformations["poly_"+str(coef)]=coef                
+        
+        #unary_transformations=polynomial_transformations
+        #nunary_transformations: 34
+        #trying 3_655 combs        
+
+        fe_unary_preset='minimal'
+        fe_binary_preset='minimal'
+        unary_transformations=create_unary_transformations(preset=fe_unary_preset)        
+        binary_transformations=create_binary_transformations(preset=fe_binary_preset)
+        print(f"nunary_transformations: {len(unary_transformations):_}")
+        print(f"nbinary_transformations: {len(binary_transformations):_}")
+
+        for raw_vars_pair in combinations(selected_vars,2):
             # check that every element of a pair has computed its MI with target
             for var in raw_vars_pair:
                 if (var,) not in cached_confident_MIs and (var,)  not in cached_MIs:
@@ -2769,7 +2791,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                             min_nonzero_confidence=fe_min_nonzero_confidence,
                             npermutations=fe_npermutations,
                         )  
-                    cached_MIs[raw_vars_pair]=mi
+                    cached_MIs[(var,)]=mi
 
             # ensure that pair itself has computed its MI with target
             if raw_vars_pair not in cached_confident_MIs and raw_vars_pair not in cached_MIs:
@@ -2789,14 +2811,14 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ---------------------------------------------------------------------------------------------------------------
         # For every pair of factors (A,B), select ones having MI((A,B),Y)>MI(A,Y)+MI(B,Y). Such ones must posess more special connection!
         # ---------------------------------------------------------------------------------------------------------------
-
+        
         vars_usage_counter=DefaultDict(int)  
         prospective_pairs=[]      
         for raw_vars_pair,pair_mi in sort_dict_by_value(cached_MIs).items():
             if len(raw_vars_pair)==2:
                 ind_elems_mi_sum=cached_MIs[(raw_vars_pair[0],)]+cached_MIs[(raw_vars_pair[1],)]
-                if pair_mi>ind_elems_mi_sum*1.1:
-                    print(f"{raw_vars_pair} will be considered for FE, {pair_mi:.4f}>{ind_elems_mi_sum:.4f}")
+                if pair_mi>ind_elems_mi_sum*fe_min_pair_mi_prevalence:
+                    print(f"Factors pair {raw_vars_pair} will be considered for Feature Engineering, {pair_mi:.4f}>{ind_elems_mi_sum:.4f}")
                     prospective_pairs.append((raw_vars_pair,pair_mi))
                     for var in raw_vars_pair:
                         vars_usage_counter[var]+=1
@@ -2813,25 +2835,42 @@ class MRMR(BaseEstimator, TransformerMixin):
         i=0        
         for raw_vars_pair,pair_mi in prospective_pairs:
             for var in raw_vars_pair:
-                for j,tr_func in enumerate(unary_transformations):
-                    transformed_vars[:,i]=tr_func(X.iloc[:,var].values)
-                    print(transformed_vars[:5,i])
-                    vars_transformations[(var,j)]=i
-                    i+=1
+                vals=X.iloc[:,var].values
+                for tr_name,tr_func in unary_transformations.items():
+                    key=(var,tr_name)
+                    if key not in vars_transformations:
+                        if "poly_" in tr_name:
+                            transformed_vars[:,i]=hermval(vals, c=tr_func)  
+                        else:
+                            transformed_vars[:,i]=tr_func(vals)
+                        vars_transformations[key]=i
+                        i+=1
                 
         # ---------------------------------------------------------------------------------------------------------------
         # Then, for every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM).
         # Record best pairs.
         # ---------------------------------------------------------------------------------------------------------------
-        print("freqs_y=",freqs_y)
-        print("classes_y=",classes_y)
+        
+        times_spent=DefaultDict(float)        
+
         for raw_vars_pair,pair_mi in prospective_pairs:
-            for transformations_pair in combinations([(raw_vars_pair[0],i) for i in range(len(unary_transformations))]+[(raw_vars_pair[1],i) for i in range(len(unary_transformations))],2):
-                for bin_func in binary_transformations:
-                    transformed_values=bin_func(transformed_vars[vars_transformations[transformations_pair[0]]],transformed_vars[vars_transformations[transformations_pair[1]]])
-                    print("transformed_values=",transformed_values[:10])
-                    discretized_transformed_values=discretize_array(arr=transformed_values,n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)           
-                    print("discretized_transformed_values=",discretized_transformed_values[:10])
+            combs=list(combinations([(raw_vars_pair[0],key) for key in unary_transformations.keys()]+[(raw_vars_pair[1],key) for key in unary_transformations.keys()],2))
+            print(f"trying {len(combs):_} combs")
+            best_config,best_mi=None,-1
+            for transformations_pair in tqdmu(combs):                
+                if transformations_pair[0][0]==transformations_pair[1][0]: # let's skip trying to transform the same factor for now
+                    continue
+                
+                param_a=transformed_vars[:,vars_transformations[transformations_pair[0]]]
+                param_b=transformed_vars[:,vars_transformations[transformations_pair[1]]]
+
+                for bin_func_name,bin_func in binary_transformations.items():
+                    
+                    start=timer()
+                    transformed_values=bin_func(param_a,param_b)
+                    times_spent[bin_func_name]+=timer()-start
+                    
+                    discretized_transformed_values=discretize_array(arr=transformed_values,n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
                     fe_mi,fe_conf=mi_direct(
                                         discretized_transformed_values.reshape(-1,1),
                                         x=[0],
@@ -2841,11 +2880,18 @@ class MRMR(BaseEstimator, TransformerMixin):
                                         classes_y_safe=classes_y_safe,
                                         freqs_y=freqs_y,
                                         min_nonzero_confidence=fe_min_nonzero_confidence,
-                                        npermutations=0,
+                                        npermutations=3,
                                     )
-                    if fe_mi>0:
-                        print(f"MI of transformed pair {transformations_pair}={fe_mi:.4f} which is above MI of the plain pair {pair_mi:.4f}!!!")
+                    if fe_mi>best_mi:
+                        best_mi=fe_mi
+                        best_config=(transformations_pair,bin_func_name)
+                    if fe_mi>best_mi*0.97:
+                        print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
 
+            print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")
+            if best_mi/pair_mi>0.97:
+                print(f"{best_config} is recommended to use as a new feature!")
+        print("time spent by binary func:",sort_dict_by_value(times_spent))
         # Possibly decide on eliminating original features? (if constructed ones cover 90%+ of MI)   
                                      
         # ---------------------------------------------------------------------------------------------------------------
@@ -2860,3 +2906,138 @@ class MRMR(BaseEstimator, TransformerMixin):
             return X.iloc[:,self.support_]
         else:
             return X[:,self.support_]
+        
+def njit_functions_dict(dict,exceptions:Sequence=('grad1','grad2','sinc','logn','greater','less','equal')):
+    """Tries replacing funcs in the dict with their njitted equivqlents, caring for exceptions."""
+    for key,func in dict.items():
+        if key not in exceptions:
+            try:
+                dict[key]=njit(func)
+            except Exception as e:
+                pass
+
+
+
+def create_unary_transformations(preset:str='minimal'):
+    unary_constraints={
+        # reverse trigonometric
+        'arccos':'-1to1','arcsin':'-1to1','arctan':'-pi/2topi/2',
+        # reverse hyperbolic
+        'arccosh':'1toinf','arctanh':'-0.(9)to0.(9)',
+        # powers 
+        'sqrt':'pos',
+        'log':'pos',
+        'reciproc':'nonzero',
+        'invsquared':'nonzero',
+        'invqubed':'nonzero',
+        'invcbrt':'nonzero',
+        'invsqrt':'nonzero',
+    }
+
+    unary_transformations={
+        # simplest
+        'identity':lambda x: x,
+        'sign':np.sign,
+        'neg':np.negative,
+        'abs':np.abs,
+        # math an
+        'grad1':np.gradient,
+        'grad2':lambda x: np.gradient(x,edge_order=2),
+        # outliers removal
+        # Rounding
+        'rint':np.rint,
+        # np.modf Return the fractional and integral parts of an array, element-wise.
+        # clip
+        # powers 
+        'squared': lambda x: np.power(x,2),
+        'qubed': lambda x: np.power(x,3),
+        'reciproc': lambda x: np.power(x,-1),
+        'invsquared': lambda x: np.power(x,-2),
+        'invqubed': lambda x: np.power(x,-3),
+        'cbrt': np.cbrt,
+        'sqrt': np.sqrt,
+        'invcbrt': lambda x: np.power(x,-1/3),
+        'invsqrt': lambda x: np.power(x,-1/2),            
+        # logarithms
+        'log':np.log,
+        'exp':np.exp,
+        # trigonometric
+        'sin':np.sin,
+    }
+    
+    if preset=='maximal':
+        unary_transformations.update({
+            # trigonometric
+            'sinc':np.sinc,'cos':np.cos,'tan':np.tan,
+            # reverse trigonometric
+            'arcsin':np.arcsin,'arccos':np.arccos,'arctan':np.arctan,
+            # hyperbolic
+            'sinh':np.sinh,'cosh':np.cosh,'tanh':np.tanh,
+            # reverse hyperbolic
+            'arcsinh':np.arcsinh,'arccosh':np.arccosh,'arctanh':np.arctanh, 
+            # special
+
+            #'psi':sp.psi, polygamma(0,x) is same as psi
+            'erf':sp.erf,
+            'dawsn':sp.dawsn,
+            'gammaln':sp.gammaln,
+            #'spherical_jn':sp.spherical_jn
+        })
+    
+    njit_functions_dict(unary_transformations)
+
+    if preset=='maximal':
+        for order in range(3):
+            unary_transformations['polygamma_'+str(order)]=lambda x: sp.polygamma(order,x)
+            unary_transformations['struve'+str(order)]=lambda x: sp.struve(order,x)
+            unary_transformations['jv'+str(order)]=lambda x: sp.jv(order,x)
+        
+        """j0
+        faster version of this function for order 0.
+
+        j1
+        faster version of this function for order 1.
+        """         
+
+    return unary_transformations
+    
+def create_binary_transformations(preset:str='minimal'):
+    binary_transformations={
+        # Basic
+        'mul':np.multiply,
+        "add":np.add,
+        # Extrema
+        'max':np.maximum,
+        'min':np.minimum,}        
+    
+    if preset=='maximal':
+        binary_transformations.update({
+        # All kinds of averages
+        'hypot':np.hypot,
+        'logaddexp': np.logaddexp, 
+        'agm':sp.agm, # Compute the arithmetic-geometric mean of a and b.
+        # Rational routines
+        #'lcm':np.lcm, # requires int arguments #  ufunc 'lcm' did not contain a loop with signature matching types (<class 'numpy.dtype[float32]'>, <class 'numpy.dtype[float32]'>) -> None
+        #'gcd':np.gcd, # requires int arguments
+        #'mod':np.remainder, # requires int arguments
+        # Powers
+        'pow':np.power, # non-symmetrical! may required dtype=complex for arbitrary numbers
+        # Logarithms
+        'logn': lambda x,y: np.emath.logn(x-np.min(x)+0.1,y-np.min(y)+0.1), # non-symmetrical!
+        # DSP
+        # 'convolve':np.convolve, # symmetrical wrt args. scipy.signal.fftconvolve should be faster? SLOW?
+        # Linalg
+        'heaviside':np.heaviside, # non-symmetrical!
+        #'cross':np.cross, # symmetrical # incompatible dimensions for cross product (dimension must be 2 or 3)
+
+        # Comparison
+        'greater':lambda x,y:np.greater(x,y).astype(int),
+        'less':lambda x,y:np.less(x,y).astype(int),
+        'equal':lambda x,y:np.equal(x,y).astype(int),
+        # special
+        'beta':sp.beta, # symmetrical            
+        'binom':sp.binom, # non-symmetrical! binomial coefficient considered as a function of two real variables.
+        })
+    njit_functions_dict(binary_transformations)
+
+    return binary_transformations
