@@ -2750,10 +2750,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         self.cached_cond_MIs_=cached_cond_MIs
         self.cached_confident_MIs_=cached_confident_MIs
         
-        
         fe_npermutations=0
+        fe_unary_preset='minimal'
+        fe_binary_preset='minimal'
         fe_min_pair_mi_prevalence=1.1
-        fe_min_nonzero_confidence=1.0
+        fe_min_nonzero_confidence=1.0        
+        fe_good_feature_mi_threshold=0.95        
              
         polynomial_transformations={'identity':lambda x: x,}
         for _ in range(42):
@@ -2765,12 +2767,8 @@ class MRMR(BaseEstimator, TransformerMixin):
 
             polynomial_transformations["poly_"+str(coef)]=coef                
         
-        #unary_transformations=polynomial_transformations
-        #nunary_transformations: 34
-        #trying 3_655 combs        
+        #unary_transformations=polynomial_transformations     
 
-        fe_unary_preset='minimal'
-        fe_binary_preset='minimal'
         unary_transformations=create_unary_transformations(preset=fe_unary_preset)        
         binary_transformations=create_binary_transformations(preset=fe_binary_preset)
         print(f"nunary_transformations: {len(unary_transformations):_}")
@@ -2857,6 +2855,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             combs=list(combinations([(raw_vars_pair[0],key) for key in unary_transformations.keys()]+[(raw_vars_pair[1],key) for key in unary_transformations.keys()],2))
             print(f"trying {len(combs):_} combs")
             best_config,best_mi=None,-1
+            var_pairs_perf={}
             for transformations_pair in tqdmu(combs):                
                 if transformations_pair[0][0]==transformations_pair[1][0]: # let's skip trying to transform the same factor for now
                     continue
@@ -2882,15 +2881,33 @@ class MRMR(BaseEstimator, TransformerMixin):
                                         min_nonzero_confidence=fe_min_nonzero_confidence,
                                         npermutations=3,
                                     )
+                    
+                    config=(transformations_pair,bin_func_name)
+                    var_pairs_perf[config]=fe_mi
+
                     if fe_mi>best_mi:
                         best_mi=fe_mi
-                        best_config=(transformations_pair,bin_func_name)
+                        best_config=config
                     if fe_mi>best_mi*0.97:
                         print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
 
             print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")
-            if best_mi/pair_mi>0.97:
-                print(f"{best_config} is recommended to use as a new feature!")
+            if best_mi/pair_mi>0.95:               
+
+                # ---------------------------------------------------------------------------------------------------------------
+                # Now, if there is a group of leaders with almost same performance, we need to approve them through some of the orther variables.
+                # если будут возникать такие группы примерно одинаковых по силе лидеров, их придётся разрешать с помощью одного из других влияющих факторов
+                # ---------------------------------------------------------------------------------------------------------------
+                            
+                leading_features=[]
+                for next_config,next_mi in sort_dict_by_value(var_pairs_perf).items():
+                    if next_me>best_mi*fe_good_feature_mi_threshold:
+                        leading_features.append(next_config)
+                
+                if len(leading_features)>1:
+                else:
+                    print(f"{best_config} is recommended to use as a new feature!")
+                    
         print("time spent by binary func:",sort_dict_by_value(times_spent))
         # Possibly decide on eliminating original features? (if constructed ones cover 90%+ of MI)   
                                      
@@ -2915,8 +2932,6 @@ def njit_functions_dict(dict,exceptions:Sequence=('grad1','grad2','sinc','logn',
                 dict[key]=njit(func)
             except Exception as e:
                 pass
-
-
 
 def create_unary_transformations(preset:str='minimal'):
     unary_constraints={
@@ -3002,6 +3017,7 @@ def create_unary_transformations(preset:str='minimal'):
     return unary_transformations
     
 def create_binary_transformations(preset:str='minimal'):
+    
     binary_transformations={
         # Basic
         'mul':np.multiply,
@@ -3038,6 +3054,7 @@ def create_binary_transformations(preset:str='minimal'):
         'beta':sp.beta, # symmetrical            
         'binom':sp.binom, # non-symmetrical! binomial coefficient considered as a function of two real variables.
         })
+    
     njit_functions_dict(binary_transformations)
 
     return binary_transformations
