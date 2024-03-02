@@ -2854,15 +2854,16 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         for raw_vars_pair,pair_mi in prospective_pairs: # !TODO! better to start considering form the most prospective pairs with highest mis ratio!
             combs=list(combinations([(raw_vars_pair[0],key) for key in unary_transformations.keys()]+[(raw_vars_pair[1],key) for key in unary_transformations.keys()],2))
-            combs=[transformations_pair for transformations_pair in combs if transformations_pair[0][0]@=transformations_pair[1][0]]# let's skip trying to transform the same factor for now
+            combs=[transformations_pair for transformations_pair in combs if transformations_pair[0][0]!=transformations_pair[1][0]] # let's skip trying to transform the same factor for now
             print(f"trying {len(combs):_} combs")
             
             best_config,best_mi=None,-1
             var_pairs_perf={}
 
-            final_transformed_vals=np.empty(shape=(len(X),len(combs)),dtype=dtype)
+            final_transformed_vals=np.empty(shape=(len(X),len(combs)*len(binary_transformations)),dtype=np.float32)
 
-            for i,transformations_pair in enumerate(tqdmu(combs)):
+            i=0
+            for transformations_pair in tqdmu(combs):
                 
                 param_a=transformed_vars[:,vars_transformations[transformations_pair[0]]]
                 param_b=transformed_vars[:,vars_transformations[transformations_pair[1]]]
@@ -2892,9 +2893,9 @@ class MRMR(BaseEstimator, TransformerMixin):
                     if fe_mi>best_mi:
                         best_mi=fe_mi
                         best_config=config
-                    if fe_mi>best_mi*0.97:
+                    if fe_mi>best_mi*0.85:
                         print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
-
+                    i+=1
             print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")            
             if best_mi/pair_mi>fe_min_engineered_mi_prevalence:               
 
