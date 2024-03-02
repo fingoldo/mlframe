@@ -2741,6 +2741,13 @@ class MRMR(BaseEstimator, TransformerMixin):
             self.n_features_=len(selected_vars)
         else:
             self.n_features_=0
+                                     
+        # ---------------------------------------------------------------------------------------------------------------
+        # Report final FS results
+        # ---------------------------------------------------------------------------------------------------------------
+            
+        if verbose:
+            logger.info(f"MRMR selected {self.n_features_:_} out of {self.n_features_in_:_} features: {predictors}")
 
         # ---------------------------------------------------------------------------------------------------------------
         # assign extra vars for upcoming vars improving
@@ -2750,6 +2757,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         self.cached_cond_MIs_=cached_cond_MIs
         self.cached_confident_MIs_=cached_confident_MIs
         
+        fe_max_steps=1
         fe_npermutations=0
         fe_unary_preset='minimal'
         fe_binary_preset='minimal'
@@ -2758,6 +2766,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_min_pair_mi_prevalence=1.05 # transformations of what exactly pairs of factors we consider, at all. mi of entire pair must be at least that higher than the mi of its individual factors.
         fe_min_engineered_mi_prevalence=0.98 # mi of transformed pair must be at least that higher than the mi of the entire pair
         fe_good_to_best_feature_mi_threshold=0.98 # when multiple good transformations exist for the same factors pair.
+
+        if fe_max_steps==0: return
              
         polynomial_transformations={'identity':lambda x: x,}
         for _ in range(42):
@@ -2818,7 +2828,8 @@ class MRMR(BaseEstimator, TransformerMixin):
             if len(raw_vars_pair)==2:
                 ind_elems_mi_sum=cached_MIs[(raw_vars_pair[0],)]+cached_MIs[(raw_vars_pair[1],)]
                 if pair_mi>ind_elems_mi_sum*fe_min_pair_mi_prevalence:
-                    print(f"Factors pair {raw_vars_pair} will be considered for Feature Engineering, {pair_mi:.4f}>{ind_elems_mi_sum:.4f}, rat={pair_mi/ind_elems_mi_sum:.2f}")
+                    if verbose:
+                        logger.info(f"Factors pair {raw_vars_pair} will be considered for Feature Engineering, {pair_mi:.4f}>{ind_elems_mi_sum:.4f}, rat={pair_mi/ind_elems_mi_sum:.2f}")
                     prospective_pairs.append((raw_vars_pair,pair_mi))
                     for var in raw_vars_pair:
                         vars_usage_counter[var]+=1
@@ -2851,12 +2862,22 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Record best pairs.
         # ---------------------------------------------------------------------------------------------------------------
         
-        times_spent=DefaultDict(float)        
+        times_spent=DefaultDict(float) 
 
+        def get_existing_feature_name(fe_tuple:tuple,cols_names:Sequence)->str:
+            fname=cols_names[fe_tuple[0]]
+            if fe_tuple[1]=="identity":
+                return fname
+            else:
+                return f"{fe_tuple[1]}({fname})"
+
+        def get_new_feature_name(fe_tuple:tuple,cols_names:Sequence)->str:
+            return f"{fe_tuple[1]}({get_existing_feature_name(fe_tuple=fe_tuple[0][0],cols_names=cols_names)},{get_existing_feature_name(fe_tuple=fe_tuple[0][1],cols_names=cols_names)})" # (((2, 'log'), (3, 'sin')), 'mul', 1016)
+        
         for raw_vars_pair,pair_mi in prospective_pairs: # !TODO! better to start considering form the most prospective pairs with highest mis ratio!
             combs=list(combinations([(raw_vars_pair[0],key) for key in unary_transformations.keys()]+[(raw_vars_pair[1],key) for key in unary_transformations.keys()],2))
             combs=[transformations_pair for transformations_pair in combs if transformations_pair[0][0]!=transformations_pair[1][0]] # let's skip trying to transform the same factor for now
-            print(f"trying {len(combs):_} combs")
+            #print(f"trying {len(combs):_} combs")
             
             best_config,best_mi=None,-1
             var_pairs_perf={}
@@ -2864,7 +2885,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             final_transformed_vals=np.empty(shape=(len(X),len(combs)*len(binary_transformations)),dtype=np.float32) # !TODO! optimize allocation of this array before the main loop!
 
             i=0
-            for transformations_pair in tqdmu(combs):
+            for transformations_pair in tqdmu(combs,desc=f"tranforming {raw_vars_pair}",leave=False):
                 
                 param_a=transformed_vars[:,vars_transformations[transformations_pair[0]]]
                 param_b=transformed_vars[:,vars_transformations[transformations_pair[1]]]
@@ -2895,9 +2916,9 @@ class MRMR(BaseEstimator, TransformerMixin):
                         best_mi=fe_mi
                         best_config=config
                     if fe_mi>best_mi*0.85:
-                        print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
+                        if verbose>1: print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
                     i+=1
-            print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")            
+            if verbose>1: print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")            
             if best_mi/pair_mi>fe_min_engineered_mi_prevalence:               
 
                 # ---------------------------------------------------------------------------------------------------------------
@@ -2912,7 +2933,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 
                 if len(leading_features)>1:
                     if len(selected_vars)>2:
-                        print(f"Taking {len(leading_features)} new features for a separate validation step!")
+                        if verbose>1: print(f"Taking {len(leading_features)} new features for a separate validation step!")
 
                         # ---------------------------------------------------------------------------------------------------------------
                         # Now let's test all of the candidates as is against the rest of the approved factors (also as is).
@@ -2927,7 +2948,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                             best_valid_mi=-1
                             config=(transformations_pair,bin_func_name,i)
 
-                            for external_factor in tqdmu(set(selected_vars)-set(raw_vars_pair),desc="external validation factor"):
+                            for external_factor in tqdmu(set(selected_vars)-set(raw_vars_pair),desc="external validation factor",leave=False):
                                 param_b=X.iloc[:,external_factor].values
 
                                 for valid_bin_func_name,valid_bin_func in binary_transformations.items():
@@ -2949,33 +2970,28 @@ class MRMR(BaseEstimator, TransformerMixin):
 
                                     if fe_mi>best_valid_mi:
                                         best_valid_mi=fe_mi                                        
-                                        print(f"MI of transformed pair {valid_bin_func_name}({(transformations_pair,bin_func_name)} with ext factor {external_factor})={fe_mi:.4f}")
+                                        if verbose>1: print(f"MI of transformed pair {valid_bin_func_name}({(transformations_pair,bin_func_name)} with ext factor {external_factor})={fe_mi:.4f}")
                             
                             valid_pairs_perf[config]=best_valid_mi
+                        
                         # ---------------------------------------------------------------------------------------------------------------
                         # Now we recommend proceeding with top N best transformations!
                         # ---------------------------------------------------------------------------------------------------------------
 
-                        for i,(config,valid_mi) in enumerate(sort_dict_by_value(valid_pairs_perf).items()):
+                        for i,(config,valid_mi) in enumerate(sort_dict_by_value(valid_pairs_perf,reverse=True).items()):
                             if i<fe_max_pair_features:
-                                print(f"{config} is recommended to use as a new feature!")
+                                if verbose: logger.info(f"{get_new_feature_name(fe_tuple=config,cols_names=cols)} is recommended to use as a new feature!")
                             else:
                                 break
                             
                     else:
-                        print(f"{len(leading_features)} are recommended to use as new features!")
+                        if verbose: logger.info(f"{len(leading_features)} are recommended to use as new features!")
                 else:
-                    print(f"{best_config} is recommended to use as a new feature!")
+                    if verbose: logger.info(f"{get_new_feature_name(fe_tuple=best_config,cols_names=cols)} is recommended to use as a new feature!")
 
-        print("time spent by binary func:",sort_dict_by_value(times_spent))
+        if verbose>1: print("time spent by binary func:",sort_dict_by_value(times_spent))
         # Possibly decide on eliminating original features? (if constructed ones cover 90%+ of MI)   
-                                     
-        # ---------------------------------------------------------------------------------------------------------------
-        # Report final FS results
-        # ---------------------------------------------------------------------------------------------------------------
-            
-        if verbose:
-            logger.info(f"MRMR selected {self.n_features_:_} out of {self.n_features_in_:_} features: {predictors}")
+
 
     def transform(self, X, y=None):
         if isinstance(X, pd.DataFrame):
