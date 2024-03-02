@@ -2883,7 +2883,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                                         classes_y_safe=classes_y_safe,
                                         freqs_y=freqs_y,
                                         min_nonzero_confidence=fe_min_nonzero_confidence,
-                                        npermutations=3,
+                                        npermutations=fe_npermutations,
                                     )
                     
                     config=(transformations_pair,bin_func_name,i)
@@ -2916,6 +2916,42 @@ class MRMR(BaseEstimator, TransformerMixin):
                         # Now let's test all of the candidates as is against the rest of the approved factors (also as is).
                         # Caindidates significantly outstanding (in terms of MI with target) with any of other approved factors are kept.
                         # ---------------------------------------------------------------------------------------------------------------
+
+                        for transformations_pair,bin_func_name,i in leading_features:
+                            param_a=final_transformed_vals[:,i]
+
+                            best_valid_config,best_valid_mi=None,-1
+                            valid_pairs_perf={}
+
+                            for external_factor in tqdmu(set(selected_vars)-set(raw_vars_pair),desc="external validation factor"):
+                                param_b=X.iloc[:,external_factor].values
+
+                                for valid_bin_func_name,valid_bin_func in binary_transformations.items():
+                                    
+                                    valid_vals=valid_bin_func(param_a,param_b)
+                                    
+                                    discretized_transformed_values=discretize_array(arr=valid_vals,n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
+                                    fe_mi,fe_conf=mi_direct(
+                                                        discretized_transformed_values.reshape(-1,1),
+                                                        x=[0],
+                                                        y=None,
+                                                        factors_nbins=[self.quantization_nbins],
+                                                        classes_y=classes_y,
+                                                        classes_y_safe=classes_y_safe,
+                                                        freqs_y=freqs_y,
+                                                        min_nonzero_confidence=fe_min_nonzero_confidence,
+                                                        npermutations=fe_npermutations,
+                                                    )
+                                    
+                                    config=(transformations_pair,bin_func_name,i)
+                                    valid_pairs_perf[config]=fe_mi
+
+                                    if fe_mi>best_valid_mi:
+                                        best_valid_mi=fe_mi
+                                        best_valid_config=config
+
+                                        print(f"MI of transformed pair {valid_bin_func_name}({(transformations_pair,bin_func_name)} with {external_factor})={fe_mi:.4f}")
+                                    
 
                     else:
                         print(f"{len(leading_features)} are recommended to use as new features!")
