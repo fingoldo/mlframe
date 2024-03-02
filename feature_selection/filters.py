@@ -2753,6 +2753,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_npermutations=0
         fe_unary_preset='minimal'
         fe_binary_preset='minimal'
+        fe_max_pair_features=1
         fe_min_nonzero_confidence=1.0
         fe_min_pair_mi_prevalence=1.05 # transformations of what exactly pairs of factors we consider, at all. mi of entire pair must be at least that higher than the mi of its individual factors.
         fe_min_engineered_mi_prevalence=0.98 # mi of transformed pair must be at least that higher than the mi of the entire pair
@@ -2860,7 +2861,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             best_config,best_mi=None,-1
             var_pairs_perf={}
 
-            final_transformed_vals=np.empty(shape=(len(X),len(combs)*len(binary_transformations)),dtype=np.float32)
+            final_transformed_vals=np.empty(shape=(len(X),len(combs)*len(binary_transformations)),dtype=np.float32) # !TODO! optimize allocation of this array before the main loop!
 
             i=0
             for transformations_pair in tqdmu(combs):
@@ -2918,11 +2919,13 @@ class MRMR(BaseEstimator, TransformerMixin):
                         # Caindidates significantly outstanding (in terms of MI with target) with any of other approved factors are kept.
                         # ---------------------------------------------------------------------------------------------------------------
 
+                        valid_pairs_perf={}
+
                         for transformations_pair,bin_func_name,i in leading_features:
                             param_a=final_transformed_vals[:,i]
 
-                            best_valid_config,best_valid_mi=None,-1
-                            valid_pairs_perf={}
+                            best_valid_mi=-1
+                            config=(transformations_pair,bin_func_name,i)
 
                             for external_factor in tqdmu(set(selected_vars)-set(raw_vars_pair),desc="external validation factor"):
                                 param_b=X.iloc[:,external_factor].values
@@ -2942,18 +2945,23 @@ class MRMR(BaseEstimator, TransformerMixin):
                                                         freqs_y=freqs_y,
                                                         min_nonzero_confidence=fe_min_nonzero_confidence,
                                                         npermutations=fe_npermutations,
-                                                    )
-                                    
-                                    config=(transformations_pair,bin_func_name,i)
-                                    valid_pairs_perf[config]=fe_mi
+                                                    )                                                                    
 
                                     if fe_mi>best_valid_mi:
-                                        best_valid_mi=fe_mi
-                                        best_valid_config=config
+                                        best_valid_mi=fe_mi                                        
+                                        print(f"MI of transformed pair {valid_bin_func_name}({(transformations_pair,bin_func_name)} with ext factor {external_factor})={fe_mi:.4f}")
+                            
+                            valid_pairs_perf[config]=best_valid_mi
+                        # ---------------------------------------------------------------------------------------------------------------
+                        # Now we recommend proceeding with top N best transformations!
+                        # ---------------------------------------------------------------------------------------------------------------
 
-                                        print(f"MI of transformed pair {valid_bin_func_name}({(transformations_pair,bin_func_name)} with {external_factor})={fe_mi:.4f}")
-                                    
-
+                        for i,(config,valid_mi) in enumerate(sort_dict_by_value(valid_pairs_perf).items()):
+                            if i<fe_max_pair_features:
+                                print(f"{config} is recommended to use as a new feature!")
+                            else:
+                                break
+                            
                     else:
                         print(f"{len(leading_features)} are recommended to use as new features!")
                 else:
