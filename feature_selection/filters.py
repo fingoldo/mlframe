@@ -2753,9 +2753,10 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_npermutations=0
         fe_unary_preset='minimal'
         fe_binary_preset='minimal'
-        fe_min_pair_mi_prevalence=1.1
-        fe_min_nonzero_confidence=1.0        
-        fe_good_feature_mi_threshold=0.95        
+        fe_min_nonzero_confidence=1.0
+        fe_min_pair_mi_prevalence=1.05 # transformations of what exactly pairs of factors we consider, at all. mi of entire pair must be at least that higher than the mi of its individual factors.
+        fe_min_engineered_mi_prevalence=0.98 # mi of transformed pair must be at least that higher than the mi of the entire pair
+        fe_good_to_best_feature_mi_threshold=0.98 # when multiple good transformations exist for the same factors pair.
              
         polynomial_transformations={'identity':lambda x: x,}
         for _ in range(42):
@@ -2816,7 +2817,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             if len(raw_vars_pair)==2:
                 ind_elems_mi_sum=cached_MIs[(raw_vars_pair[0],)]+cached_MIs[(raw_vars_pair[1],)]
                 if pair_mi>ind_elems_mi_sum*fe_min_pair_mi_prevalence:
-                    print(f"Factors pair {raw_vars_pair} will be considered for Feature Engineering, {pair_mi:.4f}>{ind_elems_mi_sum:.4f}")
+                    print(f"Factors pair {raw_vars_pair} will be considered for Feature Engineering, {pair_mi:.4f}>{ind_elems_mi_sum:.4f}, rat={pair_mi/ind_elems_mi_sum:.2f}")
                     prospective_pairs.append((raw_vars_pair,pair_mi))
                     for var in raw_vars_pair:
                         vars_usage_counter[var]+=1
@@ -2851,14 +2852,17 @@ class MRMR(BaseEstimator, TransformerMixin):
         
         times_spent=DefaultDict(float)        
 
-        for raw_vars_pair,pair_mi in prospective_pairs:
+        for raw_vars_pair,pair_mi in prospective_pairs: # !TODO! better to start considering form the most prospective pairs with highest mis ratio!
             combs=list(combinations([(raw_vars_pair[0],key) for key in unary_transformations.keys()]+[(raw_vars_pair[1],key) for key in unary_transformations.keys()],2))
+            combs=[transformations_pair for transformations_pair in combs if transformations_pair[0][0]@=transformations_pair[1][0]]# let's skip trying to transform the same factor for now
             print(f"trying {len(combs):_} combs")
+            
             best_config,best_mi=None,-1
             var_pairs_perf={}
-            for transformations_pair in tqdmu(combs):                
-                if transformations_pair[0][0]==transformations_pair[1][0]: # let's skip trying to transform the same factor for now
-                    continue
+
+            final_transformed_vals=np.empty(shape=(len(X),len(combs)),dtype=dtype)
+
+            for i,transformations_pair in enumerate(tqdmu(combs)):
                 
                 param_a=transformed_vars[:,vars_transformations[transformations_pair[0]]]
                 param_b=transformed_vars[:,vars_transformations[transformations_pair[1]]]
@@ -2866,10 +2870,10 @@ class MRMR(BaseEstimator, TransformerMixin):
                 for bin_func_name,bin_func in binary_transformations.items():
                     
                     start=timer()
-                    transformed_values=bin_func(param_a,param_b)
+                    final_transformed_vals[:,i]=bin_func(param_a,param_b)
                     times_spent[bin_func_name]+=timer()-start
                     
-                    discretized_transformed_values=discretize_array(arr=transformed_values,n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
+                    discretized_transformed_values=discretize_array(arr=final_transformed_vals[:,i],n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
                     fe_mi,fe_conf=mi_direct(
                                         discretized_transformed_values.reshape(-1,1),
                                         x=[0],
@@ -2882,7 +2886,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                                         npermutations=3,
                                     )
                     
-                    config=(transformations_pair,bin_func_name)
+                    config=(transformations_pair,bin_func_name,i)
                     var_pairs_perf[config]=fe_mi
 
                     if fe_mi>best_mi:
@@ -2891,8 +2895,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                     if fe_mi>best_mi*0.97:
                         print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
 
-            print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")
-            if best_mi/pair_mi>0.95:               
+            print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")            
+            if best_mi/pair_mi>fe_min_engineered_mi_prevalence:               
 
                 # ---------------------------------------------------------------------------------------------------------------
                 # Now, if there is a group of leaders with almost same performance, we need to approve them through some of the orther variables.
@@ -2901,13 +2905,23 @@ class MRMR(BaseEstimator, TransformerMixin):
                             
                 leading_features=[]
                 for next_config,next_mi in sort_dict_by_value(var_pairs_perf).items():
-                    if next_me>best_mi*fe_good_feature_mi_threshold:
+                    if next_mi>best_mi*fe_good_to_best_feature_mi_threshold:
                         leading_features.append(next_config)
                 
                 if len(leading_features)>1:
+                    if len(selected_vars)>2:
+                        print(f"Taking {len(leading_features)} new features for a separate validation step!")
+
+                        # ---------------------------------------------------------------------------------------------------------------
+                        # Now let's test all of the candidates as is against the rest of the approved factors (also as is).
+                        # Caindidates significantly outstanding (in terms of MI with target) with any of other approved factors are kept.
+                        # ---------------------------------------------------------------------------------------------------------------
+
+                    else:
+                        print(f"{len(leading_features)} are recommended to use as new features!")
                 else:
                     print(f"{best_config} is recommended to use as a new feature!")
-                    
+
         print("time spent by binary func:",sort_dict_by_value(times_spent))
         # Possibly decide on eliminating original features? (if constructed ones cover 90%+ of MI)   
                                      
@@ -2955,9 +2969,6 @@ def create_unary_transformations(preset:str='minimal'):
         'sign':np.sign,
         'neg':np.negative,
         'abs':np.abs,
-        # math an
-        'grad1':np.gradient,
-        'grad2':lambda x: np.gradient(x,edge_order=2),
         # outliers removal
         # Rounding
         'rint':np.rint,
@@ -2982,6 +2993,9 @@ def create_unary_transformations(preset:str='minimal'):
     
     if preset=='maximal':
         unary_transformations.update({
+            # math an
+            'grad1':np.gradient,
+            'grad2':lambda x: np.gradient(x,edge_order=2),            
             # trigonometric
             'sinc':np.sinc,'cos':np.cos,'tan':np.tan,
             # reverse trigonometric
