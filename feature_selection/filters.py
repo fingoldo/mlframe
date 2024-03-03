@@ -2901,8 +2901,9 @@ class MRMR(BaseEstimator, TransformerMixin):
                         if fe_mi>best_mi*0.85:
                             if verbose>1: print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
                         i+=1
-                if verbose>1: print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")            
-                if best_mi/pair_mi>fe_min_engineered_mi_prevalence:               
+                if verbose>1: print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")
+                
+                if best_mi/pair_mi>fe_min_engineered_mi_prevalence*(1.0 if num_fs_steps<1 else 1.025):
 
                     # ---------------------------------------------------------------------------------------------------------------
                     # Now, if there is a group of leaders with almost same performance, we need to approve them through some of the orther variables.
@@ -2970,7 +2971,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                             for j,(config,valid_mi) in enumerate(sort_dict_by_value(valid_pairs_perf,reverse=True).items()):
                                 if j<fe_max_pair_features:
                                     new_feature_name=get_new_feature_name(fe_tuple=config,cols_names=cols)
-                                    if verbose: logger.info(f"{new_feature_name} is recommended to use as a new feature! (won in validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.f4}, rat={best_mi/pair_mi:.f4}")
+                                    if verbose: logger.info(f"{new_feature_name} is recommended to use as a new feature! (won in validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}")
                                     transformations_pair,bin_func_name,i=config
 
                                     new_vals[:,j]=discretize_array(arr=final_transformed_vals[:,i],n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
@@ -2983,7 +2984,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                                     break  
                             new_vals=new_vals[:,:min(fe_max_pair_features,j)]
                         else:
-                            if verbose: logger.warning(f"{len(leading_features)} are recommended to use as new features! (can't narrow down the list by validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.f4}, rat={best_mi/pair_mi:.f4}")
+                            if verbose: logger.warning(f"{len(leading_features)} are recommended to use as new features! (can't narrow down the list by validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}")
                             
                             for j,(transformations_pair,bin_func_name,i) in enumerate(leading_features):
                                 new_vals[:,j]=discretize_array(arr=final_transformed_vals[:,i],n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
@@ -2993,7 +2994,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                                 engineered_features.add((transformations_pair,bin_func_name))
                     else:
                         new_feature_name=get_new_feature_name(fe_tuple=best_config,cols_names=cols)
-                        if verbose: logger.info(f"{new_feature_name} is recommended to use as a new feature! (clear winner) best_mi={best_mi:.4f}, pair_mi={pair_mi:.f4}, rat={best_mi/pair_mi:.f4}")
+                        if verbose: logger.info(f"{new_feature_name} is recommended to use as a new feature! (clear winner) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}")
                         
                         transformations_pair,bin_func_name,i=best_config
                         
@@ -3016,6 +3017,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                     """
                 checked_pairs.add(raw_vars_pair)
             if n_recommended_features==0: break
+            num_fs_steps+=1
         if verbose>1: print("time spent by binary func:",sort_dict_by_value(times_spent))
         # Possibly decide on eliminating original features? (if constructed ones cover 90%+ of MI)   
         
