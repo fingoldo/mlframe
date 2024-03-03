@@ -2549,7 +2549,9 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_min_nonzero_confidence=1.0,
         fe_min_pair_mi_prevalence=1.05, # transformations of what exactly pairs of factors we consider, at all. mi of entire pair must be at least that higher than the mi of its individual factors.
         fe_min_engineered_mi_prevalence=0.98, # mi of transformed pair must be at least that higher than the mi of the entire pair
-        fe_good_to_best_feature_mi_threshold=0.98, # when multiple good transformations exist for the same factors pair.        
+        fe_good_to_best_feature_mi_threshold=0.98, # when multiple good transformations exist for the same factors pair.    
+        fe_max_polynoms:int=0,
+        fe_print_best_mis_only:bool=True,
         # verbosity and formatting
         verbose: Union[bool, int] = 0,
         ndigits: int = 5,
@@ -2606,6 +2608,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_min_pair_mi_prevalence=self.fe_min_pair_mi_prevalence
         fe_min_engineered_mi_prevalence=self.fe_min_engineered_mi_prevalence
         fe_good_to_best_feature_mi_threshold=self.fe_good_to_best_feature_mi_threshold
+        fe_max_polynoms=self.fe_max_polynoms
+        fe_print_best_mis_only=self.fe_print_best_mis_only
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Init cv
@@ -2711,20 +2715,19 @@ class MRMR(BaseEstimator, TransformerMixin):
         """      
 
         if fe_max_steps>0:
-            polynomial_transformations={'identity':lambda x: x,}
-            for _ in range(42):
-                length=np.random.randint(3,8)
-                #coef=(np.random.random(length)-0.5)*1
-                coef=np.empty(shape=length,dtype=np.float32)
-                for i in range(length):
-                    coef[i]=np.random.normal((1.0 if i==1 else 0.0),scale=0.05)
-
-                polynomial_transformations["poly_"+str(coef)]=coef                
-            
-            #unary_transformations=polynomial_transformations     
-
             unary_transformations=create_unary_transformations(preset=fe_unary_preset)        
             binary_transformations=create_binary_transformations(preset=fe_binary_preset)
+            if fe_max_polynoms:
+                polynomial_transformations={} # 'identity':lambda x: x,
+                for _ in range(fe_max_polynoms):
+                    length=np.random.randint(3,9)
+                    #coef=(np.random.random(length)-0.5)*1
+                    coef=np.empty(shape=length,dtype=np.float32)
+                    for i in range(length):
+                        coef[i]=np.random.normal((1.0 if i==1 else 0.0),scale=0.05)
+
+                    unary_transformations["poly_"+str(coef)]=coef
+
             if verbose>1:
                 print(f"nunary_transformations: {len(unary_transformations):_}")
                 print(f"nbinary_transformations: {len(binary_transformations):_}")
@@ -2832,7 +2835,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             # unary_transforms=np.log
             # ---------------------------------------------------------------------------------------------------------------
 
-            # individual vars referenced more than once go to the global pool, rest to the local (not stored).
+            # individual vars referenced more than once go to the global pool, rest to the local (not stored)?
             
             transformed_vars=np.empty(shape=(len(X),len(prospective_pairs)*len(unary_transformations)*2),dtype=np.float32)
             vars_transformations={}
@@ -2849,7 +2852,6 @@ class MRMR(BaseEstimator, TransformerMixin):
                                 transformed_vars[:,i]=tr_func(vals)
                             vars_transformations[key]=i
                             i+=1
-                    
             # ---------------------------------------------------------------------------------------------------------------
             # Then, for every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM).
             # Record best pairs.
@@ -2899,7 +2901,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                             best_mi=fe_mi
                             best_config=config
                         if fe_mi>best_mi*0.85:
-                            if verbose>1: print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
+                            if not fe_print_best_mis_only or (fe_mi==best_mi):
+                                if verbose>1: print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
                         i+=1
                 if verbose>1: print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")
                 
@@ -3096,6 +3099,10 @@ def create_unary_transformations(preset:str='minimal'):
     unary_transformations={
         # simplest
         'identity':lambda x: x,
+    }
+    if preset!='minimal':
+        unary_transformations.update({
+
         'sign':np.sign,
         'neg':np.negative,
         'abs':np.abs,
@@ -3119,7 +3126,7 @@ def create_unary_transformations(preset:str='minimal'):
         'exp':np.exp,
         # trigonometric
         'sin':np.sin,
-    }
+    })
     
     if preset=='maximal':
         unary_transformations.update({
