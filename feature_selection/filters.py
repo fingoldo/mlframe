@@ -2552,6 +2552,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_good_to_best_feature_mi_threshold=0.98, # when multiple good transformations exist for the same factors pair.    
         fe_max_polynoms:int=0,
         fe_print_best_mis_only:bool=True,
+        fe_smart_polynom_iters:int=0,
+        fe_smart_polynom_optimization_steps:int=1000,
+        fe_min_polynom_degree:int=3,
+        fe_max_polynom_degree:int=8,
+        fe_min_polynom_coeff:float=-10.0,
+        fe_max_polynom_coeff:float=10.0,
         # verbosity and formatting
         verbose: Union[bool, int] = 0,
         ndigits: int = 5,
@@ -2610,6 +2616,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_good_to_best_feature_mi_threshold=self.fe_good_to_best_feature_mi_threshold
         fe_max_polynoms=self.fe_max_polynoms
         fe_print_best_mis_only=self.fe_print_best_mis_only
+        fe_smart_polynom_iters=self.fe_smart_polynom_iters
+        fe_smart_polynom_optimization_steps=self.fe_smart_polynom_optimization_steps
+        fe_min_polynom_degree=self.fe_min_polynom_degree
+        fe_max_polynom_degree=self.fe_max_polynom_degree
+        fe_min_polynom_coeff=self.fe_min_polynom_coeff
+        fe_max_polynom_coeff=self.fe_max_polynom_coeff
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Init cv
@@ -2830,58 +2842,31 @@ class MRMR(BaseEstimator, TransformerMixin):
                             for var in raw_vars_pair:
                                 vars_usage_counter[var]+=1
 
-            # ---------------------------------------------------------------------------------------------------------------
-            # Starting from the most heavily connected pairs, create a big pool of original features+their unary transforms.
-            # unary_transforms=np.log
-            # ---------------------------------------------------------------------------------------------------------------
+            if fe_smart_polynom_iters:
 
-            # individual vars referenced more than once go to the global pool, rest to the local (not stored)?
+                # ---------------------------------------------------------------------------------------------------------------
+                # We search for best unary & binary transforms using Hermit polinomials & Optuna!
+                # Degrees kep reasonable small as a form of regularization.
+                # In theory (esp if inputs are normalized), Hermit polynomials can approximate any functional form, therefore replacing our
+                # random experimenting with arbitrary functions (that was pretty limited anyways).
+                # ---------------------------------------------------------------------------------------------------------------
             
-            transformed_vars=np.empty(shape=(len(X),len(prospective_pairs)*len(unary_transformations)*2),dtype=np.float32)
-            vars_transformations={}
-            i=0        
-            for raw_vars_pair,pair_mi in prospective_pairs:
-                for var in raw_vars_pair:
-                    vals=X.iloc[:,var].values
-                    for tr_name,tr_func in unary_transformations.items():
-                        key=(var,tr_name)
-                        if key not in vars_transformations:
-                            if "poly_" in tr_name:
-                                transformed_vars[:,i]=hermval(vals, c=tr_func)  
-                            else:
-                                transformed_vars[:,i]=tr_func(vals)
-                            vars_transformations[key]=i
-                            i+=1
-            # ---------------------------------------------------------------------------------------------------------------
-            # Then, for every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM).
-            # Record best pairs.
-            # ---------------------------------------------------------------------------------------------------------------
-            
-            times_spent=DefaultDict(float) 
-            n_recommended_features=0
-            for raw_vars_pair,pair_mi in prospective_pairs: # !TODO! better to start considering form the most prospective pairs with highest mis ratio!
-                combs=list(combinations([(raw_vars_pair[0],key) for key in unary_transformations.keys()]+[(raw_vars_pair[1],key) for key in unary_transformations.keys()],2))
-                combs=[transformations_pair for transformations_pair in combs if transformations_pair[0][0]!=transformations_pair[1][0]] # let's skip trying to transform the same factor for now
-                #print(f"trying {len(combs):_} combs")
-                
-                best_config,best_mi=None,-1
-                var_pairs_perf={}
+                import optuna
+                optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-                final_transformed_vals=np.empty(shape=(len(X),len(combs)*len(binary_transformations)),dtype=np.float32) # !TODO! optimize allocation of this array before the main loop!
-
-                i=0
-                for transformations_pair in tqdmu(combs,desc=f"transforming {raw_vars_pair}",leave=False):
+                def get_best_polynom_mi(coef_a,coef_b,vals_a,vals_b)->float:
                     
-                    param_a=transformed_vars[:,vars_transformations[transformations_pair[0]]]
-                    param_b=transformed_vars[:,vars_transformations[transformations_pair[1]]]
+                    transformed_var_a=hermval(vals_a, c=coef_a)
+                    transformed_var_b=hermval(vals_b, c=coef_b)
+
+                    best_mi=-1
+                    best_config=None
 
                     for bin_func_name,bin_func in binary_transformations.items():
+
+                        final_transformed_vals=bin_func(transformed_var_a,transformed_var_b)
                         
-                        start=timer()
-                        final_transformed_vals[:,i]=bin_func(param_a,param_b)
-                        times_spent[bin_func_name]+=timer()-start
-                        
-                        discretized_transformed_values=discretize_array(arr=final_transformed_vals[:,i],n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
+                        discretized_transformed_values=discretize_array(arr=final_transformed_vals,n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
                         fe_mi,fe_conf=mi_direct(
                                             discretized_transformed_values.reshape(-1,1),
                                             x=[0],
@@ -2893,132 +2878,233 @@ class MRMR(BaseEstimator, TransformerMixin):
                                             min_nonzero_confidence=fe_min_nonzero_confidence,
                                             npermutations=fe_npermutations,
                                         )
-                        
-                        config=(transformations_pair,bin_func_name,i)
-                        var_pairs_perf[config]=fe_mi
 
                         if fe_mi>best_mi:
                             best_mi=fe_mi
-                            best_config=config
-                        if fe_mi>best_mi*0.85:
-                            if not fe_print_best_mis_only or (fe_mi==best_mi):
-                                if verbose>1: print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
-                        i+=1
-                if verbose>1: print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")
-                
-                if best_mi/pair_mi>fe_min_engineered_mi_prevalence*(1.0 if num_fs_steps<1 else 1.025):
-
-                    # ---------------------------------------------------------------------------------------------------------------
-                    # Now, if there is a group of leaders with almost same performance, we need to approve them through some of the orther variables.
-                    # если будут возникать такие группы примерно одинаковых по силе лидеров, их придётся разрешать с помощью одного из других влияющих факторов
-                    # ---------------------------------------------------------------------------------------------------------------
-                                
-                    leading_features=[]
-                    for next_config,next_mi in sort_dict_by_value(var_pairs_perf).items():
-                        if next_mi>best_mi*fe_good_to_best_feature_mi_threshold:
-                            leading_features.append(next_config)
+                            best_config=bin_func_name
                     
-                    if len(leading_features)>1:
-                        if len(numeric_vars_to_consider)>2:
+                    return best_mi
+                
+                for raw_vars_pair,pair_mi in prospective_pairs:
+                    vals_a=X.iloc[:,raw_vars_pair[0]].values
+                    vals_b=X.iloc[:,raw_vars_pair[1]].values
+
+                    for _ in range(fe_smart_polynom_iters):
+
+                        length_a=np.random.randint(fe_min_polynom_degree,fe_max_polynom_degree)
+                        length_b=np.random.randint(fe_min_polynom_degree,fe_max_polynom_degree)
+
+                        # Define an objective function to be minimized.
+                        def objective(trial):
+
+                            coef_a=np.empty(shape=length_a,dtype=np.float32)
+                            for i in range(length_a):
+                                coef_a[i]=trial.suggest_float(f'a_{i}', fe_min_polynom_coeff,fe_max_polynom_coeff)
                             
-                            new_vals=np.empty(shape=(len(X),fe_max_pair_features),dtype=self.quantization_dtype)
-                            new_nbins=[]
-                            new_cols=[]
+                            coef_b=np.empty(shape=length_b,dtype=np.float32)
+                            for i in range(length_b):
+                                coef_b[i]=trial.suggest_float(f'b_{i}', fe_min_polynom_coeff,fe_max_polynom_coeff)     
 
+                            res=get_best_polynom_mi(coef_a=coef_a,coef_b=coef_b,vals_a=vals_a,vals_b=vals_b)
 
-                            if verbose>1: print(f"Taking {len(leading_features)} new features for a separate validation step!")
+                            return res
 
-                            # ---------------------------------------------------------------------------------------------------------------
-                            # Now let's test all of the candidates as is against the rest of the approved factors (also as is).
-                            # Caindidates significantly outstanding (in terms of MI with target) with any of other approved factors are kept.
-                            # ---------------------------------------------------------------------------------------------------------------
+                        study = optuna.create_study(direction='maximize')  # Create a new study.
+                        study.optimize(objective, n_trials=fe_smart_polynom_optimization_steps)  # Invoke optimization of the objective function.            
+                        
+                        print(f"Best MI: {study.best_trial.value:.4f}, pair_mi={pair_mi:.4f}")
+                        print(f"Best hyperparameters: {study.best_params}")
+            else:
 
-                            valid_pairs_perf={}
+                # ---------------------------------------------------------------------------------------------------------------
+                # Starting from the most heavily connected pairs, create a big pool of original features+their unary transforms.
+                # ---------------------------------------------------------------------------------------------------------------
 
-                            for transformations_pair,bin_func_name,i in leading_features:
-                                param_a=final_transformed_vals[:,i]
+                # individual vars referenced more than once go to the global pool, rest to the local (not stored)?
+                
+                transformed_vars=np.empty(shape=(len(X),len(prospective_pairs)*len(unary_transformations)*2),dtype=np.float32)
+                vars_transformations={}
+                i=0        
+                for raw_vars_pair,pair_mi in prospective_pairs:
+                    for var in raw_vars_pair:
+                        vals=X.iloc[:,var].values
+                        for tr_name,tr_func in unary_transformations.items():
+                            key=(var,tr_name)
+                            if key not in vars_transformations:
+                                if "poly_" in tr_name:
+                                    transformed_vars[:,i]=hermval(vals, c=tr_func)  
+                                else:
+                                    transformed_vars[:,i]=tr_func(vals)
+                                vars_transformations[key]=i
+                                i+=1
+                # ---------------------------------------------------------------------------------------------------------------
+                # Then, for every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM).
+                # Record best pairs.
+                # ---------------------------------------------------------------------------------------------------------------
+                
+                times_spent=DefaultDict(float) 
+                n_recommended_features=0
+                for raw_vars_pair,pair_mi in prospective_pairs: # !TODO! better to start considering form the most prospective pairs with highest mis ratio!
+                    combs=list(combinations([(raw_vars_pair[0],key) for key in unary_transformations.keys()]+[(raw_vars_pair[1],key) for key in unary_transformations.keys()],2))
+                    combs=[transformations_pair for transformations_pair in combs if transformations_pair[0][0]!=transformations_pair[1][0]] # let's skip trying to transform the same factor for now
+                    #print(f"trying {len(combs):_} combs")
+                    
+                    best_config,best_mi=None,-1
+                    var_pairs_perf={}
 
-                                best_valid_mi=-1
-                                config=(transformations_pair,bin_func_name,i)
+                    final_transformed_vals=np.empty(shape=(len(X),len(combs)*len(binary_transformations)),dtype=np.float32) # !TODO! optimize allocation of this array before the main loop!
 
-                                for external_factor in tqdmu(set(numeric_vars_to_consider)-set(raw_vars_pair),desc="external validation factor",leave=False):
-                                    param_b=X.iloc[:,external_factor].values
+                    i=0
+                    for transformations_pair in tqdmu(combs,desc=f"transforming {raw_vars_pair}",leave=False):
+                        
+                        param_a=transformed_vars[:,vars_transformations[transformations_pair[0]]]
+                        param_b=transformed_vars[:,vars_transformations[transformations_pair[1]]]
 
-                                    for valid_bin_func_name,valid_bin_func in binary_transformations.items():
-                                        
-                                        valid_vals=valid_bin_func(param_a,param_b)
-                                        
-                                        discretized_transformed_values=discretize_array(arr=valid_vals,n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
-                                        fe_mi,fe_conf=mi_direct(
-                                                            discretized_transformed_values.reshape(-1,1),
-                                                            x=[0],
-                                                            y=None,
-                                                            factors_nbins=[self.quantization_nbins],
-                                                            classes_y=classes_y,
-                                                            classes_y_safe=classes_y_safe,
-                                                            freqs_y=freqs_y,
-                                                            min_nonzero_confidence=fe_min_nonzero_confidence,
-                                                            npermutations=fe_npermutations,
-                                                        )                                                                    
+                        for bin_func_name,bin_func in binary_transformations.items():
+                            
+                            start=timer()
+                            final_transformed_vals[:,i]=bin_func(param_a,param_b)
+                            times_spent[bin_func_name]+=timer()-start
+                            
+                            discretized_transformed_values=discretize_array(arr=final_transformed_vals[:,i],n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
+                            fe_mi,fe_conf=mi_direct(
+                                                discretized_transformed_values.reshape(-1,1),
+                                                x=[0],
+                                                y=None,
+                                                factors_nbins=[self.quantization_nbins],
+                                                classes_y=classes_y,
+                                                classes_y_safe=classes_y_safe,
+                                                freqs_y=freqs_y,
+                                                min_nonzero_confidence=fe_min_nonzero_confidence,
+                                                npermutations=fe_npermutations,
+                                            )
+                            
+                            config=(transformations_pair,bin_func_name,i)
+                            var_pairs_perf[config]=fe_mi
 
-                                        if fe_mi>best_valid_mi:
-                                            best_valid_mi=fe_mi                                        
-                                            if verbose>1: print(f"MI of transformed pair {valid_bin_func_name}({(transformations_pair,bin_func_name)} with ext factor {external_factor})={fe_mi:.4f}")
+                            if fe_mi>best_mi:
+                                best_mi=fe_mi
+                                best_config=config
+                            if fe_mi>best_mi*0.85:
+                                if not fe_print_best_mis_only or (fe_mi==best_mi):
+                                    if verbose>1: print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
+                            i+=1
+                    if verbose>1: print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")
+                    
+                    if best_mi/pair_mi>fe_min_engineered_mi_prevalence*(1.0 if num_fs_steps<1 else 1.025):
+
+                        # ---------------------------------------------------------------------------------------------------------------
+                        # Now, if there is a group of leaders with almost same performance, we need to approve them through some of the orther variables.
+                        # если будут возникать такие группы примерно одинаковых по силе лидеров, их придётся разрешать с помощью одного из других влияющих факторов
+                        # ---------------------------------------------------------------------------------------------------------------
+                                    
+                        leading_features=[]
+                        for next_config,next_mi in sort_dict_by_value(var_pairs_perf).items():
+                            if next_mi>best_mi*fe_good_to_best_feature_mi_threshold:
+                                leading_features.append(next_config)
+                        
+                        if len(leading_features)>1:
+                            if len(numeric_vars_to_consider)>2:
                                 
-                                valid_pairs_perf[config]=best_valid_mi
-                            
-                            # ---------------------------------------------------------------------------------------------------------------
-                            # Now we recommend proceeding with top N best transformations!
-                            # ---------------------------------------------------------------------------------------------------------------
+                                new_vals=np.empty(shape=(len(X),fe_max_pair_features),dtype=self.quantization_dtype)
+                                new_nbins=[]
+                                new_cols=[]
 
-                            for j,(config,valid_mi) in enumerate(sort_dict_by_value(valid_pairs_perf,reverse=True).items()):
-                                if j<fe_max_pair_features:
-                                    new_feature_name=get_new_feature_name(fe_tuple=config,cols_names=cols)
-                                    if verbose: logger.info(f"{new_feature_name} is recommended to use as a new feature! (won in validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}")
-                                    transformations_pair,bin_func_name,i=config
 
+                                if verbose>1: print(f"Taking {len(leading_features)} new features for a separate validation step!")
+
+                                # ---------------------------------------------------------------------------------------------------------------
+                                # Now let's test all of the candidates as is against the rest of the approved factors (also as is).
+                                # Caindidates significantly outstanding (in terms of MI with target) with any of other approved factors are kept.
+                                # ---------------------------------------------------------------------------------------------------------------
+
+                                valid_pairs_perf={}
+
+                                for transformations_pair,bin_func_name,i in leading_features:
+                                    param_a=final_transformed_vals[:,i]
+
+                                    best_valid_mi=-1
+                                    config=(transformations_pair,bin_func_name,i)
+
+                                    for external_factor in tqdmu(set(numeric_vars_to_consider)-set(raw_vars_pair),desc="external validation factor",leave=False):
+                                        param_b=X.iloc[:,external_factor].values
+
+                                        for valid_bin_func_name,valid_bin_func in binary_transformations.items():
+                                            
+                                            valid_vals=valid_bin_func(param_a,param_b)
+                                            
+                                            discretized_transformed_values=discretize_array(arr=valid_vals,n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
+                                            fe_mi,fe_conf=mi_direct(
+                                                                discretized_transformed_values.reshape(-1,1),
+                                                                x=[0],
+                                                                y=None,
+                                                                factors_nbins=[self.quantization_nbins],
+                                                                classes_y=classes_y,
+                                                                classes_y_safe=classes_y_safe,
+                                                                freqs_y=freqs_y,
+                                                                min_nonzero_confidence=fe_min_nonzero_confidence,
+                                                                npermutations=fe_npermutations,
+                                                            )                                                                    
+
+                                            if fe_mi>best_valid_mi:
+                                                best_valid_mi=fe_mi                                        
+                                                if verbose>1: print(f"MI of transformed pair {valid_bin_func_name}({(transformations_pair,bin_func_name)} with ext factor {external_factor})={fe_mi:.4f}")
+                                    
+                                    valid_pairs_perf[config]=best_valid_mi
+                                
+                                # ---------------------------------------------------------------------------------------------------------------
+                                # Now we recommend proceeding with top N best transformations!
+                                # ---------------------------------------------------------------------------------------------------------------
+
+                                for j,(config,valid_mi) in enumerate(sort_dict_by_value(valid_pairs_perf,reverse=True).items()):
+                                    if j<fe_max_pair_features:
+                                        new_feature_name=get_new_feature_name(fe_tuple=config,cols_names=cols)
+                                        if verbose: logger.info(f"{new_feature_name} is recommended to use as a new feature! (won in validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}")
+                                        transformations_pair,bin_func_name,i=config
+
+                                        new_vals[:,j]=discretize_array(arr=final_transformed_vals[:,i],n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
+                                        new_nbins+=[self.quantization_nbins]
+                                        new_cols+=[new_feature_name]
+                                        X[new_feature_name]=final_transformed_vals[:,i]        
+                                        engineered_features.add((transformations_pair,bin_func_name))
+
+                                    else:
+                                        break  
+                                new_vals=new_vals[:,:min(fe_max_pair_features,j)]
+                            else:
+                                if verbose: logger.warning(f"{len(leading_features)} are recommended to use as new features! (can't narrow down the list by validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}")
+                                
+                                for j,(transformations_pair,bin_func_name,i) in enumerate(leading_features):
                                     new_vals[:,j]=discretize_array(arr=final_transformed_vals[:,i],n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
                                     new_nbins+=[self.quantization_nbins]
                                     new_cols+=[new_feature_name]
-                                    X[new_feature_name]=final_transformed_vals[:,i]        
+                                    X[new_feature_name]=final_transformed_vals[:,i]
                                     engineered_features.add((transformations_pair,bin_func_name))
-
-                                else:
-                                    break  
-                            new_vals=new_vals[:,:min(fe_max_pair_features,j)]
                         else:
-                            if verbose: logger.warning(f"{len(leading_features)} are recommended to use as new features! (can't narrow down the list by validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}")
+                            new_feature_name=get_new_feature_name(fe_tuple=best_config,cols_names=cols)
+                            if verbose: logger.info(f"{new_feature_name} is recommended to use as a new feature! (clear winner) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}")
                             
-                            for j,(transformations_pair,bin_func_name,i) in enumerate(leading_features):
-                                new_vals[:,j]=discretize_array(arr=final_transformed_vals[:,i],n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
-                                new_nbins+=[self.quantization_nbins]
-                                new_cols+=[new_feature_name]
-                                X[new_feature_name]=final_transformed_vals[:,i]
-                                engineered_features.add((transformations_pair,bin_func_name))
-                    else:
-                        new_feature_name=get_new_feature_name(fe_tuple=best_config,cols_names=cols)
-                        if verbose: logger.info(f"{new_feature_name} is recommended to use as a new feature! (clear winner) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}")
-                        
-                        transformations_pair,bin_func_name,i=best_config
-                        
-                        new_vals=discretize_array(arr=final_transformed_vals[:,i],n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype).reshape(-1,1)
-                        new_nbins=[self.quantization_nbins]
-                        new_cols=[new_feature_name]
-                        X[new_feature_name]=final_transformed_vals[:,i]
-                        engineered_features.add((transformations_pair,bin_func_name))
+                            transformations_pair,bin_func_name,i=best_config
+                            
+                            new_vals=discretize_array(arr=final_transformed_vals[:,i],n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype).reshape(-1,1)
+                            new_nbins=[self.quantization_nbins]
+                            new_cols=[new_feature_name]
+                            X[new_feature_name]=final_transformed_vals[:,i]
+                            engineered_features.add((transformations_pair,bin_func_name))
 
-                    data = np.append(data, new_vals, axis=1)
-                    nbins=nbins+new_nbins
-                    cols=cols+new_cols
+                        data = np.append(data, new_vals, axis=1)
+                        nbins=nbins+new_nbins
+                        cols=cols+new_cols
 
-                    n_recommended_features+=len(new_cols)
+                        n_recommended_features+=len(new_cols)
 
-                    # !TODO!  handle factors_to_use etc
-                    """
-                    factors_names_to_use=self.factors_names_to_use,
-                    factors_to_use=self.factors_to_use,                    
-                    """
-                checked_pairs.add(raw_vars_pair)
+                        # !TODO!  handle factors_to_use etc
+                        """
+                        factors_names_to_use=self.factors_names_to_use,
+                        factors_to_use=self.factors_to_use,                    
+                        """
+                    checked_pairs.add(raw_vars_pair)
+
             if n_recommended_features==0: break
             num_fs_steps+=1
         if verbose>1: print("time spent by binary func:",sort_dict_by_value(times_spent))

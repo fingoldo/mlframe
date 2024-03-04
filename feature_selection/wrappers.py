@@ -481,7 +481,9 @@ class RFECV(BaseEstimator, TransformerMixin):
             nsteps += 1
 
             if max_runtime_mins and not ran_out_of_time:
-                ran_out_of_time = (timer() - start_time) > max_runtime_mins * 60
+                delta=(timer() - start_time)
+                print(delta,max_runtime_mins * 60)
+                ran_out_of_time = delta > max_runtime_mins * 60
                 if ran_out_of_time:
                     if verbose:
                         logger.info(f"max_runtime_mins={max_runtime_mins:_.1f} reached.")
