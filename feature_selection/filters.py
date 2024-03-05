@@ -89,6 +89,7 @@ MAX_ITERATIONS_TO_TRACK = 5
 
 LARGE_CONST: float = 1e30
 GPU_MAX_BLOCK_SIZE:int = 1024
+MAX_CONFIRMATION_CAND_NBINS:int=50
 
 caching_hits_xyz = 0
 caching_hits_z = 0
@@ -1715,7 +1716,7 @@ def screen_predictors(
 
                 if best_gain < min_relevance_gain:
                     if verbose:
-                        logger.info("Minimum expected gain reached.")
+                        logger.info("Minimum expected gain reached or no candidates to check anymore.")
                     break  # exit confirmation while loop
 
                 # ---------------------------------------------------------------------------------------------------------------
@@ -1813,65 +1814,67 @@ def screen_predictors(
                                 bootstrapped_gain, confidence = next_best_gain,1.0
 
                         if full_npermutations and bootstrapped_gain > 0 and selected_vars:  # additional check of Fleuret criteria
+                                                
+                            if count_cand_nbins(X,factors_nbins)=<MAX_CONFIRMATION_CAND_NBINS:
                             
-                            skip_cand = [(subel in selected_vars) for subel in X]
-                            nexisting = sum(skip_cand)
-                            
-                            # ---------------------------------------------------------------------------------------------------------------
-                            # external bootstrapped recheck. is minimal MI of candidate X with Y given all current Zs THAT BIG as next_best_gain?
-                            # ---------------------------------------------------------------------------------------------------------------
-                            
-                            if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
-                                eval_start = timer()
+                                skip_cand = [(subel in selected_vars) for subel in X]
+                                nexisting = sum(skip_cand)
+                                
+                                # ---------------------------------------------------------------------------------------------------------------
+                                # external bootstrapped recheck. is minimal MI of candidate X with Y given all current Zs THAT BIG as next_best_gain?
+                                # ---------------------------------------------------------------------------------------------------------------
+                                
+                                if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
+                                    eval_start = timer()
 
-                            if n_workers and n_workers > 1 and full_npermutations > NMAX_NONPARALLEL_ITERS:
-                                bootstrapped_gain, confidence, parallel_entropy_cache = get_fleuret_criteria_confidence_parallel(
-                                    data_copy=data_copy,
-                                    factors_nbins=factors_nbins,
-                                    x=X,
-                                    y=y,
-                                    selected_vars=selected_vars,
-                                    bootstrapped_gain=next_best_gain,
-                                    npermutations=full_npermutations,
-                                    max_failed=max_failed,
-                                    nexisting=nexisting,
-                                    mrmr_relevance_algo=mrmr_relevance_algo,
-                                    mrmr_redundancy_algo=mrmr_redundancy_algo,
-                                    max_veteranes_interactions_order=max_veteranes_interactions_order,
-                                    cached_cond_MIs=cached_cond_MIs,
-                                    entropy_cache=entropy_cache,
-                                    extra_x_shuffling=extra_x_shuffling,
-                                    n_workers=n_workers,
-                                    workers_pool=workers_pool,
-                                    parallel_kwargs=parallel_kwargs,
-                                )
-                                for key, value in parallel_entropy_cache.items():
-                                    entropy_cache[key] = value
-                            else:
-                                nfailed, nchecked = get_fleuret_criteria_confidence(
-                                    data_copy=data_copy,
-                                    factors_nbins=factors_nbins,
-                                    x=X,
-                                    y=y,
-                                    selected_vars=selected_vars,
-                                    bootstrapped_gain=next_best_gain,
-                                    npermutations=full_npermutations,
-                                    max_failed=max_failed,
-                                    nexisting=nexisting,
-                                    mrmr_relevance_algo=mrmr_relevance_algo,
-                                    mrmr_redundancy_algo=mrmr_redundancy_algo,
-                                    max_veteranes_interactions_order=max_veteranes_interactions_order,
-                                    cached_cond_MIs=cached_cond_MIs,
-                                    entropy_cache=entropy_cache,
-                                    extra_x_shuffling=extra_x_shuffling,
-                                )
+                                if n_workers and n_workers > 1 and full_npermutations > NMAX_NONPARALLEL_ITERS:
+                                    bootstrapped_gain, confidence, parallel_entropy_cache = get_fleuret_criteria_confidence_parallel(
+                                        data_copy=data_copy,
+                                        factors_nbins=factors_nbins,
+                                        x=X,
+                                        y=y,
+                                        selected_vars=selected_vars,
+                                        bootstrapped_gain=next_best_gain,
+                                        npermutations=full_npermutations,
+                                        max_failed=max_failed,
+                                        nexisting=nexisting,
+                                        mrmr_relevance_algo=mrmr_relevance_algo,
+                                        mrmr_redundancy_algo=mrmr_redundancy_algo,
+                                        max_veteranes_interactions_order=max_veteranes_interactions_order,
+                                        cached_cond_MIs=cached_cond_MIs,
+                                        entropy_cache=entropy_cache,
+                                        extra_x_shuffling=extra_x_shuffling,
+                                        n_workers=n_workers,
+                                        workers_pool=workers_pool,
+                                        parallel_kwargs=parallel_kwargs,
+                                    )
+                                    for key, value in parallel_entropy_cache.items():
+                                        entropy_cache[key] = value
+                                else:
+                                    nfailed, nchecked = get_fleuret_criteria_confidence(
+                                        data_copy=data_copy,
+                                        factors_nbins=factors_nbins,
+                                        x=X,
+                                        y=y,
+                                        selected_vars=selected_vars,
+                                        bootstrapped_gain=next_best_gain,
+                                        npermutations=full_npermutations,
+                                        max_failed=max_failed,
+                                        nexisting=nexisting,
+                                        mrmr_relevance_algo=mrmr_relevance_algo,
+                                        mrmr_redundancy_algo=mrmr_redundancy_algo,
+                                        max_veteranes_interactions_order=max_veteranes_interactions_order,
+                                        cached_cond_MIs=cached_cond_MIs,
+                                        entropy_cache=entropy_cache,
+                                        extra_x_shuffling=extra_x_shuffling,
+                                    )
+                                    # logger.info(f"nfailed={nfailed}, nchecked={nchecked}")
+                                    confidence = 1 - nfailed / nchecked
+                                    if nfailed >= max_failed:
+                                        bootstrapped_gain = 0.0
 
-                                confidence = 1 - nfailed / nchecked
-                                if nfailed >= max_failed:
-                                    bootstrapped_gain = 0.0
-
-                            if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
-                                logger.info(f"get_fleuret_criteria_confidence bootstrapped eval took {timer() - eval_start:.1f} sec.")
+                                if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
+                                    logger.info(f"get_fleuret_criteria_confidence bootstrapped eval took {timer() - eval_start:.1f} sec.")
                         
                         # ---------------------------------------------------------------------------------------------------------------
                         # Report this particular best candidate
@@ -2001,6 +2004,11 @@ def screen_predictors(
     """
     return selected_vars, predictors,any_influencing,entropy_cache,cached_MIs,cached_confident_MIs,cached_cond_MIs,classes_y,classes_y_safe,freqs_y
 
+def count_cand_nbins(X,factors_nbins)->int:
+    sum_cand_nbins=0
+    for factor in X:
+        sum_cand_nbins+=factors_nbins[factor]
+    return sum_cand_nbins
 
 def find_best_partial_gain(
     partial_gains: dict, failed_candidates: set, added_candidates: set, candidates: list, selected_vars: list, skip_indices: tuple = ()
@@ -2747,7 +2755,7 @@ class MRMR(BaseEstimator, TransformerMixin):
 
             categorical_vars=X.head().select_dtypes(include=("category", "object", "bool")).columns.values.tolist()
             categorical_vars=[cols.index(col) for col in categorical_vars]
-            print("categorical_vars=",categorical_vars)
+            
             engineered_features=set()
             checked_pairs=set()
 
@@ -2795,7 +2803,6 @@ class MRMR(BaseEstimator, TransformerMixin):
             # Feature engineering part here
             
             numeric_vars_to_consider=set(selected_vars)-set(categorical_vars)
-            print("categorical_vars=",categorical_vars,"selected_vars=",selected_vars,"numeric_vars_to_consider=",numeric_vars_to_consider)
             for raw_vars_pair in combinations(numeric_vars_to_consider,2):
                 # check that every element of a pair has computed its MI with target
                 for var in raw_vars_pair:
