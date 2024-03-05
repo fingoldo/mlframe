@@ -1120,76 +1120,78 @@ def evaluate_gain(
         combs=generate_combinations_recursive_njit(np.array(selected_vars, dtype=np.int32), interactions_order + 1)[::-1]
         #if X==(425,): logger.info(f"\t combs={combs}")
 
-        for Z in combs:
+        for Z in combs:           
 
             if k > last_checked_k:
+                if confidence_mode and count_cand_nbins(Z,factors_nbins)>MAX_CONFIRMATION_CAND_NBINS:
+                    additional_knowledge=0.0 # this is needed to skip checking agains hi cardinality approved factors
+                else:
+                    if mrmr_relevance_algo == "fleuret":
 
-                if mrmr_relevance_algo == "fleuret":
-
-                    # ---------------------------------------------------------------------------------------------------------------
-                    # additional_knowledge = I (X ;Y | Z ) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)
-                    # I (X,Z) would be entropy_x + entropy_z - entropy_xz.
-                    # ---------------------------------------------------------------------------------------------------------------
-                    
-                    key_found = False
-                    if not confidence_mode:
-                        key = arr2str(X) + "_" + arr2str(Z)
-                        if key in cached_cond_MIs:
-                            additional_knowledge = cached_cond_MIs[key]
-                            #if X==(425,): logger.info(f"\t additional_knowledge from {Z} found to be {additional_knowledge}, k={k}, last_checked_k={last_checked_k}")
-                            key_found = True
-
-                    if not key_found:
-
-                        additional_knowledge = conditional_mi(
-                            factors_data=factors_data,
-                            x=X,
-                            y=y,
-                            z=Z,
-                            var_is_nominal=None,
-                            factors_nbins=factors_nbins,
-                            entropy_cache=entropy_cache,
-                            can_use_x_cache=can_use_x_cache,
-                            can_use_y_cache=can_use_y_cache,
-                            dtype=dtype,
-                        )
-
-                        if nexisting > 0:
-                            additional_knowledge = additional_knowledge ** (nexisting + 1)
-                        # else:
-                        #    if len(X) > 1:
-                        #        additional_knowledge = additional_knowledge ** (len(X) + 1)
-
+                        # ---------------------------------------------------------------------------------------------------------------
+                        # additional_knowledge = I (X ;Y | Z ) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)
+                        # I (X,Z) would be entropy_x + entropy_z - entropy_xz.
+                        # ---------------------------------------------------------------------------------------------------------------
+                        
+                        key_found = False
                         if not confidence_mode:
-                            cached_cond_MIs[key] = additional_knowledge
+                            key = arr2str(X) + "_" + arr2str(Z)
+                            if key in cached_cond_MIs:
+                                additional_knowledge = cached_cond_MIs[key]
+                                #if X==(425,): logger.info(f"\t additional_knowledge from {Z} found to be {additional_knowledge}, k={k}, last_checked_k={last_checked_k}")
+                                key_found = True
 
-                        #if X==(425,): logger.info(f"\t additional_knowledge from {Z}={additional_knowledge}, k={k}, last_checked_k={last_checked_k}")
+                        if not key_found:
 
-                # ---------------------------------------------------------------------------------------------------------------
-                # Account for possible extra knowledge from conditioning on Z?
-                # that must update best_gain globally. log such cases. Note that we do not guarantee finding them in order,
-                # but they are too precious to ignore. Adding this will also allow to skip higher order interactions
-                # containing all of already approved candidates.
-                # ---------------------------------------------------------------------------------------------------------------
+                            additional_knowledge = conditional_mi(
+                                factors_data=factors_data,
+                                x=X,
+                                y=y,
+                                z=Z,
+                                var_is_nominal=None,
+                                factors_nbins=factors_nbins,
+                                entropy_cache=entropy_cache,
+                                can_use_x_cache=can_use_x_cache,
+                                can_use_y_cache=can_use_y_cache,
+                                dtype=dtype,
+                            )
 
-                if extra_knowledge_multipler > 0 and additional_knowledge > direct_gain * extra_knowledge_multipler:
-                    bwarn = False
-                    if not positive_mode:
-                        current_gain = additional_knowledge
-                        positive_mode = True
-                        bwarn = True
-                    else:
-                        # rare chance that a candidate has many excellent relationships
-                        if additional_knowledge > current_gain:
+                            if nexisting > 0:
+                                additional_knowledge = additional_knowledge ** (nexisting + 1)
+                            # else:
+                            #    if len(X) > 1:
+                            #        additional_knowledge = additional_knowledge ** (len(X) + 1)
+
+                            if not confidence_mode:
+                                cached_cond_MIs[key] = additional_knowledge
+
+                            #if X==(425,): logger.info(f"\t additional_knowledge from {Z}={additional_knowledge}, k={k}, last_checked_k={last_checked_k}")
+
+                    # ---------------------------------------------------------------------------------------------------------------
+                    # Account for possible extra knowledge from conditioning on Z?
+                    # that must update best_gain globally. log such cases. Note that we do not guarantee finding them in order,
+                    # but they are too precious to ignore. Adding this will also allow to skip higher order interactions
+                    # containing all of already approved candidates.
+                    # ---------------------------------------------------------------------------------------------------------------
+
+                    if extra_knowledge_multipler > 0 and additional_knowledge > direct_gain * extra_knowledge_multipler:
+                        bwarn = False
+                        if not positive_mode:
                             current_gain = additional_knowledge
+                            positive_mode = True
                             bwarn = True
+                        else:
+                            # rare chance that a candidate has many excellent relationships
+                            if additional_knowledge > current_gain:
+                                current_gain = additional_knowledge
+                                bwarn = True
 
-                    # if bwarn:
-                    #    if verbose:
-                    #        if current_gain > best_gain:
-                    #            logger.info(
-                    #                f"\tCandidate {get_candidate_name(X,factors_names=factors_names)} together with factor {get_candidate_name(Z,factors_names=factors_names)} has synergetic influence {additional_knowledge:{ndigits}f} (direct MI={direct_gain:{ndigits}f})"
-                    #            )
+                        # if bwarn:
+                        #    if verbose:
+                        #        if current_gain > best_gain:
+                        #            logger.info(
+                        #                f"\tCandidate {get_candidate_name(X,factors_names=factors_names)} together with factor {get_candidate_name(Z,factors_names=factors_names)} has synergetic influence {additional_knowledge:{ndigits}f} (direct MI={direct_gain:{ndigits}f})"
+                        #            )
 
                 if not positive_mode and (additional_knowledge < current_gain):
 
@@ -1815,7 +1817,7 @@ def screen_predictors(
 
                         if full_npermutations and bootstrapped_gain > 0 and selected_vars:  # additional check of Fleuret criteria
                                                 
-                            if count_cand_nbins(X,factors_nbins)=<MAX_CONFIRMATION_CAND_NBINS:
+                            if count_cand_nbins(X,factors_nbins)<=MAX_CONFIRMATION_CAND_NBINS:
                             
                                 skip_cand = [(subel in selected_vars) for subel in X]
                                 nexisting = sum(skip_cand)
@@ -2004,6 +2006,7 @@ def screen_predictors(
     """
     return selected_vars, predictors,any_influencing,entropy_cache,cached_MIs,cached_confident_MIs,cached_cond_MIs,classes_y,classes_y_safe,freqs_y
 
+@njit()
 def count_cand_nbins(X,factors_nbins)->int:
     sum_cand_nbins=0
     for factor in X:
