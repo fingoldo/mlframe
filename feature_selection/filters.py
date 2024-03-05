@@ -1335,7 +1335,7 @@ def evaluate_candidate(
             #if X==(425,): logger.info(f"\t stopped_early, current_gain, k, sink_reasons={stopped_early, current_gain, k, sink_reasons}")
 
             partial_gains[cand_idx] = current_gain, k
-            if not stopped_early:  # there was no break. current_gain computed fully.
+            if not stopped_early:  # there was no break. current_gain computed fully. this line was (and most likely should be) commented out.
                 expected_gains[cand_idx] = current_gain
         else:
             # no factors selected yet. current_gain is just direct_gain
@@ -1381,7 +1381,7 @@ def screen_predictors(
     baseline_npermutations: int = 100,
     # stopping conditions
     min_relevance_gain: float = 0.00001,
-    max_consec_unconfirmed: int = 10,
+    max_consec_unconfirmed: int = 30,
     max_runtime_mins: int = None,
     interactions_min_order: int = 1,
     interactions_max_order: int = 1,
@@ -1549,7 +1549,7 @@ def screen_predictors(
         nconsec_unconfirmed = 0
 
         for n_confirmed_predictors in (predictors_pbar := tqdmu(range(len(candidates)), leave=False, desc="Confirmed predictors")):
-            if n_confirmed_predictors>4: n_jobs=1
+            # if n_confirmed_predictors>4: n_jobs=1
             if run_out_of_time:
                 break
 
@@ -1726,6 +1726,7 @@ def screen_predictors(
                 any_cand_considered = False
                 for n, next_best_candidate_idx in enumerate(np.argsort(expected_gains)[::-1]):
                     next_best_gain = expected_gains[next_best_candidate_idx]
+                    #logger.info(f"{n}, {next_best_gain}, {min_relevance_gain}")
                     if next_best_gain >= min_relevance_gain:  # only can consider here candidates fully checked against every Z
 
                         X = candidates[next_best_candidate_idx]
@@ -1939,8 +1940,8 @@ def screen_predictors(
                             logger.info("No more candidates to confirm.")
                         break  # exit confirmation while loop
                     else:
-                        if max_consec_unconfirmed and (nconsec_unconfirmed > max_consec_unconfirmed):
-                            best_gain = min_relevance_gain - 1
+                        best_gain = min_relevance_gain - 1
+                        if max_consec_unconfirmed and (nconsec_unconfirmed > max_consec_unconfirmed):                            
                             break  # exit confirmation while loop
                         else:
                             pass  # retry all cands evaluation
@@ -2745,6 +2746,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                 print(f"nbinary_transformations: {len(binary_transformations):_}")
 
             categorical_vars=X.head().select_dtypes(include=("category", "object", "bool")).columns.values.tolist()
+            categorical_vars=[cols.index(col) for col in categorical_vars]
+            print("categorical_vars=",categorical_vars)
             engineered_features=set()
             checked_pairs=set()
 
@@ -2787,11 +2790,12 @@ class MRMR(BaseEstimator, TransformerMixin):
                 parallel_kwargs=self.parallel_kwargs                            
             )
                 
-            if num_fs_steps>=fe_max_steps: break                
+            if fe_max_steps==0 or num_fs_steps>=fe_max_steps: break                
 
             # Feature engineering part here
             
             numeric_vars_to_consider=set(selected_vars)-set(categorical_vars)
+            print("categorical_vars=",categorical_vars,"selected_vars=",selected_vars,"numeric_vars_to_consider=",numeric_vars_to_consider)
             for raw_vars_pair in combinations(numeric_vars_to_consider,2):
                 # check that every element of a pair has computed its MI with target
                 for var in raw_vars_pair:
@@ -2842,6 +2846,9 @@ class MRMR(BaseEstimator, TransformerMixin):
                             for var in raw_vars_pair:
                                 vars_usage_counter[var]+=1
 
+            n_recommended_features=0
+            times_spent=DefaultDict(float)
+
             if fe_smart_polynom_iters:
 
                 # ---------------------------------------------------------------------------------------------------------------
@@ -2852,6 +2859,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 # ---------------------------------------------------------------------------------------------------------------
             
                 import optuna
+                from optuna.samplers import TPESampler
                 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
                 def get_best_polynom_mi(coef_a,coef_b,vals_a,vals_b)->float:
@@ -2909,7 +2917,7 @@ class MRMR(BaseEstimator, TransformerMixin):
 
                             return res
 
-                        study = optuna.create_study(direction='maximize')  # Create a new study.
+                        study = optuna.create_study(direction='maximize',sampler=TPESampler(multivariate =True))  # Create a new study.
                         study.optimize(objective, n_trials=fe_smart_polynom_optimization_steps)  # Invoke optimization of the objective function.            
                         
                         print(f"Best MI: {study.best_trial.value:.4f}, pair_mi={pair_mi:.4f}")
@@ -2940,10 +2948,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                 # ---------------------------------------------------------------------------------------------------------------
                 # Then, for every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM).
                 # Record best pairs.
-                # ---------------------------------------------------------------------------------------------------------------
+                # ---------------------------------------------------------------------------------------------------------------                                
                 
-                times_spent=DefaultDict(float) 
-                n_recommended_features=0
                 for raw_vars_pair,pair_mi in prospective_pairs: # !TODO! better to start considering form the most prospective pairs with highest mis ratio!
                     combs=list(combinations([(raw_vars_pair[0],key) for key in unary_transformations.keys()]+[(raw_vars_pair[1],key) for key in unary_transformations.keys()],2))
                     combs=[transformations_pair for transformations_pair in combs if transformations_pair[0][0]!=transformations_pair[1][0]] # let's skip trying to transform the same factor for now
