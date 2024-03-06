@@ -26,7 +26,7 @@ while True:
         from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
         from mlframe.config import *
-        from mlframe.metrics import calib_error
+        from mlframe.metrics import sklearn_integral_calibration_error
         from mlframe.baselines import get_best_dummy_score
         from mlframe.preprocessing import pack_val_set_into_fit_params
         from mlframe.optimization import *
@@ -298,7 +298,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         if scoring is None:
             if is_classifier(estimator):
-                scoring = make_scorer(score_func=calib_error, needs_proba=True, needs_threshold=False, greater_is_better=False)
+                scoring = make_scorer(score_func=sklearn_integral_calibration_error, needs_proba=True, needs_threshold=False, greater_is_better=False)
             elif is_regressor(estimator):
                 scoring = make_scorer(score_func=mean_squared_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
             else:

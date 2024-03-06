@@ -300,7 +300,7 @@ def predictions_time_instability(preds: pd.Series) -> float:
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-class CB_CALIB_ERROR:
+class CB_INTEGRAL_CALIB_ERROR:
     """Custom probabilistic prediction error metric balancing predictive power with calibration.
         Can regularly create a calibration plot.
     """
@@ -327,6 +327,7 @@ class CB_CALIB_ERROR:
         if len(approxes)==1:
             y_pred=expit(approxes[0])
             probs=[1-y_pred,y_pred]
+            class_id=1
         else:
             
             probs=[]
@@ -345,7 +346,7 @@ class CB_CALIB_ERROR:
         if self.calibration_plot_period and (self.nruns % self.calibration_plot_period ==0):
             y_true=(target==class_id).astype(np.int8)
             brier_loss, calibration_mae, calibration_std, calibration_coverage, _ =fast_calibration_report(y_true=y_true,y_pred=y_pred,
-                                           title=f"{len(approxes[0]):_} records of class {class_id}, integral error={total_error:.4f}, nruns={self.nruns:_}",
+                                           title=f"{len(approxes[0]):_} records of class {class_id}, integral error={total_error:.4f}, nruns={self.nruns:_}\r\n",
                                            show_roc_auc_in_title=True,
                                            use_weights=self.use_weighted_calibration,verbose=False)            
 
@@ -354,16 +355,19 @@ class CB_CALIB_ERROR:
     def get_final_error(self, error, weight):
         return error
 
-def compute_integral_calibration_error(probs:Sequence,target,method:str="multicrit",std_weight:float=0.5,roc_auc_weight=0.001,use_weighted_calibration:bool=True,weight_by_class_npositives:bool=False):
+def compute_integral_calibration_error(probs:Sequence,target,labels=None,method:str="multicrit",std_weight:float=0.5,roc_auc_weight=0.001,use_weighted_calibration:bool=True,weight_by_class_npositives:bool=False):
     total_error=0.0
     weights_sum=0
         
     for class_id in range(len(probs)):
 
-        if len(len(probs))==2 and class_id==0: continue
+        if len(probs)==2 and class_id==0: continue
         
         y_pred = probs[class_id]
-        y_true=(target==class_id).astype(np.int8)
+        if labels is not None:
+            y_true=(target==labels[class_id]).astype(np.int8)
+        else:
+            y_true=(target==class_id).astype(np.int8)
         
         if method =="multicrit":
             calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred,use_weights=use_weighted_calibration)
@@ -376,7 +380,7 @@ def compute_integral_calibration_error(probs:Sequence,target,method:str="multicr
         if method =="brier_score":
             multicrit_class_error=brier_score_loss(y_true=y_true,y_prob=y_pred)
         elif method =="precision":
-            multicrit_class_error=fast_precision(y_true=target, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0)                
+            multicrit_class_error=fast_precision(y_true=y_true, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0)                
         
         if weight_by_class_npositives:
             weight=y_true.sum()                
@@ -394,6 +398,15 @@ def compute_integral_calibration_error(probs:Sequence,target,method:str="multicr
 def integral_calibration_error(calibration_mae:float , calibration_std:float, calibration_coverage:float,roc_auc:float,std_weight:float=0.5,roc_auc_weight:float=0.0001,cov_degree:float=0.5) -> float:
     """Integral calibration error."""
     return (calibration_mae + calibration_std * std_weight-roc_auc* roc_auc_weight)
+
+def sklearn_integral_calibration_error(y_true, y_score,labels=None, method:str="multicrit",std_weight:float=0.5,roc_auc_weight=0.001,use_weighted_calibration:bool=True,weight_by_class_npositives:bool=False):
+    if isinstance(y_true,(pd.Series,pd.DataFrame)):
+        y_true=y_true.values
+    if isinstance(y_score,(pd.Series,pd.DataFrame)):
+        y_score=y_score.values
+    if labels is not None and isinstance(labels,(pd.Series,pd.DataFrame)):
+        labels=labels.values        
+    return compute_integral_calibration_error(probs=[y_score[:,i] for i in range(y_score.shape[1])],target=y_true,labels=labels,method=method,std_weight=std_weight,roc_auc_weight=roc_auc_weight,use_weighted_calibration=use_weighted_calibration,weight_by_class_npositives =weight_by_class_npositives)
 
 def integral_calibration_error_xgboost(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred)
