@@ -236,8 +236,10 @@ def calibration_metrics_from_freqs(freqs_predicted: np.ndarray, freqs_true: np.n
 
 
 @njit()
-def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100,use_weights:bool=False):
+def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100,use_weights:bool=False,verbose:int=0):
     freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
+    if verbose:
+        print(freqs_predicted,freqs_true)
     return calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins,array_size=len(y_true),use_weights=use_weights)
 
 
@@ -297,105 +299,102 @@ def predictions_time_instability(preds: pd.Series) -> float:
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-class CB_CALIB_ERROR:
+class CB_integral_calibration_error:
+    """Custom probabilistic prediction error metric balancing predictive power with calibration.
+        Can regularly create a calibration plot.
     """
-    def __init__(self,std_weight:float=0.5,use_weights:bool=True) -> None:
+    
+    def __init__(self,method:str="multicrit",std_weight:float=0.5,roc_auc_weight=0.001,use_weighted_calibration:bool=True,weight_by_class_npositives:bool=False,calibration_plot_period:int=0) -> None:
+
+        assert method in ("multicrit","precision","brier_score")
+
+        self.method=method
         self.std_weight=std_weight
-        self.use_weights=use_weights
-    """
+        self.roc_auc_weight=roc_auc_weight
+        self.use_weighted_calibration=use_weighted_calibration
+        self.weight_by_class_npositives=weight_by_class_npositives
+                
+        self.calibration_plot_period=calibration_plot_period
+        self.nruns=0
 
     def is_max_optimal(self):
-        return False  # greater is better
+        return False  # greater is better?
 
     def evaluate(self, approxes, target, weight):
         output_weight = 1  # weight is not used
-
-        # predictions=expit(approxes[0])
-        #print(approxes,target)
         
         total_error=0.0
         weights_sum=0
+        
+        if len(approxes)==1:
+            new_approxes=[expit(approxes[0])]
+        else:
+            
+            new_approxes=[]
+            tot_sum=np.zeros_like(approxes[0])            
+            for class_id in range(len(approxes)):
+                y_pred=np.exp(approxes[class_id])
+                new_approxes.append(y_pred)
+                tot_sum+=y_pred
+            for class_id in range(len(approxes)):
+                new_approxes[class_id]/=tot_sum
+                
         for class_id in range(len(approxes)):
-            y_pred = 1 / (1 + np.exp(-approxes[class_id]))
+            
+            y_pred = new_approxes[class_id]
 
             y_true=(target==class_id).astype(np.int8)
             weight=y_true.sum()
             weights_sum+=weight
+            
+            if self. method =="multicrit":
+                calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred,use_weights=self.use_weighted_calibration)
 
-            calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred,use_weights=True) # use_weights=self.use_weights
-
-            desc_score_indices = np.argsort(y_pred)[::-1]
-            roc_auc=fast_numba_auc_nonw(y_true=y_true, y_score=y_pred, desc_score_indices=desc_score_indices)
-
-            multicrit_class_error=njitted_calib_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage,roc_auc=roc_auc,std_weight=0.1) # std_weight=self.std_weight
-            total_error+=multicrit_class_error*weight
-
-        return total_error/weights_sum, output_weight
-
-    def get_final_error(self, error, weight):
-        return error
-
-class CB_BRIER_LOSS:
-
-    def is_max_optimal(self):
-        return False  # greater is better
-
-    def evaluate(self, approxes, target, weight):
-        output_weight = 1  # weight is not used
-
-        # predictions=expit(approxes[0])
-        #print(approxes,target)
+                desc_score_indices = np.argsort(y_pred)[::-1]
+                roc_auc=fast_numba_auc_nonw(y_true=y_true, y_score=y_pred, desc_score_indices=desc_score_indices)
+                #print(f"\t class_id={class_id}, roc_auc={roc_auc:.3f}, calibration_mae={calibration_mae:.3f}, calibration_std={calibration_std:.3f}")
+                multicrit_class_error=integral_calibration_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage,
+                                                      roc_auc=roc_auc,std_weight=self.std_weight,roc_auc_weight=self.roc_auc_weight)
+            if self.method =="brier_score":
+                multicrit_class_error=brier_score_loss(y_true=y_true,y_prob=y_pred)
+            elif self.method =="precision":
+                multicrit_class_error=fast_precision(y_true=target, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0)                
+            
+            if self.weight_by_class_npositives:
+                total_error+=multicrit_class_error*weight
+            else:
+                total_error+=multicrit_class_error
+                
+        if self.weight_by_class_npositives:
+            total_error/=weights_sum
+        else:
+            total_error/=len(approxes)
+        self.nruns+=1
         
-        total_error=0.0
-        weights_sum=0
-        for class_id in range(len(approxes)):
-            y_pred = 1 / (1 + np.exp(-approxes[class_id]))
+        if self.calibration_plot_period and (self.nruns % self.calibration_plot_period ==0):
+            brier_loss, calibration_mae, calibration_std, calibration_coverage, _ =fast_calibration_report(y_true=y_true,y_pred=y_pred,
+                                           title=f"{len(approxes[0]):_} records of class {class_id}",
+                                           show_roc_auc_in_title=True,
+                                           use_weights=self.use_weighted_calibration,verbose=False)            
 
-            y_true=(target==class_id).astype(np.int8)
-            weight=y_true.sum()
-            weights_sum+=weight
-
-            brier_loss=brier_score_loss(y_true=y_true,y_prob=y_pred)
-            total_error+=brier_loss*weight
-
-        return total_error/weights_sum, output_weight
+        return total_error, output_weight
 
     def get_final_error(self, error, weight):
         return error
 
-class CB_PRECISION:
-    def is_max_optimal(self):
-        return False  # greater is better
-
-    def evaluate(self, approxes, target, weight):
-        output_weight = 1  # weight is not used
-
-        # y_pred=expit(approxes[0])
-        y_pred = 1 / (1 + np.exp(-approxes[0]))
-
-        return fast_precision(y_true=target, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0), output_weight
-
-    def get_final_error(self, error, weight):
-        return error
-
-#@njit()
-def calib_error(calibration_mae:float , calibration_std:float, calibration_coverage:float,roc_auc:float,std_weight:float=0.5,roc_auc_weight:float=0.0001,cov_degree:float=0.5) -> float:
+@njit()
+def integral_calibration_error(calibration_mae:float , calibration_std:float, calibration_coverage:float,roc_auc:float,std_weight:float=0.5,roc_auc_weight:float=0.0001,cov_degree:float=0.5) -> float:
     """Integral calibration error."""
+    return (calibration_mae + calibration_std * std_weight-roc_auc* roc_auc_weight)
 
-    if calibration_coverage==0.0:
-        return 1e5
-    else:
-        return (calibration_mae + calibration_std * std_weight-roc_auc* roc_auc_weight)#/(calibration_coverage**cov_degree)
-njitted_calib_error=njit(calib_error)
-
-def calib_error_xgboost(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+def integral_calibration_error_xgboost(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred)
-    return calib_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage)
+    return integral_calibration_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage)
 
 
-def calib_error_keras(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+def integral_calibration_error_keras(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true.numpy()[:, -1], y_pred=y_pred.numpy()[:, -1])
-    return calib_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage)
+    return integral_calibration_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage)
 
 @njit()
 def brier_score_loss(y_true:np.ndarray,y_prob:np.ndarray)->float:
