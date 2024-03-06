@@ -5,6 +5,7 @@
 from typing import *
 from numba import njit
 from math import floor
+from scipy.special import expit
 import numpy as np, pandas as pd
 from matplotlib import pyplot as plt
 
@@ -299,7 +300,7 @@ def predictions_time_instability(preds: pd.Series) -> float:
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-class CB_integral_calibration_error:
+class CB_CALIB_ERROR:
     """Custom probabilistic prediction error metric balancing predictive power with calibration.
         Can regularly create a calibration plot.
     """
@@ -322,58 +323,29 @@ class CB_integral_calibration_error:
 
     def evaluate(self, approxes, target, weight):
         output_weight = 1  # weight is not used
-        
-        total_error=0.0
-        weights_sum=0
-        
+               
         if len(approxes)==1:
-            new_approxes=[expit(approxes[0])]
+            y_pred=expit(approxes[0])
+            probs=[1-y_pred,y_pred]
         else:
             
-            new_approxes=[]
-            tot_sum=np.zeros_like(approxes[0])            
+            probs=[]
+            tot_sum=np.zeros_like(approxes[0])
             for class_id in range(len(approxes)):
                 y_pred=np.exp(approxes[class_id])
-                new_approxes.append(y_pred)
+                probs.append(y_pred)
                 tot_sum+=y_pred
             for class_id in range(len(approxes)):
-                new_approxes[class_id]/=tot_sum
-                
-        for class_id in range(len(approxes)):
-            
-            y_pred = new_approxes[class_id]
+                probs[class_id]/=tot_sum
+        
+        total_error=compute_integral_calibration_error(probs=probs,target=target,method=self.method,std_weight=self.std_weight,roc_auc_weight=self.roc_auc_weight,use_weighted_calibration=self.use_weighted_calibration,weight_by_class_npositives =self.weight_by_class_npositives)
 
-            y_true=(target==class_id).astype(np.int8)
-            weight=y_true.sum()
-            weights_sum+=weight
-            
-            if self. method =="multicrit":
-                calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred,use_weights=self.use_weighted_calibration)
-
-                desc_score_indices = np.argsort(y_pred)[::-1]
-                roc_auc=fast_numba_auc_nonw(y_true=y_true, y_score=y_pred, desc_score_indices=desc_score_indices)
-                #print(f"\t class_id={class_id}, roc_auc={roc_auc:.3f}, calibration_mae={calibration_mae:.3f}, calibration_std={calibration_std:.3f}")
-                multicrit_class_error=integral_calibration_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage,
-                                                      roc_auc=roc_auc,std_weight=self.std_weight,roc_auc_weight=self.roc_auc_weight)
-            if self.method =="brier_score":
-                multicrit_class_error=brier_score_loss(y_true=y_true,y_prob=y_pred)
-            elif self.method =="precision":
-                multicrit_class_error=fast_precision(y_true=target, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0)                
-            
-            if self.weight_by_class_npositives:
-                total_error+=multicrit_class_error*weight
-            else:
-                total_error+=multicrit_class_error
-                
-        if self.weight_by_class_npositives:
-            total_error/=weights_sum
-        else:
-            total_error/=len(approxes)
         self.nruns+=1
         
         if self.calibration_plot_period and (self.nruns % self.calibration_plot_period ==0):
+            y_true=(target==class_id).astype(np.int8)
             brier_loss, calibration_mae, calibration_std, calibration_coverage, _ =fast_calibration_report(y_true=y_true,y_pred=y_pred,
-                                           title=f"{len(approxes[0]):_} records of class {class_id}",
+                                           title=f"{len(approxes[0]):_} records of class {class_id}, integral error={total_error:.4f}, nruns={self.nruns:_}",
                                            show_roc_auc_in_title=True,
                                            use_weights=self.use_weighted_calibration,verbose=False)            
 
@@ -381,6 +353,42 @@ class CB_integral_calibration_error:
 
     def get_final_error(self, error, weight):
         return error
+
+def compute_integral_calibration_error(probs:Sequence,target,method:str="multicrit",std_weight:float=0.5,roc_auc_weight=0.001,use_weighted_calibration:bool=True,weight_by_class_npositives:bool=False):
+    total_error=0.0
+    weights_sum=0
+        
+    for class_id in range(len(probs)):
+
+        if len(len(probs))==2 and class_id==0: continue
+        
+        y_pred = probs[class_id]
+        y_true=(target==class_id).astype(np.int8)
+        
+        if method =="multicrit":
+            calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred,use_weights=use_weighted_calibration)
+
+            desc_score_indices = np.argsort(y_pred)[::-1]
+            roc_auc=fast_numba_auc_nonw(y_true=y_true, y_score=y_pred, desc_score_indices=desc_score_indices)
+            #print(f"\t class_id={class_id}, roc_auc={roc_auc:.3f}, calibration_mae={calibration_mae:.3f}, calibration_std={calibration_std:.3f}")
+            multicrit_class_error=integral_calibration_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage,
+                                                    roc_auc=roc_auc,std_weight=std_weight,roc_auc_weight=roc_auc_weight)
+        if method =="brier_score":
+            multicrit_class_error=brier_score_loss(y_true=y_true,y_prob=y_pred)
+        elif method =="precision":
+            multicrit_class_error=fast_precision(y_true=target, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0)                
+        
+        if weight_by_class_npositives:
+            weight=y_true.sum()                
+        else:
+            weight=1
+
+        total_error+=multicrit_class_error*weight
+        weights_sum+=weight
+    
+    total_error/=weights_sum
+
+    return total_error
 
 @njit()
 def integral_calibration_error(calibration_mae:float , calibration_std:float, calibration_coverage:float,roc_auc:float,std_weight:float=0.5,roc_auc_weight:float=0.0001,cov_degree:float=0.5) -> float:
