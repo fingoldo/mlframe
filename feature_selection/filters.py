@@ -19,14 +19,14 @@ while True:
         import copy
 
         import pandas as pd, numpy as np
-        import cupy as cp # pip install cupy-cuda11x; python -m cupyx.tools.install_library --cuda 11.x --library cutensor
+        import cupy as cp  # pip install cupy-cuda11x; python -m cupyx.tools.install_library --cuda 11.x --library cutensor
         import os
         import gc
 
         from pyutilz.system import tqdmu
         from mlframe.utils import set_random_seed
         from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
-        from pyutilz.parallel import mem_map_array, split_list_into_chunks,parallel_run                
+        from pyutilz.parallel import mem_map_array, split_list_into_chunks, parallel_run
         from pyutilz.numbalib import set_numba_random_seed, arr2str, python_dict_2_numba_dict, generate_combinations_recursive_njit
 
         # from mlframe.boruta_shap import BorutaShap
@@ -36,16 +36,16 @@ while True:
         from scipy import special as sp
         from itertools import combinations
         from numpy.polynomial.hermite import hermval
-        from pyutilz.pythonlib import sort_dict_by_value        
+        from pyutilz.pythonlib import sort_dict_by_value
 
-        from sklearn.preprocessing import KBinsDiscretizer,OrdinalEncoder
+        from sklearn.preprocessing import KBinsDiscretizer, OrdinalEncoder
         from sklearn.model_selection import KFold
         from sklearn.base import is_classifier, is_regressor, BaseEstimator, TransformerMixin
         from sklearn.impute import SimpleImputer
         from itertools import combinations
         from numba.core import types
         from mlframe.arrays import arrayMinMax
-        from numba import njit,jit
+        from numba import njit, jit
         import numba
         import math
 
@@ -55,7 +55,6 @@ while True:
 
         from numba import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
         import warnings
-
 
     except ModuleNotFoundError as e:
 
@@ -73,7 +72,7 @@ while True:
         ensure_installed("numpy pandas cupy-cuda11x scikit-learn")
 
     else:
-        break        
+        break
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
@@ -88,8 +87,8 @@ NMAX_NONPARALLEL_ITERS = 2
 MAX_ITERATIONS_TO_TRACK = 5
 
 LARGE_CONST: float = 1e30
-GPU_MAX_BLOCK_SIZE:int = 1024
-MAX_CONFIRMATION_CAND_NBINS:int=50
+GPU_MAX_BLOCK_SIZE: int = 1024
+MAX_CONFIRMATION_CAND_NBINS: int = 50
 
 caching_hits_xyz = 0
 caching_hits_z = 0
@@ -317,6 +316,7 @@ def mi(factors_data, x: np.ndarray, y: np.ndarray, factors_nbins: np.ndarray, ve
 
     return entropy_x + entropy_y - entropy_xy
 
+
 @njit()
 def unpack_and_sort(x, z):
     res = []
@@ -325,6 +325,7 @@ def unpack_and_sort(x, z):
     for el in z:
         res.append(el)
     return sorted(res)
+
 
 @njit()
 def conditional_mi(
@@ -366,8 +367,8 @@ def conditional_mi(
 
     if entropy_xz < 0:
 
-        #indices = sorted([*x, *z])
-        indices=unpack_and_sort(x, z)
+        # indices = sorted([*x, *z])
+        indices = unpack_and_sort(x, z)
 
         if can_use_x_cache and entropy_cache is not None:
             key = arr2str(indices)
@@ -384,8 +385,8 @@ def conditional_mi(
     if can_use_y_cache:
         if entropy_yz < 0:
 
-            #indices = sorted([*y, *z])
-            indices=unpack_and_sort(y, z)
+            # indices = sorted([*y, *z])
+            indices = unpack_and_sort(y, z)
 
             if entropy_cache is not None:
                 key = arr2str(indices)
@@ -401,16 +402,16 @@ def conditional_mi(
             #    caching_hits_yz += 1
     else:
         classes_yz, freqs_yz, current_nclasses_yz = merge_vars(
-            factors_data=factors_data, vars_indices=unpack_and_sort(y, z), var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype # [*y, *z]
+            factors_data=factors_data, vars_indices=unpack_and_sort(y, z), var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype  # [*y, *z]
         )  # always 2-dim
         entropy_yz = entropy(freqs=freqs_yz)
 
     if entropy_xyz < 0:
         if can_use_y_cache and can_use_x_cache:
 
-            #indices = sorted([*x, *y, *z])
+            # indices = sorted([*x, *y, *z])
             indices = unpack_and_sort(x, y)
-            indices = unpack_and_sort(indices,z)
+            indices = unpack_and_sort(indices, z)
 
             if entropy_cache is not None:
                 key = arr2str(indices)
@@ -418,7 +419,7 @@ def conditional_mi(
         if entropy_xyz < 0:
             if current_nclasses_yz == 1:
                 classes_yz, freqs_yz, current_nclasses_yz = merge_vars(
-                    factors_data=factors_data, vars_indices=unpack_and_sort(y, z), var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype # [*y, *z]
+                    factors_data=factors_data, vars_indices=unpack_and_sort(y, z), var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype  # [*y, *z]
                 )  # always 2-dim
 
             _, freqs_xyz, _ = merge_vars(
@@ -495,7 +496,7 @@ def mi_direct(
     freqs_y: np.ndarray = None,
     n_workers: int = 1,
     workers_pool: object = None,
-    parallel_kwargs:dict={},
+    parallel_kwargs: dict = {},
 ) -> tuple:
 
     classes_x, freqs_x, _ = merge_vars(factors_data=factors_data, vars_indices=x, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
@@ -504,7 +505,7 @@ def mi_direct(
 
     original_mi = compute_mi_from_classes(classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y, freqs_y=freqs_y, dtype=dtype)
 
-    #logger.info(f"original_mi={original_mi}")
+    # logger.info(f"original_mi={original_mi}")
 
     if original_mi > 0 and npermutations > 0:
 
@@ -551,19 +552,19 @@ def mi_direct(
             if classes_y_safe is None:
                 classes_y_safe = classes_y.copy()
 
-            # Create a Generator instance with a specific RNG state            
-            #seed=int.from_bytes(os.urandom(4), byteorder='little')
-            #rng = np.random.default_rng(seed)  
+            # Create a Generator instance with a specific RNG state
+            # seed=int.from_bytes(os.urandom(4), byteorder='little')
+            # rng = np.random.default_rng(seed)
 
             for i in range(npermutations):
-                #logger.info(f"x={x} perm {i}")
-                #np.random.shuffle(classes_y_safe)
+                # logger.info(f"x={x} perm {i}")
+                # np.random.shuffle(classes_y_safe)
                 shuffle_arr(classes_y_safe)
                 # Shuffle the array using the local RNG
-                #classes_y_shuffled=np.random.choice(classes_y, len(classes_y), replace=False)
-                #rng.shuffle(classes_y_safe)                                  
-                #logger.info(f"x={x} shuffled")
-                #mi = compute_mi_from_classes(classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y_shuffled, freqs_y=freqs_y, dtype=dtype)
+                # classes_y_shuffled=np.random.choice(classes_y, len(classes_y), replace=False)
+                # rng.shuffle(classes_y_safe)
+                # logger.info(f"x={x} shuffled")
+                # mi = compute_mi_from_classes(classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y_shuffled, freqs_y=freqs_y, dtype=dtype)
                 mi = compute_mi_from_classes(classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y_safe, freqs_y=freqs_y, dtype=dtype)
 
                 if mi >= original_mi:
@@ -579,9 +580,11 @@ def mi_direct(
 
     return original_mi, confidence
 
+
 @njit()
-def shuffle_arr(arr:np.ndarray)->None:
+def shuffle_arr(arr: np.ndarray) -> None:
     np.random.shuffle(arr)
+
 
 @njit()
 def parallel_mi(
@@ -656,7 +659,7 @@ def mi_direct_gpu(
 
         classes_x = cp.asarray(classes_x.astype(np.int32))
         freqs_x = cp.asarray(freqs_x)
-        nfailed =0
+        nfailed = 0
         for i in range(npermutations):
 
             cp.random.shuffle(classes_y_safe)
@@ -760,7 +763,7 @@ def get_fleuret_criteria_confidence_parallel(
     cached_cond_MIs: dict = None,
     n_workers: int = 1,
     workers_pool: object = None,
-    parallel_kwargs:dict={},
+    parallel_kwargs: dict = {},
     entropy_cache: dict = None,
     extra_x_shuffling: bool = True,
     dtype=np.int32,
@@ -969,7 +972,7 @@ def evaluate_candidates(
     from pyutilz.logginglib import init_logging
 
     global logger
-    logger = init_logging(default_caller_name="scalping.py", format="%(asctime)s - %(levelname)s - %(funcName)s-line:%(lineno)d - %(message)s")    
+    logger = init_logging(default_caller_name="scalping.py", format="%(asctime)s - %(levelname)s - %(funcName)s-line:%(lineno)d - %(message)s")
 
     # if verbose: logger.info("In evaluate_candidates")
 
@@ -986,11 +989,11 @@ def evaluate_candidates(
     python_dict_2_numba_dict(python_dict=cached_cond_MIs, numba_dict=cached_cond_MIs_dict)
 
     classes_y_safe = classes_y.copy()
-    #np.random.seed(int.from_bytes(os.urandom(4), byteorder='little'))
+    # np.random.seed(int.from_bytes(os.urandom(4), byteorder='little'))
 
     for cand_idx, X, nexisting in (candidates_pbar := tqdmu(workload, leave=False, desc="Thread Candidates")):
 
-        #if verbose: logger.info(f"Evaluating cand {X}")            
+        # if verbose: logger.info(f"Evaluating cand {X}")
 
         current_gain, sink_reasons = evaluate_candidate(
             cand_idx=cand_idx,
@@ -1021,7 +1024,7 @@ def evaluate_candidates(
             ndigits=ndigits,
             dtype=dtype,
         )
-        
+
         # if verbose: logger.info(f"X={X}, gain={current_gain}")
 
         best_gain, best_candidate, run_out_of_time = handle_best_candidate(
@@ -1117,14 +1120,14 @@ def evaluate_gain(
 
     k = 0
     for interactions_order in range(max_veteranes_interactions_order):
-        combs=generate_combinations_recursive_njit(np.array(selected_vars, dtype=np.int32), interactions_order + 1)[::-1]
-        #if X==(425,): logger.info(f"\t combs={combs}")
+        combs = generate_combinations_recursive_njit(np.array(selected_vars, dtype=np.int32), interactions_order + 1)[::-1]
+        # if X==(425,): logger.info(f"\t combs={combs}")
 
-        for Z in combs:           
+        for Z in combs:
 
             if k > last_checked_k:
-                if confidence_mode and count_cand_nbins(Z,factors_nbins)>MAX_CONFIRMATION_CAND_NBINS:
-                    additional_knowledge=0.0 # this is needed to skip checking agains hi cardinality approved factors
+                if confidence_mode and count_cand_nbins(Z, factors_nbins) > MAX_CONFIRMATION_CAND_NBINS:
+                    additional_knowledge = 0.0  # this is needed to skip checking agains hi cardinality approved factors
                 else:
                     if mrmr_relevance_algo == "fleuret":
 
@@ -1132,13 +1135,13 @@ def evaluate_gain(
                         # additional_knowledge = I (X ;Y | Z ) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)
                         # I (X,Z) would be entropy_x + entropy_z - entropy_xz.
                         # ---------------------------------------------------------------------------------------------------------------
-                        
+
                         key_found = False
                         if not confidence_mode:
                             key = arr2str(X) + "_" + arr2str(Z)
                             if key in cached_cond_MIs:
                                 additional_knowledge = cached_cond_MIs[key]
-                                #if X==(425,): logger.info(f"\t additional_knowledge from {Z} found to be {additional_knowledge}, k={k}, last_checked_k={last_checked_k}")
+                                # if X==(425,): logger.info(f"\t additional_knowledge from {Z} found to be {additional_knowledge}, k={k}, last_checked_k={last_checked_k}")
                                 key_found = True
 
                         if not key_found:
@@ -1165,7 +1168,7 @@ def evaluate_gain(
                             if not confidence_mode:
                                 cached_cond_MIs[key] = additional_knowledge
 
-                            #if X==(425,): logger.info(f"\t additional_knowledge from {Z}={additional_knowledge}, k={k}, last_checked_k={last_checked_k}")
+                            # if X==(425,): logger.info(f"\t additional_knowledge from {Z}={additional_knowledge}, k={k}, last_checked_k={last_checked_k}")
 
                     # ---------------------------------------------------------------------------------------------------------------
                     # Account for possible extra knowledge from conditioning on Z?
@@ -1213,7 +1216,7 @@ def evaluate_gain(
                         return stopped_early, current_gain, k, sink_reasons
             k += 1
 
-    return stopped_early, current_gain, k-1, sink_reasons
+    return stopped_early, current_gain, k - 1, sink_reasons
 
 
 def evaluate_candidate(
@@ -1247,7 +1250,7 @@ def evaluate_candidate(
     verbose: int = 1,
     ndigits: int = 5,
 ) -> None:
-    #logger.info("In evaluate_candidate")
+    # logger.info("In evaluate_candidate")
     sink_reasons = set()
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -1275,7 +1278,7 @@ def evaluate_candidate(
                     dtype=dtype,
                 )
             else:
-                #logger.info("Computing mi_direct")
+                # logger.info("Computing mi_direct")
                 direct_gain, _ = mi_direct(
                     factors_data,
                     x=X,
@@ -1288,7 +1291,7 @@ def evaluate_candidate(
                     npermutations=baseline_npermutations,
                     dtype=dtype,
                 )
-                #logger.info("Computed mi_direct")
+                # logger.info("Computed mi_direct")
             cached_MIs[X] = direct_gain
 
     if direct_gain > 0:
@@ -1307,8 +1310,8 @@ def evaluate_candidate(
 
             if cand_idx in partial_gains:
                 current_gain, last_checked_k = partial_gains[cand_idx]
-                #if X==(425,): logger.info(f"\t cand_idx in partial_gains: {current_gain, last_checked_k}")
-                if best_gain is not None and (current_gain<=best_gain):
+                # if X==(425,): logger.info(f"\t cand_idx in partial_gains: {current_gain, last_checked_k}")
+                if best_gain is not None and (current_gain <= best_gain):
                     return current_gain, sink_reasons
             else:
                 current_gain = LARGE_CONST
@@ -1335,7 +1338,7 @@ def evaluate_candidate(
                 can_use_x_cache=True,
                 can_use_y_cache=True,
             )
-            #if X==(425,): logger.info(f"\t stopped_early, current_gain, k, sink_reasons={stopped_early, current_gain, k, sink_reasons}")
+            # if X==(425,): logger.info(f"\t stopped_early, current_gain, k, sink_reasons={stopped_early, current_gain, k, sink_reasons}")
 
             partial_gains[cand_idx] = current_gain, k
             if not stopped_early:  # there was no break. current_gain computed fully. this line was (and most likely should be) commented out.
@@ -1351,7 +1354,7 @@ def evaluate_candidate(
 
 
 def test(a):
-    logger.info('test')
+    logger.info("test")
     return 0
 
 
@@ -1451,17 +1454,13 @@ def screen_predictors(
                 x = set(range(factors_data.shape[1])) - set(y)
             else:
                 if factors_to_use is not None:
-                    x=set(factors_to_use)- set(y)
+                    x = set(factors_to_use) - set(y)
                     if verbose > 1:
-                        logger.info(
-                            f"Using only {len(factors_to_use):_} predefined factors: {factors_to_use}"
-                        )                    
+                        logger.info(f"Using only {len(factors_to_use):_} predefined factors: {factors_to_use}")
                 else:
-                    x=[i for i,col_name in enumerate(factors_names) if col_name in factors_names_to_use and i!=y]
+                    x = [i for i, col_name in enumerate(factors_names) if col_name in factors_names_to_use and i != y]
                     if verbose > 1:
-                        logger.info(
-                            f"Using only {len(factors_names_to_use):_} predefined factors: {factors_names_to_use}"
-                        )                     
+                        logger.info(f"Using only {len(factors_names_to_use):_} predefined factors: {factors_names_to_use}")
         else:
 
             assert not set(y).issubset(set(x))
@@ -1514,7 +1513,7 @@ def screen_predictors(
         #    classes_y_memmap = mem_map_array(obj=classes_y, file_name="classes_y", mmap_mode="r")
         if verbose:
             logger.info("Starting parallel pool...")
-        workers_pool = Parallel(n_jobs=n_workers,**parallel_kwargs)
+        workers_pool = Parallel(n_jobs=n_workers, **parallel_kwargs)
         workers_pool(delayed(test)(i) for i in range(n_workers))
     else:
         workers_pool = None
@@ -1617,7 +1616,7 @@ def screen_predictors(
                             verbose=verbose,
                             ndigits=ndigits,
                         )
-                        for workload in split_list_into_chunks(feasible_candidates, max(1,len(feasible_candidates) // n_workers))
+                        for workload in split_list_into_chunks(feasible_candidates, max(1, len(feasible_candidates) // n_workers))
                     )
 
                     for (
@@ -1661,10 +1660,10 @@ def screen_predictors(
                 else:
                     for cand_idx, X, nexisting in (candidates_pbar := tqdmu(feasible_candidates, leave=False, desc="Candidates")):
 
-                        #tmp_idx=X[0]
-                        #print(X,factors_nbins[tmp_idx],factors_names[tmp_idx])
-                        #from time import sleep
-                        #sleep(5)
+                        # tmp_idx=X[0]
+                        # print(X,factors_nbins[tmp_idx],factors_names[tmp_idx])
+                        # from time import sleep
+                        # sleep(5)
 
                         current_gain, sink_reasons = evaluate_candidate(
                             cand_idx=cand_idx,
@@ -1724,18 +1723,18 @@ def screen_predictors(
                 # ---------------------------------------------------------------------------------------------------------------
                 # Now need to confirm best expected gain with a permutation test
                 # ---------------------------------------------------------------------------------------------------------------
-                
+
                 cand_confirmed = False
                 any_cand_considered = False
                 for n, next_best_candidate_idx in enumerate(np.argsort(expected_gains)[::-1]):
                     next_best_gain = expected_gains[next_best_candidate_idx]
-                    #logger.info(f"{n}, {next_best_gain}, {min_relevance_gain}")
+                    # logger.info(f"{n}, {next_best_gain}, {min_relevance_gain}")
                     if next_best_gain >= min_relevance_gain:  # only can consider here candidates fully checked against every Z
 
                         X = candidates[next_best_candidate_idx]
 
                         # ---------------------------------------------------------------------------------------------------------------
-                        # For cands other than the top one, if best partial gain <= next_best_gain, we can proceed with confirming next_best_gain. 
+                        # For cands other than the top one, if best partial gain <= next_best_gain, we can proceed with confirming next_best_gain.
                         # else we have to recompute partial gains
                         # ---------------------------------------------------------------------------------------------------------------
 
@@ -1748,8 +1747,8 @@ def screen_predictors(
                                 selected_vars=selected_vars,
                             )
 
-                            if best_partial_gain > next_best_gain:                          
-                                best_gain=next_best_gain
+                            if best_partial_gain > next_best_gain:
+                                best_gain = next_best_gain
                                 if verbose > 1:
                                     print(
                                         "Have no best_candidate anymore. Need to recompute partial gains. best_partial_gain of candidate",
@@ -1760,7 +1759,7 @@ def screen_predictors(
                                 break  # out of best candidates confirmation, to retry all cands evaluation
 
                         any_cand_considered = True
-                        
+
                         if full_npermutations:
 
                             if verbose > 1:
@@ -1813,19 +1812,19 @@ def screen_predictors(
                             if X in cached_confident_MIs:
                                 bootstrapped_gain, confidence = cached_confident_MIs[X]
                             else:
-                                bootstrapped_gain, confidence = next_best_gain,1.0
+                                bootstrapped_gain, confidence = next_best_gain, 1.0
 
                         if full_npermutations and bootstrapped_gain > 0 and selected_vars:  # additional check of Fleuret criteria
-                                                
-                            if count_cand_nbins(X,factors_nbins)<=MAX_CONFIRMATION_CAND_NBINS:
-                            
+
+                            if count_cand_nbins(X, factors_nbins) <= MAX_CONFIRMATION_CAND_NBINS:
+
                                 skip_cand = [(subel in selected_vars) for subel in X]
                                 nexisting = sum(skip_cand)
-                                
+
                                 # ---------------------------------------------------------------------------------------------------------------
                                 # external bootstrapped recheck. is minimal MI of candidate X with Y given all current Zs THAT BIG as next_best_gain?
                                 # ---------------------------------------------------------------------------------------------------------------
-                                
+
                                 if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                                     eval_start = timer()
 
@@ -1877,7 +1876,7 @@ def screen_predictors(
 
                                 if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                                     logger.info(f"get_fleuret_criteria_confidence bootstrapped eval took {timer() - eval_start:.1f} sec.")
-                        
+
                         # ---------------------------------------------------------------------------------------------------------------
                         # Report this particular best candidate
                         # ---------------------------------------------------------------------------------------------------------------
@@ -1946,7 +1945,7 @@ def screen_predictors(
                         break  # exit confirmation while loop
                     else:
                         best_gain = min_relevance_gain - 1
-                        if max_consec_unconfirmed and (nconsec_unconfirmed > max_consec_unconfirmed):                            
+                        if max_consec_unconfirmed and (nconsec_unconfirmed > max_consec_unconfirmed):
                             break  # exit confirmation while loop
                         else:
                             pass  # retry all cands evaluation
@@ -1955,25 +1954,25 @@ def screen_predictors(
             # Add best candidate to the list, if criteria are met, or proceed to the next interactions_order
             # ---------------------------------------------------------------------------------------------------------------
 
-            if best_gain >=(min_relevance_gain if interactions_order==1 else  min_relevance_gain**(1/(interactions_order+1))):
+            if best_gain >= (min_relevance_gain if interactions_order == 1 else min_relevance_gain ** (1 / (interactions_order + 1))):
                 for var in best_candidate:
                     if var not in selected_vars:
                         selected_vars.append(var)
                         if interactions_order > 1:
                             selected_interactions_vars.append(var)
                 cand_name = get_candidate_name(best_candidate, factors_names=factors_names)
-                
-                res={"name": cand_name, "indices": best_candidate, "gain": best_gain}
+
+                res = {"name": cand_name, "indices": best_candidate, "gain": best_gain}
                 if full_npermutations:
-                    res["confidence"]=confidence
+                    res["confidence"] = confidence
                 predictors.append(res)
 
                 if verbose:
-                    mes=f"Added new predictor {cand_name} to the list with expected gain={best_gain:.{ndigits}f}"
+                    mes = f"Added new predictor {cand_name} to the list with expected gain={best_gain:.{ndigits}f}"
                     if full_npermutations:
-                        mes+=f" and confidence={confidence:.3f}"
+                        mes += f" and confidence={confidence:.3f}"
                     logger.info(mes)
-                
+
             else:
                 if verbose:
                     if total_checked > 0:
@@ -1990,9 +1989,9 @@ def screen_predictors(
     if verbose:
         logger.info(f"Finished.")
 
-    any_influencing=set()
-    for vars_combination,(bootstrapped_gain, confidence) in cached_confident_MIs.items():
-        if bootstrapped_gain>0:
+    any_influencing = set()
+    for vars_combination, (bootstrapped_gain, confidence) in cached_confident_MIs.items():
+        if bootstrapped_gain > 0:
             any_influencing.update(set(vars_combination))
 
     """Выбрать группы/кластера скоррелированных факторов. Вместо использования 1 самого крутого, рассмотреть средние от всех
@@ -2004,14 +2003,16 @@ def screen_predictors(
         if key in cached_cond_MIs:
             additional_knowledge = cached_cond_MIs[key]                        
     """
-    return selected_vars, predictors,any_influencing,entropy_cache,cached_MIs,cached_confident_MIs,cached_cond_MIs,classes_y,classes_y_safe,freqs_y
+    return selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe, freqs_y
+
 
 @njit()
-def count_cand_nbins(X,factors_nbins)->int:
-    sum_cand_nbins=0
+def count_cand_nbins(X, factors_nbins) -> int:
+    sum_cand_nbins = 0
     for factor in X:
-        sum_cand_nbins+=factors_nbins[factor]
+        sum_cand_nbins += factors_nbins[factor]
     return sum_cand_nbins
+
 
 def find_best_partial_gain(
     partial_gains: dict, failed_candidates: set, added_candidates: set, candidates: list, selected_vars: list, skip_indices: tuple = ()
@@ -2172,6 +2173,7 @@ def postprocess_candidates(
 
     return entropies, mutualinfos
 
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -2208,45 +2210,45 @@ def create_redundant_continuous_factor(
     df[name] = agg_func(df[factors].values, axis=1) * (1 + (noise - 0.5) * noise_percent / 100)
 
 
-def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,astropy_sample_size:int,method_kwargs:dict,dtype=np.int16,nan_filler:float=0.0):    
-        
+def categorize_1d_array(vals: np.ndarray, min_ncats: int, method: str, astropy_sample_size: int, method_kwargs: dict, dtype=np.int16, nan_filler: float = 0.0):
+
     ordinal_encoder = OrdinalEncoder()
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # Booleans bust become int8
     # ----------------------------------------------------------------------------------------------------------------------------
-    
-    if vals.dtype.name != 'category' and np.issubdtype(vals.dtype, np.bool_):
-        vals=vals.astype(np.int8)
+
+    if vals.dtype.name != "category" and np.issubdtype(vals.dtype, np.bool_):
+        vals = vals.astype(np.int8)
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # Missings are imputed using rolling median (for ts safety)
     # ----------------------------------------------------------------------------------------------------------------------------
-        
+
     if pd.isna(vals).any():
-        #imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
-        #vals = imputer.fit_transform(vals.reshape(-1, 1))
-        vals=pd.Series(vals)
-        #vals=vals.fillna(vals.rolling(window=nan_rolling_window,min_periods=nan_rolling_min_periods).apply(lambda x: mode(x)[0])).fillna(nan_filler).values
-        vals=vals.fillna(nan_filler).values
+        # imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
+        # vals = imputer.fit_transform(vals.reshape(-1, 1))
+        vals = pd.Series(vals)
+        # vals=vals.fillna(vals.rolling(window=nan_rolling_window,min_periods=nan_rolling_min_periods).apply(lambda x: mode(x)[0])).fillna(nan_filler).values
+        vals = vals.fillna(nan_filler).values
 
-    vals=vals.reshape(-1, 1)
+    vals = vals.reshape(-1, 1)
 
-    if vals.dtype.name != 'category':
-        nuniques=len(np.unique(vals[:min_ncats*10]))
-        if nuniques<= min_ncats:
-            nuniques=len(np.unique(vals))
+    if vals.dtype.name != "category":
+        nuniques = len(np.unique(vals[: min_ncats * 10]))
+        if nuniques <= min_ncats:
+            nuniques = len(np.unique(vals))
     else:
-        nuniques=min_ncats
+        nuniques = min_ncats
 
-    if method == "discretizer":        
+    if method == "discretizer":
         bins = method_kwargs.get("n_bins")
     else:
-        bins = method_kwargs.get("bins")        
+        bins = method_kwargs.get("bins")
 
-    if vals.dtype.name != 'category' and nuniques> min_ncats:
-        if method == "discretizer":            
-            if nuniques> bins:
+    if vals.dtype.name != "category" and nuniques > min_ncats:
+        if method == "discretizer":
+            if nuniques > bins:
                 discretizer = KBinsDiscretizer(**method_kwargs, encode="ordinal")
                 new_vals = discretizer.fit_transform(vals)
             else:
@@ -2268,13 +2270,14 @@ def categorize_1d_array(vals:np.ndarray,min_ncats:int,method:str,astropy_sample_
 
             if bin_edges[0] <= vals.min():
                 bin_edges = bin_edges[1:]
-            
+
             new_vals = ordinal_encoder.fit_transform(np.digitize(vals, bins=bin_edges, right=True))
 
     else:
         new_vals = ordinal_encoder.fit_transform(vals)
-    
+
     return new_vals.ravel().astype(dtype)
+
 
 def categorize_dataset_old(
     df: pd.DataFrame,
@@ -2283,8 +2286,8 @@ def categorize_dataset_old(
     min_ncats: int = 50,
     astropy_sample_size: int = 10_000,
     dtype=np.int16,
-    n_jobs:int=-1,
-    parallel_kwargs:dict={},
+    n_jobs: int = -1,
+    parallel_kwargs: dict = {},
 ):
     """
     Convert dataframe into ordinal-encoded one.
@@ -2296,41 +2299,44 @@ def categorize_dataset_old(
 
     numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "bool")).columns.values.tolist()
 
-    data=[]
-    if n_jobs==-1 or n_jobs>1:
-        fnc=delayed(categorize_1d_array)
+    data = []
+    if n_jobs == -1 or n_jobs > 1:
+        fnc = delayed(categorize_1d_array)
     else:
-        fnc=categorize_1d_array
+        fnc = categorize_1d_array
 
     for col in tqdmu(numerical_cols, leave=False, desc="Binning of numericals"):
-        data.append(fnc(vals=df[col].values,min_ncats=min_ncats,method=method,astropy_sample_size=astropy_sample_size,method_kwargs=method_kwargs,dtype=dtype))
-        
-    if n_jobs==-1 or n_jobs>1:
-        data = parallel_run(data,n_jobs=n_jobs,**parallel_kwargs)
-    data=np.vstack(data).T
+        data.append(
+            fnc(vals=df[col].values, min_ncats=min_ncats, method=method, astropy_sample_size=astropy_sample_size, method_kwargs=method_kwargs, dtype=dtype)
+        )
+
+    if n_jobs == -1 or n_jobs > 1:
+        data = parallel_run(data, n_jobs=n_jobs, **parallel_kwargs)
+    data = np.vstack(data).T
 
     categorical_factors = df.select_dtypes(include=("category", "object", "bool"))
-    categorical_cols=[]
+    categorical_cols = []
     if categorical_factors.shape[1] > 0:
         categorical_cols = categorical_factors.columns.values.tolist()
         ordinal_encoder = OrdinalEncoder()
         new_vals = ordinal_encoder.fit_transform(categorical_factors)
-        
-        max_cats=new_vals.max(axis=0)
-        exc_idx=max_cats>np.iinfo(dtype).max
-        n_max_cats=exc_idx.sum()
+
+        max_cats = new_vals.max(axis=0)
+        exc_idx = max_cats > np.iinfo(dtype).max
+        n_max_cats = exc_idx.sum()
         if n_max_cats:
             logger.warning(f"{n_max_cats:_} factors exceeded dtype {dtype} and were truncated: {np.asarray(categorical_cols)[exc_idx]}")
-        new_vals=new_vals.astype(dtype)
+        new_vals = new_vals.astype(dtype)
 
         if data is None:
             data = new_vals
         else:
             data = np.append(data, new_vals, axis=1)
 
-    nbins = data.max(axis=0).astype(np.int32)+1-data.min(axis=0).astype(np.int32)
+    nbins = data.max(axis=0).astype(np.int32) + 1 - data.min(axis=0).astype(np.int32)
 
     return data, numerical_cols + categorical_cols, nbins
+
 
 @njit
 def digitize(arr: np.ndarray, bins: np.ndarray, dtype=np.int32) -> np.ndarray:
@@ -2342,35 +2348,43 @@ def digitize(arr: np.ndarray, bins: np.ndarray, dtype=np.int32) -> np.ndarray:
                 break
     return res
 
+
 from numba import prange
 
-#@njit()
-def edges(arr,quantiles):
-    bin_edges= np.asarray(np.percentile(arr, quantiles))
+
+# @njit()
+def edges(arr, quantiles):
+    bin_edges = np.asarray(np.percentile(arr, quantiles))
     return bin_edges
 
+
 @njit()
-def quantize_dig(arr,bins):
+def quantize_dig(arr, bins):
     return np.digitize(arr, bins[1:-1], right=True)
 
-@njit()
-def quantize_search(arr,bins):
-    return  np.searchsorted(bins[1:-1], arr, side="right")
 
 @njit()
-def discretize_uniform(arr:np.ndarray,n_bins:int,min_value:float=None,max_value:float=None,dtype:object=np.int8)->np.ndarray:
+def quantize_search(arr, bins):
+    return np.searchsorted(bins[1:-1], arr, side="right")
+
+
+@njit()
+def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: float = None, max_value: float = None, dtype: object = np.int8) -> np.ndarray:
     if min_value is None or max_value is None:
-        min_value,max_value=arrayMinMax(arr)
-    rev_bin_width=n_bins/(max_value-min_value+min_value/2)
-    return ((arr-min_value)*rev_bin_width).astype(dtype)
+        min_value, max_value = arrayMinMax(arr)
+    rev_bin_width = n_bins / (max_value - min_value + min_value / 2)
+    return ((arr - min_value) * rev_bin_width).astype(dtype)
+
 
 @njit()
-def discretize_array(arr:np.ndarray,n_bins:int=10, method:str='quantile',min_value:float=None,max_value:float=None,dtype:object=np.int8)->np.ndarray:
+def discretize_array(
+    arr: np.ndarray, n_bins: int = 10, method: str = "quantile", min_value: float = None, max_value: float = None, dtype: object = np.int8
+) -> np.ndarray:
     """Discretize cont variable into bins.
-    
+
     Optimized version with mix of pure numpy and njitting.
 
-    
+
     %timeit quantize_search(df['a'].values,bins) #njitted
     24.6 ms ± 191 µs per loop (mean ± std. dev. of 7 runs, 10 loops each)
     time: 2 s (started: 2024-02-09 19:58:31 +03:00)
@@ -2383,67 +2397,86 @@ def discretize_array(arr:np.ndarray,n_bins:int=10, method:str='quantile',min_val
     23.7 ms ± 222 µs per loop (mean ± std. dev. of 7 runs, 10 loops each)
     time: 1.92 s (started: 2024-02-09 19:58:24 +03:00)
 
-    %timeit quantize_dig(df['a'].values, bins) #just numpy    
+    %timeit quantize_dig(df['a'].values, bins) #just numpy
     31.1 ms ± 292 µs per loop (mean ± std. dev. of 7 runs, 10 loops each)
-    time: 2.52 s (started: 2024-02-09 19:53:01 +03:00)    
-    
-    
+    time: 2.52 s (started: 2024-02-09 19:53:01 +03:00)
+
+
     """
-    if method=='uniform':
-        return discretize_uniform(arr=arr,n_bins=n_bins,min_value=min_value,max_value=max_value,dtype=dtype)
-    elif method=='quantile':
-        bins_edges=get_binning_edges(arr=arr,n_bins=n_bins,method=method,min_value=min_value,max_value=max_value) # pure numpy    
-    #return quantize_dig(arr,bins_edges).astype(dtype) #njitted
-    return quantize_search(arr,bins_edges).astype(dtype) #njitted
+    if method == "uniform":
+        return discretize_uniform(arr=arr, n_bins=n_bins, min_value=min_value, max_value=max_value, dtype=dtype)
+    elif method == "quantile":
+        bins_edges = get_binning_edges(arr=arr, n_bins=n_bins, method=method, min_value=min_value, max_value=max_value)  # pure numpy
+    # return quantize_dig(arr,bins_edges).astype(dtype) #njitted
+    return quantize_search(arr, bins_edges).astype(dtype)  # njitted
+
 
 @njit(parallel=True)
-def discretize_2d_array(arr:np.ndarray,n_bins:int=10, method:str='quantile',min_ncats:int=50,min_values:float=None,max_values:float=None,dtype:object=np.int8)->np.ndarray:
-    """
-    """
-    
-    res=np.empty_like(arr,dtype=dtype)
-    
-    
+def discretize_2d_array(
+    arr: np.ndarray,
+    n_bins: int = 10,
+    method: str = "quantile",
+    min_ncats: int = 50,
+    min_values: float = None,
+    max_values: float = None,
+    dtype: object = np.int8,
+) -> np.ndarray:
+    """ """
+
+    res = np.empty_like(arr, dtype=dtype)
+
     for col in prange(arr.shape[1]):
-        res[:,col]=discretize_array(arr=arr[:,col],n_bins=n_bins, method=method,min_value=min_values[col] if min_values is not None else None,max_value=max_values[col] if max_values is not None else None,dtype=dtype)
+        res[:, col] = discretize_array(
+            arr=arr[:, col],
+            n_bins=n_bins,
+            method=method,
+            min_value=min_values[col] if min_values is not None else None,
+            max_value=max_values[col] if max_values is not None else None,
+            dtype=dtype,
+        )
     return res
 
+
 @jit(nopython=False)
-def get_binning_edges(arr:np.ndarray,n_bins:int=10,method:str='uniform',min_value:float=None,max_value:float=None):
+def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform", min_value: float = None, max_value: float = None):
     """
     np.quantiles works faster when unjitted
-    
+
     %timeit edges(df['a'].values,quantiles) #njitted
     83.9 ms ± 274 µs per loop (mean ± std. dev. of 7 runs, 10 loops each)
     time: 6.81 s (started: 2024-02-09 17:36:50 +03:00)
-    
-    %timeit edges(df['a'].values,quantiles) #just numpy 
+
+    %timeit edges(df['a'].values,quantiles) #just numpy
     30.9 ms ± 541 µs per loop (mean ± std. dev. of 7 runs, 10 loops each)
-    time: 2.52 s (started: 2024-02-09 17:35:58 +03:00)    
+    time: 2.52 s (started: 2024-02-09 17:35:58 +03:00)
     """
     if method == "uniform":
         if min_value is None or max_value is None:
-            min_value,max_value=arrayMinMax(arr)        
+            min_value, max_value = arrayMinMax(arr)
         bin_edges = np.linspace(min_value, max_value, n_bins + 1)
 
     elif method == "quantile":
-        quantiles = np.linspace(0, 100, n_bins+ 1)
-        bin_edges= np.asarray(np.percentile(arr, quantiles))
-    
+        quantiles = np.linspace(0, 100, n_bins + 1)
+        bin_edges = np.asarray(np.percentile(arr, quantiles))
+
     return bin_edges
 
-def discretize_sklearn(arr:np.ndarray,n_bins:int=10, method:str='uniform',min_value:float=None,max_value:float=None,dtype:object=np.int8)->np.ndarray:
-    """Simplified vesrion taken from Sklearn's KBinsdiscretizer. 
+
+def discretize_sklearn(
+    arr: np.ndarray, n_bins: int = 10, method: str = "uniform", min_value: float = None, max_value: float = None, dtype: object = np.int8
+) -> np.ndarray:
+    """Simplified vesrion taken from Sklearn's KBinsdiscretizer.
     np.searchsorted runs twice faster when unjitted (as of Feb 2024 at least), so the func is not njitted.
     """
-    
-    bins_edges=get_binning_edges(arr=arr,n_bins=n_bins,method=method,min_value=min_value,max_value=max_value)
+
+    bins_edges = get_binning_edges(arr=arr, n_bins=n_bins, method=method, min_value=min_value, max_value=max_value)
     return np.searchsorted(bins_edges[1:-1], arr, side="right").astype(dtype)
+
 
 def categorize_dataset(
     df: pd.DataFrame,
     method: str = "quantile",
-    n_bins:int=4,
+    n_bins: int = 4,
     min_ncats: int = 50,
     dtype=np.int16,
 ):
@@ -2458,32 +2491,33 @@ def categorize_dataset(
     numerical_cols = []
     categorical_factors = []
 
-    numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "bool")).columns.values.tolist()    
+    numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "bool")).columns.values.tolist()
 
-    data=discretize_2d_array(arr=df[numerical_cols].values,n_bins=n_bins, method=method,min_ncats=min_ncats,min_values=None,max_values=None,dtype=dtype)
+    data = discretize_2d_array(arr=df[numerical_cols].values, n_bins=n_bins, method=method, min_ncats=min_ncats, min_values=None, max_values=None, dtype=dtype)
 
     categorical_factors = df.select_dtypes(include=("category", "object", "bool"))
-    categorical_cols=[]
+    categorical_cols = []
     if categorical_factors.shape[1] > 0:
         categorical_cols = categorical_factors.columns.values.tolist()
         ordinal_encoder = OrdinalEncoder()
         new_vals = ordinal_encoder.fit_transform(categorical_factors)
-        
-        max_cats=new_vals.max(axis=0)
-        exc_idx=max_cats>np.iinfo(dtype).max
-        n_max_cats=exc_idx.sum()
+
+        max_cats = new_vals.max(axis=0)
+        exc_idx = max_cats > np.iinfo(dtype).max
+        n_max_cats = exc_idx.sum()
         if n_max_cats:
             logger.warning(f"{n_max_cats:_} factors exceeded dtype {dtype} and were truncated: {np.asarray(categorical_cols)[exc_idx]}")
-        new_vals=new_vals.astype(dtype)
+        new_vals = new_vals.astype(dtype)
 
         if data is None:
             data = new_vals
         else:
             data = np.append(data, new_vals, axis=1)
 
-    nbins = data.max(axis=0).astype(np.int32)+1#-data.min(axis=0).astype(np.int32)
+    nbins = data.max(axis=0).astype(np.int32) + 1  # -data.min(axis=0).astype(np.int32)
 
     return data, numerical_cols + categorical_cols, nbins.tolist()
+
 
 class MRMR(BaseEstimator, TransformerMixin):
     """Finds subset of features having highest impact on target and least redundancy.
@@ -2522,9 +2556,9 @@ class MRMR(BaseEstimator, TransformerMixin):
     def __init__(
         self,
         # quantization
-        quantization_method:str="quantile",
-        quantization_nbins:int=10,
-        quantization_dtype:object=np.int16,
+        quantization_method: str = "quantile",
+        quantization_nbins: int = 10,
+        quantization_dtype: object = np.int16,
         # factors
         factors_names_to_use: Sequence[str] = None,
         factors_to_use: Sequence[int] = None,
@@ -2555,35 +2589,35 @@ class MRMR(BaseEstimator, TransformerMixin):
         # feature engineering settings
         fe_max_steps=1,
         fe_npermutations=0,
-        fe_unary_preset='minimal',
-        fe_binary_preset='minimal',
+        fe_unary_preset="minimal",
+        fe_binary_preset="minimal",
         fe_max_pair_features=1,
         fe_min_nonzero_confidence=1.0,
-        fe_min_pair_mi_prevalence=1.05, # transformations of what exactly pairs of factors we consider, at all. mi of entire pair must be at least that higher than the mi of its individual factors.
-        fe_min_engineered_mi_prevalence=0.98, # mi of transformed pair must be at least that higher than the mi of the entire pair
-        fe_good_to_best_feature_mi_threshold=0.98, # when multiple good transformations exist for the same factors pair.    
-        fe_max_polynoms:int=0,
-        fe_print_best_mis_only:bool=True,
-        fe_smart_polynom_iters:int=0,
-        fe_smart_polynom_optimization_steps:int=1000,
-        fe_min_polynom_degree:int=3,
-        fe_max_polynom_degree:int=8,
-        fe_min_polynom_coeff:float=-10.0,
-        fe_max_polynom_coeff:float=10.0,
+        fe_min_pair_mi_prevalence=1.05,  # transformations of what exactly pairs of factors we consider, at all. mi of entire pair must be at least that higher than the mi of its individual factors.
+        fe_min_engineered_mi_prevalence=0.98,  # mi of transformed pair must be at least that higher than the mi of the entire pair
+        fe_good_to_best_feature_mi_threshold=0.98,  # when multiple good transformations exist for the same factors pair.
+        fe_max_polynoms: int = 0,
+        fe_print_best_mis_only: bool = True,
+        fe_smart_polynom_iters: int = 0,
+        fe_smart_polynom_optimization_steps: int = 1000,
+        fe_min_polynom_degree: int = 3,
+        fe_max_polynom_degree: int = 8,
+        fe_min_polynom_coeff: float = -10.0,
+        fe_max_polynom_coeff: float = 10.0,
         # verbosity and formatting
         verbose: Union[bool, int] = 0,
         ndigits: int = 5,
-        parallel_kwargs=dict(max_nbytes=MAX_JOBLIB_NBYTES),    
+        parallel_kwargs=dict(max_nbytes=MAX_JOBLIB_NBYTES),
         # CV
         cv: Union[object, int, None] = 3,
         cv_shuffle: bool = True,
-        #service
+        # service
         random_state: int = None,
-        n_jobs:int=-1,        
+        n_jobs: int = -1,
         # hidden
-        n_features_in_:int=0,
-        feature_names_in_:Sequence = None,
-        support_:np.ndarray = None,
+        n_features_in_: int = 0,
+        feature_names_in_: Sequence = None,
+        support_: np.ndarray = None,
     ):
 
         # checks
@@ -2595,7 +2629,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         params = get_parent_func_args()
         store_params_in_object(obj=self, params=params)
 
-    def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None,**fit_params):
+    def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, **fit_params):
         """We run N selections on data subsets, and pick only features that appear in all selections"""
 
         # ---------------------------------------------------------------------------------------------------------------
@@ -2603,42 +2637,42 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ---------------------------------------------------------------------------------------------------------------
 
         start_time = timer()
-        ran_out_of_time = False     
+        ran_out_of_time = False
 
-        quantization_method=self.quantization_method
-        quantization_nbins=self.quantization_nbins
-        dtype=self.dtype
-        
+        quantization_method = self.quantization_method
+        quantization_nbins = self.quantization_nbins
+        dtype = self.dtype
+
         max_runtime_mins = self.max_runtime_mins
-        random_state=self.random_state
-        parallel_kwargs=self.parallel_kwargs
-        n_jobs=self.n_jobs
-        verbose=self.verbose
-        cv_shuffle = self.cv_shuffle        
+        random_state = self.random_state
+        parallel_kwargs = self.parallel_kwargs
+        n_jobs = self.n_jobs
+        verbose = self.verbose
+        cv_shuffle = self.cv_shuffle
         cv = self.cv
 
-        fe_max_steps=self.fe_max_steps
-        fe_npermutations=self.fe_npermutations
-        fe_unary_preset=self.fe_unary_preset
-        fe_binary_preset=self.fe_binary_preset
-        fe_max_pair_features=self.fe_max_pair_features
-        fe_min_nonzero_confidence=self.fe_min_nonzero_confidence
-        fe_min_pair_mi_prevalence=self.fe_min_pair_mi_prevalence
-        fe_min_engineered_mi_prevalence=self.fe_min_engineered_mi_prevalence
-        fe_good_to_best_feature_mi_threshold=self.fe_good_to_best_feature_mi_threshold
-        fe_max_polynoms=self.fe_max_polynoms
-        fe_print_best_mis_only=self.fe_print_best_mis_only
-        fe_smart_polynom_iters=self.fe_smart_polynom_iters
-        fe_smart_polynom_optimization_steps=self.fe_smart_polynom_optimization_steps
-        fe_min_polynom_degree=self.fe_min_polynom_degree
-        fe_max_polynom_degree=self.fe_max_polynom_degree
-        fe_min_polynom_coeff=self.fe_min_polynom_coeff
-        fe_max_polynom_coeff=self.fe_max_polynom_coeff
+        fe_max_steps = self.fe_max_steps
+        fe_npermutations = self.fe_npermutations
+        fe_unary_preset = self.fe_unary_preset
+        fe_binary_preset = self.fe_binary_preset
+        fe_max_pair_features = self.fe_max_pair_features
+        fe_min_nonzero_confidence = self.fe_min_nonzero_confidence
+        fe_min_pair_mi_prevalence = self.fe_min_pair_mi_prevalence
+        fe_min_engineered_mi_prevalence = self.fe_min_engineered_mi_prevalence
+        fe_good_to_best_feature_mi_threshold = self.fe_good_to_best_feature_mi_threshold
+        fe_max_polynoms = self.fe_max_polynoms
+        fe_print_best_mis_only = self.fe_print_best_mis_only
+        fe_smart_polynom_iters = self.fe_smart_polynom_iters
+        fe_smart_polynom_optimization_steps = self.fe_smart_polynom_optimization_steps
+        fe_min_polynom_degree = self.fe_min_polynom_degree
+        fe_max_polynom_degree = self.fe_max_polynom_degree
+        fe_min_polynom_coeff = self.fe_min_polynom_coeff
+        fe_max_polynom_coeff = self.fe_max_polynom_coeff
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Init cv
         # ----------------------------------------------------------------------------------------------------------------------------
-        
+
         """
         if cv is None or str(cv).isnumeric():
             if cv is None:
@@ -2653,21 +2687,21 @@ class MRMR(BaseEstimator, TransformerMixin):
                 logger.info(f"Using cv={cv}")
         """
 
-        self.feature_names_in_=X.columns.tolist()
-        self.n_features_in_=len(self.feature_names_in_)
-                
+        self.feature_names_in_ = X.columns.tolist()
+        self.n_features_in_ = len(self.feature_names_in_)
+
         # ---------------------------------------------------------------------------------------------------------------
         # Temporarily inject targets
         # ---------------------------------------------------------------------------------------------------------------
-                
-        target_prefix='targ_'+str(np.random.random())[3:9]
-        y_shape=y.shape
-        if len(y_shape)==2:
-            y_shape=y_shape[1]
+
+        target_prefix = "targ_" + str(np.random.random())[3:9]
+        y_shape = y.shape
+        if len(y_shape) == 2:
+            y_shape = y_shape[1]
         else:
-            y_shape=1
-        target_names=[target_prefix+str(i) for i in range(y_shape)]
-        X[target_names]=y.reshape(-1,1)        
+            y_shape = 1
+        target_names = [target_prefix + str(i) for i in range(y_shape)]
+        X[target_names] = y.reshape(-1, 1)
 
         # ---------------------------------------------------------------------------------------------------------------
         # Discretize continuous data
@@ -2679,7 +2713,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             n_bins=self.quantization_nbins,
             dtype=self.quantization_dtype,
         )
-        target_indices=[cols.index(col) for col in target_names]
+        target_indices = [cols.index(col) for col in target_names]
 
         # ---------------------------------------------------------------------------------------------------------------
         # Core
@@ -2731,101 +2765,104 @@ class MRMR(BaseEstimator, TransformerMixin):
             pass
             
         """
-        
+
         """
         #service
         random_state: int = None,
         n_jobs:int=-1,  
-        """      
+        """
 
-        if fe_max_steps>0:
-            unary_transformations=create_unary_transformations(preset=fe_unary_preset)        
-            binary_transformations=create_binary_transformations(preset=fe_binary_preset)
+        if fe_max_steps > 0:
+            unary_transformations = create_unary_transformations(preset=fe_unary_preset)
+            binary_transformations = create_binary_transformations(preset=fe_binary_preset)
             if fe_max_polynoms:
-                polynomial_transformations={} # 'identity':lambda x: x,
+                polynomial_transformations = {}  # 'identity':lambda x: x,
                 for _ in range(fe_max_polynoms):
-                    length=np.random.randint(3,9)
-                    #coef=(np.random.random(length)-0.5)*1
-                    coef=np.empty(shape=length,dtype=np.float32)
+                    length = np.random.randint(3, 9)
+                    # coef=(np.random.random(length)-0.5)*1
+                    coef = np.empty(shape=length, dtype=np.float32)
                     for i in range(length):
-                        coef[i]=np.random.normal((1.0 if i==1 else 0.0),scale=0.05)
+                        coef[i] = np.random.normal((1.0 if i == 1 else 0.0), scale=0.05)
 
-                    unary_transformations["poly_"+str(coef)]=coef
+                    unary_transformations["poly_" + str(coef)] = coef
 
-            if verbose>1:
+            if verbose > 1:
                 print(f"nunary_transformations: {len(unary_transformations):_}")
                 print(f"nbinary_transformations: {len(binary_transformations):_}")
 
-            categorical_vars=X.head().select_dtypes(include=("category", "object", "bool")).columns.values.tolist()
-            categorical_vars=[cols.index(col) for col in categorical_vars]
-            
-            engineered_features=set()
-            checked_pairs=set()
+            categorical_vars = X.head().select_dtypes(include=("category", "object", "bool")).columns.values.tolist()
+            categorical_vars = [cols.index(col) for col in categorical_vars]
 
-        num_fs_steps=0
+            engineered_features = set()
+            checked_pairs = set()
+
+        num_fs_steps = 0
         while True:
-            selected_vars, predictors,any_influencing,entropy_cache,cached_MIs,cached_confident_MIs,cached_cond_MIs,classes_y,classes_y_safe,freqs_y=screen_predictors(
-                factors_data=data,
-                y=target_indices,
-                factors_nbins=nbins,
-                factors_names=cols,
-                factors_names_to_use=self.factors_names_to_use,
-                factors_to_use=self.factors_to_use,
-                # algorithm
-                mrmr_relevance_algo=self.mrmr_relevance_algo,
-                mrmr_redundancy_algo=self.mrmr_redundancy_algo,
-                reduce_gain_on_subelement_chosen=self.reduce_gain_on_subelement_chosen,
-                # performance
-                extra_x_shuffling=self.extra_x_shuffling,
-                dtype=self.dtype,
-                random_seed=self.random_seed,
-                use_gpu=self.use_gpu,
-                n_workers=self.n_workers,
-                # confidence
-                min_occupancy=self.min_occupancy,
-                min_nonzero_confidence=self.min_nonzero_confidence,
-                full_npermutations=self.full_npermutations,
-                baseline_npermutations=self.baseline_npermutations,
-                # stopping conditions
-                min_relevance_gain=self.min_relevance_gain,
-                max_consec_unconfirmed=self.max_consec_unconfirmed,
-                max_runtime_mins=self.max_runtime_mins,
-                interactions_min_order=self.interactions_min_order,
-                interactions_max_order=self.interactions_max_order,
-                interactions_order_reversed=self.interactions_order_reversed,
-                max_veteranes_interactions_order=self.max_veteranes_interactions_order,
-                only_unknown_interactions=self.only_unknown_interactions,
-                # verbosity and formatting
-                verbose=self.verbose,
-                ndigits=self.ndigits,
-                parallel_kwargs=self.parallel_kwargs                            
+            selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe, freqs_y = (
+                screen_predictors(
+                    factors_data=data,
+                    y=target_indices,
+                    factors_nbins=nbins,
+                    factors_names=cols,
+                    factors_names_to_use=self.factors_names_to_use,
+                    factors_to_use=self.factors_to_use,
+                    # algorithm
+                    mrmr_relevance_algo=self.mrmr_relevance_algo,
+                    mrmr_redundancy_algo=self.mrmr_redundancy_algo,
+                    reduce_gain_on_subelement_chosen=self.reduce_gain_on_subelement_chosen,
+                    # performance
+                    extra_x_shuffling=self.extra_x_shuffling,
+                    dtype=self.dtype,
+                    random_seed=self.random_seed,
+                    use_gpu=self.use_gpu,
+                    n_workers=self.n_workers,
+                    # confidence
+                    min_occupancy=self.min_occupancy,
+                    min_nonzero_confidence=self.min_nonzero_confidence,
+                    full_npermutations=self.full_npermutations,
+                    baseline_npermutations=self.baseline_npermutations,
+                    # stopping conditions
+                    min_relevance_gain=self.min_relevance_gain,
+                    max_consec_unconfirmed=self.max_consec_unconfirmed,
+                    max_runtime_mins=self.max_runtime_mins,
+                    interactions_min_order=self.interactions_min_order,
+                    interactions_max_order=self.interactions_max_order,
+                    interactions_order_reversed=self.interactions_order_reversed,
+                    max_veteranes_interactions_order=self.max_veteranes_interactions_order,
+                    only_unknown_interactions=self.only_unknown_interactions,
+                    # verbosity and formatting
+                    verbose=self.verbose,
+                    ndigits=self.ndigits,
+                    parallel_kwargs=self.parallel_kwargs,
+                )
             )
-                
-            if fe_max_steps==0 or num_fs_steps>=fe_max_steps: break                
+
+            if fe_max_steps == 0 or num_fs_steps >= fe_max_steps:
+                break
 
             # Feature engineering part here
-            
-            numeric_vars_to_consider=set(selected_vars)-set(categorical_vars)
-            for raw_vars_pair in combinations(numeric_vars_to_consider,2):
+
+            numeric_vars_to_consider = set(selected_vars) - set(categorical_vars)
+            for raw_vars_pair in combinations(numeric_vars_to_consider, 2):
                 # check that every element of a pair has computed its MI with target
                 for var in raw_vars_pair:
-                    if (var,) not in cached_confident_MIs and (var,)  not in cached_MIs:
-                        mi,conf=mi_direct(
-                                data,
-                                x=(var,),
-                                y=target_indices,
-                                factors_nbins=nbins,
-                                classes_y=classes_y,
-                                classes_y_safe=classes_y_safe,
-                                freqs_y=freqs_y,
-                                min_nonzero_confidence=fe_min_nonzero_confidence,
-                                npermutations=fe_npermutations,
-                            )  
-                        cached_MIs[(var,)]=mi
+                    if (var,) not in cached_confident_MIs and (var,) not in cached_MIs:
+                        mi, conf = mi_direct(
+                            data,
+                            x=(var,),
+                            y=target_indices,
+                            factors_nbins=nbins,
+                            classes_y=classes_y,
+                            classes_y_safe=classes_y_safe,
+                            freqs_y=freqs_y,
+                            min_nonzero_confidence=fe_min_nonzero_confidence,
+                            npermutations=fe_npermutations,
+                        )
+                        cached_MIs[(var,)] = mi
 
                 # ensure that pair as a whole has computed its MI with target
                 if raw_vars_pair not in cached_confident_MIs and raw_vars_pair not in cached_MIs:
-                    mi,conf=mi_direct(
+                    mi, conf = mi_direct(
                         data,
                         x=raw_vars_pair,
                         y=target_indices,
@@ -2835,29 +2872,32 @@ class MRMR(BaseEstimator, TransformerMixin):
                         freqs_y=freqs_y,
                         min_nonzero_confidence=fe_min_nonzero_confidence,
                         npermutations=fe_npermutations,
-                    )   
-                    cached_MIs[raw_vars_pair]=mi
-            
+                    )
+                    cached_MIs[raw_vars_pair] = mi
+
             # ---------------------------------------------------------------------------------------------------------------
             # For every pair of factors (A,B), select ones having MI((A,B),Y)>MI(A,Y)+MI(B,Y). Such ones must posess more special connection!
             # ---------------------------------------------------------------------------------------------------------------
-            
-            vars_usage_counter=DefaultDict(int)  
-            prospective_pairs=[]      
-            for raw_vars_pair,pair_mi in sort_dict_by_value(cached_MIs).items():
-                if len(raw_vars_pair)==2:
-                    if raw_vars_pair in checked_pairs: continue
-                    if raw_vars_pair[0] in numeric_vars_to_consider and raw_vars_pair[1] in numeric_vars_to_consider:
-                        ind_elems_mi_sum=cached_MIs[(raw_vars_pair[0],)]+cached_MIs[(raw_vars_pair[1],)]
-                        if pair_mi>ind_elems_mi_sum*fe_min_pair_mi_prevalence:
-                            if verbose:
-                                logger.info(f"Factors pair {raw_vars_pair} will be considered for Feature Engineering, {pair_mi:.4f}>{ind_elems_mi_sum:.4f}, rat={pair_mi/ind_elems_mi_sum:.2f}")
-                            prospective_pairs.append((raw_vars_pair,pair_mi))
-                            for var in raw_vars_pair:
-                                vars_usage_counter[var]+=1
 
-            n_recommended_features=0
-            times_spent=DefaultDict(float)
+            vars_usage_counter = DefaultDict(int)
+            prospective_pairs = []
+            for raw_vars_pair, pair_mi in sort_dict_by_value(cached_MIs).items():
+                if len(raw_vars_pair) == 2:
+                    if raw_vars_pair in checked_pairs:
+                        continue
+                    if raw_vars_pair[0] in numeric_vars_to_consider and raw_vars_pair[1] in numeric_vars_to_consider:
+                        ind_elems_mi_sum = cached_MIs[(raw_vars_pair[0],)] + cached_MIs[(raw_vars_pair[1],)]
+                        if pair_mi > ind_elems_mi_sum * fe_min_pair_mi_prevalence:
+                            if verbose:
+                                logger.info(
+                                    f"Factors pair {raw_vars_pair} will be considered for Feature Engineering, {pair_mi:.4f}>{ind_elems_mi_sum:.4f}, rat={pair_mi/ind_elems_mi_sum:.2f}"
+                                )
+                            prospective_pairs.append((raw_vars_pair, pair_mi))
+                            for var in raw_vars_pair:
+                                vars_usage_counter[var] += 1
+
+            n_recommended_features = 0
+            times_spent = DefaultDict(float)
 
             if fe_smart_polynom_iters:
 
@@ -2867,69 +2907,72 @@ class MRMR(BaseEstimator, TransformerMixin):
                 # In theory (esp if inputs are normalized), Hermit polynomials can approximate any functional form, therefore replacing our
                 # random experimenting with arbitrary functions (that was pretty limited anyways).
                 # ---------------------------------------------------------------------------------------------------------------
-            
+
                 import optuna
                 from optuna.samplers import TPESampler
+
                 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-                def get_best_polynom_mi(coef_a,coef_b,vals_a,vals_b)->float:
-                    
-                    transformed_var_a=hermval(vals_a, c=coef_a)
-                    transformed_var_b=hermval(vals_b, c=coef_b)
+                def get_best_polynom_mi(coef_a, coef_b, vals_a, vals_b) -> float:
 
-                    best_mi=-1
-                    best_config=None
+                    transformed_var_a = hermval(vals_a, c=coef_a)
+                    transformed_var_b = hermval(vals_b, c=coef_b)
 
-                    for bin_func_name,bin_func in binary_transformations.items():
+                    best_mi = -1
+                    best_config = None
 
-                        final_transformed_vals=bin_func(transformed_var_a,transformed_var_b)
-                        
-                        discretized_transformed_values=discretize_array(arr=final_transformed_vals,n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
-                        fe_mi,fe_conf=mi_direct(
-                                            discretized_transformed_values.reshape(-1,1),
-                                            x=[0],
-                                            y=None,
-                                            factors_nbins=[self.quantization_nbins],
-                                            classes_y=classes_y,
-                                            classes_y_safe=classes_y_safe,
-                                            freqs_y=freqs_y,
-                                            min_nonzero_confidence=fe_min_nonzero_confidence,
-                                            npermutations=fe_npermutations,
-                                        )
+                    for bin_func_name, bin_func in binary_transformations.items():
 
-                        if fe_mi>best_mi:
-                            best_mi=fe_mi
-                            best_config=bin_func_name
-                    
+                        final_transformed_vals = bin_func(transformed_var_a, transformed_var_b)
+
+                        discretized_transformed_values = discretize_array(
+                            arr=final_transformed_vals, n_bins=self.quantization_nbins, method=self.quantization_method, dtype=self.quantization_dtype
+                        )
+                        fe_mi, fe_conf = mi_direct(
+                            discretized_transformed_values.reshape(-1, 1),
+                            x=[0],
+                            y=None,
+                            factors_nbins=[self.quantization_nbins],
+                            classes_y=classes_y,
+                            classes_y_safe=classes_y_safe,
+                            freqs_y=freqs_y,
+                            min_nonzero_confidence=fe_min_nonzero_confidence,
+                            npermutations=fe_npermutations,
+                        )
+
+                        if fe_mi > best_mi:
+                            best_mi = fe_mi
+                            best_config = bin_func_name
+
                     return best_mi
-                
-                for raw_vars_pair,pair_mi in prospective_pairs:
-                    vals_a=X.iloc[:,raw_vars_pair[0]].values
-                    vals_b=X.iloc[:,raw_vars_pair[1]].values
+
+                for raw_vars_pair, pair_mi in prospective_pairs:
+                    vals_a = X.iloc[:, raw_vars_pair[0]].values
+                    vals_b = X.iloc[:, raw_vars_pair[1]].values
 
                     for _ in range(fe_smart_polynom_iters):
 
-                        length_a=np.random.randint(fe_min_polynom_degree,fe_max_polynom_degree)
-                        length_b=np.random.randint(fe_min_polynom_degree,fe_max_polynom_degree)
+                        length_a = np.random.randint(fe_min_polynom_degree, fe_max_polynom_degree)
+                        length_b = np.random.randint(fe_min_polynom_degree, fe_max_polynom_degree)
 
                         # Define an objective function to be minimized.
                         def objective(trial):
 
-                            coef_a=np.empty(shape=length_a,dtype=np.float32)
+                            coef_a = np.empty(shape=length_a, dtype=np.float32)
                             for i in range(length_a):
-                                coef_a[i]=trial.suggest_float(f'a_{i}', fe_min_polynom_coeff,fe_max_polynom_coeff)
-                            
-                            coef_b=np.empty(shape=length_b,dtype=np.float32)
-                            for i in range(length_b):
-                                coef_b[i]=trial.suggest_float(f'b_{i}', fe_min_polynom_coeff,fe_max_polynom_coeff)     
+                                coef_a[i] = trial.suggest_float(f"a_{i}", fe_min_polynom_coeff, fe_max_polynom_coeff)
 
-                            res=get_best_polynom_mi(coef_a=coef_a,coef_b=coef_b,vals_a=vals_a,vals_b=vals_b)
+                            coef_b = np.empty(shape=length_b, dtype=np.float32)
+                            for i in range(length_b):
+                                coef_b[i] = trial.suggest_float(f"b_{i}", fe_min_polynom_coeff, fe_max_polynom_coeff)
+
+                            res = get_best_polynom_mi(coef_a=coef_a, coef_b=coef_b, vals_a=vals_a, vals_b=vals_b)
 
                             return res
 
-                        study = optuna.create_study(direction='maximize',sampler=TPESampler(multivariate =True))  # Create a new study.
-                        study.optimize(objective, n_trials=fe_smart_polynom_optimization_steps)  # Invoke optimization of the objective function.            
-                        
+                        study = optuna.create_study(direction="maximize", sampler=TPESampler(multivariate=True))  # Create a new study.
+                        study.optimize(objective, n_trials=fe_smart_polynom_optimization_steps)  # Invoke optimization of the objective function.
+
                         print(f"Best MI: {study.best_trial.value:.4f}, pair_mi={pair_mi:.4f}")
                         print(f"Best hyperparameters: {study.best_params}")
             else:
@@ -2939,52 +2982,137 @@ class MRMR(BaseEstimator, TransformerMixin):
                 # ---------------------------------------------------------------------------------------------------------------
 
                 # individual vars referenced more than once go to the global pool, rest to the local (not stored)?
-                
-                transformed_vars=np.empty(shape=(len(X),len(prospective_pairs)*len(unary_transformations)*2),dtype=np.float32)
-                vars_transformations={}
-                i=0        
-                for raw_vars_pair,pair_mi in prospective_pairs:
+
+                transformed_vars = np.empty(shape=(len(X), len(prospective_pairs) * len(unary_transformations) * 2), dtype=np.float32)
+                vars_transformations = {}
+                i = 0
+                for raw_vars_pair, pair_mi in prospective_pairs:
                     for var in raw_vars_pair:
-                        vals=X.iloc[:,var].values
-                        for tr_name,tr_func in unary_transformations.items():
-                            key=(var,tr_name)
+                        vals = X.iloc[:, var].values
+                        for tr_name, tr_func in unary_transformations.items():
+                            key = (var, tr_name)
                             if key not in vars_transformations:
                                 if "poly_" in tr_name:
-                                    transformed_vars[:,i]=hermval(vals, c=tr_func)  
+                                    transformed_vars[:, i] = hermval(vals, c=tr_func)
                                 else:
-                                    transformed_vars[:,i]=tr_func(vals)
-                                vars_transformations[key]=i
-                                i+=1
+                                    transformed_vars[:, i] = tr_func(vals)
+                                vars_transformations[key] = i
+                                i += 1
                 # ---------------------------------------------------------------------------------------------------------------
                 # Then, for every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM).
                 # Record best pairs.
-                # ---------------------------------------------------------------------------------------------------------------                                
-                
-                for raw_vars_pair,pair_mi in prospective_pairs: # !TODO! better to start considering form the most prospective pairs with highest mis ratio!
-                    combs=list(combinations([(raw_vars_pair[0],key) for key in unary_transformations.keys()]+[(raw_vars_pair[1],key) for key in unary_transformations.keys()],2))
-                    combs=[transformations_pair for transformations_pair in combs if transformations_pair[0][0]!=transformations_pair[1][0]] # let's skip trying to transform the same factor for now
-                    #print(f"trying {len(combs):_} combs")
-                    
-                    best_config,best_mi=None,-1
-                    var_pairs_perf={}
+                # ---------------------------------------------------------------------------------------------------------------
 
-                    final_transformed_vals=np.empty(shape=(len(X),len(combs)*len(binary_transformations)),dtype=np.float32) # !TODO! optimize allocation of this array before the main loop!
+                for raw_vars_pair, pair_mi in prospective_pairs:  # !TODO! better to start considering form the most prospective pairs with highest mis ratio!
+                    combs = list(
+                        combinations(
+                            [(raw_vars_pair[0], key) for key in unary_transformations.keys()]
+                            + [(raw_vars_pair[1], key) for key in unary_transformations.keys()],
+                            2,
+                        )
+                    )
+                    combs = [
+                        transformations_pair for transformations_pair in combs if transformations_pair[0][0] != transformations_pair[1][0]
+                    ]  # let's skip trying to transform the same factor for now
+                    # print(f"trying {len(combs):_} combs")
 
-                    i=0
-                    for transformations_pair in tqdmu(combs,desc=f"transforming {raw_vars_pair}",leave=False):
-                        
-                        param_a=transformed_vars[:,vars_transformations[transformations_pair[0]]]
-                        param_b=transformed_vars[:,vars_transformations[transformations_pair[1]]]
+                    best_config, best_mi = None, -1
+                    var_pairs_perf = {}
 
-                        for bin_func_name,bin_func in binary_transformations.items():
-                            
-                            start=timer()
-                            final_transformed_vals[:,i]=bin_func(param_a,param_b)
-                            times_spent[bin_func_name]+=timer()-start
-                            
-                            discretized_transformed_values=discretize_array(arr=final_transformed_vals[:,i],n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
-                            fe_mi,fe_conf=mi_direct(
-                                                discretized_transformed_values.reshape(-1,1),
+                    final_transformed_vals = np.empty(
+                        shape=(len(X), len(combs) * len(binary_transformations)), dtype=np.float32
+                    )  # !TODO! optimize allocation of this array before the main loop!
+
+                    i = 0
+                    for transformations_pair in tqdmu(combs, desc=f"transforming {raw_vars_pair}", leave=False):
+
+                        param_a = transformed_vars[:, vars_transformations[transformations_pair[0]]]
+                        param_b = transformed_vars[:, vars_transformations[transformations_pair[1]]]
+
+                        for bin_func_name, bin_func in binary_transformations.items():
+
+                            start = timer()
+                            final_transformed_vals[:, i] = bin_func(param_a, param_b)
+                            times_spent[bin_func_name] += timer() - start
+
+                            discretized_transformed_values = discretize_array(
+                                arr=final_transformed_vals[:, i], n_bins=self.quantization_nbins, method=self.quantization_method, dtype=self.quantization_dtype
+                            )
+                            fe_mi, fe_conf = mi_direct(
+                                discretized_transformed_values.reshape(-1, 1),
+                                x=[0],
+                                y=None,
+                                factors_nbins=[self.quantization_nbins],
+                                classes_y=classes_y,
+                                classes_y_safe=classes_y_safe,
+                                freqs_y=freqs_y,
+                                min_nonzero_confidence=fe_min_nonzero_confidence,
+                                npermutations=fe_npermutations,
+                            )
+
+                            config = (transformations_pair, bin_func_name, i)
+                            var_pairs_perf[config] = fe_mi
+
+                            if fe_mi > best_mi:
+                                best_mi = fe_mi
+                                best_config = config
+                            if fe_mi > best_mi * 0.85:
+                                if not fe_print_best_mis_only or (fe_mi == best_mi):
+                                    if verbose > 1:
+                                        print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
+                            i += 1
+                    if verbose > 1:
+                        print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")
+
+                    if best_mi / pair_mi > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025):
+
+                        # ---------------------------------------------------------------------------------------------------------------
+                        # Now, if there is a group of leaders with almost same performance, we need to approve them through some of the orther variables.
+                        # если будут возникать такие группы примерно одинаковых по силе лидеров, их придётся разрешать с помощью одного из других влияющих факторов
+                        # ---------------------------------------------------------------------------------------------------------------
+
+                        leading_features = []
+                        for next_config, next_mi in sort_dict_by_value(var_pairs_perf).items():
+                            if next_mi > best_mi * fe_good_to_best_feature_mi_threshold:
+                                leading_features.append(next_config)
+
+                        if len(leading_features) > 1:
+                            if len(numeric_vars_to_consider) > 2:
+
+                                new_vals = np.empty(shape=(len(X), fe_max_pair_features), dtype=self.quantization_dtype)
+                                new_nbins = []
+                                new_cols = []
+
+                                if verbose > 1:
+                                    print(f"Taking {len(leading_features)} new features for a separate validation step!")
+
+                                # ---------------------------------------------------------------------------------------------------------------
+                                # Now let's test all of the candidates as is against the rest of the approved factors (also as is).
+                                # Caindidates significantly outstanding (in terms of MI with target) with any of other approved factors are kept.
+                                # ---------------------------------------------------------------------------------------------------------------
+
+                                valid_pairs_perf = {}
+
+                                for transformations_pair, bin_func_name, i in leading_features:
+                                    param_a = final_transformed_vals[:, i]
+
+                                    best_valid_mi = -1
+                                    config = (transformations_pair, bin_func_name, i)
+
+                                    for external_factor in tqdmu(
+                                        set(numeric_vars_to_consider) - set(raw_vars_pair), desc="external validation factor", leave=False
+                                    ):
+                                        param_b = X.iloc[:, external_factor].values
+
+                                        for valid_bin_func_name, valid_bin_func in binary_transformations.items():
+
+                                            valid_vals = valid_bin_func(param_a, param_b)
+
+                                            discretized_transformed_values = discretize_array(
+                                                arr=valid_vals, n_bins=self.quantization_nbins, method=self.quantization_method, dtype=self.quantization_dtype
+                                            )
+                                            fe_mi, fe_conf = mi_direct(
+                                                discretized_transformed_values.reshape(-1, 1),
                                                 x=[0],
                                                 y=None,
                                                 factors_nbins=[self.quantization_nbins],
@@ -2994,125 +3122,82 @@ class MRMR(BaseEstimator, TransformerMixin):
                                                 min_nonzero_confidence=fe_min_nonzero_confidence,
                                                 npermutations=fe_npermutations,
                                             )
-                            
-                            config=(transformations_pair,bin_func_name,i)
-                            var_pairs_perf[config]=fe_mi
 
-                            if fe_mi>best_mi:
-                                best_mi=fe_mi
-                                best_config=config
-                            if fe_mi>best_mi*0.85:
-                                if not fe_print_best_mis_only or (fe_mi==best_mi):
-                                    if verbose>1: print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
-                            i+=1
-                    if verbose>1: print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")
-                    
-                    if best_mi/pair_mi>fe_min_engineered_mi_prevalence*(1.0 if num_fs_steps<1 else 1.025):
+                                            if fe_mi > best_valid_mi:
+                                                best_valid_mi = fe_mi
+                                                if verbose > 1:
+                                                    print(
+                                                        f"MI of transformed pair {valid_bin_func_name}({(transformations_pair,bin_func_name)} with ext factor {external_factor})={fe_mi:.4f}"
+                                                    )
 
-                        # ---------------------------------------------------------------------------------------------------------------
-                        # Now, if there is a group of leaders with almost same performance, we need to approve them through some of the orther variables.
-                        # если будут возникать такие группы примерно одинаковых по силе лидеров, их придётся разрешать с помощью одного из других влияющих факторов
-                        # ---------------------------------------------------------------------------------------------------------------
-                                    
-                        leading_features=[]
-                        for next_config,next_mi in sort_dict_by_value(var_pairs_perf).items():
-                            if next_mi>best_mi*fe_good_to_best_feature_mi_threshold:
-                                leading_features.append(next_config)
-                        
-                        if len(leading_features)>1:
-                            if len(numeric_vars_to_consider)>2:
-                                
-                                new_vals=np.empty(shape=(len(X),fe_max_pair_features),dtype=self.quantization_dtype)
-                                new_nbins=[]
-                                new_cols=[]
+                                    valid_pairs_perf[config] = best_valid_mi
 
-
-                                if verbose>1: print(f"Taking {len(leading_features)} new features for a separate validation step!")
-
-                                # ---------------------------------------------------------------------------------------------------------------
-                                # Now let's test all of the candidates as is against the rest of the approved factors (also as is).
-                                # Caindidates significantly outstanding (in terms of MI with target) with any of other approved factors are kept.
-                                # ---------------------------------------------------------------------------------------------------------------
-
-                                valid_pairs_perf={}
-
-                                for transformations_pair,bin_func_name,i in leading_features:
-                                    param_a=final_transformed_vals[:,i]
-
-                                    best_valid_mi=-1
-                                    config=(transformations_pair,bin_func_name,i)
-
-                                    for external_factor in tqdmu(set(numeric_vars_to_consider)-set(raw_vars_pair),desc="external validation factor",leave=False):
-                                        param_b=X.iloc[:,external_factor].values
-
-                                        for valid_bin_func_name,valid_bin_func in binary_transformations.items():
-                                            
-                                            valid_vals=valid_bin_func(param_a,param_b)
-                                            
-                                            discretized_transformed_values=discretize_array(arr=valid_vals,n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
-                                            fe_mi,fe_conf=mi_direct(
-                                                                discretized_transformed_values.reshape(-1,1),
-                                                                x=[0],
-                                                                y=None,
-                                                                factors_nbins=[self.quantization_nbins],
-                                                                classes_y=classes_y,
-                                                                classes_y_safe=classes_y_safe,
-                                                                freqs_y=freqs_y,
-                                                                min_nonzero_confidence=fe_min_nonzero_confidence,
-                                                                npermutations=fe_npermutations,
-                                                            )                                                                    
-
-                                            if fe_mi>best_valid_mi:
-                                                best_valid_mi=fe_mi                                        
-                                                if verbose>1: print(f"MI of transformed pair {valid_bin_func_name}({(transformations_pair,bin_func_name)} with ext factor {external_factor})={fe_mi:.4f}")
-                                    
-                                    valid_pairs_perf[config]=best_valid_mi
-                                
                                 # ---------------------------------------------------------------------------------------------------------------
                                 # Now we recommend proceeding with top N best transformations!
                                 # ---------------------------------------------------------------------------------------------------------------
 
-                                for j,(config,valid_mi) in enumerate(sort_dict_by_value(valid_pairs_perf,reverse=True).items()):
-                                    if j<fe_max_pair_features:
-                                        new_feature_name=get_new_feature_name(fe_tuple=config,cols_names=cols)
-                                        if verbose: logger.info(f"{new_feature_name} is recommended to use as a new feature! (won in validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}")
-                                        transformations_pair,bin_func_name,i=config
+                                for j, (config, valid_mi) in enumerate(sort_dict_by_value(valid_pairs_perf, reverse=True).items()):
+                                    if j < fe_max_pair_features:
+                                        new_feature_name = get_new_feature_name(fe_tuple=config, cols_names=cols)
+                                        if verbose:
+                                            logger.info(
+                                                f"{new_feature_name} is recommended to use as a new feature! (won in validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
+                                            )
+                                        transformations_pair, bin_func_name, i = config
 
-                                        new_vals[:,j]=discretize_array(arr=final_transformed_vals[:,i],n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
-                                        new_nbins+=[self.quantization_nbins]
-                                        new_cols+=[new_feature_name]
-                                        X[new_feature_name]=final_transformed_vals[:,i]        
-                                        engineered_features.add((transformations_pair,bin_func_name))
+                                        new_vals[:, j] = discretize_array(
+                                            arr=final_transformed_vals[:, i],
+                                            n_bins=self.quantization_nbins,
+                                            method=self.quantization_method,
+                                            dtype=self.quantization_dtype,
+                                        )
+                                        new_nbins += [self.quantization_nbins]
+                                        new_cols += [new_feature_name]
+                                        X[new_feature_name] = final_transformed_vals[:, i]
+                                        engineered_features.add((transformations_pair, bin_func_name))
 
                                     else:
-                                        break  
-                                new_vals=new_vals[:,:min(fe_max_pair_features,j)]
+                                        break
+                                new_vals = new_vals[:, : min(fe_max_pair_features, j)]
                             else:
-                                if verbose: logger.warning(f"{len(leading_features)} are recommended to use as new features! (can't narrow down the list by validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}")
-                                
-                                for j,(transformations_pair,bin_func_name,i) in enumerate(leading_features):
-                                    new_vals[:,j]=discretize_array(arr=final_transformed_vals[:,i],n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype)
-                                    new_nbins+=[self.quantization_nbins]
-                                    new_cols+=[new_feature_name]
-                                    X[new_feature_name]=final_transformed_vals[:,i]
-                                    engineered_features.add((transformations_pair,bin_func_name))
+                                if verbose:
+                                    logger.warning(
+                                        f"{len(leading_features)} are recommended to use as new features! (can't narrow down the list by validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
+                                    )
+
+                                for j, (transformations_pair, bin_func_name, i) in enumerate(leading_features):
+                                    new_vals[:, j] = discretize_array(
+                                        arr=final_transformed_vals[:, i],
+                                        n_bins=self.quantization_nbins,
+                                        method=self.quantization_method,
+                                        dtype=self.quantization_dtype,
+                                    )
+                                    new_nbins += [self.quantization_nbins]
+                                    new_cols += [new_feature_name]
+                                    X[new_feature_name] = final_transformed_vals[:, i]
+                                    engineered_features.add((transformations_pair, bin_func_name))
                         else:
-                            new_feature_name=get_new_feature_name(fe_tuple=best_config,cols_names=cols)
-                            if verbose: logger.info(f"{new_feature_name} is recommended to use as a new feature! (clear winner) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}")
-                            
-                            transformations_pair,bin_func_name,i=best_config
-                            
-                            new_vals=discretize_array(arr=final_transformed_vals[:,i],n_bins=self.quantization_nbins, method=self.quantization_method,dtype=self.quantization_dtype).reshape(-1,1)
-                            new_nbins=[self.quantization_nbins]
-                            new_cols=[new_feature_name]
-                            X[new_feature_name]=final_transformed_vals[:,i]
-                            engineered_features.add((transformations_pair,bin_func_name))
+                            new_feature_name = get_new_feature_name(fe_tuple=best_config, cols_names=cols)
+                            if verbose:
+                                logger.info(
+                                    f"{new_feature_name} is recommended to use as a new feature! (clear winner) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
+                                )
+
+                            transformations_pair, bin_func_name, i = best_config
+
+                            new_vals = discretize_array(
+                                arr=final_transformed_vals[:, i], n_bins=self.quantization_nbins, method=self.quantization_method, dtype=self.quantization_dtype
+                            ).reshape(-1, 1)
+                            new_nbins = [self.quantization_nbins]
+                            new_cols = [new_feature_name]
+                            X[new_feature_name] = final_transformed_vals[:, i]
+                            engineered_features.add((transformations_pair, bin_func_name))
 
                         data = np.append(data, new_vals, axis=1)
-                        nbins=nbins+new_nbins
-                        cols=cols+new_cols
+                        nbins = nbins + new_nbins
+                        cols = cols + new_cols
 
-                        n_recommended_features+=len(new_cols)
+                        n_recommended_features += len(new_cols)
 
                         # !TODO!  handle factors_to_use etc
                         """
@@ -3121,193 +3206,215 @@ class MRMR(BaseEstimator, TransformerMixin):
                         """
                     checked_pairs.add(raw_vars_pair)
 
-            if n_recommended_features==0: break
-            num_fs_steps+=1
-        if verbose>1: print("time spent by binary func:",sort_dict_by_value(times_spent))
-        # Possibly decide on eliminating original features? (if constructed ones cover 90%+ of MI)   
-        
+            if n_recommended_features == 0:
+                break
+            num_fs_steps += 1
+        if verbose > 1:
+            print("time spent by binary func:", sort_dict_by_value(times_spent))
+        # Possibly decide on eliminating original features? (if constructed ones cover 90%+ of MI)
+
         # ---------------------------------------------------------------------------------------------------------------
         # Drop Temporarily targets
         # ---------------------------------------------------------------------------------------------------------------
-        
-        X.drop(columns=target_names,inplace=True)
-        
+
+        X.drop(columns=target_names, inplace=True)
+
         # ---------------------------------------------------------------------------------------------------------------
         # assign support
         # ---------------------------------------------------------------------------------------------------------------
 
-        self.support_=selected_vars
+        self.support_ = selected_vars
         if selected_vars:
-            self.n_features_=len(selected_vars)
+            self.n_features_ = len(selected_vars)
         else:
-            self.n_features_=0    
-        
+            self.n_features_ = 0
+
         # ---------------------------------------------------------------------------------------------------------------
         # assign extra vars for upcoming vars improving
         # ---------------------------------------------------------------------------------------------------------------
-        
-        self.cached_MIs_=cached_MIs
-        self.cached_cond_MIs_=cached_cond_MIs
-        self.cached_confident_MIs_=cached_confident_MIs                
+
+        self.cached_MIs_ = cached_MIs
+        self.cached_cond_MIs_ = cached_cond_MIs
+        self.cached_confident_MIs_ = cached_confident_MIs
 
         # ---------------------------------------------------------------------------------------------------------------
         # Report FS results
         # ---------------------------------------------------------------------------------------------------------------
-        
-        if verbose: logger.info(f"MRMR+ selected {self.n_features_:_} out of {self.n_features_in_:_} features: {predictors}")        
+
+        if verbose:
+            logger.info(f"MRMR+ selected {self.n_features_:_} out of {self.n_features_in_:_} features: {predictors}")
 
     def transform(self, X, y=None):
         if isinstance(X, pd.DataFrame):
-            return X.iloc[:,self.support_]
+            return X.iloc[:, self.support_]
         else:
-            return X[:,self.support_]
+            return X[:, self.support_]
 
 
-def get_existing_feature_name(fe_tuple:tuple,cols_names:Sequence)->str:
-    fname=cols_names[fe_tuple[0]]
-    if fe_tuple[1]=="identity":
+def get_existing_feature_name(fe_tuple: tuple, cols_names: Sequence) -> str:
+    fname = cols_names[fe_tuple[0]]
+    if fe_tuple[1] == "identity":
         return fname
     else:
         return f"{fe_tuple[1]}({fname})"
 
-def get_new_feature_name(fe_tuple:tuple,cols_names:Sequence)->str:
-    return f"{fe_tuple[1]}({get_existing_feature_name(fe_tuple=fe_tuple[0][0],cols_names=cols_names)},{get_existing_feature_name(fe_tuple=fe_tuple[0][1],cols_names=cols_names)})" # (((2, 'log'), (3, 'sin')), 'mul', 1016)
-                    
-def njit_functions_dict(dict,exceptions:Sequence=('grad1','grad2','sinc','logn','greater','less','equal')):
+
+def get_new_feature_name(fe_tuple: tuple, cols_names: Sequence) -> str:
+    return f"{fe_tuple[1]}({get_existing_feature_name(fe_tuple=fe_tuple[0][0],cols_names=cols_names)},{get_existing_feature_name(fe_tuple=fe_tuple[0][1],cols_names=cols_names)})"  # (((2, 'log'), (3, 'sin')), 'mul', 1016)
+
+
+def njit_functions_dict(dict, exceptions: Sequence = ("grad1", "grad2", "sinc", "logn", "greater", "less", "equal")):
     """Tries replacing funcs in the dict with their njitted equivqlents, caring for exceptions."""
-    for key,func in dict.items():
+    for key, func in dict.items():
         if key not in exceptions:
             try:
-                dict[key]=njit(func)
+                dict[key] = njit(func)
             except Exception as e:
                 pass
 
-def create_unary_transformations(preset:str='minimal'):
-    unary_constraints={
+
+def create_unary_transformations(preset: str = "minimal"):
+    unary_constraints = {
         # reverse trigonometric
-        'arccos':'-1to1','arcsin':'-1to1','arctan':'-pi/2topi/2',
+        "arccos": "-1to1",
+        "arcsin": "-1to1",
+        "arctan": "-pi/2topi/2",
         # reverse hyperbolic
-        'arccosh':'1toinf','arctanh':'-0.(9)to0.(9)',
-        # powers 
-        'sqrt':'pos',
-        'log':'pos',
-        'reciproc':'nonzero',
-        'invsquared':'nonzero',
-        'invqubed':'nonzero',
-        'invcbrt':'nonzero',
-        'invsqrt':'nonzero',
+        "arccosh": "1toinf",
+        "arctanh": "-0.(9)to0.(9)",
+        # powers
+        "sqrt": "pos",
+        "log": "pos",
+        "reciproc": "nonzero",
+        "invsquared": "nonzero",
+        "invqubed": "nonzero",
+        "invcbrt": "nonzero",
+        "invsqrt": "nonzero",
     }
 
-    unary_transformations={
+    unary_transformations = {
         # simplest
-        'identity':lambda x: x,
+        "identity": lambda x: x,
     }
-    if preset!='minimal':
-        unary_transformations.update({
+    if preset != "minimal":
+        unary_transformations.update(
+            {
+                "sign": np.sign,
+                "neg": np.negative,
+                "abs": np.abs,
+                # outliers removal
+                # Rounding
+                "rint": np.rint,
+                # np.modf Return the fractional and integral parts of an array, element-wise.
+                # clip
+                # powers
+                "squared": lambda x: np.power(x, 2),
+                "qubed": lambda x: np.power(x, 3),
+                "reciproc": lambda x: np.power(x, -1),
+                "invsquared": lambda x: np.power(x, -2),
+                "invqubed": lambda x: np.power(x, -3),
+                "cbrt": np.cbrt,
+                "sqrt": np.sqrt,
+                "invcbrt": lambda x: np.power(x, -1 / 3),
+                "invsqrt": lambda x: np.power(x, -1 / 2),
+                # logarithms
+                "log": np.log,
+                "exp": np.exp,
+                # trigonometric
+                "sin": np.sin,
+            }
+        )
 
-        'sign':np.sign,
-        'neg':np.negative,
-        'abs':np.abs,
-        # outliers removal
-        # Rounding
-        'rint':np.rint,
-        # np.modf Return the fractional and integral parts of an array, element-wise.
-        # clip
-        # powers 
-        'squared': lambda x: np.power(x,2),
-        'qubed': lambda x: np.power(x,3),
-        'reciproc': lambda x: np.power(x,-1),
-        'invsquared': lambda x: np.power(x,-2),
-        'invqubed': lambda x: np.power(x,-3),
-        'cbrt': np.cbrt,
-        'sqrt': np.sqrt,
-        'invcbrt': lambda x: np.power(x,-1/3),
-        'invsqrt': lambda x: np.power(x,-1/2),            
-        # logarithms
-        'log':np.log,
-        'exp':np.exp,
-        # trigonometric
-        'sin':np.sin,
-    })
-    
-    if preset=='maximal':
-        unary_transformations.update({
-            # math an
-            'grad1':np.gradient,
-            'grad2':lambda x: np.gradient(x,edge_order=2),            
-            # trigonometric
-            'sinc':np.sinc,'cos':np.cos,'tan':np.tan,
-            # reverse trigonometric
-            'arcsin':np.arcsin,'arccos':np.arccos,'arctan':np.arctan,
-            # hyperbolic
-            'sinh':np.sinh,'cosh':np.cosh,'tanh':np.tanh,
-            # reverse hyperbolic
-            'arcsinh':np.arcsinh,'arccosh':np.arccosh,'arctanh':np.arctanh, 
-            # special
+    if preset == "maximal":
+        unary_transformations.update(
+            {
+                # math an
+                "grad1": np.gradient,
+                "grad2": lambda x: np.gradient(x, edge_order=2),
+                # trigonometric
+                "sinc": np.sinc,
+                "cos": np.cos,
+                "tan": np.tan,
+                # reverse trigonometric
+                "arcsin": np.arcsin,
+                "arccos": np.arccos,
+                "arctan": np.arctan,
+                # hyperbolic
+                "sinh": np.sinh,
+                "cosh": np.cosh,
+                "tanh": np.tanh,
+                # reverse hyperbolic
+                "arcsinh": np.arcsinh,
+                "arccosh": np.arccosh,
+                "arctanh": np.arctanh,
+                # special
+                #'psi':sp.psi, polygamma(0,x) is same as psi
+                "erf": sp.erf,
+                "dawsn": sp.dawsn,
+                "gammaln": sp.gammaln,
+                #'spherical_jn':sp.spherical_jn
+            }
+        )
 
-            #'psi':sp.psi, polygamma(0,x) is same as psi
-            'erf':sp.erf,
-            'dawsn':sp.dawsn,
-            'gammaln':sp.gammaln,
-            #'spherical_jn':sp.spherical_jn
-        })
-    
     njit_functions_dict(unary_transformations)
 
-    if preset=='maximal':
+    if preset == "maximal":
         for order in range(3):
-            unary_transformations['polygamma_'+str(order)]=lambda x: sp.polygamma(order,x)
-            unary_transformations['struve'+str(order)]=lambda x: sp.struve(order,x)
-            unary_transformations['jv'+str(order)]=lambda x: sp.jv(order,x)
-        
+            unary_transformations["polygamma_" + str(order)] = lambda x: sp.polygamma(order, x)
+            unary_transformations["struve" + str(order)] = lambda x: sp.struve(order, x)
+            unary_transformations["jv" + str(order)] = lambda x: sp.jv(order, x)
+
         """j0
         faster version of this function for order 0.
 
         j1
         faster version of this function for order 1.
-        """         
+        """
 
     return unary_transformations
-    
-def create_binary_transformations(preset:str='minimal'):
-    
-    binary_transformations={
-        # Basic
-        'mul':np.multiply,
-        "add":np.add,
-        # Extrema
-        'max':np.maximum,
-        'min':np.minimum,}        
-    
-    if preset=='maximal':
-        binary_transformations.update({
-        # All kinds of averages
-        'hypot':np.hypot,
-        'logaddexp': np.logaddexp, 
-        'agm':sp.agm, # Compute the arithmetic-geometric mean of a and b.
-        # Rational routines
-        #'lcm':np.lcm, # requires int arguments #  ufunc 'lcm' did not contain a loop with signature matching types (<class 'numpy.dtype[float32]'>, <class 'numpy.dtype[float32]'>) -> None
-        #'gcd':np.gcd, # requires int arguments
-        #'mod':np.remainder, # requires int arguments
-        # Powers
-        'pow':np.power, # non-symmetrical! may required dtype=complex for arbitrary numbers
-        # Logarithms
-        'logn': lambda x,y: np.emath.logn(x-np.min(x)+0.1,y-np.min(y)+0.1), # non-symmetrical!
-        # DSP
-        # 'convolve':np.convolve, # symmetrical wrt args. scipy.signal.fftconvolve should be faster? SLOW?
-        # Linalg
-        'heaviside':np.heaviside, # non-symmetrical!
-        #'cross':np.cross, # symmetrical # incompatible dimensions for cross product (dimension must be 2 or 3)
 
-        # Comparison
-        'greater':lambda x,y:np.greater(x,y).astype(int),
-        'less':lambda x,y:np.less(x,y).astype(int),
-        'equal':lambda x,y:np.equal(x,y).astype(int),
-        # special
-        'beta':sp.beta, # symmetrical            
-        'binom':sp.binom, # non-symmetrical! binomial coefficient considered as a function of two real variables.
-        })
-    
+
+def create_binary_transformations(preset: str = "minimal"):
+
+    binary_transformations = {
+        # Basic
+        "mul": np.multiply,
+        "add": np.add,
+        # Extrema
+        "max": np.maximum,
+        "min": np.minimum,
+    }
+
+    if preset == "maximal":
+        binary_transformations.update(
+            {
+                # All kinds of averages
+                "hypot": np.hypot,
+                "logaddexp": np.logaddexp,
+                "agm": sp.agm,  # Compute the arithmetic-geometric mean of a and b.
+                # Rational routines
+                #'lcm':np.lcm, # requires int arguments #  ufunc 'lcm' did not contain a loop with signature matching types (<class 'numpy.dtype[float32]'>, <class 'numpy.dtype[float32]'>) -> None
+                #'gcd':np.gcd, # requires int arguments
+                #'mod':np.remainder, # requires int arguments
+                # Powers
+                "pow": np.power,  # non-symmetrical! may required dtype=complex for arbitrary numbers
+                # Logarithms
+                "logn": lambda x, y: np.emath.logn(x - np.min(x) + 0.1, y - np.min(y) + 0.1),  # non-symmetrical!
+                # DSP
+                # 'convolve':np.convolve, # symmetrical wrt args. scipy.signal.fftconvolve should be faster? SLOW?
+                # Linalg
+                "heaviside": np.heaviside,  # non-symmetrical!
+                #'cross':np.cross, # symmetrical # incompatible dimensions for cross product (dimension must be 2 or 3)
+                # Comparison
+                "greater": lambda x, y: np.greater(x, y).astype(int),
+                "less": lambda x, y: np.less(x, y).astype(int),
+                "equal": lambda x, y: np.equal(x, y).astype(int),
+                # special
+                "beta": sp.beta,  # symmetrical
+                "binom": sp.binom,  # non-symmetrical! binomial coefficient considered as a function of two real variables.
+            }
+        )
+
     njit_functions_dict(binary_transformations)
 
     return binary_transformations

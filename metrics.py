@@ -43,8 +43,8 @@ def fast_numba_auc_nonw(y_true: np.ndarray, y_score: np.ndarray, desc_score_indi
             auc += (fps - last_counted_fps) * (last_counted_tps + tps)
             last_counted_fps = fps
             last_counted_tps = tps
-    tmp=tps * fps* 2
-    if tmp>0:
+    tmp = tps * fps * 2
+    if tmp > 0:
         return auc / tmp
     else:
         return 0
@@ -123,14 +123,14 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
             min_val = predicted_prob
     span = max_val - min_val
 
-    if span>0:
+    if span > 0:
         multiplier = nbins / span
         for true_class, predicted_prob in zip(y_true, y_pred):
             ind = floor((predicted_prob - min_val) * multiplier)
             pockets_predicted[ind] += 1
-            pockets_true[ind] += true_class   
+            pockets_true[ind] += true_class
     else:
-        ind =0
+        ind = 0
         for true_class, predicted_prob in zip(y_true, y_pred):
             pockets_predicted[ind] += 1
             pockets_true[ind] += true_class
@@ -154,28 +154,28 @@ def show_calibration_plot(
     plot_file: str = "",
     plot_title: str = "",
     figsize: tuple = (12, 6),
-    backend:str="matplotlib",
-    label_freq:str="Frequency",
-    label_perfect:str="Perfect",
-    label_real:str="Real",
-    label_prob:str='Probability',
-    use_size:bool=False,
+    backend: str = "matplotlib",
+    label_freq: str = "Frequency",
+    label_perfect: str = "Perfect",
+    label_real: str = "Real",
+    label_prob: str = "Probability",
+    use_size: bool = False,
 ):
     """Plots reliability digaram from the binned predictions."""
 
-    assert backend in ("plotly","matplotlib")
-    
+    assert backend in ("plotly", "matplotlib")
+
     x_min, x_max = np.min(freqs_predicted), np.max(freqs_predicted)
 
-    if backend =="matplotlib":
+    if backend == "matplotlib":
         fig = plt.figure(figsize=figsize)
-        plt.scatter( x=freqs_predicted, y=freqs_true, marker="o", s=5000 * hits / hits.sum(), c=hits, label=label_freq)        
+        plt.scatter(x=freqs_predicted, y=freqs_true, marker="o", s=5000 * hits / hits.sum(), c=hits, label=label_freq)
         plt.plot([x_min, x_max], [x_min, x_max], "g--", label=label_perfect)
         plt.xlabel(label_prob)
-        plt.ylabel(label_freq)        
+        plt.ylabel(label_freq)
         if plot_title:
             plt.title(plot_title)
-        
+
         if plot_file:
             fig.savefig(plot_file)
 
@@ -184,96 +184,133 @@ def show_calibration_plot(
         else:
             plt.close(fig)
     else:
-        
-        df=pd.DataFrame({label_prob:freqs_predicted, label_freq:freqs_true,"NCases":hits, })
-        hover_data={label_prob:":.2%",label_freq:":.2%","NCases":True}
+
+        df = pd.DataFrame(
+            {
+                label_prob: freqs_predicted,
+                label_freq: freqs_true,
+                "NCases": hits,
+            }
+        )
+        hover_data = {label_prob: ":.2%", label_freq: ":.2%", "NCases": True}
         print(hover_data)
 
         if use_size:
-            df["size"]=5000 * hits / hits.sum()
-            hover_data["size"]=False
+            df["size"] = 5000 * hits / hits.sum()
+            hover_data["size"] = False
 
-        fig=go.Figure()
-        #fig = px.scatter(data_frame=df ,x=label_prob,y=label_freq,size="size" if use_size else None, color="NCases", labels={'x':label_prob, 'y':label_freq},hover_data=hover_data) 
-        fig.add_trace(go.Scatter(data_frame=df ,x=label_prob,y=label_freq,size="size" if use_size else None, color="NCases", labels={'x':label_prob, 'y':label_freq},hover_data=hover_data,name=label_real))
-        fig.add_trace(go.Scatter(x=[x_min, x_max],y=[x_min, x_max], line={"color": "green", "dash": 'dash'},name=label_perfect,mode="lines"))
+        fig = go.Figure()
+        # fig = px.scatter(data_frame=df ,x=label_prob,y=label_freq,size="size" if use_size else None, color="NCases", labels={'x':label_prob, 'y':label_freq},hover_data=hover_data)
+        fig.add_trace(
+            go.Scatter(
+                data_frame=df,
+                x=label_prob,
+                y=label_freq,
+                size="size" if use_size else None,
+                color="NCases",
+                labels={"x": label_prob, "y": label_freq},
+                hover_data=hover_data,
+                name=label_real,
+            )
+        )
+        fig.add_trace(go.Scatter(x=[x_min, x_max], y=[x_min, x_max], line={"color": "green", "dash": "dash"}, name=label_perfect, mode="lines"))
         fig.update(layout_coloraxis_showscale=False)
         if plot_title:
             fig.update_layout(title=plot_title)
 
-
         if plot_file:
-            ext=plot_file.split(".")[-1]
-            if not ext: ext= "png"
+            ext = plot_file.split(".")[-1]
+            if not ext:
+                ext = "png"
             write_image(fig, file=plot_file, format=ext)
 
         if show_plots:
-            fig.show()                    
+            fig.show()
     return fig
 
+
 @njit()
-def maximum_absolute_percentage_error(y_true:np.ndarray, y_pred:np.ndarray)->float:    
+def maximum_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     epsilon = np.finfo(np.float64).eps
     mape = np.abs(y_pred - y_true) / np.maximum(np.abs(y_true), epsilon)
     return np.nanmax(mape)
 
+
 @njit()
-def calibration_metrics_from_freqs(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray, nbins: int,array_size:int,use_weights:bool=True):
-    calibration_coverage=len(set(np.round(freqs_predicted,int(np.log10(nbins)))))/nbins
-    if len(hits)>0:
-        diffs = np.abs((freqs_predicted - freqs_true))   
+def calibration_metrics_from_freqs(
+    freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray, nbins: int, array_size: int, use_weights: bool = True
+):
+    calibration_coverage = len(set(np.round(freqs_predicted, int(np.log10(nbins))))) / nbins
+    if len(hits) > 0:
+        diffs = np.abs((freqs_predicted - freqs_true))
         if use_weights:
-            weights=hits/array_size
-            calibration_mae =np.sum(diffs*weights)
-            #print(np.sum(diffs),hits,array_size,weights,calibration_mae,weights.sum())
-            calibration_std=np.sqrt(np.sum(((diffs-calibration_mae)**2)*weights))            
+            weights = hits / array_size
+            calibration_mae = np.sum(diffs * weights)
+            # print(np.sum(diffs),hits,array_size,weights,calibration_mae,weights.sum())
+            calibration_std = np.sqrt(np.sum(((diffs - calibration_mae) ** 2) * weights))
         else:
-            calibration_mae =np.mean(diffs)
-            calibration_std=np.sqrt(np.mean(((diffs-calibration_mae)**2)))
+            calibration_mae = np.mean(diffs)
+            calibration_std = np.sqrt(np.mean(((diffs - calibration_mae) ** 2)))
     else:
-        calibration_mae, calibration_std=1.0,1.0
-    
-    return calibration_mae, calibration_std,calibration_coverage
+        calibration_mae, calibration_std = 1.0, 1.0
+
+    return calibration_mae, calibration_std, calibration_coverage
 
 
 @njit()
-def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100,use_weights:bool=False,verbose:int=0):
+def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, use_weights: bool = False, verbose: int = 0):
     freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
     if verbose:
-        print(freqs_predicted,freqs_true)
-    return calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins,array_size=len(y_true),use_weights=use_weights)
+        print(freqs_predicted, freqs_true)
+    return calibration_metrics_from_freqs(
+        freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, array_size=len(y_true), use_weights=use_weights
+    )
 
 
-def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, 
-                            show_plots: bool = True,show_points_density_in_title:bool=False,show_roc_auc_in_title:bool=False,show_coverage_in_title:bool=False,
-                            plot_file: str = "", figsize: tuple = (12, 6),ndigits:int=2,backend:str="matplotlib",title:str="",
-                            use_weights=True,verbose:bool=False):
+def fast_calibration_report(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    nbins: int = 100,
+    show_plots: bool = True,
+    show_points_density_in_title: bool = False,
+    show_roc_auc_in_title: bool = False,
+    show_coverage_in_title: bool = False,
+    plot_file: str = "",
+    figsize: tuple = (12, 6),
+    ndigits: int = 2,
+    backend: str = "matplotlib",
+    title: str = "",
+    use_weights=True,
+    verbose: bool = False,
+):
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs."""
-    
-    assert backend in ("plotly","matplotlib")
 
-    brier_loss=brier_score_loss(y_true=y_true, y_prob=y_pred)
+    assert backend in ("plotly", "matplotlib")
+
+    brier_loss = brier_score_loss(y_true=y_true, y_prob=y_pred)
 
     freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
     if verbose:
-        print("freqs_predicted",freqs_predicted)
-        print("freqs_true",freqs_true)
-    min_hits,max_hits=np.min(hits),np.max(hits)
-    calibration_mae, calibration_std,calibration_coverage = calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins,array_size=len(y_true),use_weights=use_weights)
+        print("freqs_predicted", freqs_predicted)
+        print("freqs_true", freqs_true)
+    min_hits, max_hits = np.min(hits), np.max(hits)
+    calibration_mae, calibration_std, calibration_coverage = calibration_metrics_from_freqs(
+        freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, array_size=len(y_true), use_weights=use_weights
+    )
 
-    fig=None
+    fig = None
     if plot_file or show_plots:
-        plot_title=f"BR={brier_loss*100:.{ndigits}f}% Calibration MAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}%±{calibration_std*100:.{ndigits}f}%"
+        plot_title = f"BR={brier_loss*100:.{ndigits}f}% Calibration MAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}%±{calibration_std*100:.{ndigits}f}%"
 
         if show_coverage_in_title:
-            plot_title+=f", cov.={calibration_coverage*100:.{int(np.log10(nbins))}f}%"
+            plot_title += f", cov.={calibration_coverage*100:.{int(np.log10(nbins))}f}%"
         if show_roc_auc_in_title:
-            plot_title+=f", ROC AUC={fast_auc(y_true=y_true, y_score=y_pred):.3f}"
+            plot_title += f", ROC AUC={fast_auc(y_true=y_true, y_score=y_pred):.3f}"
         if show_points_density_in_title:
-            plot_title+=f", dens.=[{max_hits:_};{min_hits:_}]"
+            plot_title += f", dens.=[{max_hits:_};{min_hits:_}]"
         if title:
-            plot_title=title.strip()+" "+plot_title
-        fig=show_calibration_plot(
+            plot_title = title.strip() + " " + plot_title
+        fig = show_calibration_plot(
             freqs_predicted=freqs_predicted,
             freqs_true=freqs_true,
             hits=hits,
@@ -281,10 +318,10 @@ def fast_calibration_report(y_true: np.ndarray, y_pred: np.ndarray, nbins: int =
             show_plots=show_plots,
             plot_file=plot_file,
             figsize=figsize,
-            backend=backend
+            backend=backend,
         )
 
-    return brier_loss,calibration_mae, calibration_std, calibration_coverage, fig
+    return brier_loss, calibration_mae, calibration_std, calibration_coverage, fig
 
 
 def predictions_time_instability(preds: pd.Series) -> float:
@@ -302,111 +339,198 @@ def predictions_time_instability(preds: pd.Series) -> float:
 
 class CB_INTEGRAL_CALIB_ERROR:
     """Custom probabilistic prediction error metric balancing predictive power with calibration.
-        Can regularly create a calibration plot.
+    Can regularly create a calibration plot.
     """
-    
-    def __init__(self,method:str="multicrit",std_weight:float=0.5,roc_auc_weight=0.001,use_weighted_calibration:bool=True,weight_by_class_npositives:bool=False,calibration_plot_period:int=0) -> None:
 
-        assert method in ("multicrit","precision","brier_score")
+    def __init__(
+        self,
+        method: str = "multicrit",
+        std_weight: float = 0.5,
+        brier_loss_weight: float = 0.2,
+        roc_auc_weight=0.001,
+        use_weighted_calibration: bool = True,
+        weight_by_class_npositives: bool = False,
+        calibration_plot_period: int = 0,
+    ) -> None:
 
-        self.method=method
-        self.std_weight=std_weight
-        self.roc_auc_weight=roc_auc_weight
-        self.use_weighted_calibration=use_weighted_calibration
-        self.weight_by_class_npositives=weight_by_class_npositives
-                
-        self.calibration_plot_period=calibration_plot_period
-        self.nruns=0
+        assert method in ("multicrit", "precision", "brier_score")
+
+        self.method = method
+        self.std_weight = std_weight
+        self.roc_auc_weight = roc_auc_weight
+        self.brier_loss_weight = brier_loss_weight
+        self.use_weighted_calibration = use_weighted_calibration
+        self.weight_by_class_npositives = weight_by_class_npositives
+
+        self.calibration_plot_period = calibration_plot_period
+        self.nruns = 0
 
     def is_max_optimal(self):
         return False  # greater is better?
 
     def evaluate(self, approxes, target, weight):
         output_weight = 1  # weight is not used
-               
-        if len(approxes)==1:
-            y_pred=expit(approxes[0])
-            probs=[1-y_pred,y_pred]
-            class_id=1
-        else:
-            
-            probs=[]
-            tot_sum=np.zeros_like(approxes[0])
-            for class_id in range(len(approxes)):
-                y_pred=np.exp(approxes[class_id])
-                probs.append(y_pred)
-                tot_sum+=y_pred
-            for class_id in range(len(approxes)):
-                probs[class_id]/=tot_sum
-        
-        total_error=compute_integral_calibration_error(probs=probs,target=target,method=self.method,std_weight=self.std_weight,roc_auc_weight=self.roc_auc_weight,use_weighted_calibration=self.use_weighted_calibration,weight_by_class_npositives =self.weight_by_class_npositives)
 
-        self.nruns+=1
-        
-        if self.calibration_plot_period and (self.nruns % self.calibration_plot_period ==0):
-            y_true=(target==class_id).astype(np.int8)
-            brier_loss, calibration_mae, calibration_std, calibration_coverage, _ =fast_calibration_report(y_true=y_true,y_pred=y_pred,
-                                           title=f"{len(approxes[0]):_} records of class {class_id}, integral error={total_error:.4f}, nruns={self.nruns:_}\r\n",
-                                           show_roc_auc_in_title=True,
-                                           use_weights=self.use_weighted_calibration,verbose=False)            
+        if len(approxes) == 1:
+            y_pred = expit(approxes[0])
+            probs = [1 - y_pred, y_pred]
+            class_id = 1
+        else:
+
+            probs = []
+            tot_sum = np.zeros_like(approxes[0])
+            for class_id in range(len(approxes)):
+                y_pred = np.exp(approxes[class_id])
+                probs.append(y_pred)
+                tot_sum += y_pred
+            for class_id in range(len(approxes)):
+                probs[class_id] /= tot_sum
+
+        total_error = compute_integral_calibration_error(
+            probs=probs,
+            target=target,
+            method=self.method,
+            std_weight=self.std_weight,
+            brier_loss_weight=self.brier_loss_weight,
+            roc_auc_weight=self.roc_auc_weight,
+            use_weighted_calibration=self.use_weighted_calibration,
+            weight_by_class_npositives=self.weight_by_class_npositives,
+        )
+
+        self.nruns += 1
+
+        if self.calibration_plot_period and (self.nruns % self.calibration_plot_period == 0):
+            y_true = (target == class_id).astype(np.int8)
+            brier_loss, calibration_mae, calibration_std, calibration_coverage, _ = fast_calibration_report(
+                y_true=y_true,
+                y_pred=y_pred,
+                title=f"{len(approxes[0]):_} records of class {class_id}, integral error={total_error:.4f}, nruns={self.nruns:_}\r\n",
+                show_roc_auc_in_title=True,
+                use_weights=self.use_weighted_calibration,
+                verbose=False,
+            )
 
         return total_error, output_weight
 
     def get_final_error(self, error, weight):
         return error
 
-def compute_integral_calibration_error(probs:Sequence,target,labels=None,method:str="multicrit",std_weight:float=0.5,roc_auc_weight=0.001,use_weighted_calibration:bool=True,weight_by_class_npositives:bool=False):
-    total_error=0.0
-    weights_sum=0
-        
+
+def compute_integral_calibration_error(
+    probs: Sequence,
+    target,
+    labels=None,
+    method: str = "multicrit",
+    std_weight: float = 0.5,
+    brier_loss_weight: float = 0.2,
+    roc_auc_weight=0.001,
+    use_weighted_calibration: bool = True,
+    weight_by_class_npositives: bool = False,
+    verbose: bool = False,
+    ndigits: int = 4,
+):
+    total_error = 0.0
+    weights_sum = 0
+
     for class_id in range(len(probs)):
 
-        if len(probs)==2 and class_id==0: continue
-        
+        if len(probs) == 2 and class_id == 0:
+            continue
+
         y_pred = probs[class_id]
         if labels is not None:
-            y_true=(target==labels[class_id]).astype(np.int8)
+            y_true = (target == labels[class_id]).astype(np.int8)
         else:
-            y_true=(target==class_id).astype(np.int8)
-        
-        if method =="multicrit":
-            calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred,use_weights=use_weighted_calibration)
+            y_true = (target == class_id).astype(np.int8)
+
+        if method == "multicrit":
+            calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(
+                y_true=y_true, y_pred=y_pred, use_weights=use_weighted_calibration
+            )
+            brier_loss = brier_score_loss(y_true=y_true, y_prob=y_pred)
 
             desc_score_indices = np.argsort(y_pred)[::-1]
-            roc_auc=fast_numba_auc_nonw(y_true=y_true, y_score=y_pred, desc_score_indices=desc_score_indices)
-            #print(f"\t class_id={class_id}, roc_auc={roc_auc:.3f}, calibration_mae={calibration_mae:.3f}, calibration_std={calibration_std:.3f}")
-            multicrit_class_error=integral_calibration_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage,
-                                                    roc_auc=roc_auc,std_weight=std_weight,roc_auc_weight=roc_auc_weight)
-        if method =="brier_score":
-            multicrit_class_error=brier_score_loss(y_true=y_true,y_prob=y_pred)
-        elif method =="precision":
-            multicrit_class_error=fast_precision(y_true=y_true, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0)                
-        
-        if weight_by_class_npositives:
-            weight=y_true.sum()                
-        else:
-            weight=1
+            roc_auc = fast_numba_auc_nonw(y_true=y_true, y_score=y_pred, desc_score_indices=desc_score_indices)
 
-        total_error+=multicrit_class_error*weight
-        weights_sum+=weight
-    
-    total_error/=weights_sum
+            if verbose:
+                print(
+                    f"\t class_id={class_id}, BR={brier_loss:.{ndigits}f}, calibration_mae={calibration_mae:.{ndigits}f} ± {calibration_std:.{ndigits}f}, roc_auc={roc_auc:.{ndigits}f}"
+                )
+
+            multicrit_class_error = integral_calibration_error(
+                calibration_mae=calibration_mae,
+                calibration_std=calibration_std,
+                calibration_coverage=calibration_coverage,
+                brier_loss=brier_loss,
+                roc_auc=roc_auc,
+                std_weight=std_weight,
+                brier_loss_weight=brier_loss_weight,
+                roc_auc_weight=roc_auc_weight,
+            )
+        if method == "brier_score":
+            multicrit_class_error = brier_score_loss(y_true=y_true, y_prob=y_pred)
+        elif method == "precision":
+            multicrit_class_error = fast_precision(y_true=y_true, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0)
+
+        if weight_by_class_npositives:
+            weight = y_true.sum()
+        else:
+            weight = 1
+
+        total_error += multicrit_class_error * weight
+        weights_sum += weight
+
+    total_error /= weights_sum
 
     return total_error
 
-@njit()
-def integral_calibration_error(calibration_mae:float , calibration_std:float, calibration_coverage:float,roc_auc:float,std_weight:float=0.5,roc_auc_weight:float=0.0001,cov_degree:float=0.5) -> float:
-    """Integral calibration error."""
-    return (calibration_mae + calibration_std * std_weight-roc_auc* roc_auc_weight)
 
-def sklearn_integral_calibration_error(y_true, y_score,labels=None, method:str="multicrit",std_weight:float=0.5,roc_auc_weight=0.001,use_weighted_calibration:bool=True,weight_by_class_npositives:bool=False):
-    if isinstance(y_true,(pd.Series,pd.DataFrame)):
-        y_true=y_true.values
-    if isinstance(y_score,(pd.Series,pd.DataFrame)):
-        y_score=y_score.values
-    if labels is not None and isinstance(labels,(pd.Series,pd.DataFrame)):
-        labels=labels.values        
-    return compute_integral_calibration_error(probs=[y_score[:,i] for i in range(y_score.shape[1])],target=y_true,labels=labels,method=method,std_weight=std_weight,roc_auc_weight=roc_auc_weight,use_weighted_calibration=use_weighted_calibration,weight_by_class_npositives =weight_by_class_npositives)
+@njit()
+def integral_calibration_error(
+    calibration_mae: float,
+    calibration_std: float,
+    calibration_coverage: float,
+    brier_loss: float,
+    roc_auc: float,
+    std_weight: float = 0.5,
+    brier_loss_weight: float = 1.2,
+    roc_auc_weight: float = 0.01,
+) -> float:
+    """Integral calibration error."""
+    return brier_loss * brier_loss_weight + calibration_mae + calibration_std * std_weight - np.abs(roc_auc - 0.5) * roc_auc_weight
+
+
+def sklearn_integral_calibration_error(
+    y_true,
+    y_score,
+    labels=None,
+    method: str = "multicrit",
+    std_weight: float = 0.5,
+    brier_loss_weight: float = 1.2,
+    roc_auc_weight=0.01,
+    use_weighted_calibration: bool = True,
+    weight_by_class_npositives: bool = False,
+    verbose: bool = False,
+):
+    if isinstance(y_true, (pd.Series, pd.DataFrame)):
+        y_true = y_true.values
+    if isinstance(y_score, (pd.Series, pd.DataFrame)):
+        y_score = y_score.values
+    if labels is not None and isinstance(labels, (pd.Series, pd.DataFrame)):
+        labels = labels.values
+    return compute_integral_calibration_error(
+        probs=[y_score[:, i] for i in range(y_score.shape[1])],
+        target=y_true,
+        labels=labels,
+        method=method,
+        std_weight=std_weight,
+        brier_loss_weight=brier_loss_weight,
+        roc_auc_weight=roc_auc_weight,
+        use_weighted_calibration=use_weighted_calibration,
+        weight_by_class_npositives=weight_by_class_npositives,
+        verbose=verbose,
+    )
+
 
 def integral_calibration_error_xgboost(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred)
@@ -417,19 +541,21 @@ def integral_calibration_error_keras(y_true: np.ndarray, y_pred: np.ndarray) -> 
     calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true.numpy()[:, -1], y_pred=y_pred.numpy()[:, -1])
     return integral_calibration_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage)
 
+
 @njit()
-def brier_score_loss(y_true:np.ndarray,y_prob:np.ndarray)->float:
+def brier_score_loss(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     return np.mean((y_true - y_prob) ** 2)
+
 
 @njit()
 def probability_separation_score(y_true: np.ndarray, y_prob: np.ndarray, class_label: int = 1, std_weight: float = 0.5) -> float:
     idx = y_true == class_label
-    if idx.sum()==0:
+    if idx.sum() == 0:
         return np.nan
         if class_label == 1:
-            res=0.0
+            res = 0.0
         else:
-            res=1.0
+            res = 1.0
     else:
         res = np.mean(y_prob[idx])
         if std_weight != 0.0:
