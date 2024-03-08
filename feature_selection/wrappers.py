@@ -26,9 +26,10 @@ while True:
         from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
         from mlframe.config import *
-        from mlframe.metrics import sklearn_integral_calibration_error
+        from mlframe.utils import set_random_seed
         from mlframe.baselines import get_best_dummy_score
         from mlframe.preprocessing import pack_val_set_into_fit_params
+        from mlframe.metrics import sklearn_integral_calibration_error
         from mlframe.optimization import *
 
         from sklearn.dummy import DummyClassifier, DummyRegressor
