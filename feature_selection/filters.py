@@ -2629,6 +2629,7 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         params = get_parent_func_args()
         store_params_in_object(obj=self, params=params)
+        self.signature = None
 
     def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, **fit_params):
         """We run N selections on data subsets, and pick only features that appear in all selections"""

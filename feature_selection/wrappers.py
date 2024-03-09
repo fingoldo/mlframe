@@ -212,6 +212,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         params = get_parent_func_args()
         store_params_in_object(obj=self, params=params)
+        self.signature = None
 
     def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, **fit_params):
 
@@ -651,8 +652,8 @@ class RFECV(BaseEstimator, TransformerMixin):
         self.support_ = np.array([(i in self.ranking_[:best_top_n]) for i in self.feature_names_in_])
 
         if verbose:
-            dummy_gain = base_perf[0] / base_perf[best_idx]
-            allfeat_gain = base_perf[-1] / base_perf[best_idx]
+            dummy_gain = base_perf[0] / base_perf[best_idx] - 1
+            allfeat_gain = base_perf[-1] / base_perf[best_idx] - 1
             logger.info(
                 f"{self.n_features_:_} predictive factors selected out of {self.n_features_in_:_} during {len(self.selected_features_):_} rounds. Gain vs dummy={dummy_gain*100:.1f}%, gain vs all features={allfeat_gain*100:.1f}%"
             )
