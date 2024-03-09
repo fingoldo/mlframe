@@ -199,7 +199,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         estimators_save_path: str = None,  # fitted estimators get saved into join(estimators_save_path,estimator_type_name,nestimator_nfeatures_nfold.dump)
         # Required features and achieved ml metrics get saved in a dict join(estimators_save_path,required_features.dump).
         frac: float = None,
-        skip_retraining_on_same_shape:bool=False,
+        skip_retraining_on_same_shape: bool = False,
     ):
 
         # checks
@@ -219,13 +219,13 @@ class RFECV(BaseEstimator, TransformerMixin):
         # Compute inputs/outputs signature
         # ----------------------------------------------------------------------------------------------------------------------------
 
-        signature=(X.shape,y.shape)        
+        signature = (X.shape, y.shape)
         if self.skip_retraining_on_same_shape:
-            if signature==self.signature:
+            if signature == self.signature:
                 if self.verbose:
                     logger.info(f"Skipping retraining on the same inputs signature {signature}")
                 return self
-            
+
         # ---------------------------------------------------------------------------------------------------------------
         # Inits
         # ---------------------------------------------------------------------------------------------------------------
@@ -569,8 +569,8 @@ class RFECV(BaseEstimator, TransformerMixin):
             verbose=verbose,
             show_plot=show_plot,
         )
-        
-        self.signature=signature
+
+        self.signature = signature
         return self
 
     def select_optimal_nfeatures_(
