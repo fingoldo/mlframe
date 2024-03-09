@@ -2610,10 +2610,11 @@ class MRMR(BaseEstimator, TransformerMixin):
         parallel_kwargs=dict(max_nbytes=MAX_JOBLIB_NBYTES),
         # CV
         cv: Union[object, int, None] = 3,
-        cv_shuffle: bool = True,
+        cv_shuffle: bool = False,
         # service
         random_state: int = None,
         n_jobs: int = -1,
+        skip_retraining_on_same_shape: bool = False,
         # hidden
         n_features_in_: int = 0,
         feature_names_in_: Sequence = None,
@@ -2631,6 +2632,17 @@ class MRMR(BaseEstimator, TransformerMixin):
 
     def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, **fit_params):
         """We run N selections on data subsets, and pick only features that appear in all selections"""
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Compute inputs/outputs signature
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        signature = (X.shape, y.shape)
+        if self.skip_retraining_on_same_shape:
+            if signature == self.signature:
+                if self.verbose:
+                    logger.info(f"Skipping retraining on the same inputs signature {signature}")
+                return self
 
         # ---------------------------------------------------------------------------------------------------------------
         # Inits
@@ -3243,6 +3255,9 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         if verbose:
             logger.info(f"MRMR+ selected {self.n_features_:_} out of {self.n_features_in_:_} features: {predictors}")
+
+        self.signature = signature
+        return self
 
     def transform(self, X, y=None):
         if isinstance(X, pd.DataFrame):

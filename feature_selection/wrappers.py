@@ -178,7 +178,8 @@ class RFECV(BaseEstimator, TransformerMixin):
         max_noimproving_iters: int = 30,
         # CV
         cv: Union[object, int, None] = 3,
-        cv_shuffle: bool = True,
+        cv_shuffle: bool = False,
+        # Other
         early_stopping_val_nsplits: Union[int, None] = 4,
         early_stopping_rounds: Union[int, None] = None,
         scoring: Union[object, None] = None,
@@ -198,6 +199,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         estimators_save_path: str = None,  # fitted estimators get saved into join(estimators_save_path,estimator_type_name,nestimator_nfeatures_nfold.dump)
         # Required features and achieved ml metrics get saved in a dict join(estimators_save_path,required_features.dump).
         frac: float = None,
+        skip_retraining_on_same_shape:bool=False,
     ):
 
         # checks
@@ -213,6 +215,17 @@ class RFECV(BaseEstimator, TransformerMixin):
 
     def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, **fit_params):
 
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Compute inputs/outputs signature
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        signature=(X.shape,y.shape)        
+        if self.skip_retraining_on_same_shape:
+            if signature==self.signature:
+                if self.verbose:
+                    logger.info(f"Skipping retraining on the same inputs signature {signature}")
+                return self
+            
         # ---------------------------------------------------------------------------------------------------------------
         # Inits
         # ---------------------------------------------------------------------------------------------------------------
@@ -556,7 +569,8 @@ class RFECV(BaseEstimator, TransformerMixin):
             verbose=verbose,
             show_plot=show_plot,
         )
-
+        
+        self.signature=signature
         return self
 
     def select_optimal_nfeatures_(
