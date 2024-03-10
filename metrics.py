@@ -345,6 +345,7 @@ class CB_INTEGRAL_CALIB_ERROR:
     def __init__(
         self,
         method: str = "multicrit",
+        mae_weight: float = 0.9,
         std_weight: float = 0.9,
         brier_loss_weight: float = 0.5,
         roc_auc_weight=0.5,
@@ -356,6 +357,7 @@ class CB_INTEGRAL_CALIB_ERROR:
         assert method in ("multicrit", "precision", "brier_score")
 
         self.method = method
+        self.mae_weight = mae_weight
         self.std_weight = std_weight
         self.roc_auc_weight = roc_auc_weight
         self.brier_loss_weight = brier_loss_weight
@@ -390,6 +392,7 @@ class CB_INTEGRAL_CALIB_ERROR:
             probs=probs,
             target=target,
             method=self.method,
+            mae_weight=self.mae_weight,
             std_weight=self.std_weight,
             brier_loss_weight=self.brier_loss_weight,
             roc_auc_weight=self.roc_auc_weight,
@@ -421,6 +424,7 @@ def compute_integral_calibration_error(
     target,
     labels=None,
     method: str = "multicrit",
+    mae_weight: float = 0.9,
     std_weight: float = 0.9,
     brier_loss_weight: float = 0.5,
     roc_auc_weight=0.5,
@@ -463,11 +467,12 @@ def compute_integral_calibration_error(
                 calibration_coverage=calibration_coverage,
                 brier_loss=brier_loss,
                 roc_auc=roc_auc,
+                mae_weight=mae_weight,
                 std_weight=std_weight,
                 brier_loss_weight=brier_loss_weight,
                 roc_auc_weight=roc_auc_weight,
             )
-        if method == "brier_score":
+        elif method == "brier_score":
             multicrit_class_error = brier_score_loss(y_true=y_true, y_prob=y_pred)
         elif method == "precision":
             multicrit_class_error = fast_precision(y_true=y_true, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0)
@@ -482,6 +487,9 @@ def compute_integral_calibration_error(
 
     total_error /= weights_sum
 
+    if verbose:
+        print(f"method={method}, total_error={total_error:.{ndigits}f}")
+
     return total_error
 
 
@@ -492,12 +500,13 @@ def integral_calibration_error(
     calibration_coverage: float,
     brier_loss: float,
     roc_auc: float,
+    mae_weight: float,
     std_weight: float = 0.9,
     brier_loss_weight: float = 0.5,
     roc_auc_weight: float = 0.5,
 ) -> float:
     """Integral calibration error."""
-    return brier_loss * brier_loss_weight + calibration_mae + calibration_std * std_weight - np.abs(roc_auc - 0.5) * roc_auc_weight
+    return brier_loss * brier_loss_weight + calibration_mae * mae_weight + calibration_std * std_weight - np.abs(roc_auc - 0.5) * roc_auc_weight
 
 
 def sklearn_integral_calibration_error(
@@ -505,6 +514,7 @@ def sklearn_integral_calibration_error(
     y_score,
     labels=None,
     method: str = "multicrit",
+    mae_weight: float = 0.9,
     std_weight: float = 0.9,
     brier_loss_weight: float = 0.5,
     roc_auc_weight=0.5,
@@ -523,6 +533,7 @@ def sklearn_integral_calibration_error(
         target=y_true,
         labels=labels,
         method=method,
+        mae_weight=mae_weight,
         std_weight=std_weight,
         brier_loss_weight=brier_loss_weight,
         roc_auc_weight=roc_auc_weight,
