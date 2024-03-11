@@ -8,6 +8,7 @@ from math import floor
 from scipy.special import expit
 import numpy as np, pandas as pd
 from matplotlib import pyplot as plt
+from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
 import plotly.express as px
 import plotly.graph_objects as go
@@ -348,7 +349,9 @@ class CB_INTEGRAL_CALIB_ERROR:
         mae_weight: float = 0.9,
         std_weight: float = 0.9,
         brier_loss_weight: float = 0.5,
-        roc_auc_weight=0.5,
+        roc_auc_weight: float = 0.5,
+        min_roc_auc: float = 0.5,
+        roc_auc_penalty: float = 0.2,
         use_weighted_calibration: bool = True,
         weight_by_class_npositives: bool = False,
         calibration_plot_period: int = 0,
@@ -356,15 +359,10 @@ class CB_INTEGRAL_CALIB_ERROR:
 
         assert method in ("multicrit", "precision", "brier_score")
 
-        self.method = method
-        self.mae_weight = mae_weight
-        self.std_weight = std_weight
-        self.roc_auc_weight = roc_auc_weight
-        self.brier_loss_weight = brier_loss_weight
-        self.use_weighted_calibration = use_weighted_calibration
-        self.weight_by_class_npositives = weight_by_class_npositives
+        # save params
+        params = get_parent_func_args()
+        store_params_in_object(obj=self, params=params)
 
-        self.calibration_plot_period = calibration_plot_period
         self.nruns = 0
 
     def is_max_optimal(self):
@@ -396,6 +394,8 @@ class CB_INTEGRAL_CALIB_ERROR:
             std_weight=self.std_weight,
             brier_loss_weight=self.brier_loss_weight,
             roc_auc_weight=self.roc_auc_weight,
+            min_roc_auc=self.min_roc_auc,
+            roc_auc_penalty=self.roc_auc_penalty,
             use_weighted_calibration=self.use_weighted_calibration,
             weight_by_class_npositives=self.weight_by_class_npositives,
         )
@@ -427,7 +427,9 @@ def compute_integral_calibration_error(
     mae_weight: float = 0.9,
     std_weight: float = 0.9,
     brier_loss_weight: float = 0.5,
-    roc_auc_weight=0.5,
+    roc_auc_weight: float = 0.5,
+    min_roc_auc: float = 0.5,
+    roc_auc_penalty: float = 0.2,
     use_weighted_calibration: bool = True,
     weight_by_class_npositives: bool = False,
     verbose: bool = False,
@@ -471,6 +473,8 @@ def compute_integral_calibration_error(
                 std_weight=std_weight,
                 brier_loss_weight=brier_loss_weight,
                 roc_auc_weight=roc_auc_weight,
+                min_roc_auc=min_roc_auc,
+                roc_auc_penalty=roc_auc_penalty,
             )
         elif method == "brier_score":
             multicrit_class_error = brier_score_loss(y_true=y_true, y_prob=y_pred)
@@ -488,7 +492,7 @@ def compute_integral_calibration_error(
     total_error /= weights_sum
 
     if verbose:
-        print(f"method={method}, total_error={total_error:.{ndigits}f}")
+        print(f"method={method}, size={len(y_true):_} total_error={total_error:.{ndigits}f}")
 
     return total_error
 
@@ -504,9 +508,14 @@ def integral_calibration_error(
     std_weight: float = 0.9,
     brier_loss_weight: float = 0.5,
     roc_auc_weight: float = 0.5,
+    min_roc_auc: float = 0.5,
+    roc_auc_penalty: float = 0.2,
 ) -> float:
     """Integral calibration error."""
-    return brier_loss * brier_loss_weight + calibration_mae * mae_weight + calibration_std * std_weight - np.abs(roc_auc - 0.5) * roc_auc_weight
+    res = brier_loss * brier_loss_weight + calibration_mae * mae_weight + calibration_std * std_weight - np.abs(roc_auc - 0.5) * roc_auc_weight
+    if roc_auc < min_roc_auc:
+        res += roc_auc_penalty
+    return res
 
 
 def sklearn_integral_calibration_error(
@@ -517,7 +526,9 @@ def sklearn_integral_calibration_error(
     mae_weight: float = 0.9,
     std_weight: float = 0.9,
     brier_loss_weight: float = 0.5,
-    roc_auc_weight=0.5,
+    roc_auc_weight: float = 0.5,
+    min_roc_auc: float = 0.5,
+    roc_auc_penalty: float = 0.2,
     use_weighted_calibration: bool = True,
     weight_by_class_npositives: bool = False,
     verbose: bool = False,
@@ -537,6 +548,8 @@ def sklearn_integral_calibration_error(
         std_weight=std_weight,
         brier_loss_weight=brier_loss_weight,
         roc_auc_weight=roc_auc_weight,
+        min_roc_auc=min_roc_auc,
+        roc_auc_penalty=roc_auc_penalty,
         use_weighted_calibration=use_weighted_calibration,
         weight_by_class_npositives=weight_by_class_npositives,
         verbose=verbose,
