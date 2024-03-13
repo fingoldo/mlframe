@@ -25,9 +25,12 @@ while True:
         from pyutilz.numbalib import set_numba_random_seed
         from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
+        from sklearn.pipeline import Pipeline
+
         from mlframe.config import *
         from mlframe.utils import set_random_seed
         from mlframe.baselines import get_best_dummy_score
+        from mlframe.helpers import has_early_stopping_support
         from mlframe.preprocessing import pack_val_set_into_fit_params
         from mlframe.metrics import sklearn_integral_calibration_error
         from mlframe.optimization import *
@@ -169,6 +172,8 @@ class RFECV(BaseEstimator, TransformerMixin):
         self,
         estimator: BaseEstimator,
         fit_params: dict = {},
+        mean_perf_weight: float = 1.0,
+        std_perf_weight: float = 0.1,
         feature_cost: float = 0.00 / 100,
         smooth_perf: int = 3,
         # stopping conditions
@@ -323,8 +328,16 @@ class RFECV(BaseEstimator, TransformerMixin):
         # Init importance_getter
         # ----------------------------------------------------------------------------------------------------------------------------
 
+        if isinstance(estimator, Pipeline):
+            estimator_type = type(estimator.steps[-1][1]).__name__
+        else:
+            estimator_type = type(estimator).__name__
+
         if importance_getter is None or importance_getter == "auto":
-            importance_getter = "feature_importances_"
+            if estimator_type in ("LogisticRegression",):
+                importance_getter = "coef_"
+            else:
+                importance_getter = "feature_importances_"
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Start evaluating different nfeatures, being guided by the selected search method
@@ -406,7 +419,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     X=X, y=y, train_index=train_index, test_index=test_index, features_indices=current_features
                 )  # this splits both dataframes & ndarrays in the same fashion
 
-                if val_cv:
+                if val_cv and has_early_stopping_support(estimator_type):
 
                     # ----------------------------------------------------------------------------------------------------------------------------
                     # Make additional early stopping split from X_train
@@ -441,7 +454,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     temp_fit_params.update(fit_params)
 
                 else:
-
+                    temp_fit_params = {}
                     X_val = None
 
                 # ----------------------------------------------------------------------------------------------------------------------------
@@ -560,6 +573,8 @@ class RFECV(BaseEstimator, TransformerMixin):
             checked_nfeatures=checked_nfeatures,
             cv_mean_perf=cv_mean_perf,
             cv_std_perf=cv_std_perf,
+            mean_perf_weight=self.mean_perf_weight,
+            std_perf_weight=self.std_perf_weight,
             feature_cost=feature_cost,
             smooth_perf=smooth_perf,
             use_all_fi_runs=use_all_fi_runs,
@@ -579,6 +594,8 @@ class RFECV(BaseEstimator, TransformerMixin):
         checked_nfeatures: np.ndarray,
         cv_mean_perf: np.ndarray,
         cv_std_perf: np.ndarray,
+        mean_perf_weight: float = 1.0,
+        std_perf_weight: float = 0.1,
         feature_cost: float = 0.01 / 100,
         smooth_perf: int = 3,
         use_all_fi_runs: bool = True,
@@ -593,7 +610,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         figsize: tuple = (10, 7),
     ):
 
-        base_perf = np.array(cv_mean_perf) - np.array(cv_std_perf) / 2
+        base_perf = np.array(cv_mean_perf) * mean_perf_weight - np.array(cv_std_perf) * std_perf_weight
         if smooth_perf:
             smoothed_perf = pd.Series(base_perf).rolling(smooth_perf, center=True).mean().values
             idx = np.isnan(smoothed_perf)
@@ -707,6 +724,10 @@ def get_feature_importances(
 
     if isinstance(importance_getter, str):
         res = getattr(model, importance_getter)
+        if importance_getter == "coef_":
+            res = np.abs(res)
+        if res.ndim > 1:
+            res = res.sum(axis=0)
     else:
         res = importance_getter(model=model, data=data, reference_data=reference_data)
 
