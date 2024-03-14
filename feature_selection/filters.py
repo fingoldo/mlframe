@@ -3251,9 +3251,9 @@ class MRMR(BaseEstimator, TransformerMixin):
         # assign extra vars for upcoming vars improving
         # ---------------------------------------------------------------------------------------------------------------
 
-        #self.cached_MIs_ = cached_MIs
-        #self.cached_cond_MIs_ = cached_cond_MIs
-        #self.cached_confident_MIs_ = cached_confident_MIs
+        # self.cached_MIs_ = cached_MIs
+        # self.cached_cond_MIs_ = cached_cond_MIs
+        # self.cached_confident_MIs_ = cached_confident_MIs
 
         # ---------------------------------------------------------------------------------------------------------------
         # Report FS results
