@@ -2714,7 +2714,13 @@ class MRMR(BaseEstimator, TransformerMixin):
         else:
             y_shape = 1
         target_names = [target_prefix + str(i) for i in range(y_shape)]
-        X[target_names] = y.reshape(-1, 1)
+
+        if isinstance(y, np.ndarray):
+            vals = y
+        else:
+            vals = y.values
+
+        X[target_names] = vals.reshape(-1, 1)
 
         # ---------------------------------------------------------------------------------------------------------------
         # Discretize continuous data
@@ -2811,6 +2817,8 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         num_fs_steps = 0
         while True:
+            n_recommended_features = 0
+            times_spent = DefaultDict(float)
             selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe, freqs_y = (
                 screen_predictors(
                     factors_data=data,
@@ -2908,9 +2916,6 @@ class MRMR(BaseEstimator, TransformerMixin):
                             prospective_pairs.append((raw_vars_pair, pair_mi))
                             for var in raw_vars_pair:
                                 vars_usage_counter[var] += 1
-
-            n_recommended_features = 0
-            times_spent = DefaultDict(float)
 
             if fe_smart_polynom_iters:
 
