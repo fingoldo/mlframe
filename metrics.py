@@ -519,8 +519,8 @@ def integral_calibration_error(
 
 
 def sklearn_integral_calibration_error(
-    y_true,
-    y_score,
+    y_true: np.ndarray,
+    y_score: np.ndarray,
     labels=None,
     method: str = "multicrit",
     mae_weight: float = 0.9,
