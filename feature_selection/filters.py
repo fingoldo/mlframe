@@ -2049,6 +2049,7 @@ def postprocess_candidates(
     ensure_target_influence: bool = True,
     dtype=np.int32,
     verbose: bool = True,
+    ndigits:int=4,
 ):
     """Post-analysis of prescreened candidates.
 
