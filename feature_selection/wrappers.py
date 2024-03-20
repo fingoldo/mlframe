@@ -172,6 +172,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         self,
         estimator: BaseEstimator,
         fit_params: dict = {},
+        max_nfeatures: int = None,
         mean_perf_weight: float = 1.0,
         std_perf_weight: float = 0.1,
         feature_cost: float = 0.00 / 100,
@@ -350,7 +351,11 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
             Optimizer = MBHOptimizer(
-                search_space=np.arange(len(original_features) + 1),
+                search_space=(
+                    np.array(np.arange(min(self.max_nfeatures, len(original_features)) + 1).tolist() + [len(original_features)])
+                    if self.max_nfeatures
+                    else np.arange(len(original_features) + 1)
+                ),
                 direction=OptimizationDirection.Maximize,
                 init_sampling_method=CandidateSamplingMethod.Equidistant,
                 init_evaluate_ascending=False,
@@ -520,7 +525,6 @@ class RFECV(BaseEstimator, TransformerMixin):
 
             if max_runtime_mins and not ran_out_of_time:
                 delta = timer() - start_time
-                print(delta, max_runtime_mins * 60)
                 ran_out_of_time = delta > max_runtime_mins * 60
                 if ran_out_of_time:
                     if verbose:
