@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
 from .config import *
 from sklearn.model_selection import TimeSeriesSplit
+from sklearn.pipeline import Pipeline
 
 ########################################################################################################################################################################################################################################
 # Helper functions
@@ -85,3 +86,15 @@ def has_early_stopping_support(model_type: str) -> bool:
         return True
     else:
         return False
+
+
+def get_model_best_iter(model: object) -> int:
+    """Extracts ES best iteration number from a model"""
+    if isinstance(model, Pipeline):
+        real_model = model.steps[-1]
+    else:
+        real_model = model
+
+    for field in "best_iteration best_iteration_".split():
+        if hasattr(real_model, field):
+            return getattr(real_model, field)

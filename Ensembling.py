@@ -147,6 +147,7 @@ def ensemble_probabilistic_predictions(*preds, method="harm", ensure_prob_limits
         if skipped_preds_indices:
             if len(skipped_preds_indices) < l:
                 preds = [el for i, el in enumerate(preds) if i not in skipped_preds_indices]
+                print(f"Using {len(preds)} members of ensemble")
             else:
                 print("ensemble_probabilistic_predictions filters too restrictive, skipping them")
 
