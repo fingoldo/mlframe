@@ -8,6 +8,7 @@ from math import floor
 from scipy.special import expit
 import numpy as np, pandas as pd
 from matplotlib import pyplot as plt
+from sklearn.metrics import log_loss
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
 import plotly.express as px
@@ -275,6 +276,7 @@ def fast_calibration_report(
     show_plots: bool = True,
     show_points_density_in_title: bool = False,
     show_roc_auc_in_title: bool = False,
+    show_logloss_in_title: bool = False,
     show_coverage_in_title: bool = False,
     plot_file: str = "",
     figsize: tuple = (12, 6),
@@ -301,12 +303,14 @@ def fast_calibration_report(
 
     fig = None
     if plot_file or show_plots:
-        plot_title = f"BR={brier_loss*100:.{ndigits}f}% Calibration MAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}%±{calibration_std*100:.{ndigits}f}%"
+        plot_title = f"BR={brier_loss*100:.{ndigits}f}% CMAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}%±{calibration_std*100:.{ndigits}f}%"
 
         if show_coverage_in_title:
             plot_title += f", cov.={calibration_coverage*100:.{int(np.log10(nbins))}f}%"
         if show_roc_auc_in_title:
             plot_title += f", ROC AUC={fast_auc(y_true=y_true, y_score=y_pred):.3f}"
+        if show_logloss_in_title:
+            plot_title += f", LogLoss={log_loss(y_true=y_true, y_pred=y_pred):.3f}"
         if show_points_density_in_title:
             plot_title += f", dens.=[{max_hits:_};{min_hits:_}]"
         if title:
@@ -539,8 +543,14 @@ def sklearn_integral_calibration_error(
         y_score = y_score.values
     if labels is not None and isinstance(labels, (pd.Series, pd.DataFrame)):
         labels = labels.values
+
+    if len(y_score.shape) == 1:
+        y_score = np.vstack([1 - y_score, y_score]).T
+
+    probs = [y_score[:, i] for i in range(y_score.shape[1])]
+
     return compute_integral_calibration_error(
-        probs=[y_score[:, i] for i in range(y_score.shape[1])],
+        probs=probs,
         target=y_true,
         labels=labels,
         method=method,
