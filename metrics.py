@@ -170,11 +170,13 @@ def show_calibration_plot(
     x_min, x_max = np.min(freqs_predicted), np.max(freqs_predicted)
 
     if backend == "matplotlib":
+        cm = plt.cm.get_cmap("RdYlBu")
         fig = plt.figure(figsize=figsize)
-        plt.scatter(x=freqs_predicted, y=freqs_true, marker="o", s=5000 * hits / hits.sum(), c=hits, label=label_freq)
+        sc = plt.scatter(x=freqs_predicted, y=freqs_true, marker="o", s=5000 * hits / hits.sum(), c=hits, label=label_freq, cmap=cm)
         plt.plot([x_min, x_max], [x_min, x_max], "g--", label=label_perfect)
         plt.xlabel(label_prob)
         plt.ylabel(label_freq)
+        plt.colorbar(sc)
         if plot_title:
             plt.title(plot_title)
 
