@@ -19,7 +19,6 @@ while True:
         import copy
 
         import pandas as pd, numpy as np
-        import cupy as cp  # pip install cupy-cuda11x; python -m cupyx.tools.install_library --cuda 11.x --library cutensor
         import os
         import gc
 
@@ -69,7 +68,7 @@ while True:
 
         from pyutilz.pythonlib import ensure_installed
 
-        ensure_installed("numpy pandas cupy-cuda11x scikit-learn")
+        ensure_installed("numpy pandas scikit-learn")  # cupy-cuda11x
 
     else:
         break
@@ -95,42 +94,50 @@ caching_hits_z = 0
 caching_hits_xz = 0
 caching_hits_yz = 0
 
-compute_joint_hist_cuda = cp.RawKernel(
-    r"""
-extern "C" __global__
-void compute_joint_hist_cuda(const int *classes_x, const int *classes_y, int *joint_counts, int n, int nbins_y) {
-    int tid = blockDim.x * blockIdx.x + threadIdx.x;
-    if (tid<n){
-        atomicAdd(&joint_counts[classes_x[tid]*nbins_y+classes_y[tid]],1);
+
+def init_kernels():
+
+    global compute_joint_hist_cuda, compute_mi_from_classes_cuda
+
+    import cupy as cp  # pip install cupy-cuda11x; python -m cupyx.tools.install_library --cuda 11.x --library cutensor
+
+    compute_joint_hist_cuda = cp.RawKernel(
+        r"""
+    extern "C" __global__
+    void compute_joint_hist_cuda(const int *classes_x, const int *classes_y, int *joint_counts, int n, int nbins_y) {
+        int tid = blockDim.x * blockIdx.x + threadIdx.x;
+        if (tid<n){
+            atomicAdd(&joint_counts[classes_x[tid]*nbins_y+classes_y[tid]],1);
+        }
     }
-}
-""",
-    "compute_joint_hist_cuda",
-)
-compute_mi_from_classes_cuda = cp.RawKernel(
-    r"""
-extern "C" __global__
-void compute_mi_from_classes_cuda(const int *classes_x, const double *freqs_x,const int *classes_y, const double *freqs_y, int *joint_counts, double *totals, int n,int nbins_x,int nbins_y) {
-    int tid = blockDim.x * blockIdx.x + threadIdx.x;    
-    if (tid==0){
-        double total = 0.0;
-        for (int i=0;i<nbins_x;++i){
-            float prob_x = freqs_x[i];
-            for (int j=0;j<nbins_y;++j){
-                int jc = joint_counts[i*2+j];
-                if (jc>0){
-                    float prob_y = freqs_y[j];
-                    double jf=(float)jc/ (float)n;
-                    total += jf* log(jf / (prob_x * prob_y));
+    """,
+        "compute_joint_hist_cuda",
+    )
+    compute_mi_from_classes_cuda = cp.RawKernel(
+        r"""
+    extern "C" __global__
+    void compute_mi_from_classes_cuda(const int *classes_x, const double *freqs_x,const int *classes_y, const double *freqs_y, int *joint_counts, double *totals, int n,int nbins_x,int nbins_y) {
+        int tid = blockDim.x * blockIdx.x + threadIdx.x;    
+        if (tid==0){
+            double total = 0.0;
+            for (int i=0;i<nbins_x;++i){
+                float prob_x = freqs_x[i];
+                for (int j=0;j<nbins_y;++j){
+                    int jc = joint_counts[i*2+j];
+                    if (jc>0){
+                        float prob_y = freqs_y[j];
+                        double jf=(float)jc/ (float)n;
+                        total += jf* log(jf / (prob_x * prob_y));
+                    }
                 }
-            }
-        }    
-        totals[0]=total;
+            }    
+            totals[0]=total;
+        }
     }
-}
-""",
-    "compute_mi_from_classes_cuda",
-)
+    """,
+        "compute_mi_from_classes_cuda",
+    )
+
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Old code
@@ -492,7 +499,7 @@ def mi_direct(
     max_failed: int = None,
     min_nonzero_confidence: float = 0.95,
     classes_y: np.ndarray = None,
-    classes_y_safe: cp.ndarray = None,
+    classes_y_safe: ndarray = None,
     freqs_y: np.ndarray = None,
     n_workers: int = 1,
     workers_pool: object = None,
@@ -625,9 +632,9 @@ def mi_direct_gpu(
     max_failed: int = None,
     min_nonzero_confidence: float = 0.95,
     classes_y: np.ndarray = None,
-    classes_y_safe: cp.ndarray = None,
+    classes_y_safe: ndarray = None,
     freqs_y: np.ndarray = None,
-    freqs_y_safe: cp.ndarray = None,
+    freqs_y_safe: ndarray = None,
     use_gpu: bool = True,
 ) -> tuple:
 
@@ -2049,7 +2056,7 @@ def postprocess_candidates(
     ensure_target_influence: bool = True,
     dtype=np.int32,
     verbose: bool = True,
-    ndigits:int=4,
+    ndigits: int = 4,
 ):
     """Post-analysis of prescreened candidates.
 

@@ -44,7 +44,7 @@ while True:
 
         from pyutilz.pythonlib import ensure_installed
 
-        ensure_installed("numpy pandas cupy scikit-learn")
+        ensure_installed("numpy pandas scikit-learn")
 
     else:
         break       

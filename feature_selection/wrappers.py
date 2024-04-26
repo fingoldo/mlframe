@@ -19,7 +19,6 @@ while True:
         from typing import *
 
         import pandas as pd, numpy as np
-        import cupy as cp
 
         from pyutilz.system import tqdmu
         from pyutilz.numbalib import set_numba_random_seed
@@ -63,7 +62,7 @@ while True:
 
         from pyutilz.pythonlib import ensure_installed
 
-        ensure_installed("numpy pandas cupy scikit-learn")
+        ensure_installed("numpy pandas scikit-learn")  # cupy
 
     else:
         break
