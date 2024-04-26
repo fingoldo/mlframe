@@ -18,7 +18,7 @@ from pyutilz.pythonlib import (
     ensure_installed,
 )  # lint: disable=ungrouped-imports,disable=wrong-import-order
 
-# ensure_installed("numpy numba sklearn antropy entropy_estimators")  # npeet?
+ensure_installed("numpy numba sklearn antropy astropy entropy_estimators")  # npeet?
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
