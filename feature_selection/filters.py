@@ -499,7 +499,7 @@ def mi_direct(
     max_failed: int = None,
     min_nonzero_confidence: float = 0.95,
     classes_y: np.ndarray = None,
-    classes_y_safe: ndarray = None,
+    classes_y_safe: np.ndarray = None,
     freqs_y: np.ndarray = None,
     n_workers: int = 1,
     workers_pool: object = None,
@@ -632,9 +632,9 @@ def mi_direct_gpu(
     max_failed: int = None,
     min_nonzero_confidence: float = 0.95,
     classes_y: np.ndarray = None,
-    classes_y_safe: ndarray = None,
+    classes_y_safe: np.ndarray = None,
     freqs_y: np.ndarray = None,
-    freqs_y_safe: ndarray = None,
+    freqs_y_safe: np.ndarray = None,
     use_gpu: bool = True,
 ) -> tuple:
 
