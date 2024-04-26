@@ -47,8 +47,6 @@ while True:
         import random
         import copy
 
-        from votenrank import Leaderboard
-
     except ModuleNotFoundError as e:
 
         logger.warning(e)
@@ -848,6 +846,8 @@ def get_actual_features_ranking(feature_importances: dict, votes_aggregation_met
 
     GM, and esp Minimax & Plurality are suboptimal for FS.
     """
+
+    from votenrank import Leaderboard
 
     lb = Leaderboard(table=pd.DataFrame(feature_importances))
     if votes_aggregation_method == VotesAggregation.Borda:
