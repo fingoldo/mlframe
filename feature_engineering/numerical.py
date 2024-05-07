@@ -27,12 +27,13 @@ ensure_installed("numpy numba sklearn antropy astropy entropy_estimators")  # np
 from typing import *
 
 import numba
-import numpy as np
+import numpy as np, pandas as pd
 from antropy import *
 from astropy.stats import histogram
 from entropy_estimators import continuous
 from sklearn.feature_selection import mutual_info_regression
 from mlframe.feature_engineering.hurst import compute_hurst_exponent
+from pyutilz.parallel import parallel_run
 
 from scipy.stats import entropy, kstest
 from scipy import stats
@@ -625,6 +626,7 @@ def compute_moments_slope_mi(
     weighted_mean_value: float = None,
     xvals: np.ndarray = None,  # empty_float32_array,
     directional_only: bool = False,
+    return_lintrend_approx_stats: bool = True,
 ) -> list:
     """Добавить:
     ? RANSAC-регрессию или что-то подобное, устойчивое к выбросам?
@@ -724,7 +726,8 @@ def compute_moments_slope_mi(
     if np.isclose(slope_under, 0) or np.isnan(slope_under):
         r = 0.0
         slope = np.nan
-        n_slope_crossings = np.nan
+        intercept = np.nan
+        n_lintrend_crossings = np.nan
     else:
         slope = slope_over / slope_under
 
@@ -739,26 +742,33 @@ def compute_moments_slope_mi(
             elif r < -1.0:
                 r = -1.0
 
-        # slope crossings
+        # slope crossings & trend approximation errors
 
         prev_d = None
         intercept = mean_value - slope * xvals_mean
-        n_slope_crossings = 0.0
+        n_lintrend_crossings = 0.0
+
+        if return_lintrend_approx_stats:
+            lintrend_data_diffs = np.empty_like(arr)
+        else:
+            lintrend_data_diffs = None
 
         for i, next_value in enumerate(arr):
             d = next_value - (slope * xvals[i] + intercept)
             if prev_d is not None:
                 if d * prev_d < 0:
-                    n_slope_crossings += 1
+                    n_lintrend_crossings += 1
             prev_d = d
+            if return_lintrend_approx_stats:
+                lintrend_data_diffs[i] = d
 
     res = []
     if not directional_only:
         res.extend((mad, std, skew, kurt))
         if weights is not None:
             res.extend((weighted_mad, weighted_std, weighted_skew, weighted_kurt))
-    res.extend((slope, r, n_mean_crossings, n_slope_crossings))
-    return res
+    res.extend((slope, intercept, r, n_mean_crossings, n_lintrend_crossings))
+    return res, lintrend_data_diffs
 
 
 def compute_mutual_info_regression(arr: np.ndarray, xvals: np.ndarray = np.array([], dtype=np.float32)) -> float:
@@ -826,6 +836,7 @@ def compute_numaggs(
     return_n_zer_pos_int: bool = True,
     return_exotic_means: bool = True,
     return_unsorted_stats: bool = True,
+    return_lintrend_approx_stats: bool = False,
 ):
     """Compute a plethora of numerical aggregates for all values in an array.
     Converts an arbitrarily length array into fixed number of aggregates.
@@ -872,11 +883,16 @@ def compute_numaggs(
             arr=arr, q=q, quantile_method=quantile_method, max_modes=max_modes, return_unsorted_stats=return_unsorted_stats
         )
 
-    res = res + tuple(
-        compute_moments_slope_mi(
-            arr=arr, weights=weights, mean_value=arithmetic_mean, weighted_mean_value=weighted_arithmetic_mean, xvals=xvals, directional_only=directional_only
-        )
+    moments_slope_mi, lintrend_data_diffs = compute_moments_slope_mi(
+        arr=arr,
+        weights=weights,
+        mean_value=arithmetic_mean,
+        weighted_mean_value=weighted_arithmetic_mean,
+        xvals=xvals,
+        directional_only=directional_only,
+        return_lintrend_approx_stats=return_lintrend_approx_stats,
     )
+    res = res + tuple(moments_slope_mi)
 
     if return_hurst:
         res = res + compute_hurst_exponent(arr=arr, **hurst_kwargs)
@@ -885,6 +901,30 @@ def compute_numaggs(
         res = res + compute_entropy_features(arr=arr, sampling_frequency=sampling_frequency, spectral_method=spectral_method)
     if return_distributional:
         res = res + tuple(compute_distributional_features(arr=arr))
+    if return_lintrend_approx_stats:
+        params = dict(
+            weights=weights,
+            geomean_log_mode=geomean_log_mode,
+            q=q,
+            quantile_method=quantile_method,
+            max_modes=max_modes,
+            sampling_frequency=sampling_frequency,
+            spectral_method=spectral_method,
+            hurst_kwargs=hurst_kwargs,
+            directional_only=directional_only,
+            whiten_means=whiten_means,
+            return_distributional=return_distributional,
+            return_entropy=return_entropy,
+            return_hurst=return_hurst,
+            return_float32=False,
+            return_profit_factor=False,
+            return_drawdown_stats=False,
+            return_n_zer_pos_int=return_n_zer_pos_int,
+            return_exotic_means=return_exotic_means,
+            return_unsorted_stats=return_unsorted_stats,
+            return_lintrend_approx_stats=False,
+        )
+        res = res + tuple(compute_numaggs(arr=lintrend_data_diffs, xvals=xvals, **params))
 
     if return_float32:
         return np.array(res, dtype=np.float32)
@@ -905,9 +945,10 @@ def get_numaggs_names(
     return_n_zer_pos_int: bool = True,
     return_exotic_means: bool = True,
     return_unsorted_stats: bool = True,
+    return_lintrend_approx_stats: bool = False,
     **kwargs
 ) -> tuple:
-    return tuple(
+    res = tuple(
         (
             ["arimean", "ratio"]
             if directional_only
@@ -924,19 +965,68 @@ def get_numaggs_names(
         + ([] if (directional_only or not return_unsorted_stats) else "nuniques,modmin,modmax,modmean,modqty".split(","))
         + ([] if directional_only else (["q" + str(q) for q in q]))
         + ([] if not return_unsorted_stats else ["ncrs" + str(q) for q in q])
-        + get_moments_slope_mi_feature_names(weights=weights, directional_only=directional_only)
+        + get_moments_slope_mi_feature_names(weights=weights, directional_only=directional_only, return_lintrend_approx_stats=return_lintrend_approx_stats)
         # + ["mutual_info_regression",]
         + (["hursth", "hurstc"] if return_hurst else [])
         + ([] if (directional_only or not return_entropy) else entropy_funcs_names)
         + (distributions_features_names if return_distributional else [])
     )
 
+    if return_lintrend_approx_stats:
+        params = dict(
+            weights=weights,
+            q=q,
+            directional_only=directional_only,
+            whiten_means=whiten_means,
+            return_distributional=return_distributional,
+            return_entropy=return_entropy,
+            return_hurst=return_hurst,
+            return_float32=False,
+            return_profit_factor=False,
+            return_drawdown_stats=False,
+            return_n_zer_pos_int=return_n_zer_pos_int,
+            return_exotic_means=return_exotic_means,
+            return_unsorted_stats=return_unsorted_stats,
+            return_lintrend_approx_stats=False,
+        )
+        res += tuple(["ltrappr_" + el for el in get_numaggs_names(**params)])
+    return res
 
-def get_moments_slope_mi_feature_names(weights: np.ndarray = None, directional_only: bool = False):
+
+def get_moments_slope_mi_feature_names(weights: np.ndarray = None, directional_only: bool = False, return_lintrend_approx_stats: bool = True):
     res = []
     if not directional_only:
         res.extend("mad,std,skew,kurt".split(","))
         if weights is not None:
             res.extend("wmad,wstd,wskew,wkurt".split(","))
-    res.extend("slope,r,meancross,slopecross".split(","))
+    res.extend("slope,intercept,r,meancross,trendcross".split(","))
+    return res
+
+
+def numaggs_over_matrix(vals: np.ndarray, numagg_params: dict, dtype=np.float32) -> np.ndarray:
+    """Computes numaggs on a 2d matrix"""
+    feature_names = get_numaggs_names(**numagg_params)
+
+    res = np.empty(shape=(len(vals), len(feature_names)), dtype=dtype)
+
+    for i in range(vals.shape[0]):
+        res[i, :] = compute_numaggs(vals[i, :], **numagg_params)
+    return res
+
+
+def numaggs_over_df_columns_parallel(
+    df: pd.DataFrame, cols: Sequence, numagg_params: dict, dtype=np.float32, n_jobs=-1, prefetch_factor: int = 2, **parallel_kwargs
+) -> np.ndarray:
+    """Computes numaggs over columns of a dataframe, in parallel fashion.
+    Example of parallel_kwargs: numaggs_over_df_columns_parallel(df=X, cols=cols, temp_folder=r'R:\Temp')
+    """
+
+    res = parallel_run(
+        [delayed(numaggs_over_matrix)(vals=chunk, numagg_params=numagg_params) for chunk in np.array_split(df.loc[:, cols].values, n_jobs * prefetch_factor)],
+        max_nbytes=0,
+        n_jobs=n_jobs,
+        **parallel_kwargs
+    )
+    res = np.vstack(res)
+
     return res
