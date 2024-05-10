@@ -9,6 +9,7 @@ from typing import *
 import torch
 import pandas as pd, numpy as np
 from lightning import LightningDataModule
+from lightning.pytorch.tuner import Tuner
 from lightning.pytorch.callbacks import Callback
 from torch.utils.data import DataLoader, Dataset
 
@@ -77,6 +78,29 @@ class PytorchLightningEstimator(BaseEstimator):
                 self.model = self.model(num_features=X.shape[1], learning_rate=self.args.lr, args=self.args)
 
             self.model.example_input_array = torch.tensor(X.iloc[0:2, :].values, dtype=torch.float32)
+
+        if self.tune_params:
+            tuner = Tuner(self.trainer)
+
+            # Auto-scale batch size with binary search
+            if False:
+                tuner.scale_batch_size(
+                    model=self.model, datamodule=dm, mode="binsearch", init_val=self.args.batch_size
+                )  # dm has to have in __init__ & persist the batch_size parameter. scale_batch_size sets it.
+
+            # Run learning rate finder
+            lr_finder = tuner.lr_find(self.model, datamodule=dm)
+
+            # Results can be found in
+            print(lr_finder.results)
+
+            # Plot with
+            fig = lr_finder.plot(suggest=True)
+            fig.show()
+
+            new_lr = lr_finder.suggestion()
+            logger.info(f"Using suggested LR={new_lr}")
+            self.model.model.learning_rate = new_lr
 
         self.trainer.fit(model=self.model, datamodule=dm)
 
