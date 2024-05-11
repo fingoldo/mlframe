@@ -73,7 +73,9 @@ class PytorchLightningEstimator(BaseEstimator):
         # For faster initialization, you can create model parameters with the desired dtype directly on the device:
         with self.trainer.init_module():
             if isinstance(self, ClassifierMixin):
-                self.model = self.model(num_features=X.shape[1], num_classes=len(self.classes_), learning_rate=self.args.lr, args=self.args)
+                self.model = self.model(
+                    num_features=X.shape[1], num_classes=len(self.classes_), learning_rate=self.args.lr, dropout_prob=self.args.dropout_prob, args=self.args
+                )
             else:
                 self.model = self.model(num_features=X.shape[1], learning_rate=self.args.lr, args=self.args)
 
@@ -91,8 +93,7 @@ class PytorchLightningEstimator(BaseEstimator):
             # Run learning rate finder
             lr_finder = tuner.lr_find(self.model, datamodule=dm)
 
-            # Results can be found in
-            print(lr_finder.results)
+            # Results can be found in lr_finder.results
 
             # Plot with
             fig = lr_finder.plot(suggest=True)
@@ -100,6 +101,7 @@ class PytorchLightningEstimator(BaseEstimator):
 
             new_lr = lr_finder.suggestion()
             logger.info(f"Using suggested LR={new_lr}")
+            self.model.hparams.learning_rate = new_lr
             self.model.model.learning_rate = new_lr
 
         self.trainer.fit(model=self.model, datamodule=dm)
@@ -288,14 +290,14 @@ class AggregatingValidationCallback(Callback):
         self.batched_predictions = []
         self.batched_labels = []
 
-    def on_validation_batch_end(self, trainer, pl_module, outputs):
+    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
         predictions, labels = outputs
-        self.batched_predictions.append(predictions)
         self.batched_labels.append(labels)
+        self.batched_predictions.append(predictions)
 
     def on_validation_epoch_end(self, trainer, pl_module):
-        predictions = torch.concat(self.batched_predictions)
-        labels = torch.concat(self.batched_labels)
+        labels = torch.concat(self.batched_labels).detach().cpu().numpy()
+        predictions = torch.concat(self.batched_predictions).detach().cpu().numpy()
 
-        metric_value = self.metric_fcn(predictions, labels)
-        pl_module.log("val_" + self.metric_name, metric_value, on_epoch=self.on_epoch, on_step=self.on_step, prog_bar=True)
+        metric_value = self.metric_fcn(y_true=labels, y_score=predictions)
+        pl_module.log(name="val_" + self.metric_name, value=metric_value, on_epoch=self.on_epoch, on_step=self.on_step, prog_bar=True)
