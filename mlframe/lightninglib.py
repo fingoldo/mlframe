@@ -112,7 +112,7 @@ class PytorchLightningEstimator(BaseEstimator):
         if isinstance(X, (pd.DataFrame, pd.Series)):
             X = X.to_numpy()
         X = torch.tensor(X, dtype=self.features_dtype, device=self.model.device)
-        self.model = self.model.eval()
+        self.model.eval()
         res = self.model(X)
         return res.detach().cpu().numpy()
 
