@@ -5,6 +5,7 @@ THOUSANDS_SEPARATOR = "_"
 
 
 KERAS_MODEL_TYPES = ("Sequential",)
+PYTORCH_MODEL_TYPES = ("PytorchLightningEstimator", "PytorchLightningRegressor", "PytorchLightningEstimator")
 CATBOOST_MODEL_TYPES = ("CatBoostClassifier", "CatBoostRegressor")
 XGBOOST_MODEL_TYPES = ("XGBClassifier", "XGBRegressor")
 LGBM_MODEL_TYPES = ("LGBMClassifier", "LGBMRegressor")
@@ -28,6 +29,8 @@ class CategoricalsHandling(Enum):
     CE = auto()
     # NativeOrSklearn = auto()  # CE cat columns if no native possible
     # Sklearn = auto()
+
+
 """            # native=
             # 1) xgboost native: dtypes are changed to categorical
             # 2) catboost native: extra params passed to the fit or model init methods (cat_features= can also be text_features/embedding_features);
@@ -36,7 +39,7 @@ class CategoricalsHandling(Enum):
             #        and
             #     CategoryEncoding (known # of unique values) or IntegerLookup (infinite # of unique values) for numeric dtypes
             #        (maps string to onehot, multihot,count,tfidf) + .adapt for the layer on the train set
-            #     followed by Embedding (accepts only positive integers of a fixed range, that's why prev 2 are needed)"""    
+            #     followed by Embedding (accepts only positive integers of a fixed range, that's why prev 2 are needed)"""
 
 
 class MissingHandling(Enum):
@@ -98,4 +101,3 @@ class ClassWeights(Enum):  # CW
     No = auto()
     NativeOrNo = auto()
     NativeOrWrapper = auto()
-    

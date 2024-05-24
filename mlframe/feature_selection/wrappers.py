@@ -31,7 +31,7 @@ while True:
         from mlframe.baselines import get_best_dummy_score
         from mlframe.helpers import has_early_stopping_support
         from mlframe.preprocessing import pack_val_set_into_fit_params
-        from mlframe.metrics import sklearn_integral_calibration_error
+        from mlframe.metrics import compute_probabilistic_multiclass_error
         from mlframe.optimization import *
 
         from sklearn.dummy import DummyClassifier, DummyRegressor
@@ -307,7 +307,9 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         if verbose:
             iters_pbar = tqdmu(
-                desc="RFECV iterations", leave=leave_progressbars, total=min(len(original_features), max_refits) if max_refits else len(original_features)
+                desc="RFECV iterations",
+                leave=leave_progressbars,
+                total=min(len(original_features) + 1, max_refits) if max_refits else len(original_features) + 1,
             )
 
         # ----------------------------------------------------------------------------------------------------------------------------
@@ -316,7 +318,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         if scoring is None:
             if is_classifier(estimator):
-                scoring = make_scorer(score_func=sklearn_integral_calibration_error, needs_proba=True, needs_threshold=False, greater_is_better=False)
+                scoring = make_scorer(score_func=compute_probabilistic_multiclass_error, needs_proba=True, needs_threshold=False, greater_is_better=False)
             elif is_regressor(estimator):
                 scoring = make_scorer(score_func=mean_squared_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
             else:

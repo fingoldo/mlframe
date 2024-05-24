@@ -1,4 +1,12 @@
 # ----------------------------------------------------------------------------------------------------------------------------
+# LOGGING
+# ----------------------------------------------------------------------------------------------------------------------------
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+# ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
@@ -344,6 +352,106 @@ def predictions_time_instability(preds: pd.Series) -> float:
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
+def compute_probabilistic_multiclass_error(
+    y_true: Union[pd.Series, pd.DataFrame, np.ndarray],
+    y_score: Union[pd.Series, pd.DataFrame, np.ndarray, Sequence],
+    labels: np.ndarray = None,
+    method: str = "multicrit",
+    mae_weight: float = 0.9,
+    std_weight: float = 0.9,
+    brier_loss_weight: float = 0.5,
+    roc_auc_weight: float = 0.5,
+    min_roc_auc: float = 0.5,
+    roc_auc_penalty: float = 0.2,
+    use_weighted_calibration: bool = True,
+    weight_by_class_npositives: bool = False,
+    verbose: bool = False,
+    ndigits: int = 4,
+):
+    """Given a sequence of per-class probabilities (predicted by some model), and ground truth targets,
+    computes weighted sum of per-class errors.
+    Supports several error estimation methods: "multicrit", "brier_score", "precision".
+    If number of classes is only 2, skips class 0 as it's fully complementary to class 1.
+    """
+
+    assert method in ("multicrit", "brier_score", "precision")
+
+    if isinstance(y_true, (pd.Series, pd.DataFrame)):
+        y_true = y_true.values
+    if isinstance(y_score, (pd.Series, pd.DataFrame)):
+        y_score = y_score.values
+    if labels is not None and isinstance(labels, (pd.Series, pd.DataFrame)):
+        labels = labels.values
+
+    if isinstance(y_score, Sequence):
+        probs = y_score
+    else:
+        if len(y_score.shape) == 1:
+            y_score = np.vstack([1 - y_score, y_score]).T
+        probs = [y_score[:, i] for i in range(y_score.shape[1])]
+
+    total_error = 0.0
+    weights_sum = 0
+
+    for class_id in range(len(probs)):
+
+        if len(probs) == 2 and class_id == 0:
+            continue
+
+        y_pred = probs[class_id]
+        if labels is not None:
+            correct_class = (y_true == labels[class_id]).astype(np.int8)
+        else:
+            correct_class = (y_true == class_id).astype(np.int8)
+
+        if method == "multicrit":
+            calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(
+                y_true=correct_class, y_pred=y_pred, use_weights=use_weighted_calibration
+            )
+            brier_loss = brier_score_loss(y_true=correct_class, y_prob=y_pred)
+
+            desc_score_indices = np.argsort(y_pred)[::-1]
+            roc_auc = fast_numba_auc_nonw(y_true=correct_class, y_score=y_pred, desc_score_indices=desc_score_indices)
+
+            if verbose:
+                print(
+                    f"\t class_id={class_id}, BR={brier_loss:.{ndigits}f}, calibration_mae={calibration_mae:.{ndigits}f} ± {calibration_std:.{ndigits}f}, roc_auc={roc_auc:.{ndigits}f}"
+                )
+
+            class_error = integral_calibration_error_from_metrics(
+                calibration_mae=calibration_mae,
+                calibration_std=calibration_std,
+                calibration_coverage=calibration_coverage,
+                brier_loss=brier_loss,
+                roc_auc=roc_auc,
+                mae_weight=mae_weight,
+                std_weight=std_weight,
+                brier_loss_weight=brier_loss_weight,
+                roc_auc_weight=roc_auc_weight,
+                min_roc_auc=min_roc_auc,
+                roc_auc_penalty=roc_auc_penalty,
+            )
+        elif method == "brier_score":
+            class_error = brier_score_loss(y_true=correct_class, y_prob=y_pred)
+        elif method == "precision":
+            class_error = fast_precision(y_true=correct_class, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0)
+
+        if weight_by_class_npositives:
+            weight = correct_class.sum()
+        else:
+            weight = 1
+
+        total_error += class_error * weight
+        weights_sum += weight
+
+    total_error /= weights_sum
+
+    if verbose:
+        print(f"method={method}, size={len(correct_class):_} total_error={total_error:.{ndigits}f}")
+
+    return total_error
+
+
 class CB_INTEGRAL_CALIB_ERROR:
     """Custom probabilistic prediction error metric balancing predictive power with calibration.
     Can regularly create a calibration plot.
@@ -366,23 +474,23 @@ class CB_INTEGRAL_CALIB_ERROR:
         assert method in ("multicrit", "precision", "brier_score")
 
         # save params
-        params = get_parent_func_args()
-        store_params_in_object(obj=self, params=params)
+        store_params_in_object(obj=self, params=get_parent_func_args())
 
         self.nruns = 0
 
     def is_max_optimal(self):
-        return False  # greater is better?
+        return self.method in ("precision")  # is greater better?
 
     def evaluate(self, approxes, target, weight):
         output_weight = 1  # weight is not used
 
+        # For catboost, approxes are logits and need to be converted to true probs first (softmax-ed).
         if len(approxes) == 1:
             y_pred = expit(approxes[0])
             probs = [1 - y_pred, y_pred]
             class_id = 1
         else:
-
+            # For num_classes>1, it requires per-class exponentiation & normalizing by the sum of exp values.
             probs = []
             tot_sum = np.zeros_like(approxes[0])
             for class_id in range(len(approxes)):
@@ -392,9 +500,9 @@ class CB_INTEGRAL_CALIB_ERROR:
             for class_id in range(len(approxes)):
                 probs[class_id] /= tot_sum
 
-        total_error = compute_integral_calibration_error(
-            probs=probs,
-            target=target,
+        total_error = compute_probabilistic_multiclass_error(
+            y_true=target,
+            y_score=probs,
             method=self.method,
             mae_weight=self.mae_weight,
             std_weight=self.std_weight,
@@ -407,6 +515,8 @@ class CB_INTEGRAL_CALIB_ERROR:
         )
 
         self.nruns += 1
+
+        # Additional visualization of training process (for the last class_id) is possible.
 
         if self.calibration_plot_period and (self.nruns % self.calibration_plot_period == 0):
             y_true = (target == class_id).astype(np.int8)
@@ -425,86 +535,8 @@ class CB_INTEGRAL_CALIB_ERROR:
         return error
 
 
-def compute_integral_calibration_error(
-    probs: Sequence,
-    target,
-    labels=None,
-    method: str = "multicrit",
-    mae_weight: float = 0.9,
-    std_weight: float = 0.9,
-    brier_loss_weight: float = 0.5,
-    roc_auc_weight: float = 0.5,
-    min_roc_auc: float = 0.5,
-    roc_auc_penalty: float = 0.2,
-    use_weighted_calibration: bool = True,
-    weight_by_class_npositives: bool = False,
-    verbose: bool = False,
-    ndigits: int = 4,
-):
-    total_error = 0.0
-    weights_sum = 0
-
-    for class_id in range(len(probs)):
-
-        if len(probs) == 2 and class_id == 0:
-            continue
-
-        y_pred = probs[class_id]
-        if labels is not None:
-            y_true = (target == labels[class_id]).astype(np.int8)
-        else:
-            y_true = (target == class_id).astype(np.int8)
-
-        if method == "multicrit":
-            calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(
-                y_true=y_true, y_pred=y_pred, use_weights=use_weighted_calibration
-            )
-            brier_loss = brier_score_loss(y_true=y_true, y_prob=y_pred)
-
-            desc_score_indices = np.argsort(y_pred)[::-1]
-            roc_auc = fast_numba_auc_nonw(y_true=y_true, y_score=y_pred, desc_score_indices=desc_score_indices)
-
-            if verbose:
-                print(
-                    f"\t class_id={class_id}, BR={brier_loss:.{ndigits}f}, calibration_mae={calibration_mae:.{ndigits}f} ± {calibration_std:.{ndigits}f}, roc_auc={roc_auc:.{ndigits}f}"
-                )
-
-            multicrit_class_error = integral_calibration_error(
-                calibration_mae=calibration_mae,
-                calibration_std=calibration_std,
-                calibration_coverage=calibration_coverage,
-                brier_loss=brier_loss,
-                roc_auc=roc_auc,
-                mae_weight=mae_weight,
-                std_weight=std_weight,
-                brier_loss_weight=brier_loss_weight,
-                roc_auc_weight=roc_auc_weight,
-                min_roc_auc=min_roc_auc,
-                roc_auc_penalty=roc_auc_penalty,
-            )
-        elif method == "brier_score":
-            multicrit_class_error = brier_score_loss(y_true=y_true, y_prob=y_pred)
-        elif method == "precision":
-            multicrit_class_error = fast_precision(y_true=y_true, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0)
-
-        if weight_by_class_npositives:
-            weight = y_true.sum()
-        else:
-            weight = 1
-
-        total_error += multicrit_class_error * weight
-        weights_sum += weight
-
-    total_error /= weights_sum
-
-    if verbose:
-        print(f"method={method}, size={len(y_true):_} total_error={total_error:.{ndigits}f}")
-
-    return total_error
-
-
 @njit()
-def integral_calibration_error(
+def integral_calibration_error_from_metrics(
     calibration_mae: float,
     calibration_std: float,
     calibration_coverage: float,
@@ -517,65 +549,24 @@ def integral_calibration_error(
     min_roc_auc: float = 0.5,
     roc_auc_penalty: float = 0.2,
 ) -> float:
-    """Integral calibration error."""
+    """Compute Integral Calibration Error (ICE) from base ML metrics.
+    ICE is a weighted sum of baseline losses-"roc_auc goodness over 0.5".
+    If roc_auc is not good enough, it incurs additional penalty.
+    """
     res = brier_loss * brier_loss_weight + calibration_mae * mae_weight + calibration_std * std_weight - np.abs(roc_auc - 0.5) * roc_auc_weight
     if roc_auc < min_roc_auc:
         res += roc_auc_penalty
     return res
 
 
-def sklearn_integral_calibration_error(
-    y_true: np.ndarray,
-    y_score: np.ndarray,
-    labels=None,
-    method: str = "multicrit",
-    mae_weight: float = 0.9,
-    std_weight: float = 0.9,
-    brier_loss_weight: float = 0.5,
-    roc_auc_weight: float = 0.5,
-    min_roc_auc: float = 0.5,
-    roc_auc_penalty: float = 0.2,
-    use_weighted_calibration: bool = True,
-    weight_by_class_npositives: bool = False,
-    verbose: bool = False,
-):
-    if isinstance(y_true, (pd.Series, pd.DataFrame)):
-        y_true = y_true.values
-    if isinstance(y_score, (pd.Series, pd.DataFrame)):
-        y_score = y_score.values
-    if labels is not None and isinstance(labels, (pd.Series, pd.DataFrame)):
-        labels = labels.values
-
-    if len(y_score.shape) == 1:
-        y_score = np.vstack([1 - y_score, y_score]).T
-
-    probs = [y_score[:, i] for i in range(y_score.shape[1])]
-
-    return compute_integral_calibration_error(
-        probs=probs,
-        target=y_true,
-        labels=labels,
-        method=method,
-        mae_weight=mae_weight,
-        std_weight=std_weight,
-        brier_loss_weight=brier_loss_weight,
-        roc_auc_weight=roc_auc_weight,
-        min_roc_auc=min_roc_auc,
-        roc_auc_penalty=roc_auc_penalty,
-        use_weighted_calibration=use_weighted_calibration,
-        weight_by_class_npositives=weight_by_class_npositives,
-        verbose=verbose,
-    )
-
-
 def integral_calibration_error_xgboost(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred)
-    return integral_calibration_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage)
+    return integral_calibration_error_from_metrics(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage)
 
 
 def integral_calibration_error_keras(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true.numpy()[:, -1], y_pred=y_pred.numpy()[:, -1])
-    return integral_calibration_error(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage)
+    return integral_calibration_error_from_metrics(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage)
 
 
 @njit()
@@ -601,3 +592,69 @@ def probability_separation_score(y_true: np.ndarray, y_prob: np.ndarray, class_l
             else:
                 res = res + addend
     return res
+
+
+def create_fairness_subgroupings(
+    df: pd.DataFrame,
+    features: Sequence[str],
+    cont_nbins: int = 3,
+    min_pop_cat_thresh: Union[float, int] = 1000,
+    merge_lowpop_cats: bool = True,
+    exclude_terminal_lowpop_cats: bool = True,
+) -> dict:
+    """Subrouping defines a way of splitting an ndarray into subgroups, for which ML metrics should be calculated separately.
+    When we care about not just overall performance on the entire dataset, but also want it to be consistent & fair across subgroups of our observations.
+    Subgroups can mean different geograpgical regions, types of clients, types of situations etc, among which we want our performance to be smooth & equal.
+    They can simply mean time (say, we want our model to perform equally well on the entire timespan, not just on previous year).
+
+    For categorical variables, natural bin is each category's name.
+    If some bins are low-populated (<min_pop_cat_thresh of entire dataset or abs), it's better to join them into a single 'rarevals' bin.
+    Subgroups can have different weights (by default equal).
+
+    How is ML metric altered when subgroups are taken into account? From/to the original ML metric on entire dataset, weighted sum of its stdevs over
+    subgroups is deducted/added, depending on greater_is_better flag of the metric. Ideally fair model will have zero stdevs & therefore will be unaffected.
+
+    Final ML report:
+    subgroup name, nbins, metric stdev, nbad outliers, ngood outliers, best/worst bins names & perf."""
+
+    if isinstance(min_pop_cat_thresh, float):
+        assert min_pop_cat_thresh > 0 and min_pop_cat_thresh < 1.0
+        min_pop_cat_thresh = int(len(df) * min_pop_cat_thresh)  # convert to abs value
+    elif isinstance(min_pop_cat_thresh, int):
+        assert min_pop_cat_thresh > 0 and min_pop_cat_thresh <= len(df) // 2
+
+    subgroupings = {}
+    for feature_name in features:
+
+        feature_vals = df[feature_name]
+        val_cnts = feature_vals.value_counts()
+
+        if feature_vals.dtype.name not in ("category", "object", "date", "datetime"):
+            if len(val_cnts) > cont_nbins:
+                feature_vals = pd.qcut(feature_vals, q=cont_nbins, labels=False)  # use qcut for equipopulated binning
+                val_cnts = feature_vals.value_counts()  # this needs recalculation now
+
+        # use categories as natural bins. ensure that low-populated cats are merged if possible (merge_lowpop_cats)
+        # or excluded (exclude_terminal_lowpop_cats).
+
+        rarecats = val_cnts[val_cnts < min_pop_cat_thresh]
+        if len(rarecats) > 0:
+            cats = rarecats.index.values.tolist()
+            if rarecats.sum() >= min_pop_cat_thresh:
+                # merging is possible
+                feature_vals = feature_vals.copy().replace({cat: cats[0] for cat in cats[1:]})
+                val_cnts = feature_vals.value_counts()  # this needs recalculation now
+                cats_to_use = val_cnts.index.values.tolist()
+                logger.info(f"For feature {feature_name}, had to merge {len(cats):_} bins {','.join(map(str,cats))}, {rarecats.sum():_} records.")
+            else:
+                cats_to_use = val_cnts[val_cnts >= min_pop_cat_thresh].index.values.tolist()
+                logger.info(f"For feature {feature_name}, had to exclude {len(cats):_} bins {','.join(map(str,cats))}, {rarecats.sum():_} records.")
+        else:
+            cats_to_use = val_cnts.index.values.tolist()
+
+        if len(cats_to_use) > 1:
+            subgroupings[feature_name] = dict(bins=feature_vals.values, bins_names=cats_to_use)
+        else:
+            logger.warning(f"Feature {feature_name} can't particiate in subgrouping: it has only one bin.")
+
+    return subgroupings

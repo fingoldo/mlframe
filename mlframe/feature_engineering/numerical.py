@@ -34,6 +34,8 @@ from entropy_estimators import continuous
 from sklearn.feature_selection import mutual_info_regression
 from mlframe.feature_engineering.hurst import compute_hurst_exponent
 from pyutilz.parallel import parallel_run
+import psutil
+from joblib import delayed
 
 from scipy.stats import entropy, kstest
 from scipy import stats
@@ -1020,6 +1022,8 @@ def numaggs_over_df_columns_parallel(
     """Computes numaggs over columns of a dataframe, in parallel fashion.
     Example of parallel_kwargs: numaggs_over_df_columns_parallel(df=X, cols=cols, temp_folder=r'R:\Temp')
     """
+    if n_jobs == -1:
+        n_jobs = psutil.cpu_count(logical=False)
 
     res = parallel_run(
         [delayed(numaggs_over_matrix)(vals=chunk, numagg_params=numagg_params) for chunk in np.array_split(df.loc[:, cols].values, n_jobs * prefetch_factor)],

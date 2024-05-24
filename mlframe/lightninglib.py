@@ -37,15 +37,16 @@ class PytorchLightningEstimator(BaseEstimator):
     def __init__(
         self,
         model: object,
+        network: object,
         datamodule: object,
         trainer: object,
         args: object,
+        loss_fn: Callable,
         features_dtype: object = torch.float32,
         labels_dtype: object = torch.int64,
         tune_params: bool = True,
     ):
-        params = get_parent_func_args()
-        store_params_in_object(obj=self, params=params)
+        store_params_in_object(obj=self, params=get_parent_func_args())
 
     def fit(self, X, y, **fit_params):
 
@@ -65,19 +66,17 @@ class PytorchLightningEstimator(BaseEstimator):
         )
 
         if isinstance(self, ClassifierMixin):
+            return_proba = True
             if isinstance(y, pd.Series):
                 self.classes_ = sorted(y.unique())
             else:
                 self.classes_ = sorted(np.unique(y))
+        else:
+            return_proba = False
 
         # For faster initialization, you can create model parameters with the desired dtype directly on the device:
         with self.trainer.init_module():
-            if isinstance(self, ClassifierMixin):
-                self.model = self.model(
-                    num_features=X.shape[1], num_classes=len(self.classes_), learning_rate=self.args.lr, dropout_prob=self.args.dropout_prob, args=self.args
-                )
-            else:
-                self.model = self.model(num_features=X.shape[1], learning_rate=self.args.lr, args=self.args)
+            self.model = self.model(model=self.network, loss_fn=self.loss_fn, learning_rate=self.args.lr, args=self.args, return_proba=return_proba)
 
             self.model.example_input_array = torch.tensor(X.iloc[0:2, :].values, dtype=torch.float32)
 
@@ -124,6 +123,36 @@ class PytorchLightningRegressor(PytorchLightningEstimator, RegressorMixin):
 class PytorchLightningClassifier(PytorchLightningEstimator, ClassifierMixin):
     def predict_proba(self, X):
         return self.predict(X)
+
+
+class IdentityEstimator(BaseEstimator):
+    """Just returns the 1st feature as-is instead of real learning & predicting."""
+
+    def fit(self, X, y, **fit_params):
+        if isinstance(self, ClassifierMixin):
+            if isinstance(y, pd.Series):
+                self.classes_ = sorted(y.unique())
+            else:
+                self.classes_ = sorted(np.unique(y))
+        return self
+
+    def predict(self, X):
+        if isinstance(X, (pd.DataFrame, pd.Series)):
+            X = X.to_numpy()
+        return X[:, 0]
+
+
+class IdentityRegressor(IdentityEstimator, RegressorMixin):
+    pass
+
+
+class IdentityClassifier(IdentityEstimator, ClassifierMixin):
+    def predict_proba(self, X):
+        last_class_probs = self.predict(X)
+        if len(self.classes_) == 2:
+            return np.vstack([1 - last_class_probs, last_class_probs]).T
+        else:
+            return last_class_probs
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -284,9 +313,13 @@ class NetworkGraphLoggingCallback(Callback):
 
 
 class AggregatingValidationCallback(Callback):
+
     def __init__(self, metric_name: str, metric_fcn: object, on_epoch: bool = True, on_step: bool = False, prog_bar: bool = True):
         params = get_parent_func_args()
         store_params_in_object(obj=self, params=params)
+        self.init_accumulators()
+
+    def init_accumulators(self):
         self.batched_predictions = []
         self.batched_labels = []
 
@@ -298,6 +331,6 @@ class AggregatingValidationCallback(Callback):
     def on_validation_epoch_end(self, trainer, pl_module):
         labels = torch.concat(self.batched_labels).detach().cpu().numpy()
         predictions = torch.concat(self.batched_predictions).detach().cpu().numpy()
-
         metric_value = self.metric_fcn(y_true=labels, y_score=predictions)
         pl_module.log(name="val_" + self.metric_name, value=metric_value, on_epoch=self.on_epoch, on_step=self.on_step, prog_bar=True)
+        self.init_accumulators()

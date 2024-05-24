@@ -120,7 +120,7 @@ def enrich_ensemble_preds_with_numaggs(
 def ensemble_probabilistic_predictions(*preds, method="harm", ensure_prob_limits: bool = True, max_mae: float = 0.04, max_std: float = 0.06):
     """Ensembles probabilistic predictions. All elements of the preds tuple must have the same shape."""
 
-    assert method in ("harm", "arithm", "median")
+    assert method in ("harm", "arithm", "median", "quad", "qube", "geo")
 
     if len(preds) > 2:
 
@@ -145,11 +145,11 @@ def ensemble_probabilistic_predictions(*preds, method="harm", ensure_prob_limits
                 print(f"ens member {i} excluded due to high distance from the median, mae={tot_mae:4f}, std={tot_std:4f}")
                 skipped_preds_indices.add(i)
         if skipped_preds_indices:
-            if len(skipped_preds_indices) < l:
+            if len(skipped_preds_indices) < len(preds):
                 preds = [el for i, el in enumerate(preds) if i not in skipped_preds_indices]
                 print(f"Using {len(preds)} members of ensemble")
             else:
-                print("ensemble_probabilistic_predictions filters too restrictive, skipping them")
+                print(f"ensemble_probabilistic_predictions filters too restrictive ({len(skipped_preds_indices)} vs {l}), skipping them")
 
     if method == "harm":
         avg = 1 / np.mean(np.array([1 / pred for pred in preds]), axis=0)
@@ -157,6 +157,12 @@ def ensemble_probabilistic_predictions(*preds, method="harm", ensure_prob_limits
         avg = np.mean(np.array(preds), axis=0)
     elif method == "median":
         avg = np.quantile(np.array(preds), 0.5, axis=0)
+    elif method == "quad":
+        avg = np.sqrt(np.mean(np.array([pred**2 for pred in preds]), axis=0))
+    elif method == "qube":
+        avg = np.power(np.mean(np.array([pred**3 for pred in preds]), axis=0), 1 / 3)
+    elif method == "geo":
+        avg = np.power(np.prod(preds, axis=0), 1 / len(preds))
 
     if ensure_prob_limits:
         # if avg.min() < 0 or avg.max() > 1.0:
