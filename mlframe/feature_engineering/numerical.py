@@ -793,8 +793,8 @@ def compute_entropy_features(arr: np.ndarray, sampling_frequency: int = 100, spe
     if nonzero < 10:
         return (0.0,) * len(entropy_funcs)
     else:
-        # safe_arr = arr[~np.isnan(arr)]
-        return tuple(np.nan_to_num([f(arr) for f in entropy_funcs], posinf=0, neginf=0))
+        safe_arr = arr[~np.isnan(arr)]
+        return tuple(np.nan_to_num([f(safe_arr) for f in entropy_funcs], posinf=0, neginf=0))
 
 
 def fit_distribution(dist: object, data: np.ndarray, method: str = "mle"):
@@ -1005,7 +1005,7 @@ def get_moments_slope_mi_feature_names(weights: np.ndarray = None, directional_o
     return res
 
 
-def numaggs_over_matrix(vals: np.ndarray, numagg_params: dict, dtype=np.float32) -> np.ndarray:
+def numaggs_over_matrix_rows(vals: np.ndarray, numagg_params: dict, dtype=np.float32) -> np.ndarray:
     """Computes numaggs on a 2d matrix"""
     feature_names = get_numaggs_names(**numagg_params)
 
@@ -1016,8 +1016,15 @@ def numaggs_over_matrix(vals: np.ndarray, numagg_params: dict, dtype=np.float32)
     return res
 
 
-def numaggs_over_df_columns_parallel(
-    df: pd.DataFrame, cols: Sequence, numagg_params: dict, dtype=np.float32, n_jobs=-1, prefetch_factor: int = 2, **parallel_kwargs
+def compute_numaggs_parallel(
+    df: pd.DataFrame = None,
+    cols: Sequence = None,
+    values: np.ndarray = None,
+    numagg_params: dict = {},
+    dtype=np.float32,
+    n_jobs=-1,
+    prefetch_factor: int = 2,
+    **parallel_kwargs
 ) -> np.ndarray:
     """Computes numaggs over columns of a dataframe, in parallel fashion.
     Example of parallel_kwargs: numaggs_over_df_columns_parallel(df=X, cols=cols, temp_folder=r'R:\Temp')
@@ -1025,8 +1032,11 @@ def numaggs_over_df_columns_parallel(
     if n_jobs == -1:
         n_jobs = psutil.cpu_count(logical=False)
 
+    if values is None:
+        values = df.loc[:, cols].values
+
     res = parallel_run(
-        [delayed(numaggs_over_matrix)(vals=chunk, numagg_params=numagg_params) for chunk in np.array_split(df.loc[:, cols].values, n_jobs * prefetch_factor)],
+        [delayed(numaggs_over_matrix_rows)(vals=chunk, numagg_params=numagg_params) for chunk in np.array_split(values, n_jobs * prefetch_factor)],
         max_nbytes=0,
         n_jobs=n_jobs,
         **parallel_kwargs

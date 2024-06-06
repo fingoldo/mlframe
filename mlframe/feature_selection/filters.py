@@ -18,7 +18,8 @@ while True:
 
         import copy
 
-        import pandas as pd, numpy as np
+        import pandas as pd, numpy as np, cupy as cp
+        from os.path import exists
         import os
         import gc
 
@@ -965,7 +966,7 @@ def evaluate_candidates(
     mrmr_redundancy_algo: str = "fleuret",
     max_veteranes_interactions_order: int = 1,
     dtype=np.int32,
-    max_runtime_mins: int = None,
+    max_runtime_mins: float = None,
     start_time: float = None,
     min_relevance_gain: float = None,
     verbose: int = 1,
@@ -1069,7 +1070,7 @@ def handle_best_candidate(
     factors_names: list,
     verbose: int = 1,
     ndigits: int = 5,
-    max_runtime_mins: int = None,
+    max_runtime_mins: float = None,
     start_time: float = None,
     min_relevance_gain: float = None,
 ):
@@ -1395,7 +1396,7 @@ def screen_predictors(
     # stopping conditions
     min_relevance_gain: float = 0.00001,
     max_consec_unconfirmed: int = 30,
-    max_runtime_mins: int = None,
+    max_runtime_mins: float = None,
     interactions_min_order: int = 1,
     interactions_max_order: int = 1,
     interactions_order_reversed: bool = False,
@@ -1405,6 +1406,7 @@ def screen_predictors(
     verbose: int = 1,
     ndigits: int = 5,
     parallel_kwargs=dict(max_nbytes=MAX_JOBLIB_NBYTES),
+    stop_file:str=None,
 ) -> float:
     """Finds best predictors for the target.
     x must be n-x-m array of integers (ordinal encoded)
@@ -1561,6 +1563,9 @@ def screen_predictors(
             # if n_confirmed_predictors>4: n_jobs=1
             if run_out_of_time:
                 break
+            if stop_file and exists(stop_file):
+                logger.warning(f"Stop file {stop_file} detected, quitting.")
+                break            
 
             # ---------------------------------------------------------------------------------------------------------------
             # Find candidate X with the highest current_gain given already selected factors
@@ -2588,7 +2593,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # stopping conditions
         min_relevance_gain: float = 0.00001,
         max_consec_unconfirmed: int = 10,
-        max_runtime_mins: int = None,
+        max_runtime_mins: float = None,
         interactions_min_order: int = 1,
         interactions_max_order: int = 1,
         interactions_order_reversed: bool = False,
@@ -2627,6 +2632,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         n_features_in_: int = 0,
         feature_names_in_: Sequence = None,
         support_: np.ndarray = None,
+        stop_file:str="stop",
     ):
 
         # checks
@@ -2634,9 +2640,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # assert isinstance(estimator, (BaseEstimator,))
 
         # save params
-
-        params = get_parent_func_args()
-        store_params_in_object(obj=self, params=params)
+        store_params_in_object(obj=self, params=get_parent_func_args())
         self.signature = None
 
     def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, **fit_params):
@@ -2863,6 +2867,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                     verbose=self.verbose,
                     ndigits=self.ndigits,
                     parallel_kwargs=self.parallel_kwargs,
+                    stop_file=self.stop_file,
                 )
             )
 
@@ -2909,7 +2914,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             # ---------------------------------------------------------------------------------------------------------------
 
             vars_usage_counter = DefaultDict(int)
-            prospective_pairs = []
+            prospective_pairs = {}
             for raw_vars_pair, pair_mi in sort_dict_by_value(cached_MIs).items():
                 if len(raw_vars_pair) == 2:
                     if raw_vars_pair in checked_pairs:
@@ -2917,13 +2922,17 @@ class MRMR(BaseEstimator, TransformerMixin):
                     if raw_vars_pair[0] in numeric_vars_to_consider and raw_vars_pair[1] in numeric_vars_to_consider:
                         ind_elems_mi_sum = cached_MIs[(raw_vars_pair[0],)] + cached_MIs[(raw_vars_pair[1],)]
                         if pair_mi > ind_elems_mi_sum * fe_min_pair_mi_prevalence:
+                            uplift = pair_mi / ind_elems_mi_sum
                             if verbose:
                                 logger.info(
-                                    f"Factors pair {raw_vars_pair} will be considered for Feature Engineering, {pair_mi:.4f}>{ind_elems_mi_sum:.4f}, rat={pair_mi/ind_elems_mi_sum:.2f}"
+                                    f"Factors pair {raw_vars_pair} will be considered for Feature Engineering, {pair_mi:.4f}>{ind_elems_mi_sum:.4f}, rat={uplift:.2f}"
                                 )
-                            prospective_pairs.append((raw_vars_pair, pair_mi))
+                            prospective_pairs[(raw_vars_pair, pair_mi)] = uplift
                             for var in raw_vars_pair:
                                 vars_usage_counter[var] += 1
+
+            # Now need to sort prospective_pairs by the uplift, to check most promising pairs within the time budget.
+            prospective_pairs = sort_dict_by_value(prospective_pairs, reverse=True)
 
             if fe_smart_polynom_iters:
 
@@ -2972,7 +2981,7 @@ class MRMR(BaseEstimator, TransformerMixin):
 
                     return best_mi
 
-                for raw_vars_pair, pair_mi in prospective_pairs:
+                for (raw_vars_pair, pair_mi), uplift in prospective_pairs.items():
                     vals_a = X.iloc[:, raw_vars_pair[0]].values
                     vals_b = X.iloc[:, raw_vars_pair[1]].values
 
@@ -3012,7 +3021,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 transformed_vars = np.empty(shape=(len(X), len(prospective_pairs) * len(unary_transformations) * 2), dtype=np.float32)
                 vars_transformations = {}
                 i = 0
-                for raw_vars_pair, pair_mi in prospective_pairs:
+                for (raw_vars_pair, pair_mi), uplift in prospective_pairs.items():
                     for var in raw_vars_pair:
                         vals = X.iloc[:, var].values
                         for tr_name, tr_func in unary_transformations.items():
@@ -3029,7 +3038,10 @@ class MRMR(BaseEstimator, TransformerMixin):
                 # Record best pairs.
                 # ---------------------------------------------------------------------------------------------------------------
 
-                for raw_vars_pair, pair_mi in prospective_pairs:  # !TODO! better to start considering form the most prospective pairs with highest mis ratio!
+                for (
+                    raw_vars_pair,
+                    pair_mi,
+                ), uplift in prospective_pairs.items():  # better to start considering form the most prospective pairs with highest mis ratio!
                     combs = list(
                         combinations(
                             [(raw_vars_pair[0], key) for key in unary_transformations.keys()]

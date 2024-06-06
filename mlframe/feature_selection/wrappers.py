@@ -18,6 +18,7 @@ while True:
 
         from typing import *
 
+        from os.path import exists
         import pandas as pd, numpy as np
 
         from pyutilz.system import tqdmu
@@ -203,6 +204,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         # Required features and achieved ml metrics get saved in a dict join(estimators_save_path,required_features.dump).
         frac: float = None,
         skip_retraining_on_same_shape: bool = False,
+        stop_file: str = "stop",
     ):
 
         # checks
@@ -318,11 +320,13 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         if scoring is None:
             if is_classifier(estimator):
+                logger.info(f"Scoring omited, using probabilistic_multiclass_error by default.")
                 scoring = make_scorer(score_func=compute_probabilistic_multiclass_error, needs_proba=True, needs_threshold=False, greater_is_better=False)
             elif is_regressor(estimator):
+                logger.info(f"Scoring omited, using mean_squared_error by default.")
                 scoring = make_scorer(score_func=mean_squared_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
             else:
-                raise ValueError(f"Scoring not known for estimator type: {estimator}")
+                raise ValueError(f"Appropriate scoring not known for estimator type: {estimator}")
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Init importance_getter
@@ -394,6 +398,9 @@ class RFECV(BaseEstimator, TransformerMixin):
 
             if current_features is None or len(current_features) == 0:
                 break  # nothing more to try
+            if self.stop_file and exists(self.stop_file):
+                logger.warning(f"Stop file {self.stop_file} detected, quitting.")
+                break
 
             selected_features_per_nfeatures[len(current_features)] = current_features
 

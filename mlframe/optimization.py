@@ -165,6 +165,7 @@ class MBHOptimizer:
         # small settings
         verbose: int = 0,
         suggestions_cache_max_age_sec: int = 60 * 60,  # wait 1 hr before allowing repeated suggestions
+        greedy_prob: float = 0.03,
     ):
 
         # ----------------------------------------------------------------------------------------------------------------------------
@@ -204,6 +205,7 @@ class MBHOptimizer:
             self.best_evaluation = BIG_VALUE
             self.worst_evaluation = -BIG_VALUE
 
+        self.n_steps_since_greedy = 0
         self.n_noimproving_iters = 0
         self.nsteps = 0
 
@@ -306,119 +308,144 @@ class MBHOptimizer:
             # ----------------------------------------------------------------------------------------------------------------------------
             # Checking pre-seeded first
             # ----------------------------------------------------------------------------------------------------------------------------
+
             print("pre_seeded_candidates=", self.pre_seeded_candidates)
+
             next_candidate = self.pre_seeded_candidates.pop(0)
             self.suggested_candidates[next_candidate] = eval_start_time
+
             return next_candidate
 
         else:
 
-            # ----------------------------------------------------------------------------------------------------------------------------
-            # Fit surrogate model to known points & their evaluations
-            # ----------------------------------------------------------------------------------------------------------------------------
+            # If no improvement found for a long time, become greedy and check points closest to known optimum, regardless
+            # of underlying model's opinion.
 
-            if len(self.known_candidates) > self.last_retrain_ninputs:
+            greedy_prob = min(self.greedy_prob * min(self.n_noimproving_iters, self.n_steps_since_greedy + 1), 1.0)
+            if random() < greedy_prob:
+                self.n_steps_since_greedy = 0
 
-                if not hasattr(self.model, "partial_fit"):
-                    self.model.fit(self.known_candidates.reshape(-1, 1), self.known_evaluations)
-                else:
-                    n = self.nsteps - self.last_retrain_ninputs
-                    self.model.partial_fit(self.known_candidates[:-n], self.known_evaluations[:-n])
-                self.last_retrain_ninputs = len(self.known_candidates)
+                expected_fitness = np.abs(np.array(self.search_space) - self.best_candidate)
+                for _ in range(100):
+                    # Just pick first unchecked and unsuggested candidate with the highest fitness
+                    for best_idx in np.argsort(expected_fitness):
+                        next_candidate = self.search_space[best_idx]
+                        if next_candidate not in self.known_candidates and next_candidate not in self.suggested_candidates:
+                            self.suggested_candidates[next_candidate] = eval_start_time
+                            logger.info(
+                                f"I became greedy! Recommending {next_candidate} that is closest unchecked to the best known so far {self.best_candidate} with eval={self.best_evaluation}"
+                            )
+                            return next_candidate
+            else:
+
+                self.n_steps_since_greedy += 1
 
                 # ----------------------------------------------------------------------------------------------------------------------------
-                # Make predictions for all points
+                # Fit surrogate model to known points & their evaluations
                 # ----------------------------------------------------------------------------------------------------------------------------
 
-                if self.model_name == "CBQ":
-                    res = self.model.predict(self.search_space.reshape(-1, 1))
-                    y_pred = res[:, 1]
-                    y_std = np.abs(res[:, 0] - res[:, 2]) + SMALL_VALUE
-                elif self.model_name == "CB":
-                    res = self.model.predict(self.search_space.reshape(-1, 1))
-                    y_pred = res
-                    y_std = np.zeros_like(res)
+                if len(self.known_candidates) > self.last_retrain_ninputs:
+
+                    if not hasattr(self.model, "partial_fit"):
+                        self.model.fit(self.known_candidates.reshape(-1, 1), self.known_evaluations)
+                    else:
+                        n = self.nsteps - self.last_retrain_ninputs
+                        self.model.partial_fit(self.known_candidates[:-n], self.known_evaluations[:-n])
+                    self.last_retrain_ninputs = len(self.known_candidates)
+
+                    # ----------------------------------------------------------------------------------------------------------------------------
+                    # Make predictions for all points
+                    # ----------------------------------------------------------------------------------------------------------------------------
+
+                    if self.model_name == "CBQ":
+                        res = self.model.predict(self.search_space.reshape(-1, 1))
+                        y_pred = res[:, 1]
+                        y_std = np.abs(res[:, 0] - res[:, 2]) + SMALL_VALUE
+                    elif self.model_name == "CB":
+                        res = self.model.predict(self.search_space.reshape(-1, 1))
+                        y_pred = res
+                        y_std = np.zeros_like(res)
+                    else:
+                        y_pred, y_std = self.model.predict(self.search_space.reshape(-1, 1), return_std=True)
+
+                    self.y_pred = y_pred
+                    self.y_std = y_std
                 else:
-                    y_pred, y_std = self.model.predict(self.search_space.reshape(-1, 1), return_std=True)
+                    y_pred = self.y_pred
+                    y_std = self.y_std
 
-                self.y_pred = y_pred
-                self.y_std = y_std
-            else:
-                y_pred = self.y_pred
-                y_std = self.y_std
-
-            if random() < self.exploitation_probability:
-                self.mode = "exploitation"
-            else:
-                self.mode = "exploration"
-
-            # ----------------------------------------------------------------------------------------------------------------------------
-            # Known points make it easy to compute distances from candidates
-            # ----------------------------------------------------------------------------------------------------------------------------
-
-            distances = compute_candidates_exploration_scores(search_space=self.search_space, known_candidates=self.known_candidates)
-
-            # ----------------------------------------------------------------------------------------------------------------------------
-            # Now, distances have to be normalized by known fitness range
-            # ----------------------------------------------------------------------------------------------------------------------------
-
-            max_dist = distances.max()
-            distances = distances * np.abs(self.best_evaluation - self.worst_evaluation) * self.dist_scaling_coefficient / max_dist
-
-            if self.mode == "exploration":
-
-                # pick the point with higest std and most distant from already known points
-                expected_fitness = y_std + distances
-                self.additional_info = ""
-
-            elif self.mode == "exploitation":
-
-                expected_fitness = y_pred.copy()
-                if self.direction == OptimizationDirection.Minimize:
-                    expected_fitness = -expected_fitness
-
-                if self.use_stds_for_exploitation:
-                    expected_fitness += y_std
-
-                best_idx = np.argsort(expected_fitness)[-1]
-                if self.search_space[best_idx] in self.known_candidates:
-
-                    # best supposed point already checked. let's take std and distance into account then.
-                    expected_fitness += distances
-                    self.additional_info = "plusdist"
-
+                if random() < self.exploitation_probability:
+                    self.mode = "exploitation"
                 else:
+                    self.mode = "exploration"
 
-                    # best supposed point not checked yet
-                    self.additional_info = "bestpredicted"
+                # ----------------------------------------------------------------------------------------------------------------------------
+                # Known points make it easy to compute distances from candidates
+                # ----------------------------------------------------------------------------------------------------------------------------
 
-                    if self.use_distances_on_preds_collision:
+                distances = compute_candidates_exploration_scores(search_space=self.search_space, known_candidates=self.known_candidates)
 
-                        # what if there are multiple non-checked points with the same predicted score?
+                # ----------------------------------------------------------------------------------------------------------------------------
+                # Now, distances have to be normalized by known fitness range
+                # ----------------------------------------------------------------------------------------------------------------------------
 
-                        best_value = expected_fitness[best_idx]
-                        all_best_indices = np.where(expected_fitness == best_value)[0]
-                        all_best_indices = [idx for idx in all_best_indices if self.search_space[idx] not in self.known_candidates]
-                        if len(all_best_indices) > 1:
-                            expected_fitness[all_best_indices] += distances[all_best_indices]
+                max_dist = distances.max()
+                distances = distances * np.abs(self.best_evaluation - self.worst_evaluation) * self.dist_scaling_coefficient / max_dist
 
-                self.expected_fitness = expected_fitness
+                if self.mode == "exploration":
 
-            # ----------------------------------------------------------------------------------------------------------------------------
-            # Decide on the next candidate, based on predicted fitness
-            # ----------------------------------------------------------------------------------------------------------------------------
+                    # pick the point with higest std and most distant from already known points
+                    expected_fitness = y_std + distances
+                    self.additional_info = ""
 
-            for _ in range(100):
-                # Just pick first unchecked and unsuggested candidate with the highest fitness
-                for best_idx in np.argsort(expected_fitness)[::-1]:
-                    next_candidate = self.search_space[best_idx]
-                    if next_candidate not in self.known_candidates and next_candidate not in self.suggested_candidates:
-                        if self.skip_best_candidate_prob > 0.0:
-                            # Randomly skip the best candidate, if required
-                            if random() < self.skip_best_candidate_prob:
-                                continue
-                        self.suggested_candidates[next_candidate] = eval_start_time
-                        return next_candidate
+                elif self.mode == "exploitation":
+
+                    expected_fitness = y_pred.copy()
+                    if self.direction == OptimizationDirection.Minimize:
+                        expected_fitness = -expected_fitness
+
+                    if self.use_stds_for_exploitation:
+                        expected_fitness += y_std
+
+                    best_idx = np.argsort(expected_fitness)[-1]
+                    if self.search_space[best_idx] in self.known_candidates:
+
+                        # best supposed point already checked. let's take std and distance into account then.
+                        expected_fitness += distances
+                        self.additional_info = "plusdist"
+
+                    else:
+
+                        # best supposed point not checked yet
+                        self.additional_info = "bestpredicted"
+
+                        if self.use_distances_on_preds_collision:
+
+                            # what if there are multiple non-checked points with the same predicted score?
+
+                            best_value = expected_fitness[best_idx]
+                            all_best_indices = np.where(expected_fitness == best_value)[0]
+                            all_best_indices = [idx for idx in all_best_indices if self.search_space[idx] not in self.known_candidates]
+                            if len(all_best_indices) > 1:
+                                expected_fitness[all_best_indices] += distances[all_best_indices]
+
+                    self.expected_fitness = expected_fitness
+
+                # ----------------------------------------------------------------------------------------------------------------------------
+                # Decide on the next candidate, based on predicted fitness
+                # ----------------------------------------------------------------------------------------------------------------------------
+
+                for _ in range(100):
+                    # Just pick first unchecked and unsuggested candidate with the highest fitness
+                    for best_idx in np.argsort(expected_fitness)[::-1]:
+                        next_candidate = self.search_space[best_idx]
+                        if next_candidate not in self.known_candidates and next_candidate not in self.suggested_candidates:
+                            if self.skip_best_candidate_prob > 0.0:
+                                # Randomly skip the best candidate, if required
+                                if random() < self.skip_best_candidate_prob:
+                                    continue
+                            self.suggested_candidates[next_candidate] = eval_start_time
+                            return next_candidate
 
     def submit_evaluations(self, candidates: Sequence, evaluations: Sequence, durations: Sequence):
 

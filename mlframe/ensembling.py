@@ -22,6 +22,7 @@ from joblib import delayed
 import pandas as pd, numpy as np
 from pyutilz.parallel import parallel_run
 from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names, compute_numerical_aggregates_numba, get_basic_feature_names
+from mlframe.training import train_and_evaluate_model
 
 basic_features_names = get_basic_feature_names(
     return_drawdown_stats=False,
@@ -117,18 +118,33 @@ def enrich_ensemble_preds_with_numaggs(
         return res
 
 
-def ensemble_probabilistic_predictions(*preds, method="harm", ensure_prob_limits: bool = True, max_mae: float = 0.04, max_std: float = 0.06):
-    """Ensembles probabilistic predictions. All elements of the preds tuple must have the same shape."""
+def ensemble_probabilistic_predictions(
+    *preds,
+    ensemble_method="harm",
+    ensure_prob_limits: bool = True,
+    max_mae: float = 0.04,
+    max_std: float = 0.06,
+    uncertainty_quantile: float = 0.2,
+    normalize_stds_by_mean_preds: bool = True,
+):
+    """Ensembles probabilistic predictions. All elements of the preds tuple must have the same shape.
+    uncertainty_quantile>0 produces separate charts for points where the models are confident (agree).
+    """
 
-    assert method in ("harm", "arithm", "median", "quad", "qube", "geo")
+    assert ensemble_method in ("harm", "arithm", "median", "quad", "qube", "geo")
+    confident_indices = None
 
     if len(preds) > 2:
 
         skipped_preds_indices = set()
 
+        # -----------------------------------------------------------------------------------------------------------------------------------------------------
+        # Disregard whole predictions deviating from the median too much
+        # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
         # compute median preds first
         median_preds = np.quantile(np.array(preds), 0.5, axis=0)
-        # then disregard whole predictions deviating from the mean too much
+
         for i, pred in enumerate(preds):
             tot_mae = 0.0
             tot_std = 0.0
@@ -151,23 +167,117 @@ def ensemble_probabilistic_predictions(*preds, method="harm", ensure_prob_limits
             else:
                 print(f"ensemble_probabilistic_predictions filters too restrictive ({len(skipped_preds_indices)} vs {l}), skipping them")
 
-    if method == "harm":
-        avg = 1 / np.mean(np.array([1 / pred for pred in preds]), axis=0)
-    elif method == "arithm":
-        avg = np.mean(np.array(preds), axis=0)
-    elif method == "median":
-        avg = np.quantile(np.array(preds), 0.5, axis=0)
-    elif method == "quad":
-        avg = np.sqrt(np.mean(np.array([pred**2 for pred in preds]), axis=0))
-    elif method == "qube":
-        avg = np.power(np.mean(np.array([pred**3 for pred in preds]), axis=0), 1 / 3)
-    elif method == "geo":
-        avg = np.power(np.prod(preds, axis=0), 1 / len(preds))
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # Actual ensembling
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    if ensemble_method == "harm":
+        ensembled_predictions = 1 / np.mean(np.array([1 / pred for pred in preds]), axis=0)
+    elif ensemble_method == "arithm":
+        ensembled_predictions = np.mean(np.array(preds), axis=0)
+    elif ensemble_method == "median":
+        ensembled_predictions = np.quantile(np.array(preds), 0.5, axis=0)
+    elif ensemble_method == "quad":
+        ensembled_predictions = np.sqrt(np.mean(np.array([pred**2 for pred in preds]), axis=0))
+    elif ensemble_method == "qube":
+        ensembled_predictions = np.power(np.mean(np.array([pred**3 for pred in preds]), axis=0), 1 / 3)
+    elif ensemble_method == "geo":
+        ensembled_predictions = np.power(np.prod(preds, axis=0), 1 / len(preds))
 
     if ensure_prob_limits:
-        # if avg.min() < 0 or avg.max() > 1.0:
+        # if ensembled_predictions.min() < 0 or ensembled_predictions.max() > 1.0:
         # print("normalizing OOB probs")
-        tot = np.sum(avg, axis=1)
-        avg = avg / tot.reshape(-1, 1)
+        tot = np.sum(ensembled_predictions, axis=1)
+        ensembled_predictions = ensembled_predictions / tot.reshape(-1, 1)
 
-    return avg
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # Confidence estimates
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    if uncertainty_quantile:
+
+        std_preds = np.std(np.array(preds), axis=0)
+        if normalize_stds_by_mean_preds:
+            mean_preds = np.mean(np.array(preds), axis=0)
+            uncertainty = (std_preds / mean_preds).mean(axis=1)
+        else:
+            uncertainty = std_preds.mean(axis=1)
+
+        confident_indices = uncertainty >= np.quantile(uncertainty, uncertainty_quantile)
+
+    return ensembled_predictions, confident_indices
+
+
+def score_ensemble(
+    target: pd.Series,
+    models_and_predictions: Sequence,
+    test_idx: np.ndarray,
+    val_idx: np.ndarray,
+    ensemble_name: str,
+    target_label_encoder: object = None,
+    max_mae: float = 0.08,
+    max_std: float = 0.08,
+    ensure_prob_limits: bool = True,
+    nbins: int = 100,
+    ensembling_methods="arithm harm median quad qube geo".split(),
+    uncertainty_quantile: float = 0.0,
+    normalize_stds_by_mean_preds: bool = True,
+):
+    """Compares different ensembling methods for a list of models."""
+
+    res = []
+    for ensemble_method in ensembling_methods:
+        val_ensembled_predictions, val_confident_indices = ensemble_probabilistic_predictions(
+            *(el[4] for el in models_and_predictions),
+            ensemble_method=ensemble_method,
+            max_mae=max_mae,
+            max_std=max_std,
+            ensure_prob_limits=ensure_prob_limits,
+            uncertainty_quantile=uncertainty_quantile,
+            normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+        )
+        test_ensembled_predictions, test_confident_indices = ensemble_probabilistic_predictions(
+            *(el[2] for el in models_and_predictions),
+            ensemble_method=ensemble_method,
+            max_mae=max_mae,
+            max_std=max_std,
+            ensure_prob_limits=ensure_prob_limits,
+            uncertainty_quantile=uncertainty_quantile,
+            normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+        )
+        res.append(
+            train_and_evaluate_model(
+                model=None,
+                test_probs=test_ensembled_predictions,
+                val_probs=val_ensembled_predictions,
+                df=None,
+                target=target,
+                default_drop_columns=[],
+                model_name=f"Ensemble {ensemble_method} {ensemble_name}",
+                train_idx=None,
+                test_idx=test_idx,
+                val_idx=val_idx,
+                target_label_encoder=target_label_encoder,
+                show_val_chart=True,
+                nbins=nbins,
+            )
+        )
+        if uncertainty_quantile:
+            res.append(
+                train_and_evaluate_model(
+                    model=None,
+                    test_probs=test_ensembled_predictions[test_confident_indices],
+                    val_probs=val_ensembled_predictions[val_confident_indices],
+                    df=None,
+                    target=target,
+                    default_drop_columns=[],
+                    model_name=f"Conf Ensemble {ensemble_method} {ensemble_name}",
+                    train_idx=None,
+                    test_idx=test_idx[test_confident_indices],
+                    val_idx=val_idx[val_confident_indices],
+                    target_label_encoder=target_label_encoder,
+                    show_val_chart=True,
+                    nbins=nbins,
+                )
+            )
+    return res

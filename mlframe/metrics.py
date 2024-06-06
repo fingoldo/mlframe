@@ -16,7 +16,7 @@ from math import floor
 from scipy.special import expit
 import numpy as np, pandas as pd
 from matplotlib import pyplot as plt
-from sklearn.metrics import log_loss
+from sklearn.metrics import log_loss, average_precision_score
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
 import plotly.express as px
@@ -28,8 +28,10 @@ from plotly.io import write_image
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-def fast_auc(y_true: np.ndarray, y_score: np.ndarray) -> float:
+def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray) -> float:
     """np.argsort needs to stay out of njitted func."""
+    if y_score.ndim == 2:
+        y_score = y_score[:, -1]
     desc_score_indices = np.argsort(y_score)[::-1]
     return fast_numba_auc_nonw(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
 
@@ -286,6 +288,7 @@ def fast_calibration_report(
     show_plots: bool = True,
     show_points_density_in_title: bool = False,
     show_roc_auc_in_title: bool = False,
+    show_pr_auc_in_title: bool = False,
     show_logloss_in_title: bool = False,
     show_coverage_in_title: bool = False,
     plot_file: str = "",
@@ -312,17 +315,22 @@ def fast_calibration_report(
     )
 
     fig = None
+    roc_auc, pr_auc = None, None
     if plot_file or show_plots:
         plot_title = f"BR={brier_loss*100:.{ndigits}f}% CMAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}%±{calibration_std*100:.{ndigits}f}%"
 
         if show_coverage_in_title:
-            plot_title += f", cov.={calibration_coverage*100:.{int(np.log10(nbins))}f}%"
+            plot_title += f", COV={calibration_coverage*100:.{int(np.log10(nbins))}f}%"
         if show_roc_auc_in_title:
-            plot_title += f", ROC AUC={fast_auc(y_true=y_true, y_score=y_pred):.3f}"
+            roc_auc = fast_roc_auc(y_true=y_true, y_score=y_pred)
+            plot_title += f", ROC AUC={roc_auc:.3f}"
+        if show_pr_auc_in_title:
+            pr_auc = average_precision_score(y_true=y_true, y_score=y_pred)
+            plot_title += f", PR AUC={pr_auc:.3f}"
         if show_logloss_in_title:
-            plot_title += f", LogLoss={log_loss(y_true=y_true, y_pred=y_pred):.3f}"
+            plot_title += f", LL={log_loss(y_true=y_true, y_pred=y_pred):.3f}"
         if show_points_density_in_title:
-            plot_title += f", dens.=[{max_hits:_};{min_hits:_}]"
+            plot_title += f", DENS=[{max_hits:_};{min_hits:_}]"
         if title:
             plot_title = title.strip() + " " + plot_title
         fig = show_calibration_plot(
@@ -336,7 +344,7 @@ def fast_calibration_report(
             backend=backend,
         )
 
-    return brier_loss, calibration_mae, calibration_std, calibration_coverage, fig
+    return brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, fig
 
 
 def predictions_time_instability(preds: pd.Series) -> float:
@@ -365,6 +373,7 @@ def compute_probabilistic_multiclass_error(
     roc_auc_penalty: float = 0.2,
     use_weighted_calibration: bool = True,
     weight_by_class_npositives: bool = False,
+    nbins: int = 100,
     verbose: bool = False,
     ndigits: int = 4,
 ):
@@ -406,7 +415,10 @@ def compute_probabilistic_multiclass_error(
 
         if method == "multicrit":
             calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(
-                y_true=correct_class, y_pred=y_pred, use_weights=use_weighted_calibration
+                y_true=correct_class,
+                y_pred=y_pred,
+                use_weights=use_weighted_calibration,
+                nbins=nbins,
             )
             brier_loss = brier_score_loss(y_true=correct_class, y_prob=y_pred)
 
@@ -468,6 +480,7 @@ class CB_INTEGRAL_CALIB_ERROR:
         roc_auc_penalty: float = 0.2,
         use_weighted_calibration: bool = True,
         weight_by_class_npositives: bool = False,
+        nbins: int = 100,
         calibration_plot_period: int = 0,
     ) -> None:
 
@@ -594,13 +607,14 @@ def probability_separation_score(y_true: np.ndarray, y_prob: np.ndarray, class_l
     return res
 
 
-def create_fairness_subgroupings(
+def create_robustness_subgroups(
     df: pd.DataFrame,
     features: Sequence[str],
     cont_nbins: int = 3,
     min_pop_cat_thresh: Union[float, int] = 1000,
     merge_lowpop_cats: bool = True,
     exclude_terminal_lowpop_cats: bool = True,
+    rare_group_name: str = "*RARE*",
 ) -> dict:
     """Subrouping defines a way of splitting an ndarray into subgroups, for which ML metrics should be calculated separately.
     When we care about not just overall performance on the entire dataset, but also want it to be consistent & fair across subgroups of our observations.
@@ -623,15 +637,19 @@ def create_fairness_subgroupings(
     elif isinstance(min_pop_cat_thresh, int):
         assert min_pop_cat_thresh > 0 and min_pop_cat_thresh <= len(df) // 2
 
-    subgroupings = {}
+    subgroups = {}
     for feature_name in features:
+
+        if feature_name in ("**ORDER**", "**RANDOM**"):
+            subgroups[feature_name] = feature_name
+            continue
 
         feature_vals = df[feature_name]
         val_cnts = feature_vals.value_counts()
 
         if feature_vals.dtype.name not in ("category", "object", "date", "datetime"):
             if len(val_cnts) > cont_nbins:
-                feature_vals = pd.qcut(feature_vals, q=cont_nbins, labels=False)  # use qcut for equipopulated binning
+                feature_vals = pd.qcut(feature_vals, q=cont_nbins, labels=None)  # use qcut for equipopulated binning
                 val_cnts = feature_vals.value_counts()  # this needs recalculation now
 
         # use categories as natural bins. ensure that low-populated cats are merged if possible (merge_lowpop_cats)
@@ -642,7 +660,7 @@ def create_fairness_subgroupings(
             cats = rarecats.index.values.tolist()
             if rarecats.sum() >= min_pop_cat_thresh:
                 # merging is possible
-                feature_vals = feature_vals.copy().replace({cat: cats[0] for cat in cats[1:]})
+                feature_vals = feature_vals.copy().replace({cat: rare_group_name for cat in cats})
                 val_cnts = feature_vals.value_counts()  # this needs recalculation now
                 cats_to_use = val_cnts.index.values.tolist()
                 logger.info(f"For feature {feature_name}, had to merge {len(cats):_} bins {','.join(map(str,cats))}, {rarecats.sum():_} records.")
@@ -653,8 +671,8 @@ def create_fairness_subgroupings(
             cats_to_use = val_cnts.index.values.tolist()
 
         if len(cats_to_use) > 1:
-            subgroupings[feature_name] = dict(bins=feature_vals.values, bins_names=cats_to_use)
+            subgroups[feature_name] = dict(bins=feature_vals, bins_names=cats_to_use)
         else:
             logger.warning(f"Feature {feature_name} can't particiate in subgrouping: it has only one bin.")
 
-    return subgroupings
+    return subgroups

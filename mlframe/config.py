@@ -9,6 +9,7 @@ PYTORCH_MODEL_TYPES = ("PytorchLightningEstimator", "PytorchLightningRegressor",
 CATBOOST_MODEL_TYPES = ("CatBoostClassifier", "CatBoostRegressor")
 XGBOOST_MODEL_TYPES = ("XGBClassifier", "XGBRegressor")
 LGBM_MODEL_TYPES = ("LGBMClassifier", "LGBMRegressor")
+TABNET_MODEL_TYPES = ("TabNetClassifier", "TabNetMultiTaskClassifier", "TabNetRegressor", "TabNetMultiTaskRegressor")
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
