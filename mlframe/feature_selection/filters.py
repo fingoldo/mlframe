@@ -2916,7 +2916,9 @@ class MRMR(BaseEstimator, TransformerMixin):
             # Feature engineering part here
 
             if verbose:
-                logger.info(f"MRMR+ selected {len(selected_vars):_} out of {self.n_features_in_:_} features before the Feature Engineering step.")
+                logger.info(
+                    f"MRMR+ selected {len(selected_vars):_} out of {self.n_features_in_:_} features before the Feature Engineering step. Computing prospective pairs..."
+                )
 
             numeric_vars_to_consider = set(selected_vars) - set(categorical_vars)
 
@@ -2938,7 +2940,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                     fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
                 )
             else:
-                prefetch_factor = 2
+                prefetch_factor = 4
                 dicts = parallel_run(
                     [
                         delayed(compute_pairs_mis)(
@@ -2983,14 +2985,13 @@ class MRMR(BaseEstimator, TransformerMixin):
                                 logger.info(
                                     f"Factors pair {raw_vars_pair} will be considered for Feature Engineering, {ind_elems_mi_sum:.4f}->{pair_mi:.4f}, rat={uplift:.2f}"
                                 )
-                            prospective_pairs[(raw_vars_pair, pair_mi)] = uplift
+                            prospective_pairs[(raw_vars_pair, pair_mi)] = vars_usage_counter[raw_vars_pair[0]] + vars_usage_counter[raw_vars_pair[1]]
                             for var in raw_vars_pair:
                                 vars_usage_counter[var] += 1
 
             # Now need to sort prospective_pairs by the uplift, to check most promising pairs within the time budget.
+            # Also need to sort them by their members usage frequency+members ids sum. this way, their splitting will benefit more from caching.
             prospective_pairs = sort_dict_by_value(prospective_pairs, reverse=True)
-
-            #!TODO! Also need to sort them by their members usage frequency+members ids sum. this way, their splitting will benefit more from caching.
 
             if fe_smart_polynom_iters:
 
@@ -3069,33 +3070,95 @@ class MRMR(BaseEstimator, TransformerMixin):
                         print(f"Best MI: {study.best_trial.value:.4f}, pair_mi={pair_mi:.4f}")
                         print(f"Best hyperparameters: {study.best_params}")
             else:
-                prospective_additions = check_prospective_fe_pairs(
-                    prospective_pairs,
-                    X,
-                    unary_transformations,
-                    binary_transformations,
-                    classes_y,
-                    classes_y_safe,
-                    freqs_y,
-                    num_fs_steps,
-                    cols,
-                    fe_max_steps,
-                    fe_npermutations,
-                    fe_max_pair_features,
-                    fe_print_best_mis_only,
-                    fe_min_nonzero_confidence,
-                    fe_min_engineered_mi_prevalence,
-                    fe_good_to_best_feature_mi_threshold,
-                    numeric_vars_to_consider,
-                    self.quantization_nbins,
-                    self.quantization_method,
-                    self.quantization_dtype,
-                    times_spent,
-                    verbose,
-                )
-                for raw_vars_pair, (this_pair_features, transformed_vals, new_cols, new_nbins) in prospective_additions.items():
+                if len(X) < 50_000 or len(prospective_pairs) < 2:
+                    prospective_additions = check_prospective_fe_pairs(
+                        prospective_pairs,
+                        X,
+                        unary_transformations,
+                        binary_transformations,
+                        classes_y,
+                        classes_y_safe,
+                        freqs_y,
+                        num_fs_steps,
+                        cols,
+                        fe_max_steps,
+                        fe_npermutations,
+                        fe_max_pair_features,
+                        fe_print_best_mis_only,
+                        fe_min_nonzero_confidence,
+                        fe_min_engineered_mi_prevalence,
+                        fe_good_to_best_feature_mi_threshold,
+                        numeric_vars_to_consider,
+                        self.quantization_nbins,
+                        self.quantization_method,
+                        self.quantization_dtype,
+                        times_spent,
+                        verbose,
+                    )
+                else:
+
+                    prospective_additions = {}
+                    desired_nitems = max(1, len(prospective_pairs) // (n_jobs * prefetch_factor))
+
+                    jobs_list = []
+
+                    nitems = 0
+                    cur_dict = {}
+                    for key, value in prospective_pairs.items():
+                        nitems += 1
+                        cur_dict[key] = value
+                        if nitems >= desired_nitems:
+                            jobs_list.append(cur_dict)
+                            nitems = 0
+                            cur_dict = {}
+                    if cur_dict:
+                        jobs_list.append(cur_dict)
+
+                    if verbose:
+                        logger.info(f"Using step {desired_nitems:_} for checking {len(prospective_pairs):_} prospective_pairs.")
+
+                    dicts = parallel_run(
+                        [
+                            delayed(check_prospective_fe_pairs)(
+                                chunk,
+                                X,
+                                unary_transformations,
+                                binary_transformations,
+                                classes_y,
+                                classes_y_safe,
+                                freqs_y,
+                                num_fs_steps,
+                                cols,
+                                fe_max_steps,
+                                fe_npermutations,
+                                fe_max_pair_features,
+                                fe_print_best_mis_only,
+                                fe_min_nonzero_confidence,
+                                fe_min_engineered_mi_prevalence,
+                                fe_good_to_best_feature_mi_threshold,
+                                numeric_vars_to_consider,
+                                self.quantization_nbins,
+                                self.quantization_method,
+                                self.quantization_dtype,
+                                times_spent,
+                                verbose,
+                            )
+                            for chunk in jobs_list
+                        ],
+                        max_nbytes=0,
+                        n_jobs=n_jobs,
+                        **parallel_kwargs,
+                    )
+                    for next_dict in dicts:
+                        prospective_additions.update(next_dict)
+
+                for raw_vars_pair, (this_pair_features, transformed_vals, new_cols, new_nbins, messages) in prospective_additions.items():
                     if this_pair_features:
                         engineered_features.update(this_pair_features)
+                        if verbose:
+                            for mes in messages:
+                                logger.info(mes)
+                            logger.info(f"Features {new_cols} are recommended to use as new features!")
                         if fe_max_steps > 1:
                             new_vals = np.empty(shape=(len(X), len(this_pair_features)), dtype=self.quantization_dtype)
                             for j in range(len(this_pair_features)):
@@ -3205,7 +3268,7 @@ def check_prospective_fe_pairs(
     res = {}
 
     if verbose:
-        logging.info(f"Creating a pool of {len(prospective_pairs) * len(unary_transformations) * 2:_} unary transfomrations.")
+        logging.info(f"Creating a pool of {len(prospective_pairs) * len(unary_transformations) * 2:_} unary transformations.")
 
     transformed_vars = np.empty(shape=(len(X), len(prospective_pairs) * len(unary_transformations) * 2), dtype=np.float32)
 
@@ -3236,19 +3299,23 @@ def check_prospective_fe_pairs(
         raw_vars_pair,
         pair_mi,
     ), uplift in prospective_pairs.items():  # better to start considering form the most prospective pairs with highest mis ratio!
+
+        messages = []
+
         combs = list(
             combinations(
                 [(raw_vars_pair[0], key) for key in unary_transformations.keys()] + [(raw_vars_pair[1], key) for key in unary_transformations.keys()],
                 2,
             )
         )
+
         combs = [
             transformations_pair for transformations_pair in combs if transformations_pair[0][0] != transformations_pair[1][0]
         ]  # let's skip trying to transform the same factor for now
         # print(f"trying {len(combs):_} combs")
 
         best_config, best_mi = None, -1
-        this_pair_features = {}
+        this_pair_features = set()
         var_pairs_perf = {}
 
         final_transformed_vals = np.empty(
@@ -3367,7 +3434,7 @@ def check_prospective_fe_pairs(
                         if j < fe_max_pair_features:
                             new_feature_name = get_new_feature_name(fe_tuple=config, cols_names=cols)
                             if verbose:
-                                logger.info(
+                                messages.append(
                                     f"{new_feature_name} is recommended to use as a new feature! (won in validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
                                 )
                             this_pair_features.add((config, j))
@@ -3375,7 +3442,7 @@ def check_prospective_fe_pairs(
                             break
                 else:
                     if verbose:
-                        logger.warning(
+                        messages.append(
                             f"{len(leading_features)} are recommended to use as new features! (can't narrow down the list by validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
                         )
                     for j, config in enumerate(leading_features):
@@ -3384,11 +3451,13 @@ def check_prospective_fe_pairs(
             else:
                 new_feature_name = get_new_feature_name(fe_tuple=best_config, cols_names=cols)
                 if verbose:
-                    logger.info(
+                    messages.append(
                         f"{new_feature_name} is recommended to use as a new feature! (clear winner) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
                     )
                 j = 0
                 this_pair_features.add((best_config, j))
+
+            transformed_vals, new_cols, new_nbins = None, None, None
 
             if this_pair_features:
 
@@ -3397,24 +3466,23 @@ def check_prospective_fe_pairs(
                 # ---------------------------------------------------------------------------------------------------------------
 
                 if fe_max_steps > 1:
-
                     transformed_vals = np.empty(shape=(len(X), fe_max_pair_features), dtype=quantization_dtype)
-                    new_nbins = []
-                    new_cols = []
+                new_nbins = []
+                new_cols = []
 
-                    for config, j in this_pair_features:
-                        new_feature_name = get_new_feature_name(fe_tuple=config, cols_names=cols)
-                        transformations_pair, bin_func_name, i = config
+                for config, j in this_pair_features:
+                    new_feature_name = get_new_feature_name(fe_tuple=config, cols_names=cols)
+                    transformations_pair, bin_func_name, i = config
 
+                    if fe_max_steps > 1:
                         transformed_vals[:, j] = final_transformed_vals[:, i]
                         new_nbins += [quantization_nbins]
-                        new_cols += [new_feature_name]
+                    new_cols += [new_feature_name]
 
+                if fe_max_steps > 1:
                     transformed_vals = transformed_vals[:, : min(fe_max_pair_features, j)]
-            else:
-                transformed_vals, new_cols, new_nbins = None, None, None
 
-            res[raw_vars_pair] = (this_pair_features, transformed_vals, new_cols, new_nbins)
+            res[raw_vars_pair] = (this_pair_features, transformed_vals, new_cols, new_nbins, messages)
 
     return res
 
