@@ -287,6 +287,7 @@ def train_and_evaluate_model(
     data_dir: str = DATA_DIR,
     models_subdir: str = MODELS_SUBDIR,
     include_confidence_analysis:bool=True,
+    display_sample_size: int =2,
 ):
     """Trains & evaluates given model/pipeline on train/test sets.
     Supports feature selection via pre_pipeline.
@@ -359,7 +360,10 @@ def train_and_evaluate_model(
         if (not use_cache) or (not exists(model_file_name)):
             if sample_weight is not None:
                 sample_weight = sample_weight.loc[train_idx].values
-            display(train_df.tail(3).style.set_caption("Features sample"))
+            logger.info(f"{model_name} training dataset shape: {train_df.shape}")
+            display(train_df.head(display_sample_size).style.set_caption(f"{model_name} features head"))
+            display(train_df.tail(display_sample_size).style.set_caption(f"{model_name} features tail"))
+
             if model_type_name in TABNET_MODEL_TYPES:
                 model.fit(train_df.values, target.loc[train_idx].values, sample_weight=sample_weight, **fit_params)
             else:
@@ -559,7 +563,7 @@ def report_probabilistic_model_perf(
 
     return preds, probs
 
-def plot_model_feature_importances(model:object,columns:Sequence,model_name:str=None,num_factors:int=20,figsize: tuple = (15, 5),positive_fi_only:bool=False):
+def plot_model_feature_importances(model:object,columns:Sequence,model_name:str=None,num_factors:int=40,figsize: tuple = (15, 10),positive_fi_only:bool=False):
     
     if isinstance(model, Pipeline):
         model = model.steps[-1][1]

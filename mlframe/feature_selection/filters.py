@@ -17,6 +17,8 @@ while True:
         from typing import *
 
         import copy
+        import psutil
+        from collections import defaultdict
 
         import pandas as pd, numpy as np, cupy as cp
         from os.path import exists
@@ -971,6 +973,7 @@ def evaluate_candidates(
     min_relevance_gain: float = None,
     verbose: int = 1,
     ndigits: int = 5,
+    use_simple_mode: bool = True,
 ) -> None:
 
     best_gain = -LARGE_CONST
@@ -1031,6 +1034,7 @@ def evaluate_candidates(
             verbose=verbose,
             ndigits=ndigits,
             dtype=dtype,
+            use_simple_mode=use_simple_mode,
         )
 
         # if verbose: logger.info(f"X={X}, gain={current_gain}")
@@ -1047,6 +1051,12 @@ def evaluate_candidates(
             start_time=start_time,
             min_relevance_gain=min_relevance_gain,
         )
+
+        """
+        if use_simple_mode:
+            if best_gain > 0:
+                break
+        """
 
         if run_out_of_time:
             break
@@ -1083,12 +1093,12 @@ def handle_best_candidate(
     if current_gain > best_gain:
         best_candidate = X
         best_gain = current_gain
-        if verbose > 1:
+        if verbose > 2:
             logger.info(
                 f"\t{get_candidate_name(best_candidate,factors_names=factors_names)} is so far the best candidate with best_gain={best_gain:.{ndigits}f}"
             )
     else:
-        if min_relevance_gain and verbose > 1 and current_gain > min_relevance_gain:
+        if min_relevance_gain and verbose > 2 and current_gain > min_relevance_gain:
             logger.info(f"\t\t{get_candidate_name(X,factors_names=factors_names)} current_gain={current_gain:.{ndigits}f}")
 
     if max_runtime_mins and not run_out_of_time:
@@ -1257,6 +1267,7 @@ def evaluate_candidate(
     dtype=np.int32,
     verbose: int = 1,
     ndigits: int = 5,
+    use_simple_mode: bool = True,
 ) -> None:
     # logger.info("In evaluate_candidate")
     sink_reasons = set()
@@ -1303,7 +1314,7 @@ def evaluate_candidate(
             cached_MIs[X] = direct_gain
 
     if direct_gain > 0:
-        if selected_vars:
+        if selected_vars and not use_simple_mode:
 
             # ---------------------------------------------------------------------------------------------------------------
             # Some factors already selected.
@@ -1406,7 +1417,8 @@ def screen_predictors(
     verbose: int = 1,
     ndigits: int = 5,
     parallel_kwargs=dict(max_nbytes=MAX_JOBLIB_NBYTES),
-    stop_file:str=None,
+    stop_file: str = None,
+    use_simple_mode: bool = True,
 ) -> float:
     """Finds best predictors for the target.
     x must be n-x-m array of integers (ordinal encoded)
@@ -1456,7 +1468,7 @@ def screen_predictors(
     if factors_data.shape == targets_data.shape:
         if np.shares_memory(factors_data, targets_data):
             if factors_to_use is None and factors_names_to_use is None:
-                if verbose > 1:
+                if verbose > 2:
                     logger.info(
                         "factors_data and targets_data share the same memory. factors_to_use will be determined automatically to not contain any target columns."
                     )
@@ -1464,11 +1476,11 @@ def screen_predictors(
             else:
                 if factors_to_use is not None:
                     x = set(factors_to_use) - set(y)
-                    if verbose > 1:
+                    if verbose > 2:
                         logger.info(f"Using only {len(factors_to_use):_} predefined factors: {factors_to_use}")
                 else:
                     x = [i for i, col_name in enumerate(factors_names) if col_name in factors_names_to_use and i != y]
-                    if verbose > 1:
+                    if verbose > 2:
                         logger.info(f"Using only {len(factors_names_to_use):_} predefined factors: {factors_names_to_use}")
         else:
 
@@ -1536,6 +1548,8 @@ def screen_predictors(
             f"Starting work with full_npermutations={full_npermutations:_}, min_nonzero_confidence={min_nonzero_confidence:.{ndigits}f}, max_failed={max_failed:_}"
         )
 
+    num_possible_candidates = 0  # needed to refrain from multiprocessing when all direct MIs are in cache already
+
     for interactions_order in (subsets_pbar := tqdmu(subsets, desc="Interactions order", leave=False)):
 
         if run_out_of_time:
@@ -1547,6 +1561,8 @@ def screen_predictors(
         # ---------------------------------------------------------------------------------------------------------------
 
         candidates = [tuple(el) for el in combinations(x, interactions_order)]
+
+        num_possible_candidates += len(candidates)
 
         # ---------------------------------------------------------------------------------------------------------------
         # Subset level inits
@@ -1565,7 +1581,7 @@ def screen_predictors(
                 break
             if stop_file and exists(stop_file):
                 logger.warning(f"Stop file {stop_file} detected, quitting.")
-                break            
+                break
 
             # ---------------------------------------------------------------------------------------------------------------
             # Find candidate X with the highest current_gain given already selected factors
@@ -1598,7 +1614,11 @@ def screen_predictors(
 
                     feasible_candidates.append((cand_idx, X, nexisting if reduce_gain_on_subelement_chosen else 0))
 
-                if n_workers and n_workers > 1 and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS:
+                if (
+                    n_workers > 1
+                    and (use_simple_mode is False or len(cached_MIs) < num_possible_candidates)
+                    and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS
+                ):
 
                     res = workers_pool(
                         delayed(evaluate_candidates)(
@@ -1627,6 +1647,7 @@ def screen_predictors(
                             min_relevance_gain=min_relevance_gain,
                             verbose=verbose,
                             ndigits=ndigits,
+                            use_simple_mode=use_simple_mode,
                         )
                         for workload in split_list_into_chunks(feasible_candidates, max(1, len(feasible_candidates) // n_workers))
                     )
@@ -1670,7 +1691,7 @@ def screen_predictors(
                             break
 
                 else:
-                    for cand_idx, X, nexisting in (candidates_pbar := tqdmu(feasible_candidates, leave=False, desc="Candidates")):
+                    for cand_idx, X, nexisting in feasible_candidates:  # (candidates_pbar := tqdmu(, leave=False, desc="Candidates"))
 
                         # tmp_idx=X[0]
                         # print(X,factors_nbins[tmp_idx],factors_names[tmp_idx])
@@ -1704,6 +1725,7 @@ def screen_predictors(
                             entropy_cache=entropy_cache,
                             verbose=verbose,
                             ndigits=ndigits,
+                            use_simple_mode=use_simple_mode,
                         )
 
                         best_gain, best_candidate, run_out_of_time = handle_best_candidate(
@@ -1719,16 +1741,22 @@ def screen_predictors(
                             ndigits=ndigits,
                         )
 
+                        """
+                        if use_simple_mode:
+                            if best_gain > 0:
+                                break
+                        """
+
                         if run_out_of_time:
                             if verbose:
                                 logging.info(f"Time limit exhausted. Finalizing the search...")
                             break
 
-                if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
+                if verbose > 2 and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                     logger.info(f"evaluate_candidates took {timer() - eval_start:.1f} sec.")
 
                 if best_gain < min_relevance_gain:
-                    if verbose:
+                    if verbose >= 1:
                         logger.info("Minimum expected gain reached or no candidates to check anymore.")
                     break  # exit confirmation while loop
 
@@ -1761,7 +1789,7 @@ def screen_predictors(
 
                             if best_partial_gain > next_best_gain:
                                 best_gain = next_best_gain
-                                if verbose > 1:
+                                if verbose > 2:
                                     print(
                                         "Have no best_candidate anymore. Need to recompute partial gains. best_partial_gain of candidate",
                                         get_candidate_name(candidates[best_key], factors_names=factors_names),
@@ -1774,7 +1802,7 @@ def screen_predictors(
 
                         if full_npermutations:
 
-                            if verbose > 1:
+                            if verbose > 2:
                                 logger.info(
                                     f"confirming candidate {get_candidate_name(X, factors_names=factors_names)}, next_best_gain={next_best_gain:.{ndigits}f}"
                                 )
@@ -1826,7 +1854,7 @@ def screen_predictors(
                             else:
                                 bootstrapped_gain, confidence = next_best_gain, 1.0
 
-                        if full_npermutations and bootstrapped_gain > 0 and selected_vars:  # additional check of Fleuret criteria
+                        if full_npermutations and bootstrapped_gain > 0 and selected_vars and not use_simple_mode:  # additional check of Fleuret criteria
 
                             if count_cand_nbins(X, factors_nbins) <= MAX_CONFIRMATION_CAND_NBINS:
 
@@ -1913,7 +1941,7 @@ def screen_predictors(
                                 skip_indices=(next_best_candidate_idx,),
                             )
                             if best_partial_gain > next_best_gain:
-                                if verbose > 1:
+                                if verbose > 2:
                                     logger.info(
                                         f"\t\tCandidate's lowered confidence {confidence} requires re-checking other candidates, as now its expected gain is only {next_best_gain:.{ndigits}f}, vs {best_partial_gain:.{ndigits}f}, of {get_candidate_name(candidates[best_key], factors_names=factors_names)}"
                                     )
@@ -1921,13 +1949,13 @@ def screen_predictors(
                             else:
                                 cand_confirmed = True
                                 if full_npermutations:
-                                    if verbose > 1:
+                                    if verbose > 2:
                                         logger.info(f"\t\tconfirmed with confidence {confidence:.{ndigits}f}")
                                 break  # out of best candidates confirmation, to add candidate to the list, and go to more candidates
                         else:
                             expected_gains[next_best_candidate_idx] = 0.0
                             failed_candidates.add(next_best_candidate_idx)
-                            if verbose > 1:
+                            if verbose > 2:
                                 logger.info(f"\t\tconfirmation failed with confidence {confidence:.{ndigits}f}")
 
                             nconsec_unconfirmed += 1
@@ -1979,7 +2007,7 @@ def screen_predictors(
                     res["confidence"] = confidence
                 predictors.append(res)
 
-                if verbose:
+                if verbose >= 2:
                     mes = f"Added new predictor {cand_name} to the list with expected gain={best_gain:.{ndigits}f}"
                     if full_npermutations:
                         mes += f" and confidence={confidence:.3f}"
@@ -2071,6 +2099,8 @@ def postprocess_candidates(
         a) MI with every remaining predictor (and 2,3 way subsets)
 
     """
+
+    """
     # ---------------------------------------------------------------------------------------------------------------
     # Repeat standard Fleuret screening process. maybe some vars will be removed when taken into account all other candidates.
     # ---------------------------------------------------------------------------------------------------------------
@@ -2131,6 +2161,7 @@ def postprocess_candidates(
     # Repeat Fleuret process as many times as there is candidates left.
     # This time account for possible interactions (fix bug in the professor's formula).
     # ---------------------------------------------------------------------------------------------------------------
+    """
 
     """
     Compute redundancy stats for every X
@@ -2145,6 +2176,7 @@ def postprocess_candidates(
     все остальные "середнячки".    
     """
 
+    """
     entropies = {}
     mutualinfos = {}
 
@@ -2185,6 +2217,7 @@ def postprocess_candidates(
                 mutualinfos[(y, pair)] = bootstrapped_mi
 
     return entropies, mutualinfos
+    """
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -2579,6 +2612,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         mrmr_relevance_algo: str = "fleuret",
         mrmr_redundancy_algo: str = "fleuret",
         reduce_gain_on_subelement_chosen: bool = True,
+        use_simple_mode: bool = True,
         # performance
         extra_x_shuffling: bool = True,
         dtype=np.int32,
@@ -2604,11 +2638,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_npermutations=0,
         fe_unary_preset="minimal",
         fe_binary_preset="minimal",
-        fe_max_pair_features=1,
-        fe_min_nonzero_confidence=1.0,
-        fe_min_pair_mi_prevalence=1.05,  # transformations of what exactly pairs of factors we consider, at all. mi of entire pair must be at least that higher than the mi of its individual factors.
-        fe_min_engineered_mi_prevalence=0.98,  # mi of transformed pair must be at least that higher than the mi of the entire pair
-        fe_good_to_best_feature_mi_threshold=0.98,  # when multiple good transformations exist for the same factors pair.
+        fe_max_pair_features: int = 1,
+        fe_min_nonzero_confidence: float = 1.0,
+        fe_min_pair_mi: float = 0.001,
+        fe_min_pair_mi_prevalence: float = 1.05,  # transformations of what exactly pairs of factors we consider, at all. mi of entire pair must be at least that higher than the mi of its individual factors.
+        fe_min_engineered_mi_prevalence: float = 0.98,  # mi of transformed pair must be at least that higher than the mi of the entire pair
+        fe_good_to_best_feature_mi_threshold: float = 0.98,  # when multiple good transformations exist for the same factors pair.
         fe_max_polynoms: int = 0,
         fe_print_best_mis_only: bool = True,
         fe_smart_polynom_iters: int = 0,
@@ -2632,10 +2667,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         n_features_in_: int = 0,
         feature_names_in_: Sequence = None,
         support_: np.ndarray = None,
-        stop_file:str="stop",
+        stop_file: str = "stop",
     ):
 
         # checks
+        if n_jobs == -1:
+            n_jobs = psutil.cpu_count(logical=False)
 
         # assert isinstance(estimator, (BaseEstimator,))
 
@@ -2682,6 +2719,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_binary_preset = self.fe_binary_preset
         fe_max_pair_features = self.fe_max_pair_features
         fe_min_nonzero_confidence = self.fe_min_nonzero_confidence
+        fe_min_pair_mi = self.fe_min_pair_mi
         fe_min_pair_mi_prevalence = self.fe_min_pair_mi_prevalence
         fe_min_engineered_mi_prevalence = self.fe_min_engineered_mi_prevalence
         fe_good_to_best_feature_mi_threshold = self.fe_good_to_best_feature_mi_threshold
@@ -2817,7 +2855,7 @@ class MRMR(BaseEstimator, TransformerMixin):
 
                     unary_transformations["poly_" + str(coef)] = coef
 
-            if verbose > 1:
+            if verbose > 2:
                 print(f"nunary_transformations: {len(unary_transformations):_}")
                 print(f"nbinary_transformations: {len(binary_transformations):_}")
 
@@ -2830,7 +2868,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         num_fs_steps = 0
         while True:
             n_recommended_features = 0
-            times_spent = DefaultDict(float)
+            times_spent = defaultdict(float)
             selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe, freqs_y = (
                 screen_predictors(
                     factors_data=data,
@@ -2843,6 +2881,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                     mrmr_relevance_algo=self.mrmr_relevance_algo,
                     mrmr_redundancy_algo=self.mrmr_redundancy_algo,
                     reduce_gain_on_subelement_chosen=self.reduce_gain_on_subelement_chosen,
+                    use_simple_mode=self.use_simple_mode,
                     # performance
                     extra_x_shuffling=self.extra_x_shuffling,
                     dtype=self.dtype,
@@ -2876,44 +2915,61 @@ class MRMR(BaseEstimator, TransformerMixin):
 
             # Feature engineering part here
 
+            if verbose:
+                logger.info(f"MRMR+ selected {len(selected_vars):_} out of {self.n_features_in_:_} features before the Feature Engineering step.")
+
             numeric_vars_to_consider = set(selected_vars) - set(categorical_vars)
-            for raw_vars_pair in combinations(numeric_vars_to_consider, 2):
-                # check that every element of a pair has computed its MI with target
-                for var in raw_vars_pair:
-                    if (var,) not in cached_confident_MIs and (var,) not in cached_MIs:
-                        mi, conf = mi_direct(
-                            data,
-                            x=(var,),
-                            y=target_indices,
-                            factors_nbins=nbins,
+
+            all_pairs = list(combinations(numeric_vars_to_consider, 2))
+            if len(numeric_vars_to_consider) < 50:
+                compute_pairs_mis(
+                    all_pairs=tqdmu(all_pairs, desc="Feature Engineering: getting pairs MIs", leave=False, mininterval=5),
+                    data=data,
+                    target_indices=target_indices,
+                    nbins=nbins,
+                    classes_y=classes_y,
+                    classes_y_safe=classes_y_safe,
+                    freqs_y=freqs_y,
+                    fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+                    fe_npermutations=fe_npermutations,
+                    cached_confident_MIs=cached_confident_MIs,
+                    cached_MIs=cached_MIs,
+                    fe_min_pair_mi=fe_min_pair_mi,
+                    fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
+                )
+            else:
+                prefetch_factor = 2
+                dicts = parallel_run(
+                    [
+                        delayed(compute_pairs_mis)(
+                            all_pairs=chunk,
+                            data=data,
+                            target_indices=target_indices,
+                            nbins=nbins,
                             classes_y=classes_y,
                             classes_y_safe=classes_y_safe,
                             freqs_y=freqs_y,
-                            min_nonzero_confidence=fe_min_nonzero_confidence,
-                            npermutations=fe_npermutations,
+                            fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+                            fe_npermutations=fe_npermutations,
+                            cached_confident_MIs=cached_confident_MIs,
+                            cached_MIs=cached_MIs,
+                            fe_min_pair_mi=fe_min_pair_mi,
+                            fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
                         )
-                        cached_MIs[(var,)] = mi
-
-                # ensure that pair as a whole has computed its MI with target
-                if raw_vars_pair not in cached_confident_MIs and raw_vars_pair not in cached_MIs:
-                    mi, conf = mi_direct(
-                        data,
-                        x=raw_vars_pair,
-                        y=target_indices,
-                        factors_nbins=nbins,
-                        classes_y=classes_y,
-                        classes_y_safe=classes_y_safe,
-                        freqs_y=freqs_y,
-                        min_nonzero_confidence=fe_min_nonzero_confidence,
-                        npermutations=fe_npermutations,
-                    )
-                    cached_MIs[raw_vars_pair] = mi
+                        for chunk in split_list_into_chunks(all_pairs, len(all_pairs) // (n_jobs * prefetch_factor))
+                    ],
+                    max_nbytes=0,
+                    n_jobs=n_jobs,
+                    **parallel_kwargs,
+                )
+                for next_dict in dicts:
+                    cached_MIs.update(next_dict)
 
             # ---------------------------------------------------------------------------------------------------------------
             # For every pair of factors (A,B), select ones having MI((A,B),Y)>MI(A,Y)+MI(B,Y). Such ones must posess more special connection!
             # ---------------------------------------------------------------------------------------------------------------
 
-            vars_usage_counter = DefaultDict(int)
+            vars_usage_counter = defaultdict(int)
             prospective_pairs = {}
             for raw_vars_pair, pair_mi in sort_dict_by_value(cached_MIs).items():
                 if len(raw_vars_pair) == 2:
@@ -2925,7 +2981,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                             uplift = pair_mi / ind_elems_mi_sum
                             if verbose:
                                 logger.info(
-                                    f"Factors pair {raw_vars_pair} will be considered for Feature Engineering, {pair_mi:.4f}>{ind_elems_mi_sum:.4f}, rat={uplift:.2f}"
+                                    f"Factors pair {raw_vars_pair} will be considered for Feature Engineering, {ind_elems_mi_sum:.4f}->{pair_mi:.4f}, rat={uplift:.2f}"
                                 )
                             prospective_pairs[(raw_vars_pair, pair_mi)] = uplift
                             for var in raw_vars_pair:
@@ -2933,6 +2989,8 @@ class MRMR(BaseEstimator, TransformerMixin):
 
             # Now need to sort prospective_pairs by the uplift, to check most promising pairs within the time budget.
             prospective_pairs = sort_dict_by_value(prospective_pairs, reverse=True)
+
+            #!TODO! Also need to sort them by their members usage frequency+members ids sum. this way, their splitting will benefit more from caching.
 
             if fe_smart_polynom_iters:
 
@@ -3011,243 +3069,65 @@ class MRMR(BaseEstimator, TransformerMixin):
                         print(f"Best MI: {study.best_trial.value:.4f}, pair_mi={pair_mi:.4f}")
                         print(f"Best hyperparameters: {study.best_params}")
             else:
-
-                # ---------------------------------------------------------------------------------------------------------------
-                # Starting from the most heavily connected pairs, create a big pool of original features+their unary transforms.
-                # ---------------------------------------------------------------------------------------------------------------
-
-                # individual vars referenced more than once go to the global pool, rest to the local (not stored)?
-
-                transformed_vars = np.empty(shape=(len(X), len(prospective_pairs) * len(unary_transformations) * 2), dtype=np.float32)
-                vars_transformations = {}
-                i = 0
-                for (raw_vars_pair, pair_mi), uplift in prospective_pairs.items():
-                    for var in raw_vars_pair:
-                        vals = X.iloc[:, var].values
-                        for tr_name, tr_func in unary_transformations.items():
-                            key = (var, tr_name)
-                            if key not in vars_transformations:
-                                if "poly_" in tr_name:
-                                    transformed_vars[:, i] = hermval(vals, c=tr_func)
-                                else:
-                                    transformed_vars[:, i] = tr_func(vals)
-                                vars_transformations[key] = i
-                                i += 1
-                # ---------------------------------------------------------------------------------------------------------------
-                # Then, for every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM).
-                # Record best pairs.
-                # ---------------------------------------------------------------------------------------------------------------
-
-                for (
-                    raw_vars_pair,
-                    pair_mi,
-                ), uplift in prospective_pairs.items():  # better to start considering form the most prospective pairs with highest mis ratio!
-                    combs = list(
-                        combinations(
-                            [(raw_vars_pair[0], key) for key in unary_transformations.keys()]
-                            + [(raw_vars_pair[1], key) for key in unary_transformations.keys()],
-                            2,
-                        )
-                    )
-                    combs = [
-                        transformations_pair for transformations_pair in combs if transformations_pair[0][0] != transformations_pair[1][0]
-                    ]  # let's skip trying to transform the same factor for now
-                    # print(f"trying {len(combs):_} combs")
-
-                    best_config, best_mi = None, -1
-                    var_pairs_perf = {}
-
-                    final_transformed_vals = np.empty(
-                        shape=(len(X), len(combs) * len(binary_transformations)), dtype=np.float32
-                    )  # !TODO! optimize allocation of this array before the main loop!
-
-                    i = 0
-                    for transformations_pair in tqdmu(combs, desc=f"transforming {raw_vars_pair}", leave=False):
-
-                        param_a = transformed_vars[:, vars_transformations[transformations_pair[0]]]
-                        param_b = transformed_vars[:, vars_transformations[transformations_pair[1]]]
-
-                        for bin_func_name, bin_func in binary_transformations.items():
-
-                            start = timer()
-                            final_transformed_vals[:, i] = bin_func(param_a, param_b)
-                            times_spent[bin_func_name] += timer() - start
-
-                            discretized_transformed_values = discretize_array(
-                                arr=final_transformed_vals[:, i], n_bins=self.quantization_nbins, method=self.quantization_method, dtype=self.quantization_dtype
-                            )
-                            fe_mi, fe_conf = mi_direct(
-                                discretized_transformed_values.reshape(-1, 1),
-                                x=[0],
-                                y=None,
-                                factors_nbins=[self.quantization_nbins],
-                                classes_y=classes_y,
-                                classes_y_safe=classes_y_safe,
-                                freqs_y=freqs_y,
-                                min_nonzero_confidence=fe_min_nonzero_confidence,
-                                npermutations=fe_npermutations,
-                            )
-
-                            config = (transformations_pair, bin_func_name, i)
-                            var_pairs_perf[config] = fe_mi
-
-                            if fe_mi > best_mi:
-                                best_mi = fe_mi
-                                best_config = config
-                            if fe_mi > best_mi * 0.85:
-                                if not fe_print_best_mis_only or (fe_mi == best_mi):
-                                    if verbose > 1:
-                                        print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
-                            i += 1
-                    if verbose > 1:
-                        print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")
-
-                    if best_mi / pair_mi > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025):
-
-                        # ---------------------------------------------------------------------------------------------------------------
-                        # Now, if there is a group of leaders with almost same performance, we need to approve them through some of the orther variables.
-                        # если будут возникать такие группы примерно одинаковых по силе лидеров, их придётся разрешать с помощью одного из других влияющих факторов
-                        # ---------------------------------------------------------------------------------------------------------------
-
-                        leading_features = []
-                        for next_config, next_mi in sort_dict_by_value(var_pairs_perf).items():
-                            if next_mi > best_mi * fe_good_to_best_feature_mi_threshold:
-                                leading_features.append(next_config)
-
-                        if len(leading_features) > 1:
-                            if len(numeric_vars_to_consider) > 2:
-
-                                new_vals = np.empty(shape=(len(X), fe_max_pair_features), dtype=self.quantization_dtype)
-                                new_nbins = []
-                                new_cols = []
-
-                                if verbose > 1:
-                                    print(f"Taking {len(leading_features)} new features for a separate validation step!")
-
-                                # ---------------------------------------------------------------------------------------------------------------
-                                # Now let's test all of the candidates as is against the rest of the approved factors (also as is).
-                                # Caindidates significantly outstanding (in terms of MI with target) with any of other approved factors are kept.
-                                # ---------------------------------------------------------------------------------------------------------------
-
-                                valid_pairs_perf = {}
-
-                                for transformations_pair, bin_func_name, i in leading_features:
-                                    param_a = final_transformed_vals[:, i]
-
-                                    best_valid_mi = -1
-                                    config = (transformations_pair, bin_func_name, i)
-
-                                    for external_factor in tqdmu(
-                                        set(numeric_vars_to_consider) - set(raw_vars_pair), desc="external validation factor", leave=False
-                                    ):
-                                        param_b = X.iloc[:, external_factor].values
-
-                                        for valid_bin_func_name, valid_bin_func in binary_transformations.items():
-
-                                            valid_vals = valid_bin_func(param_a, param_b)
-
-                                            discretized_transformed_values = discretize_array(
-                                                arr=valid_vals, n_bins=self.quantization_nbins, method=self.quantization_method, dtype=self.quantization_dtype
-                                            )
-                                            fe_mi, fe_conf = mi_direct(
-                                                discretized_transformed_values.reshape(-1, 1),
-                                                x=[0],
-                                                y=None,
-                                                factors_nbins=[self.quantization_nbins],
-                                                classes_y=classes_y,
-                                                classes_y_safe=classes_y_safe,
-                                                freqs_y=freqs_y,
-                                                min_nonzero_confidence=fe_min_nonzero_confidence,
-                                                npermutations=fe_npermutations,
-                                            )
-
-                                            if fe_mi > best_valid_mi:
-                                                best_valid_mi = fe_mi
-                                                if verbose > 1:
-                                                    print(
-                                                        f"MI of transformed pair {valid_bin_func_name}({(transformations_pair,bin_func_name)} with ext factor {external_factor})={fe_mi:.4f}"
-                                                    )
-
-                                    valid_pairs_perf[config] = best_valid_mi
-
-                                # ---------------------------------------------------------------------------------------------------------------
-                                # Now we recommend proceeding with top N best transformations!
-                                # ---------------------------------------------------------------------------------------------------------------
-
-                                for j, (config, valid_mi) in enumerate(sort_dict_by_value(valid_pairs_perf, reverse=True).items()):
-                                    if j < fe_max_pair_features:
-                                        new_feature_name = get_new_feature_name(fe_tuple=config, cols_names=cols)
-                                        if verbose:
-                                            logger.info(
-                                                f"{new_feature_name} is recommended to use as a new feature! (won in validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
-                                            )
-                                        transformations_pair, bin_func_name, i = config
-
-                                        new_vals[:, j] = discretize_array(
-                                            arr=final_transformed_vals[:, i],
-                                            n_bins=self.quantization_nbins,
-                                            method=self.quantization_method,
-                                            dtype=self.quantization_dtype,
-                                        )
-                                        new_nbins += [self.quantization_nbins]
-                                        new_cols += [new_feature_name]
-                                        X[new_feature_name] = final_transformed_vals[:, i]
-                                        engineered_features.add((transformations_pair, bin_func_name))
-
-                                    else:
-                                        break
-                                new_vals = new_vals[:, : min(fe_max_pair_features, j)]
-                            else:
-                                if verbose:
-                                    logger.warning(
-                                        f"{len(leading_features)} are recommended to use as new features! (can't narrow down the list by validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
-                                    )
-
-                                for j, (transformations_pair, bin_func_name, i) in enumerate(leading_features):
-                                    new_vals[:, j] = discretize_array(
-                                        arr=final_transformed_vals[:, i],
-                                        n_bins=self.quantization_nbins,
-                                        method=self.quantization_method,
-                                        dtype=self.quantization_dtype,
-                                    )
-                                    new_nbins += [self.quantization_nbins]
-                                    new_cols += [new_feature_name]
-                                    X[new_feature_name] = final_transformed_vals[:, i]
-                                    engineered_features.add((transformations_pair, bin_func_name))
-                        else:
-                            new_feature_name = get_new_feature_name(fe_tuple=best_config, cols_names=cols)
-                            if verbose:
-                                logger.info(
-                                    f"{new_feature_name} is recommended to use as a new feature! (clear winner) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
+                prospective_additions = check_prospective_fe_pairs(
+                    prospective_pairs,
+                    X,
+                    unary_transformations,
+                    binary_transformations,
+                    classes_y,
+                    classes_y_safe,
+                    freqs_y,
+                    num_fs_steps,
+                    cols,
+                    fe_max_steps,
+                    fe_npermutations,
+                    fe_max_pair_features,
+                    fe_print_best_mis_only,
+                    fe_min_nonzero_confidence,
+                    fe_min_engineered_mi_prevalence,
+                    fe_good_to_best_feature_mi_threshold,
+                    numeric_vars_to_consider,
+                    self.quantization_nbins,
+                    self.quantization_method,
+                    self.quantization_dtype,
+                    times_spent,
+                    verbose,
+                )
+                for raw_vars_pair, (this_pair_features, transformed_vals, new_cols, new_nbins) in prospective_additions.items():
+                    if this_pair_features:
+                        engineered_features.update(this_pair_features)
+                        if fe_max_steps > 1:
+                            new_vals = np.empty(shape=(len(X), len(this_pair_features)), dtype=self.quantization_dtype)
+                            for j in range(len(this_pair_features)):
+                                new_vals[:, j] = discretize_array(
+                                    arr=transformed_vals[:, j],
+                                    n_bins=self.quantization_nbins,
+                                    method=self.quantization_method,
+                                    dtype=self.quantization_dtype,
                                 )
+                            data = np.append(data, new_vals, axis=1)
+                            nbins = nbins + new_nbins
+                            cols = cols + new_cols
+                            for col in new_cols:
+                                X[col] = transformed_vals[:, j]
 
-                            transformations_pair, bin_func_name, i = best_config
+                        n_recommended_features += len(this_pair_features)
 
-                            new_vals = discretize_array(
-                                arr=final_transformed_vals[:, i], n_bins=self.quantization_nbins, method=self.quantization_method, dtype=self.quantization_dtype
-                            ).reshape(-1, 1)
-                            new_nbins = [self.quantization_nbins]
-                            new_cols = [new_feature_name]
-                            X[new_feature_name] = final_transformed_vals[:, i]
-                            engineered_features.add((transformations_pair, bin_func_name))
-
-                        data = np.append(data, new_vals, axis=1)
-                        nbins = nbins + new_nbins
-                        cols = cols + new_cols
-
-                        n_recommended_features += len(new_cols)
-
-                        # !TODO!  handle factors_to_use etc
-                        """
-                        factors_names_to_use=self.factors_names_to_use,
-                        factors_to_use=self.factors_to_use,                    
+                    # !TODO!  handle factors_to_use etc
+                    """
+                    factors_names_to_use=self.factors_names_to_use,
+                    factors_to_use=self.factors_to_use,                    
                         """
                     checked_pairs.add(raw_vars_pair)
 
             if n_recommended_features == 0:
                 break
+
             num_fs_steps += 1
-        if verbose > 1:
+            if num_fs_steps >= fe_max_steps:
+                break  # uncomment to avoid recheck of single-rounded FE
+
+        if verbose > 2:
             print("time spent by binary func:", sort_dict_by_value(times_spent))
         # Possibly decide on eliminating original features? (if constructed ones cover 90%+ of MI)
 
@@ -3290,6 +3170,307 @@ class MRMR(BaseEstimator, TransformerMixin):
             return X.iloc[:, self.support_]
         else:
             return X[:, self.support_]
+
+
+def check_prospective_fe_pairs(
+    prospective_pairs,
+    X,
+    unary_transformations,
+    binary_transformations,
+    classes_y,
+    classes_y_safe,
+    freqs_y,
+    num_fs_steps,
+    cols,
+    fe_max_steps,
+    fe_npermutations,
+    fe_max_pair_features,
+    fe_print_best_mis_only,
+    fe_min_nonzero_confidence,
+    fe_min_engineered_mi_prevalence,
+    fe_good_to_best_feature_mi_threshold,
+    numeric_vars_to_consider,
+    quantization_nbins,
+    quantization_method,
+    quantization_dtype,
+    times_spent,
+    verbose,
+):
+    # ---------------------------------------------------------------------------------------------------------------
+    # Starting from the most heavily connected pairs, create a big pool of original features+their unary transforms.
+    # ---------------------------------------------------------------------------------------------------------------
+
+    # individual vars referenced more than once go to the global pool, rest to the local (not stored)?
+
+    res = {}
+
+    if verbose:
+        logging.info(f"Creating a pool of {len(prospective_pairs) * len(unary_transformations) * 2:_} unary transfomrations.")
+
+    transformed_vars = np.empty(shape=(len(X), len(prospective_pairs) * len(unary_transformations) * 2), dtype=np.float32)
+
+    vars_transformations = {}
+    i = 0
+    for (raw_vars_pair, pair_mi), uplift in prospective_pairs.items():
+        for var in raw_vars_pair:
+            vals = X.iloc[:, var].values
+            for tr_name, tr_func in unary_transformations.items():
+                key = (var, tr_name)
+                if key not in vars_transformations:
+                    if "poly_" in tr_name:
+                        transformed_vars[:, i] = hermval(vals, c=tr_func)
+                    else:
+                        transformed_vars[:, i] = tr_func(vals)
+                    vars_transformations[key] = i
+                    i += 1
+
+    if verbose:
+        logging.info(f"Created. For every pair from the pool, trying all known functions.")
+
+    # ---------------------------------------------------------------------------------------------------------------
+    # Then, for every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM).
+    # Record best pairs.
+    # ---------------------------------------------------------------------------------------------------------------
+
+    for (
+        raw_vars_pair,
+        pair_mi,
+    ), uplift in prospective_pairs.items():  # better to start considering form the most prospective pairs with highest mis ratio!
+        combs = list(
+            combinations(
+                [(raw_vars_pair[0], key) for key in unary_transformations.keys()] + [(raw_vars_pair[1], key) for key in unary_transformations.keys()],
+                2,
+            )
+        )
+        combs = [
+            transformations_pair for transformations_pair in combs if transformations_pair[0][0] != transformations_pair[1][0]
+        ]  # let's skip trying to transform the same factor for now
+        # print(f"trying {len(combs):_} combs")
+
+        best_config, best_mi = None, -1
+        this_pair_features = {}
+        var_pairs_perf = {}
+
+        final_transformed_vals = np.empty(
+            shape=(len(X), len(combs) * len(binary_transformations)), dtype=np.float32
+        )  # !TODO! optimize allocation of this array before the main loop!
+
+        i = 0
+        for transformations_pair in tqdmu(combs, desc=f"transforming {raw_vars_pair}", leave=False):
+
+            param_a = transformed_vars[:, vars_transformations[transformations_pair[0]]]
+            param_b = transformed_vars[:, vars_transformations[transformations_pair[1]]]
+
+            for bin_func_name, bin_func in binary_transformations.items():
+
+                start = timer()
+                final_transformed_vals[:, i] = bin_func(param_a, param_b)
+                times_spent[bin_func_name] += timer() - start
+
+                discretized_transformed_values = discretize_array(
+                    arr=final_transformed_vals[:, i], n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
+                )
+                fe_mi, fe_conf = mi_direct(
+                    discretized_transformed_values.reshape(-1, 1),
+                    x=[0],
+                    y=None,
+                    factors_nbins=[quantization_nbins],
+                    classes_y=classes_y,
+                    classes_y_safe=classes_y_safe,
+                    freqs_y=freqs_y,
+                    min_nonzero_confidence=fe_min_nonzero_confidence,
+                    npermutations=fe_npermutations,
+                )
+
+                config = (transformations_pair, bin_func_name, i)
+                var_pairs_perf[config] = fe_mi
+
+                if fe_mi > best_mi:
+                    best_mi = fe_mi
+                    best_config = config
+                if fe_mi > best_mi * 0.85:
+                    if not fe_print_best_mis_only or (fe_mi == best_mi):
+                        if verbose > 2:
+                            print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
+                i += 1
+
+        if verbose > 2:
+            print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")
+
+        if best_mi / pair_mi > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025):  # Best transformation is good enough
+
+            # ---------------------------------------------------------------------------------------------------------------
+            # Now, if there is a group of leaders with almost same performance, we need to approve them through some of the orther variables.
+            # если будут возникать такие группы примерно одинаковых по силе лидеров, их придётся разрешать с помощью одного из других влияющих факторов
+            # ---------------------------------------------------------------------------------------------------------------
+
+            leading_features = []
+            for next_config, next_mi in sort_dict_by_value(var_pairs_perf).items():
+                if next_mi > best_mi * fe_good_to_best_feature_mi_threshold:
+                    leading_features.append(next_config)
+
+            if len(leading_features) > 1:
+                if len(numeric_vars_to_consider) > 2:
+
+                    if verbose > 2:
+                        print(f"Taking {len(leading_features)} new features for a separate validation step!")
+
+                    # ---------------------------------------------------------------------------------------------------------------
+                    # Now let's test all of the candidates as is against the rest of the approved factors (also as is).
+                    # Caindidates significantly outstanding (in terms of MI with target) with any of other approved factors are kept.
+                    # ---------------------------------------------------------------------------------------------------------------
+
+                    valid_pairs_perf = {}
+
+                    for transformations_pair, bin_func_name, i in leading_features:
+                        param_a = final_transformed_vals[:, i]
+
+                        best_valid_mi = -1
+                        config = (transformations_pair, bin_func_name, i)
+
+                        for external_factor in tqdmu(set(numeric_vars_to_consider) - set(raw_vars_pair), desc="external validation factor", leave=False):
+                            param_b = X.iloc[:, external_factor].values
+
+                            for valid_bin_func_name, valid_bin_func in binary_transformations.items():
+
+                                valid_vals = valid_bin_func(param_a, param_b)
+
+                                discretized_transformed_values = discretize_array(
+                                    arr=valid_vals, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
+                                )
+                                fe_mi, fe_conf = mi_direct(
+                                    discretized_transformed_values.reshape(-1, 1),
+                                    x=[0],
+                                    y=None,
+                                    factors_nbins=[quantization_nbins],
+                                    classes_y=classes_y,
+                                    classes_y_safe=classes_y_safe,
+                                    freqs_y=freqs_y,
+                                    min_nonzero_confidence=fe_min_nonzero_confidence,
+                                    npermutations=fe_npermutations,
+                                )
+
+                                if fe_mi > best_valid_mi:
+                                    best_valid_mi = fe_mi
+                                    if verbose > 2:
+                                        print(
+                                            f"MI of transformed pair {valid_bin_func_name}({(transformations_pair,bin_func_name)} with ext factor {external_factor})={fe_mi:.4f}"
+                                        )
+
+                        valid_pairs_perf[config] = best_valid_mi
+
+                    # ---------------------------------------------------------------------------------------------------------------
+                    # Now we recommend proceeding with top N best transformations!
+                    # ---------------------------------------------------------------------------------------------------------------
+
+                    for j, (config, valid_mi) in enumerate(sort_dict_by_value(valid_pairs_perf, reverse=True).items()):
+                        if j < fe_max_pair_features:
+                            new_feature_name = get_new_feature_name(fe_tuple=config, cols_names=cols)
+                            if verbose:
+                                logger.info(
+                                    f"{new_feature_name} is recommended to use as a new feature! (won in validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
+                                )
+                            this_pair_features.add((config, j))
+                        else:
+                            break
+                else:
+                    if verbose:
+                        logger.warning(
+                            f"{len(leading_features)} are recommended to use as new features! (can't narrow down the list by validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
+                        )
+                    for j, config in enumerate(leading_features):
+                        if j < fe_max_pair_features:
+                            this_pair_features.add((config, j))
+            else:
+                new_feature_name = get_new_feature_name(fe_tuple=best_config, cols_names=cols)
+                if verbose:
+                    logger.info(
+                        f"{new_feature_name} is recommended to use as a new feature! (clear winner) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
+                    )
+                j = 0
+                this_pair_features.add((best_config, j))
+
+            if this_pair_features:
+
+                # ---------------------------------------------------------------------------------------------------------------
+                # Bulk adding of found & checked best features.
+                # ---------------------------------------------------------------------------------------------------------------
+
+                if fe_max_steps > 1:
+
+                    transformed_vals = np.empty(shape=(len(X), fe_max_pair_features), dtype=quantization_dtype)
+                    new_nbins = []
+                    new_cols = []
+
+                    for config, j in this_pair_features:
+                        new_feature_name = get_new_feature_name(fe_tuple=config, cols_names=cols)
+                        transformations_pair, bin_func_name, i = config
+
+                        transformed_vals[:, j] = final_transformed_vals[:, i]
+                        new_nbins += [quantization_nbins]
+                        new_cols += [new_feature_name]
+
+                    transformed_vals = transformed_vals[:, : min(fe_max_pair_features, j)]
+            else:
+                transformed_vals, new_cols, new_nbins = None, None, None
+
+            res[raw_vars_pair] = (this_pair_features, transformed_vals, new_cols, new_nbins)
+
+    return res
+
+
+def compute_pairs_mis(
+    all_pairs: Sequence,
+    data,
+    target_indices,
+    nbins,
+    classes_y,
+    classes_y_safe,
+    freqs_y,
+    fe_min_nonzero_confidence,
+    fe_npermutations,
+    cached_confident_MIs: dict,
+    cached_MIs: dict,
+    fe_min_pair_mi: float,
+    fe_min_pair_mi_prevalence: float,
+):
+    for raw_vars_pair in all_pairs:
+        # check that every element of a pair has computed its MI with target
+        for var in raw_vars_pair:
+            if (var,) not in cached_confident_MIs and (var,) not in cached_MIs:
+                mi, conf = mi_direct(
+                    data,
+                    x=(var,),
+                    y=target_indices,
+                    factors_nbins=nbins,
+                    classes_y=classes_y,
+                    classes_y_safe=classes_y_safe,
+                    freqs_y=freqs_y,
+                    min_nonzero_confidence=fe_min_nonzero_confidence,
+                    npermutations=fe_npermutations,
+                )
+                cached_MIs[(var,)] = mi
+
+        # ensure that pair as a whole has computed its MI with target
+        if raw_vars_pair not in cached_confident_MIs and raw_vars_pair not in cached_MIs:
+            ind_elems_mi_sum = cached_MIs[(raw_vars_pair[0],)] + cached_MIs[(raw_vars_pair[1],)]
+            if ind_elems_mi_sum > fe_min_pair_mi:
+                mi, conf = mi_direct(
+                    data,
+                    x=raw_vars_pair,
+                    y=target_indices,
+                    factors_nbins=nbins,
+                    classes_y=classes_y,
+                    classes_y_safe=classes_y_safe,
+                    freqs_y=freqs_y,
+                    min_nonzero_confidence=fe_min_nonzero_confidence,
+                    npermutations=fe_npermutations,
+                )
+
+                if mi > ind_elems_mi_sum * fe_min_pair_mi_prevalence:
+                    cached_MIs[raw_vars_pair] = mi
+
+    return cached_MIs
 
 
 def get_existing_feature_name(fe_tuple: tuple, cols_names: Sequence) -> str:

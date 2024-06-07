@@ -174,7 +174,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         mean_perf_weight: float = 1.0,
         std_perf_weight: float = 0.1,
         feature_cost: float = 0.00 / 100,
-        smooth_perf: int = 3,
+        smooth_perf: int = 0,
         # stopping conditions
         max_runtime_mins: float = None,
         max_refits: int = None,
@@ -508,15 +508,17 @@ class RFECV(BaseEstimator, TransformerMixin):
                     # print(f"Best dummy score (at 0 features, fold {nfold}): {best_dummy_score}")
 
             if 0 not in evaluated_scores_mean:
-                store_averaged_cv_scores(pos=0, scores=dummy_scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std)
+                scores_mean, scores_std = store_averaged_cv_scores(
+                    pos=0, scores=dummy_scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std
+                )
                 if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
-                    Optimizer.submit_evaluations(candidates=[0], evaluations=[np.array(dummy_scores).mean()], durations=[None])
+                    Optimizer.submit_evaluations(candidates=[0], evaluations=[scores_mean - scores_std], durations=[None])
 
             scores_mean, scores_std = store_averaged_cv_scores(
                 pos=len(current_features), scores=scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std
             )
             if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
-                Optimizer.submit_evaluations(candidates=[len(current_features)], evaluations=[scores_mean], durations=[None])
+                Optimizer.submit_evaluations(candidates=[len(current_features)], evaluations=[scores_mean - scores_std], durations=[None])
 
                 if verbose:
                     logger.info(
@@ -716,8 +718,10 @@ def split_into_train_test(
 
 
 def store_averaged_cv_scores(pos: int, scores: list, evaluated_scores_mean: dict, evaluated_scores_std: dict) -> None:
+
     scores = np.array(scores)
-    scores_mean, scores_std = np.mean(scores), np.std(scores)
+    scores_mean, scores_std = np.median(scores), np.std(scores)
+
     evaluated_scores_mean[pos] = scores_mean
     evaluated_scores_std[pos] = scores_std
 
