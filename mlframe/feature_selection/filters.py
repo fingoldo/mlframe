@@ -19,41 +19,48 @@ while True:
         import copy
         import psutil
         from collections import defaultdict
+        from timeit import default_timer as timer
 
         import pandas as pd, numpy as np, cupy as cp
+        from itertools import combinations
         from os.path import exists
+        import math
         import os
         import gc
 
         from pyutilz.system import tqdmu
-        from mlframe.utils import set_random_seed
+        from pyutilz.pythonlib import sort_dict_by_value
         from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
         from pyutilz.parallel import mem_map_array, split_list_into_chunks, parallel_run
         from pyutilz.numbalib import set_numba_random_seed, arr2str, python_dict_2_numba_dict, generate_combinations_recursive_njit
 
         # from mlframe.boruta_shap import BorutaShap
-        from timeit import default_timer as timer
 
         from scipy.stats import mode
         from scipy import special as sp
-        from itertools import combinations
+        from astropy.stats import histogram
         from numpy.polynomial.hermite import hermval
-        from pyutilz.pythonlib import sort_dict_by_value
+
+        from catboost import CatBoostClassifier
+        from sklearn.metrics import make_scorer
+
+        from mlframe.arrays import arrayMinMax
+        from mlframe.utils import set_random_seed
+        from mlframe.training import get_training_configs
+        from mlframe.feature_selection.wrappers import RFECV
+        from mlframe.metrics import compute_probabilistic_multiclass_error
 
         from sklearn.preprocessing import KBinsDiscretizer, OrdinalEncoder
         from sklearn.model_selection import KFold
         from sklearn.base import is_classifier, is_regressor, BaseEstimator, TransformerMixin
         from sklearn.impute import SimpleImputer
         from itertools import combinations
+
         from numba.core import types
-        from mlframe.arrays import arrayMinMax
         from numba import njit, jit
         import numba
-        import math
 
         from joblib import Parallel, delayed
-
-        from astropy.stats import histogram
 
         from numba import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
         import warnings
@@ -2612,7 +2619,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         mrmr_relevance_algo: str = "fleuret",
         mrmr_redundancy_algo: str = "fleuret",
         reduce_gain_on_subelement_chosen: bool = True,
-        use_simple_mode: bool = True,
+        use_simple_mode: bool = True,  # when true, works very fast but leaves redundant features
+        run_additional_rfecv_minutes: bool = False,
         # performance
         extra_x_shuffling: bool = True,
         dtype=np.int32,
@@ -2644,6 +2652,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_min_pair_mi_prevalence: float = 1.05,  # transformations of what exactly pairs of factors we consider, at all. mi of entire pair must be at least that higher than the mi of its individual factors.
         fe_min_engineered_mi_prevalence: float = 0.98,  # mi of transformed pair must be at least that higher than the mi of the entire pair
         fe_good_to_best_feature_mi_threshold: float = 0.98,  # when multiple good transformations exist for the same factors pair.
+        fe_max_external_validation_factors: int = 100,  # how many other factors to validate against
         fe_max_polynoms: int = 0,
         fe_print_best_mis_only: bool = True,
         fe_smart_polynom_iters: int = 0,
@@ -2723,6 +2732,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_min_pair_mi_prevalence = self.fe_min_pair_mi_prevalence
         fe_min_engineered_mi_prevalence = self.fe_min_engineered_mi_prevalence
         fe_good_to_best_feature_mi_threshold = self.fe_good_to_best_feature_mi_threshold
+        fe_max_external_validation_factors = self.fe_max_external_validation_factors
         fe_max_polynoms = self.fe_max_polynoms
         fe_print_best_mis_only = self.fe_print_best_mis_only
         fe_smart_polynom_iters = self.fe_smart_polynom_iters
@@ -2841,6 +2851,9 @@ class MRMR(BaseEstimator, TransformerMixin):
         n_jobs:int=-1,  
         """
 
+        categorical_vars_names = X.head().select_dtypes(include=("category", "object", "bool")).columns.values.tolist()
+        categorical_vars = [cols.index(col) for col in categorical_vars_names]
+
         if fe_max_steps > 0:
             unary_transformations = create_unary_transformations(preset=fe_unary_preset)
             binary_transformations = create_binary_transformations(preset=fe_binary_preset)
@@ -2858,9 +2871,6 @@ class MRMR(BaseEstimator, TransformerMixin):
             if verbose > 2:
                 print(f"nunary_transformations: {len(unary_transformations):_}")
                 print(f"nbinary_transformations: {len(binary_transformations):_}")
-
-            categorical_vars = X.head().select_dtypes(include=("category", "object", "bool")).columns.values.tolist()
-            categorical_vars = [cols.index(col) for col in categorical_vars]
 
             engineered_features = set()
             checked_pairs = set()
@@ -3088,6 +3098,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                         fe_min_nonzero_confidence,
                         fe_min_engineered_mi_prevalence,
                         fe_good_to_best_feature_mi_threshold,
+                        fe_max_external_validation_factors,
                         numeric_vars_to_consider,
                         self.quantization_nbins,
                         self.quantization_method,
@@ -3136,6 +3147,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                                 fe_min_nonzero_confidence,
                                 fe_min_engineered_mi_prevalence,
                                 fe_good_to_best_feature_mi_threshold,
+                                fe_max_external_validation_factors,
                                 numeric_vars_to_consider,
                                 self.quantization_nbins,
                                 self.quantization_method,
@@ -3200,8 +3212,39 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         X.drop(columns=target_names, inplace=True)
 
+        if self.run_additional_rfecv_minutes:
+            """On the factors discarded by MRMR, let's run RFECV to see if any of them participate in interactions"""
+            n_unexplored = X.shape[1] - len(selected_vars)
+            if n_unexplored > 0:
+                if verbose:
+                    logger.info(f"Running RFECV over {n_unexplored:_} feature(s) discarded by MRMR to extract interactions...")
+
+                params = configs.COMMON_RFECV_PARAMS.copy()
+                params["max_runtime_mins"] = self.run_additional_rfecv_minutes
+
+                if len(y) / len(np.unique(y)) > 100:  # classification
+
+                    configs = get_training_configs(has_time=True)
+
+                    cb_num_rfecv = RFECV(
+                        estimator=CatBoostClassifier(**configs.CB_GENERAL_CLASSIF),
+                        fit_params=dict(plot=False),
+                        cat_features=categorical_vars_names,
+                        scoring=make_scorer(
+                            score_func=compute_probabilistic_multiclass_error, needs_proba=True, needs_threshold=False, greater_is_better=False
+                        ),
+                        **params,
+                    )
+                    temp_columns = list(set(X.columns) - set(X.columns[selected_vars]))
+                    cb_num_rfecv.fit(X[temp_columns], y)
+                    new_features = np.array(temp_columns)[cb_num_rfecv.support_]
+                    if verbose:
+                        logger.info(f"RFECV selected {cb_num_rfecv.n_features_:_} additional feature(s): {new_features}")
+                    if cb_num_rfecv.n_features_ > 0:
+                        for feature in new_features:
+                            selected_vars.append(self.feature_names_in_.find(feature))
         # ---------------------------------------------------------------------------------------------------------------
-        # assign support
+        # Assign support
         # ---------------------------------------------------------------------------------------------------------------
 
         self.support_ = selected_vars
@@ -3252,6 +3295,7 @@ def check_prospective_fe_pairs(
     fe_min_nonzero_confidence,
     fe_min_engineered_mi_prevalence,
     fe_good_to_best_feature_mi_threshold,
+    fe_max_external_validation_factors,
     numeric_vars_to_consider,
     quantization_nbins,
     quantization_method,
@@ -3395,7 +3439,11 @@ def check_prospective_fe_pairs(
                         best_valid_mi = -1
                         config = (transformations_pair, bin_func_name, i)
 
-                        for external_factor in tqdmu(set(numeric_vars_to_consider) - set(raw_vars_pair), desc="external validation factor", leave=False):
+                        external_factors = list(set(numeric_vars_to_consider) - set(raw_vars_pair))
+                        if len(external_factors) > fe_max_external_validation_factors:
+                            external_factors = np.random.choice(external_factors, fe_max_external_validation_factors)
+
+                        for external_factor in tqdmu(external_factors, desc="external validation factor", leave=False):
                             param_b = X.iloc[:, external_factor].values
 
                             for valid_bin_func_name, valid_bin_func in binary_transformations.items():

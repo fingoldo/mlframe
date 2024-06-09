@@ -71,17 +71,17 @@ all_results = {}
 
 
 def get_training_configs(
-    iterations: int = 2000,
+    iterations: int = 4000,
     early_stopping_rounds: int = 0,
     use_explicit_early_stopping: bool = True,
     has_time: bool = True,
     learning_rate: float = 0.1,
-    mae_weight: float = 1.0,
-    std_weight: float = 1.0,
-    roc_auc_weight: float = 0.7,
-    brier_loss_weight: float = 0.5,
-    min_roc_auc: float = 0.51,
-    roc_auc_penalty: float = 0.2,
+    mae_weight: float = 0.5,
+    std_weight: float = 0.5,
+    roc_auc_weight: float = 1.5,
+    brier_loss_weight: float = 0.2,
+    min_roc_auc: float = 0.54,
+    roc_auc_penalty: float = 0.00,
     use_weighted_calibration: bool = True,
     weight_by_class_npositives: bool = False,
     nbins: int = 100,
@@ -312,6 +312,9 @@ def train_and_evaluate_model(
     else:
         model_type_name = type(model).__name__
 
+    if model_type_name not in model_name:
+        model_name=model_type_name+" "+model_name
+
     if fit_params is None:
         fit_params = {}
 
@@ -406,7 +409,7 @@ def train_and_evaluate_model(
             )
 
         if df is not None:
-            report_title = f"Training {model_name} model on {train_df.shape[1]} feature(s): {', '.join(train_df.columns.to_list())}, {len(train_df):_} records"
+            report_title = f"Training {model_name} model on {train_df.shape[1]} feature(s): {', '.join(train_df.columns.to_list())}, {len(train_df):_} records" # textwrap.shorten("Hello world", width=10, placeholder="...")
             test_df = df.loc[test_idx].drop(columns=real_drop_columns)
             if model and pre_pipeline:
                 test_df = pre_pipeline.transform(test_df)
@@ -445,12 +448,19 @@ def train_and_evaluate_model(
             if test_df is not None:
                 confidence_clf=CatBoostRegressor(verbose=0,eval_fraction=0.1,task_type=("GPU" if CUDA_IS_AVAILABLE else "CPU"))
                 
-                fit_params_copy=copy.copy(fit_params)
-                if 'eval_set' in fit_params_copy: del fit_params_copy['eval_set']
+                if model_type_name == type(confidence_clf).__name__:
+                    fit_params_copy=copy.copy(fit_params)
+                    if 'eval_set' in fit_params_copy: del fit_params_copy['eval_set']
+                else:
+                    fit_params_copy={}
+                
+                if 'cat_features' not in fit_params_copy:
+                    fit_params_copy[ 'cat_features']=test_df.head().select_dtypes('category').columns.tolist()
+
                 fit_params_copy['plot']=False
 
                 confidence_clf.fit(test_df,test_probs[np.arange(test_probs.shape[0]), target.loc[test_idx]], **fit_params_copy)
-                plot_model_feature_importances(model=confidence_clf,columns=test_df.columns,model_name="Confidence Analysis [factors that change our accuracy]",num_factors=5,figsize=(figsize[0]/2,figsize[1]/2))
+                plot_model_feature_importances(model=confidence_clf,columns=test_df.columns,model_name="Confidence Analysis [factors that change our accuracy]",num_factors=5,figsize=(figsize[0]*0.7,figsize[1]/2))
 
     return model, test_preds, test_probs, val_preds, val_probs, columns, pre_pipeline
 
@@ -541,7 +551,7 @@ def report_probabilistic_model_perf(
         roc_aucs.append(f"{str_class_name}={roc_auc:.{digits}f}")
         brs.append(f"{str_class_name}={brier_loss * 100:.{digits}f}%")
 
-        if show_fi: plot_model_feature_importances(model=model,columns=columns,model_name=model_name,figsize=figsize)
+        if show_fi: plot_model_feature_importances(model=model,columns=columns,model_name=model_name,figsize=(15,10))
 
     if print_report:
         print(report_title)

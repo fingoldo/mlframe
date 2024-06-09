@@ -172,7 +172,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         fit_params: dict = {},
         max_nfeatures: int = None,
         mean_perf_weight: float = 1.0,
-        std_perf_weight: float = 0.1,
+        std_perf_weight: float = 1.0,
         feature_cost: float = 0.00 / 100,
         smooth_perf: int = 0,
         # stopping conditions
@@ -522,7 +522,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
                 if verbose:
                     logger.info(
-                        f"trying nfeatures={len(current_features)}, score={scores_mean:.6f}, len(train_index)={len(train_index)}, len(test_index)={len(test_index)}"
+                        f"trying nfeatures={len(current_features)}, score={scores_mean - scores_std:.6f}, len(train_index)={len(train_index)}, len(test_index)={len(test_index)}"
                     )
 
             # ----------------------------------------------------------------------------------------------------------------------------
@@ -607,9 +607,9 @@ class RFECV(BaseEstimator, TransformerMixin):
         cv_mean_perf: np.ndarray,
         cv_std_perf: np.ndarray,
         mean_perf_weight: float = 1.0,
-        std_perf_weight: float = 0.1,
-        feature_cost: float = 0.01 / 100,
-        smooth_perf: int = 3,
+        std_perf_weight: float = 1.0,
+        feature_cost: float = 0.00 / 100,
+        smooth_perf: int = 0,
         use_all_fi_runs: bool = True,
         use_last_fi_run_only: bool = False,
         use_one_freshest_fi_run: bool = False,
