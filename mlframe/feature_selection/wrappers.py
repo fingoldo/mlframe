@@ -511,6 +511,10 @@ class RFECV(BaseEstimator, TransformerMixin):
                 scores_mean, scores_std = store_averaged_cv_scores(
                     pos=0, scores=dummy_scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std
                 )
+                if verbose:
+                    logger.info(
+                        f"baseline with nfeatures=0, score={scores_mean:.6f} ± {scores_std:.6f}, len(train_index)={len(train_index)}, len(test_index)={len(test_index)}"
+                    )
                 if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
                     Optimizer.submit_evaluations(candidates=[0], evaluations=[scores_mean - scores_std], durations=[None])
 
@@ -522,8 +526,16 @@ class RFECV(BaseEstimator, TransformerMixin):
 
                 if verbose:
                     logger.info(
-                        f"trying nfeatures={len(current_features)}, score={scores_mean - scores_std:.6f}, len(train_index)={len(train_index)}, len(test_index)={len(test_index)}"
+                        f"trying nfeatures={len(current_features)}, score={scores_mean:.6f} ± {scores_std:.6f}, len(train_index)={len(train_index)}, len(test_index)={len(test_index)}"
                     )
+
+            if len(evaluated_scores_mean) == 2:
+                # only 2 cases covered currently: 0 features & all features
+                if evaluated_scores_mean[0] - evaluated_scores_std[0] > scores_mean - scores_std:
+                    logger.info(
+                        f"Stopping RFECV early: performance with no features {evaluated_scores_mean[0] - evaluated_scores_std[0]:.6f} is not worse than wit all features {scores_mean - scores_std:.6f}."
+                    )
+                    break
 
             # ----------------------------------------------------------------------------------------------------------------------------
             # Checking exit conditions
@@ -570,7 +582,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         # ----------------------------------------------------------------------------------------------------------------------------
 
         self.n_features_in_ = X.shape[1]
-        self.feature_names_in_ = X.columns if isinstance(X, pd.DataFrame) else map(str, np.arange(self.n_features_in_))
+        self.feature_names_in_ = X.columns.tolist() if isinstance(X, pd.DataFrame) else list(map(str, np.arange(self.n_features_in_)))
 
         self.estimators_ = fitted_estimators  # a dict with key=nfeatures_nfold
         self.feature_importances_ = feature_importances  # a dict with key=nfeatures_nfold
@@ -660,25 +672,37 @@ class RFECV(BaseEstimator, TransformerMixin):
         # after making a cutoff decision:
 
         self.n_features_ = best_top_n
+        if best_top_n == 0:
+            self.support_ = np.array([])
+        else:
 
-        # last time vote for feature_importances using all info up to date
+            if True:
 
-        fi_to_consider = select_appropriate_feature_importances(
-            feature_importances=self.feature_importances_,
-            nfeatures=best_top_n,
-            n_original_features=self.n_features_in_,
-            use_all_fi_runs=use_all_fi_runs,
-            use_last_fi_run_only=use_last_fi_run_only,
-            use_one_freshest_fi_run=use_one_freshest_fi_run,
-            use_fi_ranking=use_fi_ranking,
-        )
+                # An obvious solution is to return exact features that we used when measuring scores.
+                self.support_ = np.array([self.feature_names_in_.index(feature_name) for feature_name in self.selected_features_[best_top_n]])
 
-        self.ranking_ = get_actual_features_ranking(
-            feature_importances=fi_to_consider,
-            votes_aggregation_method=votes_aggregation_method,
-        )
+            else:
 
-        self.support_ = np.array([(i in self.ranking_[:best_top_n]) for i in self.feature_names_in_])
+                # ----------------------------------------------------------------------------------------------------------------------------
+                # A more advanced alternative would be to last time vote for feature_importances using all info up to date
+                # ----------------------------------------------------------------------------------------------------------------------------
+
+                fi_to_consider = select_appropriate_feature_importances(
+                    feature_importances=self.feature_importances_,
+                    nfeatures=best_top_n,
+                    n_original_features=self.n_features_in_,
+                    use_all_fi_runs=use_all_fi_runs,
+                    use_last_fi_run_only=use_last_fi_run_only,
+                    use_one_freshest_fi_run=use_one_freshest_fi_run,
+                    use_fi_ranking=use_fi_ranking,
+                )
+
+                self.ranking_ = get_actual_features_ranking(
+                    feature_importances=fi_to_consider,
+                    votes_aggregation_method=votes_aggregation_method,
+                )
+
+                self.support_ = np.array([(i in self.ranking_[:best_top_n]) for i in self.feature_names_in_])
 
         if verbose:
             dummy_gain = base_perf[0] / base_perf[best_idx] - 1

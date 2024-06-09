@@ -232,7 +232,7 @@ def get_training_configs(
         show_plot=True,
         keep_estimators=False,
         feature_cost=0.0 / 100,
-        smooth_perf=3,
+        smooth_perf=0,
         max_refits=None,
         max_runtime_mins=60 * 2,
         max_noimproving_iters=40,

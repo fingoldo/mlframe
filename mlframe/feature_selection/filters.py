@@ -1539,7 +1539,7 @@ def screen_predictors(
     if n_workers and n_workers > 1:
         #    global classes_y_memmap
         #    classes_y_memmap = mem_map_array(obj=classes_y, file_name="classes_y", mmap_mode="r")
-        if verbose:
+        if verbose >= 2:
             logger.info("Starting parallel pool...")
         workers_pool = Parallel(n_jobs=n_workers, **parallel_kwargs)
         workers_pool(delayed(test)(i) for i in range(n_workers))
@@ -1550,7 +1550,7 @@ def screen_predictors(
     if interactions_order_reversed:
         subsets = subsets[::-1]
 
-    if verbose:
+    if verbose >= 2:
         logger.info(
             f"Starting work with full_npermutations={full_npermutations:_}, min_nonzero_confidence={min_nonzero_confidence:.{ndigits}f}, max_failed={max_failed:_}"
         )
@@ -1763,7 +1763,7 @@ def screen_predictors(
                     logger.info(f"evaluate_candidates took {timer() - eval_start:.1f} sec.")
 
                 if best_gain < min_relevance_gain:
-                    if verbose >= 1:
+                    if verbose >= 2:
                         logger.info("Minimum expected gain reached or no candidates to check anymore.")
                     break  # exit confirmation while loop
 
@@ -2021,7 +2021,7 @@ def screen_predictors(
                     logger.info(mes)
 
             else:
-                if verbose:
+                if verbose >= 2:
                     if total_checked > 0:
                         details = f" Total candidates disproved: {total_disproved:_}/{total_checked:_} ({total_disproved*100/total_checked:.2f}%)"
                     else:
@@ -2033,7 +2033,7 @@ def screen_predictors(
 
     # postprocess_candidates(selected_vars)
     # print(caching_hits_xyz, caching_hits_z, caching_hits_xz, caching_hits_yz)
-    if verbose:
+    if verbose >= 2:
         logger.info(f"Finished.")
 
     any_influencing = set()
@@ -2792,6 +2792,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             n_bins=self.quantization_nbins,
             dtype=self.quantization_dtype,
         )
+
         target_indices = [cols.index(col) for col in target_names]
 
         # ---------------------------------------------------------------------------------------------------------------
@@ -2926,9 +2927,10 @@ class MRMR(BaseEstimator, TransformerMixin):
             # Feature engineering part here
 
             if verbose:
-                logger.info(
-                    f"MRMR+ selected {len(selected_vars):_} out of {self.n_features_in_:_} features before the Feature Engineering step. Computing prospective pairs..."
-                )
+                logger.info(f"MRMR+ selected {len(selected_vars):_} out of {self.n_features_in_:_} features before the Feature Engineering step.")
+
+            if verbose >= 2:
+                logger.info(f"Computing prospective FE pairs...")
 
             numeric_vars_to_consider = set(selected_vars) - set(categorical_vars)
 
@@ -2991,7 +2993,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                         ind_elems_mi_sum = cached_MIs[(raw_vars_pair[0],)] + cached_MIs[(raw_vars_pair[1],)]
                         if pair_mi > ind_elems_mi_sum * fe_min_pair_mi_prevalence:
                             uplift = pair_mi / ind_elems_mi_sum
-                            if verbose:
+                            if verbose >= 2:
                                 logger.info(
                                     f"Factors pair {raw_vars_pair} will be considered for Feature Engineering, {ind_elems_mi_sum:.4f}->{pair_mi:.4f}, rat={uplift:.2f}"
                                 )
@@ -3080,6 +3082,9 @@ class MRMR(BaseEstimator, TransformerMixin):
                         print(f"Best MI: {study.best_trial.value:.4f}, pair_mi={pair_mi:.4f}")
                         print(f"Best hyperparameters: {study.best_params}")
             else:
+                original_cols = {i: self.feature_names_in_.index(col) for i, col in enumerate(cols) if col in self.feature_names_in_}
+                if verbose >= 1:
+                    logging.info(f"Checking {len(prospective_pairs):_} most prospective_pairs for feature engineering...")
                 if len(X) < 50_000 or len(prospective_pairs) < 2:
                     prospective_additions = check_prospective_fe_pairs(
                         prospective_pairs,
@@ -3091,6 +3096,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                         freqs_y,
                         num_fs_steps,
                         cols,
+                        original_cols,
                         fe_max_steps,
                         fe_npermutations,
                         fe_max_pair_features,
@@ -3126,7 +3132,9 @@ class MRMR(BaseEstimator, TransformerMixin):
                         jobs_list.append(cur_dict)
 
                     if verbose:
-                        logger.info(f"Using step {desired_nitems:_} for checking {len(prospective_pairs):_} prospective_pairs.")
+                        logger.info(
+                            f"Using {desired_nitems:_} items per thread for checking {len(prospective_pairs):_} prospective_pairs with gain>{fe_min_pair_mi_prevalence:.2f}."
+                        )
 
                     dicts = parallel_run(
                         [
@@ -3140,6 +3148,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                                 freqs_y,
                                 num_fs_steps,
                                 cols,
+                                original_cols,
                                 fe_max_steps,
                                 fe_npermutations,
                                 fe_max_pair_features,
@@ -3212,19 +3221,32 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         X.drop(columns=target_names, inplace=True)
 
+        # ---------------------------------------------------------------------------------------------------------------
+        # selected_vars needs to be transformed to names using the cols variable and then back to indices using original Df columns names.
+        # It's needed 'casue categorize_data can rearrange cat columns.
+        # ---------------------------------------------------------------------------------------------------------------
+
+        selected_vars_names = np.array(cols)[np.array(selected_vars)]
+        selected_vars = [self.feature_names_in_.index(col) for col in selected_vars_names]
+
+        # ---------------------------------------------------------------------------------------------------------------
+        # additional_rfecv run
+        # ---------------------------------------------------------------------------------------------------------------
+
         if self.run_additional_rfecv_minutes:
             """On the factors discarded by MRMR, let's run RFECV to see if any of them participate in interactions"""
             n_unexplored = X.shape[1] - len(selected_vars)
             if n_unexplored > 0:
                 if verbose:
-                    logger.info(f"Running RFECV over {n_unexplored:_} feature(s) discarded by MRMR to extract interactions...")
+                    logger.info(
+                        f"Running RFECV for {self.run_additional_rfecv_minutes} minute(s) over {n_unexplored:_} feature(s) discarded by MRMR to extract interactions..."
+                    )
 
+                configs = get_training_configs(has_time=True)
                 params = configs.COMMON_RFECV_PARAMS.copy()
                 params["max_runtime_mins"] = self.run_additional_rfecv_minutes
 
                 if len(y) / len(np.unique(y)) > 100:  # classification
-
-                    configs = get_training_configs(has_time=True)
 
                     cb_num_rfecv = RFECV(
                         estimator=CatBoostClassifier(**configs.CB_GENERAL_CLASSIF),
@@ -3237,17 +3259,22 @@ class MRMR(BaseEstimator, TransformerMixin):
                     )
                     temp_columns = list(set(X.columns) - set(X.columns[selected_vars]))
                     cb_num_rfecv.fit(X[temp_columns], y)
-                    new_features = np.array(temp_columns)[cb_num_rfecv.support_]
-                    if verbose:
-                        logger.info(f"RFECV selected {cb_num_rfecv.n_features_:_} additional feature(s): {new_features}")
+
                     if cb_num_rfecv.n_features_ > 0:
+                        new_features = np.array(temp_columns)[cb_num_rfecv.support_]
+                        if verbose:
+                            logger.info(f"RFECV selected {cb_num_rfecv.n_features_:_} additional feature(s): {new_features}")
                         for feature in new_features:
-                            selected_vars.append(self.feature_names_in_.find(feature))
+                            selected_vars.append(self.feature_names_in_.index(feature))
+                    else:
+                        if verbose:
+                            logger.info(f"RFECV selected no additional features.")
+
         # ---------------------------------------------------------------------------------------------------------------
         # Assign support
         # ---------------------------------------------------------------------------------------------------------------
 
-        self.support_ = selected_vars
+        self.support_ = np.array(selected_vars)
         if selected_vars:
             self.n_features_ = len(selected_vars)
         else:
@@ -3266,7 +3293,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ---------------------------------------------------------------------------------------------------------------
 
         if verbose:
-            logger.info(f"MRMR+ selected {self.n_features_:_} out of {self.n_features_in_:_} features: {predictors}")
+            predictors_str = ", ".join([f"{el['name']}: {el['gain']:.4f}" for el in predictors])
+            logger.info(f"MRMR+ selected {self.n_features_:_} out of {self.n_features_in_:_} features: {predictors_str}")
 
         self.signature = signature
         return self
@@ -3288,6 +3316,7 @@ def check_prospective_fe_pairs(
     freqs_y,
     num_fs_steps,
     cols,
+    original_cols,
     fe_max_steps,
     fe_npermutations,
     fe_max_pair_features,
@@ -3311,8 +3340,8 @@ def check_prospective_fe_pairs(
 
     res = {}
 
-    if verbose:
-        logging.info(f"Creating a pool of {len(prospective_pairs) * len(unary_transformations) * 2:_} unary transformations.")
+    if verbose >= 2:
+        logging.info(f"Creating a pool of {len(prospective_pairs) * len(unary_transformations) * 2:_} unary transformations for feature engineering.")
 
     transformed_vars = np.empty(shape=(len(X), len(prospective_pairs) * len(unary_transformations) * 2), dtype=np.float32)
 
@@ -3320,7 +3349,7 @@ def check_prospective_fe_pairs(
     i = 0
     for (raw_vars_pair, pair_mi), uplift in prospective_pairs.items():
         for var in raw_vars_pair:
-            vals = X.iloc[:, var].values
+            vals = X.iloc[:, original_cols[var]].values
             for tr_name, tr_func in unary_transformations.items():
                 key = (var, tr_name)
                 if key not in vars_transformations:
@@ -3331,8 +3360,8 @@ def check_prospective_fe_pairs(
                     vars_transformations[key] = i
                     i += 1
 
-    if verbose:
-        logging.info(f"Created. For every pair from the pool, trying all known functions.")
+    if verbose >= 2:
+        logging.info(f"Created. For every pair from the pool, trying all known functions...")
 
     # ---------------------------------------------------------------------------------------------------------------
     # Then, for every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM).
@@ -3342,7 +3371,9 @@ def check_prospective_fe_pairs(
     for (
         raw_vars_pair,
         pair_mi,
-    ), uplift in prospective_pairs.items():  # better to start considering form the most prospective pairs with highest mis ratio!
+    ), uplift in tqdmu(
+        prospective_pairs.items(), desc="pair", leave=False
+    ):  # better to start considering form the most prospective pairs with highest mis ratio!
 
         messages = []
 
@@ -3367,7 +3398,7 @@ def check_prospective_fe_pairs(
         )  # !TODO! optimize allocation of this array before the main loop!
 
         i = 0
-        for transformations_pair in tqdmu(combs, desc=f"transforming {raw_vars_pair}", leave=False):
+        for transformations_pair in combs:
 
             param_a = transformed_vars[:, vars_transformations[transformations_pair[0]]]
             param_b = transformed_vars[:, vars_transformations[transformations_pair[1]]]
@@ -3444,7 +3475,7 @@ def check_prospective_fe_pairs(
                             external_factors = np.random.choice(external_factors, fe_max_external_validation_factors)
 
                         for external_factor in tqdmu(external_factors, desc="external validation factor", leave=False):
-                            param_b = X.iloc[:, external_factor].values
+                            param_b = X.iloc[:, original_cols[external_factor]].values
 
                             for valid_bin_func_name, valid_bin_func in binary_transformations.items():
 
@@ -3528,7 +3559,7 @@ def check_prospective_fe_pairs(
                     new_cols += [new_feature_name]
 
                 if fe_max_steps > 1:
-                    transformed_vals = transformed_vals[:, : min(fe_max_pair_features, j)]
+                    transformed_vals = transformed_vals[:, : min(fe_max_pair_features, j + 1)]
 
             res[raw_vars_pair] = (this_pair_features, transformed_vals, new_cols, new_nbins, messages)
 
