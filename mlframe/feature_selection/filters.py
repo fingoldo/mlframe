@@ -2652,7 +2652,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_min_pair_mi_prevalence: float = 1.05,  # transformations of what exactly pairs of factors we consider, at all. mi of entire pair must be at least that higher than the mi of its individual factors.
         fe_min_engineered_mi_prevalence: float = 0.98,  # mi of transformed pair must be at least that higher than the mi of the entire pair
         fe_good_to_best_feature_mi_threshold: float = 0.98,  # when multiple good transformations exist for the same factors pair.
-        fe_max_external_validation_factors: int = 100,  # how many other factors to validate against
+        fe_max_external_validation_factors: int = 0,  # how many other factors to validate against
         fe_max_polynoms: int = 0,
         fe_print_best_mis_only: bool = True,
         fe_smart_polynom_iters: int = 0,
@@ -3179,7 +3179,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                         if verbose:
                             for mes in messages:
                                 logger.info(mes)
-                            logger.info(f"Features {new_cols} are recommended to use as new features!")
+                            # logger.info(f"Features {new_cols} are recommended to use as new features!")
                         if fe_max_steps > 1:
                             new_vals = np.empty(shape=(len(X), len(this_pair_features)), dtype=self.quantization_dtype)
                             for j in range(len(this_pair_features)):
@@ -3471,7 +3471,7 @@ def check_prospective_fe_pairs(
                         config = (transformations_pair, bin_func_name, i)
 
                         external_factors = list(set(numeric_vars_to_consider) - set(raw_vars_pair))
-                        if len(external_factors) > fe_max_external_validation_factors:
+                        if fe_max_external_validation_factors and len(external_factors) > fe_max_external_validation_factors:
                             external_factors = np.random.choice(external_factors, fe_max_external_validation_factors)
 
                         for external_factor in tqdmu(external_factors, desc="external validation factor", leave=False):

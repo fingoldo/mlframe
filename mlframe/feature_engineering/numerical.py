@@ -67,8 +67,8 @@ def cont_entropy(arr: np.ndarray, bins: str = "scott") -> float:
 entropy_funcs = (cont_entropy, continuous.get_h, app_entropy, svd_entropy, sample_entropy, petrosian_fd, perm_entropy, katz_fd, detrended_fluctuation)  #
 entropy_funcs_names = [f.__name__ for f in entropy_funcs]
 
-distributions = (stats.levy_l, stats.logistic, stats.pareto)  # stats.logistic, stats.pareto
-default_dist_responses = dict(levy_l=[np.nan, np.nan], logistic=[np.nan, np.nan], pareto=[np.nan, np.nan, np.nan])
+distributions = (stats.levy_l,)  # stats.logistic, stats.pareto
+default_dist_responses = dict(levy_l=(np.nan, np.nan), logistic=(np.nan, np.nan), pareto=(np.nan, np.nan, np.nan))
 
 LARGE_CONST = 1e3
 
@@ -801,7 +801,7 @@ def fit_distribution(dist: object, data: np.ndarray, method: str = "mle"):
     try:
         params = dist.fit(data, method=method)
     except Exception as e:
-        return default_dist_responses[dist.name] + [np.nan, np.nan]
+        return default_dist_responses[dist.name] + (np.nan, np.nan)
     else:
         dist_fitted = dist(*params)
         ks_stat, ks_pval = kstest(data, dist_fitted.cdf)
