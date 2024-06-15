@@ -33,9 +33,10 @@ from astropy.stats import histogram
 from entropy_estimators import continuous
 from sklearn.feature_selection import mutual_info_regression
 from mlframe.feature_engineering.hurst import compute_hurst_exponent
-from pyutilz.parallel import parallel_run
+
 import psutil
 from joblib import delayed
+from pyutilz.parallel import parallel_run
 
 from scipy.stats import entropy, kstest
 from scipy import stats
@@ -1007,6 +1008,8 @@ def get_moments_slope_mi_feature_names(weights: np.ndarray = None, directional_o
 
 def numaggs_over_matrix_rows(vals: np.ndarray, numagg_params: dict, dtype=np.float32) -> np.ndarray:
     """Computes numaggs on a 2d matrix"""
+
+    numagg_params["return_float32"] = True
     feature_names = get_numaggs_names(**numagg_params)
 
     res = np.empty(shape=(len(vals), len(feature_names)), dtype=dtype)
@@ -1029,7 +1032,7 @@ def compute_numaggs_parallel(
     """Computes numaggs over columns of a dataframe, in parallel fashion.
     Example of parallel_kwargs: numaggs_over_df_columns_parallel(df=X, cols=cols, temp_folder=r'R:\Temp')
     """
-    if n_jobs == -1:
+    if n_jobs <=0:
         n_jobs = psutil.cpu_count(logical=False)
 
     if values is None:

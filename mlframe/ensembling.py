@@ -222,6 +222,7 @@ def score_ensemble(
     ensembling_methods="arithm harm median quad qube geo".split(),
     uncertainty_quantile: float = 0.0,
     normalize_stds_by_mean_preds: bool = True,
+    custom_ice_metric: Callable = None,
 ):
     """Compares different ensembling methods for a list of models."""
 
@@ -260,6 +261,7 @@ def score_ensemble(
                 target_label_encoder=target_label_encoder,
                 show_val_chart=True,
                 nbins=nbins,
+                custom_ice_metric=custom_ice_metric,
             )
         )
         if uncertainty_quantile:
@@ -278,6 +280,7 @@ def score_ensemble(
                     target_label_encoder=target_label_encoder,
                     show_val_chart=True,
                     nbins=nbins,
+                    custom_ice_metric=custom_ice_metric,
                 )
             )
     return res

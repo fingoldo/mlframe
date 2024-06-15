@@ -18,6 +18,7 @@ while True:
 
         import copy
         import psutil
+        import textwrap
         from collections import defaultdict
         from timeit import default_timer as timer
 
@@ -3294,6 +3295,7 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         if verbose:
             predictors_str = ", ".join([f"{el['name']}: {el['gain']:.4f}" for el in predictors])
+            predictors_str = textwrap.shorten(predictors_str, width=300)
             logger.info(f"MRMR+ selected {self.n_features_:_} out of {self.n_features_in_:_} features: {predictors_str}")
 
         self.signature = signature

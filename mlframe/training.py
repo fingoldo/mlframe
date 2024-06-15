@@ -89,7 +89,7 @@ def get_training_configs(
     def_regr_metric: str = "MSE",
     def_classif_metric: str = "AUC",
     cv=None,
-    cv_n_splits: int = 3,
+    cv_n_splits: int = 5,
     random_seed=None,
     verbose: int = 0,
 ) -> tuple:
@@ -287,7 +287,8 @@ def train_and_evaluate_model(
     data_dir: str = DATA_DIR,
     models_subdir: str = MODELS_SUBDIR,
     include_confidence_analysis:bool=True,
-    display_sample_size: int =2,
+    display_sample_size: int =0,
+    show_feature_names: bool=False,
 ):
     """Trains & evaluates given model/pipeline on train/test sets.
     Supports feature selection via pre_pipeline.
@@ -364,8 +365,9 @@ def train_and_evaluate_model(
             if sample_weight is not None:
                 sample_weight = sample_weight.loc[train_idx].values
             logger.info(f"{model_name} training dataset shape: {train_df.shape}")
-            display(train_df.head(display_sample_size).style.set_caption(f"{model_name} features head"))
-            display(train_df.tail(display_sample_size).style.set_caption(f"{model_name} features tail"))
+            if display_sample_size:
+                display(train_df.head(display_sample_size).style.set_caption(f"{model_name} features head"))
+                display(train_df.tail(display_sample_size).style.set_caption(f"{model_name} features tail"))
 
             if model_type_name in TABNET_MODEL_TYPES:
                 model.fit(train_df.values, target.loc[train_idx].values, sample_weight=sample_weight, **fit_params)
@@ -409,7 +411,12 @@ def train_and_evaluate_model(
             )
 
         if df is not None:
-            report_title = f"Training {model_name} model on {train_df.shape[1]} feature(s): {', '.join(train_df.columns.to_list())}, {len(train_df):_} records" # textwrap.shorten("Hello world", width=10, placeholder="...")
+            
+            report_title = f"Training {model_name} model on {train_df.shape[1]} feature(s)" # textwrap.shorten("Hello world", width=10, placeholder="...")
+            if show_feature_names:
+                report_title+=": "+', '.join(train_df.columns.to_list())
+            report_title+=f", {len(train_df):_} records"
+
             test_df = df.loc[test_idx].drop(columns=real_drop_columns)
             if model and pre_pipeline:
                 test_df = pre_pipeline.transform(test_df)
