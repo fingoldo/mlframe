@@ -91,7 +91,10 @@ default_quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]  # list vs ndarray gives a
 
 @numba.njit(fastmath=fastmath)
 def compute_simple_stats_numba(arr: np.ndarray) -> tuple:
-    minval, maxval, argmin, argmax = arr[0], arr[0], 0, 0
+    for i, next_value in enumerate(arr):
+        if np.isfinite(next_value):
+            minval, maxval, argmin, argmax = arr[i], arr[i], i, i
+            break
     size = 0
     total, std_val = 0.0, 0.0
 
@@ -1006,7 +1009,28 @@ def get_moments_slope_mi_feature_names(weights: np.ndarray = None, directional_o
     return res
 
 
-def numaggs_over_matrix_rows(vals: np.ndarray, numagg_params: dict, dtype=np.float32) -> np.ndarray:
+@numba.njit(fastmath=True)
+def rolling_moving_average(arr: np.ndarray, n: int = 2):
+    if n <= 0:
+        raise ValueError("n must be greater than 0")
+    if n > len(arr):
+        raise ValueError("n must be less than or equal to the length of the array")
+
+    result = np.empty(len(arr) - n + 1, dtype=arr.dtype)
+    sum_window = np.sum(arr[:n])
+
+    mult = 1 / n
+
+    result[0] = sum_window * mult
+
+    for i in range(1, len(arr) - n + 1):
+        sum_window += arr[i + n - 1] - arr[i - 1]
+        result[i] = sum_window * mult
+
+    return result
+
+
+def numaggs_over_matrix_rows(vals: np.ndarray, numagg_params: dict, rolling_ma: int = 0, use_diffs: bool = False, dtype=np.float32) -> np.ndarray:
     """Computes numaggs on a 2d matrix"""
 
     numagg_params["return_float32"] = True
@@ -1015,7 +1039,18 @@ def numaggs_over_matrix_rows(vals: np.ndarray, numagg_params: dict, dtype=np.flo
     res = np.empty(shape=(len(vals), len(feature_names)), dtype=dtype)
 
     for i in range(vals.shape[0]):
-        res[i, :] = compute_numaggs(vals[i, :], **numagg_params)
+        vals_to_compute = vals[i, :]
+
+        if rolling_ma:
+            if use_diffs:
+                vals_to_compute = np.nan_to_num(vals_to_compute[rolling_ma - 1 :] / rolling_moving_average(vals_to_compute, rolling_ma) - 1, posinf=0, neginf=0)
+            else:
+                vals_to_compute = vals_to_compute[rolling_ma - 1 :] - rolling_moving_average(vals_to_compute, rolling_ma)
+        else:
+            if use_diffs:
+                vals_to_compute = np.nan_to_num((vals_to_compute[1:] / vals_to_compute[:-1] - 1), posinf=0, neginf=0)
+
+        res[i, :] = compute_numaggs(vals_to_compute, **numagg_params)
     return res
 
 
@@ -1023,6 +1058,8 @@ def compute_numaggs_parallel(
     df: pd.DataFrame = None,
     cols: Sequence = None,
     values: np.ndarray = None,
+    use_diffs: bool = False,
+    rolling_ma: int = 0,
     numagg_params: dict = {},
     dtype=np.float32,
     n_jobs=-1,
@@ -1032,14 +1069,17 @@ def compute_numaggs_parallel(
     """Computes numaggs over columns of a dataframe, in parallel fashion.
     Example of parallel_kwargs: numaggs_over_df_columns_parallel(df=X, cols=cols, temp_folder=r'R:\Temp')
     """
-    if n_jobs <=0:
+    if n_jobs <= 0:
         n_jobs = psutil.cpu_count(logical=False)
 
     if values is None:
         values = df.loc[:, cols].values
 
     res = parallel_run(
-        [delayed(numaggs_over_matrix_rows)(vals=chunk, numagg_params=numagg_params) for chunk in np.array_split(values, n_jobs * prefetch_factor)],
+        [
+            delayed(numaggs_over_matrix_rows)(vals=chunk, use_diffs=use_diffs, rolling_ma=rolling_ma, numagg_params=numagg_params)
+            for chunk in np.array_split(values, n_jobs * prefetch_factor)
+        ],
         max_nbytes=0,
         n_jobs=n_jobs,
         **parallel_kwargs
