@@ -202,6 +202,7 @@ def get_training_configs(
         n_estimators=iterations,
         objective="binary:logistic",
         enable_categorical=True,
+        max_cat_to_onehot=1,
         max_cat_threshold=1000,
         tree_method="hist",
         device=("cuda" if CUDA_IS_AVAILABLE else "cpu"),
