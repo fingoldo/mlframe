@@ -22,6 +22,7 @@ from numba.cuda import is_available as is_cuda_available
 
 import copy
 import joblib
+from gc import collect
 from os.path import join, exists
 from collections import defaultdict
 
@@ -310,9 +311,10 @@ def train_and_evaluate_model(
     real_drop_columns = [col for col in drop_columns + default_drop_columns if col in df.columns]
 
     if fit_params and isinstance(model, Pipeline):
-        model_type_name = type(model.named_steps["est"]).__name__  # type(model.steps[-1]).__name__
+        model_obj=model.named_steps["est"]  # model.steps[-1]
     else:
-        model_type_name = type(model).__name__
+        model_obj=model
+    model_type_name = type(model_obj).__name__ if model_obj else ""
 
     if model_type_name not in model_name:
         model_name=model_type_name+" "+model_name
@@ -369,11 +371,18 @@ def train_and_evaluate_model(
             if display_sample_size:
                 display(train_df.head(display_sample_size).style.set_caption(f"{model_name} features head"))
                 display(train_df.tail(display_sample_size).style.set_caption(f"{model_name} features tail"))
+            
+            if df is not None:
+                
+                report_title = f"Training {model_name} model on {train_df.shape[1]} feature(s)" # textwrap.shorten("Hello world", width=10, placeholder="...")
+                if show_feature_names:
+                    report_title+=": "+', '.join(train_df.columns.to_list())
+                report_title+=f", {len(train_df):_} records"
 
             if model_type_name in TABNET_MODEL_TYPES:
-                model.fit(train_df.values, target.loc[train_idx].values, sample_weight=sample_weight, **fit_params)
-            else:
-                model.fit(train_df, target.loc[train_idx], sample_weight=sample_weight, **fit_params)
+                train_df=train_df.values
+            
+            model.fit(train_df, target.loc[train_idx], sample_weight=sample_weight, **fit_params)
             if model:
                 # get number of the best iteration
                 try:
@@ -411,12 +420,10 @@ def train_and_evaluate_model(
                 custom_ice_metric=custom_ice_metric,
             )
 
-        if df is not None:
-            
-            report_title = f"Training {model_name} model on {train_df.shape[1]} feature(s)" # textwrap.shorten("Hello world", width=10, placeholder="...")
-            if show_feature_names:
-                report_title+=": "+', '.join(train_df.columns.to_list())
-            report_title+=f", {len(train_df):_} records"
+        if df is not None:            
+
+            del train_df
+            collect()
 
             test_df = df.loc[test_idx].drop(columns=real_drop_columns)
             if model and pre_pipeline:

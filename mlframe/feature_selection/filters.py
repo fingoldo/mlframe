@@ -2787,12 +2787,14 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Discretize continuous data
         # ---------------------------------------------------------------------------------------------------------------
 
+        logger.info("categorizing dataset...")
         data, cols, nbins = categorize_dataset(
             df=X.ffill().bfill(),
             method=self.quantization_method,
             n_bins=self.quantization_nbins,
             dtype=self.quantization_dtype,
         )
+        logger.info("categorized.")
 
         target_indices = [cols.index(col) for col in target_names]
 
