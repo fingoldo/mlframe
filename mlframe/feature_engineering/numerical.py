@@ -861,6 +861,7 @@ def compute_numaggs(
                 return_n_zer_pos_int=return_n_zer_pos_int,
                 return_exotic_means=return_exotic_means,
                 return_unsorted_stats=return_unsorted_stats,
+                return_lintrend_approx_stats=return_lintrend_approx_stats,
             )
         )
 
