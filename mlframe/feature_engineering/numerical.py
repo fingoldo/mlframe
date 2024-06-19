@@ -847,7 +847,7 @@ def compute_numaggs(
     """Compute a plethora of numerical aggregates for all values in an array.
     Converts an arbitrarily length array into fixed number of aggregates.
     """
-    if len(arr) == 0:
+    if len(arr) <= 1:
         return (np.nan,) * len(
             get_numaggs_names(
                 q=q,

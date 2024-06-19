@@ -2723,6 +2723,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         cv_shuffle = self.cv_shuffle
         cv = self.cv
 
+        prefetch_factor = 4
+
         fe_max_steps = self.fe_max_steps
         fe_npermutations = self.fe_npermutations
         fe_unary_preset = self.fe_unary_preset
@@ -2955,7 +2957,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                     fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
                 )
             else:
-                prefetch_factor = 4
+
                 dicts = parallel_run(
                     [
                         delayed(compute_pairs_mis)(
