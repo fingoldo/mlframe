@@ -34,24 +34,19 @@ def create_date_features(
     df: pd.DataFrame,
     cols: list,
     delete_original_cols: bool = True,
-    bulk: bool = False,
     methods: dict = {"day": np.int8, "weekday": np.int8, "month": np.int8},  # "week": np.int8, #, "quarter": np.int8 #  , "year": np.int16
 ) -> pd.DataFrame:
     if len(cols) == 0:
         return
 
-    if bulk:
-        tmp = {}
-    else:
-        tmp = df
     for col in cols:
+        obj = df[col].dt
         for method, dtype in methods.items():
-            tmp.loc[:, col + "_" + method] = getattr(df[col].dt, method).astype(dtype)
+            df[col + "_" + method] = getattr(obj, method).astype(dtype)
 
     if delete_original_cols:
-        df.drop(columns=cols, inplace=True)
-
-    if bulk:
-        df = pd.concat([df, pd.DataFrame(tmp)], axis=1)
+        for col in cols:
+            del df[col]
+        # df.drop(columns=cols, inplace=True)
 
     return df

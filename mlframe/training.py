@@ -22,6 +22,7 @@ from numba.cuda import is_available as is_cuda_available
 
 import copy
 import joblib
+import psutil
 from gc import collect
 from os.path import join, exists
 from collections import defaultdict
@@ -152,7 +153,7 @@ def get_training_configs(
     catboost_custom_classif_metrics = ["AUC", "BrierScore", "PRAUC"]
     catboost_custom_regr_metrics = ["MSE", "MAE"]
 
-    CB_GENERAL = dict(
+    CB_GENERAL_PARAMS = dict(
         iterations=iterations,
         verbose=verbose,
         has_time=has_time,
@@ -165,7 +166,7 @@ def get_training_configs(
         random_seed=random_seed,
     )
 
-    CB_GENERAL_CLASSIF = CB_GENERAL.copy()
+    CB_GENERAL_CLASSIF = CB_GENERAL_PARAMS.copy()
     CB_GENERAL_CLASSIF.update({"eval_metric": def_classif_metric, "custom_metric": catboost_custom_classif_metrics})
 
     CB_CPU_CLASSIF = CB_GENERAL_CLASSIF.copy()
@@ -188,7 +189,7 @@ def get_training_configs(
         }
     )
 
-    LGBM_GENERAL_PARAMS = dict(
+    LGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
         early_stopping_rounds=early_stopping_rounds,
         device_type=("gpu" if CUDA_IS_AVAILABLE else "cpu"),
@@ -196,25 +197,30 @@ def get_training_configs(
         random_state=random_seed,
     )
 
-    LGBM_CPU_PARAMS = LGBM_GENERAL_PARAMS.copy()
+    LGBM_CPU_PARAMS = LGB_GENERAL_PARAMS.copy()
     LGBM_CPU_PARAMS.update({"device_type": "cpu"})
 
-    XGB_GENERAL_CLASSIF = dict(
+    XGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
-        objective="binary:logistic",
         enable_categorical=True,
         max_cat_to_onehot=1,
         max_cat_threshold=1000,
         tree_method="hist",
         device=("cuda" if CUDA_IS_AVAILABLE else "cpu"),
-        eval_metric=neg_ovr_roc_auc_score,
         early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
         verbosity=int(verbose),
     )
 
+
+    XGB_GENERAL_CLASSIF = XGB_GENERAL_PARAMS.copy()
+    XGB_GENERAL_CLASSIF.update({"objective": "binary:logistic","eval_metric":neg_ovr_roc_auc_score})    
+
     XGB_CALIB_CLASSIF = XGB_GENERAL_CLASSIF.copy()
     XGB_CALIB_CLASSIF.update({"eval_metric": integral_calibration_error})
+    
+    XGB_CALIB_CLASSIF_CPU=XGB_CALIB_CLASSIF.copy()
+    XGB_CALIB_CLASSIF_CPU.update({"device": "cpu","n_jobs ":psutil.cpu_count(logical=False)})    
 
     if not cv:
         if has_time:
@@ -245,13 +251,16 @@ def get_training_configs(
         integral_calibration_error=integral_calibration_error,
         lgbm_integral_calibration_error=lgbm_integral_calibration_error,
         fs_and_hpt_integral_calibration_error=fs_and_hpt_integral_calibration_error,
+        CB_GENERAL_PARAMS=CB_GENERAL_PARAMS,
         CB_GENERAL_CLASSIF=CB_GENERAL_CLASSIF,
         CB_CPU_CLASSIF=CB_CPU_CLASSIF,
         CB_CALIB_CLASSIF=CB_CALIB_CLASSIF,
-        LGBM_GENERAL_PARAMS=LGBM_GENERAL_PARAMS,
+        LGB_GENERAL_PARAMS=LGB_GENERAL_PARAMS,
         LGBM_CPU_PARAMS=LGBM_CPU_PARAMS,
+        XGB_GENERAL_PARAMS=XGB_GENERAL_PARAMS,
         XGB_GENERAL_CLASSIF=XGB_GENERAL_CLASSIF,
         XGB_CALIB_CLASSIF=XGB_CALIB_CLASSIF,
+        XGB_CALIB_CLASSIF_CPU=XGB_CALIB_CLASSIF_CPU,
         COMMON_RFECV_PARAMS=COMMON_RFECV_PARAMS,
     )
 

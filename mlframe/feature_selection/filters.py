@@ -2783,6 +2783,10 @@ class MRMR(BaseEstimator, TransformerMixin):
         else:
             vals = y.values
 
+        if vals.dtype == np.int64:
+            print("Converted targets from int64 to int16.")
+            vals = vals.astype(np.int16)
+
         X[target_names] = vals.reshape(-1, 1)
 
         # ---------------------------------------------------------------------------------------------------------------
