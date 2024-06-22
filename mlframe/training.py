@@ -34,9 +34,11 @@ from catboost import CatBoostRegressor
 import pandas as pd, numpy as np
 from sklearn.preprocessing import LabelEncoder
 from sklearn.pipeline import Pipeline, make_pipeline
-from sklearn.base import ClassifierMixin, TransformerMixin
+from sklearn.compose import TransformedTargetRegressor
+from sklearn.base import ClassifierMixin, RegressorMixin,TransformerMixin,is_classifier
 from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit
 from sklearn.metrics import classification_report, roc_auc_score, average_precision_score
+from sklearn.metrics import mean_absolute_error,max_error,mean_absolute_percentage_error,root_mean_squared_error
 
 from pyutilz.pythonlib import prefix_dict_elems
 from pyutilz.system import ensure_dir_exists, tqdmu
@@ -88,7 +90,7 @@ def get_training_configs(
     weight_by_class_npositives: bool = False,
     nbins: int = 100,
     validation_fraction: float = 0.1,
-    def_regr_metric: str = "MSE",
+    def_regr_metric: str = "MAE",
     def_classif_metric: str = "AUC",
     cv=None,
     cv_n_splits: int = 5,
@@ -151,7 +153,7 @@ def get_training_configs(
         return -roc_auc_score(*args, **kwargs, multi_class="ovr")
 
     catboost_custom_classif_metrics = ["AUC", "BrierScore", "PRAUC"]
-    catboost_custom_regr_metrics = ["MSE", "MAE"]
+    catboost_custom_regr_metrics = ["RMSE", "MAPE"]
 
     CB_GENERAL_PARAMS = dict(
         iterations=iterations,
@@ -159,20 +161,21 @@ def get_training_configs(
         has_time=has_time,
         learning_rate=learning_rate,
         eval_fraction=(0.0 if use_explicit_early_stopping else validation_fraction),
-        task_type=("GPU" if CUDA_IS_AVAILABLE else "CPU"),
-        eval_metric=def_classif_metric,
-        custom_metric=catboost_custom_classif_metrics,
+        task_type=("GPU" if CUDA_IS_AVAILABLE else "CPU"),        
         early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
     )
 
-    CB_GENERAL_CLASSIF = CB_GENERAL_PARAMS.copy()
-    CB_GENERAL_CLASSIF.update({"eval_metric": def_classif_metric, "custom_metric": catboost_custom_classif_metrics})
+    CB_CLASSIF = CB_GENERAL_PARAMS.copy()
+    CB_CLASSIF.update({"eval_metric": def_classif_metric, "custom_metric": catboost_custom_classif_metrics})
 
-    CB_CPU_CLASSIF = CB_GENERAL_CLASSIF.copy()
+    CB_REGR = CB_GENERAL_PARAMS.copy()
+    #CB_REGR.update({"eval_metric": def_regr_metric, "custom_metric": catboost_custom_regr_metrics})   # ,"task_type": "CPU"
+
+    CB_CPU_CLASSIF = CB_CLASSIF.copy()
     CB_CPU_CLASSIF.update({"task_type": "CPU"})
 
-    CB_CALIB_CLASSIF = CB_GENERAL_CLASSIF.copy()
+    CB_CALIB_CLASSIF = CB_CLASSIF.copy()
     CB_CALIB_CLASSIF.update(
         {
             "eval_metric": CB_INTEGRAL_CALIB_ERROR(
@@ -220,7 +223,7 @@ def get_training_configs(
     XGB_CALIB_CLASSIF.update({"eval_metric": integral_calibration_error})
     
     XGB_CALIB_CLASSIF_CPU=XGB_CALIB_CLASSIF.copy()
-    XGB_CALIB_CLASSIF_CPU.update({"device": "cpu","n_jobs ":psutil.cpu_count(logical=False)})    
+    XGB_CALIB_CLASSIF_CPU.update({"device": "cpu","n_jobs":psutil.cpu_count(logical=False)})    
 
     if not cv:
         if has_time:
@@ -252,7 +255,8 @@ def get_training_configs(
         lgbm_integral_calibration_error=lgbm_integral_calibration_error,
         fs_and_hpt_integral_calibration_error=fs_and_hpt_integral_calibration_error,
         CB_GENERAL_PARAMS=CB_GENERAL_PARAMS,
-        CB_GENERAL_CLASSIF=CB_GENERAL_CLASSIF,
+        CB_REGR=CB_REGR,
+        CB_CLASSIF=CB_CLASSIF,
         CB_CPU_CLASSIF=CB_CPU_CLASSIF,
         CB_CALIB_CLASSIF=CB_CALIB_CLASSIF,
         LGB_GENERAL_PARAMS=LGB_GENERAL_PARAMS,
@@ -306,6 +310,8 @@ def train_and_evaluate_model(
     Supports early stopping via val_idx.
     Optionally fumps resulting model & test set predictions into the models dir, and loads back by model name on the next call, to save time.
     """
+    
+    collect()
 
     if not custom_ice_metric:
         custom_ice_metric = compute_probabilistic_multiclass_error
@@ -323,6 +329,10 @@ def train_and_evaluate_model(
         model_obj=model.named_steps["est"]  # model.steps[-1]
     else:
         model_obj=model
+
+    if model_obj:
+        if isinstance(model_obj,TransformedTargetRegressor):
+            model_obj=model_obj.regressor             
     model_type_name = type(model_obj).__name__ if model_obj else ""
 
     if model_type_name not in model_name:
@@ -410,7 +420,7 @@ def train_and_evaluate_model(
                 df.loc[val_idx].drop(columns=real_drop_columns)
                 columns = val_df.columns
 
-            val_preds, val_probs = report_probabilistic_model_perf(
+            val_preds, val_probs = report_model_perf(
                 targets=target.loc[val_idx],
                 columns=columns,
                 df=val_df.values if model_type_name in TABNET_MODEL_TYPES else val_df,
@@ -445,7 +455,7 @@ def train_and_evaluate_model(
             report_title = ""
             test_df = None
 
-        test_preds, test_probs = report_probabilistic_model_perf(
+        test_preds, test_probs = report_model_perf(
             targets=target.loc[test_idx],
             columns=columns,
             df=test_df,
@@ -485,9 +495,120 @@ def train_and_evaluate_model(
 
                 confidence_clf.fit(test_df,test_probs[np.arange(test_probs.shape[0]), target.loc[test_idx]], **fit_params_copy)
                 plot_model_feature_importances(model=confidence_clf,columns=test_df.columns,model_name="Confidence Analysis [factors that change our accuracy]",num_factors=5,figsize=(figsize[0]*0.7,figsize[1]/2))
-
+    
+    collect()
+    
     return model, test_preds, test_probs, val_preds, val_probs, columns, pre_pipeline
 
+def report_model_perf(
+    targets: Union[np.ndarray, pd.Series],
+    columns: Sequence,
+    model_name: str,
+    model: ClassifierMixin,
+    subgroups: dict = None,
+    subset_index: np.ndarray = None,
+    digits: int = 4,
+    figsize: tuple = (15, 5),
+    report_title: str = "",
+    use_weights: bool = True,
+    calib_report_ndigits: int = 2,
+    verbose: bool = False,
+    classes: Sequence = [],
+    preds: Optional[np.ndarray] = None,
+    probs: Optional[np.ndarray] = None,
+    df: Optional[pd.DataFrame] = None,
+    target_label_encoder: Optional[LabelEncoder] = None,
+    nbins: int = 100,
+    print_report: bool = True,
+    show_fi: bool = True,
+    custom_ice_metric: Callable = None,
+):
+    if probs is not None or is_classifier(model):
+        return report_probabilistic_model_perf(
+            targets=targets,
+            columns=columns,
+            model_name=model_name,
+            model=model,
+            subgroups=subgroups,
+            subset_index=subset_index,
+            digits=digits,
+            figsize=figsize,
+            report_title=report_title,
+            use_weights=use_weights,
+            calib_report_ndigits=calib_report_ndigits,
+            verbose=verbose,
+            classes=classes,
+            preds=preds,
+            probs=probs,
+            df=df,
+            target_label_encoder=target_label_encoder,
+            nbins=nbins,
+            print_report=print_report,
+            show_fi=show_fi,
+            custom_ice_metric=custom_ice_metric,
+        )
+    else:
+
+        return report_regression_model_perf(
+            targets=targets,
+            columns=columns,
+            model_name=model_name,
+            model=model,
+            subgroups=subgroups,
+            subset_index=subset_index,
+            digits=digits,
+            figsize=figsize,
+            report_title=report_title,
+            verbose=verbose,
+            preds=preds,
+            df=df,
+            print_report=print_report,
+            show_fi=show_fi,
+        )
+    
+def report_regression_model_perf(
+    targets: Union[np.ndarray, pd.Series],
+    columns: Sequence,
+    model_name: str,
+    model: RegressorMixin,
+    subgroups: dict = None,
+    subset_index: np.ndarray = None,
+    digits: int = 4,
+    figsize: tuple = (15, 5),
+    report_title: str = "",    
+    verbose: bool = False,
+    preds: Optional[np.ndarray] = None,
+    df: Optional[pd.DataFrame] = None,
+    print_report: bool = True,
+    show_fi: bool = True,
+):
+    """Detailed performance report (usually on a test set)."""
+
+    if preds is None:
+        preds = model.predict(df)
+
+    if isinstance(targets, pd.Series):
+        targets = targets.values
+
+        if show_fi: plot_model_feature_importances(model=model,columns=columns,model_name=model_name,figsize=(15,10))
+
+    if print_report:
+        print(report_title)
+        print(f"mean_absolute_error: {mean_absolute_error(y_true=targets,y_pred=preds):.{digits}f}")
+        print(f"max_error: {max_error(y_true=targets,y_pred=preds):.{digits}f}")
+        print(f"mean_absolute_percentage_error: {mean_absolute_percentage_error(y_true=targets,y_pred=preds):.{digits}f}")
+        print(f"root_mean_squared_error: {root_mean_squared_error(y_true=targets,y_pred=preds):.{digits}f}")
+        
+        if subgroups:
+            robustness_report = compute_robustness_metrics(
+                subgroups=subgroups, subset_index=subset_index, y_true=targets, y_pred=preds, 
+                metrics={'MAE':mean_absolute_error,'MAPE':mean_absolute_percentage_error},
+                metrics_higher_is_better={'MAE':False,'MAPE':False},                
+            )
+            if robustness_report is not None:
+                display(robustness_report)
+
+    return preds, None
 
 def report_probabilistic_model_perf(
     targets: Union[np.ndarray, pd.Series],
@@ -673,7 +794,10 @@ def compute_robustness_metrics(
                 if n_points:
                     npoints.append(n_points)
                     for metric_name,metric_func in metrics.items():
-                        metric_value = metric_func(y_true[idx],y_pred[idx, :])
+                        if y_pred.ndim==2:
+                            metric_value = metric_func(y_true[idx],y_pred[idx, :])
+                        else:
+                            metric_value = metric_func(y_true[idx],y_pred[idx])
                         perfs[metric_name][f"{bin_name} [{n_points}]"] = metric_value
 
             for metric_name,metric_perf in perfs.items():
