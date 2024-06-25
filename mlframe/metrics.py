@@ -668,6 +668,49 @@ def create_robustness_subgroups(
     return subgroups
 
 
+def create_robustness_subgroups_indices(subgroups: dict, train_idx: np.ndarray, val_idx: np.ndarray, group_weights: dict = {}, cont_nbins: int = 3) -> dict:
+    robustness_subgroups_indices = {}
+    for arr in (train_idx, val_idx):
+        npoints = len(arr)
+        for group_name, group_params in subgroups.items():
+            group_indices = {}
+            if group_name in ("**ORDER**", "**RANDOM**"):
+                bins, unique_bins = create_robustness_standard_bins(group_name=group_name, npoints=npoints, cont_nbins=cont_nbins)
+            else:
+                bins = group_params.get("bins")
+                bins = bins.loc[arr]
+                unique_bins = None
+
+            if unique_bins is None:
+                if isinstance(bins, pd.Series):
+                    unique_bins = bins.unique()
+                else:
+                    unique_bins = np.unique(bins)
+
+            for bin_name in unique_bins:
+                idx = bins == bin_name
+                group_indices[bin_name] = np.where(idx)[0]
+
+            robustness_subgroups_indices[group_name] = dict(bins=group_indices, weight=group_weights.get(group_name, 1.0))
+
+    return robustness_subgroups_indices
+
+
+def create_robustness_standard_bins(group_name: str, npoints: int, cont_nbins: int) -> tuple:
+
+    step_size = npoints // cont_nbins
+    bins = np.empty(shape=npoints, dtype=np.int16)
+    start = 0
+    unique_bins = range(cont_nbins)
+    for i in unique_bins:
+        bins[start : start + step_size] = i
+        start += step_size
+    if group_name == "**RANDOM**":
+        np.random.shuffle(bins)
+
+    return bins, unique_bins
+
+
 def compute_robustness_metrics(
     metrics: dict,
     metrics_higher_is_better: dict,
@@ -689,17 +732,7 @@ def compute_robustness_metrics(
 
         for group_name, group_params in subgroups.items():
             if group_name in ("**ORDER**", "**RANDOM**"):
-                # settings = group_params.get("settings")
-                l = len(y_true)
-                step_size = l // cont_nbins
-                bins = np.empty(shape=l, dtype=np.int16)
-                start = 0
-                unique_bins = range(cont_nbins)
-                for i in unique_bins:
-                    bins[start : start + step_size] = i
-                    start += step_size
-                if group_name == "**RANDOM**":
-                    np.random.shuffle(bins)
+                bins, unique_bins = create_robustness_standard_bins(group_name=group_name, npoints=len(y_true), cont_nbins=cont_nbins)
             else:
                 bins = group_params.get("bins")
                 if bins is not None:
