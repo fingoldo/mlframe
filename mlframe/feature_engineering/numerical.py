@@ -1085,6 +1085,6 @@ def compute_numaggs_parallel(
         n_jobs=n_jobs,
         **parallel_kwargs
     )
-    res = np.vstack(res)
+    res = np.vstack(res).astype(dtype)
 
     return res

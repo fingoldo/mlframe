@@ -23,6 +23,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.io import write_image
 
+from collections import defaultdict
+from pyutilz.pythonlib import sort_dict_by_value
+from mlframe.stats import get_tukey_fences_multiplier_for_quantile
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Core
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -464,27 +468,16 @@ def compute_probabilistic_multiclass_error(
     return total_error
 
 
-class CB_INTEGRAL_CALIB_ERROR:
+class CB_EVAL_METRIC:
     """Custom probabilistic prediction error metric balancing predictive power with calibration.
     Can regularly create a calibration plot.
     """
 
     def __init__(
         self,
-        method: str = "multicrit",
-        mae_weight: float = 0.9,
-        std_weight: float = 0.9,
-        brier_loss_weight: float = 0.5,
-        roc_auc_weight: float = 0.5,
-        min_roc_auc: float = 0.5,
-        roc_auc_penalty: float = 0.2,
-        use_weighted_calibration: bool = True,
-        weight_by_class_npositives: bool = False,
-        nbins: int = 100,
-        calibration_plot_period: int = 0,
+        metric: Callable,
+        higher_is_better: bool,
     ) -> None:
-
-        assert method in ("multicrit", "precision", "brier_score")
 
         # save params
         store_params_in_object(obj=self, params=get_parent_func_args())
@@ -492,7 +485,7 @@ class CB_INTEGRAL_CALIB_ERROR:
         self.nruns = 0
 
     def is_max_optimal(self):
-        return self.method in ("precision")  # is greater better?
+        return self.higher_is_better
 
     def evaluate(self, approxes, target, weight):
         output_weight = 1  # weight is not used
@@ -513,18 +506,9 @@ class CB_INTEGRAL_CALIB_ERROR:
             for class_id in range(len(approxes)):
                 probs[class_id] /= tot_sum
 
-        total_error = compute_probabilistic_multiclass_error(
+        total_error = self.metric(
             y_true=target,
             y_score=probs,
-            method=self.method,
-            mae_weight=self.mae_weight,
-            std_weight=self.std_weight,
-            brier_loss_weight=self.brier_loss_weight,
-            roc_auc_weight=self.roc_auc_weight,
-            min_roc_auc=self.min_roc_auc,
-            roc_auc_penalty=self.roc_auc_penalty,
-            use_weighted_calibration=self.use_weighted_calibration,
-            weight_by_class_npositives=self.weight_by_class_npositives,
         )
 
         self.nruns += 1
@@ -538,7 +522,7 @@ class CB_INTEGRAL_CALIB_ERROR:
                 y_pred=y_pred,
                 title=f"{len(approxes[0]):_} records of class {class_id}, integral error={total_error:.4f}, nruns={self.nruns:_}\r\n",
                 show_roc_auc_in_title=True,
-                use_weights=self.use_weighted_calibration,
+                use_weights=True,
                 verbose=False,
             )
 
@@ -609,7 +593,7 @@ def probability_separation_score(y_true: np.ndarray, y_prob: np.ndarray, class_l
 
 def create_robustness_subgroups(
     df: pd.DataFrame,
-    features: Sequence[str],
+    features: Sequence[Union[str, pd.Series]],
     cont_nbins: int = 3,
     min_pop_cat_thresh: Union[float, int] = 1000,
     merge_lowpop_cats: bool = True,
@@ -644,7 +628,12 @@ def create_robustness_subgroups(
             subgroups[feature_name] = feature_name
             continue
 
-        feature_vals = df[feature_name]
+        if isinstance(feature_name, pd.Series):
+            feature_vals = feature_name
+            feature_name = feature_vals.name
+        else:
+            feature_vals = df[feature_name]
+
         val_cnts = feature_vals.value_counts()
 
         if feature_vals.dtype.name not in ("category", "object", "date", "datetime"):
@@ -658,15 +647,16 @@ def create_robustness_subgroups(
         rarecats = val_cnts[val_cnts < min_pop_cat_thresh]
         if len(rarecats) > 0:
             cats = rarecats.index.values.tolist()
-            if rarecats.sum() >= min_pop_cat_thresh:
+            if merge_lowpop_cats and rarecats.sum() >= min_pop_cat_thresh:
                 # merging is possible
                 feature_vals = feature_vals.copy().replace({cat: rare_group_name for cat in cats})
                 val_cnts = feature_vals.value_counts()  # this needs recalculation now
                 cats_to_use = val_cnts.index.values.tolist()
                 logger.info(f"For feature {feature_name}, had to merge {len(cats):_} bins {','.join(map(str,cats))}, {rarecats.sum():_} records.")
             else:
-                cats_to_use = val_cnts[val_cnts >= min_pop_cat_thresh].index.values.tolist()
-                logger.info(f"For feature {feature_name}, had to exclude {len(cats):_} bins {','.join(map(str,cats))}, {rarecats.sum():_} records.")
+                if exclude_terminal_lowpop_cats:
+                    cats_to_use = val_cnts[val_cnts >= min_pop_cat_thresh].index.values.tolist()
+                    logger.info(f"For feature {feature_name}, had to exclude {len(cats):_} bins {','.join(map(str,cats))}, {rarecats.sum():_} records.")
         else:
             cats_to_use = val_cnts.index.values.tolist()
 
@@ -676,3 +666,168 @@ def create_robustness_subgroups(
             logger.warning(f"Feature {feature_name} can't particiate in subgrouping: it has only one bin.")
 
     return subgroups
+
+
+def compute_robustness_metrics(
+    metrics: dict,
+    metrics_higher_is_better: dict,
+    subgroups: dict,
+    subset_index: np.ndarray,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    cont_nbins: int = 3,
+    top_n: int = 5,
+) -> pd.DataFrame:
+    """* is added to the bin name if bin's metric is an outlier (compted using Tukey's fence & IQR)."""
+
+    if subgroups:
+
+        res = []
+        quantile = 0.25
+        quantiles_to_compute = [0.5 - quantile, 0.5, 0.5 + quantile]
+        tukey_mult = get_tukey_fences_multiplier_for_quantile(quantile=quantile, sd_sigma=2.7)
+
+        for group_name, group_params in subgroups.items():
+            if group_name in ("**ORDER**", "**RANDOM**"):
+                # settings = group_params.get("settings")
+                l = len(y_true)
+                step_size = l // cont_nbins
+                bins = np.empty(shape=l, dtype=np.int16)
+                start = 0
+                unique_bins = range(cont_nbins)
+                for i in unique_bins:
+                    bins[start : start + step_size] = i
+                    start += step_size
+                if group_name == "**RANDOM**":
+                    np.random.shuffle(bins)
+            else:
+                bins = group_params.get("bins")
+                if bins is not None:
+                    assert subset_index is not None
+                    bins = bins.loc[subset_index]
+                bins_names = group_params.get("bins_names")
+                unique_bins = None
+
+            npoints = []
+            perfs = defaultdict(dict)
+            if unique_bins is None:
+                if isinstance(bins, pd.Series):
+                    unique_bins = bins.unique()
+                else:
+                    unique_bins = np.unique(bins)
+            for bin_name in unique_bins:
+                idx = bins == bin_name
+                n_points = idx.sum()
+                if n_points:
+                    npoints.append(n_points)
+                    for metric_name, metric_func in metrics.items():
+                        if y_pred.ndim == 2:
+                            metric_value = metric_func(y_true[idx], y_pred[idx, :])
+                        else:
+                            metric_value = metric_func(y_true[idx], y_pred[idx])
+                        perfs[metric_name][f"{bin_name} [{n_points}]"] = metric_value
+
+            for metric_name, metric_perf in perfs.items():
+
+                metric_perf = sort_dict_by_value(metric_perf)
+                npoints = np.array(npoints)
+                line = dict(
+                    factor=group_name,
+                    metric=metric_name,
+                    nbins=len(unique_bins),
+                    npoints_from=npoints.min(),
+                    npoints_median=int(np.median(npoints)),
+                    npoints_to=npoints.max(),
+                )
+
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------
+                # Compute quantiles of the metric value.
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+                performances = np.array(list(metric_perf.values()))
+                quantiles = np.quantile(performances, q=quantiles_to_compute)
+                iqr = quantiles[-1] - quantiles[0]
+                min_boundary = quantiles[0] - tukey_mult * iqr
+                max_boundary = quantiles[-1] + tukey_mult * iqr
+
+                """
+                for q, value in zip(quantiles_to_compute, quantiles):
+                    line[f"q{q:.2f}"] = value
+                """
+
+                line[f"metric_mean"] = performances.mean()
+                line[f"metric_std"] = performances.std()
+
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------
+                # Show top-n best/worst groups. postfix * means metric value for the bin is an outlier.
+                # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+                l = len(metric_perf)
+                real_top_n = min(l // 2, top_n)
+
+                for i, (bin_name, metric_value) in enumerate(metric_perf.items()):
+                    if metric_value < min_boundary or metric_value > max_boundary:
+                        postfix = "*"
+                    else:
+                        postfix = ""
+                    if i < real_top_n:
+                        if metrics_higher_is_better[metric_name]:
+                            line["bin-worst-" + str(i + 1)] = f"{bin_name}: {metric_value:.3f}{postfix}"
+                        else:
+                            line["bin-best-" + str(i + 1)] = f"{bin_name}: {metric_value:.3f}{postfix}"
+                    elif i >= l - real_top_n:
+                        if metrics_higher_is_better[metric_name]:
+                            line["bin-best-" + str(l - i)] = f"{bin_name}: {metric_value:.3f}{postfix}"
+                        else:
+                            line["bin-worst-" + str(l - i)] = f"{bin_name}: {metric_value:.3f}{postfix}"
+
+                res.append(line)
+        if res:
+            res = pd.DataFrame(res).set_index(["factor", "nbins", "npoints_from", "npoints_median", "npoints_to", "metric"])
+            return res.reindex(sorted(res.columns), axis=1)
+
+
+def robust_mlperf_metric(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    metric: Callable,
+    higher_is_better: bool,
+    subgroups: dict = None,
+) -> float:
+    """Bins idices need to be aware of arr sizes: boostings can call the metric on
+    multiple sets of differnt lengths - train, val, etc. Arrays will be pure numpy, so no other means to
+    distinguish except the arr size."""
+
+    if subgroups is None:
+        return metric(y_true, y_score)
+
+    l = len(y_true)
+    if l not in subgroups:
+        return metric(y_true, y_score)
+
+    weights_sum = 0.0
+    total_metric_value = 0.0
+    for group_name, group_params in subgroups[l].items():
+
+        bins = group_params.get("bins")
+        bin_weight = group_params.get("weight", 1.0)
+
+        perfs = []
+        for bin_name, bin_indices in bins.items():
+            if y_score.ndim == 2:
+                metric_value = metric(y_true[bin_indices], y_score[bin_indices, :])
+            else:
+                metric_value = metric(y_true[bin_indices], y_score[bin_indices])
+            perfs.append(metric_value)
+
+        perfs = np.array(perfs)
+        bin_metric_value = perfs.mean()
+        if higher_is_better:
+            bin_metric_value -= perfs.std()
+        else:
+            bin_metric_value += perfs.std()
+
+        weights_sum += bin_weight
+        total_metric_value += bin_metric_value * bin_weight
+
+    return total_metric_value / weights_sum

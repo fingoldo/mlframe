@@ -223,6 +223,8 @@ def score_ensemble(
     uncertainty_quantile: float = 0.0,
     normalize_stds_by_mean_preds: bool = True,
     custom_ice_metric: Callable = None,
+    subgroups: dict = None,
+    **kwargs,
 ):
     """Compares different ensembling methods for a list of models."""
 
@@ -262,6 +264,7 @@ def score_ensemble(
                 show_val_chart=True,
                 nbins=nbins,
                 custom_ice_metric=custom_ice_metric,
+                subgroups=subgroups,
             )
         )
         if uncertainty_quantile:
@@ -281,6 +284,7 @@ def score_ensemble(
                     show_val_chart=True,
                     nbins=nbins,
                     custom_ice_metric=custom_ice_metric,
+                    subgroups=subgroups,
                 )
             )
     return res

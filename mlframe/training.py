@@ -24,6 +24,7 @@ import copy
 import joblib
 import psutil
 from gc import collect
+from functools import partial
 from os.path import join, exists
 from collections import defaultdict
 
@@ -33,6 +34,7 @@ from catboost import CatBoostRegressor
 
 import pandas as pd, numpy as np
 from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import PowerTransformer
 from sklearn.pipeline import Pipeline, make_pipeline
 from sklearn.compose import TransformedTargetRegressor
 from sklearn.base import ClassifierMixin, RegressorMixin,TransformerMixin,is_classifier
@@ -46,10 +48,9 @@ from pyutilz.system import ensure_dir_exists, tqdmu
 from mlframe.helpers import get_model_best_iter
 from mlframe.feature_importance import plot_feature_importance
 from mlframe.feature_selection.wrappers import RFECV, VotesAggregation, OptimumSearch
-from mlframe.metrics import fast_roc_auc, fast_calibration_report, compute_probabilistic_multiclass_error, CB_INTEGRAL_CALIB_ERROR
-from mlframe.stats import get_tukey_fences_multiplier_for_quantile
-from mlframe.metrics import create_robustness_subgroups
-from pyutilz.pythonlib import sort_dict_by_value
+from mlframe.metrics import fast_roc_auc, fast_calibration_report, compute_probabilistic_multiclass_error, robust_mlperf_metric,CB_EVAL_METRIC
+
+from mlframe.metrics import create_robustness_subgroups,compute_robustness_metrics
 
 
 from types import SimpleNamespace
@@ -75,11 +76,27 @@ all_results = {}
 
 
 def get_training_configs(
+        
     iterations: int = 4000,
     early_stopping_rounds: int = 0,
+    validation_fraction: float = 0.1,    
     use_explicit_early_stopping: bool = True,
     has_time: bool = True,
+    has_gpu: bool = None,    
+    subgroups:dict=None,
     learning_rate: float = 0.1,
+
+    def_regr_metric: str = "MAE",
+    def_classif_metric: str = "AUC",
+    catboost_custom_classif_metrics:Sequence = ["AUC", "BrierScore", "PRAUC"],
+    catboost_custom_regr_metrics:Sequence = ["RMSE", "MAPE"],    
+
+    random_seed=None,
+    verbose: int = 0,    
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # probabilistic errors
+    # ----------------------------------------------------------------------------------------------------------------------------
+    method:str="multicrit",
     mae_weight: float = 0.5,
     std_weight: float = 0.5,
     roc_auc_weight: float = 1.5,
@@ -89,13 +106,13 @@ def get_training_configs(
     use_weighted_calibration: bool = True,
     weight_by_class_npositives: bool = False,
     nbins: int = 100,
-    validation_fraction: float = 0.1,
-    def_regr_metric: str = "MAE",
-    def_classif_metric: str = "AUC",
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # featureselectors
+    # ----------------------------------------------------------------------------------------------------------------------------    
+    max_runtime_mins:float=60 * 2,
+    max_noimproving_iters:int=40,
     cv=None,
     cv_n_splits: int = 5,
-    random_seed=None,
-    verbose: int = 0,
 ) -> tuple:
     """Returns approximately same training configs for different types of models,
     based on general params supplied like learning rate, task type, time budget.
@@ -103,27 +120,11 @@ def get_training_configs(
     This procedure is good for manual EDA and getting the feeling of what ML models are capable of for a particular task.
     """
 
-    if not early_stopping_rounds:
-        early_stopping_rounds = max(2, iterations // 4)
+    if has_gpu is None:
+        has_gpu=CUDA_IS_AVAILABLE
 
-    def integral_calibration_error(y_true, y_score, verbose: bool = False):
-        err = compute_probabilistic_multiclass_error(
-            y_true=y_true,
-            y_score=y_score,
-            mae_weight=mae_weight,
-            std_weight=std_weight,
-            brier_loss_weight=brier_loss_weight,
-            roc_auc_weight=roc_auc_weight,
-            min_roc_auc=min_roc_auc,
-            roc_auc_penalty=roc_auc_penalty,
-            use_weighted_calibration=use_weighted_calibration,
-            weight_by_class_npositives=weight_by_class_npositives,
-            nbins=nbins,
-            verbose=verbose,
-        )
-        if verbose:
-            print(len(y_true), "integral_calibration_error=", err)
-        return err
+    if not early_stopping_rounds:
+        early_stopping_rounds = max(2, iterations // 3)
 
     def fs_and_hpt_integral_calibration_error(*args, verbose: bool = False, **kwargs):
         err = compute_probabilistic_multiclass_error(
@@ -142,18 +143,8 @@ def get_training_configs(
         )
         return err
 
-    def lgbm_integral_calibration_error(y_true, y_score):
-        metric_name = "integral_calibration_error"
-        value = integral_calibration_error(y_true, y_score)
-        is_higher_better = False
-
-        return metric_name, value, is_higher_better
-
     def neg_ovr_roc_auc_score(*args, **kwargs):
         return -roc_auc_score(*args, **kwargs, multi_class="ovr")
-
-    catboost_custom_classif_metrics = ["AUC", "BrierScore", "PRAUC"]
-    catboost_custom_regr_metrics = ["RMSE", "MAPE"]
 
     CB_GENERAL_PARAMS = dict(
         iterations=iterations,
@@ -161,7 +152,7 @@ def get_training_configs(
         has_time=has_time,
         learning_rate=learning_rate,
         eval_fraction=(0.0 if use_explicit_early_stopping else validation_fraction),
-        task_type=("GPU" if CUDA_IS_AVAILABLE else "CPU"),        
+        task_type=("GPU" if has_gpu else "CPU"),        
         early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
     )
@@ -170,38 +161,8 @@ def get_training_configs(
     CB_CLASSIF.update({"eval_metric": def_classif_metric, "custom_metric": catboost_custom_classif_metrics})
 
     CB_REGR = CB_GENERAL_PARAMS.copy()
-    #CB_REGR.update({"eval_metric": def_regr_metric, "custom_metric": catboost_custom_regr_metrics})   # ,"task_type": "CPU"
+    CB_REGR.update({"eval_metric": def_regr_metric, "custom_metric": catboost_custom_regr_metrics})
 
-    CB_CPU_CLASSIF = CB_CLASSIF.copy()
-    CB_CPU_CLASSIF.update({"task_type": "CPU"})
-
-    CB_CALIB_CLASSIF = CB_CLASSIF.copy()
-    CB_CALIB_CLASSIF.update(
-        {
-            "eval_metric": CB_INTEGRAL_CALIB_ERROR(
-                mae_weight=mae_weight,
-                std_weight=std_weight,
-                brier_loss_weight=brier_loss_weight,
-                roc_auc_weight=roc_auc_weight,
-                min_roc_auc=min_roc_auc,
-                roc_auc_penalty=roc_auc_penalty,
-                use_weighted_calibration=use_weighted_calibration,
-                weight_by_class_npositives=weight_by_class_npositives,
-                nbins=nbins,
-            )
-        }
-    )
-
-    LGB_GENERAL_PARAMS = dict(
-        n_estimators=iterations,
-        early_stopping_rounds=early_stopping_rounds,
-        device_type=("gpu" if CUDA_IS_AVAILABLE else "cpu"),
-        verbose=int(verbose),
-        random_state=random_seed,
-    )
-
-    LGBM_CPU_PARAMS = LGB_GENERAL_PARAMS.copy()
-    LGBM_CPU_PARAMS.update({"device_type": "cpu"})
 
     XGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
@@ -209,21 +170,61 @@ def get_training_configs(
         max_cat_to_onehot=1,
         max_cat_threshold=1000,
         tree_method="hist",
-        device=("cuda" if CUDA_IS_AVAILABLE else "cpu"),
+        device=("cuda" if has_gpu else "cpu"),
+        n_jobs=psutil.cpu_count(logical=False),
         early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
         verbosity=int(verbose),
-    )
-
+    )    
 
     XGB_GENERAL_CLASSIF = XGB_GENERAL_PARAMS.copy()
     XGB_GENERAL_CLASSIF.update({"objective": "binary:logistic","eval_metric":neg_ovr_roc_auc_score})    
 
+    def integral_calibration_error(y_true, y_score,verbose: bool = False):
+
+        err = compute_probabilistic_multiclass_error(
+            y_true=y_true,
+            y_score=y_score,
+            method=method,
+            mae_weight=mae_weight,
+            std_weight=std_weight,
+            brier_loss_weight=brier_loss_weight,
+            roc_auc_weight=roc_auc_weight,
+            min_roc_auc=min_roc_auc,
+            roc_auc_penalty=roc_auc_penalty,
+            use_weighted_calibration=use_weighted_calibration,
+            weight_by_class_npositives=weight_by_class_npositives,
+            nbins=nbins,
+            verbose=verbose,
+        )
+        if verbose:
+            print(len(y_true), "integral_calibration_error=", err)
+        return err
+    if subgroups: integral_calibration_error=partial(robust_mlperf_metric,metric=integral_calibration_error,higher_is_better=False,subgroups=subgroups)
+
     XGB_CALIB_CLASSIF = XGB_GENERAL_CLASSIF.copy()
     XGB_CALIB_CLASSIF.update({"eval_metric": integral_calibration_error})
+
+    def lgbm_integral_calibration_error(y_true, y_score):
+        metric_name = "integral_calibration_error"
+        value = integral_calibration_error(y_true, y_score)
+        higher_is_better = False
+        return metric_name, value, higher_is_better
     
-    XGB_CALIB_CLASSIF_CPU=XGB_CALIB_CLASSIF.copy()
-    XGB_CALIB_CLASSIF_CPU.update({"device": "cpu","n_jobs":psutil.cpu_count(logical=False)})    
+    CB_CALIB_CLASSIF = CB_CLASSIF.copy()
+    CB_CALIB_CLASSIF.update({"eval_metric": CB_EVAL_METRIC(metric=integral_calibration_error,higher_is_better=False)})
+    
+    LGB_GENERAL_PARAMS = dict(
+        n_estimators=iterations,
+        early_stopping_rounds=early_stopping_rounds,
+        device_type=("gpu" if has_gpu else "cpu"),
+        verbose=int(verbose),
+        random_state=random_seed,
+    )
+
+
+
+    #XGB_CALIB_CLASSIF_CPU.update({"device": "cpu","n_jobs":psutil.cpu_count(logical=False)})    
 
     if not cv:
         if has_time:
@@ -245,8 +246,8 @@ def get_training_configs(
         feature_cost=0.0 / 100,
         smooth_perf=0,
         max_refits=None,
-        max_runtime_mins=60 * 2,
-        max_noimproving_iters=40,
+        max_runtime_mins=max_runtime_mins,
+        max_noimproving_iters=max_noimproving_iters,
         # frac=0.2,
     )
 
@@ -257,14 +258,11 @@ def get_training_configs(
         CB_GENERAL_PARAMS=CB_GENERAL_PARAMS,
         CB_REGR=CB_REGR,
         CB_CLASSIF=CB_CLASSIF,
-        CB_CPU_CLASSIF=CB_CPU_CLASSIF,
         CB_CALIB_CLASSIF=CB_CALIB_CLASSIF,
         LGB_GENERAL_PARAMS=LGB_GENERAL_PARAMS,
-        LGBM_CPU_PARAMS=LGBM_CPU_PARAMS,
         XGB_GENERAL_PARAMS=XGB_GENERAL_PARAMS,
         XGB_GENERAL_CLASSIF=XGB_GENERAL_CLASSIF,
         XGB_CALIB_CLASSIF=XGB_CALIB_CLASSIF,
-        XGB_CALIB_CLASSIF_CPU=XGB_CALIB_CLASSIF_CPU,
         COMMON_RFECV_PARAMS=COMMON_RFECV_PARAMS,
     )
 
@@ -411,6 +409,7 @@ def train_and_evaluate_model(
                 except Exception as e:
                     logger.warning(e)
 
+    metrics={'val':{},'test':{}}
     if verbose:
         if show_val_chart and val_idx is not None:
             if df is None:
@@ -437,6 +436,7 @@ def train_and_evaluate_model(
                 subgroups=subgroups,
                 subset_index=val_idx,
                 custom_ice_metric=custom_ice_metric,
+                metrics=metrics['val']
             )
 
         if df is not None:            
@@ -470,6 +470,7 @@ def train_and_evaluate_model(
             subgroups=subgroups,
             subset_index=test_idx,
             custom_ice_metric=custom_ice_metric,
+            metrics=metrics['test']
         )
 
         if include_confidence_analysis:
@@ -498,7 +499,7 @@ def train_and_evaluate_model(
     
     collect()
     
-    return model, test_preds, test_probs, val_preds, val_probs, columns, pre_pipeline
+    return model, test_preds, test_probs, val_preds, val_probs, columns, pre_pipeline, metrics
 
 def report_model_perf(
     targets: Union[np.ndarray, pd.Series],
@@ -522,6 +523,7 @@ def report_model_perf(
     print_report: bool = True,
     show_fi: bool = True,
     custom_ice_metric: Callable = None,
+    metrics:dict=None,
 ):
     if probs is not None or is_classifier(model):
         return report_probabilistic_model_perf(
@@ -546,6 +548,7 @@ def report_model_perf(
             print_report=print_report,
             show_fi=show_fi,
             custom_ice_metric=custom_ice_metric,
+            metrics=metrics,
         )
     else:
 
@@ -564,6 +567,7 @@ def report_model_perf(
             df=df,
             print_report=print_report,
             show_fi=show_fi,
+            metrics=metrics,
         )
     
 def report_regression_model_perf(
@@ -581,6 +585,7 @@ def report_regression_model_perf(
     df: Optional[pd.DataFrame] = None,
     print_report: bool = True,
     show_fi: bool = True,
+    metrics:dict=None,
 ):
     """Detailed performance report (usually on a test set)."""
 
@@ -632,6 +637,7 @@ def report_probabilistic_model_perf(
     print_report: bool = True,
     show_fi: bool = True,
     custom_ice_metric: Callable = None,
+    metrics:dict=None,
 ):
     """Detailed performance report (usually on a test set)."""
 
@@ -696,9 +702,13 @@ def report_probabilistic_model_perf(
         roc_aucs.append(f"{str_class_name}={roc_auc:.{digits}f}")
         brs.append(f"{str_class_name}={brier_loss * 100:.{digits}f}%")
 
+        if metrics is not None:
+            metrics.update(dict(class_id=dict(roc_auc=roc_auc,pr_auc=pr_auc,calibration_mae=calibration_mae,calibration_std=calibration_std,brier_loss=brier_loss,integral_error=integral_error)))
+
         if show_fi: plot_model_feature_importances(model=model,columns=columns,model_name=model_name,figsize=(15,10))
 
     if print_report:
+
         print(report_title)
         print(classification_report(targets, preds, zero_division=0, digits=digits))
         print(f"ROC AUCs: {', '.join(roc_aucs)}")
@@ -714,7 +724,9 @@ def report_probabilistic_model_perf(
                 metrics_higher_is_better={'ICE':False,'ROC AUC':True},                
             )
             if robustness_report is not None:
-                display(robustness_report)
+                display(robustness_report.style.set_caption("ML performance by group"))
+                if metrics is not None:
+                    metrics.update(dict(robustness_report=robustness_report))
 
     return preds, probs
 
@@ -741,115 +753,3 @@ def plot_model_feature_importances(model:object,columns:Sequence,model_name:str=
             )
         except Exception:
             logger.warning("Could not plot feature importances. Maybe data shape is changed within a pipeline?")
-
-def compute_robustness_metrics(
-    metrics: dict,
-    metrics_higher_is_better: dict,
-    subgroups: dict,
-    subset_index: np.ndarray,
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-    cont_nbins: int = 3,
-    top_n: int = 5,    
-) -> pd.DataFrame:
-    """* is added to the bin name if bin's metric is an outlier (compted using Tukey's fence & IQR)."""
-    if subgroups:
-
-        res = []
-        quantile = 0.25
-        quantiles_to_compute = [0.5 - quantile, 0.5, 0.5 + quantile]
-        tukey_mult = get_tukey_fences_multiplier_for_quantile(quantile=quantile, sd_sigma=2.7)
-
-        for group_name, subgrouping in subgroups.items():
-            if group_name in ("**ORDER**", "**RANDOM**"):
-                # settings = subgrouping.get("settings")
-                l = len(y_true)
-                step_size = l // cont_nbins
-                bins = np.empty(shape=l, dtype=np.int16)
-                start = 0
-                unique_bins = range(cont_nbins)
-                for i in unique_bins:
-                    bins[start : start + step_size] = i
-                    start += step_size
-                if group_name == "**RANDOM**":
-                    np.random.shuffle(bins)
-            else:
-                bins = subgrouping.get("bins")
-                if bins is not None:
-                    assert subset_index is not None
-                    bins = bins.loc[subset_index]
-                bins_names = subgrouping.get("bins_names")
-                unique_bins = None
-            
-            perfs =defaultdict(dict)
-            npoints = []
-            if unique_bins is None:
-                if isinstance(bins,pd.Series):
-                    unique_bins = bins.unique()
-                else:
-                    unique_bins = np.unique(bins)
-            for bin_name in unique_bins:
-                idx = bins == bin_name
-                n_points = idx.sum()
-                if n_points:
-                    npoints.append(n_points)
-                    for metric_name,metric_func in metrics.items():
-                        if y_pred.ndim==2:
-                            metric_value = metric_func(y_true[idx],y_pred[idx, :])
-                        else:
-                            metric_value = metric_func(y_true[idx],y_pred[idx])
-                        perfs[metric_name][f"{bin_name} [{n_points}]"] = metric_value
-
-            for metric_name,metric_perf in perfs.items():
-
-                metric_perf = sort_dict_by_value(metric_perf)
-                npoints = np.array(npoints)
-                line = dict(
-                    factor=group_name,metric=metric_name, nbins=len(unique_bins), npoints_from=npoints.min(), npoints_median=int(np.median(npoints)), npoints_to=npoints.max()
-                )
-
-                # -----------------------------------------------------------------------------------------------------------------------------------------------------
-                # Compute quantiles of the metric value.
-                # -----------------------------------------------------------------------------------------------------------------------------------------------------
-
-                performances = np.array(list(metric_perf.values()))
-                quantiles = np.quantile(performances, q=quantiles_to_compute)
-                iqr = quantiles[-1] - quantiles[0]
-                min_boundary = quantiles[0] - tukey_mult * iqr
-                max_boundary = quantiles[-1] + tukey_mult * iqr
-
-                """
-                for q, value in zip(quantiles_to_compute, quantiles):
-                    line[f"q{q:.2f}"] = value
-                """
-
-                line[f"metric_mean"] = quantiles.mean()
-                line[f"metric_std"] = quantiles.std()
-
-                # -----------------------------------------------------------------------------------------------------------------------------------------------------
-                # Show top-n best/worst groups. postfix * means metric value for the bin is an outlier.
-                # -----------------------------------------------------------------------------------------------------------------------------------------------------
-
-                l = len(metric_perf)
-                real_top_n = min(l // 2, top_n)
-
-                for i, (bin_name, metric_value) in enumerate(metric_perf.items()):
-                    if metric_value < min_boundary or metric_value > max_boundary:
-                        postfix = "*"
-                    else:
-                        postfix = ""
-                    if i < real_top_n:
-                        if metrics_higher_is_better[metric_name]:
-                            line["bin-worst-"+ str(i + 1)] = f"{bin_name}: {metric_value:.3f}{postfix}"
-                        else:
-                            line["bin-best-"+ str(i + 1)] = f"{bin_name}: {metric_value:.3f}{postfix}"
-                    elif i >= l - real_top_n:
-                        if metrics_higher_is_better[metric_name]:
-                            line["bin-best-" + str(l - i)] = f"{bin_name}: {metric_value:.3f}{postfix}"
-                        else:
-                            line["bin-worst-" + str(l - i)] = f"{bin_name}: {metric_value:.3f}{postfix}"
-
-                res.append(line)
-        if res:
-            res=pd.DataFrame(res).set_index(['factor' ,'nbins','npoints_from'	,'npoints_median',	'npoints_to','metric'])
-            return res.reindex(sorted(res.columns), axis=1).style.set_caption("ML performance by group")
