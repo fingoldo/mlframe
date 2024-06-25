@@ -477,6 +477,7 @@ class CB_EVAL_METRIC:
         self,
         metric: Callable,
         higher_is_better: bool,
+        calibration_plot_period: int = 0,
     ) -> None:
 
         # save params
@@ -506,10 +507,7 @@ class CB_EVAL_METRIC:
             for class_id in range(len(approxes)):
                 probs[class_id] /= tot_sum
 
-        total_error = self.metric(
-            y_true=target,
-            y_score=probs,
-        )
+        total_error = self.metric(y_true=target, y_score=probs)
 
         self.nruns += 1
 
@@ -517,7 +515,7 @@ class CB_EVAL_METRIC:
 
         if self.calibration_plot_period and (self.nruns % self.calibration_plot_period == 0):
             y_true = (target == class_id).astype(np.int8)
-            brier_loss, calibration_mae, calibration_std, calibration_coverage, _ = fast_calibration_report(
+            brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, fig = fast_calibration_report(
                 y_true=y_true,
                 y_pred=y_pred,
                 title=f"{len(approxes[0]):_} records of class {class_id}, integral error={total_error:.4f}, nruns={self.nruns:_}\r\n",
@@ -669,9 +667,10 @@ def create_robustness_subgroups(
 
 
 def create_robustness_subgroups_indices(subgroups: dict, train_idx: np.ndarray, val_idx: np.ndarray, group_weights: dict = {}, cont_nbins: int = 3) -> dict:
-    robustness_subgroups_indices = {}
+    res = {}
     for arr in (train_idx, val_idx):
         npoints = len(arr)
+        robustness_subgroups_indices = {}
         for group_name, group_params in subgroups.items():
             group_indices = {}
             if group_name in ("**ORDER**", "**RANDOM**"):
@@ -693,7 +692,9 @@ def create_robustness_subgroups_indices(subgroups: dict, train_idx: np.ndarray, 
 
             robustness_subgroups_indices[group_name] = dict(bins=group_indices, weight=group_weights.get(group_name, 1.0))
 
-    return robustness_subgroups_indices
+        res[npoints] = robustness_subgroups_indices
+
+    return res
 
 
 def create_robustness_standard_bins(group_name: str, npoints: int, cont_nbins: int) -> tuple:
@@ -831,36 +832,39 @@ def robust_mlperf_metric(
     multiple sets of differnt lengths - train, val, etc. Arrays will be pure numpy, so no other means to
     distinguish except the arr size."""
 
-    if subgroups is None:
-        return metric(y_true, y_score)
+    weights_sum = 0.5
+    total_metric_value = metric(y_true, y_score)
 
     l = len(y_true)
-    if l not in subgroups:
-        return metric(y_true, y_score)
+    if subgroups and l in subgroups:       
 
-    weights_sum = 0.0
-    total_metric_value = 0.0
-    for group_name, group_params in subgroups[l].items():
+        for group_name, group_params in subgroups[l].items():
 
-        bins = group_params.get("bins")
-        bin_weight = group_params.get("weight", 1.0)
+            bins = group_params.get("bins")
+            bin_weight = group_params.get("weight", 1.0)
 
-        perfs = []
-        for bin_name, bin_indices in bins.items():
-            if y_score.ndim == 2:
-                metric_value = metric(y_true[bin_indices], y_score[bin_indices, :])
+            perfs = []
+            for bin_name, bin_indices in bins.items():
+                if isinstance(y_score, Sequence):
+                    if len(y_score) == 2:
+                        metric_value = metric(y_true[bin_indices], [el[bin_indices] for el in y_score])
+                    else:
+                        metric_value = metric(y_true[bin_indices], y_score[1][bin_indices])
+                else:
+                    if y_score.ndim == 2:
+                        metric_value = metric(y_true[bin_indices], y_score[bin_indices, :])
+                    else:
+                        metric_value = metric(y_true[bin_indices], y_score[bin_indices])
+                perfs.append(metric_value)
+
+            perfs = np.array(perfs)
+            bin_metric_value = perfs.mean()
+            if higher_is_better:
+                bin_metric_value -= perfs.std()
             else:
-                metric_value = metric(y_true[bin_indices], y_score[bin_indices])
-            perfs.append(metric_value)
+                bin_metric_value += perfs.std()
 
-        perfs = np.array(perfs)
-        bin_metric_value = perfs.mean()
-        if higher_is_better:
-            bin_metric_value -= perfs.std()
-        else:
-            bin_metric_value += perfs.std()
-
-        weights_sum += bin_weight
-        total_metric_value += bin_metric_value * bin_weight
+            weights_sum += bin_weight
+            total_metric_value += bin_metric_value * bin_weight
 
     return total_metric_value / weights_sum

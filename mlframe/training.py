@@ -48,7 +48,8 @@ from pyutilz.system import ensure_dir_exists, tqdmu
 from mlframe.helpers import get_model_best_iter
 from mlframe.feature_importance import plot_feature_importance
 from mlframe.feature_selection.wrappers import RFECV, VotesAggregation, OptimumSearch
-from mlframe.metrics import fast_roc_auc, fast_calibration_report, compute_probabilistic_multiclass_error, robust_mlperf_metric,CB_EVAL_METRIC
+from mlframe.metrics import fast_roc_auc, fast_calibration_report, compute_probabilistic_multiclass_error, CB_EVAL_METRIC
+from mlframe.metrics import robust_mlperf_metric,create_robustness_subgroups_indices
 
 from mlframe.metrics import create_robustness_subgroups,compute_robustness_metrics
 
@@ -126,23 +127,6 @@ def get_training_configs(
     if not early_stopping_rounds:
         early_stopping_rounds = max(2, iterations // 3)
 
-    def fs_and_hpt_integral_calibration_error(*args, verbose: bool = False, **kwargs):
-        err = compute_probabilistic_multiclass_error(
-            *args,
-            **kwargs,
-            mae_weight=mae_weight,
-            std_weight=std_weight,
-            brier_loss_weight=brier_loss_weight,
-            roc_auc_weight=roc_auc_weight,
-            min_roc_auc=min_roc_auc,
-            roc_auc_penalty=roc_auc_penalty,
-            use_weighted_calibration=use_weighted_calibration,
-            weight_by_class_npositives=weight_by_class_npositives,
-            nbins=nbins,
-            verbose=verbose,
-        )
-        return err
-
     def neg_ovr_roc_auc_score(*args, **kwargs):
         return -roc_auc_score(*args, **kwargs, multi_class="ovr")
 
@@ -200,19 +184,40 @@ def get_training_configs(
         if verbose:
             print(len(y_true), "integral_calibration_error=", err)
         return err
-    if subgroups: integral_calibration_error=partial(robust_mlperf_metric,metric=integral_calibration_error,higher_is_better=False,subgroups=subgroups)
+    
+    if subgroups: 
+        final_integral_calibration_error=partial(robust_mlperf_metric,metric=integral_calibration_error,higher_is_better=False,subgroups=subgroups)
+    else:
+        final_integral_calibration_error=integral_calibration_error
+
+    def fs_and_hpt_integral_calibration_error(*args, verbose: bool = False, **kwargs):
+        err = compute_probabilistic_multiclass_error(
+            *args,
+            **kwargs,
+            mae_weight=mae_weight,
+            std_weight=std_weight,
+            brier_loss_weight=brier_loss_weight,
+            roc_auc_weight=roc_auc_weight,
+            min_roc_auc=min_roc_auc,
+            roc_auc_penalty=roc_auc_penalty,
+            use_weighted_calibration=use_weighted_calibration,
+            weight_by_class_npositives=weight_by_class_npositives,
+            nbins=nbins,
+            verbose=verbose,
+        )
+        return err        
 
     XGB_CALIB_CLASSIF = XGB_GENERAL_CLASSIF.copy()
-    XGB_CALIB_CLASSIF.update({"eval_metric": integral_calibration_error})
+    XGB_CALIB_CLASSIF.update({"eval_metric": final_integral_calibration_error})
 
     def lgbm_integral_calibration_error(y_true, y_score):
         metric_name = "integral_calibration_error"
-        value = integral_calibration_error(y_true, y_score)
+        value = final_integral_calibration_error(y_true, y_score)
         higher_is_better = False
         return metric_name, value, higher_is_better
     
     CB_CALIB_CLASSIF = CB_CLASSIF.copy()
-    CB_CALIB_CLASSIF.update({"eval_metric": CB_EVAL_METRIC(metric=integral_calibration_error,higher_is_better=False)})
+    CB_CALIB_CLASSIF.update({"eval_metric": CB_EVAL_METRIC(metric=final_integral_calibration_error,higher_is_better=False)})
     
     LGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
