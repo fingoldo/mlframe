@@ -836,7 +836,7 @@ def robust_mlperf_metric(
     total_metric_value = metric(y_true, y_score)
 
     l = len(y_true)
-    if subgroups and l in subgroups:       
+    if subgroups and l in subgroups:
 
         for group_name, group_params in subgroups[l].items():
 
