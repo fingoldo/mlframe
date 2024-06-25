@@ -224,39 +224,48 @@ def score_ensemble(
     normalize_stds_by_mean_preds: bool = True,
     custom_ice_metric: Callable = None,
     subgroups: dict = None,
+    max_ensembling_level: int = 1,
+    show_train_chart: bool = False,
     **kwargs,
 ):
     """Compares different ensembling methods for a list of models."""
 
-    res = []
-    for ensemble_method in ensembling_methods:
-        val_ensembled_predictions, val_confident_indices = ensemble_probabilistic_predictions(
-            *(el[4] for el in models_and_predictions),
-            ensemble_method=ensemble_method,
-            max_mae=max_mae,
-            max_std=max_std,
-            ensure_prob_limits=ensure_prob_limits,
-            uncertainty_quantile=uncertainty_quantile,
-            normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
-        )
-        test_ensembled_predictions, test_confident_indices = ensemble_probabilistic_predictions(
-            *(el[2] for el in models_and_predictions),
-            ensemble_method=ensemble_method,
-            max_mae=max_mae,
-            max_std=max_std,
-            ensure_prob_limits=ensure_prob_limits,
-            uncertainty_quantile=uncertainty_quantile,
-            normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
-        )
-        res.append(
-            train_and_evaluate_model(
+    res = {}
+    level_models_and_predictions = models_and_predictions
+
+    for ensembling_level in range(max_ensembling_level):
+
+        next_level_models_and_predictions = []
+
+        for ensemble_method in ensembling_methods:
+            val_ensembled_predictions, val_confident_indices = ensemble_probabilistic_predictions(
+                *(el[4] for el in level_models_and_predictions),
+                ensemble_method=ensemble_method,
+                max_mae=max_mae,
+                max_std=max_std,
+                ensure_prob_limits=ensure_prob_limits,
+                uncertainty_quantile=uncertainty_quantile,
+                normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+            )
+            test_ensembled_predictions, test_confident_indices = ensemble_probabilistic_predictions(
+                *(el[2] for el in level_models_and_predictions),
+                ensemble_method=ensemble_method,
+                max_mae=max_mae,
+                max_std=max_std,
+                ensure_prob_limits=ensure_prob_limits,
+                uncertainty_quantile=uncertainty_quantile,
+                normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+            )
+
+            internal_ensemble_method = f"{ensemble_method} L{ensembling_level}" if ensembling_level > 0 else ensemble_method
+            next_ens_results = train_and_evaluate_model(
                 model=None,
                 test_probs=test_ensembled_predictions,
                 val_probs=val_ensembled_predictions,
                 df=None,
                 target=target,
                 default_drop_columns=[],
-                model_name=f"Ensemble {ensemble_method} {ensemble_name}",
+                model_name=f"Ensemble {internal_ensemble_method} {ensemble_name}",
                 train_idx=None,
                 test_idx=test_idx,
                 val_idx=val_idx,
@@ -266,17 +275,18 @@ def score_ensemble(
                 custom_ice_metric=custom_ice_metric,
                 subgroups=subgroups,
             )
-        )
-        if uncertainty_quantile:
-            res.append(
-                train_and_evaluate_model(
+            next_level_models_and_predictions.append(next_ens_results)
+            res[internal_ensemble_method] = next_ens_results
+
+            if uncertainty_quantile:
+                res[internal_ensemble_method + " conf"] = train_and_evaluate_model(
                     model=None,
                     test_probs=test_ensembled_predictions[test_confident_indices],
                     val_probs=val_ensembled_predictions[val_confident_indices],
                     df=None,
                     target=target,
                     default_drop_columns=[],
-                    model_name=f"Conf Ensemble {ensemble_method} {ensemble_name}",
+                    model_name=f"Conf Ensemble {internal_ensemble_method} {ensemble_name}",
                     train_idx=None,
                     test_idx=test_idx[test_confident_indices],
                     val_idx=val_idx[val_confident_indices],
@@ -286,5 +296,18 @@ def score_ensemble(
                     custom_ice_metric=custom_ice_metric,
                     subgroups=subgroups,
                 )
-            )
+        level_models_and_predictions = next_level_models_and_predictions
     return res
+
+
+def compare_ensembles(ensembles: dict) -> pd.DataFrame:
+    items = []
+    for ens_name, ens_perf in ensembles.items():
+        perf = copy.deepcopy(ens_perf[-1])
+        for set_name, set_perf in perf.items():
+            if "robustness_report" in set_perf:
+                del set_perf["robustness_report"]
+        ser = pd.json_normalize(perf).iloc[0, :]
+        ser.name = ens_name
+        items.append(ser)
+    return pd.DataFrame(items).sort_values("test.1.integral_error")

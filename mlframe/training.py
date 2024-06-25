@@ -78,7 +78,7 @@ all_results = {}
 
 def get_training_configs(
         
-    iterations: int = 4000,
+    iterations: int = 5000,
     early_stopping_rounds: int = 0,
     validation_fraction: float = 0.1,    
     use_explicit_early_stopping: bool = True,
@@ -301,6 +301,7 @@ def train_and_evaluate_model(
     verbose: bool = True,
     use_cache: bool = False,
     nbins: int = 100,
+    show_train_chart:bool=False,
     show_val_chart: bool = True,
     data_dir: str = DATA_DIR,
     models_subdir: str = MODELS_SUBDIR,
@@ -416,12 +417,40 @@ def train_and_evaluate_model(
 
     metrics={'val':{},'test':{}}
     if verbose:
+        if show_train_chart and train_idx is not None:
+            if 'train' not in metrics:
+                metrics['train']={}
+            if df is None:
+                train_df = None
+                columns = []
+            else:
+                columns = train_df.columns
+
+            train_preds, train_probs = report_model_perf(
+                targets=target.loc[train_idx],
+                columns=columns,
+                df=train_df.values if model_type_name in TABNET_MODEL_TYPES else train_df,
+                model_name="TRAIN " + model_name,
+                model=model,
+                target_label_encoder=target_label_encoder,
+                preds=train_preds,
+                probs=train_probs,
+                figsize=figsize,
+                report_title="",
+                nbins=nbins,
+                print_report=True,
+                show_fi=False,
+                subgroups=subgroups,
+                subset_index=train_idx,
+                custom_ice_metric=custom_ice_metric,
+                metrics=metrics['train']
+            )
+        
         if show_val_chart and val_idx is not None:
             if df is None:
                 val_df = None
                 columns = []
             else:
-                df.loc[val_idx].drop(columns=real_drop_columns)
                 columns = val_df.columns
 
             val_preds, val_probs = report_model_perf(
@@ -708,7 +737,7 @@ def report_probabilistic_model_perf(
         brs.append(f"{str_class_name}={brier_loss * 100:.{digits}f}%")
 
         if metrics is not None:
-            metrics.update(dict(class_id=dict(roc_auc=roc_auc,pr_auc=pr_auc,calibration_mae=calibration_mae,calibration_std=calibration_std,brier_loss=brier_loss,integral_error=integral_error)))
+            metrics.update({class_id:dict(roc_auc=roc_auc,pr_auc=pr_auc,calibration_mae=calibration_mae,calibration_std=calibration_std,brier_loss=brier_loss,integral_error=integral_error)})
 
         if show_fi: plot_model_feature_importances(model=model,columns=columns,model_name=model_name,figsize=(15,10))
 

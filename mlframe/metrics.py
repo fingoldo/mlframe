@@ -827,13 +827,14 @@ def robust_mlperf_metric(
     metric: Callable,
     higher_is_better: bool,
     subgroups: dict = None,
+    whole_set_weight: float = 0.5,
 ) -> float:
     """Bins idices need to be aware of arr sizes: boostings can call the metric on
     multiple sets of differnt lengths - train, val, etc. Arrays will be pure numpy, so no other means to
     distinguish except the arr size."""
 
-    weights_sum = 0.5
-    total_metric_value = metric(y_true, y_score)
+    weights_sum = whole_set_weight
+    total_metric_value = metric(y_true, y_score) * whole_set_weight
 
     l = len(y_true)
     if subgroups and l in subgroups:
