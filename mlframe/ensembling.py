@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
 
+import copy
 import joblib
 from joblib import delayed
 import pandas as pd, numpy as np
