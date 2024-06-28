@@ -14,11 +14,7 @@ logger = logging.getLogger(__name__)
 # Packages
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from pyutilz.pythonlib import (
-    ensure_installed,
-)  # lint: disable=ungrouped-imports,disable=wrong-import-order
-
-ensure_installed("numpy numba sklearn antropy astropy entropy_estimators")  # npeet?
+# from pyutilz.pythonlib import ensure_installed;ensure_installed("numba numpy pandas joblib psutil scikit-learn antropy astropy entropy_estimators") # npeet?
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
@@ -32,11 +28,12 @@ from antropy import *
 from astropy.stats import histogram
 from entropy_estimators import continuous
 from sklearn.feature_selection import mutual_info_regression
-from mlframe.feature_engineering.hurst import compute_hurst_exponent
 
 import psutil
 from joblib import delayed
+
 from pyutilz.parallel import parallel_run
+from mlframe.feature_engineering.hurst import compute_hurst_exponent
 
 from scipy.stats import entropy, kstest
 from scipy import stats

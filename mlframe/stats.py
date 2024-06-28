@@ -25,9 +25,9 @@ from pyutilz.pythonlib import ensure_installed  # lint: disable=ungrouped-import
 from typing import *  # pylint: disable=wildcard-import,unused-wildcard-import
 
 import numpy as np
+from functools import lru_cache
 from scipy.stats import norm, t
 from scipy.stats._continuous_distns import norm_gen
-from functools import lru_cache
 
 
 def get_dist_percentage_span_for_sd(sd_sigma: float, dist: norm_gen = norm, **dist_kwargs) -> float:

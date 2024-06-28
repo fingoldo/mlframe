@@ -14,9 +14,7 @@ logger = logging.getLogger(__name__)
 # Packages
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from pyutilz.pythonlib import ensure_installed  # lint: disable=ungrouped-imports,disable=wrong-import-order
-
-# ensure_installed("numpy pandas")
+# from pyutilz.pythonlib import ensure_installed;ensure_installed("numpy pandas"))
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports

@@ -7,7 +7,6 @@
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import logging
-
 logger = logging.getLogger(__name__)
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -16,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
 from .config import *
+
+#from pyutilz.pythonlib import ensure_installed;ensure_installed("pandas numpy numba scikit-learn lightgbm catboost xgboost shap")
 
 import numba
 from numba.cuda import is_available as is_cuda_available
@@ -26,13 +27,20 @@ import psutil
 from gc import collect
 from functools import partial
 from os.path import join, exists
+from types import SimpleNamespace
 from collections import defaultdict
 
+import matplotlib.pyplot as plt
 from IPython.display import display
 
-from catboost import CatBoostRegressor
+import lightgbm as lgb
+from lightgbm import LGBMClassifier, LGBMRegressor
+from catboost import CatBoostRegressor, CatBoostClassifier
+from xgboost import XGBClassifier, XGBRegressor, DMatrix, QuantileDMatrix
 
+import shap
 import pandas as pd, numpy as np
+from sklearn.metrics import make_scorer
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import PowerTransformer
 from sklearn.pipeline import Pipeline, make_pipeline
@@ -44,17 +52,14 @@ from sklearn.metrics import mean_absolute_error,max_error,mean_absolute_percenta
 
 from pyutilz.pythonlib import prefix_dict_elems
 from pyutilz.system import ensure_dir_exists, tqdmu
+from pyutilz.pandaslib import ensure_dataframe_float32_convertability, optimize_dtypes, remove_constant_columns
 
 from mlframe.helpers import get_model_best_iter
+from mlframe.preprocessing import prepare_df_for_catboost
 from mlframe.feature_importance import plot_feature_importance
 from mlframe.feature_selection.wrappers import RFECV, VotesAggregation, OptimumSearch
 from mlframe.metrics import fast_roc_auc, fast_calibration_report, compute_probabilistic_multiclass_error, CB_EVAL_METRIC
-from mlframe.metrics import robust_mlperf_metric,create_robustness_subgroups_indices
-
-from mlframe.metrics import create_robustness_subgroups,compute_robustness_metrics
-
-
-from types import SimpleNamespace
+from mlframe.metrics import create_robustness_subgroups,create_robustness_subgroups_indices,compute_robustness_metrics,robust_mlperf_metric
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
@@ -186,7 +191,9 @@ def get_training_configs(
         return err
     
     if subgroups: 
-        final_integral_calibration_error=partial(robust_mlperf_metric,metric=integral_calibration_error,higher_is_better=False,subgroups=subgroups)
+        #final_integral_calibration_error=partial(robust_mlperf_metric,metric=integral_calibration_error,higher_is_better=False,subgroups=subgroups)
+        def final_integral_calibration_error(y_true: np.ndarray,y_score: np.ndarray,*args,**kwargs): # partial won't work with xgboost
+            return robust_mlperf_metric(y_true,y_score,*args,metric=integral_calibration_error,higher_is_better=False,subgroups=subgroups,**kwargs,)
     else:
         final_integral_calibration_error=integral_calibration_error
 
@@ -305,7 +312,7 @@ def train_and_evaluate_model(
     show_val_chart: bool = True,
     data_dir: str = DATA_DIR,
     models_subdir: str = MODELS_SUBDIR,
-    include_confidence_analysis:bool=True,
+    include_confidence_analysis:bool=False,
     display_sample_size: int =0,
     show_feature_names: bool=False,
 ):
@@ -508,16 +515,16 @@ def train_and_evaluate_model(
         )
 
         if include_confidence_analysis:
-            """Separate analysis: having original dataset, and test preditions made by a trained model, 
+            """Separate analysis: having original dataset, and test predictions made by a trained model, 
             find what original factors are the most discriminative regarding prediction accuracy. for that, 
             training a meta-model on test set could do it. use original features, as targets use prediction-ground truth, 
             train a regression boosting & check its feature importances."""
 
             # for (any, even multiclass) classification, targets are probs of ground truth classes
             if test_df is not None:
-                confidence_clf=CatBoostRegressor(verbose=0,eval_fraction=0.1,task_type=("GPU" if CUDA_IS_AVAILABLE else "CPU"))
+                confidence_model=CatBoostRegressor(verbose=0,eval_fraction=0.1,task_type=("GPU" if CUDA_IS_AVAILABLE else "CPU"))
                 
-                if model_type_name == type(confidence_clf).__name__:
+                if model_type_name == type(confidence_model).__name__:
                     fit_params_copy=copy.copy(fit_params)
                     if 'eval_set' in fit_params_copy: del fit_params_copy['eval_set']
                 else:
@@ -528,8 +535,13 @@ def train_and_evaluate_model(
 
                 fit_params_copy['plot']=False
 
-                confidence_clf.fit(test_df,test_probs[np.arange(test_probs.shape[0]), target.loc[test_idx]], **fit_params_copy)
-                plot_model_feature_importances(model=confidence_clf,columns=test_df.columns,model_name="Confidence Analysis [factors that change our accuracy]",num_factors=5,figsize=(figsize[0]*0.7,figsize[1]/2))
+                confidence_model.fit(test_df,test_probs[np.arange(test_probs.shape[0]), target.loc[test_idx]], **fit_params_copy)
+                #plot_model_feature_importances(model=confidence_model,columns=test_df.columns,model_name="Confidence Analysis [factors that change our accuracy]",num_factors=5,figsize=(figsize[0]*0.7,figsize[1]/2))
+                explainer = shap.TreeExplainer(confidence_model)
+                shap_values = explainer(test_df)
+                shap.plots.beeswarm(shap_values, max_display=6, color=plt.get_cmap("bwr"), alpha=0.9, color_bar_label='Feature value',show=False)
+                plt.xlabel("Confidence of correct Test set predictions")
+                plt.show()                
     
     collect()
     
@@ -758,7 +770,7 @@ def report_probabilistic_model_perf(
                 metrics_higher_is_better={'ICE':False,'ROC AUC':True},                
             )
             if robustness_report is not None:
-                display(robustness_report.style.set_caption("ML performance by group"))
+                display(robustness_report.style.set_caption("ML perf robustness by group"))
                 if metrics is not None:
                     metrics.update(dict(robustness_report=robustness_report))
 
@@ -787,3 +799,80 @@ def plot_model_feature_importances(model:object,columns:Sequence,model_name:str=
             )
         except Exception:
             logger.warning("Could not plot feature importances. Maybe data shape is changed within a pipeline?")
+
+def get_sample_weights_by_recency(date_series: pd.Series, min_weight: float = 1.0, weight_drop_per_year: float = 0.1)->np.ndarray:
+
+    span = (date_series.max() - date_series.min()).days
+    max_drop = np.log(span) * weight_drop_per_year
+
+    sample_weight = min_weight + max_drop - np.log((date_series.max() - date_series).dt.days) * weight_drop_per_year
+
+    return sample_weight
+
+def configure_training_params(df:pd.DataFrame,target:pd.Series,train_idx:np.ndarray,val_idx:np.ndarray,test_idx:np.ndarray,robustness_features:Sequence=[],                              
+                              target_label_encoder:object=None,sample_weight:np.ndarray=None,has_time:bool=True,prefer_gpu_configs:bool=True,
+                              use_robust_eval_metric:bool=False,nbins:int=100,use_regression:bool=False,cont_nbins:int=6,
+                              max_runtime_mins:float=60*1,max_noimproving_iters:int=10,**config_kwargs):
+    
+    cat_features=df.head().select_dtypes(('category','object')).columns.tolist()
+    
+    if cat_features:
+        prepare_df_for_catboost(df=df,cat_features=cat_features)
+    
+    ensure_dataframe_float32_convertability(df)
+
+    if robustness_features:
+        subgroups=create_robustness_subgroups(df,features=robustness_features,cont_nbins=cont_nbins)
+    else:
+        subgroups=None
+    
+    if use_robust_eval_metric:
+        indexed_subgroups=create_robustness_subgroups_indices(subgroups=subgroups, train_idx=train_idx, val_idx=val_idx, group_weights = {}, cont_nbins=cont_nbins)
+    else:
+        indexed_subgroups=None
+    
+    cpu_configs=get_training_configs(has_time=has_time,has_gpu=False,nbins=nbins,subgroups=indexed_subgroups,**config_kwargs)
+    gpu_configs=get_training_configs(has_time=has_time,has_gpu=None,nbins=nbins,subgroups=indexed_subgroups,**config_kwargs)
+    
+    configs=gpu_configs if prefer_gpu_configs else cpu_configs
+
+    common_params=dict(nbins=nbins,subgroups=subgroups,sample_weight=sample_weight,df=df,target=target,train_idx=train_idx,test_idx=test_idx,val_idx=val_idx,target_label_encoder=target_label_encoder,custom_ice_metric=configs.integral_calibration_error)
+
+    common_cb_params=dict(model=TransformedTargetRegressor(CatBoostRegressor(**configs.CB_REGR),transformer=PowerTransformer()) if use_regression else CatBoostClassifier(**configs.CB_CALIB_CLASSIF),fit_params=dict(plot=True,cat_features=cat_features))
+
+    common_xgb_params=dict(model=XGBRegressor(**configs.XGB_GENERAL_PARAMS) if use_regression else XGBClassifier(**configs.XGB_CALIB_CLASSIF),fit_params=dict(verbose=False))
+
+    if cat_features:
+        common_lgb_params=dict(model=LGBMRegressor(**cpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**cpu_configs.LGB_GENERAL_PARAMS),fit_params=dict(eval_metric=configs.lgbm_integral_calibration_error))
+    else:
+        common_lgb_params=dict(model=LGBMRegressor(**gpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**gpu_configs.LGB_GENERAL_PARAMS),fit_params=dict(eval_metric=configs.lgbm_integral_calibration_error))
+    
+    params=configs.COMMON_RFECV_PARAMS.copy()
+    params['max_runtime_mins']=max_runtime_mins
+    params['max_noimproving_iters']=max_noimproving_iters
+
+    cb_rfecv = RFECV(
+        estimator=CatBoostRegressor(**configs.CB_REGR) if use_regression else CatBoostClassifier(**configs.CB_CALIB_CLASSIF),
+        fit_params=dict(plot=False),
+        cat_features=cat_features,
+        scoring=make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False) if use_regression else make_scorer(score_func=configs.fs_and_hpt_integral_calibration_error, needs_proba=True, needs_threshold=False, greater_is_better=False),
+        **params
+    )
+
+    lgb_rfecv = RFECV(
+        estimator=LGBMRegressor(**configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
+        fit_params=dict(eval_metric=configs.lgbm_integral_calibration_error),
+        cat_features=cat_features,
+        scoring=make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False) if use_regression else make_scorer(score_func=configs.fs_and_hpt_integral_calibration_error, needs_proba=True, needs_threshold=False, greater_is_better=False),
+        **params
+    )
+
+    xgb_rfecv = RFECV(
+        estimator=XGBRegressor(**configs.XGB_GENERAL_PARAMS) if use_regression else XGBClassifier(**configs.XGB_CALIB_CLASSIF),
+        fit_params=dict(verbose=False),
+        cat_features=cat_features,
+        scoring=make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False) if use_regression else make_scorer(score_func=configs.fs_and_hpt_integral_calibration_error, needs_proba=True, needs_threshold=False, greater_is_better=False),
+        **params
+    )    
+        
+    return common_params,common_cb_params,common_lgb_params,common_xgb_params,cb_rfecv,lgb_rfecv,xgb_rfecv,cpu_configs,gpu_configs

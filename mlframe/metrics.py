@@ -3,7 +3,6 @@
 # ----------------------------------------------------------------------------------------------------------------------------
 
 import logging
-
 logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -11,6 +10,9 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------------------------------------------------------------------------------
 
 from typing import *
+
+# from pyutilz.pythonlib import ensure_installed;ensure_installed("numba numpy pandas scipy plotly")
+
 from numba import njit
 from math import floor
 from scipy.special import expit

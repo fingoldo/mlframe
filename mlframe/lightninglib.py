@@ -1,28 +1,48 @@
 """Everything that makes working with Pytorch Lightning easier."""
 
 # ----------------------------------------------------------------------------------------------------------------------------
-# Normal Imports
-# ----------------------------------------------------------------------------------------------------------------------------
-
-from typing import *
-
-import torch
-import pandas as pd, numpy as np
-from lightning import LightningDataModule
-from lightning.pytorch.tuner import Tuner
-from lightning.pytorch.callbacks import Callback
-from torch.utils.data import DataLoader, Dataset
-
-from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
-from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
-
-# ----------------------------------------------------------------------------------------------------------------------------
 # LOGGING
 # ----------------------------------------------------------------------------------------------------------------------------
 
 import logging
 
 logger = logging.getLogger(__name__)
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Normal Imports
+# ----------------------------------------------------------------------------------------------------------------------------
+
+from typing import *
+
+# from pyutilz.pythonlib import ensure_installed;ensure_installed("torch torchvision torchaudio lightning pandas scikit-learn")
+
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, Dataset
+
+from lightning import LightningDataModule
+from lightning.pytorch.tuner import Tuner
+from lightning.pytorch.callbacks import Callback, LearningRateFinder
+
+from enum import Enum, auto
+from functools import partial
+import pandas as pd, numpy as np
+
+from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
+from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# ENUMS
+# ----------------------------------------------------------------------------------------------------------------------------
+
+
+class MLPNeuronsByLayerArchitecture(Enum):
+    Constant = auto()
+    Declining = auto()
+    Expanding = auto()
+    ExpandingThenDeclining = auto()
+    Autoencoder = auto()
+
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Sklearn compatibility
@@ -330,7 +350,153 @@ class AggregatingValidationCallback(Callback):
 
     def on_validation_epoch_end(self, trainer, pl_module):
         labels = torch.concat(self.batched_labels).detach().cpu().numpy()
-        predictions = torch.concat(self.batched_predictions).detach().cpu().numpy()
+        predictions = torch.concat(self.batched_predictions).detach().cpu().float().numpy()
         metric_value = self.metric_fcn(y_true=labels, y_score=predictions)
         pl_module.log(name="val_" + self.metric_name, value=metric_value, on_epoch=self.on_epoch, on_step=self.on_step, prog_bar=True)
         self.init_accumulators()
+
+
+def generate_mlp(
+    num_features: int,
+    num_classes: int,
+    nlayers: int = 1,
+    first_layer_num_neurons: int = None,
+    min_layer_neurons: int = 1,
+    neurons_by_layer_arch: MLPNeuronsByLayerArchitecture = MLPNeuronsByLayerArchitecture.Constant,
+    consec_layers_neurons_ratio: float = 1.1,
+    activation_function: Callable = torch.nn.ReLU,
+    weights_init_fcn: Callable = None,
+    dropout_prob: float = 0.0,
+    inputs_dropout_prob: float = 0.0,
+    use_batchnorm: bool = False,
+    batchnorm_kwargs=dict(eps=0.00001, momentum=0.1),
+):
+    """Generates multilayer perceptron with specific architecture.
+    If first_layer_num_neurons is not specified, uses num_features.
+    Suitable in NAS and HPT/HPO procedures for generating ANN candidates.
+    """
+
+    # Auto inits
+    if not first_layer_num_neurons:
+        first_layer_num_neurons = num_features
+    if num_classes:
+        if min_layer_neurons < num_classes:
+            min_layer_neurons = num_classes
+
+    # Sanity checks
+    assert dropout_prob >= 0.0
+    assert consec_layers_neurons_ratio >= 1.0
+    assert (num_classes >= 0 and isinstance(num_classes, int)) or num_classes is None
+    assert nlayers >= 1 and isinstance(nlayers, int)
+    assert min_layer_neurons >= 1 and isinstance(min_layer_neurons, int)
+    assert first_layer_num_neurons >= min_layer_neurons and isinstance(first_layer_num_neurons, int)
+
+    layers = []
+    if inputs_dropout_prob:
+        layers.append(nn.Dropout(inputs_dropout_prob))
+
+    prev_layer_neurons = num_features
+    cur_layer_neurons = first_layer_num_neurons
+    cur_layer_virt_neurons = first_layer_num_neurons
+    for layer in range(nlayers):
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Compute # of neurons in current layer
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        if layer > 0:
+            if neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Declining:
+                cur_layer_virt_neurons = prev_layer_virt_neurons / consec_layers_neurons_ratio
+            elif neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Expanding:
+                cur_layer_virt_neurons = prev_layer_virt_neurons * consec_layers_neurons_ratio
+            elif neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.ExpandingThenDeclining:
+                if layer <= nlayers // 2:
+                    cur_layer_virt_neurons = prev_layer_virt_neurons * consec_layers_neurons_ratio
+                else:
+                    cur_layer_virt_neurons = prev_layer_virt_neurons / consec_layers_neurons_ratio
+            elif neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Autoencoder:
+                if layer <= nlayers // 2:
+                    cur_layer_virt_neurons = prev_layer_virt_neurons / consec_layers_neurons_ratio
+                else:
+                    cur_layer_virt_neurons = prev_layer_virt_neurons * consec_layers_neurons_ratio
+
+            cur_layer_neurons = int(cur_layer_virt_neurons)
+        if cur_layer_neurons < min_layer_neurons:
+            if layer > 0 and not (neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Autoencoder):
+                break
+            else:  # no prev layers exist, need to create at least one
+                cur_layer_neurons = min_layer_neurons
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Add linear layer with that many neurons
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        layers.append(nn.Linear(prev_layer_neurons, cur_layer_neurons))
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Add optional bells & whistles - batchnorm, activation, dropout
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        if use_batchnorm:
+            layers.append(nn.BatchNorm1d(cur_layer_neurons, **batchnorm_kwargs))
+        if activation_function:
+            layers.append(activation_function)
+        if dropout_prob:
+            layers.append(nn.Dropout(dropout_prob))
+
+        prev_layer_neurons = cur_layer_neurons
+        prev_layer_virt_neurons = cur_layer_virt_neurons
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # For classification, just add final linear layer with num_classes neurons, to get logits
+    # ----------------------------------------------------------------------------------------------------------------------------
+
+    if num_classes:
+        layers.append(nn.Linear(prev_layer_neurons, num_classes))
+
+    model = nn.Sequential(*layers)
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Init weights explicitly if weights_init_fcn is set
+    # ----------------------------------------------------------------------------------------------------------------------------
+
+    if weights_init_fcn:  # e.g., torch.nn.init.xavier_uniform
+
+        if isinstance(weights_init_fcn, partial):
+            func_to_check = weights_init_fcn.func
+        else:
+            func_to_check = weights_init_fcn
+
+        def init_weights(m):
+            for block_name in ("weight", "bias"):
+                if hasattr(m, block_name):
+                    block = getattr(m, block_name)
+                    if func_to_check in (
+                        torch.nn.init.xavier_normal_,
+                        torch.nn.init.xavier_uniform_,
+                        torch.nn.init.kaiming_normal_,
+                        torch.nn.init.kaiming_uniform_,
+                    ):
+                        if block.dim() >= 2:
+                            weights_init_fcn(block)
+                    else:
+                        weights_init_fcn(block)
+
+        model.apply(init_weights)
+
+    model.example_input_array = torch.zeros(1, num_features)
+
+    return model
+
+
+class PeriodicLearningRateFinder(LearningRateFinder):
+    def __init__(self, period: int, *args, **kwargs):
+        assert period > 0 and isinstance(period, int)
+        super().__init__(*args, **kwargs)
+        self.period = period
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        if (trainer.current_epoch % self.period) == 0 or trainer.current_epoch == 0:
+            print(f"Finding optimal learning rate. Current rate={getattr(pl_module,'learning_rate')}")
+            self.lr_find(trainer, pl_module)
+            print(f"Set learning rate to {getattr(pl_module,'learning_rate')}")

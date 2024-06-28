@@ -5,7 +5,7 @@ THOUSANDS_SEPARATOR = "_"
 
 
 KERAS_MODEL_TYPES = ("Sequential",)
-PYTORCH_MODEL_TYPES = ("PytorchLightningEstimator", "PytorchLightningRegressor", "PytorchLightningEstimator")
+PYTORCH_MODEL_TYPES = ("PytorchLightningEstimator", "PytorchLightningRegressor", "PytorchLightningClassifier")
 CATBOOST_MODEL_TYPES = ("CatBoostClassifier", "CatBoostRegressor")
 XGBOOST_MODEL_TYPES = ("XGBClassifier", "XGBRegressor")
 LGBM_MODEL_TYPES = ("LGBMClassifier", "LGBMRegressor")

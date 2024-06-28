@@ -79,7 +79,7 @@ while True:
 
         from pyutilz.pythonlib import ensure_installed
 
-        ensure_installed("numpy pandas scikit-learn")  # cupy-cuda11x
+        ensure_installed("numba numpy pandas scipy astropy scikit-learn joblib catboost cupy psutil")  # cupy-cuda11x
 
     else:
         break

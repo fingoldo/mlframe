@@ -10,20 +10,21 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
 
+# from pyutilz.pythonlib import ensure_installed;ensure_installed("numpy pandas joblib")
+
 import copy
 import joblib
 from joblib import delayed
 import pandas as pd, numpy as np
 from pyutilz.parallel import parallel_run
-from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names, compute_numerical_aggregates_numba, get_basic_feature_names
 from mlframe.training import train_and_evaluate_model
+from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names, compute_numerical_aggregates_numba, get_basic_feature_names
 
 basic_features_names = get_basic_feature_names(
     return_drawdown_stats=False,
@@ -216,8 +217,8 @@ def score_ensemble(
     val_idx: np.ndarray,
     ensemble_name: str,
     target_label_encoder: object = None,
-    max_mae: float = 0.08,
-    max_std: float = 0.08,
+    max_mae: float = 0.05,
+    max_std: float = 0.06,
     ensure_prob_limits: bool = True,
     nbins: int = 100,
     ensembling_methods="arithm harm median quad qube geo".split(),
@@ -301,7 +302,11 @@ def score_ensemble(
     return res
 
 
-def compare_ensembles(ensembles: dict) -> pd.DataFrame:
+def compare_ensembles(
+    ensembles: dict,
+    sort_metric: str = "test.1.integral_error",
+    figsize: tuple = (15, 3),
+) -> pd.DataFrame:
     items = []
     for ens_name, ens_perf in ensembles.items():
         perf = copy.deepcopy(ens_perf[-1])
@@ -311,4 +316,15 @@ def compare_ensembles(ensembles: dict) -> pd.DataFrame:
         ser = pd.json_normalize(perf).iloc[0, :]
         ser.name = ens_name
         items.append(ser)
-    return pd.DataFrame(items).sort_values("test.1.integral_error")
+
+    res = pd.DataFrame(items)
+    if sort_metric in res:
+        res = res.sort_values(sort_metric)
+
+        if "test." in sort_metric:
+            val_metric = sort_metric.replace("test.", "val.")
+            if val_metric in res:
+                blank_metric = sort_metric.replace("test.", "")
+                ax = res.set_index(val_metric).sort_index()[sort_metric].plot(title=f"Ensembles {blank_metric}, val vs test", figsize=figsize)
+                ax.set_ylabel(sort_metric)
+    return res
