@@ -1,16 +1,13 @@
 from enum import Enum, auto
 
-
 THOUSANDS_SEPARATOR = "_"
 
-
 KERAS_MODEL_TYPES = ("Sequential",)
-PYTORCH_MODEL_TYPES = ("PytorchLightningEstimator", "PytorchLightningRegressor", "PytorchLightningClassifier")
-CATBOOST_MODEL_TYPES = ("CatBoostClassifier", "CatBoostRegressor")
-XGBOOST_MODEL_TYPES = ("XGBClassifier", "XGBRegressor")
 LGBM_MODEL_TYPES = ("LGBMClassifier", "LGBMRegressor")
+XGBOOST_MODEL_TYPES = ("XGBClassifier", "XGBRegressor")
+CATBOOST_MODEL_TYPES = ("CatBoostClassifier", "CatBoostRegressor")
+PYTORCH_MODEL_TYPES = ("PytorchLightningEstimator", "PytorchLightningRegressor", "PytorchLightningClassifier")
 TABNET_MODEL_TYPES = ("TabNetClassifier", "TabNetMultiTaskClassifier", "TabNetRegressor", "TabNetMultiTaskRegressor")
-
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # ML pipelines block enums
