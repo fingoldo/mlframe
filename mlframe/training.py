@@ -191,7 +191,7 @@ def get_training_configs(
         return err
     
     if subgroups: 
-        #final_integral_calibration_error=partial(robust_mlperf_metric,metric=integral_calibration_error,higher_is_better=False,subgroups=subgroups)
+        # final_integral_calibration_error=partial(robust_mlperf_metric,metric=integral_calibration_error,higher_is_better=False,subgroups=subgroups)
         def final_integral_calibration_error(y_true: np.ndarray,y_score: np.ndarray,*args,**kwargs): # partial won't work with xgboost
             return robust_mlperf_metric(y_true,y_score,*args,metric=integral_calibration_error,higher_is_better=False,subgroups=subgroups,**kwargs,)
     else:
@@ -234,8 +234,6 @@ def get_training_configs(
         random_state=random_seed,
     )
 
-
-
     #XGB_CALIB_CLASSIF_CPU.update({"device": "cpu","n_jobs":psutil.cpu_count(logical=False)})    
 
     if not cv:
@@ -265,6 +263,7 @@ def get_training_configs(
 
     return SimpleNamespace(
         integral_calibration_error=integral_calibration_error,
+        final_integral_calibration_error=final_integral_calibration_error,
         lgbm_integral_calibration_error=lgbm_integral_calibration_error,
         fs_and_hpt_integral_calibration_error=fs_and_hpt_integral_calibration_error,
         CB_GENERAL_PARAMS=CB_GENERAL_PARAMS,
@@ -303,6 +302,7 @@ def train_and_evaluate_model(
     val_preds: Optional[np.ndarray] = None,
     val_probs: Optional[np.ndarray] = None,
     custom_ice_metric: Callable = None,
+    custom_rice_metric: Callable = None,
     subgroups: dict = None,
     figsize: tuple = (15, 5),
     verbose: bool = True,
@@ -341,10 +341,10 @@ def train_and_evaluate_model(
     else:
         model_obj=model
 
-    if model_obj:
+    if model_obj is not None:
         if isinstance(model_obj,TransformedTargetRegressor):
             model_obj=model_obj.regressor             
-    model_type_name = type(model_obj).__name__ if model_obj else ""
+    model_type_name = type(model_obj).__name__ if model_obj is not None else ""
 
     if model_type_name not in model_name:
         model_name=model_type_name+" "+model_name
@@ -359,7 +359,7 @@ def train_and_evaluate_model(
         else:
             train_df = df.loc[train_idx].drop(columns=real_drop_columns)
 
-    if model and pre_pipeline:
+    if model is not None and pre_pipeline:
         if use_cache and exists(model_file_name):
             train_df = pre_pipeline.transform(train_df, target.loc[train_idx])
         else:
@@ -386,14 +386,14 @@ def train_and_evaluate_model(
         elif model_type_name in PYTORCH_MODEL_TYPES:
             fit_params["eval_set"] = (val_df, target.loc[val_idx])
 
-    if model and fit_params:
+    if model is not None and fit_params:
         if "cat_features" in fit_params:
             fit_params["cat_features"] = [col for col in fit_params["cat_features"] if col in train_df.columns]
 
     if fit_params and isinstance(model, Pipeline):
         fit_params = prefix_dict_elems(fit_params, "est__")
 
-    if model:
+    if model is not None:
         if (not use_cache) or (not exists(model_file_name)):
             if sample_weight is not None:
                 sample_weight = sample_weight.loc[train_idx].values
@@ -413,7 +413,7 @@ def train_and_evaluate_model(
                 train_df=train_df.values
             
             model.fit(train_df, target.loc[train_idx], sample_weight=sample_weight, **fit_params)
-            if model:
+            if model is not None:
                 # get number of the best iteration
                 try:
                     best_iter = get_model_best_iter(model)
@@ -440,8 +440,8 @@ def train_and_evaluate_model(
                 model_name="TRAIN " + model_name,
                 model=model,
                 target_label_encoder=target_label_encoder,
-                preds=train_preds,
-                probs=train_probs,
+                preds=None,
+                probs=None,
                 figsize=figsize,
                 report_title="",
                 nbins=nbins,
@@ -450,6 +450,7 @@ def train_and_evaluate_model(
                 subgroups=subgroups,
                 subset_index=train_idx,
                 custom_ice_metric=custom_ice_metric,
+                custom_rice_metric=custom_rice_metric,
                 metrics=metrics['train']
             )
         
@@ -477,6 +478,7 @@ def train_and_evaluate_model(
                 subgroups=subgroups,
                 subset_index=val_idx,
                 custom_ice_metric=custom_ice_metric,
+                custom_rice_metric=custom_rice_metric,
                 metrics=metrics['val']
             )
 
@@ -486,7 +488,7 @@ def train_and_evaluate_model(
             collect()
 
             test_df = df.loc[test_idx].drop(columns=real_drop_columns)
-            if model and pre_pipeline:
+            if model is not None and pre_pipeline:
                 test_df = pre_pipeline.transform(test_df)
             if model_type_name in TABNET_MODEL_TYPES:
                 test_df = test_df.values
@@ -511,6 +513,7 @@ def train_and_evaluate_model(
             subgroups=subgroups,
             subset_index=test_idx,
             custom_ice_metric=custom_ice_metric,
+            custom_rice_metric=custom_rice_metric,
             metrics=metrics['test']
         )
 
@@ -569,6 +572,7 @@ def report_model_perf(
     print_report: bool = True,
     show_fi: bool = True,
     custom_ice_metric: Callable = None,
+    custom_rice_metric: Callable = None,
     metrics:dict=None,
 ):
     if probs is not None or is_classifier(model):
@@ -594,6 +598,7 @@ def report_model_perf(
             print_report=print_report,
             show_fi=show_fi,
             custom_ice_metric=custom_ice_metric,
+            custom_rice_metric=custom_rice_metric,
             metrics=metrics,
         )
     else:
@@ -639,25 +644,29 @@ def report_regression_model_perf(
         preds = model.predict(df)
 
     if isinstance(targets, pd.Series):
-        targets = targets.values
+        targets = targets.values        
+
+    if print_report:
 
         if show_fi: plot_model_feature_importances(model=model,columns=columns,model_name=model_name,figsize=(15,10))
 
-    if print_report:
         print(report_title)
         print(f"mean_absolute_error: {mean_absolute_error(y_true=targets,y_pred=preds):.{digits}f}")
         print(f"max_error: {max_error(y_true=targets,y_pred=preds):.{digits}f}")
         print(f"mean_absolute_percentage_error: {mean_absolute_percentage_error(y_true=targets,y_pred=preds):.{digits}f}")
         print(f"root_mean_squared_error: {root_mean_squared_error(y_true=targets,y_pred=preds):.{digits}f}")
-        
-        if subgroups:
-            robustness_report = compute_robustness_metrics(
-                subgroups=subgroups, subset_index=subset_index, y_true=targets, y_pred=preds, 
-                metrics={'MAE':mean_absolute_error,'MAPE':mean_absolute_percentage_error},
-                metrics_higher_is_better={'MAE':False,'MAPE':False},                
-            )
-            if robustness_report is not None:
+    
+    if subgroups:
+        robustness_report = compute_robustness_metrics(
+            subgroups=subgroups, subset_index=subset_index, y_true=targets, y_pred=preds, 
+            metrics={'MAE':mean_absolute_error,'MAPE':mean_absolute_percentage_error},
+            metrics_higher_is_better={'MAE':False,'MAPE':False},                
+        )
+        if robustness_report is not None:
+            if print_report:
                 display(robustness_report)
+            if metrics is not None:
+                metrics.update(dict(robustness_report=robustness_report))                
 
     return preds, None
 
@@ -683,6 +692,7 @@ def report_probabilistic_model_perf(
     print_report: bool = True,
     show_fi: bool = True,
     custom_ice_metric: Callable = None,
+    custom_rice_metric: Callable = None,
     metrics:dict=None,
 ):
     """Detailed performance report (usually on a test set)."""
@@ -701,10 +711,12 @@ def report_probabilistic_model_perf(
     pr_aucs = []
     roc_aucs = []
 
-    integral_error = custom_ice_metric(y_true=targets, y_score=probs, verbose=False)
+    integral_error = custom_ice_metric(y_true=targets, y_score=probs)
+    if custom_rice_metric and custom_rice_metric!=custom_ice_metric:
+        robust_integral_error = custom_rice_metric(y_true=targets, y_score=probs)
 
     if not classes:
-        if model:
+        if model is not None:
             classes = model.classes_
         elif target_label_encoder:
             classes = np.arange(len(target_label_encoder.classes_)).tolist()
@@ -726,6 +738,8 @@ def report_probabilistic_model_perf(
         if len(classes) != 2:
             title += "-" + str_class_name
         title += "\n" + f" ICE={integral_error:.4f}"
+        if custom_rice_metric and custom_rice_metric!=custom_ice_metric:
+            title +=f", RICE={robust_integral_error:.4f}" 
 
         brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, fig = fast_calibration_report(
             y_true=y_true,
@@ -749,11 +763,14 @@ def report_probabilistic_model_perf(
         brs.append(f"{str_class_name}={brier_loss * 100:.{digits}f}%")
 
         if metrics is not None:
-            metrics.update({class_id:dict(roc_auc=roc_auc,pr_auc=pr_auc,calibration_mae=calibration_mae,calibration_std=calibration_std,brier_loss=brier_loss,integral_error=integral_error)})
-
-        if show_fi: plot_model_feature_importances(model=model,columns=columns,model_name=model_name,figsize=(15,10))
+            class_metrics=dict(roc_auc=roc_auc,pr_auc=pr_auc,calibration_mae=calibration_mae,calibration_std=calibration_std,brier_loss=brier_loss,integral_error=integral_error)
+            if custom_rice_metric and custom_rice_metric!=custom_ice_metric:
+                class_metrics['robust_integral_error'] = robust_integral_error
+            metrics.update({class_id:class_metrics})        
 
     if print_report:
+
+        if show_fi: plot_model_feature_importances(model=model,columns=columns,model_name=model_name,figsize=(15,10))
 
         print(report_title)
         print(classification_report(targets, preds, zero_division=0, digits=digits))
@@ -762,17 +779,20 @@ def report_probabilistic_model_perf(
         print(f"CALIBRATIONS: \n{', '.join(calibs)}")
         print(f"BRIER LOSS: \n\t{', '.join(brs)}")
         print(f"INTEGRAL ERROR: {integral_error:.4f}")
+        if custom_rice_metric and custom_rice_metric!=custom_ice_metric:
+            print(f"ROBUST INTEGRAL ERROR: {robust_integral_error:.4f}")
 
-        if subgroups:
-            robustness_report = compute_robustness_metrics(
-                subgroups=subgroups, subset_index=subset_index, y_true=y_true, y_pred=probs, 
-                metrics={'ICE':custom_ice_metric,'ROC AUC':fast_roc_auc},
-                metrics_higher_is_better={'ICE':False,'ROC AUC':True},                
-            )
-            if robustness_report is not None:
+    if subgroups:
+        robustness_report = compute_robustness_metrics(
+            subgroups=subgroups, subset_index=subset_index, y_true=y_true, y_pred=probs, 
+            metrics={'ICE':custom_ice_metric,'ROC AUC':fast_roc_auc},
+            metrics_higher_is_better={'ICE':False,'ROC AUC':True},                
+        )
+        if robustness_report is not None:
+            if print_report:
                 display(robustness_report.style.set_caption("ML perf robustness by group"))
-                if metrics is not None:
-                    metrics.update(dict(robustness_report=robustness_report))
+            if metrics is not None:
+                metrics.update(dict(robustness_report=robustness_report))
 
     return preds, probs
 
@@ -836,7 +856,7 @@ def configure_training_params(df:pd.DataFrame,target:pd.Series,train_idx:np.ndar
     
     configs=gpu_configs if prefer_gpu_configs else cpu_configs
 
-    common_params=dict(nbins=nbins,subgroups=subgroups,sample_weight=sample_weight,df=df,target=target,train_idx=train_idx,test_idx=test_idx,val_idx=val_idx,target_label_encoder=target_label_encoder,custom_ice_metric=configs.integral_calibration_error)
+    common_params=dict(nbins=nbins,subgroups=subgroups,sample_weight=sample_weight,df=df,target=target,train_idx=train_idx,test_idx=test_idx,val_idx=val_idx,target_label_encoder=target_label_encoder,custom_ice_metric=configs.final_integral_calibration_error)
 
     common_cb_params=dict(model=TransformedTargetRegressor(CatBoostRegressor(**configs.CB_REGR),transformer=PowerTransformer()) if use_regression else CatBoostClassifier(**configs.CB_CALIB_CLASSIF),fit_params=dict(plot=True,cat_features=cat_features))
 
@@ -876,3 +896,110 @@ def configure_training_params(df:pd.DataFrame,target:pd.Series,train_idx:np.ndar
     )    
         
     return common_params,common_cb_params,common_lgb_params,common_xgb_params,cb_rfecv,lgb_rfecv,xgb_rfecv,cpu_configs,gpu_configs
+
+def post_calibrate_model(original_model:object,target_series:pd.Series,target_label_encoder:object,val_idx:np.ndarray,
+                         test_idx:np.ndarray,configs:dict,calib_set_size:int=2000,nbins:int=10,show_val:bool=False,
+                         meta_model:object=None,
+                **fit_params):
+
+    if meta_model is None:
+        meta_model=CatBoostClassifier(iterations=3000,
+                        verbose=False,
+                        has_time=False,
+                        learning_rate=0.2,
+                        eval_fraction=0.1,
+                        task_type="GPU",        
+                        early_stopping_rounds=400,
+                        eval_metric= CB_EVAL_METRIC(metric=configs.integral_calibration_error,higher_is_better=False),
+                        custom_metric="AUC"
+                )
+    model, test_preds, test_probs, val_preds, val_probs, columns, pre_pipeline, metrics=original_model
+    
+    
+    meta_model.fit(test_probs[:calib_set_size,1].reshape(-1, 1),target_series.loc[test_idx].values[:calib_set_size],**fit_params)    
+    
+    if show_val:
+        meta_val_probs=meta_model.predict_proba(val_probs[:,1].reshape(-1,1))
+        _=report_model_perf(
+                        targets=target_series.loc[val_idx],
+                        columns=columns,
+                        df=None,
+                        model_name="VAL",
+                        model=None,
+                        target_label_encoder=target_label_encoder,
+                        preds=val_preds,
+                        probs=val_probs,
+                        report_title="",
+                        nbins=10,
+                        print_report=False,
+                        show_fi=False,
+                        custom_ice_metric=configs.integral_calibration_error,
+                    )        
+        _=report_model_perf(
+                        targets=target_series.loc[val_idx],
+                        columns=columns,
+                        df=None,
+                        model_name="VAL fixed",
+                        model=None,
+                        target_label_encoder=target_label_encoder,
+                        preds=val_preds,
+                        probs=meta_val_probs,
+                        report_title="",
+                        nbins=10,
+                        print_report=False,
+                        show_fi=False,
+                        custom_ice_metric=configs.integral_calibration_error,
+                    )        
+    
+    meta_test_probs=meta_model.predict_proba(test_probs[:,1].reshape(-1,1))
+    
+    _=report_model_perf(
+                    targets=target_series.loc[test_idx],
+                    columns=columns,
+                    df=None,
+                    model_name="TEST original",
+                    model=None,
+                    target_label_encoder=target_label_encoder,
+                    preds=test_preds,
+                    probs=test_probs,
+                    report_title="",
+                    nbins=10,
+                    print_report=False,
+                    show_fi=False,
+                    custom_ice_metric=configs.integral_calibration_error,
+                )
+
+    _=report_model_perf(
+                    targets=target_series.loc[test_idx].values[calib_set_size:],
+                    columns=columns,
+                    df=None,
+                    model_name="TEST fixed ",
+                    model=None,
+                    target_label_encoder=target_label_encoder,
+                    preds=(meta_test_probs[calib_set_size:,1]>0.5).astype(int),
+                    probs=meta_test_probs[calib_set_size:,:],
+                    report_title="",
+                    nbins=10,
+                    print_report=True,
+                    show_fi=False,
+                    custom_ice_metric=configs.integral_calibration_error,
+                )    
+    
+    _=report_model_perf(
+                    targets=target_series.loc[test_idx].values[:calib_set_size],
+                    columns=columns,
+                    df=None,
+                    model_name="TEST fixed lucky",
+                    model=None,
+                    target_label_encoder=target_label_encoder,
+                    preds=(meta_test_probs[:calib_set_size:,1]>0.5).astype(int),
+                    probs=meta_test_probs[:calib_set_size,:],
+                    report_title="",
+                    nbins=10,
+                    print_report=True,
+                    show_fi=False,
+                    custom_ice_metric=configs.integral_calibration_error,
+                )    
+    
+    
+    return model, test_preds, meta_test_probs, val_preds, meta_val_probs, columns, pre_pipeline, metrics
