@@ -297,6 +297,8 @@ def train_and_evaluate_model(
     train_idx: Optional[np.ndarray] = None,
     test_idx: Optional[np.ndarray] = None,
     val_idx: Optional[np.ndarray] = None,
+    train_preds: Optional[np.ndarray] = None,
+    train_probs: Optional[np.ndarray] = None,    
     test_preds: Optional[np.ndarray] = None,
     test_probs: Optional[np.ndarray] = None,
     val_preds: Optional[np.ndarray] = None,
@@ -305,16 +307,26 @@ def train_and_evaluate_model(
     custom_rice_metric: Callable = None,
     subgroups: dict = None,
     figsize: tuple = (15, 5),
-    verbose: bool = True,
+    print_report:bool=True,
+    show_perf_chart:bool=True,
+    show_fi:bool=True,
     use_cache: bool = False,
     nbins: int = 100,
-    show_train_chart:bool=False,
-    show_val_chart: bool = True,
+    compute_trainset_metrics:bool=True,
+    compute_valset_metrics: bool = True,
+    compute_testset_metrics: bool = True,
     data_dir: str = DATA_DIR,
     models_subdir: str = MODELS_SUBDIR,
     include_confidence_analysis:bool=False,
     display_sample_size: int =0,
     show_feature_names: bool=False,
+    # confidence_analysis
+    confidence_analysis_use_shap:bool=True,
+    confidence_analysis_max_features:int=6,
+    confidence_analysis_cmap:str="bwr",
+    confidence_analysis_alpha:float=0.9,
+    confidence_analysis_ylabel:str="Feature value",
+    confidence_analysis_title:str="Confidence of correct Test set predictions",
 ):
     """Trains & evaluates given model/pipeline on train/test sets.
     Supports feature selection via pre_pipeline.
@@ -422,11 +434,9 @@ def train_and_evaluate_model(
                 except Exception as e:
                     logger.warning(e)
 
-    metrics={'val':{},'test':{}}
-    if verbose:
-        if show_train_chart and train_idx is not None:
-            if 'train' not in metrics:
-                metrics['train']={}
+    metrics={'train':{},'val':{},'test':{}}
+    if compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics:
+        if compute_trainset_metrics and train_idx is not None:
             if df is None:
                 train_df = None
                 columns = []
@@ -440,12 +450,13 @@ def train_and_evaluate_model(
                 model_name="TRAIN " + model_name,
                 model=model,
                 target_label_encoder=target_label_encoder,
-                preds=None,
-                probs=None,
+                preds=train_preds,
+                probs=train_probs,
                 figsize=figsize,
                 report_title="",
                 nbins=nbins,
-                print_report=True,
+                print_report=print_report,
+                show_perf_chart=show_perf_chart,
                 show_fi=False,
                 subgroups=subgroups,
                 subset_index=train_idx,
@@ -454,7 +465,7 @@ def train_and_evaluate_model(
                 metrics=metrics['train']
             )
         
-        if show_val_chart and val_idx is not None:
+        if compute_valset_metrics and val_idx is not None:
             if df is None:
                 val_df = None
                 columns = []
@@ -473,7 +484,8 @@ def train_and_evaluate_model(
                 figsize=figsize,
                 report_title="",
                 nbins=nbins,
-                print_report=True,
+                print_report=print_report,
+                show_perf_chart=show_perf_chart,
                 show_fi=False,
                 subgroups=subgroups,
                 subset_index=val_idx,
@@ -482,73 +494,82 @@ def train_and_evaluate_model(
                 metrics=metrics['val']
             )
 
-        if df is not None:            
+        if compute_testset_metrics and test_idx is not None:
+            if df is not None:            
 
-            del train_df
-            collect()
+                del train_df
+                collect()
 
-            test_df = df.loc[test_idx].drop(columns=real_drop_columns)
-            if model is not None and pre_pipeline:
-                test_df = pre_pipeline.transform(test_df)
-            if model_type_name in TABNET_MODEL_TYPES:
-                test_df = test_df.values
-            columns = test_df.columns
-        else:
-            columns = []
-            report_title = ""
-            test_df = None
+                test_df = df.loc[test_idx].drop(columns=real_drop_columns)
+                if model is not None and pre_pipeline:
+                    test_df = pre_pipeline.transform(test_df)
+                if model_type_name in TABNET_MODEL_TYPES:
+                    test_df = test_df.values
+                columns = test_df.columns
+            else:
+                columns = []
+                report_title = ""
+                test_df = None
 
-        test_preds, test_probs = report_model_perf(
-            targets=target.loc[test_idx],
-            columns=columns,
-            df=test_df,
-            model_name="TEST " + model_name,
-            model=model,
-            target_label_encoder=target_label_encoder,
-            preds=test_preds,
-            probs=test_probs,
-            figsize=figsize,
-            report_title=report_title,
-            nbins=nbins,
-            subgroups=subgroups,
-            subset_index=test_idx,
-            custom_ice_metric=custom_ice_metric,
-            custom_rice_metric=custom_rice_metric,
-            metrics=metrics['test']
-        )
+            test_preds, test_probs = report_model_perf(
+                targets=target.loc[test_idx],
+                columns=columns,
+                df=test_df,
+                model_name="TEST " + model_name,
+                model=model,
+                target_label_encoder=target_label_encoder,
+                preds=test_preds,
+                probs=test_probs,
+                figsize=figsize,
+                report_title=report_title,
+                nbins=nbins,
+                print_report=print_report,
+                show_perf_chart=show_perf_chart,
+                show_fi=show_fi,            
+                subgroups=subgroups,
+                subset_index=test_idx,
+                custom_ice_metric=custom_ice_metric,
+                custom_rice_metric=custom_rice_metric,
+                metrics=metrics['test']
+            )
 
-        if include_confidence_analysis:
-            """Separate analysis: having original dataset, and test predictions made by a trained model, 
-            find what original factors are the most discriminative regarding prediction accuracy. for that, 
-            training a meta-model on test set could do it. use original features, as targets use prediction-ground truth, 
-            train a regression boosting & check its feature importances."""
+            if include_confidence_analysis:
+                """Separate analysis: having original dataset, and test predictions made by a trained model, 
+                find what original factors are the most discriminative regarding prediction accuracy. for that, 
+                training a meta-model on test set could do it. use original features, as targets use prediction-ground truth, 
+                train a regression boosting & check its feature importances."""
 
-            # for (any, even multiclass) classification, targets are probs of ground truth classes
-            if test_df is not None:
-                confidence_model=CatBoostRegressor(verbose=0,eval_fraction=0.1,task_type=("GPU" if CUDA_IS_AVAILABLE else "CPU"))
-                
-                if model_type_name == type(confidence_model).__name__:
-                    fit_params_copy=copy.copy(fit_params)
-                    if 'eval_set' in fit_params_copy: del fit_params_copy['eval_set']
-                else:
-                    fit_params_copy={}
-                
-                if 'cat_features' not in fit_params_copy:
-                    fit_params_copy[ 'cat_features']=test_df.head().select_dtypes('category').columns.tolist()
+                # for (any, even multiclass) classification, targets are probs of ground truth classes
+                if test_df is not None:
+                    confidence_model=CatBoostRegressor(verbose=0,eval_fraction=0.1,task_type=("GPU" if CUDA_IS_AVAILABLE else "CPU"))
+                    
+                    if model_type_name == type(confidence_model).__name__:
+                        fit_params_copy=copy.copy(fit_params)
+                        if 'eval_set' in fit_params_copy: del fit_params_copy['eval_set']
+                    else:
+                        fit_params_copy={}
+                    
+                    if 'cat_features' not in fit_params_copy:
+                        fit_params_copy[ 'cat_features']=test_df.head().select_dtypes('category').columns.tolist()
 
-                fit_params_copy['plot']=False
+                    fit_params_copy['plot']=False
 
-                confidence_model.fit(test_df,test_probs[np.arange(test_probs.shape[0]), target.loc[test_idx]], **fit_params_copy)
-                #plot_model_feature_importances(model=confidence_model,columns=test_df.columns,model_name="Confidence Analysis [factors that change our accuracy]",num_factors=5,figsize=(figsize[0]*0.7,figsize[1]/2))
-                explainer = shap.TreeExplainer(confidence_model)
-                shap_values = explainer(test_df)
-                shap.plots.beeswarm(shap_values, max_display=6, color=plt.get_cmap("bwr"), alpha=0.9, color_bar_label='Feature value',show=False)
-                plt.xlabel("Confidence of correct Test set predictions")
-                plt.show()                
+                    confidence_model.fit(test_df,test_probs[np.arange(test_probs.shape[0]), target.loc[test_idx]], **fit_params_copy)
+
+                    if confidence_analysis_use_shap:
+                        explainer = shap.TreeExplainer(confidence_model)
+                        shap_values = explainer(test_df)
+                        shap.plots.beeswarm(shap_values, max_display=confidence_analysis_max_features, color=plt.get_cmap(confidence_analysis_cmap), alpha=confidence_analysis_alpha, 
+                                            color_bar_label=confidence_analysis_ylabel,show=False)
+                        plt.xlabel(confidence_analysis_title)
+                        plt.show()
+                    else:
+                        plot_model_feature_importances(model=confidence_model,columns=test_df.columns,model_name=confidence_analysis_title,
+                                                    num_factors=confidence_analysis_max_features,figsize=(figsize[0]*0.7,figsize[1]/2))
     
     collect()
     
-    return model, test_preds, test_probs, val_preds, val_probs, columns, pre_pipeline, metrics
+    return model, test_preds, test_probs, val_preds, val_probs, train_preds, train_probs, columns, pre_pipeline, metrics
 
 def report_model_perf(
     targets: Union[np.ndarray, pd.Series],
@@ -557,7 +578,7 @@ def report_model_perf(
     model: ClassifierMixin,
     subgroups: dict = None,
     subset_index: np.ndarray = None,
-    digits: int = 4,
+    report_ndigits: int = 4,
     figsize: tuple = (15, 5),
     report_title: str = "",
     use_weights: bool = True,
@@ -570,6 +591,7 @@ def report_model_perf(
     target_label_encoder: Optional[LabelEncoder] = None,
     nbins: int = 100,
     print_report: bool = True,
+    show_perf_chart: bool = True,
     show_fi: bool = True,
     custom_ice_metric: Callable = None,
     custom_rice_metric: Callable = None,
@@ -583,7 +605,7 @@ def report_model_perf(
             model=model,
             subgroups=subgroups,
             subset_index=subset_index,
-            digits=digits,
+            report_ndigits=report_ndigits,
             figsize=figsize,
             report_title=report_title,
             use_weights=use_weights,
@@ -596,6 +618,7 @@ def report_model_perf(
             target_label_encoder=target_label_encoder,
             nbins=nbins,
             print_report=print_report,
+            show_perf_chart=show_perf_chart,
             show_fi=show_fi,
             custom_ice_metric=custom_ice_metric,
             custom_rice_metric=custom_rice_metric,
@@ -610,13 +633,14 @@ def report_model_perf(
             model=model,
             subgroups=subgroups,
             subset_index=subset_index,
-            digits=digits,
+            report_ndigits=report_ndigits,
             figsize=figsize,
             report_title=report_title,
             verbose=verbose,
             preds=preds,
             df=df,
             print_report=print_report,
+            show_perf_chart=show_perf_chart,
             show_fi=show_fi,
             metrics=metrics,
         )
@@ -628,13 +652,14 @@ def report_regression_model_perf(
     model: RegressorMixin,
     subgroups: dict = None,
     subset_index: np.ndarray = None,
-    digits: int = 4,
+    report_ndigits: int = 4,
     figsize: tuple = (15, 5),
     report_title: str = "",    
     verbose: bool = False,
     preds: Optional[np.ndarray] = None,
     df: Optional[pd.DataFrame] = None,
     print_report: bool = True,
+    show_perf_chart: bool = True,
     show_fi: bool = True,
     metrics:dict=None,
 ):
@@ -646,15 +671,16 @@ def report_regression_model_perf(
     if isinstance(targets, pd.Series):
         targets = targets.values        
 
+    if show_fi:
+            plot_model_feature_importances(model=model,columns=columns,model_name=model_name,figsize=(15,10))
+    
     if print_report:
 
-        if show_fi: plot_model_feature_importances(model=model,columns=columns,model_name=model_name,figsize=(15,10))
-
         print(report_title)
-        print(f"mean_absolute_error: {mean_absolute_error(y_true=targets,y_pred=preds):.{digits}f}")
-        print(f"max_error: {max_error(y_true=targets,y_pred=preds):.{digits}f}")
-        print(f"mean_absolute_percentage_error: {mean_absolute_percentage_error(y_true=targets,y_pred=preds):.{digits}f}")
-        print(f"root_mean_squared_error: {root_mean_squared_error(y_true=targets,y_pred=preds):.{digits}f}")
+        print(f"mean_absolute_error: {mean_absolute_error(y_true=targets,y_pred=preds):.{report_ndigits}f}")
+        print(f"max_error: {max_error(y_true=targets,y_pred=preds):.{report_ndigits}f}")
+        print(f"mean_absolute_percentage_error: {mean_absolute_percentage_error(y_true=targets,y_pred=preds):.{report_ndigits}f}")
+        print(f"root_mean_squared_error: {root_mean_squared_error(y_true=targets,y_pred=preds):.{report_ndigits}f}")
     
     if subgroups:
         robustness_report = compute_robustness_metrics(
@@ -677,7 +703,7 @@ def report_probabilistic_model_perf(
     model: ClassifierMixin,
     subgroups: dict = None,
     subset_index: np.ndarray = None,
-    digits: int = 4,
+    report_ndigits: int = 4,
     figsize: tuple = (15, 5),
     report_title: str = "",
     use_weights: bool = True,
@@ -690,6 +716,7 @@ def report_probabilistic_model_perf(
     target_label_encoder: Optional[LabelEncoder] = None,
     nbins: int = 100,
     print_report: bool = True,
+    show_perf_chart: bool = True,
     show_fi: bool = True,
     custom_ice_metric: Callable = None,
     custom_rice_metric: Callable = None,
@@ -746,21 +773,24 @@ def report_probabilistic_model_perf(
             y_pred=y_score,
             title=title,
             figsize=figsize,
+            show_plots=show_perf_chart,
             show_roc_auc_in_title=True,
             show_logloss_in_title=True,
             show_pr_auc_in_title=True,
             use_weights=use_weights,
             ndigits=calib_report_ndigits,
             verbose=verbose,
-            nbins=nbins,
-        )
-        calibs.append(
-            f"\t{str_class_name}: MAE{'W' if use_weights else ''}={calibration_mae * 100:.{calib_report_ndigits}f}%, STD={calibration_std * 100:.{calib_report_ndigits}f}%, COV={calibration_coverage * 100:.0f}%"
+            nbins=nbins,            
         )
 
-        pr_aucs.append(f"{str_class_name}={pr_auc:.{digits}f}")
-        roc_aucs.append(f"{str_class_name}={roc_auc:.{digits}f}")
-        brs.append(f"{str_class_name}={brier_loss * 100:.{digits}f}%")
+        if print_report:
+
+            calibs.append(
+                f"\t{str_class_name}: MAE{'W' if use_weights else ''}={calibration_mae * 100:.{calib_report_ndigits}f}%, STD={calibration_std * 100:.{calib_report_ndigits}f}%, COV={calibration_coverage * 100:.0f}%"
+            )
+            pr_aucs.append(f"{str_class_name}={pr_auc:.{report_ndigits}f}")
+            roc_aucs.append(f"{str_class_name}={roc_auc:.{report_ndigits}f}")
+            brs.append(f"{str_class_name}={brier_loss * 100:.{report_ndigits}f}%")
 
         if metrics is not None:
             class_metrics=dict(roc_auc=roc_auc,pr_auc=pr_auc,calibration_mae=calibration_mae,calibration_std=calibration_std,brier_loss=brier_loss,integral_error=integral_error)
@@ -768,12 +798,13 @@ def report_probabilistic_model_perf(
                 class_metrics['robust_integral_error'] = robust_integral_error
             metrics.update({class_id:class_metrics})        
 
+    if show_fi:
+        plot_model_feature_importances(model=model,columns=columns,model_name=model_name,figsize=(15,10))
+
     if print_report:
 
-        if show_fi: plot_model_feature_importances(model=model,columns=columns,model_name=model_name,figsize=(15,10))
-
         print(report_title)
-        print(classification_report(targets, preds, zero_division=0, digits=digits))
+        print(classification_report(targets, preds, zero_division=0, digits=report_ndigits))
         print(f"ROC AUCs: {', '.join(roc_aucs)}")
         print(f"PR AUCs: {', '.join(pr_aucs)}")
         print(f"CALIBRATIONS: \n{', '.join(calibs)}")
@@ -856,7 +887,7 @@ def configure_training_params(df:pd.DataFrame,target:pd.Series,train_idx:np.ndar
     
     configs=gpu_configs if prefer_gpu_configs else cpu_configs
 
-    common_params=dict(nbins=nbins,subgroups=subgroups,sample_weight=sample_weight,df=df,target=target,train_idx=train_idx,test_idx=test_idx,val_idx=val_idx,target_label_encoder=target_label_encoder,custom_ice_metric=configs.final_integral_calibration_error)
+    common_params=dict(nbins=nbins,subgroups=subgroups,sample_weight=sample_weight,df=df,target=target,train_idx=train_idx,test_idx=test_idx,val_idx=val_idx,target_label_encoder=target_label_encoder,custom_ice_metric=configs.integral_calibration_error,custom_rice_metric=configs.final_integral_calibration_error)
 
     common_cb_params=dict(model=TransformedTargetRegressor(CatBoostRegressor(**configs.CB_REGR),transformer=PowerTransformer()) if use_regression else CatBoostClassifier(**configs.CB_CALIB_CLASSIF),fit_params=dict(plot=True,cat_features=cat_features))
 

@@ -213,6 +213,7 @@ def ensemble_probabilistic_predictions(
 def score_ensemble(
     target: pd.Series,
     models_and_predictions: Sequence,
+    train_idx: np.ndarray,
     test_idx: np.ndarray,
     val_idx: np.ndarray,
     ensemble_name: str,
@@ -225,9 +226,9 @@ def score_ensemble(
     uncertainty_quantile: float = 0.0,
     normalize_stds_by_mean_preds: bool = True,
     custom_ice_metric: Callable = None,
+    custom_rice_metric: Callable = None,
     subgroups: dict = None,
     max_ensembling_level: int = 1,
-    show_train_chart: bool = False,
     **kwargs,
 ):
     """Compares different ensembling methods for a list of models."""
@@ -258,23 +259,34 @@ def score_ensemble(
                 uncertainty_quantile=uncertainty_quantile,
                 normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
             )
+            train_ensembled_predictions, train_confident_indices = ensemble_probabilistic_predictions(
+                *(el[6] for el in level_models_and_predictions),
+                ensemble_method=ensemble_method,
+                max_mae=max_mae,
+                max_std=max_std,
+                ensure_prob_limits=ensure_prob_limits,
+                uncertainty_quantile=uncertainty_quantile,
+                normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+            )
 
             internal_ensemble_method = f"{ensemble_method} L{ensembling_level}" if ensembling_level > 0 else ensemble_method
             next_ens_results = train_and_evaluate_model(
                 model=None,
+                train_probs=train_ensembled_predictions,
                 test_probs=test_ensembled_predictions,
                 val_probs=val_ensembled_predictions,
                 df=None,
                 target=target,
                 default_drop_columns=[],
                 model_name=f"Ensemble {internal_ensemble_method} {ensemble_name}",
-                train_idx=None,
+                train_idx=train_idx,
                 test_idx=test_idx,
                 val_idx=val_idx,
                 target_label_encoder=target_label_encoder,
-                show_val_chart=True,
+                compute_valset_metrics=True,
                 nbins=nbins,
                 custom_ice_metric=custom_ice_metric,
+                custom_rice_metric=custom_rice_metric,
                 subgroups=subgroups,
             )
             next_level_models_and_predictions.append(next_ens_results)
@@ -283,19 +295,21 @@ def score_ensemble(
             if uncertainty_quantile:
                 res[internal_ensemble_method + " conf"] = train_and_evaluate_model(
                     model=None,
+                    train_probs=train_ensembled_predictions[train_confident_indices],
                     test_probs=test_ensembled_predictions[test_confident_indices],
                     val_probs=val_ensembled_predictions[val_confident_indices],
                     df=None,
                     target=target,
                     default_drop_columns=[],
                     model_name=f"Conf Ensemble {internal_ensemble_method} {ensemble_name}",
-                    train_idx=None,
+                    train_idx=train_idx[train_confident_indices],
                     test_idx=test_idx[test_confident_indices],
                     val_idx=val_idx[val_confident_indices],
                     target_label_encoder=target_label_encoder,
-                    show_val_chart=True,
+                    compute_valset_metrics=True,
                     nbins=nbins,
                     custom_ice_metric=custom_ice_metric,
+                    custom_rice_metric=custom_rice_metric,
                     subgroups=subgroups,
                 )
         level_models_and_predictions = next_level_models_and_predictions
