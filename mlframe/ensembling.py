@@ -242,7 +242,7 @@ def score_ensemble(
 
         for ensemble_method in ensembling_methods:
             val_ensembled_predictions, val_confident_indices = ensemble_probabilistic_predictions(
-                *(el[4] for el in level_models_and_predictions),
+                *(el.val_probs for el in level_models_and_predictions),
                 ensemble_method=ensemble_method,
                 max_mae=max_mae,
                 max_std=max_std,
@@ -251,7 +251,7 @@ def score_ensemble(
                 normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
             )
             test_ensembled_predictions, test_confident_indices = ensemble_probabilistic_predictions(
-                *(el[2] for el in level_models_and_predictions),
+                *(el.test_probs for el in level_models_and_predictions),
                 ensemble_method=ensemble_method,
                 max_mae=max_mae,
                 max_std=max_std,
@@ -260,7 +260,7 @@ def score_ensemble(
                 normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
             )
             train_ensembled_predictions, train_confident_indices = ensemble_probabilistic_predictions(
-                *(el[6] for el in level_models_and_predictions),
+                *(el.train_probs for el in level_models_and_predictions),
                 ensemble_method=ensemble_method,
                 max_mae=max_mae,
                 max_std=max_std,

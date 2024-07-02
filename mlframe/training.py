@@ -569,7 +569,9 @@ def train_and_evaluate_model(
     
     collect()
     
-    return model, test_preds, test_probs, val_preds, val_probs, train_preds, train_probs, columns, pre_pipeline, metrics
+    return SimpleNamespace(model=model, test_preds=test_preds, test_probs=test_probs, val_preds=val_preds,
+                 val_probs=val_probs, train_preds=train_preds, train_probs=train_probs,
+                   columns=columns, pre_pipeline=pre_pipeline, metrics=metrics)
 
 def report_model_perf(
     targets: Union[np.ndarray, pd.Series],
