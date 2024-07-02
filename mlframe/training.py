@@ -320,6 +320,7 @@ def train_and_evaluate_model(
     include_confidence_analysis:bool=False,
     display_sample_size: int =0,
     show_feature_names: bool=False,
+    verbose:bool=False,
     # confidence_analysis
     confidence_analysis_use_shap:bool=True,
     confidence_analysis_max_features:int=6,
@@ -409,7 +410,7 @@ def train_and_evaluate_model(
         if (not use_cache) or (not exists(model_file_name)):
             if sample_weight is not None:
                 sample_weight = sample_weight.loc[train_idx].values
-            logger.info(f"{model_name} training dataset shape: {train_df.shape}")
+            if verbose: logger.info(f"{model_name} training dataset shape: {train_df.shape}")
             if display_sample_size:
                 display(train_df.head(display_sample_size).style.set_caption(f"{model_name} features head"))
                 display(train_df.tail(display_sample_size).style.set_caption(f"{model_name} features tail"))
@@ -865,7 +866,7 @@ def get_sample_weights_by_recency(date_series: pd.Series, min_weight: float = 1.
 def configure_training_params(df:pd.DataFrame,target:pd.Series,train_idx:np.ndarray,val_idx:np.ndarray,test_idx:np.ndarray,robustness_features:Sequence=[],                              
                               target_label_encoder:object=None,sample_weight:np.ndarray=None,has_time:bool=True,prefer_gpu_configs:bool=True,
                               use_robust_eval_metric:bool=False,nbins:int=100,use_regression:bool=False,cont_nbins:int=6,
-                              max_runtime_mins:float=60*1,max_noimproving_iters:int=10,**config_kwargs):
+                              max_runtime_mins:float=60*1,max_noimproving_iters:int=10,verbose:bool=True,**config_kwargs):
     
     cat_features=df.head().select_dtypes(('category','object')).columns.tolist()
     
@@ -891,7 +892,7 @@ def configure_training_params(df:pd.DataFrame,target:pd.Series,train_idx:np.ndar
 
     common_params=dict(nbins=nbins,subgroups=subgroups,sample_weight=sample_weight,df=df,target=target,train_idx=train_idx,test_idx=test_idx,val_idx=val_idx,target_label_encoder=target_label_encoder,custom_ice_metric=configs.integral_calibration_error,custom_rice_metric=configs.final_integral_calibration_error)
 
-    common_cb_params=dict(model=TransformedTargetRegressor(CatBoostRegressor(**configs.CB_REGR),transformer=PowerTransformer()) if use_regression else CatBoostClassifier(**configs.CB_CALIB_CLASSIF),fit_params=dict(plot=True,cat_features=cat_features))
+    common_cb_params=dict(model=TransformedTargetRegressor(CatBoostRegressor(**configs.CB_REGR),transformer=PowerTransformer()) if use_regression else CatBoostClassifier(**configs.CB_CALIB_CLASSIF),fit_params=dict(plot=verbose,cat_features=cat_features))
 
     common_xgb_params=dict(model=XGBRegressor(**configs.XGB_GENERAL_PARAMS) if use_regression else XGBClassifier(**configs.XGB_CALIB_CLASSIF),fit_params=dict(verbose=False))
 
