@@ -48,7 +48,28 @@ from sklearn.compose import TransformedTargetRegressor
 from sklearn.base import ClassifierMixin, RegressorMixin,TransformerMixin,is_classifier
 from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit
 from sklearn.metrics import classification_report, roc_auc_score, average_precision_score
-from sklearn.metrics import mean_absolute_error,max_error,mean_absolute_percentage_error,root_mean_squared_error
+from sklearn.metrics import mean_absolute_error,max_error,mean_absolute_percentage_error,mean_squared_error
+try:
+    from sklearn.metrics import root_mean_squared_error
+except Exception as e:
+    def root_mean_squared_error(
+        y_true, y_pred, *, sample_weight=None, multioutput="uniform_average"
+    ):
+        
+        output_errors = np.sqrt(
+            mean_squared_error(
+                y_true, y_pred, sample_weight=sample_weight, multioutput="raw_values"
+            )
+        )
+
+        if isinstance(multioutput, str):
+            if multioutput == "raw_values":
+                return output_errors
+            elif multioutput == "uniform_average":
+                # pass None as weights to np.average: uniform mean
+                multioutput = None
+
+        return np.average(output_errors, weights=multioutput)    
 
 from pyutilz.pythonlib import prefix_dict_elems
 from pyutilz.system import ensure_dir_exists, tqdmu
@@ -763,7 +784,7 @@ def report_probabilistic_model_perf(
             continue
 
         y_true, y_score = (targets == class_name), probs[:, class_id]
-        
+
         title = model_name
         if len(classes) != 2:
             title += "-" + str_class_name
