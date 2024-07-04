@@ -920,7 +920,7 @@ def configure_training_params(df:pd.DataFrame,target:pd.Series,train_idx:np.ndar
     if cat_features:
         common_lgb_params=dict(model=LGBMRegressor(**cpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**cpu_configs.LGB_GENERAL_PARAMS),fit_params=dict(eval_metric=configs.lgbm_integral_calibration_error))
     else:
-        common_lgb_params=dict(model=LGBMRegressor(**gpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**gpu_configs.LGB_GENERAL_PARAMS),fit_params=dict(eval_metric=configs.lgbm_integral_calibration_error))
+        common_lgb_params=dict(model=LGBMRegressor(**gpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**cpu_configs.LGB_GENERAL_PARAMS),fit_params=dict(eval_metric=configs.lgbm_integral_calibration_error))
     
     params=configs.COMMON_RFECV_PARAMS.copy()
     params['max_runtime_mins']=max_runtime_mins
