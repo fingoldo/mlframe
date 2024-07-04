@@ -3,6 +3,7 @@
 # ----------------------------------------------------------------------------------------------------------------------------
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -321,17 +322,15 @@ def fast_calibration_report(
     )
 
     fig = None
-    roc_auc, pr_auc = None, None
+    roc_auc, pr_auc = fast_roc_auc(y_true=y_true, y_score=y_pred), average_precision_score(y_true=y_true, y_score=y_pred)
     if plot_file or show_plots:
         plot_title = f"BR={brier_loss*100:.{ndigits}f}% CMAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}%±{calibration_std*100:.{ndigits}f}%"
 
         if show_coverage_in_title:
             plot_title += f", COV={calibration_coverage*100:.{int(np.log10(nbins))}f}%"
         if show_roc_auc_in_title:
-            roc_auc = fast_roc_auc(y_true=y_true, y_score=y_pred)
             plot_title += f", ROC AUC={roc_auc:.3f}"
         if show_pr_auc_in_title:
-            pr_auc = average_precision_score(y_true=y_true, y_score=y_pred)
             plot_title += f", PR AUC={pr_auc:.3f}"
         if show_logloss_in_title:
             plot_title += f", LL={log_loss(y_true=y_true, y_pred=y_pred):.3f}"

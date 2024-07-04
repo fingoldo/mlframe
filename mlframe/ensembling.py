@@ -217,6 +217,7 @@ def score_ensemble(
     test_idx: np.ndarray,
     val_idx: np.ndarray,
     ensemble_name: str,
+    df: pd.DataFrame = None,
     target_label_encoder: object = None,
     max_mae: float = 0.05,
     max_std: float = 0.06,
@@ -288,6 +289,7 @@ def score_ensemble(
                 custom_ice_metric=custom_ice_metric,
                 custom_rice_metric=custom_rice_metric,
                 subgroups=subgroups,
+                **kwargs,
             )
             next_level_models_and_predictions.append(next_ens_results)
             res[internal_ensemble_method] = next_ens_results
@@ -311,6 +313,7 @@ def score_ensemble(
                     custom_ice_metric=custom_ice_metric,
                     custom_rice_metric=custom_rice_metric,
                     subgroups=subgroups,
+                    **kwargs,
                 )
         level_models_and_predictions = next_level_models_and_predictions
     return res
@@ -319,11 +322,12 @@ def score_ensemble(
 def compare_ensembles(
     ensembles: dict,
     sort_metric: str = "test.1.integral_error",
+    show_plot: bool = True,
     figsize: tuple = (15, 3),
 ) -> pd.DataFrame:
     items = []
     for ens_name, ens_perf in ensembles.items():
-        perf = copy.deepcopy(ens_perf[-1])
+        perf = copy.deepcopy(ens_perf.metrics)
         for set_name, set_perf in perf.items():
             if "robustness_report" in set_perf:
                 del set_perf["robustness_report"]
@@ -335,10 +339,11 @@ def compare_ensembles(
     if sort_metric in res:
         res = res.sort_values(sort_metric)
 
-        if "test." in sort_metric:
-            val_metric = sort_metric.replace("test.", "val.")
-            if val_metric in res:
-                blank_metric = sort_metric.replace("test.", "")
-                ax = res.set_index(val_metric).sort_index()[sort_metric].plot(title=f"Ensembles {blank_metric}, val vs test", figsize=figsize)
-                ax.set_ylabel(sort_metric)
+        if show_plot:
+            if "test." in sort_metric:
+                val_metric = sort_metric.replace("test.", "val.")
+                if val_metric in res:
+                    blank_metric = sort_metric.replace("test.", "")
+                    ax = res.set_index(val_metric).sort_index()[sort_metric].plot(title=f"Ensembles {blank_metric}, val vs test", figsize=figsize)
+                    ax.set_ylabel(sort_metric)
     return res

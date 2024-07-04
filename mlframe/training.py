@@ -196,7 +196,7 @@ def get_training_configs(
             return robust_mlperf_metric(y_true,y_score,*args,metric=integral_calibration_error,higher_is_better=False,subgroups=subgroups,**kwargs,)
     else:
         final_integral_calibration_error=integral_calibration_error
-
+    
     def fs_and_hpt_integral_calibration_error(*args, verbose: bool = False, **kwargs):
         err = compute_probabilistic_multiclass_error(
             *args,
@@ -759,11 +759,11 @@ def report_probabilistic_model_perf(
             str_class_name = str(class_name)
         true_classes.append(str_class_name)
 
-        y_true, y_score = (targets == class_name), probs[:, class_id]
-
         if len(classes) == 2 and class_id == 0:
             continue
 
+        y_true, y_score = (targets == class_name), probs[:, class_id]
+        
         title = model_name
         if len(classes) != 2:
             title += "-" + str_class_name
