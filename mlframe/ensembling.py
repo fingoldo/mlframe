@@ -128,6 +128,7 @@ def ensemble_probabilistic_predictions(
     max_std: float = 0.06,
     uncertainty_quantile: float = 0.2,
     normalize_stds_by_mean_preds: bool = True,
+    verbose: bool = True,
 ):
     """Ensembles probabilistic predictions. All elements of the preds tuple must have the same shape.
     uncertainty_quantile>0 produces separate charts for points where the models are confident (agree).
@@ -160,14 +161,17 @@ def ensemble_probabilistic_predictions(
             tot_mae /= l
             tot_std /= l
             if (max_mae > 0 and tot_mae > max_mae) or (tot_std > 0 and tot_std > max_std):
-                print(f"ens member {i} excluded due to high distance from the median, mae={tot_mae:4f}, std={tot_std:4f}")
+                if verbose:
+                    print(f"ens member {i} excluded due to high distance from the median, mae={tot_mae:4f}, std={tot_std:4f}")
                 skipped_preds_indices.add(i)
         if skipped_preds_indices:
             if len(skipped_preds_indices) < len(preds):
                 preds = [el for i, el in enumerate(preds) if i not in skipped_preds_indices]
-                print(f"Using {len(preds)} members of ensemble")
+                if verbose:
+                    print(f"Using {len(preds)} members of ensemble")
             else:
-                print(f"ensemble_probabilistic_predictions filters too restrictive ({len(skipped_preds_indices)} vs {l}), skipping them")
+                if verbose:
+                    print(f"ensemble_probabilistic_predictions filters too restrictive ({len(skipped_preds_indices)} vs {l}), skipping them")
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Actual ensembling
@@ -230,6 +234,7 @@ def score_ensemble(
     custom_rice_metric: Callable = None,
     subgroups: dict = None,
     max_ensembling_level: int = 1,
+    verbose: bool = True,
     **kwargs,
 ):
     """Compares different ensembling methods for a list of models."""
@@ -250,6 +255,7 @@ def score_ensemble(
                 ensure_prob_limits=ensure_prob_limits,
                 uncertainty_quantile=uncertainty_quantile,
                 normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+                verbose=verbose,
             )
             test_ensembled_predictions, test_confident_indices = ensemble_probabilistic_predictions(
                 *(el.test_probs for el in level_models_and_predictions),
@@ -259,6 +265,7 @@ def score_ensemble(
                 ensure_prob_limits=ensure_prob_limits,
                 uncertainty_quantile=uncertainty_quantile,
                 normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+                verbose=verbose,
             )
             train_ensembled_predictions, train_confident_indices = ensemble_probabilistic_predictions(
                 *(el.train_probs for el in level_models_and_predictions),
@@ -268,6 +275,7 @@ def score_ensemble(
                 ensure_prob_limits=ensure_prob_limits,
                 uncertainty_quantile=uncertainty_quantile,
                 normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+                verbose=verbose,
             )
 
             internal_ensemble_method = f"{ensemble_method} L{ensembling_level}" if ensembling_level > 0 else ensemble_method
