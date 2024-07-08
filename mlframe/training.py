@@ -358,6 +358,7 @@ def train_and_evaluate_model(
     confidence_analysis_alpha:float=0.9,
     confidence_analysis_ylabel:str="Feature value",
     confidence_analysis_title:str="Confidence of correct Test set predictions",
+    confidence_model_kwargs:dict={},
 ):
     """Trains & evaluates given model/pipeline on train/test sets.
     Supports feature selection via pre_pipeline.
@@ -572,7 +573,7 @@ def train_and_evaluate_model(
 
                 # for (any, even multiclass) classification, targets are probs of ground truth classes
                 if test_df is not None:
-                    confidence_model=CatBoostRegressor(verbose=0,eval_fraction=0.1,task_type=("GPU" if CUDA_IS_AVAILABLE else "CPU"))
+                    confidence_model=CatBoostRegressor(verbose=0,eval_fraction=0.1,task_type=("GPU" if CUDA_IS_AVAILABLE else "CPU"),**confidence_model_kwargs)
                     
                     if model_type_name == type(confidence_model).__name__:
                         fit_params_copy=copy.copy(fit_params)

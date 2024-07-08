@@ -678,6 +678,7 @@ def create_robustness_subgroups_indices(subgroups: dict, train_idx: np.ndarray, 
                 bins, unique_bins = create_robustness_standard_bins(group_name=group_name, npoints=npoints, cont_nbins=cont_nbins)
             else:
                 bins = group_params.get("bins")
+                assert bins.index.is_unique
                 bins = bins.loc[arr]
                 unique_bins = None
 
