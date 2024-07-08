@@ -62,7 +62,7 @@ def cont_entropy(arr: np.ndarray, bins: str = "scott") -> float:
     return ent
 
 
-entropy_funcs = (cont_entropy, continuous.get_h, app_entropy, svd_entropy, sample_entropy, petrosian_fd, perm_entropy, katz_fd, detrended_fluctuation)  #
+entropy_funcs = (cont_entropy, app_entropy, svd_entropy, sample_entropy, petrosian_fd, perm_entropy, katz_fd, detrended_fluctuation)  # continuous.get_h,
 entropy_funcs_names = [f.__name__ for f in entropy_funcs]
 
 distributions = (stats.levy_l,)  # stats.logistic, stats.pareto
@@ -125,6 +125,11 @@ def compute_simple_stats_numba(arr: np.ndarray) -> tuple:
     else:
         std_val = 0.0
     return minval, maxval, argmin, argmax, mean_value, std_val
+
+
+@numba.njit(fastmath=fastmath)
+def compute_simple_stats_numba_arr(arr: np.ndarray, dtype=np.float32):
+    return np.array(compute_simple_stats_numba(arr), dtype=dtype)
 
 
 def get_simple_stats_names() -> list:

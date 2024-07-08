@@ -38,6 +38,9 @@ from lightgbm import LGBMClassifier, LGBMRegressor
 from catboost import CatBoostRegressor, CatBoostClassifier
 from xgboost import XGBClassifier, XGBRegressor, DMatrix, QuantileDMatrix
 
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.dummy import DummyClassifier
+
 import shap
 import pandas as pd, numpy as np
 from sklearn.metrics import make_scorer
@@ -133,6 +136,9 @@ def get_training_configs(
     use_weighted_calibration: bool = True,
     weight_by_class_npositives: bool = False,
     nbins: int = 100,
+    cb_kwargs:dict={},
+    lgb_kwargs:dict={},
+    xgb_kwargs:dict={},
     # ----------------------------------------------------------------------------------------------------------------------------
     # featureselectors
     # ----------------------------------------------------------------------------------------------------------------------------    
@@ -165,6 +171,7 @@ def get_training_configs(
         task_type=("GPU" if has_gpu else "CPU"),        
         early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
+        **cb_kwargs,
     )
 
     CB_CLASSIF = CB_GENERAL_PARAMS.copy()
@@ -185,6 +192,7 @@ def get_training_configs(
         early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
         verbosity=int(verbose),
+        **xgb_kwargs
     )    
 
     XGB_GENERAL_CLASSIF = XGB_GENERAL_PARAMS.copy()
@@ -253,6 +261,7 @@ def get_training_configs(
         device_type=("gpu" if has_gpu else "cpu"),
         verbose=int(verbose),
         random_state=random_seed,
+        **lgb_kwargs
     )
 
     #XGB_CALIB_CLASSIF_CPU.update({"device": "cpu","n_jobs":psutil.cpu_count(logical=False)})    
@@ -333,7 +342,7 @@ def train_and_evaluate_model(
     show_fi:bool=True,
     use_cache: bool = False,
     nbins: int = 100,
-    compute_trainset_metrics:bool=True,
+    compute_trainset_metrics:bool=False,
     compute_valset_metrics: bool = True,
     compute_testset_metrics: bool = True,
     data_dir: str = DATA_DIR,
@@ -1058,3 +1067,34 @@ def post_calibrate_model(original_model:object,target_series:pd.Series,target_la
     
     
     return model, test_preds, meta_test_probs, val_preds, meta_val_probs, columns, pre_pipeline, metrics
+
+
+def create_ts_train_val_test_split(
+    df: pd.DataFrame,
+    dates: pd.Series,
+    consecutive_val_ndays: int = 30,  # ts consecutive last val days
+    scattered_val_ndays: int = 0,  # ts scattered val days
+    test_ndays: int = 60,
+):
+    """Produce train-val-test split."""
+
+    all_dates = sorted(dates.unique())
+    print(f"{len(all_dates):_} distinct days")
+
+    val_dates = all_dates[-(consecutive_val_ndays + test_ndays) : -test_ndays]
+    if scattered_val_ndays:
+        val_dates += np.random.choice(all_dates[: -(consecutive_val_ndays + test_ndays)], scattered_val_ndays).tolist()
+    test_dates = all_dates[-test_ndays:]
+    train_dates = set(all_dates) - set(val_dates) - set(test_dates)
+
+    train_idx, val_idx, test_idx = (
+        df.index[dates.isin(train_dates)],
+        df.index[dates.isin(val_dates)],
+        df.index[dates.isin(test_dates)],
+    )
+
+    logger.info(
+        f"Training on {len(train_dates):_} dates, vaildating on {len(val_dates):_} dates [{pd.to_datetime(val_dates[0]).date()}->{pd.to_datetime(val_dates[-1]).date()}], testing on {len(test_dates):_} dates [{pd.to_datetime(test_dates[0]).date()}->{pd.to_datetime(test_dates[-1]).date()}]"
+    )
+
+    return train_idx, val_idx, test_idx

@@ -137,6 +137,10 @@ def ensemble_probabilistic_predictions(
     assert ensemble_method in ("harm", "arithm", "median", "quad", "qube", "geo")
     confident_indices = None
 
+    preds = [p for p in preds if p is not None]
+    if len(preds) == 0:
+        return None, None
+
     if len(preds) > 2:
 
         skipped_preds_indices = set()
