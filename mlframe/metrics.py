@@ -553,8 +553,8 @@ def integral_calibration_error_from_metrics(
     ICE is a weighted sum of baseline losses-"roc_auc goodness over 0.5".
     If roc_auc is not good enough, it incurs additional penalty.
     """
-    res = brier_loss * brier_loss_weight + calibration_mae * mae_weight + calibration_std * std_weight - np.abs(roc_auc - 0.5) * roc_auc_weight
-    if roc_auc < min_roc_auc:
+    res = brier_loss * brier_loss_weight + (calibration_mae * mae_weight + calibration_std * std_weight)* np.abs(roc_auc - 0.5) -np.abs(roc_auc - 0.5)* roc_auc_weight
+    if np.abs(roc_auc-0.5) < (min_roc_auc-0.5):
         res += roc_auc_penalty
     return res
 

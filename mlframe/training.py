@@ -130,8 +130,8 @@ def get_training_configs(
     method:str="multicrit",
     mae_weight: float = 0.5,
     std_weight: float = 0.5,
-    roc_auc_weight: float = 1.5,
-    brier_loss_weight: float = 0.2,
+    roc_auc_weight: float = 1.1,
+    brier_loss_weight: float = 0.3,
     min_roc_auc: float = 0.54,
     roc_auc_penalty: float = 0.00,
     use_weighted_calibration: bool = True,
@@ -784,6 +784,8 @@ def report_probabilistic_model_perf(
     calibs = []
     pr_aucs = []
     roc_aucs = []
+    integral_errors=[]
+    robust_integral_errors=[]
 
     integral_error = custom_ice_metric(y_true=targets, y_score=probs)
     if custom_rice_metric and custom_rice_metric!=custom_ice_metric:
@@ -811,9 +813,12 @@ def report_probabilistic_model_perf(
         title = model_name
         if len(classes) != 2:
             title += "-" + str_class_name
-        title += "\n" + f" ICE={integral_error:.4f}"
+        
+        class_integral_error=custom_ice_metric(y_true=targets, y_score=probs)
+        title += "\n" + f" ICE={class_integral_error:.4f}"
         if custom_rice_metric and custom_rice_metric!=custom_ice_metric:
-            title +=f", RICE={robust_integral_error:.4f}" 
+            class_robust_integral_error=custom_rice_metric(y_true=targets, y_score=probs)
+            title +=f", RICE={class_robust_integral_error:.4f}" 
 
         brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, fig = fast_calibration_report(
             y_true=y_true,
@@ -838,6 +843,9 @@ def report_probabilistic_model_perf(
             pr_aucs.append(f"{str_class_name}={pr_auc:.{report_ndigits}f}")
             roc_aucs.append(f"{str_class_name}={roc_auc:.{report_ndigits}f}")
             brs.append(f"{str_class_name}={brier_loss * 100:.{report_ndigits}f}%")
+            integral_errors.append(f"{str_class_name}={class_integral_error:.{report_ndigits}f}")
+            if custom_rice_metric and custom_rice_metric!=custom_ice_metric:
+                robust_integral_errors.append(f"{str_class_name}={class_robust_integral_error:.{report_ndigits}f}")
 
         if metrics is not None:
             class_metrics=dict(roc_auc=roc_auc,pr_auc=pr_auc,calibration_mae=calibration_mae,calibration_std=calibration_std,brier_loss=brier_loss,integral_error=integral_error)
@@ -856,9 +864,13 @@ def report_probabilistic_model_perf(
         print(f"PR AUCs: {', '.join(pr_aucs)}")
         print(f"CALIBRATIONS: \n{', '.join(calibs)}")
         print(f"BRIER LOSS: \n\t{', '.join(brs)}")
-        print(f"INTEGRAL ERROR: {integral_error:.4f}")
+        print(f"ICE: \n\t{', '.join(integral_errors)}")
+        if custom_ice_metric!=custom_rice_metric:
+            print(f"RICE: \n\t{', '.join(robust_integral_errors)}")
+        
+        print(f"TOTAL INTEGRAL ERROR: {integral_error:.4f}")
         if custom_rice_metric and custom_rice_metric!=custom_ice_metric:
-            print(f"ROBUST INTEGRAL ERROR: {robust_integral_error:.4f}")
+            print(f"TOTAL ROBUST INTEGRAL ERROR: {robust_integral_error:.4f}")
 
     if subgroups:
         robustness_report = compute_robustness_metrics(
@@ -910,7 +922,7 @@ def get_sample_weights_by_recency(date_series: pd.Series, min_weight: float = 1.
 def configure_training_params(df:pd.DataFrame,target:pd.Series,train_idx:np.ndarray,val_idx:np.ndarray,test_idx:np.ndarray,robustness_features:Sequence=[],                              
                               target_label_encoder:object=None,sample_weight:np.ndarray=None,has_time:bool=True,prefer_gpu_configs:bool=True,
                               use_robust_eval_metric:bool=False,nbins:int=100,use_regression:bool=False,cont_nbins:int=6,
-                              max_runtime_mins:float=60*1,max_noimproving_iters:int=10,verbose:bool=True,**config_kwargs):
+                              max_runtime_mins:float=60*1,max_noimproving_iters:int=10,verbose:bool=True,prefer_cpu_for_lightgbm:bool=True,**config_kwargs):
     
     cat_features=df.head().select_dtypes(('category','object')).columns.tolist()
     
@@ -940,7 +952,10 @@ def configure_training_params(df:pd.DataFrame,target:pd.Series,train_idx:np.ndar
 
     common_xgb_params=dict(model=XGBRegressor(**configs.XGB_GENERAL_PARAMS) if use_regression else XGBClassifier(**configs.XGB_CALIB_CLASSIF),fit_params=dict(verbose=False))
 
-    common_lgb_params=dict(model=LGBMRegressor(**gpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),fit_params=dict(eval_metric=configs.lgbm_integral_calibration_error))
+    if prefer_cpu_for_lightgbm:
+        common_lgb_params=dict(model=LGBMRegressor(**cpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**cpu_configs.LGB_GENERAL_PARAMS),fit_params=dict(eval_metric=cpu_configs.lgbm_integral_calibration_error))
+    else:
+        common_lgb_params=dict(model=LGBMRegressor(**gpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),fit_params=dict(eval_metric=configs.lgbm_integral_calibration_error))
     
     params=configs.COMMON_RFECV_PARAMS.copy()
     params['max_runtime_mins']=max_runtime_mins
@@ -954,13 +969,22 @@ def configure_training_params(df:pd.DataFrame,target:pd.Series,train_idx:np.ndar
         **params
     )
 
-    lgb_rfecv = RFECV(
-        estimator=LGBMRegressor(**configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
-        fit_params=dict(eval_metric=configs.lgbm_integral_calibration_error),
-        cat_features=cat_features,
-        scoring=make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False) if use_regression else make_scorer(score_func=configs.fs_and_hpt_integral_calibration_error, needs_proba=True, needs_threshold=False, greater_is_better=False),
-        **params
-    )
+    if prefer_cpu_for_lightgbm:
+        lgb_rfecv = RFECV(
+                estimator=LGBMRegressor(**cpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**cpu_configs.LGB_GENERAL_PARAMS),
+                fit_params=dict(eval_metric=cpu_configs.lgbm_integral_calibration_error),
+                cat_features=cat_features,
+                scoring=make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False) if use_regression else make_scorer(score_func=configs.fs_and_hpt_integral_calibration_error, needs_proba=True, needs_threshold=False, greater_is_better=False),
+                **params
+            )        
+    else:
+        lgb_rfecv = RFECV(
+            estimator=LGBMRegressor(**configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
+            fit_params=dict(eval_metric=configs.lgbm_integral_calibration_error),
+            cat_features=cat_features,
+            scoring=make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False) if use_regression else make_scorer(score_func=configs.fs_and_hpt_integral_calibration_error, needs_proba=True, needs_threshold=False, greater_is_better=False),
+            **params
+        )
 
     xgb_rfecv = RFECV(
         estimator=XGBRegressor(**configs.XGB_GENERAL_PARAMS) if use_regression else XGBClassifier(**configs.XGB_CALIB_CLASSIF),
