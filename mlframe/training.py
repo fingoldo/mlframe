@@ -128,10 +128,10 @@ def get_training_configs(
     # probabilistic errors
     # ----------------------------------------------------------------------------------------------------------------------------
     method:str="multicrit",
-    mae_weight: float = 0.5,
-    std_weight: float = 0.5,
-    roc_auc_weight: float = 1.1,
-    brier_loss_weight: float = 0.3,
+    mae_weight: float = 4,
+    std_weight: float = 4,
+    roc_auc_weight: float = 1.0,
+    brier_loss_weight: float = 0.4,
     min_roc_auc: float = 0.54,
     roc_auc_penalty: float = 0.00,
     use_weighted_calibration: bool = True,
@@ -254,7 +254,8 @@ def get_training_configs(
         return metric_name, value, higher_is_better
     
     CB_CALIB_CLASSIF = CB_CLASSIF.copy()
-    CB_CALIB_CLASSIF.update({"eval_metric": CB_EVAL_METRIC(metric=final_integral_calibration_error,higher_is_better=False,max_arr_size=val_set_size)})
+    CB_CALIB_CLASSIF.update({"eval_metric": CB_EVAL_METRIC(metric=final_integral_calibration_error,higher_is_better=False,
+                                                           max_arr_size=val_set_size)})
     
     LGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
@@ -814,10 +815,10 @@ def report_probabilistic_model_perf(
         if len(classes) != 2:
             title += "-" + str_class_name
         
-        class_integral_error=custom_ice_metric(y_true=targets, y_score=probs)
+        class_integral_error=custom_ice_metric(y_true=y_true, y_score=y_score)
         title += "\n" + f" ICE={class_integral_error:.4f}"
         if custom_rice_metric and custom_rice_metric!=custom_ice_metric:
-            class_robust_integral_error=custom_rice_metric(y_true=targets, y_score=probs)
+            class_robust_integral_error=custom_rice_metric(y_true=y_true, y_score=y_score)
             title +=f", RICE={class_robust_integral_error:.4f}" 
 
         brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, fig = fast_calibration_report(
@@ -848,9 +849,9 @@ def report_probabilistic_model_perf(
                 robust_integral_errors.append(f"{str_class_name}={class_robust_integral_error:.{report_ndigits}f}")
 
         if metrics is not None:
-            class_metrics=dict(roc_auc=roc_auc,pr_auc=pr_auc,calibration_mae=calibration_mae,calibration_std=calibration_std,brier_loss=brier_loss,integral_error=integral_error)
+            class_metrics=dict(roc_auc=roc_auc,pr_auc=pr_auc,calibration_mae=calibration_mae,calibration_std=calibration_std,brier_loss=brier_loss,class_integral_error=class_integral_error)
             if custom_rice_metric and custom_rice_metric!=custom_ice_metric:
-                class_metrics['robust_integral_error'] = robust_integral_error
+                class_metrics['class_robust_integral_error'] = class_robust_integral_error
             metrics.update({class_id:class_metrics})        
 
     if show_fi:
@@ -873,10 +874,18 @@ def report_probabilistic_model_perf(
             print(f"TOTAL ROBUST INTEGRAL ERROR: {robust_integral_error:.4f}")
 
     if subgroups:
+
+        subgroups_metrics={'ICE':custom_ice_metric}
+        metrics_higher_is_better={'ICE':False}
+
+        if probs.shape[1]>2:
+            subgroups_metrics['ROC AUC']=fast_roc_auc
+            metrics_higher_is_better['ROC AUC']=True
+
         robustness_report = compute_robustness_metrics(
-            subgroups=subgroups, subset_index=subset_index, y_true=y_true, y_pred=probs, 
-            metrics={'ICE':custom_ice_metric,'ROC AUC':fast_roc_auc},
-            metrics_higher_is_better={'ICE':False,'ROC AUC':True},                
+            subgroups=subgroups, subset_index=subset_index, y_true=targets, y_pred=probs, 
+            metrics=subgroups_metrics,
+            metrics_higher_is_better=metrics_higher_is_better,
         )
         if robustness_report is not None:
             if print_report:
@@ -922,7 +931,7 @@ def get_sample_weights_by_recency(date_series: pd.Series, min_weight: float = 1.
 def configure_training_params(df:pd.DataFrame,target:pd.Series,train_idx:np.ndarray,val_idx:np.ndarray,test_idx:np.ndarray,robustness_features:Sequence=[],                              
                               target_label_encoder:object=None,sample_weight:np.ndarray=None,has_time:bool=True,prefer_gpu_configs:bool=True,
                               use_robust_eval_metric:bool=False,nbins:int=100,use_regression:bool=False,cont_nbins:int=6,
-                              max_runtime_mins:float=60*1,max_noimproving_iters:int=10,verbose:bool=True,prefer_cpu_for_lightgbm:bool=True,**config_kwargs):
+                              max_runtime_mins:float=60*2,max_noimproving_iters:int=15,verbose:bool=True,prefer_cpu_for_lightgbm:bool=True,**config_kwargs):
     
     cat_features=df.head().select_dtypes(('category','object')).columns.tolist()
     
@@ -937,7 +946,7 @@ def configure_training_params(df:pd.DataFrame,target:pd.Series,train_idx:np.ndar
         subgroups=None
     
     if use_robust_eval_metric:
-        indexed_subgroups=create_robustness_subgroups_indices(subgroups=subgroups, train_idx=train_idx, val_idx=val_idx, group_weights = {}, cont_nbins=cont_nbins)
+        indexed_subgroups=create_robustness_subgroups_indices(subgroups=subgroups, train_idx=train_idx, val_idx=val_idx,test_idx=test_idx, group_weights = {}, cont_nbins=cont_nbins)
     else:
         indexed_subgroups=None
     

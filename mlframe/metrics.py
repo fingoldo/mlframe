@@ -493,6 +493,7 @@ class CB_EVAL_METRIC:
     def evaluate(self, approxes, target, weight):
         output_weight = 1  # weight is not used
 
+        # to avoid expensive train set metric evaluation, we simply return 0 for any input larger than max_arr_size
         if self.max_arr_size and len(approxes[0]) > self.max_arr_size:
             return 0, output_weight
 
@@ -553,8 +554,12 @@ def integral_calibration_error_from_metrics(
     ICE is a weighted sum of baseline losses-"roc_auc goodness over 0.5".
     If roc_auc is not good enough, it incurs additional penalty.
     """
-    res = brier_loss * brier_loss_weight + (calibration_mae * mae_weight + calibration_std * std_weight)* np.abs(roc_auc - 0.5) -np.abs(roc_auc - 0.5)* roc_auc_weight
-    if np.abs(roc_auc-0.5) < (min_roc_auc-0.5):
+    res = (
+        brier_loss * brier_loss_weight
+        + (calibration_mae * mae_weight + calibration_std * std_weight) * np.abs(roc_auc - 0.5)
+        - np.abs(roc_auc - 0.5) * roc_auc_weight
+    )
+    if np.abs(roc_auc - 0.5) < (min_roc_auc - 0.5):
         res += roc_auc_penalty
     return res
 
