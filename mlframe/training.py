@@ -146,7 +146,7 @@ def get_training_configs(
     max_runtime_mins:float=60 * 2,
     max_noimproving_iters:int=40,
     cv=None,
-    cv_n_splits: int = 5,
+    cv_n_splits: int = 2,
 ) -> tuple:
     """Returns approximately same training configs for different types of models,
     based on general params supplied like learning rate, task type, time budget.
@@ -259,11 +259,23 @@ def get_training_configs(
     LGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
         early_stopping_rounds=early_stopping_rounds,
-        device_type=("gpu" if has_gpu else "cpu"),
+        device_type=("cuda" if has_gpu else "cpu"),
         verbose=int(verbose),
         random_state=random_seed,
         **lgb_kwargs
     )
+    """device_type 🔗︎, default = cpu, type = enum, options: cpu, gpu, cuda, aliases: device
+
+    device for the tree learning
+
+    cpu supports all LightGBM functionality and is portable across the widest range of operating systems and hardware
+
+    cuda offers faster training than gpu or cpu, but only works on GPUs supporting CUDA
+
+    gpu can be faster than cpu and works on a wider range of GPUs than CUDA
+
+    Note: it is recommended to use the smaller max_bin (e.g. 63) to get the better speed up"""
+
 
     #XGB_CALIB_CLASSIF_CPU.update({"device": "cpu","n_jobs":psutil.cpu_count(logical=False)})    
 

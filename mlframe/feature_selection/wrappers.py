@@ -26,6 +26,7 @@ while True:
 
         from mlframe.config import *
         from mlframe.optimization import *
+        from mlframe.votenrank import Leaderboard
         from mlframe.utils import set_random_seed
         from mlframe.baselines import get_best_dummy_score
         from mlframe.helpers import has_early_stopping_support
@@ -881,8 +882,6 @@ def get_actual_features_ranking(feature_importances: dict, votes_aggregation_met
 
     GM, and esp Minimax & Plurality are suboptimal for FS.
     """
-
-    from votenrank import Leaderboard
 
     lb = Leaderboard(table=pd.DataFrame(feature_importances))
     if votes_aggregation_method == VotesAggregation.Borda:
