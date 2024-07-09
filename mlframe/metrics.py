@@ -479,6 +479,7 @@ class CB_EVAL_METRIC:
         metric: Callable,
         higher_is_better: bool,
         calibration_plot_period: int = 0,
+        max_arr_size: int = 0,
     ) -> None:
 
         # save params
@@ -491,6 +492,9 @@ class CB_EVAL_METRIC:
 
     def evaluate(self, approxes, target, weight):
         output_weight = 1  # weight is not used
+
+        if self.max_arr_size and len(approxes[0]) > self.max_arr_size:
+            return 0, output_weight
 
         # For catboost, approxes are logits and need to be converted to true probs first (softmax-ed).
         if len(approxes) == 1:

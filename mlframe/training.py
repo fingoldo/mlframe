@@ -114,6 +114,7 @@ def get_training_configs(
     has_time: bool = True,
     has_gpu: bool = None,    
     subgroups:dict=None,
+    val_set_size:int=None,
     learning_rate: float = 0.1,
 
     def_regr_metric: str = "MAE",
@@ -253,7 +254,7 @@ def get_training_configs(
         return metric_name, value, higher_is_better
     
     CB_CALIB_CLASSIF = CB_CLASSIF.copy()
-    CB_CALIB_CLASSIF.update({"eval_metric": CB_EVAL_METRIC(metric=final_integral_calibration_error,higher_is_better=False)})
+    CB_CALIB_CLASSIF.update({"eval_metric": CB_EVAL_METRIC(metric=final_integral_calibration_error,higher_is_better=False,max_arr_size=val_set_size)})
     
     LGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
@@ -916,8 +917,8 @@ def configure_training_params(df:pd.DataFrame,target:pd.Series,train_idx:np.ndar
     else:
         indexed_subgroups=None
     
-    cpu_configs=get_training_configs(has_time=has_time,has_gpu=False,nbins=nbins,subgroups=indexed_subgroups,**config_kwargs)
-    gpu_configs=get_training_configs(has_time=has_time,has_gpu=None,nbins=nbins,subgroups=indexed_subgroups,**config_kwargs)
+    cpu_configs=get_training_configs(has_time=has_time,has_gpu=False,nbins=nbins,val_set_size=len(val_idx),subgroups=indexed_subgroups,**config_kwargs)
+    gpu_configs=get_training_configs(has_time=has_time,has_gpu=None,nbins=nbins,val_set_size=len(val_idx),subgroups=indexed_subgroups,**config_kwargs)
     
     configs=gpu_configs if prefer_gpu_configs else cpu_configs
 
@@ -927,10 +928,7 @@ def configure_training_params(df:pd.DataFrame,target:pd.Series,train_idx:np.ndar
 
     common_xgb_params=dict(model=XGBRegressor(**configs.XGB_GENERAL_PARAMS) if use_regression else XGBClassifier(**configs.XGB_CALIB_CLASSIF),fit_params=dict(verbose=False))
 
-    if cat_features:
-        common_lgb_params=dict(model=LGBMRegressor(**cpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**cpu_configs.LGB_GENERAL_PARAMS),fit_params=dict(eval_metric=configs.lgbm_integral_calibration_error))
-    else:
-        common_lgb_params=dict(model=LGBMRegressor(**gpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**cpu_configs.LGB_GENERAL_PARAMS),fit_params=dict(eval_metric=configs.lgbm_integral_calibration_error))
+    common_lgb_params=dict(model=LGBMRegressor(**gpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),fit_params=dict(eval_metric=configs.lgbm_integral_calibration_error))
     
     params=configs.COMMON_RFECV_PARAMS.copy()
     params['max_runtime_mins']=max_runtime_mins
