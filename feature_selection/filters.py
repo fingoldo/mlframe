@@ -2465,7 +2465,7 @@ def discretize_array(
     return quantize_search(arr, bins_edges).astype(dtype)  # njitted
 
 
-@njit(parallel=True)
+#@njit(parallel=True)
 def discretize_2d_array(
     arr: np.ndarray,
     n_bins: int = 10,
@@ -2479,7 +2479,7 @@ def discretize_2d_array(
 
     res = np.empty_like(arr, dtype=dtype)
 
-    for col in prange(arr.shape[1]):
+    for col in tqdmu(arr.shape[1],desc='col',leave=False): # prange
         res[:, col] = discretize_array(
             arr=arr[:, col],
             n_bins=n_bins,

@@ -145,36 +145,6 @@ class PytorchLightningClassifier(PytorchLightningEstimator, ClassifierMixin):
         return self.predict(X)
 
 
-class IdentityEstimator(BaseEstimator):
-    """Just returns the 1st feature as-is instead of real learning & predicting."""
-
-    def fit(self, X, y, **fit_params):
-        if isinstance(self, ClassifierMixin):
-            if isinstance(y, pd.Series):
-                self.classes_ = sorted(y.unique())
-            else:
-                self.classes_ = sorted(np.unique(y))
-        return self
-
-    def predict(self, X):
-        if isinstance(X, (pd.DataFrame, pd.Series)):
-            X = X.to_numpy()
-        return X[:, 0]
-
-
-class IdentityRegressor(IdentityEstimator, RegressorMixin):
-    pass
-
-
-class IdentityClassifier(IdentityEstimator, ClassifierMixin):
-    def predict_proba(self, X):
-        last_class_probs = self.predict(X)
-        if len(self.classes_) == 2:
-            return np.vstack([1 - last_class_probs, last_class_probs]).T
-        else:
-            return last_class_probs
-
-
 # ----------------------------------------------------------------------------------------------------------------------------
 # Data
 # ----------------------------------------------------------------------------------------------------------------------------

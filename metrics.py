@@ -554,11 +554,7 @@ def integral_calibration_error_from_metrics(
     ICE is a weighted sum of baseline losses-"roc_auc goodness over 0.5".
     If roc_auc is not good enough, it incurs additional penalty.
     """
-    res = (
-        brier_loss * brier_loss_weight
-        + (calibration_mae * mae_weight + calibration_std * std_weight) * np.abs(roc_auc - 0.5)
-        - np.abs(roc_auc - 0.5) * roc_auc_weight
-    )
+    res = brier_loss * brier_loss_weight + calibration_mae * mae_weight + calibration_std * std_weight - np.abs(roc_auc - 0.5) * roc_auc_weight
     if np.abs(roc_auc - 0.5) < (min_roc_auc - 0.5):
         res += roc_auc_penalty
     return res
@@ -676,11 +672,13 @@ def create_robustness_subgroups(
     return subgroups
 
 
-def create_robustness_subgroups_indices(subgroups: dict, train_idx: np.ndarray, val_idx: np.ndarray, test_idx: np.ndarray, group_weights: dict = {}, cont_nbins: int = 3) -> dict:
+def create_robustness_subgroups_indices(
+    subgroups: dict, train_idx: np.ndarray, val_idx: np.ndarray, test_idx: np.ndarray, group_weights: dict = {}, cont_nbins: int = 3
+) -> dict:
     res = {}
-    if len(val_idx)==len(test_idx):
+    if len(val_idx) == len(test_idx):
         logger.warning(f"Validation and test sets have the same size. Robustness subgroups estimation will be incorrect.")
-    for arr in (train_idx, test_idx,val_idx):
+    for arr in (train_idx, test_idx, val_idx):
         npoints = len(arr)
         robustness_subgroups_indices = {}
         for group_name, group_params in subgroups.items():
@@ -841,6 +839,7 @@ def robust_mlperf_metric(
     higher_is_better: bool,
     subgroups: dict = None,
     whole_set_weight: float = 0.5,
+    min_group_size: int = 100,
 ) -> float:
     """Bins idices need to be aware of arr sizes: boostings can call the metric on
     multiple sets of differnt lengths - train, val, etc. Arrays will be pure numpy, so no other means to
@@ -859,6 +858,8 @@ def robust_mlperf_metric(
 
             perfs = []
             for bin_name, bin_indices in bins.items():
+                if len(bin_indices) < min_group_size:
+                    continue
                 if isinstance(y_score, Sequence):
                     if len(y_score) == 2:
                         metric_value = metric(y_true[bin_indices], [el[bin_indices] for el in y_score])
@@ -871,14 +872,15 @@ def robust_mlperf_metric(
                         metric_value = metric(y_true[bin_indices], y_score[bin_indices])
                 perfs.append(metric_value)
 
-            perfs = np.array(perfs)
-            bin_metric_value = perfs.mean()
-            if higher_is_better:
-                bin_metric_value -= perfs.std()
-            else:
-                bin_metric_value += perfs.std()
+            if perfs:
+                perfs = np.array(perfs)
+                bin_metric_value = perfs.mean()
+                if higher_is_better:
+                    bin_metric_value -= perfs.std()
+                else:
+                    bin_metric_value += perfs.std()
 
-            weights_sum += bin_weight
-            total_metric_value += bin_metric_value * bin_weight
+                weights_sum += bin_weight
+                total_metric_value += bin_metric_value * bin_weight
 
     return total_metric_value / weights_sum

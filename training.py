@@ -24,6 +24,7 @@ from numba.cuda import is_available as is_cuda_available
 import copy
 import joblib
 import psutil
+import inspect
 from gc import collect
 from functools import partial
 from os.path import join, exists
@@ -84,6 +85,15 @@ from mlframe.feature_importance import plot_feature_importance
 from mlframe.feature_selection.wrappers import RFECV, VotesAggregation, OptimumSearch
 from mlframe.metrics import fast_roc_auc, fast_calibration_report, compute_probabilistic_multiclass_error, CB_EVAL_METRIC
 from mlframe.metrics import create_robustness_subgroups,create_robustness_subgroups_indices,compute_robustness_metrics,robust_mlperf_metric
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------------------------------------------------------------
+
+
+def get_function_param_names(func):
+    signature = inspect.signature(func)
+    return list(signature.parameters.keys())
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
@@ -381,6 +391,7 @@ def train_and_evaluate_model(
     """
     
     collect()
+    best_iter=None
 
     if not custom_ice_metric:
         custom_ice_metric = compute_probabilistic_multiclass_error
@@ -428,12 +439,10 @@ def train_and_evaluate_model(
     if val_idx is not None:
         # insert eval_set where needed
 
-        if model_type_name in XGBOOST_MODEL_TYPES:
-            fit_params["eval_set"] = ((val_df, target.loc[val_idx]),)
-        elif model_type_name in LGBM_MODEL_TYPES:
+        if model_type_name in LGBM_MODEL_TYPES:
             fit_params["eval_set"] = (val_df, target.loc[val_idx])
             # fit_params["callbacks"] = [lgb.early_stopping(stopping_rounds=early_stopping_rounds)]
-        elif model_type_name in CATBOOST_MODEL_TYPES:
+        elif model_type_name in CATBOOST_MODEL_TYPES or model_type_name in XGBOOST_MODEL_TYPES:
             fit_params["eval_set"] = [
                 (val_df, target.loc[val_idx]),
             ]
@@ -448,13 +457,11 @@ def train_and_evaluate_model(
         if "cat_features" in fit_params:
             fit_params["cat_features"] = [col for col in fit_params["cat_features"] if col in train_df.columns]
 
-    if fit_params and isinstance(model, Pipeline):
-        fit_params = prefix_dict_elems(fit_params, "est__")
-
     if model is not None:
         if (not use_cache) or (not exists(model_file_name)):
             if sample_weight is not None:
-                sample_weight = sample_weight.loc[train_idx].values
+                if "sample_weight" in get_function_param_names(model_obj.fit):
+                    fit_params["sample_weight"] = sample_weight.loc[train_idx].values
             if verbose: logger.info(f"{model_name} training dataset shape: {train_df.shape}")
             if display_sample_size:
                 display(train_df.head(display_sample_size).style.set_caption(f"{model_name} features head"))
@@ -470,7 +477,10 @@ def train_and_evaluate_model(
             if model_type_name in TABNET_MODEL_TYPES:
                 train_df=train_df.values
             
-            model.fit(train_df, target.loc[train_idx], sample_weight=sample_weight, **fit_params)
+            if fit_params and isinstance(model, Pipeline):
+                fit_params = prefix_dict_elems(fit_params, "est__")            
+
+            model.fit(train_df, target.loc[train_idx], **fit_params)
             if model is not None:
                 # get number of the best iteration
                 try:
@@ -478,9 +488,9 @@ def train_and_evaluate_model(
                     if best_iter:
                         print(f"es_best_iter: {best_iter:_}")
                 except Exception as e:
-                    logger.warning(e)
+                    logger.warning(e)                    
 
-    metrics={'train':{},'val':{},'test':{}}
+    metrics={'train':{},'val':{},'test':{},'best_iter':best_iter}
     if compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics:
         if compute_trainset_metrics and train_idx is not None:
             if df is None:
@@ -511,7 +521,7 @@ def train_and_evaluate_model(
                 metrics=metrics['train']
             )
         
-        if compute_valset_metrics and val_idx is not None:
+        if compute_valset_metrics and val_idx is not None and len(val_idx)>0:
             if df is None:
                 val_df = None
                 columns = []
@@ -540,7 +550,7 @@ def train_and_evaluate_model(
                 metrics=metrics['val']
             )
 
-        if compute_testset_metrics and test_idx is not None:
+        if compute_testset_metrics and test_idx is not None and len(test_idx)>0:
             if df is not None:            
 
                 del train_df
@@ -733,8 +743,8 @@ def report_regression_model_perf(
     if subgroups:
         robustness_report = compute_robustness_metrics(
             subgroups=subgroups, subset_index=subset_index, y_true=targets, y_pred=preds, 
-            metrics={'MAE':mean_absolute_error,'MAPE':mean_absolute_percentage_error},
-            metrics_higher_is_better={'MAE':False,'MAPE':False},                
+            metrics={'MAE':mean_absolute_error,'RMSE':root_mean_squared_error},
+            metrics_higher_is_better={'MAE':False,'RMSE':False},                
         )
         if robustness_report is not None:
             if print_report:
@@ -863,11 +873,11 @@ def report_probabilistic_model_perf(
         print(classification_report(targets, preds, zero_division=0, digits=report_ndigits))
         print(f"ROC AUCs: {', '.join(roc_aucs)}")
         print(f"PR AUCs: {', '.join(pr_aucs)}")
-        print(f"CALIBRATIONS: \n{', '.join(calibs)}")
-        print(f"BRIER LOSS: \n\t{', '.join(brs)}")
-        print(f"ICE: \n\t{', '.join(integral_errors)}")
+        print(f"CALIBRATIONs: \n{', '.join(calibs)}")
+        print(f"BRIER LOSSes: \n\t{', '.join(brs)}")
+        print(f"ICEs: \n\t{', '.join(integral_errors)}")
         if custom_ice_metric!=custom_rice_metric:
-            print(f"RICE: \n\t{', '.join(robust_integral_errors)}")
+            print(f"RICEs: \n\t{', '.join(robust_integral_errors)}")
         
         print(f"TOTAL INTEGRAL ERROR: {integral_error:.4f}")
         if custom_rice_metric and custom_rice_metric!=custom_ice_metric:
@@ -878,7 +888,7 @@ def report_probabilistic_model_perf(
         subgroups_metrics={'ICE':custom_ice_metric}
         metrics_higher_is_better={'ICE':False}
 
-        if probs.shape[1]>2:
+        if probs.shape[1]==2:
             subgroups_metrics['ROC AUC']=fast_roc_auc
             metrics_higher_is_better['ROC AUC']=True
 
@@ -957,7 +967,7 @@ def configure_training_params(df:pd.DataFrame,target:pd.Series,train_idx:np.ndar
 
     common_params=dict(nbins=nbins,subgroups=subgroups,sample_weight=sample_weight,df=df,target=target,train_idx=train_idx,test_idx=test_idx,val_idx=val_idx,target_label_encoder=target_label_encoder,custom_ice_metric=configs.integral_calibration_error,custom_rice_metric=configs.final_integral_calibration_error)
 
-    common_cb_params=dict(model=TransformedTargetRegressor(CatBoostRegressor(**configs.CB_REGR),transformer=PowerTransformer()) if use_regression else CatBoostClassifier(**configs.CB_CALIB_CLASSIF),fit_params=dict(plot=verbose,cat_features=cat_features))
+    common_cb_params=dict(model=CatBoostRegressor(**configs.CB_REGR) if use_regression else CatBoostClassifier(**configs.CB_CALIB_CLASSIF),fit_params=dict(plot=verbose,cat_features=cat_features)) # TransformedTargetRegressor(CatBoostRegressor(**configs.CB_REGR),transformer=PowerTransformer())
 
     common_xgb_params=dict(model=XGBRegressor(**configs.XGB_GENERAL_PARAMS) if use_regression else XGBClassifier(**configs.XGB_CALIB_CLASSIF),fit_params=dict(verbose=False))
 

@@ -973,7 +973,7 @@ def get_numaggs_names(
         )
         + ([] if (directional_only or not return_unsorted_stats) else "nuniques,modmin,modmax,modmean,modqty".split(","))
         + ([] if directional_only else (["q" + str(q) for q in q]))
-        + ([] if not return_unsorted_stats else ["ncrs" + str(q) for q in q])
+        + ([] if (directional_only or not return_unsorted_stats) else ["ncrs" + str(q) for q in q])
         + get_moments_slope_mi_feature_names(weights=weights, directional_only=directional_only, return_lintrend_approx_stats=return_lintrend_approx_stats)
         # + ["mutual_info_regression",]
         + (["hursth", "hurstc"] if return_hurst else [])

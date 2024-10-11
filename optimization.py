@@ -521,6 +521,7 @@ class MBHOptimizer:
                     y_label=self.y_label,
                     expected_fitness_color=self.expected_fitness_color,
                     legend_location=self.legend_location,
+                    skip_candidates=[0],
                 )
 
 
@@ -719,6 +720,7 @@ def plot_search_state(
     ground_truth: np.ndarray,
     known_candidates: np.ndarray,
     known_evaluations: np.ndarray,
+    skip_candidates: Sequence,
     acquisition_method: str,
     mode: str,
     additional_info: str,
@@ -752,7 +754,13 @@ def plot_search_state(
     if y_pred is not None:
         axMain.plot(search_space, y_pred, color="red", linestyle="dashed", label="Surrogate Function")
         axMain.fill_between(search_space, y_pred - y_std, y_pred + y_std, color="blue", alpha=0.2)
+
     axMain.scatter(known_candidates, known_evaluations, color="blue", label="Known Points")
+
+    if skip_candidates:
+        idx = ~np.isin(known_candidates, skip_candidates)
+        if idx.sum() > 0:
+            axMain.set_ylim([known_evaluations[idx].min(), None])
 
     axExpectedFitness.set_yticklabels([])
     axExpectedFitness.set_yticks([])

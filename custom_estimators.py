@@ -449,3 +449,46 @@ def clip_to_quantiles_winsor_quantile(arr):
 
 def clip_to_quantiles_hard(arr):
     return clip_to_quantiles(arr, quantile=0.01, method="hard")
+
+
+
+class IdentityEstimator(BaseEstimator):
+    """Just returns some if the existing featurs as-is instead of real learning & predicting.
+    Good to check via ML metrics decisions of other methods/models.
+    """
+    
+    def __init__(self,feature_names:list=None,feature_indices:list=None):
+        self.feature_names=feature_names
+        self.feature_indices=feature_indices
+
+    def fit(self, X, y, **fit_params):
+        if isinstance(self, ClassifierMixin):
+            if isinstance(y, pd.Series):
+                self.classes_ = sorted(y.unique())
+            else:
+                self.classes_ = sorted(np.unique(y))
+        return self
+
+    def predict(self, X):
+        if isinstance(X, (pd.DataFrame, pd.Series)):
+            if self.feature_names:
+                return X.loc[:, self.feature_names].values
+            else:
+                assert self.feature_indices is not None
+                return X.iloc[:, self.feature_indices].values
+        else:
+            assert self.feature_indices is not None
+            return X[:, self.feature_indices]
+
+
+class IdentityRegressor(IdentityEstimator, RegressorMixin):
+    pass
+
+
+class IdentityClassifier(IdentityEstimator, ClassifierMixin):
+    def predict_proba(self, X):
+        last_class_probs = self.predict(X)
+        if len(self.classes_) == 2 and last_class_probs.ndim==1:
+            return np.vstack([1 - last_class_probs, last_class_probs]).T
+        else:
+            return last_class_probs
