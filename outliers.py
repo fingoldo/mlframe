@@ -49,7 +49,7 @@ def reject_outliers(
 
     """
 
-    if not model:
+    if model is None:
         model = Pipeline([("imp", SimpleImputer()), ("est", IsolationForest())])
 
     model.fit(X)
