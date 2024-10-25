@@ -426,13 +426,14 @@ def train_and_evaluate_model(
     if fit_params is None:
         fit_params = {}
 
+    train_od_idx, val_od_idx = None, None
+
     if df is not None:
 
         train_df = df.loc[train_idx].drop(columns=real_drop_columns)
         if val_idx is not None:
             val_df = df.loc[val_idx].drop(columns=real_drop_columns)
 
-        train_od_idx, val_od_idx = None, None
         # Place to inject OD here!
         if outlier_detector is not None:
             outlier_detector.fit(train_df, target.loc[train_idx])
@@ -864,6 +865,8 @@ def report_probabilistic_model_perf(
             classes = model.classes_
         elif target_label_encoder:
             classes = np.arange(len(target_label_encoder.classes_)).tolist()
+        else:
+            classes = np.unique(targets)
 
     true_classes = []
     for class_id, class_name in enumerate(classes):
