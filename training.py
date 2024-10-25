@@ -340,9 +340,10 @@ def get_training_configs(
 
 
 def train_and_evaluate_model(
-    model: ClassifierMixin,
+    model: ClassifierMixin | RegressorMixin,
     df: pd.DataFrame,
     target: pd.Series,
+    outlier_detector: ClassifierMixin | RegressorMixin = None,
     sample_weight: pd.Series = None,
     model_name: str = "",
     pre_pipeline: TransformerMixin = None,
@@ -390,6 +391,8 @@ def train_and_evaluate_model(
     Supports feature selection via pre_pipeline.
     Supports early stopping via val_idx.
     Optionally fumps resulting model & test set predictions into the models dir, and loads back by model name on the next call, to save time.
+    Example of real OD:
+        outlier_detector=Pipeline([("enc",ColumnTransformer(transformers=[('enc', ce.CatBoostEncoder(),['secid'])],remainder='passthrough')),("imp", SimpleImputer()), ("est", IsolationForest(contamination=0.01,n_estimators=500,n_jobs=-1))])
     """
 
     collect()
@@ -424,11 +427,30 @@ def train_and_evaluate_model(
         fit_params = {}
 
     if df is not None:
+
+        train_df = df.loc[train_idx].drop(columns=real_drop_columns)
         if val_idx is not None:
-            train_df = df.loc[train_idx].drop(columns=real_drop_columns)
             val_df = df.loc[val_idx].drop(columns=real_drop_columns)
-        else:
-            train_df = df.loc[train_idx].drop(columns=real_drop_columns)
+
+        train_od_idx, val_od_idx = None, None
+        # Place to inject OD here!
+        if outlier_detector is not None:
+            outlier_detector.fit(train_df, target.loc[train_idx])
+            # train
+            is_inlier = outlier_detector.predict(train_df)
+            train_od_idx = is_inlier == 1
+            if train_od_idx.sum() < len(train_df):
+                logger.info(f"Outlier rejection: received {len(train_df):_} train samples, kept {train_od_idx.sum():_}.")
+                train_idx = train_idx[train_od_idx]
+                train_df = df.loc[train_idx].drop(columns=real_drop_columns)
+            # val
+            if val_idx is not None:
+                is_inlier = outlier_detector.predict(val_df)
+                val_od_idx = is_inlier == 1
+                if val_od_idx.sum() < len(val_df):
+                    logger.info(f"Outlier rejection: received {len(val_df):_} val samples, kept {val_od_idx.sum():_}.")
+                    val_idx = val_idx[val_od_idx]
+                    val_df = df.loc[val_idx].drop(columns=real_drop_columns)
 
     if model is not None and pre_pipeline:
         if use_cache and exists(model_file_name):
@@ -653,6 +675,9 @@ def train_and_evaluate_model(
         columns=columns,
         pre_pipeline=pre_pipeline,
         metrics=metrics,
+        outlier_detector=outlier_detector,
+        train_od_idx=train_od_idx,
+        val_od_idx=val_od_idx,
     )
 
 
