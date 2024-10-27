@@ -340,10 +340,10 @@ def get_training_configs(
 
 
 def train_and_evaluate_model(
-    model: ClassifierMixin | RegressorMixin,
+    model: object,
     df: pd.DataFrame,
     target: pd.Series,
-    outlier_detector: ClassifierMixin | RegressorMixin = None,
+    outlier_detector: object = None,
     sample_weight: pd.Series = None,
     model_name: str = "",
     pre_pipeline: TransformerMixin = None,
@@ -437,7 +437,7 @@ def train_and_evaluate_model(
         # -----------------------------------------------------------------------------------------------------------------------------------------------------
         # Place to inject Outlier Detector [OD] here!
         # -----------------------------------------------------------------------------------------------------------------------------------------------------
-        
+
         if outlier_detector is not None:
             outlier_detector.fit(train_df, target.loc[train_idx])
             # train
