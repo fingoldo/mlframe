@@ -396,6 +396,7 @@ def train_and_evaluate_model(
     """
 
     collect()
+    columns = []
     best_iter = None
 
     if not custom_ice_metric:
@@ -676,9 +677,9 @@ def train_and_evaluate_model(
         val_probs=val_probs,
         train_preds=train_preds,
         train_probs=train_probs,
+        metrics=metrics,
         columns=columns,
         pre_pipeline=pre_pipeline,
-        metrics=metrics,
         outlier_detector=outlier_detector,
         train_od_idx=train_od_idx,
         val_od_idx=val_od_idx,
@@ -1035,6 +1036,7 @@ def configure_training_params(
     max_noimproving_iters: int = 15,
     verbose: bool = True,
     prefer_cpu_for_lightgbm: bool = True,
+    xgboost_verbose:Union[int,bool]=False,
     **config_kwargs,
 ):
 
@@ -1082,7 +1084,7 @@ def configure_training_params(
     )  # TransformedTargetRegressor(CatBoostRegressor(**configs.CB_REGR),transformer=PowerTransformer())
 
     common_xgb_params = dict(
-        model=XGBRegressor(**configs.XGB_GENERAL_PARAMS) if use_regression else XGBClassifier(**configs.XGB_CALIB_CLASSIF), fit_params=dict(verbose=False)
+        model=XGBRegressor(**configs.XGB_GENERAL_PARAMS) if use_regression else XGBClassifier(**configs.XGB_CALIB_CLASSIF), fit_params=dict(verbose=xgboost_verbose)
     )
 
     if prefer_cpu_for_lightgbm:
