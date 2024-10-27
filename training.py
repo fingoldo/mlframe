@@ -434,7 +434,10 @@ def train_and_evaluate_model(
         if val_idx is not None:
             val_df = df.loc[val_idx].drop(columns=real_drop_columns)
 
-        # Place to inject OD here!
+        # -----------------------------------------------------------------------------------------------------------------------------------------------------
+        # Place to inject Outlier Detector [OD] here!
+        # -----------------------------------------------------------------------------------------------------------------------------------------------------
+        
         if outlier_detector is not None:
             outlier_detector.fit(train_df, target.loc[train_idx])
             # train
