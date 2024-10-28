@@ -430,11 +430,6 @@ def compute_probabilistic_multiclass_error(
             desc_score_indices = np.argsort(y_pred)[::-1]
             roc_auc = fast_numba_auc_nonw(y_true=correct_class, y_score=y_pred, desc_score_indices=desc_score_indices)
 
-            if verbose:
-                print(
-                    f"\t class_id={class_id}, BR={brier_loss:.{ndigits}f}, calibration_mae={calibration_mae:.{ndigits}f} ± {calibration_std:.{ndigits}f}, roc_auc={roc_auc:.{ndigits}f}"
-                )
-
             class_error = integral_calibration_error_from_metrics(
                 calibration_mae=calibration_mae,
                 calibration_std=calibration_std,
@@ -448,6 +443,11 @@ def compute_probabilistic_multiclass_error(
                 min_roc_auc=min_roc_auc,
                 roc_auc_penalty=roc_auc_penalty,
             )
+            if verbose:
+                print(
+                    f"\t class_id={class_id}, BR={brier_loss:.{ndigits}f}, calibration_mae={calibration_mae:.{ndigits}f} ± {calibration_std:.{ndigits}f}, roc_auc={roc_auc:.{ndigits}f}, class_error={class_error:.{ndigits}f}"
+                )
+
         elif method == "brier_score":
             class_error = brier_score_loss(y_true=correct_class, y_prob=y_pred)
         elif method == "precision":
