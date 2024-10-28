@@ -279,7 +279,7 @@ def get_training_configs(
         device_type=("cuda" if has_gpu else "cpu"),
         verbose=int(verbose),
         random_state=random_seed,
-        histogram_pool_size=16384,
+        histogram_pool_size=2384,
         **lgb_kwargs,
     )
     """device_type 🔗︎, default = cpu, type = enum, options: cpu, gpu, cuda, aliases: device
