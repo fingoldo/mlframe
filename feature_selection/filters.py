@@ -1689,6 +1689,9 @@ def screen_predictors(
                             if worker_z_idx > z_idx:
                                 partial_gains[cand_idx] = (worker_current_gain, worker_z_idx)
 
+                    if use_simple_mode:
+                        # need to sort all cands by perfs
+
                     if max_runtime_mins and not run_out_of_time:
                         run_out_of_time = (timer() - start_time) > max_runtime_mins * 60
                         if run_out_of_time:
@@ -1696,66 +1699,70 @@ def screen_predictors(
                             break
 
                 else:
-                    for cand_idx, X, nexisting in feasible_candidates:  # (candidates_pbar := tqdmu(, leave=False, desc="Candidates"))
+                    if use_simple_mode:
+                        # No need to check every can out of order: let's just return next best known candidate
+                        best_gain, best_candidate, run_out_of_time=1,1,False
+                    else:
+                        for cand_idx, X, nexisting in feasible_candidates:  # (candidates_pbar := tqdmu(, leave=False, desc="Candidates"))
 
-                        # tmp_idx=X[0]
-                        # print(X,factors_nbins[tmp_idx],factors_names[tmp_idx])
-                        # from time import sleep
-                        # sleep(5)
+                            # tmp_idx=X[0]
+                            # print(X,factors_nbins[tmp_idx],factors_names[tmp_idx])
+                            # from time import sleep
+                            # sleep(5)
 
-                        current_gain, sink_reasons = evaluate_candidate(
-                            cand_idx=cand_idx,
-                            X=X,
-                            y=y,
-                            nexisting=nexisting,
-                            best_gain=best_gain,
-                            factors_data=factors_data,
-                            factors_nbins=factors_nbins,
-                            factors_names=factors_names,
-                            classes_y=classes_y,
-                            classes_y_safe=classes_y_safe,
-                            freqs_y=freqs_y,
-                            use_gpu=use_gpu,
-                            freqs_y_safe=freqs_y_safe,
-                            partial_gains=partial_gains,
-                            baseline_npermutations=baseline_npermutations,
-                            mrmr_relevance_algo=mrmr_relevance_algo,
-                            mrmr_redundancy_algo=mrmr_redundancy_algo,
-                            max_veteranes_interactions_order=max_veteranes_interactions_order,
-                            expected_gains=expected_gains,
-                            selected_vars=selected_vars,
-                            cached_MIs=cached_MIs,
-                            cached_confident_MIs=cached_confident_MIs,
-                            cached_cond_MIs=cached_cond_MIs,
-                            entropy_cache=entropy_cache,
-                            verbose=verbose,
-                            ndigits=ndigits,
-                            use_simple_mode=use_simple_mode,
-                        )
+                            current_gain, sink_reasons = evaluate_candidate(
+                                cand_idx=cand_idx,
+                                X=X,
+                                y=y,
+                                nexisting=nexisting,
+                                best_gain=best_gain,
+                                factors_data=factors_data,
+                                factors_nbins=factors_nbins,
+                                factors_names=factors_names,
+                                classes_y=classes_y,
+                                classes_y_safe=classes_y_safe,
+                                freqs_y=freqs_y,
+                                use_gpu=use_gpu,
+                                freqs_y_safe=freqs_y_safe,
+                                partial_gains=partial_gains,
+                                baseline_npermutations=baseline_npermutations,
+                                mrmr_relevance_algo=mrmr_relevance_algo,
+                                mrmr_redundancy_algo=mrmr_redundancy_algo,
+                                max_veteranes_interactions_order=max_veteranes_interactions_order,
+                                expected_gains=expected_gains,
+                                selected_vars=selected_vars,
+                                cached_MIs=cached_MIs,
+                                cached_confident_MIs=cached_confident_MIs,
+                                cached_cond_MIs=cached_cond_MIs,
+                                entropy_cache=entropy_cache,
+                                verbose=verbose,
+                                ndigits=ndigits,
+                                use_simple_mode=use_simple_mode,
+                            )
 
-                        best_gain, best_candidate, run_out_of_time = handle_best_candidate(
-                            current_gain=current_gain,
-                            best_gain=best_gain,
-                            X=X,
-                            best_candidate=best_candidate,
-                            factors_names=factors_names,
-                            max_runtime_mins=max_runtime_mins,
-                            start_time=start_time,
-                            min_relevance_gain=min_relevance_gain,
-                            verbose=verbose,
-                            ndigits=ndigits,
-                        )
+                            best_gain, best_candidate, run_out_of_time = handle_best_candidate(
+                                current_gain=current_gain,
+                                best_gain=best_gain,
+                                X=X,
+                                best_candidate=best_candidate,
+                                factors_names=factors_names,
+                                max_runtime_mins=max_runtime_mins,
+                                start_time=start_time,
+                                min_relevance_gain=min_relevance_gain,
+                                verbose=verbose,
+                                ndigits=ndigits,
+                            )
 
-                        """
-                        if use_simple_mode:
-                            if best_gain > 0:
+                            """
+                            if use_simple_mode:
+                                if best_gain > 0:
+                                    break
+                            """
+
+                            if run_out_of_time:
+                                if verbose:
+                                    logging.info(f"Time limit exhausted. Finalizing the search...")
                                 break
-                        """
-
-                        if run_out_of_time:
-                            if verbose:
-                                logging.info(f"Time limit exhausted. Finalizing the search...")
-                            break
 
                 if verbose > 2 and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                     logger.info(f"evaluate_candidates took {timer() - eval_start:.1f} sec.")
@@ -3377,7 +3384,9 @@ def check_prospective_fe_pairs(
                         else:
                             transformed_vars[:, i] = tr_func(vals)
                     except Exception as e:
-                        logger.error(f"Error when performing {tr_name} on array {vals[:5]}, var={cols[var]}: {str(e)}")
+                        logger.error(
+                            f"Error when performing {tr_name} on array {vals[:5]}, var={cols[var]}: {str(e)}, isnan={np.isnan(vals).sum()}, isinf={np.isinf(vals).sum()}, nanmin={np.nanmin(vals)}"
+                        )
                     else:
                         vars_transformations[key] = i
                         i += 1
@@ -3430,6 +3439,7 @@ def check_prospective_fe_pairs(
 
                 start = timer()
                 try:
+                    # with np.errstate(invalid='ignore'):
                     final_transformed_vals[:, i] = bin_func(param_a, param_b)
                 except Exception as e:
                     logger.error(f"Error when performing {bin_func}")
@@ -3659,7 +3669,7 @@ def get_new_feature_name(fe_tuple: tuple, cols_names: Sequence) -> str:
     return f"{fe_tuple[1]}({get_existing_feature_name(fe_tuple=fe_tuple[0][0],cols_names=cols_names)},{get_existing_feature_name(fe_tuple=fe_tuple[0][1],cols_names=cols_names)})"  # (((2, 'log'), (3, 'sin')), 'mul', 1016)
 
 
-def njit_functions_dict(dict, exceptions: Sequence = ("grad1", "grad2", "sinc", "logn", "greater", "less", "equal")):
+def njit_functions_dict(dict, exceptions: Sequence = ("grad1", "grad2", "sinc", "log","logn", "greater", "less", "equal")):
     """Tries replacing funcs in the dict with their njitted equivqlents, caring for exceptions."""
     for key, func in dict.items():
         if key not in exceptions:
