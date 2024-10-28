@@ -2948,9 +2948,13 @@ class MRMR(BaseEstimator, TransformerMixin):
             numeric_vars_to_consider = set(numeric_vars_to_consider) - set(categorical_vars)
 
             all_pairs = list(combinations(numeric_vars_to_consider, 2))
+
+            if verbose:
+                logger.info(f"Feature Engineering: Computing MIs of {len(all_pairs):_} most prospective feature pairs...")
+
             if len(numeric_vars_to_consider) < 50:
                 compute_pairs_mis(
-                    all_pairs=tqdmu(all_pairs, desc="Feature Engineering: getting pairs MIs", leave=False, mininterval=5),
+                    all_pairs=tqdmu(all_pairs, desc="getting pairs MIs", leave=False, mininterval=5),
                     data=data,
                     target_indices=target_indices,
                     nbins=nbins,
