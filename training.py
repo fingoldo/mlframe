@@ -26,11 +26,14 @@ import copy
 import joblib
 import psutil
 import inspect
-from gc import collect
+
 from functools import partial
 from os.path import join, exists
 from types import SimpleNamespace
 from collections import defaultdict
+
+
+from pyutilz.system import clean_ram
 
 import matplotlib.pyplot as plt
 from IPython.display import display
@@ -395,7 +398,7 @@ def train_and_evaluate_model(
         outlier_detector=Pipeline([("enc",ColumnTransformer(transformers=[('enc', ce.CatBoostEncoder(),['secid'])],remainder='passthrough')),("imp", SimpleImputer()), ("est", IsolationForest(contamination=0.01,n_estimators=500,n_jobs=-1))])
     """
 
-    collect()
+    clean_ram()
     columns = []
     best_iter = None
 
@@ -456,6 +459,7 @@ def train_and_evaluate_model(
                     logger.info(f"Outlier rejection: received {len(val_df):_} val samples, kept {val_od_idx.sum():_}.")
                     val_idx = val_idx[val_od_idx]
                     val_df = df.loc[val_idx].drop(columns=real_drop_columns)
+                clean_ram()
 
     if model is not None and pre_pipeline:
         if use_cache and exists(model_file_name):
@@ -464,6 +468,7 @@ def train_and_evaluate_model(
             train_df = pre_pipeline.fit_transform(train_df, target.loc[train_idx])
         if val_idx is not None:
             val_df = pre_pipeline.transform(val_df)
+        clean_ram()
 
     if val_idx is not None:
         # insert eval_set where needed
@@ -481,6 +486,7 @@ def train_and_evaluate_model(
             ]
         elif model_type_name in PYTORCH_MODEL_TYPES:
             fit_params["eval_set"] = (val_df, target.loc[val_idx])
+        clean_ram()
 
     if model is not None and fit_params:
         if "cat_features" in fit_params:
@@ -512,7 +518,10 @@ def train_and_evaluate_model(
             if fit_params and type(model).__name__ == "Pipeline":
                 fit_params = prefix_dict_elems(fit_params, "est__")
 
+            clean_ram()
             model.fit(train_df, target.loc[train_idx], **fit_params)
+            clean_ram()
+
             if model is not None:
                 # get number of the best iteration
                 try:
@@ -586,7 +595,7 @@ def train_and_evaluate_model(
             if df is not None:
 
                 del train_df
-                collect()
+                clean_ram()
 
                 test_df = df.loc[test_idx].drop(columns=real_drop_columns)
                 if model is not None and pre_pipeline:
@@ -645,7 +654,9 @@ def train_and_evaluate_model(
 
                     fit_params_copy["plot"] = False
 
+                    clean_ram()
                     confidence_model.fit(test_df, test_probs[np.arange(test_probs.shape[0]), target.loc[test_idx]], **fit_params_copy)
+                    clean_ram()
 
                     if confidence_analysis_use_shap:
                         explainer = shap.TreeExplainer(confidence_model)
@@ -669,7 +680,7 @@ def train_and_evaluate_model(
                             figsize=(figsize[0] * 0.7, figsize[1] / 2),
                         )
 
-    collect()
+    clean_ram()
 
     return SimpleNamespace(
         model=model,

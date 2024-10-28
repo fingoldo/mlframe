@@ -512,7 +512,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 )
                 if verbose:
                     logger.info(
-                        f"baseline with nfeatures=0, scores={dummy_scores}, scores={scores_mean:.6f} ± {scores_std:.6f}, len(train_index)={len(train_index)}, len(test_index)={len(test_index)}"
+                        f"baseline with nfeatures=0, scores={scores_mean:.6f} ± {scores_std:.6f}, len(train_index)={len(train_index)}, len(test_index)={len(test_index)}"
                     )
                 if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
                     Optimizer.submit_evaluations(candidates=[0], evaluations=[scores_mean - scores_std], durations=[None])
@@ -525,7 +525,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
                 if verbose:
                     logger.info(
-                        f"trying nfeatures={len(current_features)}, scores={scores} , score={scores_mean:.6f} ± {scores_std:.6f}, len(train_index)={len(train_index)}, len(test_index)={len(test_index)}"
+                        f"trying nfeatures={len(current_features)}, score={scores_mean:.6f} ± {scores_std:.6f}, len(train_index)={len(train_index)}, len(test_index)={len(test_index)}"
                     )
 
             if len(evaluated_scores_mean) == 2:
