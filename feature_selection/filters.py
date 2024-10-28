@@ -1691,7 +1691,7 @@ def screen_predictors(
 
                     if use_simple_mode:
                         # need to sort all cands by perfs
-
+                        pass
                     if max_runtime_mins and not run_out_of_time:
                         run_out_of_time = (timer() - start_time) > max_runtime_mins * 60
                         if run_out_of_time:
@@ -1699,9 +1699,9 @@ def screen_predictors(
                             break
 
                 else:
-                    if use_simple_mode:
+                    if use_simple_mode and False:
                         # No need to check every can out of order: let's just return next best known candidate
-                        best_gain, best_candidate, run_out_of_time=1,1,False
+                        best_gain, best_candidate, run_out_of_time = 1, 1, False
                     else:
                         for cand_idx, X, nexisting in feasible_candidates:  # (candidates_pbar := tqdmu(, leave=False, desc="Candidates"))
 
@@ -3669,7 +3669,7 @@ def get_new_feature_name(fe_tuple: tuple, cols_names: Sequence) -> str:
     return f"{fe_tuple[1]}({get_existing_feature_name(fe_tuple=fe_tuple[0][0],cols_names=cols_names)},{get_existing_feature_name(fe_tuple=fe_tuple[0][1],cols_names=cols_names)})"  # (((2, 'log'), (3, 'sin')), 'mul', 1016)
 
 
-def njit_functions_dict(dict, exceptions: Sequence = ("grad1", "grad2", "sinc", "log","logn", "greater", "less", "equal")):
+def njit_functions_dict(dict, exceptions: Sequence = ("grad1", "grad2", "sinc", "log", "logn", "greater", "less", "equal")):
     """Tries replacing funcs in the dict with their njitted equivqlents, caring for exceptions."""
     for key, func in dict.items():
         if key not in exceptions:
