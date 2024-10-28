@@ -3251,7 +3251,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ---------------------------------------------------------------------------------------------------------------
 
         selected_vars_names = np.array(cols)[np.array(selected_vars)]
-        selected_vars = [self.feature_names_in_.index(col) for col in selected_vars_names]
+        selected_vars = [self.feature_names_in_.index(col) for col in selected_vars_names]  # !TODO! failing when fe_max_steps>1. need other source.
 
         # ---------------------------------------------------------------------------------------------------------------
         # additional_rfecv run

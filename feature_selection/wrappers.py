@@ -532,7 +532,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 # only 2 cases covered currently: 0 features & all features
                 if evaluated_scores_mean[0] - evaluated_scores_std[0] > scores_mean - scores_std:
                     logger.info(
-                        f"Stopping RFECV early: performance with no features {evaluated_scores_mean[0] - evaluated_scores_std[0]:.6f} is not worse than wit all features {scores_mean - scores_std:.6f}."
+                        f"Stopping RFECV early: performance with no features {evaluated_scores_mean[0] - evaluated_scores_std[0]:.6f} is not worse than with all features {scores_mean - scores_std:.6f}."
                     )
                     break
 

@@ -241,7 +241,7 @@ def get_training_configs(
     else:
         final_integral_calibration_error = integral_calibration_error
 
-    def fs_and_hpt_integral_calibration_error(*args, verbose: bool = False, **kwargs):
+    def fs_and_hpt_integral_calibration_error(*args, verbose: bool = True, **kwargs):
         err = compute_probabilistic_multiclass_error(
             *args,
             **kwargs,
