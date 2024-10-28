@@ -3371,12 +3371,16 @@ def check_prospective_fe_pairs(
             for tr_name, tr_func in unary_transformations.items():
                 key = (var, tr_name)
                 if key not in vars_transformations:
-                    if "poly_" in tr_name:
-                        transformed_vars[:, i] = hermval(vals, c=tr_func)
+                    try:
+                        if "poly_" in tr_name:
+                            transformed_vars[:, i] = hermval(vals, c=tr_func)
+                        else:
+                            transformed_vars[:, i] = tr_func(vals)
+                    except Exception as e:
+                        logger.error(f"Error when performing {tr_func}")
                     else:
-                        transformed_vars[:, i] = tr_func(vals)
-                    vars_transformations[key] = i
-                    i += 1
+                        vars_transformations[key] = i
+                        i += 1
 
     if verbose >= 2:
         logging.info(f"Created. For every pair from the pool, trying all known functions...")
@@ -3424,35 +3428,39 @@ def check_prospective_fe_pairs(
             for bin_func_name, bin_func in binary_transformations.items():
 
                 start = timer()
-                final_transformed_vals[:, i] = bin_func(param_a, param_b)
-                times_spent[bin_func_name] += timer() - start
+                try:
+                    final_transformed_vals[:, i] = bin_func(param_a, param_b)
+                except Exception as e:
+                    logger.error(f"Error when performing {bin_func}")
+                else:
+                    times_spent[bin_func_name] += timer() - start
 
-                discretized_transformed_values = discretize_array(
-                    arr=final_transformed_vals[:, i], n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
-                )
-                fe_mi, fe_conf = mi_direct(
-                    discretized_transformed_values.reshape(-1, 1),
-                    x=[0],
-                    y=None,
-                    factors_nbins=[quantization_nbins],
-                    classes_y=classes_y,
-                    classes_y_safe=classes_y_safe,
-                    freqs_y=freqs_y,
-                    min_nonzero_confidence=fe_min_nonzero_confidence,
-                    npermutations=fe_npermutations,
-                )
+                    discretized_transformed_values = discretize_array(
+                        arr=final_transformed_vals[:, i], n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
+                    )
+                    fe_mi, fe_conf = mi_direct(
+                        discretized_transformed_values.reshape(-1, 1),
+                        x=[0],
+                        y=None,
+                        factors_nbins=[quantization_nbins],
+                        classes_y=classes_y,
+                        classes_y_safe=classes_y_safe,
+                        freqs_y=freqs_y,
+                        min_nonzero_confidence=fe_min_nonzero_confidence,
+                        npermutations=fe_npermutations,
+                    )
 
-                config = (transformations_pair, bin_func_name, i)
-                var_pairs_perf[config] = fe_mi
+                    config = (transformations_pair, bin_func_name, i)
+                    var_pairs_perf[config] = fe_mi
 
-                if fe_mi > best_mi:
-                    best_mi = fe_mi
-                    best_config = config
-                if fe_mi > best_mi * 0.85:
-                    if not fe_print_best_mis_only or (fe_mi == best_mi):
-                        if verbose > 2:
-                            print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
-                i += 1
+                    if fe_mi > best_mi:
+                        best_mi = fe_mi
+                        best_config = config
+                    if fe_mi > best_mi * 0.85:
+                        if not fe_print_best_mis_only or (fe_mi == best_mi):
+                            if verbose > 2:
+                                print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
+                    i += 1
 
         if verbose > 2:
             print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")
