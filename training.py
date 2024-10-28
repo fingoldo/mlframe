@@ -1111,7 +1111,7 @@ def configure_training_params(
 
     cb_rfecv = RFECV(
         estimator=CatBoostRegressor(**configs.CB_REGR) if use_regression else CatBoostClassifier(**configs.CB_CALIB_CLASSIF),
-        fit_params=dict(plot=False),
+        fit_params=dict(plot=True),
         cat_features=cat_features,
         scoring=(
             make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
