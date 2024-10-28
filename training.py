@@ -1066,7 +1066,7 @@ def configure_training_params(
 
     data_fits_gpu_ram = True
     from pyutilz.pandaslib import get_df_memory_consumption
-    from pyutilz.system import get_gpu_util_stats
+    from pyutilz.system import compute_total_gpus_ram, get_gpuinfo_gpu_info
 
     configs = gpu_configs if (prefer_gpu_configs and data_fits_gpu_ram) else cpu_configs
 
