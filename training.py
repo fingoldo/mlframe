@@ -182,7 +182,7 @@ def get_training_configs(
     )
 
     CB_CLASSIF = CB_GENERAL_PARAMS.copy()
-    CB_CLASSIF.update({"eval_metric": def_classif_metric, "custom_metric": catboost_custom_classif_metrics, "metric_period": 10**6})
+    CB_CLASSIF.update({"eval_metric": def_classif_metric, "custom_metric": catboost_custom_classif_metrics})
 
     CB_REGR = CB_GENERAL_PARAMS.copy()
     CB_REGR.update({"eval_metric": def_regr_metric, "custom_metric": catboost_custom_regr_metrics})
