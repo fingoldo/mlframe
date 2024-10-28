@@ -3377,7 +3377,7 @@ def check_prospective_fe_pairs(
                         else:
                             transformed_vars[:, i] = tr_func(vals)
                     except Exception as e:
-                        logger.error(f"Error when performing {tr_func} on array {vals[:5]}")
+                        logger.error(f"Error when performing {tr_name} on array {vals[:5]}, var={var}")
                     else:
                         vars_transformations[key] = i
                         i += 1
@@ -3671,7 +3671,7 @@ def njit_functions_dict(dict, exceptions: Sequence = ("grad1", "grad2", "sinc", 
 
 @njit()
 def smart_log(x: np.ndarray) -> np.ndarray:
-    x_min = np.min(x)
+    x_min = np.nanmin(x)
     if x_min > 0:
         return np.log(x)
     else:
