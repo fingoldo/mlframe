@@ -1074,9 +1074,6 @@ def evaluate_candidates(
     for key, value in cached_cond_MIs_dict.items():
         cached_cond_MIs[key] = value
 
-    if verbose:
-        logger.info(f"Batch finished.")
-
     return best_gain, best_candidate, partial_gains, expected_gains, cached_MIs, cached_cond_MIs, entropy_cache
 
 
@@ -2635,7 +2632,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         full_npermutations: int = 1_000,
         baseline_npermutations: int = 100,
         # stopping conditions
-        min_relevance_gain: float = 0.00001,
+        min_relevance_gain: float = 0.0001,
         max_consec_unconfirmed: int = 10,
         max_runtime_mins: float = None,
         interactions_min_order: int = 1,
@@ -2646,6 +2643,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # feature engineering settings
         fe_max_steps=1,
         fe_npermutations=0,
+        fe_ntop_features=0,
         fe_unary_preset="minimal",
         fe_binary_preset="minimal",
         fe_max_pair_features: int = 1,
@@ -2942,7 +2940,12 @@ class MRMR(BaseEstimator, TransformerMixin):
             if verbose >= 2:
                 logger.info(f"Computing prospective FE pairs...")
 
-            numeric_vars_to_consider = set(selected_vars) - set(categorical_vars)
+            if self.fe_ntop_features:
+                numeric_vars_to_consider = selected_vars[: self.fe_ntop_features]
+            else:
+                numeric_vars_to_consider = selected_vars
+
+            numeric_vars_to_consider = set(numeric_vars_to_consider) - set(categorical_vars)
 
             all_pairs = list(combinations(numeric_vars_to_consider, 2))
             if len(numeric_vars_to_consider) < 50:
@@ -3303,7 +3306,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ---------------------------------------------------------------------------------------------------------------
 
         if verbose:
-            predictors_str = ", ".join([f"{el['name']}: {el['gain']:.4f}" for el in predictors])
+            predictors_str = ", ".join([f"{el['name']}: {el['gain']:.4f}" for el in predictors[:50]])
             predictors_str = textwrap.shorten(predictors_str, width=300)
             logger.info(f"MRMR+ selected {self.n_features_:_} out of {self.n_features_in_:_} features: {predictors_str}")
 

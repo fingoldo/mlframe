@@ -484,7 +484,9 @@ def train_and_evaluate_model(
 
     if model is not None and fit_params:
         if "cat_features" in fit_params:
-            fit_params["cat_features"] = [col for col in fit_params["cat_features"] if col in train_df.columns]
+            fit_params["cat_features"] = [
+                col for col in fit_params["cat_features"] if col in train_df.head(5).select_dtypes(["category", "object"]).columns.tolist()
+            ]
 
     if model is not None:
         if (not use_cache) or (not exists(model_file_name)):
@@ -1036,7 +1038,7 @@ def configure_training_params(
     max_noimproving_iters: int = 15,
     verbose: bool = True,
     prefer_cpu_for_lightgbm: bool = True,
-    xgboost_verbose:Union[int,bool]=False,
+    xgboost_verbose: Union[int, bool] = False,
     **config_kwargs,
 ):
 
@@ -1062,7 +1064,11 @@ def configure_training_params(
     cpu_configs = get_training_configs(has_time=has_time, has_gpu=False, nbins=nbins, val_set_size=len(val_idx), subgroups=indexed_subgroups, **config_kwargs)
     gpu_configs = get_training_configs(has_time=has_time, has_gpu=None, nbins=nbins, val_set_size=len(val_idx), subgroups=indexed_subgroups, **config_kwargs)
 
-    configs = gpu_configs if prefer_gpu_configs else cpu_configs
+    data_fits_gpu_ram = True
+    from pyutilz.pandaslib import get_df_memory_consumption
+    from pyutilz.system import get_gpu_util_stats
+
+    configs = gpu_configs if (prefer_gpu_configs and data_fits_gpu_ram) else cpu_configs
 
     common_params = dict(
         nbins=nbins,
@@ -1084,7 +1090,8 @@ def configure_training_params(
     )  # TransformedTargetRegressor(CatBoostRegressor(**configs.CB_REGR),transformer=PowerTransformer())
 
     common_xgb_params = dict(
-        model=XGBRegressor(**configs.XGB_GENERAL_PARAMS) if use_regression else XGBClassifier(**configs.XGB_CALIB_CLASSIF), fit_params=dict(verbose=xgboost_verbose)
+        model=XGBRegressor(**configs.XGB_GENERAL_PARAMS) if use_regression else XGBClassifier(**configs.XGB_CALIB_CLASSIF),
+        fit_params=dict(verbose=xgboost_verbose),
     )
 
     if prefer_cpu_for_lightgbm:
