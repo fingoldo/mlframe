@@ -3666,7 +3666,13 @@ def njit_functions_dict(dict, exceptions: Sequence = ("grad1", "grad2", "sinc", 
                 dict[key] = njit(func)
             except Exception as e:
                 pass
-
+@njit()
+def smart_log(x:np.ndarray)->np.ndarray:
+    x_min=np.min(x)
+    ifx_min >0:
+        return np.log(x)
+    else:
+        return np.log(x+1e-5-x_min)
 
 def create_unary_transformations(preset: str = "minimal"):
     unary_constraints = {
@@ -3709,11 +3715,11 @@ def create_unary_transformations(preset: str = "minimal"):
                 "invsquared": lambda x: np.power(x, -2),
                 "invqubed": lambda x: np.power(x, -3),
                 "cbrt": np.cbrt,
-                "sqrt": np.sqrt,
+                "sqrt": lambda x: np.sqrt(np.abs(x)),
                 "invcbrt": lambda x: np.power(x, -1 / 3),
                 "invsqrt": lambda x: np.power(x, -1 / 2),
                 # logarithms
-                "log": np.log,
+                "log": smart_log,
                 "exp": np.exp,
                 # trigonometric
                 "sin": np.sin,
