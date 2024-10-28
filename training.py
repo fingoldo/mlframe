@@ -241,7 +241,7 @@ def get_training_configs(
     else:
         final_integral_calibration_error = integral_calibration_error
 
-    def fs_and_hpt_integral_calibration_error(*args, verbose: bool = True, **kwargs):
+    def fs_and_hpt_integral_calibration_error(*args, verbose: bool = False, **kwargs):
         err = compute_probabilistic_multiclass_error(
             *args,
             **kwargs,
@@ -1111,7 +1111,7 @@ def configure_training_params(
 
     cb_rfecv = RFECV(
         estimator=CatBoostRegressor(**configs.CB_REGR) if use_regression else CatBoostClassifier(**configs.CB_CALIB_CLASSIF),
-        fit_params=dict(plot=True),
+        fit_params=dict(plot=False),
         cat_features=cat_features,
         scoring=(
             make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
