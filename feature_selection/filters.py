@@ -3666,13 +3666,16 @@ def njit_functions_dict(dict, exceptions: Sequence = ("grad1", "grad2", "sinc", 
                 dict[key] = njit(func)
             except Exception as e:
                 pass
+
+
 @njit()
-def smart_log(x:np.ndarray)->np.ndarray:
-    x_min=np.min(x)
-    ifx_min >0:
+def smart_log(x: np.ndarray) -> np.ndarray:
+    x_min = np.min(x)
+    if x_min > 0:
         return np.log(x)
     else:
-        return np.log(x+1e-5-x_min)
+        return np.log(x + 1e-5 - x_min)
+
 
 def create_unary_transformations(preset: str = "minimal"):
     unary_constraints = {
