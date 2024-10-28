@@ -3444,6 +3444,10 @@ def check_prospective_fe_pairs(
                 except Exception as e:
                     logger.error(f"Error when performing {bin_func}")
                 else:
+                    # if np.isnan(final_transformed_vals[:, i]).sum()>0:
+                    #    final_transformed_vals[:, i] =pd.Series(final_transformed_vals[:, i] ).ffill().bfill().values
+                    np.nan_to_num(final_transformed_vals[:, i], copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+
                     times_spent[bin_func_name] += timer() - start
 
                     discretized_transformed_values = discretize_array(
