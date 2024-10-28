@@ -182,7 +182,7 @@ def get_training_configs(
     )
 
     CB_CLASSIF = CB_GENERAL_PARAMS.copy()
-    CB_CLASSIF.update({"eval_metric": def_classif_metric, "custom_metric": catboost_custom_classif_metrics})
+    CB_CLASSIF.update({"eval_metric": def_classif_metric, "custom_metric": catboost_custom_classif_metrics, "metric_period": 10**6})
 
     CB_REGR = CB_GENERAL_PARAMS.copy()
     CB_REGR.update({"eval_metric": def_regr_metric, "custom_metric": catboost_custom_regr_metrics})
@@ -268,7 +268,7 @@ def get_training_configs(
         return metric_name, value, higher_is_better
 
     CB_CALIB_CLASSIF = CB_CLASSIF.copy()
-    CB_CALIB_CLASSIF.update({"eval_metric": CB_EVAL_METRIC(metric=final_integral_calibration_error, higher_is_better=False, max_arr_size=val_set_size)})
+    CB_CALIB_CLASSIF.update({"eval_metric": CB_EVAL_METRIC(metric=final_integral_calibration_error, higher_is_better=False, max_arr_size=0)})
 
     LGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
