@@ -3669,7 +3669,6 @@ def njit_functions_dict(dict, exceptions: Sequence = ("grad1", "grad2", "sinc", 
                 pass
 
 
-@njit()
 def smart_log(x: np.ndarray) -> np.ndarray:
     x_min = np.float32(np.nanmin(x))
     if x_min > 0:
