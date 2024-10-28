@@ -3377,7 +3377,7 @@ def check_prospective_fe_pairs(
                         else:
                             transformed_vars[:, i] = tr_func(vals)
                     except Exception as e:
-                        logger.error(f"Error when performing {tr_name} on array {vals[:5]}, var={cols[var]}")
+                        logger.error(f"Error when performing {tr_name} on array {vals[:5]}, var={cols[var]}: {str(e)}")
                     else:
                         vars_transformations[key] = i
                         i += 1
