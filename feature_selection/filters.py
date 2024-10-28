@@ -3377,7 +3377,7 @@ def check_prospective_fe_pairs(
                         else:
                             transformed_vars[:, i] = tr_func(vals)
                     except Exception as e:
-                        logger.error(f"Error when performing {tr_func}")
+                        logger.error(f"Error when performing {tr_func} on array {vals[:5]}")
                     else:
                         vars_transformations[key] = i
                         i += 1
@@ -3421,7 +3421,8 @@ def check_prospective_fe_pairs(
 
         i = 0
         for transformations_pair in combs:
-
+            if (transformations_pair[0] not in vars_transformations) or (transformations_pair[1] not in vars_transformations):
+                continue
             param_a = transformed_vars[:, vars_transformations[transformations_pair[0]]]
             param_b = transformed_vars[:, vars_transformations[transformations_pair[1]]]
 
