@@ -696,7 +696,6 @@ def train_and_evaluate_model(
                 columns = test_df.columns
             else:
                 columns = []
-                report_title = ""
                 test_df = None
 
             test_preds, test_probs = report_model_perf(
@@ -709,7 +708,7 @@ def train_and_evaluate_model(
                 preds=test_preds,
                 probs=test_probs,
                 figsize=figsize,
-                report_title=report_title,
+                report_title="",
                 nbins=nbins,
                 print_report=print_report,
                 show_perf_chart=show_perf_chart,
