@@ -3273,7 +3273,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 if len(y) / len(np.unique(y)) > 100:  # classification
 
                     cb_num_rfecv = RFECV(
-                        estimator=CatBoostClassifier(**configs.CB_GENERAL_CLASSIF),
+                        estimator=CatBoostClassifier(**configs.CB_CLASSIF),
                         fit_params=dict(plot=False),
                         cat_features=categorical_vars_names,
                         scoring=make_scorer(

@@ -31,10 +31,10 @@ def prepare_df_for_catboost(
     Catboost needs NAs in cat features replaced by a string value.
     Possibly extends cat_features list.
     ensure_categorical:bool=True makes further processing also suitable for xgboost.
-    """    
+    """
 
     if columns_to_drop:
-        df.drop(columns=columns_to_drop,inplace=True)
+        df.drop(columns=columns_to_drop, inplace=True)
 
     cols = set(df.columns)
 
@@ -56,13 +56,16 @@ def prepare_df_for_catboost(
                 if df[var].isna().any():
                     df[var] = df[var].fillna(na_filler)
                 if ensure_categorical:
-                    df[var] = df[var].astype("category")
+                    try:
+                        df[var] = df[var].astype("category")
+                    except Exception as e:
+                        logger.warning(f"Could not convert column {var} to categorical.")
 
 
 def prepare_df_for_xgboost(
     df: object,
     cat_features: Sequence = [],
-    ensure_categorical:bool=True,
+    ensure_categorical: bool = True,
 ) -> None:
     """
     Xgboost needs categorical be of category dtype.
@@ -79,7 +82,7 @@ def prepare_df_for_xgboost(
                 df[var] = df[var].astype("category")
 
 
-def pack_val_set_into_fit_params(model: object, X_val: pd.DataFrame, y_val: pd.DataFrame,early_stopping_rounds:int,cat_features:list=None) -> dict:
+def pack_val_set_into_fit_params(model: object, X_val: pd.DataFrame, y_val: pd.DataFrame, early_stopping_rounds: int, cat_features: list = None) -> dict:
     """Crafts fir params with early stopping tailored to particular model type."""
 
     model_type_name = type(model).__name__

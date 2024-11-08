@@ -799,7 +799,7 @@ def compute_entropy_features(arr: np.ndarray, sampling_frequency: int = 100, spe
     if nonzero < 10:
         return (0.0,) * len(entropy_funcs)
     else:
-        safe_arr = arr[~np.isnan(arr)]
+        safe_arr = np.nan_to_num(arr[~np.isnan(arr)], posinf=0, neginf=0)
         return tuple(np.nan_to_num([f(safe_arr) for f in entropy_funcs], posinf=0, neginf=0))
 
 

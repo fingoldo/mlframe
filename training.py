@@ -344,10 +344,11 @@ def get_training_configs(
 
 
 def train_and_evaluate_model(
-    model: object,
+    model: object,  # s
     df: pd.DataFrame,
-    target: pd.Series,
+    target: pd.Series,  # s
     outlier_detector: object = None,
+    od_val_set: bool = True,
     sample_weight: pd.Series = None,
     model_name: str = "",
     pre_pipeline: TransformerMixin = None,
@@ -355,6 +356,12 @@ def train_and_evaluate_model(
     drop_columns: list = [],
     default_drop_columns: list = [],
     target_label_encoder: Optional[LabelEncoder] = None,
+    train_df: pd.DataFrame = None,
+    test_df: pd.DataFrame = None,
+    val_df: pd.DataFrame = None,
+    train_target: pd.Series = None,
+    test_target: pd.Series = None,
+    val_target: pd.Series = None,
     train_idx: Optional[np.ndarray] = None,
     test_idx: Optional[np.ndarray] = None,
     val_idx: Optional[np.ndarray] = None,
@@ -378,11 +385,12 @@ def train_and_evaluate_model(
     compute_testset_metrics: bool = True,
     data_dir: str = DATA_DIR,
     models_subdir: str = MODELS_SUBDIR,
-    include_confidence_analysis: bool = False,
     display_sample_size: int = 0,
     show_feature_names: bool = False,
     verbose: bool = False,
+    use_hpt: bool = False,
     # confidence_analysis
+    include_confidence_analysis: bool = False,
     confidence_analysis_use_shap: bool = True,
     confidence_analysis_max_features: int = 6,
     confidence_analysis_cmap: str = "bwr",
@@ -433,10 +441,16 @@ def train_and_evaluate_model(
 
     train_od_idx, val_od_idx = None, None
 
+    if train_target is None:
+        train_target = target.loc[train_idx]
+    if val_target is None and val_idx is not None:
+        val_target = target.loc[val_idx]
+
     if df is not None:
 
-        train_df = df.loc[train_idx].drop(columns=real_drop_columns)
-        if val_idx is not None:
+        if train_df is None:
+            train_df = df.loc[train_idx].drop(columns=real_drop_columns)
+        if val_df is None and val_idx is not None:
             val_df = df.loc[val_idx].drop(columns=real_drop_columns)
 
         # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -444,49 +458,55 @@ def train_and_evaluate_model(
         # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
         if outlier_detector is not None:
-            outlier_detector.fit(train_df, target.loc[train_idx])
+            outlier_detector.fit(train_df, train_target)
             # train
             is_inlier = outlier_detector.predict(train_df)
             train_od_idx = is_inlier == 1
             if train_od_idx.sum() < len(train_df):
                 logger.info(f"Outlier rejection: received {len(train_df):_} train samples, kept {train_od_idx.sum():_}.")
-                train_idx = train_idx[train_od_idx]
-                train_df = df.loc[train_idx].drop(columns=real_drop_columns)
+                if train_idx is not None:
+                    train_idx = train_idx[train_od_idx]
+                    train_df = df.loc[train_idx].drop(columns=real_drop_columns)
+                else:
+                    train_df = train_df.loc[train_od_idx, :]
             # val
-            if val_idx is not None:
+            if val_df is not None and od_val_set:
                 is_inlier = outlier_detector.predict(val_df)
                 val_od_idx = is_inlier == 1
                 if val_od_idx.sum() < len(val_df):
                     logger.info(f"Outlier rejection: received {len(val_df):_} val samples, kept {val_od_idx.sum():_}.")
-                    val_idx = val_idx[val_od_idx]
-                    val_df = df.loc[val_idx].drop(columns=real_drop_columns)
+                    if val_idx is not None:
+                        val_idx = val_idx[val_od_idx]
+                        val_df = df.loc[val_idx].drop(columns=real_drop_columns)
+                    else:
+                        val_df = val_df.loc[val_od_idx, :]
                 clean_ram()
 
     if model is not None and pre_pipeline:
         if use_cache and exists(model_file_name):
-            train_df = pre_pipeline.transform(train_df, target.loc[train_idx])
+            train_df = pre_pipeline.transform(train_df, train_target)
         else:
-            train_df = pre_pipeline.fit_transform(train_df, target.loc[train_idx])
+            train_df = pre_pipeline.fit_transform(train_df, train_target)
         if val_idx is not None:
             val_df = pre_pipeline.transform(val_df)
         clean_ram()
 
-    if val_idx is not None:
+    if val_df is not None:
         # insert eval_set where needed
 
         if model_type_name in LGBM_MODEL_TYPES:
-            fit_params["eval_set"] = (val_df, target.loc[val_idx])
+            fit_params["eval_set"] = (val_df, val_target)
             # fit_params["callbacks"] = [lgb.early_stopping(stopping_rounds=early_stopping_rounds)]
         elif model_type_name in CATBOOST_MODEL_TYPES or model_type_name in XGBOOST_MODEL_TYPES:
             fit_params["eval_set"] = [
-                (val_df, target.loc[val_idx]),
+                (val_df, val_target),
             ]
         elif model_type_name in TABNET_MODEL_TYPES:
             fit_params["eval_set"] = [
-                (val_df.values, target.loc[val_idx].values),
+                (val_df.values, val_target.values),
             ]
         elif model_type_name in PYTORCH_MODEL_TYPES:
-            fit_params["eval_set"] = (val_df, target.loc[val_idx])
+            fit_params["eval_set"] = (val_df, val_target)
         clean_ram()
 
     if model is not None and fit_params:
@@ -499,7 +519,10 @@ def train_and_evaluate_model(
         if (not use_cache) or (not exists(model_file_name)):
             if sample_weight is not None:
                 if "sample_weight" in get_function_param_names(model_obj.fit):
-                    fit_params["sample_weight"] = sample_weight.loc[train_idx].values
+                    if train_idx is not None:
+                        fit_params["sample_weight"] = sample_weight.loc[train_idx].values
+                    else:
+                        fit_params["sample_weight"] = sample_weight.values
             if verbose:
                 logger.info(f"{model_name} training dataset shape: {train_df.shape}")
             if display_sample_size:
@@ -519,8 +542,72 @@ def train_and_evaluate_model(
             if fit_params and type(model).__name__ == "Pipeline":
                 fit_params = prefix_dict_elems(fit_params, "est__")
 
+            if use_hpt:
+
+                import optuna
+
+                def objective(trial):
+
+                    param = {
+                        "objective": trial.suggest_categorical("objective", ["Logloss", "CrossEntropy"]),
+                        "colsample_bylevel": trial.suggest_float("colsample_bylevel", 0.01, 0.1),
+                        "depth": trial.suggest_int("depth", 1, 12),
+                        "boosting_type": trial.suggest_categorical("boosting_type", ["Ordered", "Plain"]),
+                        "bootstrap_type": trial.suggest_categorical("bootstrap_type", ["Bayesian", "Bernoulli", "MVS"]),
+                    }
+
+                    if param["bootstrap_type"] == "Bayesian":
+                        param["bagging_temperature"] = trial.suggest_float("bagging_temperature", 0, 10)
+                    elif param["bootstrap_type"] == "Bernoulli":
+                        param["subsample"] = trial.suggest_float("subsample", 0.1, 1)
+
+                    tune_model = model.copy()
+                    tune_model.set_params(**param)
+
+                    clean_ram()
+                    tune_model.fit(train_df, train_target, **fit_params)
+                    clean_ram()
+
+                    temp_metrics = {}
+                    columns = val_df.columns
+                    tune_val_preds, tune_val_probs = report_model_perf(
+                        targets=val_target,
+                        columns=columns,
+                        df=val_df.values if model_type_name in TABNET_MODEL_TYPES else val_df,
+                        model_name="VAL " + model_name,
+                        model=tune_model,
+                        target_label_encoder=target_label_encoder,
+                        preds=val_preds,
+                        probs=val_probs,
+                        figsize=figsize,
+                        report_title="",
+                        nbins=nbins,
+                        print_report=False,
+                        show_perf_chart=False,
+                        show_fi=False,
+                        subgroups=subgroups,
+                        subset_index=val_idx,
+                        custom_ice_metric=custom_ice_metric,
+                        custom_rice_metric=custom_rice_metric,
+                        metrics=temp_metrics,
+                    )
+                    return temp_metrics[1]["class_robust_integral_error"]
+
+                study = optuna.create_study(direction="minimize")
+                study.optimize(objective, n_trials=100, timeout=60 * 60)
+
+                print("Number of finished trials: {}".format(len(study.trials)))
+
+                print("Best trial:")
+                trial = study.best_trial
+
+                print("  Value: {}".format(trial.value))
+
+                print("  Params: ", trial.params)
+                model.set_params(**trial.params)
+
             clean_ram()
-            model.fit(train_df, target.loc[train_idx], **fit_params)
+            model.fit(train_df, train_target, **fit_params)
             clean_ram()
 
             if model is not None:
@@ -534,15 +621,15 @@ def train_and_evaluate_model(
 
     metrics = {"train": {}, "val": {}, "test": {}, "best_iter": best_iter}
     if compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics:
-        if compute_trainset_metrics and train_idx is not None:
-            if df is None:
+        if compute_trainset_metrics and (train_idx is not None or train_df is not None):
+            if df is None and train_df is None:
                 train_df = None
                 columns = []
             else:
                 columns = train_df.columns
 
             train_preds, train_probs = report_model_perf(
-                targets=target.loc[train_idx],
+                targets=train_target,
                 columns=columns,
                 df=train_df.values if model_type_name in TABNET_MODEL_TYPES else train_df,
                 model_name="TRAIN " + model_name,
@@ -563,15 +650,15 @@ def train_and_evaluate_model(
                 metrics=metrics["train"],
             )
 
-        if compute_valset_metrics and val_idx is not None and len(val_idx) > 0:
-            if df is None:
+        if compute_valset_metrics and ((val_df is not None and len(val_df) > 0) or val_df is not None):
+            if df is None and val_df is None:
                 val_df = None
                 columns = []
             else:
                 columns = val_df.columns
 
             val_preds, val_probs = report_model_perf(
-                targets=target.loc[val_idx],
+                targets=val_target,
                 columns=columns,
                 df=val_df.values if model_type_name in TABNET_MODEL_TYPES else val_df,
                 model_name="VAL " + model_name,
@@ -592,13 +679,17 @@ def train_and_evaluate_model(
                 metrics=metrics["val"],
             )
 
-        if compute_testset_metrics and test_idx is not None and len(test_idx) > 0:
-            if df is not None:
+        if compute_testset_metrics and ((test_idx is not None and len(test_idx) > 0) or test_df is not None):
+            if (df is not None) or (test_df is not None):
 
                 del train_df
                 clean_ram()
 
-                test_df = df.loc[test_idx].drop(columns=real_drop_columns)
+                if test_df is None:
+                    test_df = df.loc[test_idx].drop(columns=real_drop_columns)
+                if test_target is None:
+                    test_target = target.loc[test_idx]
+
                 if model is not None and pre_pipeline:
                     test_df = pre_pipeline.transform(test_df)
                 if model_type_name in TABNET_MODEL_TYPES:
@@ -610,7 +701,7 @@ def train_and_evaluate_model(
                 test_df = None
 
             test_preds, test_probs = report_model_perf(
-                targets=target.loc[test_idx],
+                targets=test_target,
                 columns=columns,
                 df=test_df,
                 model_name="TEST " + model_name,
@@ -656,7 +747,7 @@ def train_and_evaluate_model(
                     fit_params_copy["plot"] = False
 
                     clean_ram()
-                    confidence_model.fit(test_df, test_probs[np.arange(test_probs.shape[0]), target.loc[test_idx]], **fit_params_copy)
+                    confidence_model.fit(test_df, test_probs[np.arange(test_probs.shape[0]), test_target], **fit_params_copy)
                     clean_ram()
 
                     if confidence_analysis_use_shap:
@@ -904,7 +995,7 @@ def report_probabilistic_model_perf(
             title += "-" + str_class_name
 
         class_integral_error = custom_ice_metric(y_true=y_true, y_score=y_score)
-        title += "\n" + f" ICE={class_integral_error:.4f}"
+        title += f" [{len(columns):_}F]" + "\n" + f" ICE={class_integral_error:.4f}"
         if custom_rice_metric and custom_rice_metric != custom_ice_metric:
             class_robust_integral_error = custom_rice_metric(y_true=y_true, y_score=y_score)
             title += f", RICE={class_robust_integral_error:.4f}"
@@ -1051,13 +1142,18 @@ def configure_training_params(
     verbose: bool = True,
     prefer_cpu_for_lightgbm: bool = True,
     xgboost_verbose: Union[int, bool] = False,
+    cb_fit_params: dict = {},
+    prefer_calibrated_classifiers: bool = True,
     **config_kwargs,
 ):
 
     cat_features = df.head().select_dtypes(("category", "object")).columns.tolist()
 
     if cat_features:
-        prepare_df_for_catboost(df=df, cat_features=cat_features)
+        prepare_df_for_catboost(
+            df=df,
+            cat_features=cat_features,
+        )
 
     ensure_dataframe_float32_convertability(df)
 
@@ -1066,12 +1162,21 @@ def configure_training_params(
     else:
         subgroups = None
 
-    if use_robust_eval_metric:
+    if use_robust_eval_metric and subgroups is not None:
         indexed_subgroups = create_robustness_subgroups_indices(
             subgroups=subgroups, train_idx=train_idx, val_idx=val_idx, test_idx=test_idx, group_weights={}, cont_nbins=cont_nbins
         )
     else:
         indexed_subgroups = None
+
+    if not use_regression:
+        if "catboost_custom_classif_metrics" not in config_kwargs:
+            nlabels = len(np.unique(target))
+            if nlabels > 2:
+                catboost_custom_classif_metrics = ["AUC", "PRAUC"]
+            else:
+                catboost_custom_classif_metrics = ["AUC", "PRAUC", "BrierScore"]
+            config_kwargs["catboost_custom_classif_metrics"] = catboost_custom_classif_metrics
 
     cpu_configs = get_training_configs(has_time=has_time, has_gpu=False, nbins=nbins, val_set_size=len(val_idx), subgroups=indexed_subgroups, **config_kwargs)
     gpu_configs = get_training_configs(has_time=has_time, has_gpu=None, nbins=nbins, val_set_size=len(val_idx), subgroups=indexed_subgroups, **config_kwargs)
@@ -1097,24 +1202,32 @@ def configure_training_params(
     )
 
     common_cb_params = dict(
-        model=CatBoostRegressor(**configs.CB_REGR) if use_regression else CatBoostClassifier(**configs.CB_CALIB_CLASSIF),
-        fit_params=dict(plot=verbose, cat_features=cat_features),
+        model=(
+            CatBoostRegressor(**configs.CB_REGR)
+            if use_regression
+            else CatBoostClassifier(**(configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.CB_CLASSIF))
+        ),
+        fit_params=dict(plot=verbose, cat_features=cat_features, **cb_fit_params),
     )  # TransformedTargetRegressor(CatBoostRegressor(**configs.CB_REGR),transformer=PowerTransformer())
 
     common_xgb_params = dict(
-        model=XGBRegressor(**configs.XGB_GENERAL_PARAMS) if use_regression else XGBClassifier(**configs.XGB_CALIB_CLASSIF),
+        model=(
+            XGBRegressor(**configs.XGB_GENERAL_PARAMS)
+            if use_regression
+            else XGBClassifier(**(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF))
+        ),
         fit_params=dict(verbose=xgboost_verbose),
     )
 
     if prefer_cpu_for_lightgbm:
         common_lgb_params = dict(
             model=LGBMRegressor(**cpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**cpu_configs.LGB_GENERAL_PARAMS),
-            fit_params=dict(eval_metric=cpu_configs.lgbm_integral_calibration_error),
+            fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}),
         )
     else:
         common_lgb_params = dict(
             model=LGBMRegressor(**gpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
-            fit_params=dict(eval_metric=configs.lgbm_integral_calibration_error),
+            fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}),
         )
 
     params = configs.COMMON_RFECV_PARAMS.copy()
@@ -1122,7 +1235,11 @@ def configure_training_params(
     params["max_noimproving_iters"] = max_noimproving_iters
 
     cb_rfecv = RFECV(
-        estimator=CatBoostRegressor(**configs.CB_REGR) if use_regression else CatBoostClassifier(**configs.CB_CALIB_CLASSIF),
+        estimator=(
+            CatBoostRegressor(**configs.CB_REGR)
+            if use_regression
+            else CatBoostClassifier(**(configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.CB_CLASSIF))
+        ),
         fit_params=dict(plot=False),
         cat_features=cat_features,
         scoring=(
@@ -1136,7 +1253,7 @@ def configure_training_params(
     if prefer_cpu_for_lightgbm:
         lgb_rfecv = RFECV(
             estimator=LGBMRegressor(**cpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**cpu_configs.LGB_GENERAL_PARAMS),
-            fit_params=dict(eval_metric=cpu_configs.lgbm_integral_calibration_error),
+            fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}),
             cat_features=cat_features,
             scoring=(
                 make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
@@ -1148,7 +1265,7 @@ def configure_training_params(
     else:
         lgb_rfecv = RFECV(
             estimator=LGBMRegressor(**configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
-            fit_params=dict(eval_metric=configs.lgbm_integral_calibration_error),
+            fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}),
             cat_features=cat_features,
             scoring=(
                 make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
@@ -1159,7 +1276,11 @@ def configure_training_params(
         )
 
     xgb_rfecv = RFECV(
-        estimator=XGBRegressor(**configs.XGB_GENERAL_PARAMS) if use_regression else XGBClassifier(**configs.XGB_CALIB_CLASSIF),
+        estimator=(
+            XGBRegressor(**configs.XGB_GENERAL_PARAMS)
+            if use_regression
+            else XGBClassifier(**(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF))
+        ),
         fit_params=dict(verbose=False),
         cat_features=cat_features,
         scoring=(
