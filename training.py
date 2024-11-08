@@ -125,7 +125,6 @@ def get_training_configs(
     has_time: bool = True,
     has_gpu: bool = None,
     subgroups: dict = None,
-    val_set_size: int = None,
     learning_rate: float = 0.1,
     def_regr_metric: str = "MAE",
     def_classif_metric: str = "AUC",
@@ -1123,11 +1122,17 @@ def get_sample_weights_by_recency(date_series: pd.Series, min_weight: float = 1.
 
 
 def configure_training_params(
-    df: pd.DataFrame,
-    target: pd.Series,
-    train_idx: np.ndarray,
-    val_idx: np.ndarray,
-    test_idx: np.ndarray,
+    df: pd.DataFrame = None,
+    train_df: pd.DataFrame = None,
+    test_df: pd.DataFrame = None,
+    val_df: pd.DataFrame = None,
+    target: pd.Series = None,
+    train_target: pd.Series = None,
+    test_target: pd.Series = None,
+    val_target: pd.Series = None,
+    train_idx: np.ndarray = None,
+    val_idx: np.ndarray = None,
+    test_idx: np.ndarray = None,
     robustness_features: Sequence = [],
     target_label_encoder: object = None,
     sample_weight: np.ndarray = None,
@@ -1146,19 +1151,26 @@ def configure_training_params(
     prefer_calibrated_classifiers: bool = True,
     **config_kwargs,
 ):
-
-    cat_features = df.head().select_dtypes(("category", "object")).columns.tolist()
+    for next_df in (df, train_df):
+        if next_df is not None:
+            cat_features = next_df.head().select_dtypes(("category", "object")).columns.tolist()
+            break
 
     if cat_features:
-        prepare_df_for_catboost(
-            df=df,
-            cat_features=cat_features,
-        )
+        for next_df in (df, train_df, val_df, test_df):
+            if next_df is not None:
+                prepare_df_for_catboost(
+                    df=next_df,
+                    cat_features=cat_features,
+                )
 
-    ensure_dataframe_float32_convertability(df)
+    # ensure_dataframe_float32_convertability(df)
 
     if robustness_features:
-        subgroups = create_robustness_subgroups(df, features=robustness_features, cont_nbins=cont_nbins)
+        for next_df in (df, train_df):
+            if next_df is not None:
+                subgroups = create_robustness_subgroups(next_df, features=robustness_features, cont_nbins=cont_nbins)
+                break
     else:
         subgroups = None
 
@@ -1178,8 +1190,8 @@ def configure_training_params(
                 catboost_custom_classif_metrics = ["AUC", "PRAUC", "BrierScore"]
             config_kwargs["catboost_custom_classif_metrics"] = catboost_custom_classif_metrics
 
-    cpu_configs = get_training_configs(has_time=has_time, has_gpu=False, nbins=nbins, val_set_size=len(val_idx), subgroups=indexed_subgroups, **config_kwargs)
-    gpu_configs = get_training_configs(has_time=has_time, has_gpu=None, nbins=nbins, val_set_size=len(val_idx), subgroups=indexed_subgroups, **config_kwargs)
+    cpu_configs = get_training_configs(has_time=has_time, has_gpu=False, nbins=nbins, subgroups=indexed_subgroups, **config_kwargs)
+    gpu_configs = get_training_configs(has_time=has_time, has_gpu=None, nbins=nbins, subgroups=indexed_subgroups, **config_kwargs)
 
     data_fits_gpu_ram = True
     from pyutilz.pandaslib import get_df_memory_consumption
@@ -1192,7 +1204,13 @@ def configure_training_params(
         subgroups=subgroups,
         sample_weight=sample_weight,
         df=df,
+        train_df=train_df,
+        test_df=test_df,
+        val_df=val_df,
         target=target,
+        train_target=train_target,
+        test_target=test_target,
+        val_target=val_target,
         train_idx=train_idx,
         test_idx=test_idx,
         val_idx=val_idx,
