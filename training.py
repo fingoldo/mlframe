@@ -477,8 +477,10 @@ def train_and_evaluate_model(
                     if val_idx is not None:
                         val_idx = val_idx[val_od_idx]
                         val_df = df.loc[val_idx].drop(columns=real_drop_columns)
+                        val_target = target.loc[val_idx]
                     else:
                         val_df = val_df.loc[val_od_idx, :]
+                        val_target = val_target.loc[val_idx]
                 clean_ram()
 
     if model is not None and pre_pipeline:
@@ -486,7 +488,7 @@ def train_and_evaluate_model(
             train_df = pre_pipeline.transform(train_df, train_target)
         else:
             train_df = pre_pipeline.fit_transform(train_df, train_target)
-        if val_idx is not None:
+        if val_df is not None:
             val_df = pre_pipeline.transform(val_df)
         clean_ram()
 
