@@ -32,7 +32,6 @@ from os.path import join, exists
 from types import SimpleNamespace
 from collections import defaultdict
 
-
 from pyutilz.system import clean_ram
 
 import matplotlib.pyplot as plt
@@ -651,7 +650,7 @@ def train_and_evaluate_model(
                 metrics=metrics["train"],
             )
 
-        if compute_valset_metrics and ((val_df is not None and len(val_df) > 0) or val_df is not None):
+        if compute_valset_metrics and ((val_idx is not None and len(val_idx) > 0) or val_df is not None):
             if df is None and val_df is None:
                 val_df = None
                 columns = []
@@ -893,15 +892,23 @@ def report_regression_model_perf(
         targets = targets.values
 
     if show_fi:
-        plot_model_feature_importances(model=model, columns=columns, model_name=model_name, figsize=(15, 10))
+        plot_model_feature_importances(model=model, columns=columns, model_name=(model_name + f" [{len(columns):_}F]").strip(), figsize=(15, 10))
+
+    current_metrics = dict(
+        mean_absolute_error=mean_absolute_error(y_true=targets, y_pred=preds),
+        max_error=max_error(y_true=targets, y_pred=preds),
+        mean_absolute_percentage_error=mean_absolute_percentage_error(y_true=targets, y_pred=preds),
+        root_mean_squared_error=root_mean_squared_error(y_true=targets, y_pred=preds),
+    )
+    if metrics is not None:
+        metrics.update(current_metrics)
 
     if print_report:
-
         print(report_title)
-        print(f"mean_absolute_error: {mean_absolute_error(y_true=targets,y_pred=preds):.{report_ndigits}f}")
-        print(f"max_error: {max_error(y_true=targets,y_pred=preds):.{report_ndigits}f}")
-        print(f"mean_absolute_percentage_error: {mean_absolute_percentage_error(y_true=targets,y_pred=preds):.{report_ndigits}f}")
-        print(f"root_mean_squared_error: {root_mean_squared_error(y_true=targets,y_pred=preds):.{report_ndigits}f}")
+        print(f"mean_absolute_error: {current_metrics['mean_absolute_error']:.{report_ndigits}f}")
+        print(f"max_error: {current_metrics['max_error']:.{report_ndigits}f}")
+        print(f"mean_absolute_percentage_error: {current_metrics['mean_absolute_percentage_error']:.{report_ndigits}f}")
+        print(f"root_mean_squared_error: {current_metrics['root_mean_squared_error']:.{report_ndigits}f}")
 
     if subgroups:
         robustness_report = compute_robustness_metrics(
@@ -1041,7 +1048,7 @@ def report_probabilistic_model_perf(
             metrics.update({class_id: class_metrics})
 
     if show_fi:
-        plot_model_feature_importances(model=model, columns=columns, model_name=model_name, figsize=(15, 10))
+        plot_model_feature_importances(model=model, columns=columns, model_name=(model_name + f" [{len(columns):_}F]").strip(), figsize=(15, 10))
 
     if print_report:
 
