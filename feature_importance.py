@@ -19,9 +19,21 @@ from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildca
 import pandas as pd, numpy as np
 from matplotlib import pyplot as plt
 
+import shap
+
 # *****************************************************************************************************************************************************
 # Feature importances
 # *****************************************************************************************************************************************************
+
+
+def show_shap_beeswarm_plot(model: object, df: pd.DataFrame, **kwargs):
+
+    shap.initjs()
+
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer(df)
+
+    shap.plots.beeswarm(shap_values, **kwargs)
 
 
 def plot_feature_importance(
