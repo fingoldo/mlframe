@@ -343,8 +343,8 @@ def get_training_configs(
 
 def train_and_evaluate_model(
     model: object,  # s
-    df: pd.DataFrame,
-    target: pd.Series,  # s
+    df: pd.DataFrame = None,
+    target: pd.Series = None,  # s
     outlier_detector: object = None,
     od_val_set: bool = True,
     sample_weight: pd.Series = None,
@@ -419,7 +419,10 @@ def train_and_evaluate_model(
         logger.info(f"Loading model from file {model_file_name}")
         model, *_, pre_pipeline = joblib.load(model_file_name)
 
-    real_drop_columns = [col for col in drop_columns + default_drop_columns if col in df.columns]
+    if df is not None:
+        real_drop_columns = [col for col in drop_columns + default_drop_columns if col in df.columns]
+    elif train_df is not None:
+        real_drop_columns = [col for col in drop_columns + default_drop_columns if col in train_df.columns]
 
     if type(model).__name__ == "Pipeline":
         model_obj = model.named_steps["est"]  # model.steps[-1]
@@ -444,7 +447,7 @@ def train_and_evaluate_model(
     if val_target is None and val_idx is not None:
         val_target = target.loc[val_idx]
 
-    if df is not None:
+    if df is not None or train_df is None:
 
         if train_df is None:
             train_df = df.loc[train_idx].drop(columns=real_drop_columns)
@@ -525,11 +528,12 @@ def train_and_evaluate_model(
                         fit_params["sample_weight"] = sample_weight.values
             if verbose:
                 logger.info(f"{model_name} training dataset shape: {train_df.shape}")
+
             if display_sample_size:
                 display(train_df.head(display_sample_size).style.set_caption(f"{model_name} features head"))
                 display(train_df.tail(display_sample_size).style.set_caption(f"{model_name} features tail"))
 
-            if df is not None:
+            if train_df is not None:
 
                 report_title = f"Training {model_name} model on {train_df.shape[1]} feature(s)"  # textwrap.shorten("Hello world", width=10, placeholder="...")
                 if show_feature_names:
