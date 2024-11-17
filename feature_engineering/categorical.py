@@ -60,7 +60,7 @@ def compute_countaggs(
         'cause otherwise it's simply a duplication of num_aggs over regular series)
     """
     value_counts = arr.value_counts(normalize=counts_normalize)
-    value_counts=value_counts[value_counts > 0]
+    value_counts = value_counts[value_counts > 0]
     values = value_counts.index.values
     counts = value_counts.values
 
@@ -100,7 +100,7 @@ def get_countaggs_names(
     counts_top_n: int = 1,  # return that many highest/lowest value counts
     counts_return_top_counts: bool = True,  # return top counts
     counts_return_top_values: bool = True,  # return top values
-    counts_compute_values_numaggs: bool = True,  # if all values are in fact numerical, compute numaggs for them rather than their counts (ordered only, in order of their counts)
+    counts_compute_values_numaggs: bool = False,  # if all values are in fact numerical, compute numaggs for them rather than their counts (ordered only, in order of their counts)
     numerical_kwargs: dict = dict(return_unsorted_stats=False),
 ) -> list:
 
