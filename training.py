@@ -1251,7 +1251,10 @@ def plot_model_feature_importances(
     if hasattr(model, "feature_importances_"):
         feature_importances = model.feature_importances_
     elif hasattr(model, "coef_"):
-        feature_importances = model.coef_[-1, :]
+        if model.coef_.ndim == 1:
+            feature_importances = model.coef_
+        else:
+            feature_importances = model.coef_[-1, :]
     else:
         feature_importances = None
 
