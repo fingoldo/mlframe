@@ -65,6 +65,7 @@ from mlframe.ensembling import ensemble_probabilistic_predictions, score_ensembl
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 from mlframe.feature_engineering.basic import create_date_features
+from mlframe.feature_engineering.timeseries import create_aggregated_features
 from mlframe.feature_engineering.numerical import (
     compute_simple_stats_numba,
     get_simple_stats_names,
@@ -86,7 +87,7 @@ from sklearn.base import ClassifierMixin, RegressorMixin, TransformerMixin, is_c
 # Plotting
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-
+import seaborn as sns
 import plotly.express as px
 import plotly.graph_objects as go
 
@@ -121,7 +122,7 @@ from numba.cuda import is_available as is_cuda_available
 import psutil
 
 import joblib
-from joblib import delayed
+from joblib import delayed, Parallel
 from pyutilz.parallel import distribute_work, parallel_run
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -163,7 +164,8 @@ import category_encoders as ce
 # Splitters
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit, train_test_split
+from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit
+from sklearn.model_selection import train_test_split
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Pipelines
@@ -195,6 +197,7 @@ from mlframe.preprocessing import prepare_df_for_catboost
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import shap
+from mlframe.feature_importance import show_shap_beeswarm_plot
 from mlframe.feature_importance import plot_feature_importance
 
 
