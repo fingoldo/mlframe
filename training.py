@@ -52,6 +52,8 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import PowerTransformer
 from sklearn.pipeline import Pipeline, make_pipeline
 from sklearn.compose import TransformedTargetRegressor
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler
 from sklearn.base import ClassifierMixin, RegressorMixin, TransformerMixin, is_classifier
 from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit
 from sklearn.metrics import classification_report, roc_auc_score, average_precision_score
@@ -192,7 +194,7 @@ def get_training_configs(
         n_estimators=iterations,
         enable_categorical=True,
         max_cat_to_onehot=1,
-        max_cat_threshold=1000,
+        max_cat_threshold=100,  # affects model size heavily when high cardinality cat features r present!
         tree_method="hist",
         device=("cuda" if has_gpu else "cpu"),
         n_jobs=psutil.cpu_count(logical=False),
