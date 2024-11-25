@@ -23,7 +23,6 @@ import joblib
 from joblib import delayed
 import pandas as pd, numpy as np
 from pyutilz.parallel import parallel_run
-from mlframe.training import train_and_evaluate_model
 from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names, compute_numerical_aggregates_numba, get_basic_feature_names
 
 basic_features_names = get_basic_feature_names(
@@ -242,6 +241,8 @@ def score_ensemble(
     **kwargs,
 ):
     """Compares different ensembling methods for a list of models."""
+
+    from mlframe.training import train_and_evaluate_model
 
     res = {}
     level_models_and_predictions = models_and_predictions
