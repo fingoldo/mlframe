@@ -47,7 +47,6 @@ while True:
 
         from mlframe.arrays import arrayMinMax
         from mlframe.utils import set_random_seed
-        from mlframe.training import get_training_configs
         from mlframe.feature_selection.wrappers import RFECV
         from mlframe.metrics import compute_probabilistic_multiclass_error
 
@@ -3266,7 +3265,10 @@ class MRMR(BaseEstimator, TransformerMixin):
                         f"Running RFECV for {self.run_additional_rfecv_minutes} minute(s) over {n_unexplored:_} feature(s) discarded by MRMR to extract interactions..."
                     )
 
+                from mlframe.training import get_training_configs
+
                 configs = get_training_configs(has_time=True)
+
                 params = configs.COMMON_RFECV_PARAMS.copy()
                 params["max_runtime_mins"] = self.run_additional_rfecv_minutes
 
