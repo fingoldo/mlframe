@@ -19,23 +19,114 @@ from .config import *
 
 # from pyutilz.pythonlib import ensure_installed;ensure_installed("pandas numpy numba scikit-learn lightgbm catboost xgboost shap")
 
-import numba
-from numba.cuda import is_available as is_cuda_available
-
 import copy
-import joblib
-import psutil
 import inspect
 
 from functools import partial
-from os.path import join, exists
 from types import SimpleNamespace
 from collections import defaultdict
 
-from pyutilz.system import clean_ram
+from timeit import default_timer as timer
+from pyutilz.pythonlib import prefix_dict_elems
+from pyutilz.system import ensure_dir_exists, tqdmu
+
+from mlframe.helpers import get_model_best_iter
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Filesystem
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+import glob
+from os.path import basename
+from os.path import join, exists
+from pyutilz.strings import slugify
+from pyutilz.system import ensure_dir_exists
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Dimreducers
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+import umap
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# OD
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from sklearn.ensemble import IsolationForest
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Ensembling
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from mlframe.ensembling import ensemble_probabilistic_predictions, score_ensemble, compare_ensembles
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# FE
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from mlframe.feature_engineering.basic import create_date_features
+from mlframe.feature_engineering.numerical import (
+    compute_simple_stats_numba,
+    get_simple_stats_names,
+    compute_numaggs,
+    get_numaggs_names,
+    compute_numaggs_parallel,
+)
+
+from mlframe.feature_engineering.categorical import compute_countaggs, get_countaggs_names
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Base classes
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from abc import ABC
+from sklearn.base import ClassifierMixin, RegressorMixin, TransformerMixin, is_classifier
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Plotting
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+import plotly.express as px
+import plotly.graph_objects as go
 
 import matplotlib.pyplot as plt
 from IPython.display import display
+
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# IPython
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from IPython.display import display
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Pandas
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+import pandas as pd, numpy as np, polars as pl
+from pyutilz.pandaslib import get_df_memory_consumption, showcase_df_columns
+from pyutilz.pandaslib import ensure_dataframe_float32_convertability, optimize_dtypes, remove_constant_columns
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Hi perf & parallel
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from pyutilz.system import clean_ram
+
+import numba
+from numba import njit, prange
+from numba.cuda import is_available as is_cuda_available
+
+import psutil
+
+import joblib
+from joblib import delayed
+from pyutilz.parallel import distribute_work, parallel_run
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Curated models
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import lightgbm as lgb
 from lightgbm import LGBMClassifier, LGBMRegressor
@@ -43,19 +134,80 @@ from catboost import CatBoostRegressor, CatBoostClassifier
 from xgboost import XGBClassifier, XGBRegressor, DMatrix, QuantileDMatrix
 
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.dummy import DummyClassifier
+from sklearn.dummy import DummyClassifier, DummyRegressor
 
-import shap
-import pandas as pd, numpy as np
-from sklearn.metrics import make_scorer
-from sklearn.preprocessing import LabelEncoder
-from sklearn.preprocessing import PowerTransformer
+from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPRegressor, MLPClassifier
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.neighbors import KNeighborsRegressor, KNeighborsClassifier
+from sklearn.linear_model import LinearRegression, RANSACRegressor, HuberRegressor
+
+from sklearn.ensemble import HistGradientBoostingRegressor, GradientBoostingRegressor, RandomForestRegressor, ExtraTreesRegressor
+from sklearn.ensemble import HistGradientBoostingClassifier, GradientBoostingClassifier, RandomForestClassifier, ExtraTreesClassifier
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# FS
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from mlframe.feature_selection.wrappers import RFECV, VotesAggregation, OptimumSearch
+from mlframe.feature_selection.filters import MRMR
+from optbinning import BinningProcess
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Cats
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+import category_encoders as ce
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Splitters
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit, train_test_split
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Pipelines
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
 from sklearn.pipeline import Pipeline, make_pipeline
+
+from sklearn.compose import ColumnTransformer
+
+
+from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import FunctionTransformer
 from sklearn.compose import TransformedTargetRegressor
+
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Pre- & postprocessing
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
-from sklearn.base import ClassifierMixin, RegressorMixin, TransformerMixin, is_classifier
-from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit
+from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import PowerTransformer
+from sklearn.compose import TransformedTargetRegressor
+from mlframe.preprocessing import prepare_df_for_catboost
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# FIs
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+import shap
+from mlframe.feature_importance import plot_feature_importance
+
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Metrics
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from sklearn.metrics import make_scorer
+from sklearn.metrics import roc_auc_score
+from mlframe.metrics import create_robustness_subgroups
+from mlframe.metrics import fast_roc_auc, fast_calibration_report, compute_probabilistic_multiclass_error, CB_EVAL_METRIC
+from mlframe.metrics import create_robustness_subgroups, create_robustness_subgroups_indices, compute_robustness_metrics, robust_mlperf_metric
+
 from sklearn.metrics import classification_report, roc_auc_score, average_precision_score
 from sklearn.metrics import mean_absolute_error, max_error, mean_absolute_percentage_error, mean_squared_error
 
@@ -76,17 +228,6 @@ except Exception as e:
 
         return np.average(output_errors, weights=multioutput)
 
-
-from pyutilz.pythonlib import prefix_dict_elems
-from pyutilz.system import ensure_dir_exists, tqdmu
-from pyutilz.pandaslib import ensure_dataframe_float32_convertability, optimize_dtypes, remove_constant_columns
-
-from mlframe.helpers import get_model_best_iter
-from mlframe.preprocessing import prepare_df_for_catboost
-from mlframe.feature_importance import plot_feature_importance
-from mlframe.feature_selection.wrappers import RFECV, VotesAggregation, OptimumSearch
-from mlframe.metrics import fast_roc_auc, fast_calibration_report, compute_probabilistic_multiclass_error, CB_EVAL_METRIC
-from mlframe.metrics import create_robustness_subgroups, create_robustness_subgroups_indices, compute_robustness_metrics, robust_mlperf_metric
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Helpers
