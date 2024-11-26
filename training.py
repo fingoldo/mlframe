@@ -592,8 +592,10 @@ def train_and_evaluate_model(
         train_target = target.loc[train_idx]
     if val_target is None and val_idx is not None:
         val_target = target.loc[val_idx]
+    if test_target is None and test_idx is not None:
+        test_target = target.loc[test_idx]
 
-    if df is not None or train_df is None:
+    if (df is not None) or (train_df is not None):
 
         if train_df is None:
             train_df = df.loc[train_idx].drop(columns=real_drop_columns)
