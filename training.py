@@ -616,8 +616,11 @@ def train_and_evaluate_model(
                 if train_idx is not None:
                     train_idx = train_idx[train_od_idx]
                     train_df = df.loc[train_idx].drop(columns=real_drop_columns)
+                    train_target = target.loc[train_idx]
                 else:
                     train_df = train_df.loc[train_od_idx, :]
+                    train_target = train_target.loc[train_od_idx]
+
             # val
             if val_df is not None and od_val_set:
                 is_inlier = outlier_detector.predict(val_df)
@@ -630,7 +633,7 @@ def train_and_evaluate_model(
                         val_target = target.loc[val_idx]
                     else:
                         val_df = val_df.loc[val_od_idx, :]
-                        val_target = val_target.loc[val_idx]
+                        val_target = val_target.loc[val_od_idx]
                 clean_ram()
 
     if model is not None and pre_pipeline:
