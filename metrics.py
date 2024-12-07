@@ -201,6 +201,7 @@ def show_calibration_plot(
             fig.savefig(plot_file)
 
         if show_plots:
+            plt.ion()
             plt.show()
         else:
             plt.close(fig)

@@ -65,6 +65,7 @@ def plot_feature_importance(
         if plot_file:
             fig.savefig(plot_file)
         if show_plots:
+            plt.ion()
             plt.show()
         else:
             plt.close(fig)
