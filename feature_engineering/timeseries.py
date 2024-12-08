@@ -338,7 +338,10 @@ def create_aggregated_features(
 
                     # 5) exponentially weighted raw_vals with some alphas, like [0.6, 0.9]:
                     for alpha in ewma_alphas:
-                        row_features.extend(compute_numaggs(ewma(raw_vals, alpha), **numaggs_kwds))
+                        if len(raw_vals) > 0:
+                            row_features.extend(compute_numaggs(ewma(raw_vals, alpha), **numaggs_kwds))
+                        else:
+                            row_features.extend([0.0] * len(numaggs_names))
                         if create_features_names:
                             features_names.extend((captions_vars_sep.join((dataset_name, var, "ewma", str(alpha), feat)) for feat in numaggs_names))
 
