@@ -138,12 +138,12 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     for predicted_prob in y_pred:
         if predicted_prob > max_val:
             max_val = predicted_prob
-        elif predicted_prob < min_val:
+        if predicted_prob < min_val:
             min_val = predicted_prob
     span = max_val - min_val
 
     if span > 0:
-        multiplier = nbins / span
+        multiplier = (nbins - 1) / span
         for true_class, predicted_prob in zip(y_true, y_pred):
             ind = floor((predicted_prob - min_val) * multiplier)
             pockets_predicted[ind] += 1
@@ -268,7 +268,6 @@ def calibration_metrics_from_freqs(
         if use_weights:
             weights = hits / array_size
             calibration_mae = np.sum(diffs * weights)
-            # print(np.sum(diffs),hits,array_size,weights,calibration_mae,weights.sum())
             calibration_std = np.sqrt(np.sum(((diffs - calibration_mae) ** 2) * weights))
         else:
             calibration_mae = np.mean(diffs)
