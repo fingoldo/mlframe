@@ -234,8 +234,10 @@ def create_aggregated_features(
             # is this categorical?
             if window_df[var].dtype.name in (
                 "category",
+                "object",
             ):  # we do not list "object", "str" to exclude pure textual columns. They can be added explicilty though.
                 if process_categoricals or (counts_processing_mask_regexp and counts_processing_mask_regexp.search(var)):
+
                     row_features.extend(compute_countaggs(window_df[var], **countaggs_kwds))
                     if create_features_names:
                         features_names.extend((captions_vars_sep.join((dataset_name, var, "vlscnt", feat)) for feat in countaggs_names))
