@@ -546,7 +546,7 @@ def train_and_evaluate_model(
     """Trains & evaluates given model/pipeline on train/test sets.
     Supports feature selection via pre_pipeline.
     Supports early stopping via val_idx.
-    Optionally fumps resulting model & test set predictions into the models dir, and loads back by model name on the next call, to save time.
+    Optionally dumps resulting model & test set predictions into the models dir, and loads back by model name on the next call, to save time.
     Example of real OD:
         outlier_detector=Pipeline([("enc",ColumnTransformer(transformers=[('enc', ce.CatBoostEncoder(),['secid'])],remainder='passthrough')),("imp", SimpleImputer()), ("est", IsolationForest(contamination=0.01,n_estimators=500,n_jobs=-1))])
     """
