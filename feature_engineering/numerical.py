@@ -325,7 +325,7 @@ def compute_numerical_aggregates_numba(
 
     if return_exotic_means:
         quadratic_mean = np.sqrt(quadratic_mean / size)
-        qubic_mean = np.nan_to_num((qubic_mean / size) ** (1 / 3), posinf=0.0, neginf=0.0)
+        qubic_mean = (qubic_mean / size) ** (1 / 3)
         if npositive:
             if not geomean_log_mode:
                 geometric_mean = geometric_mean ** (1 / size)

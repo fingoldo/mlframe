@@ -106,5 +106,7 @@ def check_for_infinity(df: pd.DataFrame) -> bool:
     tmp = np.isinf(df).any()
     tmp = tmp[tmp == True]
     if len(tmp) > 0:
-        logger.warning(f"Some factors ({len(tmp):_}) contain infinity: {', '.join(tmp.index.values.tolist())}")
+        for col in tmp.index:
+            df[col] = np.nan_to_num(df[col], posinf=0.0, neginf=0.0)
+        logger.warning(f"Some factors ({len(tmp):_}) contained infinity: {', '.join(tmp.index.values.tolist())}")
         return True
