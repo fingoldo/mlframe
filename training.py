@@ -30,7 +30,7 @@ from timeit import default_timer as timer
 from pyutilz.pythonlib import prefix_dict_elems
 from pyutilz.system import ensure_dir_exists, tqdmu
 
-from mlframe.helpers import get_model_best_iter
+from mlframe.helpers import get_model_best_iter, check_for_infinity
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Filesystem
@@ -554,6 +554,12 @@ def train_and_evaluate_model(
     clean_ram()
     columns = []
     best_iter = None
+
+    if df is not None:
+        check_for_infinity(df)
+    else:
+        if train_df is not None:
+            check_for_infinity(train_df)
 
     if not custom_ice_metric:
         custom_ice_metric = compute_probabilistic_multiclass_error

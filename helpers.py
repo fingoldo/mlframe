@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
 from .config import *
+
+import pandas as pd, numpy as np
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.pipeline import Pipeline
 
@@ -98,3 +100,11 @@ def get_model_best_iter(model: object) -> int:
     for field in "best_iteration best_iteration_".split():
         if hasattr(real_model, field):
             return getattr(real_model, field)
+
+
+def check_for_infinity(df: pd.DataFrame) -> bool:
+    tmp = np.isinf(df).any()
+    tmp = tmp[tmp == True]
+    if len(tmp) > 0:
+        logger.warning(f"Some factors ({len(tmp):_}) contain infinity: {', '.join(tmp.index.values.tolist())}")
+        return True
