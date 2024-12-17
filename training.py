@@ -121,6 +121,7 @@ from numba.cuda import is_available as is_cuda_available
 
 import psutil
 
+import dill
 import joblib
 from joblib import delayed, Parallel
 from pyutilz.parallel import distribute_work, parallel_run
