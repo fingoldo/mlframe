@@ -567,6 +567,7 @@ def compute_nunique_modes_quantiles_numpy(
     return res
 
 
+@njit()
 def compute_ncrossings(arr: np.ndarray, marks: np.ndarray, dtype=np.int32) -> np.ndarray:
     n_crossings = np.zeros(len(marks), dtype=dtype)
     prev_ds = np.full(len(marks), dtype=np.float32, fill_value=np.nan)
