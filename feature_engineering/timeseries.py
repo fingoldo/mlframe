@@ -22,7 +22,7 @@ from typing import *
 
 import psutil
 from numba import njit
-from mlframe.ewma import ewma
+from mlframe.ewma import ewma_numba
 
 from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names
 from mlframe.feature_engineering.categorical import compute_countaggs, get_countaggs_names
@@ -341,7 +341,7 @@ def create_aggregated_features(
                     # 5) exponentially weighted raw_vals with some alphas, like [0.6, 0.9]:
                     for alpha in ewma_alphas:
                         if len(raw_vals) > 0:
-                            row_features.extend(compute_numaggs(ewma(raw_vals, alpha), **numaggs_kwds))
+                            row_features.extend(compute_numaggs(ewma_numba(raw_vals, alpha), **numaggs_kwds))
                         else:
                             row_features.extend([0.0] * len(numaggs_names))
                         if create_features_names:
