@@ -91,11 +91,11 @@ def ewma_numba(x: np.ndarray, alpha: float) -> np.ndarray:
 
     # Create an initial weight matrix of (1-alpha), and a matrix of powers
     # to raise the weights by
-    w0 = (np.ones(shape=(n, n)) * (1 - alpha)).astype(np.float32)
+    w0 = np.ones(shape=(n, n)) * (1 - alpha)
     p = compute_p(n)
 
     # Create the weight matrix
-    w = np.tril(w0**p, 0)
+    w = np.tril(w0**p, 0).astype(x.dtype)
 
     # Calculate the ewma
-    return np.dot(w, x[:: np.newaxis]) / w.sum(axis=1)
+    return np.dot(w, np.ascontiguousarray(x[:: np.newaxis])) / w.sum(axis=1)
