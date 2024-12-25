@@ -484,6 +484,49 @@ def get_training_configs(
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Outliers detection
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+def get_trainset_features_stats(train_df: pd.DataFrame, max_ncats_to_track: int = 1000) -> dict:
+    """Computes ranges of numerical and categorical variables"""
+    res = {}
+    num_cols = train_df.head().select_dtypes("number").columns.tolist()
+    if num_cols:
+        res["min"] = train_df.min(axis=0)
+        res["max"] = train_df.max(axis=0)
+
+    cat_cols = train_df.head().select_dtypes("category").columns.tolist()
+    if cat_cols:
+        cat_vals = {}
+        for col in tqdmu(cat_cols, desc="cat vars stats", leave=False):
+            unique_vals = train_df[col].unique()
+            if not max_ncats_to_track or (len(unique_vals) <= max_ncats_to_track):
+                cat_vals[col] = unique_vals
+        res["cat_vals"] = cat_vals
+    return res
+
+
+def compute_outlier_detector_score(df: pd.DataFrame, outlier_detector: object, columns: Sequence = None) -> np.ndarray:
+    is_inlier = outlier_detector.predict(
+        df.loc[:, columns]
+    )  # For each observation, model is expected to tell whether or not (+1 or -1) it should be considered as an inlier
+    return (is_inlier == -1).astype(int)  # converts 1 to 0 and -1 to 1, as we need to transform inliers to outliers
+
+
+def compute_naive_outlier_score(df: pd.DataFrame, trainset_features_stats: dict, columns: Sequence = None) -> np.ndarray:
+    """Checks deviation from trainset_features_stats (% of features out of range, per observation/row)."""
+    scores = np.zeros(len(df), dtype=np.float64)
+    if "min" in trainset_features_stats:
+        if columns is None:
+            columns = df.columns
+        tmp = df.loc[:, columns]
+        scores += (tmp < trainset_features_stats["min"].loc[columns]).sum(axis=1).values / len(columns)
+        scores += (tmp > trainset_features_stats["max"].loc[columns]).sum(axis=1).values / len(columns)
+    return scores
+
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Core
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -494,6 +537,7 @@ def train_and_evaluate_model(
     target: pd.Series = None,  # s
     outlier_detector: object = None,
     od_val_set: bool = True,
+    trainset_features_stats: dict = None,
     sample_weight: pd.Series = None,
     model_name: str = "",
     pre_pipeline: TransformerMixin = None,
@@ -609,11 +653,18 @@ def train_and_evaluate_model(
         if val_df is None and val_idx is not None:
             val_df = df.loc[val_idx].drop(columns=real_drop_columns)
 
+        if not trainset_features_stats:
+            if verbose:
+                logger.info("Computing trainset_features_stats...")
+            trainset_features_stats = get_trainset_features_stats(train_df)
+
         # -----------------------------------------------------------------------------------------------------------------------------------------------------
         # Place to inject Outlier Detector [OD] here!
         # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
         if outlier_detector is not None:
+            if verbose:
+                logger.info("Fitting outlier detector...")
             outlier_detector.fit(train_df, train_target)
             # train
             is_inlier = outlier_detector.predict(train_df)
@@ -769,6 +820,8 @@ def train_and_evaluate_model(
                 model.set_params(**trial.params)
 
             clean_ram()
+            if verbose:
+                logger.info("Training the model...")
             model.fit(train_df, train_target, **fit_params)
             clean_ram()
 
@@ -783,6 +836,8 @@ def train_and_evaluate_model(
 
     metrics = {"train": {}, "val": {}, "test": {}, "best_iter": best_iter}
     if compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics:
+        if verbose:
+            logger.info("Computing model's performance...")
         if compute_trainset_metrics and (train_idx is not None or train_df is not None):
             if df is None and train_df is None:
                 train_df = None
@@ -891,6 +946,8 @@ def train_and_evaluate_model(
 
                 # for (any, even multiclass) classification, targets are probs of ground truth classes
                 if test_df is not None:
+                    if verbose:
+                        logger.info("Runnig confidence analysis on teh test set...")
                     confidence_model = CatBoostRegressor(
                         verbose=0, eval_fraction=0.1, task_type=("GPU" if CUDA_IS_AVAILABLE else "CPU"), **confidence_model_kwargs
                     )
@@ -949,6 +1006,7 @@ def train_and_evaluate_model(
         outlier_detector=outlier_detector,
         train_od_idx=train_od_idx,
         val_od_idx=val_od_idx,
+        trainset_features_stats=trainset_features_stats,
     )
 
 
