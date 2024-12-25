@@ -166,9 +166,16 @@ def create_aggregated_features(
     nonlinear_transforms=[np.cbrt],
     nonnormal_vars: Sequence = (),
     waveletnames="",  # "rbio3.1",
+    wavelets_correction_numaggs_kwds=dict(
+        return_hurst=False,
+        return_entropy=False,
+        return_drawdown_stats=False,
+        return_lintrend_approx_stats=False,
+    ),
     numaggs_kwds: dict = {},
     splitting_vars: dict = {},
-    drawdown_vars: dict = {},
+    drawdown_vars: Sequence = (),
+    lintrend_approx_vars: Sequence = (),
     groupby_vars: dict = {},  # {'ticker':['Volume']}=deals.groupby("ticker").Volume.agg("sum").values / deals.Volume.sum()
     return_n_finite: bool = False,
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -260,9 +267,12 @@ def create_aggregated_features(
 
                     # 1) as is: numaggs of raw_vals
 
-                    if var in drawdown_vars:
+                    if var in drawdown_vars or var in lintrend_approx_vars:
                         custom_numaggs_kwds = numaggs_kwds.copy()
-                        custom_numaggs_kwds["return_drawdown_stats"] = True
+                        if var in drawdown_vars:
+                            custom_numaggs_kwds["return_drawdown_stats"] = True
+                        if var in lintrend_approx_vars:
+                            custom_numaggs_kwds["return_lintrend_approx_stats"] = True
                         simple_numaggs_names = get_numaggs_names(**custom_numaggs_kwds)
                     else:
                         custom_numaggs_kwds = numaggs_kwds
@@ -318,8 +328,8 @@ def create_aggregated_features(
                     # 3) wavelets of raw_vals
                     if waveletnames:
                         custom_numaggs_kwds = numaggs_kwds.copy()
-                        custom_numaggs_kwds["return_hurst"] = False
-                        custom_numaggs_kwds["return_entropy"] = False  # they all are constant anyways ()
+                        custom_numaggs_kwds.update(wavelets_correction_numaggs_kwds)
+
                         for waveletname in waveletnames:
                             all_coeffs = []
                             for i, coeffs in enumerate(pywt.wavedec(raw_vals, waveletname)):
@@ -440,9 +450,11 @@ def create_aggregated_features(
                     nonlinear_transforms=nonlinear_transforms,
                     nonnormal_vars=nonnormal_vars,
                     waveletnames=waveletnames,
+                    wavelets_correction_numaggs_kwds=wavelets_correction_numaggs_kwds,
                     numaggs_kwds=numaggs_kwds,
                     splitting_vars=splitting_vars,
                     drawdown_vars=drawdown_vars,
+                    lintrend_approx_vars=lintrend_approx_vars,
                     groupby_vars=groupby_vars,
                     return_n_finite=return_n_finite,
                     # -----------------------------------------------------------------------------------------------------------------------------------------------------
