@@ -19,6 +19,7 @@ from .config import *
 
 # from pyutilz.pythonlib import ensure_installed;ensure_installed("pandas numpy numba scikit-learn lightgbm catboost xgboost shap")
 
+import re
 import copy
 import inspect
 
