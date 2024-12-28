@@ -113,7 +113,7 @@ def check_for_infinity(df: pd.DataFrame, num_cols_only: bool = False) -> bool:
     else:
         # protects against TypeError: Object with dtype category cannot perform the numpy op isinf
         for col in tqdmu(num_cols, desc="inf checking", leave=False):
-            if np.isinf([col]).any():
+            if np.isinf(df[col]).any():
                 inf_cols.append(col)
     if len(inf_cols) > 0:
         for col in inf_cols:
