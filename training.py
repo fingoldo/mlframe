@@ -494,8 +494,13 @@ def get_trainset_features_stats(train_df: pd.DataFrame, max_ncats_to_track: int 
     res = {}
     num_cols = train_df.head().select_dtypes("number").columns.tolist()
     if num_cols:
-        res["min"] = train_df.min(axis=0)
-        res["max"] = train_df.max(axis=0)
+        if len(num_cols) == train_df.shape[1]:
+            res["min"] = train_df.min(axis=0)
+            res["max"] = train_df.max(axis=0)
+        else:
+            # TypeError: Categorical is not ordered for operation min. you can use .as_ordered() to change the Categorical to an ordered one.
+            res["min"] = {col: train_df[col].min() for col in num_cols}
+            res["max"] = {col: train_df[col].max() for col in num_cols}
 
     cat_cols = train_df.head().select_dtypes("category").columns.tolist()
     if cat_cols:
