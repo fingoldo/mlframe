@@ -13,6 +13,8 @@ lightning
 line-profiler
 numba
 pandas
+polars
+dill
 plotly
 psutil
 scikit-learn
@@ -20,6 +22,7 @@ scipy
 shap
 xgboost
 portalocker
+pymongo
 psycopg2-binary
 sqlalchemy
 properscoring
