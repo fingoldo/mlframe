@@ -186,6 +186,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         early_stopping_val_nsplits: Union[int, None] = 4,
         early_stopping_rounds: Union[int, None] = None,
         scoring: Union[object, None] = None,
+        nofeatures_dummy_scoring: bool = False,
         top_predictors_search_method: OptimumSearch = OptimumSearch.ModelBasedHeuristic,
         votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
         use_all_fi_runs: bool = True,
@@ -501,10 +502,17 @@ class RFECV(BaseEstimator, TransformerMixin):
                     # ----------------------------------------------------------------------------------------------------------------------------
                     # Dummy baselines must serve as fitness @ 0 features.
                     # ----------------------------------------------------------------------------------------------------------------------------
-                    dummy_scores.append(
-                        get_best_dummy_score(estimator=estimator, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test, scoring=scoring)
-                    )
-                    # print(f"Best dummy score (at 0 features, fold {nfold}): {best_dummy_score}")
+
+                    if not self.nofeatures_dummy_scoring:
+                        if scoring.greater_is_better:
+                            dummy_scores.append(score / 10 if score > 0 else score * 10)
+                        else:
+                            dummy_scores.append(score * 10 if score > 0 else score / 10)
+                    else:
+                        dummy_scores.append(
+                            get_best_dummy_score(estimator=estimator, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test, scoring=scoring)
+                        )
+                        # print(f"Best dummy score (at 0 features, fold {nfold}): {best_dummy_score}")
 
             if 0 not in evaluated_scores_mean:
                 scores_mean, scores_std = store_averaged_cv_scores(
