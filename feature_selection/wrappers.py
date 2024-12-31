@@ -182,6 +182,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         # CV
         cv: Union[object, int, None] = 3,
         cv_shuffle: bool = False,
+        min_train_size: int = None,
         # Other
         early_stopping_val_nsplits: Union[int, None] = 4,
         early_stopping_rounds: Union[int, None] = None,
@@ -421,6 +422,8 @@ class RFECV(BaseEstimator, TransformerMixin):
 
             for nfold, (train_index, test_index) in enumerate(splitter):
 
+                if self.min_train_size and len(train_index) < self.min_train_size:
+                    continue
                 if frac:
                     size = int(len(train_index) * frac)
                     if size > 10:
