@@ -505,9 +505,9 @@ class RFECV(BaseEstimator, TransformerMixin):
 
                     if not self.nofeatures_dummy_scoring:
                         if scoring._sign == 1:
-                            dummy_scores.append(score / 10 if score > 0 else score * 10)
+                            dummy_scores.append(score / 10)
                         else:
-                            dummy_scores.append(score * 10 if score > 0 else score / 10)
+                            dummy_scores.append(score * 10)
                     else:
                         dummy_scores.append(
                             get_best_dummy_score(estimator=estimator, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test, scoring=scoring)
