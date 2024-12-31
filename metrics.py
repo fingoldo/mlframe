@@ -381,6 +381,7 @@ def compute_probabilistic_multiclass_error(
     nbins: int = 100,
     verbose: bool = False,
     ndigits: int = 4,
+    **kwargs,  # as scorer can pass kwargs of this kind: {'needs_proba': True, 'needs_threshold': False}
 ):
     """Given a sequence of per-class probabilities (predicted by some model), and ground truth targets,
     computes weighted sum of per-class errors.
