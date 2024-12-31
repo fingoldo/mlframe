@@ -1381,6 +1381,7 @@ def configure_training_params(
     cont_nbins: int = 6,
     max_runtime_mins: float = 60 * 2,
     max_noimproving_iters: int = 15,
+    min_train_size: int = None,
     verbose: bool = True,
     prefer_cpu_for_lightgbm: bool = True,
     xgboost_verbose: Union[int, bool] = False,
@@ -1488,6 +1489,7 @@ def configure_training_params(
     params = configs.COMMON_RFECV_PARAMS.copy()
     params["max_runtime_mins"] = max_runtime_mins
     params["max_noimproving_iters"] = max_noimproving_iters
+    params["min_train_size"] = min_train_size
 
     cb_rfecv = RFECV(
         estimator=(
