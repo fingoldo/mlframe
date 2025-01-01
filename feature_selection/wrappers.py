@@ -184,7 +184,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         cv_shuffle: bool = False,
         min_train_size: int = None,
         # Other
-        early_stopping_val_nsplits: Union[int, None] = 5,
+        early_stopping_val_nsplits: Union[int, None] = 10,
         early_stopping_rounds: Union[int, None] = None,
         scoring: Union[object, None] = None,
         nofeatures_dummy_scoring: bool = False,
