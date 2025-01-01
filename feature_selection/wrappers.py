@@ -187,7 +187,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         early_stopping_val_nsplits: Union[int, None] = 10,
         early_stopping_rounds: Union[int, None] = None,
         scoring: Union[object, None] = None,
-        nofeatures_dummy_scoring: bool = False,
+        nofeatures_dummy_scoring: bool = True,
         top_predictors_search_method: OptimumSearch = OptimumSearch.ModelBasedHeuristic,
         votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
         use_all_fi_runs: bool = True,
