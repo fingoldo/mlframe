@@ -184,7 +184,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         cv_shuffle: bool = False,
         min_train_size: int = None,
         # Other
-        early_stopping_val_nsplits: Union[int, None] = 4,
+        early_stopping_val_nsplits: Union[int, None] = 5,
         early_stopping_rounds: Union[int, None] = None,
         scoring: Union[object, None] = None,
         nofeatures_dummy_scoring: bool = False,
@@ -448,7 +448,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                         train_groups = None
 
                     for true_train_index, val_index in val_cv.split(X=X_train, y=y_train, groups=train_groups):
-                        break  # need only 1 iteration of 2nd split
+                        pass  # need only 1 last iteration of 2nd split
 
                     X_train, y_train, X_val, y_val = split_into_train_test(X=X_train, y=y_train, train_index=true_train_index, test_index=val_index)
 
