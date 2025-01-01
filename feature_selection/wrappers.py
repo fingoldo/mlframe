@@ -457,7 +457,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     # ----------------------------------------------------------------------------------------------------------------------------
 
                     temp_cat_features = [current_features.index(var) for var in cat_features if var in current_features] if cat_features else None
-
+                    print(f"Val set size={len(y_val):_}")
                     temp_fit_params = pack_val_set_into_fit_params(
                         model=estimator,
                         X_val=X_val,
@@ -481,8 +481,8 @@ class RFECV(BaseEstimator, TransformerMixin):
                 if keep_estimators:
                     fitted_estimator = copy.copy(estimator)
                 else:
-                    fitted_estimator = estimator
-
+                    fitted_estimator = copy.copy(estimator)
+                print(f"Train set size={len(y_train):_}")
                 fitted_estimator.fit(X=X_train, y=y_train, **temp_fit_params)
 
                 score = scoring(fitted_estimator, X_test, y_test)
