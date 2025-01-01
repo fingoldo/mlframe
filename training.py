@@ -1380,6 +1380,7 @@ def configure_training_params(
     max_noimproving_iters: int = 15,
     min_train_size: int = None,
     verbose: bool = True,
+    rfecv_model_verbose: bool = True,
     prefer_cpu_for_lightgbm: bool = True,
     xgboost_verbose: Union[int, bool] = False,
     cb_fit_params: dict = {},
@@ -1494,12 +1495,17 @@ def configure_training_params(
             if use_regression
             else CatBoostClassifier(**(configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.CB_CLASSIF))
         ),
-        fit_params=dict(plot=False),
+        fit_params=dict(plot=not rfecv_model_verbose),
         cat_features=cat_features,
         scoring=(
             make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
             if use_regression
-            else make_scorer(score_func=configs.fs_and_hpt_integral_calibration_error, needs_proba=True, needs_threshold=False, greater_is_better=False)
+            else make_scorer(
+                score_func=partial(configs.fs_and_hpt_integral_calibration_error, verbose=rfecv_model_verbose),
+                needs_proba=True,
+                needs_threshold=False,
+                greater_is_better=False,
+            )
         ),
         **params,
     )
@@ -1512,7 +1518,12 @@ def configure_training_params(
             scoring=(
                 make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
                 if use_regression
-                else make_scorer(score_func=configs.fs_and_hpt_integral_calibration_error, needs_proba=True, needs_threshold=False, greater_is_better=False)
+                else make_scorer(
+                    score_func=partial(configs.fs_and_hpt_integral_calibration_error, verbose=rfecv_model_verbose),
+                    needs_proba=True,
+                    needs_threshold=False,
+                    greater_is_better=False,
+                )
             ),
             **params,
         )
@@ -1524,7 +1535,12 @@ def configure_training_params(
             scoring=(
                 make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
                 if use_regression
-                else make_scorer(score_func=configs.fs_and_hpt_integral_calibration_error, needs_proba=True, needs_threshold=False, greater_is_better=False)
+                else make_scorer(
+                    score_func=partial(configs.fs_and_hpt_integral_calibration_error, verbose=rfecv_model_verbose),
+                    needs_proba=True,
+                    needs_threshold=False,
+                    greater_is_better=False,
+                )
             ),
             **params,
         )
@@ -1540,7 +1556,12 @@ def configure_training_params(
         scoring=(
             make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
             if use_regression
-            else make_scorer(score_func=configs.fs_and_hpt_integral_calibration_error, needs_proba=True, needs_threshold=False, greater_is_better=False)
+            else make_scorer(
+                score_func=partial(configs.fs_and_hpt_integral_calibration_error, verbose=rfecv_model_verbose),
+                needs_proba=True,
+                needs_threshold=False,
+                greater_is_better=False,
+            )
         ),
         **params,
     )
