@@ -292,9 +292,9 @@ def get_training_configs(
     use_weighted_calibration: bool = True,
     weight_by_class_npositives: bool = False,
     nbins: int = 100,
-    cb_kwargs: dict = {},
-    lgb_kwargs: dict = {},
-    xgb_kwargs: dict = {},
+    cb_kwargs: dict = dict(verbose=0),
+    lgb_kwargs: dict = dict(verbose=0),
+    xgb_kwargs: dict = dict(verbosity=0),
     # ----------------------------------------------------------------------------------------------------------------------------
     # featureselectors
     # ----------------------------------------------------------------------------------------------------------------------------
@@ -320,7 +320,6 @@ def get_training_configs(
 
     CB_GENERAL_PARAMS = dict(
         iterations=iterations,
-        verbose=verbose,
         has_time=has_time,
         learning_rate=learning_rate,
         eval_fraction=(0.0 if use_explicit_early_stopping else validation_fraction),
@@ -346,7 +345,6 @@ def get_training_configs(
         n_jobs=psutil.cpu_count(logical=False),
         early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
-        verbosity=int(verbose),
         **xgb_kwargs,
     )
 
@@ -390,7 +388,7 @@ def get_training_configs(
     else:
         final_integral_calibration_error = integral_calibration_error
 
-    def fs_and_hpt_integral_calibration_error(*args, verbose: bool = False, **kwargs):
+    def fs_and_hpt_integral_calibration_error(*args, verbose: bool = True, **kwargs):
         err = compute_probabilistic_multiclass_error(
             *args,
             **kwargs,
@@ -423,7 +421,6 @@ def get_training_configs(
         n_estimators=iterations,
         early_stopping_rounds=early_stopping_rounds,
         device_type=("cuda" if has_gpu else "cpu"),
-        verbose=int(verbose),
         random_state=random_seed,
         # histogram_pool_size=16384,
         **lgb_kwargs,

@@ -468,6 +468,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     temp_fit_params.update(fit_params)
 
                 else:
+
                     temp_fit_params = {}
                     X_val = None
 
