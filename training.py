@@ -1495,7 +1495,7 @@ def configure_training_params(
             if use_regression
             else CatBoostClassifier(**(configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.CB_CLASSIF))
         ),
-        fit_params=dict(plot=not rfecv_model_verbose),
+        fit_params=dict(plot=rfecv_model_verbose),
         cat_features=cat_features,
         scoring=(
             make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
