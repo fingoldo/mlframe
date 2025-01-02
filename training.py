@@ -1050,66 +1050,64 @@ def report_model_perf(
     custom_rice_metric: Callable = None,
     metrics: dict = None,
 ):
-    if probs is not None:
-        if is_classifier(model):
-            preds, probs = report_probabilistic_model_perf(
-                targets=targets,
-                columns=columns,
-                model_name=model_name,
-                model=model,
-                subgroups=subgroups,
-                subset_index=subset_index,
-                report_ndigits=report_ndigits,
-                figsize=figsize,
-                report_title=report_title,
-                use_weights=use_weights,
-                calib_report_ndigits=calib_report_ndigits,
-                verbose=verbose,
-                classes=classes,
-                preds=preds,
-                probs=probs,
-                df=df,
-                target_label_encoder=target_label_encoder,
-                nbins=nbins,
-                print_report=print_report,
-                show_perf_chart=show_perf_chart,
-                plot_file=plot_file,
-                custom_ice_metric=custom_ice_metric,
-                custom_rice_metric=custom_rice_metric,
-                metrics=metrics,
-            )
-        else:
 
-            preds, probs = report_regression_model_perf(
-                targets=targets,
-                columns=columns,
-                model_name=model_name,
-                model=model,
-                subgroups=subgroups,
-                subset_index=subset_index,
-                report_ndigits=report_ndigits,
-                figsize=figsize,
-                report_title=report_title,
-                verbose=verbose,
-                preds=preds,
-                df=df,
-                print_report=print_report,
-                show_perf_chart=show_perf_chart,
-                plot_file=plot_file,
-                metrics=metrics,
-            )
-        if show_fi:
-            feature_importances = plot_model_feature_importances(
-                model=model,
-                columns=columns,
-                model_name=(model_name + f" [{len(columns):_}F]").strip(),
-                plot_file=plot_file + "_fiplot.png" if plot_file else "",
-                **fi_kwargs,
-            )
-            if metrics is not None:
-                metrics.update({"feature_importances": feature_importances})
+    if is_classifier(model):
+        preds, probs = report_probabilistic_model_perf(
+            targets=targets,
+            columns=columns,
+            model_name=model_name,
+            model=model,
+            subgroups=subgroups,
+            subset_index=subset_index,
+            report_ndigits=report_ndigits,
+            figsize=figsize,
+            report_title=report_title,
+            use_weights=use_weights,
+            calib_report_ndigits=calib_report_ndigits,
+            verbose=verbose,
+            classes=classes,
+            preds=preds,
+            probs=probs,
+            df=df,
+            target_label_encoder=target_label_encoder,
+            nbins=nbins,
+            print_report=print_report,
+            show_perf_chart=show_perf_chart,
+            plot_file=plot_file,
+            custom_ice_metric=custom_ice_metric,
+            custom_rice_metric=custom_rice_metric,
+            metrics=metrics,
+        )
     else:
-        preds, probs = None, None
+
+        preds, probs = report_regression_model_perf(
+            targets=targets,
+            columns=columns,
+            model_name=model_name,
+            model=model,
+            subgroups=subgroups,
+            subset_index=subset_index,
+            report_ndigits=report_ndigits,
+            figsize=figsize,
+            report_title=report_title,
+            verbose=verbose,
+            preds=preds,
+            df=df,
+            print_report=print_report,
+            show_perf_chart=show_perf_chart,
+            plot_file=plot_file,
+            metrics=metrics,
+        )
+    if show_fi:
+        feature_importances = plot_model_feature_importances(
+            model=model,
+            columns=columns,
+            model_name=(model_name + f" [{len(columns):_}F]").strip(),
+            plot_file=plot_file + "_fiplot.png" if plot_file else "",
+            **fi_kwargs,
+        )
+        if metrics is not None:
+            metrics.update({"feature_importances": feature_importances})
 
     return preds, probs
 
