@@ -568,8 +568,10 @@ def train_and_evaluate_model(
     subgroups: dict = None,
     figsize: tuple = (15, 5),
     print_report: bool = True,
+    plot_file: str = "",
     show_perf_chart: bool = True,
     show_fi: bool = True,
+    fi_kwargs: dict = {},
     use_cache: bool = False,
     nbins: int = 100,
     compute_trainset_metrics: bool = False,
@@ -801,6 +803,7 @@ def train_and_evaluate_model(
                         print_report=False,
                         show_perf_chart=False,
                         show_fi=False,
+                        fi_kwargs=fi_kwargs,
                         subgroups=subgroups,
                         subset_index=val_idx,
                         custom_ice_metric=custom_ice_metric,
@@ -861,8 +864,10 @@ def train_and_evaluate_model(
                 report_title="",
                 nbins=nbins,
                 print_report=print_report,
+                plot_file=plot_file + "_train" if plot_file else "",
                 show_perf_chart=show_perf_chart,
-                show_fi=False,
+                show_fi=show_fi and (test_df is None) and (val_df is None),
+                fi_kwargs=fi_kwargs,
                 subgroups=subgroups,
                 subset_index=train_idx,
                 custom_ice_metric=custom_ice_metric,
@@ -890,8 +895,10 @@ def train_and_evaluate_model(
                 report_title="",
                 nbins=nbins,
                 print_report=print_report,
+                plot_file=plot_file + "_val" if plot_file else "",
                 show_perf_chart=show_perf_chart,
-                show_fi=False,
+                show_fi=show_fi and (test_df is None),
+                fi_kwargs=fi_kwargs,
                 subgroups=subgroups,
                 subset_index=val_idx,
                 custom_ice_metric=custom_ice_metric,
@@ -932,8 +939,10 @@ def train_and_evaluate_model(
                 report_title="",
                 nbins=nbins,
                 print_report=print_report,
+                plot_file=plot_file + "_test" if plot_file else "",
                 show_perf_chart=show_perf_chart,
                 show_fi=show_fi,
+                fi_kwargs=fi_kwargs,
                 subgroups=subgroups,
                 subset_index=test_idx,
                 custom_ice_metric=custom_ice_metric,
@@ -1035,57 +1044,71 @@ def report_model_perf(
     print_report: bool = True,
     show_perf_chart: bool = True,
     show_fi: bool = True,
+    fi_kwargs: dict = {},
+    plot_file: str = "",
     custom_ice_metric: Callable = None,
     custom_rice_metric: Callable = None,
     metrics: dict = None,
 ):
-    if probs is not None or is_classifier(model):
-        return report_probabilistic_model_perf(
-            targets=targets,
-            columns=columns,
-            model_name=model_name,
-            model=model,
-            subgroups=subgroups,
-            subset_index=subset_index,
-            report_ndigits=report_ndigits,
-            figsize=figsize,
-            report_title=report_title,
-            use_weights=use_weights,
-            calib_report_ndigits=calib_report_ndigits,
-            verbose=verbose,
-            classes=classes,
-            preds=preds,
-            probs=probs,
-            df=df,
-            target_label_encoder=target_label_encoder,
-            nbins=nbins,
-            print_report=print_report,
-            show_perf_chart=show_perf_chart,
-            show_fi=show_fi,
-            custom_ice_metric=custom_ice_metric,
-            custom_rice_metric=custom_rice_metric,
-            metrics=metrics,
-        )
-    else:
+    if probs is not None:
+        if is_classifier(model):
+            return report_probabilistic_model_perf(
+                targets=targets,
+                columns=columns,
+                model_name=model_name,
+                model=model,
+                subgroups=subgroups,
+                subset_index=subset_index,
+                report_ndigits=report_ndigits,
+                figsize=figsize,
+                report_title=report_title,
+                use_weights=use_weights,
+                calib_report_ndigits=calib_report_ndigits,
+                verbose=verbose,
+                classes=classes,
+                preds=preds,
+                probs=probs,
+                df=df,
+                target_label_encoder=target_label_encoder,
+                nbins=nbins,
+                print_report=print_report,
+                show_perf_chart=show_perf_chart,
+                plot_file=plot_file,
+                custom_ice_metric=custom_ice_metric,
+                custom_rice_metric=custom_rice_metric,
+                metrics=metrics,
+            )
+        else:
 
-        return report_regression_model_perf(
-            targets=targets,
-            columns=columns,
-            model_name=model_name,
-            model=model,
-            subgroups=subgroups,
-            subset_index=subset_index,
-            report_ndigits=report_ndigits,
-            figsize=figsize,
-            report_title=report_title,
-            verbose=verbose,
-            preds=preds,
-            df=df,
-            print_report=print_report,
-            show_perf_chart=show_perf_chart,
-            show_fi=show_fi,
-            metrics=metrics,
-        )
+            return report_regression_model_perf(
+                targets=targets,
+                columns=columns,
+                model_name=model_name,
+                model=model,
+                subgroups=subgroups,
+                subset_index=subset_index,
+                report_ndigits=report_ndigits,
+                figsize=figsize,
+                report_title=report_title,
+                verbose=verbose,
+                preds=preds,
+                df=df,
+                print_report=print_report,
+                show_perf_chart=show_perf_chart,
+                plot_file=plot_file,
+                metrics=metrics,
+            )
+
+        if show_fi:
+            feature_importances = plot_model_feature_importances(
+                model=model,
+                columns=columns,
+                model_name=(model_name + f" [{len(columns):_}F]").strip(),
+                plot_file=plot_file + "_fiplot.png" if plot_file else "",
+                **fi_kwargs,
+            )
+            if metrics is not None:
+                metrics.update({"feature_importances": feature_importances})
 
 
 def report_regression_model_perf(
@@ -1103,7 +1126,7 @@ def report_regression_model_perf(
     df: Optional[pd.DataFrame] = None,
     print_report: bool = True,
     show_perf_chart: bool = True,
-    show_fi: bool = True,
+    plot_file: str = "",
     metrics: dict = None,
 ):
     """Detailed performance report (usually on a test set)."""
@@ -1113,9 +1136,6 @@ def report_regression_model_perf(
 
     if isinstance(targets, pd.Series):
         targets = targets.values
-
-    if show_fi:
-        plot_model_feature_importances(model=model, columns=columns, model_name=(model_name + f" [{len(columns):_}F]").strip(), figsize=(15, 10))
 
     current_metrics = dict(
         mean_absolute_error=mean_absolute_error(y_true=targets, y_pred=preds),
@@ -1172,7 +1192,7 @@ def report_probabilistic_model_perf(
     nbins: int = 100,
     print_report: bool = True,
     show_perf_chart: bool = True,
-    show_fi: bool = True,
+    plot_file: str = "",
     custom_ice_metric: Callable = None,
     custom_rice_metric: Callable = None,
     metrics: dict = None,
@@ -1235,6 +1255,7 @@ def report_probabilistic_model_perf(
             y_pred=y_score,
             title=title,
             figsize=figsize,
+            plot_file=plot_file + "_perfplot.png" if plot_file else "",
             show_plots=show_perf_chart,
             show_roc_auc_in_title=True,
             show_logloss_in_title=True,
@@ -1269,9 +1290,6 @@ def report_probabilistic_model_perf(
             if custom_rice_metric and custom_rice_metric != custom_ice_metric:
                 class_metrics["class_robust_integral_error"] = class_robust_integral_error
             metrics.update({class_id: class_metrics})
-
-    if show_fi:
-        plot_model_feature_importances(model=model, columns=columns, model_name=(model_name + f" [{len(columns):_}F]").strip(), figsize=(15, 10))
 
     if print_report:
 
@@ -1316,8 +1334,14 @@ def report_probabilistic_model_perf(
 
 
 def plot_model_feature_importances(
-    model: object, columns: Sequence, model_name: str = None, num_factors: int = 40, figsize: tuple = (15, 10), positive_fi_only: bool = False
-):
+    model: object,
+    columns: Sequence,
+    model_name: str = None,
+    num_factors: int = 40,
+    figsize: tuple = (15, 10),
+    positive_fi_only: bool = False,
+    plot_file: str = "",
+) -> np.ndarray:
 
     if isinstance(model, Pipeline):
         model = model.steps[-1][1]
@@ -1338,11 +1362,14 @@ def plot_model_feature_importances(
                 columns=columns,
                 kind=model_name,
                 figsize=figsize,
-                positive_fi_only=False,
+                plot_file=plot_file,
+                positive_fi_only=positive_fi_only,
                 n=num_factors,
             )
         except Exception:
             logger.warning("Could not plot feature importances. Maybe data shape is changed within a pipeline?")
+
+        return feature_importances
 
 
 def get_sample_weights_by_recency(date_series: pd.Series, min_weight: float = 1.0, weight_drop_per_year: float = 0.1) -> np.ndarray:
