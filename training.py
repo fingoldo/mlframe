@@ -1052,7 +1052,7 @@ def report_model_perf(
 ):
     if probs is not None:
         if is_classifier(model):
-            return report_probabilistic_model_perf(
+            preds, probs = report_probabilistic_model_perf(
                 targets=targets,
                 columns=columns,
                 model_name=model_name,
@@ -1080,7 +1080,7 @@ def report_model_perf(
             )
         else:
 
-            return report_regression_model_perf(
+            preds, probs = report_regression_model_perf(
                 targets=targets,
                 columns=columns,
                 model_name=model_name,
@@ -1098,7 +1098,6 @@ def report_model_perf(
                 plot_file=plot_file,
                 metrics=metrics,
             )
-
         if show_fi:
             feature_importances = plot_model_feature_importances(
                 model=model,
@@ -1109,6 +1108,10 @@ def report_model_perf(
             )
             if metrics is not None:
                 metrics.update({"feature_importances": feature_importances})
+    else:
+        preds, probs = None, None
+
+    return preds, probs
 
 
 def report_regression_model_perf(
