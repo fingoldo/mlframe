@@ -636,7 +636,7 @@ def train_and_evaluate_model(
             model_obj = model_obj.regressor
     model_type_name = type(model_obj).__name__ if model_obj is not None else ""
     if plot_file:
-        model_type_name = model_type_name + "_" + slugify(model_type_name)
+        plot_file = plot_file + "_" + slugify(model_type_name)
 
     if model_type_name not in model_name:
         model_name = model_type_name + " " + model_name
