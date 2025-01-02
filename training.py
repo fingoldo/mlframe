@@ -1053,7 +1053,7 @@ def report_model_perf(
     metrics: dict = None,
 ):
 
-    if is_classifier(model) or (probs is not None):
+    if is_classifier(model) or (model is None and probs is not None):
         preds, probs = report_probabilistic_model_perf(
             targets=targets,
             columns=columns,
