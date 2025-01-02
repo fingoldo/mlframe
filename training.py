@@ -1744,3 +1744,21 @@ def create_ts_train_val_test_split(
     )
 
     return train_idx, val_idx, test_idx
+
+
+def save_mlframe_model(model: object, file: str) -> bool:
+    try:
+        with open(file, "wb") as f:
+            dill.dump(model, f)
+        return True
+    except Exception as e:
+        logger.error(f"Could not save model to file {file}: {e}")
+
+
+def load_mlframe_model(file: str) -> object:
+    try:
+        with open(file, "rb") as f:
+            model = dill.load(f)
+        return model
+    except Exception as e:
+        logger.error(f"Could not load model from file {file}: {e}")
