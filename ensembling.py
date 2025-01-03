@@ -342,7 +342,7 @@ def compare_ensembles(
     for ens_name, ens_perf in ensembles.items():
         perf = copy.deepcopy(ens_perf.metrics)
         for set_name, set_perf in perf.items():
-            if "robustness_report" in set_perf:
+            if set_perf and ("robustness_report" in set_perf):
                 del set_perf["robustness_report"]
         ser = pd.json_normalize(perf).iloc[0, :]
         ser.name = ens_name
