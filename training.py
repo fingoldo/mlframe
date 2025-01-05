@@ -284,8 +284,8 @@ def get_training_configs(
     # ----------------------------------------------------------------------------------------------------------------------------
     method: str = "multicrit",
     mae_weight: float = 3,
-    std_weight: float = 3,
-    roc_auc_weight: float = 1.0,
+    std_weight: float = 2,
+    roc_auc_weight: float = 1.5,
     brier_loss_weight: float = 0.4,
     min_roc_auc: float = 0.54,
     roc_auc_penalty: float = 0.00,
