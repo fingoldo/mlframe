@@ -751,7 +751,7 @@ def split_into_train_test(
 def store_averaged_cv_scores(pos: int, scores: list, evaluated_scores_mean: dict, evaluated_scores_std: dict) -> None:
 
     scores = np.array(scores)
-    scores_mean, scores_std = np.median(scores), np.std(scores)
+    scores_mean, scores_std = np.mean(scores), np.std(scores)
 
     evaluated_scores_mean[pos] = scores_mean
     evaluated_scores_std[pos] = scores_std
