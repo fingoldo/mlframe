@@ -1,5 +1,6 @@
 """Assesing quality of a classifier in terms of how often probabilities predicted by it convert into real occurences.
 """
+
 # ****************************************************************************************************************************
 # Imports
 # ****************************************************************************************************************************
@@ -44,6 +45,14 @@ from sklearn.metrics import (
 
 from sklearn.metrics import brier_score_loss  # , log_loss
 
+from scipy.stats import ks_1samp, cramervonmises, anderson, chisquare, entropy
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Inits
+# ----------------------------------------------------------------------------------------------------------------------------
+
+uniform_cdf = lambda x: x  # CDF of uniform distribution [0, 1]
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -61,6 +70,7 @@ def crps(y: np.ndarray, y_preds: np.ndarray) -> float:
 # ----------------------------------------------------------------------------------------------------------------------------
 # Core functionality
 # ----------------------------------------------------------------------------------------------------------------------------
+
 METRICS_TO_SHOW = {
     #
     "R2": r2_score,
@@ -91,21 +101,27 @@ def make_custom_calibration_plot(
     X: np.ndarray = None,
     display_labels: dict = {},
     figsize: tuple = (15, 5),
-    skip_plotting:bool=False,
+    skip_plotting: bool = False,
 ):
-    """Custom implementanion of calibration plot"""
-    
-    metrics={}
+    """Custom implementation of calibration plot"""
+
+    metrics = {}
     if not classes:
-        classes=range(nclasses)
+        classes = range(nclasses)
     else:
-        nclasses=len(classes)
-    
+        nclasses = len(classes)
+
     if skip_plotting:
-        fig, ax_probs=None,None
+        fig, ax_probs = None, None
     else:
-        fig, ax_probs = plt.subplots(ncols=nclasses, nrows=1, sharex=False, sharey=False, figsize=figsize,)
-    
+        fig, ax_probs = plt.subplots(
+            ncols=nclasses,
+            nrows=1,
+            sharex=False,
+            sharey=False,
+            figsize=figsize,
+        )
+
     for pos_label in classes:
 
         title = f"Calibration plot for {display_labels.get(pos_label,'class '+str(pos_label))}:"
@@ -123,8 +139,17 @@ def make_custom_calibration_plot(
         else:
             raise TypeError("Unexpected y type: %s", type(y))
 
-        class_performance_metrics=show_classifier_calibration(y_true, prob_pos, legend_label="Model Probs", ax=ax_probs if nclasses==1 else ax_probs[pos_label], title=title, append=False, nbins=nbins,skip_plotting=skip_plotting)
-        metrics[pos_label]=class_performance_metrics
+        class_performance_metrics = show_classifier_calibration(
+            y_true,
+            prob_pos,
+            legend_label="Model Probs",
+            ax=ax_probs if nclasses == 1 else ax_probs[pos_label],
+            title=title,
+            append=False,
+            nbins=nbins,
+            skip_plotting=skip_plotting,
+        )
+        metrics[pos_label] = class_performance_metrics
 
         # Same axis, competing probs, if any
 
@@ -141,10 +166,10 @@ def make_custom_calibration_plot(
             if type(prob_pos) != np.ndarray:
                 prob_pos = prob_pos.values
             var_name = "_".join(var_name.split("_")[1:])
-            show_classifier_calibration(y_true, prob_pos, legend_label=var_name, ax=ax_probs[pos_label], title=title, append=True, nbins=nbins)    
+            show_classifier_calibration(y_true, prob_pos, legend_label=var_name, ax=ax_probs[pos_label], title=title, append=True, nbins=nbins)
     if skip_plotting:
         plt.close(fig)
-    return fig,metrics
+    return fig, metrics
 
 
 @njit()
@@ -152,10 +177,11 @@ def bin_predictions(
     y_true: np.array,
     y_pred: np.array,
     indices: np.array,
-    nbins: int = 20,):
-    
-    pockets_predicted, pockets_true = np.zeros(nbins,dtype=np.float64),np.zeros(nbins,dtype=np.float64)
-    data = np.zeros((nbins,4),dtype=np.float64)
+    nbins: int = 20,
+):
+
+    pockets_predicted, pockets_true = np.zeros(nbins, dtype=np.float64), np.zeros(nbins, dtype=np.float64)
+    data = np.zeros((nbins, 4), dtype=np.float64)
     s = len(y_pred)
     l = 0
     bin_size = s // nbins
@@ -166,25 +192,23 @@ def bin_predictions(
             r = l + bin_size
         avg_x = np.mean(y_pred[indices[l:r]])
         avg_y = np.mean(y_true[indices[l:r]])
-        pockets_predicted[i]=avg_x
-        pockets_true[i]=avg_y
-        data[i,:]=np.array([avg_x, avg_y * (r - l), r - l, avg_y],dtype=np.float64)
+        pockets_predicted[i] = avg_x
+        pockets_true[i] = avg_y
+        data[i, :] = np.array([avg_x, avg_y * (r - l), r - l, avg_y], dtype=np.float64)
         l = r
-    return pockets_predicted, pockets_true,data
+    return pockets_predicted, pockets_true, data
+
 
 def estimate_calibration_quality_binned(
     y_true: np.array,
     y_pred: np.array,
     nbins: int = 20,
-    indices: np.array=None,
+    indices: np.array = None,
     metrics_to_show: dict = METRICS_TO_SHOW,
 ):
-    if indices is None: indices = np.argsort(y_pred)
-    pockets_predicted, pockets_true,data=bin_predictions(
-    y_true=y_true,
-    y_pred=y_pred,
-    indices=indices,
-    nbins=nbins)
+    if indices is None:
+        indices = np.argsort(y_pred)
+    pockets_predicted, pockets_true, data = bin_predictions(y_true=y_true, y_pred=y_pred, indices=indices, nbins=nbins)
     # r2 = np.corrcoef(pockets_predicted, pockets_true)[0, 1] ** 2
 
     return (
@@ -196,22 +220,22 @@ def estimate_calibration_quality_binned(
 
 
 def show_classifier_calibration(
-    y_true:np.ndarray,
-    y_pred:np.ndarray,
-    title:str,
-    indices:np.ndarray=None,
-    nbins:int=20,
-    alpha:float=0.40,
-    show_table:bool=False,
-    nintervals:int=1,
-    ax:object=None,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    title: str,
+    indices: np.ndarray = None,
+    nbins: int = 20,
+    alpha: float = 0.40,
+    show_table: bool = False,
+    nintervals: int = 1,
+    ax: object = None,
     marker_size: int = 15,
     metrics_digits: int = 4,
     connected: bool = True,
     legend_label: str = None,
     append: bool = False,
     metrics_to_show: dict = METRICS_TO_SHOW,
-    skip_plotting:bool=False
+    skip_plotting: bool = False,
 ):
 
     s = len(y_true)
@@ -228,11 +252,13 @@ def show_classifier_calibration(
             r = l + step
 
         try:
-            x, y, data, performances = estimate_calibration_quality_binned(y_true[l:r], y_pred[l:r], nbins=nbins,indices=indices, metrics_to_show=metrics_to_show)
+            x, y, data, performances = estimate_calibration_quality_binned(
+                y_true[l:r], y_pred[l:r], nbins=nbins, indices=indices, metrics_to_show=metrics_to_show
+            )
         except Exception as e:
             logging.exception(e)
             return
-        
+
         if not skip_plotting:
             metrics_formatted = " ".join([f"{metric_name}: {round(metric_value,metrics_digits)}" for metric_name, metric_value in performances.items()])
 
@@ -246,7 +272,7 @@ def show_classifier_calibration(
             l = r
     if not skip_plotting:
         x_min, x_max = np.min(x), np.max(x)
-        #y_min, y_max = np.min(y), np.max(y)
+        # y_min, y_max = np.min(y), np.max(y)
         is_profit = "profit" in title.lower()
         ax.legend(loc="lower right")
         if not append:
@@ -274,3 +300,111 @@ def show_classifier_calibration(
             return pd.DataFrame(data, columns=["Prob", "Won", "Predicted", "Freq"])
     else:
         return performances
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Probability Integral Transform (PIT)
+# ---------------------------------------------------------------------------------------------------------------
+
+
+def plot_pit_diagram(
+    predicted_probs: np.ndarray = None,
+    true_labels: np.ndarray = None,
+    pit_values: np.ndarray = None,
+    caption: str = "",
+    bins: int = 20,
+    figsize: tuple = (15, 5),
+):
+    """
+    Plots a Probability Integral Transform (PIT) diagram for binary predictions.
+
+    Args:
+        predicted_probs (array-like): Predicted probabilities for the positive class.
+        true_labels (array-like): Binary true labels (0 or 1).
+        bins (int): Number of bins for the histogram.
+
+    Returns:
+        None
+    """
+
+    if pit_values is None:
+        # Ensure inputs are numpy arrays
+        predicted_probs = np.asarray(predicted_probs)
+        true_labels = np.asarray(true_labels)
+
+        # Compute PIT values
+        pit_values = np.where(true_labels == 1, predicted_probs, 1 - predicted_probs)
+
+    ks_stat = kolmogorov_smirnov_statistic(pit_values)
+    caption += f" PIT Diagram. KS={ks_stat:.4f}"
+
+    # Plot histogram of PIT values
+    plt.figure(figsize=figsize)
+    plt.hist(pit_values, bins=bins, range=(0, 1), density=True, alpha=0.75, edgecolor="black", color="skyblue")
+    plt.axhline(1, color="green", linestyle="--", label="Perfect calibration")
+    plt.xlabel("Predicted probs CDF")
+    plt.ylabel("Frequency")
+    plt.title(caption)
+    plt.legend()
+    plt.grid(True, linestyle="--", alpha=0.7)
+    plt.show()
+
+
+def kolmogorov_smirnov_statistic(pit_values):
+    """Calculate the KS statistic for PIT values."""
+
+    statistic, _ = ks_1samp(pit_values, uniform_cdf, alternative="two-sided")
+    return statistic
+
+
+def cramer_von_mises_statistic(pit_values):
+    """Calculate the Cramér-von Mises statistic for PIT values."""
+    result = cramervonmises(pit_values, uniform_cdf)
+    return result.statistic
+
+
+def anderson_darling_statistic(pit_values):
+    """
+    Calculate the Anderson-Darling statistic for a uniform distribution.
+    Parameters:
+        pit_values (array-like): Array of PIT values.
+    Returns:
+        float: Anderson-Darling statistic.
+    """
+    n = len(pit_values)
+    sorted_pit = np.sort(pit_values)
+    i = np.arange(1, n + 1)  # Index from 1 to n
+
+    # Compute the Anderson-Darling statistic
+    ad_stat = -n - (1 / n) * np.sum((2 * i - 1) * (np.log(sorted_pit) + np.log(1 - sorted_pit[::-1])))
+    return ad_stat
+
+
+def chi_square_statistic(pit_values, bins=10):
+    """Calculate the Chi-Square statistic for PIT values."""
+    observed, bin_edges = np.histogram(pit_values, bins=bins, range=(0, 1))
+    expected = np.ones_like(observed) * len(pit_values) / bins
+    chi2_stat, _ = chisquare(f_obs=observed, f_exp=expected)
+    return chi2_stat
+
+
+def entropy_calibration_index(pit_values, bins=10):
+    """Calculate the Entropy-Based Calibration Index (ECI)."""
+    observed, _ = np.histogram(pit_values, bins=bins, range=(0, 1), density=True)
+    uniform_entropy = np.log(bins)
+    observed_entropy = entropy(observed)
+    eci = uniform_entropy - observed_entropy
+    return eci
+
+
+def mean_squared_deviation(pit_values):
+    """Calculate the Mean Squared Deviation (MSD) from the uniform mean (0.5)."""
+    msd = np.mean((pit_values - 0.5) ** 2)
+    return msd
+
+
+def weighted_pit_deviation(pit_values):
+    """Calculate the Weighted PIT Deviation (WPD)."""
+    weights = 1 / (pit_values * (1 - pit_values) + 1e-10)  # Add small constant to avoid division by zero
+    wpd = np.mean(weights * (pit_values - 0.5) ** 2)
+    return wpd
