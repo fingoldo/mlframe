@@ -496,8 +496,8 @@ def get_trainset_features_stats(train_df: pd.DataFrame, max_ncats_to_track: int 
             res["max"] = train_df.max(axis=0)
         else:
             # TypeError: Categorical is not ordered for operation min. you can use .as_ordered() to change the Categorical to an ordered one.
-            res["min"] = {col: train_df[col].min() for col in num_cols}
-            res["max"] = {col: train_df[col].max() for col in num_cols}
+            res["min"] = pd.Series({col: train_df[col].min() for col in num_cols})
+            res["max"] = pd.Series({col: train_df[col].max() for col in num_cols})
 
     cat_cols = train_df.head().select_dtypes("category").columns.tolist()
     if cat_cols:
@@ -517,15 +517,29 @@ def compute_outlier_detector_score(df: pd.DataFrame, outlier_detector: object, c
     return (is_inlier == -1).astype(int)  # converts 1 to 0 and -1 to 1, as we need to transform inliers to outliers
 
 
-def compute_naive_outlier_score(df: pd.DataFrame, trainset_features_stats: dict, columns: Sequence = None) -> np.ndarray:
+@njit()
+def count_num_outofranges(vals: np.ndarray, extremums: np.ndarray, mode: str) -> np.ndarray:
+    if mode == "min":
+        return (vals < extremums).sum(axis=1)
+    elif mode == "max":
+        return (vals > extremums).sum(axis=1)
+
+
+def compute_naive_outlier_score(df: pd.DataFrame, trainset_features_stats: dict, columns: Sequence = None, dtype=np.float64) -> np.ndarray:
     """Checks deviation from trainset_features_stats (% of features out of range, per observation/row)."""
     scores = np.zeros(len(df), dtype=np.float64)
     if "min" in trainset_features_stats:
         if columns is None:
             columns = df.columns
-        tmp = df.loc[:, columns]
-        scores += (tmp < trainset_features_stats["min"].loc[columns]).sum(axis=1).values / len(columns)
-        scores += (tmp > trainset_features_stats["max"].loc[columns]).sum(axis=1).values / len(columns)
+        num_cols = df.head().select_dtypes("number").columns.tolist()
+        columns = [col for col in columns if col in num_cols]
+        if columns:
+            tmp = df.loc[:, columns].values
+            mins = pd.Series(trainset_features_stats["min"]).loc[columns].values.astype(dtype)
+            maxs = pd.Series(trainset_features_stats["max"]).loc[columns].values.astype(dtype)
+
+            scores += (tmp < mins).sum(axis=1) / len(columns)
+            scores += (tmp > maxs).sum(axis=1) / len(columns)
     return scores
 
 
