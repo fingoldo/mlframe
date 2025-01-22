@@ -178,6 +178,7 @@ def show_calibration_plot(
     label_perfect: str = "Perfect",
     label_real: str = "Real",
     label_prob: str = "Predicted Probability",
+    colorbar_label: str = "Bin population",
     use_size: bool = False,
 ):
     """Plots reliability digaram from the binned predictions."""
@@ -193,7 +194,8 @@ def show_calibration_plot(
         plt.plot([x_min, x_max], [x_min, x_max], "g--", label=label_perfect)
         plt.xlabel(label_prob)
         plt.ylabel(label_freq)
-        plt.colorbar(sc)
+        cbar = plt.colorbar(sc)
+        cbar.set_label(colorbar_label, fontsize=12)
         if plot_title:
             plt.title(plot_title)
 
