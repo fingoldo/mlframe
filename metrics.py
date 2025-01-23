@@ -195,7 +195,7 @@ def show_calibration_plot(
         plt.xlabel(label_prob)
         plt.ylabel(label_freq)
         cbar = plt.colorbar(sc)
-        cbar.set_label(colorbar_label, fontsize=12)
+        cbar.set_label(colorbar_label)  # , fontsize=12
         if plot_title:
             plt.title(plot_title)
 
