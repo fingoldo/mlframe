@@ -174,7 +174,7 @@ def show_calibration_plot(
     plot_title: str = "",
     figsize: tuple = (12, 6),
     backend: str = "matplotlib",
-    label_freq: str = "Observed PosClass Frequency",
+    label_freq: str = "Observed Frequency",
     label_perfect: str = "Perfect",
     label_real: str = "Real",
     label_prob: str = "Predicted Probability",
