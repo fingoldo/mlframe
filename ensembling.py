@@ -128,7 +128,7 @@ def ensemble_probabilistic_predictions(
     uncertainty_quantile: float = 0.2,
     normalize_stds_by_mean_preds: bool = True,
     verbose: bool = True,
-):
+) -> tuple:
     """Ensembles probabilistic predictions. All elements of the preds tuple must have the same shape.
     uncertainty_quantile>0 produces separate charts for points where the models are confident (agree).
     """
@@ -194,10 +194,7 @@ def ensemble_probabilistic_predictions(
         ensembled_predictions = np.power(np.prod(preds, axis=0), 1 / len(preds))
 
     if ensure_prob_limits:
-        # if ensembled_predictions.min() < 0 or ensembled_predictions.max() > 1.0:
-        # print("normalizing OOB probs")
-        tot = np.sum(ensembled_predictions, axis=1)
-        ensembled_predictions = ensembled_predictions / tot.reshape(-1, 1)
+        ensembled_predictions = np.clip(ensembled_predictions, 0.0, 1.0)
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Confidence estimates
