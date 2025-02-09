@@ -37,7 +37,6 @@ optbinning
 zstandard
 beautifulsoup4
 expiringdict
-cupy-cuda12x
 duckdb
 umap-learn
 hdbscan
