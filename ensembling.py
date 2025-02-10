@@ -163,7 +163,7 @@ def ensemble_probabilistic_predictions(
                 tot_std += std
             tot_mae /= l
             tot_std /= l
-            if (max_mae > 0 and tot_mae > max_mae) or (tot_std > 0 and tot_std > max_std):
+            if (max_mae > 0 and tot_mae > max_mae) or (max_std > 0 and tot_std > max_std):
                 if verbose:
                     print(f"ens member {i} excluded due to high distance from the median, mae={tot_mae:4f}, std={tot_std:4f}")
                 skipped_preds_indices.add(i)
