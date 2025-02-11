@@ -334,6 +334,8 @@ def fast_calibration_report(
         roc_auc=roc_auc,
         **ice_kwargs,
     )
+    ll = log_loss(y_true=y_true, y_pred=y_pred)
+
     if plot_file or show_plots:
         plot_title = f"ICE={ice:.{ndigits}f}, BR={brier_loss*100:.{ndigits}f}% CMAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}%±{calibration_std*100:.{ndigits}f}%"
 
@@ -344,7 +346,7 @@ def fast_calibration_report(
         if show_pr_auc_in_title:
             plot_title += f", PR AUC={pr_auc:.3f}"
         if show_logloss_in_title:
-            plot_title += f", LL={log_loss(y_true=y_true, y_pred=y_pred):.3f}"
+            plot_title += f", LL={ll:.3f}"
         if show_points_density_in_title:
             plot_title += f", DENS=[{max_hits:_};{min_hits:_}]"
         if title:
@@ -360,7 +362,7 @@ def fast_calibration_report(
             backend=backend,
         )
 
-    return brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, fig
+    return brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, fig
 
 
 def predictions_time_instability(preds: pd.Series) -> float:
@@ -458,7 +460,7 @@ def compute_probabilistic_multiclass_error(
                     roc_auc_penalty=roc_auc_penalty,
                 )
             else:
-                brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, fig = fast_calibration_report(
+                brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, *_, fig = fast_calibration_report(
                     y_true=correct_class,
                     y_pred=y_pred,
                     show_plots=False,
@@ -551,7 +553,7 @@ class CB_EVAL_METRIC:
 
         if self.calibration_plot_period and (self.nruns % self.calibration_plot_period == 0):
             y_true = (target == class_id).astype(np.int8)
-            brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, fig = fast_calibration_report(
+            brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, *_, fig = fast_calibration_report(
                 y_true=y_true,
                 y_pred=y_pred,
                 title=f"{len(approxes[0]):_} records of class {class_id}, integral error={total_error:.4f}, nruns={self.nruns:_}\r\n",
