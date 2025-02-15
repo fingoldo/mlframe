@@ -871,13 +871,13 @@ def train_and_evaluate_model(
                 targets=train_target,
                 columns=columns,
                 df=train_df.values if model_type_name in TABNET_MODEL_TYPES else train_df,
-                model_name="TRAIN " + model_name,
+                model_name=model_name,
                 model=model,
                 target_label_encoder=target_label_encoder,
                 preds=train_preds,
                 probs=train_probs,
                 figsize=figsize,
-                report_title="",
+                report_title="TRAIN",
                 nbins=nbins,
                 print_report=print_report,
                 plot_file=plot_file + "_train" if plot_file else "",
@@ -902,18 +902,18 @@ def train_and_evaluate_model(
                 targets=val_target,
                 columns=columns,
                 df=val_df.values if model_type_name in TABNET_MODEL_TYPES else val_df,
-                model_name="VAL " + model_name,
+                model_name=model_name,
                 model=model,
                 target_label_encoder=target_label_encoder,
                 preds=val_preds,
                 probs=val_probs,
                 figsize=figsize,
-                report_title="",
+                report_title="VAL",
                 nbins=nbins,
                 print_report=print_report,
                 plot_file=plot_file + "_val" if plot_file else "",
                 show_perf_chart=show_perf_chart,
-                show_fi=show_fi and (test_df is None),
+                show_fi=show_fi and (test_idx is None and test_df is None),
                 fi_kwargs=fi_kwargs,
                 subgroups=subgroups,
                 subset_index=val_idx,
@@ -946,13 +946,13 @@ def train_and_evaluate_model(
                 targets=test_target,
                 columns=columns,
                 df=test_df,
-                model_name="TEST " + model_name,
+                model_name=model_name,
                 model=model,
                 target_label_encoder=target_label_encoder,
                 preds=test_preds,
                 probs=test_probs,
                 figsize=figsize,
-                report_title="",
+                report_title="TEST",
                 nbins=nbins,
                 print_report=print_report,
                 plot_file=plot_file + "_test" if plot_file else "",
@@ -1121,7 +1121,7 @@ def report_model_perf(
         feature_importances = plot_model_feature_importances(
             model=model,
             columns=columns,
-            model_name=(model_name + f" [{len(columns):_}F]").strip(),
+            model_name=(report_title + " " + model_name + f" [{len(columns):_}F]").strip(),
             plot_file=plot_file + "_fiplot.png" if plot_file else "",
             **fi_kwargs,
         )
@@ -1167,7 +1167,7 @@ def report_regression_model_perf(
         metrics.update(current_metrics)
 
     if print_report:
-        print(report_title)
+        print(report_title + " " + model_name)
         print(f"mean_absolute_error: {current_metrics['mean_absolute_error']:.{report_ndigits}f}")
         print(f"max_error: {current_metrics['max_error']:.{report_ndigits}f}")
         print(f"mean_absolute_percentage_error: {current_metrics['mean_absolute_percentage_error']:.{report_ndigits}f}")
@@ -1260,7 +1260,7 @@ def report_probabilistic_model_perf(
 
         y_true, y_score = (targets == class_name), probs[:, class_id]
 
-        title = model_name
+        title = report_title + " " + model_name
         if len(classes) != 2:
             title += "-" + str_class_name
 
@@ -1313,7 +1313,7 @@ def report_probabilistic_model_perf(
 
     if print_report:
 
-        print(report_title)
+        print(report_title + " " + model_name)
         print(classification_report(targets, preds, zero_division=0, digits=report_ndigits))
         print(f"ROC AUCs: {', '.join(roc_aucs)}")
         print(f"PR AUCs: {', '.join(pr_aucs)}")
