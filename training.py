@@ -1147,6 +1147,8 @@ def report_regression_model_perf(
     print_report: bool = True,
     show_perf_chart: bool = True,
     plot_file: str = "",
+    plot_marker: str = "o",
+    plot_sample_size: int = 500,
     metrics: dict = None,
 ):
     """Detailed performance report (usually on a test set)."""
@@ -1157,21 +1159,56 @@ def report_regression_model_perf(
     if isinstance(targets, pd.Series):
         targets = targets.values
 
+    MAE = mean_absolute_error(y_true=targets, y_pred=preds)
+    MaxError = max_error(y_true=targets, y_pred=preds)
+    MAPE = mean_absolute_percentage_error(y_true=targets, y_pred=preds)
+    RMSE = root_mean_squared_error(y_true=targets, y_pred=preds)
+
     current_metrics = dict(
-        mean_absolute_error=mean_absolute_error(y_true=targets, y_pred=preds),
-        max_error=max_error(y_true=targets, y_pred=preds),
-        mean_absolute_percentage_error=mean_absolute_percentage_error(y_true=targets, y_pred=preds),
-        root_mean_squared_error=root_mean_squared_error(y_true=targets, y_pred=preds),
+        MAE=MAE,
+        MaxError=MaxError,
+        MAPE=MAPE,
+        RMSE=RMSE,
     )
     if metrics is not None:
         metrics.update(current_metrics)
 
+    if show_perf_chart or plot_file:
+        title = report_title + " " + model_name
+        title += f" [{len(columns):_}F]" + "\n"
+
+        title += f" MAE={MAE:.{report_ndigits}f}"
+        title += f" RMSE={RMSE:.{report_ndigits}f}"
+        title += f" MaxError={MaxError:.{report_ndigits}f}"
+        title += f" MAPE={MAPE*100:.{report_ndigits//2}f}%"
+
+        np.random.seed(42)
+        idx = np.random.choice(np.arange(len(preds)), size=min(plot_sample_size, len(preds)), replace=False)
+        idx = idx[np.argsort(preds[idx])]
+
+        fig = plt.figure(figsize=figsize)
+        plt.scatter(preds[idx], targets[idx], marker=plot_marker, alpha=0.3)
+        plt.plot(preds[idx], preds[idx], linestyle="--", color="green", label="Perfect fit")
+
+        plt.xlabel("Predictions")
+        plt.ylabel("True values")
+        plt.title(title)
+
+        if plot_file:
+            fig.savefig(plot_file)
+
+        if show_perf_chart:
+            plt.ion()
+            plt.show()
+        else:
+            plt.close(fig)
+
     if print_report:
         print(report_title + " " + model_name)
-        print(f"mean_absolute_error: {current_metrics['mean_absolute_error']:.{report_ndigits}f}")
-        print(f"max_error: {current_metrics['max_error']:.{report_ndigits}f}")
-        print(f"mean_absolute_percentage_error: {current_metrics['mean_absolute_percentage_error']:.{report_ndigits}f}")
-        print(f"root_mean_squared_error: {current_metrics['root_mean_squared_error']:.{report_ndigits}f}")
+        print(f"MAE: {MAE:.{report_ndigits}f}")
+        print(f"RMSE: {RMSE:.{report_ndigits}f}")
+        print(f"MaxError: {MaxError:.{report_ndigits}f}")
+        print(f"MAPE: {MAPE*100:.{report_ndigits//2}f}%")
 
     if subgroups:
         robustness_report = compute_robustness_metrics(
