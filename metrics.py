@@ -296,6 +296,8 @@ def fast_calibration_report(
     nbins: int = 100,
     show_plots: bool = True,
     show_points_density_in_title: bool = False,
+    show_brier_loss_in_title: bool = True,
+    show_cmaew_in_title: bool = True,
     show_roc_auc_in_title: bool = True,
     show_pr_auc_in_title: bool = True,
     show_logloss_in_title: bool = True,
@@ -337,8 +339,11 @@ def fast_calibration_report(
     ll = log_loss(y_true=y_true, y_pred=y_pred)
 
     if plot_file or show_plots:
-        plot_title = f"ICE={ice:.{ndigits}f}, BR={brier_loss*100:.{ndigits}f}% CMAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}%±{calibration_std*100:.{ndigits}f}%"
-
+        plot_title = f"ICE={ice:.{ndigits}f}"
+        if show_brier_loss_in_title:
+            plot_title += f", BR={brier_loss*100:.{ndigits}f}%"
+        if show_cmaew_in_title:
+            plot_title += f", CMAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}%±{calibration_std*100:.{ndigits}f}%"
         if show_coverage_in_title:
             plot_title += f", COV={calibration_coverage*100:.{int(np.log10(nbins))}f}%"
         if show_roc_auc_in_title:
