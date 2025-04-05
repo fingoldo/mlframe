@@ -1272,7 +1272,7 @@ def report_probabilistic_model_perf(
     integral_errors = []
     robust_integral_errors = []
 
-    integral_error = custom_ice_metric(y_true=targets, y_score=probs)
+    integral_error = custom_ice_metric(y_true=targets, y_score=probs) if custom_ice_metric else 0.0
     if custom_rice_metric and custom_rice_metric != custom_ice_metric:
         robust_integral_error = custom_rice_metric(y_true=targets, y_score=probs)
 
@@ -1301,7 +1301,7 @@ def report_probabilistic_model_perf(
         if len(classes) != 2:
             title += "-" + str_class_name
 
-        class_integral_error = custom_ice_metric(y_true=y_true, y_score=y_score)
+        class_integral_error = custom_ice_metric(y_true=y_true, y_score=y_score) if custom_ice_metric else 0.0
         title += f" [{len(columns):_}F]" + "\n" + f" ICE={class_integral_error:.4f}"
         if custom_rice_metric and custom_rice_metric != custom_ice_metric:
             class_robust_integral_error = custom_rice_metric(y_true=y_true, y_score=y_score)
