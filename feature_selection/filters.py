@@ -22,7 +22,7 @@ while True:
         from collections import defaultdict
         from timeit import default_timer as timer
 
-        import pandas as pd, numpy as np, cupy as cp
+        import pandas as pd, numpy as np
         from itertools import combinations
         from os.path import exists
         import math
@@ -78,7 +78,7 @@ while True:
 
         from pyutilz.pythonlib import ensure_installed
 
-        ensure_installed("numba numpy pandas scipy astropy scikit-learn joblib catboost cupy psutil")  # cupy-cuda11x
+        ensure_installed("numba numpy pandas scipy astropy scikit-learn joblib catboost psutil")  # cupy-cuda11x
 
     else:
         break
@@ -648,6 +648,7 @@ def mi_direct_gpu(
     use_gpu: bool = True,
 ) -> tuple:
 
+    import cupy as cp
     classes_x, freqs_x, _ = merge_vars(factors_data=factors_data, vars_indices=x, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
     if classes_y is None:
         classes_y, freqs_y, _ = merge_vars(factors_data=factors_data, vars_indices=y, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
@@ -1498,9 +1499,11 @@ def screen_predictors(
     run_out_of_time = False
 
     if random_seed is not None:
-        np.random.seed(random_seed)
-        cp.random.seed(random_seed)
+        np.random.seed(random_seed)        
         set_numba_random_seed(random_seed)
+        try:
+            cp.random.seed(random_seed)
+        except Exception as e
 
     max_failed = int(full_npermutations * (1 - min_nonzero_confidence))
     if max_failed <= 1:
@@ -1528,6 +1531,7 @@ def screen_predictors(
     classes_y_safe = classes_y.copy()
 
     if use_gpu:
+        import cupy as cp
         classes_y_safe = cp.asarray(classes_y.astype(np.int32))
         freqs_y_safe = cp.asarray(freqs_y)
     else:
