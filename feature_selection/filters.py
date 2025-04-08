@@ -1503,7 +1503,7 @@ def screen_predictors(
         set_numba_random_seed(random_seed)
         try:
             cp.random.seed(random_seed)
-        except Exception as e
+        except Exception as e: pass
 
     max_failed = int(full_npermutations * (1 - min_nonzero_confidence))
     if max_failed <= 1:
