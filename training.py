@@ -1468,7 +1468,7 @@ def configure_training_params(
     rfecv_model_verbose: bool = True,
     prefer_cpu_for_lightgbm: bool = True,
     xgboost_verbose: Union[int, bool] = False,
-    cb_fit_params: dict = {},
+    cb_fit_params: dict = {}, # cb_fit_params=dict(embedding_features=['embeddings'])
     prefer_calibrated_classifiers: bool = True,
     **config_kwargs,
 ):
