@@ -1391,16 +1391,7 @@ def report_probabilistic_model_perf(
     return preds, probs
 
 
-def plot_model_feature_importances(
-    model: object,
-    columns: Sequence,
-    model_name: str = None,
-    num_factors: int = 40,
-    figsize: tuple = (15, 10),
-    positive_fi_only: bool = False,
-    plot_file: str = "",
-) -> np.ndarray:
-
+def get_model_feature_importances(model: object, columns: Sequence, num_factors: int = None, return_df: bool = False):
     if isinstance(model, Pipeline):
         model = model.steps[-1][1]
     if hasattr(model, "feature_importances_"):
@@ -1412,6 +1403,28 @@ def plot_model_feature_importances(
             feature_importances = model.coef_[-1, :]
     else:
         feature_importances = None
+
+    if feature_importances:
+        if num_factors:
+            feature_importances = feature_importances[:num_factors]
+
+        if return_df:
+            feature_importances = pd.DataFrame({"feature": columns, "importance": feature_importances})
+
+    return feature_importances
+
+
+def plot_model_feature_importances(
+    model: object,
+    columns: Sequence,
+    model_name: str = None,
+    num_factors: int = 40,
+    figsize: tuple = (15, 10),
+    positive_fi_only: bool = False,
+    plot_file: str = "",
+) -> np.ndarray:
+
+    feature_importances = get_model_feature_importances(model=model, columns=columns)
 
     if feature_importances is not None:
         try:
@@ -1468,7 +1481,7 @@ def configure_training_params(
     rfecv_model_verbose: bool = True,
     prefer_cpu_for_lightgbm: bool = True,
     xgboost_verbose: Union[int, bool] = False,
-    cb_fit_params: dict = {}, # cb_fit_params=dict(embedding_features=['embeddings'])
+    cb_fit_params: dict = {},  # cb_fit_params=dict(embedding_features=['embeddings'])
     prefer_calibrated_classifiers: bool = True,
     **config_kwargs,
 ):
