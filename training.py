@@ -1391,7 +1391,7 @@ def report_probabilistic_model_perf(
     return preds, probs
 
 
-def get_model_feature_importances(model: object, columns: Sequence, num_factors: int = None, return_df: bool = False):
+def get_model_feature_importances(model: object, columns: Sequence, return_df: bool = False):
     if isinstance(model, Pipeline):
         model = model.steps[-1][1]
     if hasattr(model, "feature_importances_"):
@@ -1404,9 +1404,7 @@ def get_model_feature_importances(model: object, columns: Sequence, num_factors:
     else:
         feature_importances = None
 
-    if feature_importances:
-        if num_factors:
-            feature_importances = feature_importances[:num_factors]
+    if feature_importances is not None:
 
         if return_df:
             feature_importances = pd.DataFrame({"feature": columns, "importance": feature_importances})
