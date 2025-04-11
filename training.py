@@ -854,10 +854,12 @@ def train_and_evaluate_model(
                     best_iter = get_model_best_iter(model_obj)
                     if best_iter:
                         print(f"es_best_iter: {best_iter:_}")
+                        model_name = model_name + f" @iter={best_iter:_}"
                 except Exception as e:
                     logger.warning(e)
 
     metrics = {"train": {}, "val": {}, "test": {}, "best_iter": best_iter}
+
     if compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics:
         if verbose:
             logger.info("Computing model's performance...")
@@ -1303,7 +1305,7 @@ def report_probabilistic_model_perf(
             title += "-" + str_class_name
 
         class_integral_error = custom_ice_metric(y_true=y_true, y_score=y_score) if custom_ice_metric else 0.0
-        title += f" [{len(columns):_}F]" + "\n" + f" ICE={class_integral_error:.4f}"
+        title += f" [{len(columns):_}F]"
         if custom_rice_metric and custom_rice_metric != custom_ice_metric:
             class_robust_integral_error = custom_rice_metric(y_true=y_true, y_score=y_score)
             title += f", RICE={class_robust_integral_error:.4f}"

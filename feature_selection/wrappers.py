@@ -20,6 +20,8 @@ while True:
         from os.path import exists
         import pandas as pd, numpy as np
 
+        import textwrap
+
         from pyutilz.system import tqdmu
         from pyutilz.numbalib import set_numba_random_seed
         from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
@@ -171,7 +173,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         fit_params: dict = {},
         max_nfeatures: int = None,
         mean_perf_weight: float = 1.0,
-        std_perf_weight: float = 1.0,
+        std_perf_weight: float = 0.1,
         feature_cost: float = 0.00 / 100,
         smooth_perf: int = 0,
         # stopping conditions
@@ -308,9 +310,10 @@ class RFECV(BaseEstimator, TransformerMixin):
         else:
             val_cv = None
 
+        progressbar_prefix = "RFECV iterations"
         if verbose:
             iters_pbar = tqdmu(
-                desc="RFECV iterations",
+                desc=progressbar_prefix,
                 leave=leave_progressbars,
                 total=min(len(original_features) + 1, max_refits) if max_refits else len(original_features) + 1,
             )
@@ -375,9 +378,6 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         while nsteps < len(original_features):
 
-            if verbose:
-                iters_pbar.update(1)
-
             # ----------------------------------------------------------------------------------------------------------------------------
             # Select current set of features to work on, based on ranking received so far, and the optimum search method
             # ----------------------------------------------------------------------------------------------------------------------------
@@ -402,6 +402,9 @@ class RFECV(BaseEstimator, TransformerMixin):
             if self.stop_file and exists(self.stop_file):
                 logger.warning(f"Stop file {self.stop_file} detected, quitting.")
                 break
+
+            if verbose:
+                iters_pbar.set_description(f"Cur={len(current_features):_}F, prev={{F}}, noimprov=", refresh=True)
 
             selected_features_per_nfeatures[len(current_features)] = current_features
 
@@ -457,7 +460,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     # ----------------------------------------------------------------------------------------------------------------------------
 
                     temp_cat_features = [current_features.index(var) for var in cat_features if var in current_features] if cat_features else None
-                    print(f"Val set size={len(y_val):_}")
+                    print(f"Val set size={len(y_val):_}, val idx sum={val_index.sum():_}")
                     temp_fit_params = pack_val_set_into_fit_params(
                         model=estimator,
                         X_val=X_val,
@@ -482,7 +485,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     fitted_estimator = copy.copy(estimator)
                 else:
                     fitted_estimator = copy.copy(estimator)
-                print(f"Train set size={len(y_train):_}")
+                print(f"Train set size={len(y_train):_}, train idx sum={train_index.sum():_}")
                 fitted_estimator.fit(X=X_train, y=y_train, **temp_fit_params)
 
                 score = scoring(fitted_estimator, X_test, y_test)
@@ -525,16 +528,32 @@ class RFECV(BaseEstimator, TransformerMixin):
                 if verbose:
                     logger.info(f"baseline with nfeatures=0, scores={scores_mean:.6f} ± {scores_std:.6f}")
                 if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
-                    Optimizer.submit_evaluations(candidates=[0], evaluations=[scores_mean - scores_std], durations=[None])
+                    Optimizer.submit_evaluations(
+                        candidates=[0], evaluations=[scores_mean * self.mean_perf_weight - scores_std * self.std_perf_weight], durations=[None]
+                    )
 
             scores_mean, scores_std = store_averaged_cv_scores(
                 pos=len(current_features), scores=scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std
             )
             if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
-                Optimizer.submit_evaluations(candidates=[len(current_features)], evaluations=[scores_mean - scores_std], durations=[None])
+                Optimizer.submit_evaluations(
+                    candidates=[len(current_features)], evaluations=[scores_mean * self.mean_perf_weight - scores_std * self.std_perf_weight], durations=[None]
+                )
 
                 if verbose:
-                    logger.info(f"trying nfeatures={len(current_features)}, score={scores_mean:.6f} ± {scores_std:.6f}")
+                    logger.info(
+                        f"Tried {len(current_features):_} features {textwrap.wrap (', '.join(current_features[:40]))},= score={scores_mean:.6f} ± {scores_std:.6f}"
+                    )
+
+            if verbose:
+                iters_pbar.set_description()
+                iters_pbar.update(1)
+
+            # ----------------------------------------------------------------------------------------------------------------------------
+            # Checking exit conditions
+            # ----------------------------------------------------------------------------------------------------------------------------
+
+            nsteps += 1
 
             if len(evaluated_scores_mean) == 2:
                 # only 2 cases covered currently: 0 features & all features
@@ -543,12 +562,6 @@ class RFECV(BaseEstimator, TransformerMixin):
                         f"Stopping RFECV early: performance with no features {evaluated_scores_mean[0] - evaluated_scores_std[0]:.6f} is not worse than with all features {scores_mean - scores_std:.6f}."
                     )
                     break
-
-            # ----------------------------------------------------------------------------------------------------------------------------
-            # Checking exit conditions
-            # ----------------------------------------------------------------------------------------------------------------------------
-
-            nsteps += 1
 
             if max_runtime_mins and not ran_out_of_time:
                 delta = timer() - start_time
@@ -626,7 +639,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         cv_mean_perf: np.ndarray,
         cv_std_perf: np.ndarray,
         mean_perf_weight: float = 1.0,
-        std_perf_weight: float = 1.0,
+        std_perf_weight: float = 0.1,
         feature_cost: float = 0.00 / 100,
         smooth_perf: int = 0,
         use_all_fi_runs: bool = True,
