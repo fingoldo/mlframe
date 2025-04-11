@@ -17,8 +17,8 @@ from typing import *
 from numba import njit
 from math import floor
 from scipy.special import expit
-import numpy as np, pandas as pd
 from matplotlib import pyplot as plt
+import numpy as np, pandas as pd, polars as pl
 from sklearn.metrics import log_loss, average_precision_score
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
@@ -36,6 +36,10 @@ from mlframe.stats import get_tukey_fences_multiplier_for_quantile
 
 
 def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray) -> float:
+    if isinstance(y_true, (pd.Series, pl.Series)):
+        y_true = y_true.to_numpy()
+    if isinstance(y_score, (pd.Series, pl.Series)):
+        y_score = y_score.to_numpy()
     """np.argsort needs to stay out of njitted func."""
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
@@ -293,7 +297,7 @@ def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
 def fast_calibration_report(
     y_true: np.ndarray,
     y_pred: np.ndarray,
-    nbins: int = 100,
+    nbins: int = 10,
     show_plots: bool = True,
     show_points_density_in_title: bool = False,
     show_brier_loss_in_title: bool = True,
@@ -396,7 +400,7 @@ def compute_probabilistic_multiclass_error(
     roc_auc_penalty: float = 0.00,
     use_weighted_calibration: bool = True,
     weight_by_class_npositives: bool = False,
-    nbins: int = 100,
+    nbins: int = 10,
     verbose: bool = False,
     ndigits: int = 4,
     **kwargs,  # as scorer can pass kwargs of this kind: {'needs_proba': True, 'needs_threshold': False}

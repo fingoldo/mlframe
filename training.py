@@ -292,7 +292,7 @@ def get_training_configs(
     roc_auc_penalty: float = 0.00,
     use_weighted_calibration: bool = True,
     weight_by_class_npositives: bool = False,
-    nbins: int = 100,
+    nbins: int = 10,
     cb_kwargs: dict = dict(verbose=0),
     lgb_kwargs: dict = dict(verbose=0),
     xgb_kwargs: dict = dict(verbosity=0),
@@ -588,7 +588,7 @@ def train_and_evaluate_model(
     show_fi: bool = True,
     fi_kwargs: dict = {},
     use_cache: bool = False,
-    nbins: int = 100,
+    nbins: int = 10,
     compute_trainset_metrics: bool = False,
     compute_valset_metrics: bool = True,
     compute_testset_metrics: bool = True,
@@ -627,7 +627,7 @@ def train_and_evaluate_model(
             check_for_infinity(train_df)
 
     if not custom_ice_metric:
-        custom_ice_metric = compute_probabilistic_multiclass_error
+        custom_ice_metric = compute_probabilistic_multiclass_error(nbins=nbins)
 
     ensure_dir_exists(join(data_dir, models_subdir))
     model_file_name = join(data_dir, models_subdir, f"{model_name}.dump")
@@ -1060,7 +1060,7 @@ def report_model_perf(
     probs: Optional[np.ndarray] = None,
     df: Optional[pd.DataFrame] = None,
     target_label_encoder: Optional[LabelEncoder] = None,
-    nbins: int = 100,
+    nbins: int = 10,
     print_report: bool = True,
     show_perf_chart: bool = True,
     show_fi: bool = True,
@@ -1247,7 +1247,7 @@ def report_probabilistic_model_perf(
     probs: Optional[np.ndarray] = None,
     df: Optional[pd.DataFrame] = None,
     target_label_encoder: Optional[LabelEncoder] = None,
-    nbins: int = 100,
+    nbins: int = 10,
     print_report: bool = True,
     show_perf_chart: bool = True,
     plot_file: str = "",
@@ -1469,7 +1469,7 @@ def configure_training_params(
     has_time: bool = True,
     prefer_gpu_configs: bool = True,
     use_robust_eval_metric: bool = False,
-    nbins: int = 100,
+    nbins: int = 10,
     use_regression: bool = False,
     cont_nbins: int = 6,
     max_runtime_mins: float = 60 * 2,
@@ -1481,6 +1481,8 @@ def configure_training_params(
     xgboost_verbose: Union[int, bool] = False,
     cb_fit_params: dict = {},  # cb_fit_params=dict(embedding_features=['embeddings'])
     prefer_calibrated_classifiers: bool = True,
+    default_regression_scoring: dict = dict(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False),
+    default_classification_scoring: dict = dict(score_func=fast_roc_auc, needs_proba=True, needs_threshold=False, greater_is_better=True),
     **config_kwargs,
 ):
     for next_df in (df, train_df):
@@ -1581,9 +1583,24 @@ def configure_training_params(
         )
 
     params = configs.COMMON_RFECV_PARAMS.copy()
-    params["max_runtime_mins"] = max_runtime_mins
-    params["max_noimproving_iters"] = max_noimproving_iters
-    params["min_train_size"] = min_train_size
+    params.update({"max_runtime_mins": max_runtime_mins, "max_noimproving_iters": max_noimproving_iters, "min_train_size": min_train_size})
+
+    # ----------------------------------------------------------------------------------------------------------------------------------------------------
+    # Setting up RFECV
+    # ----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    if use_regression:
+        rfecv_scoring = make_scorer(**default_regression_scoring)
+    else:
+        if prefer_calibrated_classifiers:
+            rfecv_scoring = make_scorer(
+                score_func=partial(configs.fs_and_hpt_integral_calibration_error, verbose=rfecv_model_verbose),
+                needs_proba=True,
+                needs_threshold=False,
+                greater_is_better=False,
+            )
+        else:
+            rfecv_scoring = make_scorer(**default_classification_scoring)
 
     cb_rfecv = RFECV(
         estimator=(
@@ -1593,34 +1610,16 @@ def configure_training_params(
         ),
         fit_params=dict(plot=rfecv_model_verbose),
         cat_features=cat_features,
-        scoring=(
-            make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
-            if use_regression
-            else make_scorer(
-                score_func=partial(configs.fs_and_hpt_integral_calibration_error, verbose=rfecv_model_verbose),
-                needs_proba=True,
-                needs_threshold=False,
-                greater_is_better=False,
-            )
-        ),
+        scoring=rfecv_scoring,
         **params,
     )
 
     if prefer_cpu_for_lightgbm:
         lgb_rfecv = RFECV(
             estimator=LGBMRegressor(**cpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**cpu_configs.LGB_GENERAL_PARAMS),
-            fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}),
+            fit_params=dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {},
             cat_features=cat_features,
-            scoring=(
-                make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
-                if use_regression
-                else make_scorer(
-                    score_func=partial(configs.fs_and_hpt_integral_calibration_error, verbose=rfecv_model_verbose),
-                    needs_proba=True,
-                    needs_threshold=False,
-                    greater_is_better=False,
-                )
-            ),
+            scoring=rfecv_scoring,
             **params,
         )
     else:
@@ -1628,16 +1627,7 @@ def configure_training_params(
             estimator=LGBMRegressor(**configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
             fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}),
             cat_features=cat_features,
-            scoring=(
-                make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
-                if use_regression
-                else make_scorer(
-                    score_func=partial(configs.fs_and_hpt_integral_calibration_error, verbose=rfecv_model_verbose),
-                    needs_proba=True,
-                    needs_threshold=False,
-                    greater_is_better=False,
-                )
-            ),
+            scoring=rfecv_scoring,
             **params,
         )
 
@@ -1649,16 +1639,7 @@ def configure_training_params(
         ),
         fit_params=dict(verbose=False),
         cat_features=cat_features,
-        scoring=(
-            make_scorer(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
-            if use_regression
-            else make_scorer(
-                score_func=partial(configs.fs_and_hpt_integral_calibration_error, verbose=rfecv_model_verbose),
-                needs_proba=True,
-                needs_threshold=False,
-                greater_is_better=False,
-            )
-        ),
+        scoring=rfecv_scoring,
         **params,
     )
 
@@ -1707,7 +1688,7 @@ def post_calibrate_model(
             preds=val_preds,
             probs=val_probs,
             report_title="",
-            nbins=10,
+            nbins=nbins,
             print_report=False,
             show_fi=False,
             custom_ice_metric=configs.integral_calibration_error,
@@ -1722,7 +1703,7 @@ def post_calibrate_model(
             preds=val_preds,
             probs=meta_val_probs,
             report_title="",
-            nbins=10,
+            nbins=nbins,
             print_report=False,
             show_fi=False,
             custom_ice_metric=configs.integral_calibration_error,
@@ -1740,7 +1721,7 @@ def post_calibrate_model(
         preds=test_preds,
         probs=test_probs,
         report_title="",
-        nbins=10,
+        nbins=nbins,
         print_report=False,
         show_fi=False,
         custom_ice_metric=configs.integral_calibration_error,
@@ -1756,7 +1737,7 @@ def post_calibrate_model(
         preds=(meta_test_probs[calib_set_size:, 1] > 0.5).astype(int),
         probs=meta_test_probs[calib_set_size:, :],
         report_title="",
-        nbins=10,
+        nbins=nbins,
         print_report=True,
         show_fi=False,
         custom_ice_metric=configs.integral_calibration_error,
@@ -1772,7 +1753,7 @@ def post_calibrate_model(
         preds=(meta_test_probs[:calib_set_size:, 1] > 0.5).astype(int),
         probs=meta_test_probs[:calib_set_size, :],
         report_title="",
-        nbins=10,
+        nbins=nbins,
         print_report=True,
         show_fi=False,
         custom_ice_metric=configs.integral_calibration_error,
