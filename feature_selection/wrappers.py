@@ -23,9 +23,10 @@ while True:
 
         import textwrap
 
+        from ..config import *
         from pyutilz.system import tqdmu
         from pyutilz.numbalib import set_numba_random_seed
-        from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
+        from pyutilz.pythonlib import store_params_in_object, get_parent_func_args, suppress_stdout_stderr
 
         from mlframe.config import *
         from mlframe.optimization import *
@@ -72,6 +73,7 @@ while True:
 # Inits
 # ----------------------------------------------------------------------------------------------------------------------------
 
+
 class OptimumSearch(str, Enum):
     ScipyLocal = "ScipyLocal"  # Brent
     ScipyGlobal = "ScipyGlobal"  # direct, diff evol, shgo
@@ -90,23 +92,23 @@ class VotesAggregation(str, Enum):
     AM = "AM"
     GM = "GM"
 
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------------------------------------------------------------
 
-def supress_irritating_3rdparty_warnings()->None:
 
-    for message in [r"Can't optimze method \"evaluate\" because self argument is used",r"Default metric period is 5 because PythonUserDefinedPerObject is/are not implemented for GPU"]
+def supress_irritating_3rdparty_warnings() -> None:
+
+    for message in [r"Can't optimze method \"evaluate\" because self argument is used"]:
         # Filter out the specific warning message using a substring or regex pattern.
-        warnings.filterwarnings(
-            "ignore",
-            category=UserWarning,
-            message=message
-        )    
+        warnings.filterwarnings("ignore", category=UserWarning, message=message)
+
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Core
 # ----------------------------------------------------------------------------------------------------------------------------
+
 
 class RFECV(BaseEstimator, TransformerMixin):
     """Finds subset of features having best CV score, by iterative narrowing down set of top_n candidates having highest importance, as per estimator's FI scores.
@@ -329,13 +331,12 @@ class RFECV(BaseEstimator, TransformerMixin):
         else:
             val_cv = None
 
-        progressbar_prefix = "RFECV iterations"
-        if verbose:
-            iters_pbar = tqdmu(
-                desc=progressbar_prefix,
-                leave=leave_progressbars,
-                total=min(len(original_features) + 1, max_refits) if max_refits else len(original_features) + 1,
-            )
+        progressbar_prefix = "RFECV:"
+        iters_pbar = tqdmu(
+            desc=progressbar_prefix,
+            leave=leave_progressbars,
+            total=min(len(original_features) + 1, max_refits) if max_refits else len(original_features) + 1,
+        )
 
         supress_irritating_3rdparty_warnings()
 
@@ -428,14 +429,13 @@ class RFECV(BaseEstimator, TransformerMixin):
                 logger.warning(f"Stop file {self.stop_file} detected, quitting.")
                 break
 
-            if verbose:
-                desc = f"Trying {len(current_features):_}F"
-                if nsteps > 0:
-                    desc += f", had {prev_nfeatures:_}F with score {prev_score:.{ndigits}f}, best was {best_nfeatures:_}F with score {best_score:.{ndigits}f} @iter={best_iter:_} "
-                iters_pbar.set_description(
-                    desc,
-                    refresh=True,
-                )
+            desc = f"{progressbar_prefix} trying {len(current_features):_}F"
+            if nsteps > 0:
+                desc += f", had {prev_nfeatures:_}F with score {prev_score:.{ndigits}f}, best was {best_nfeatures:_}F with score {best_score:.{ndigits}f} @iter={best_iter:_} "
+            iters_pbar.set_description(
+                desc,
+                refresh=True,
+            )
 
             selected_features_per_nfeatures[len(current_features)] = current_features
 
@@ -521,7 +521,10 @@ class RFECV(BaseEstimator, TransformerMixin):
                 else:
                     fitted_estimator = copy.copy(estimator)
 
-                fitted_estimator.fit(X=X_train, y=y_train, **temp_fit_params)
+                model_type_name = type(fitted_estimator).__name__ if fitted_estimator is not None else ""
+                ctx = suppress_stdout_stderr() if model_type_name in CATBOOST_MODEL_TYPES else nullcontext()
+                with ctx:
+                    fitted_estimator.fit(X=X_train, y=y_train, **temp_fit_params)
 
                 score = scoring(fitted_estimator, X_test, y_test)
                 scores.append(score)
@@ -582,9 +585,8 @@ class RFECV(BaseEstimator, TransformerMixin):
                         f"Tried {len(current_features):_} features ({textwrap.shorten (', '.join(current_features[:40]),150)}), score={scores_mean:.{ndigits}f} ± {scores_std:.{ndigits}f} ~ {final_score:.{ndigits}f}"
                     )
 
-            if verbose:
-                prev_nfeatures, prev_score = len(current_features), final_score
-                iters_pbar.update(1)
+            prev_nfeatures, prev_score = len(current_features), final_score
+            iters_pbar.update(1)
 
             # ----------------------------------------------------------------------------------------------------------------------------
             # Checking exit conditions
