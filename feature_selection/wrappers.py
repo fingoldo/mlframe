@@ -560,7 +560,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
                 if verbose:
                     print(
-                        f"Tried {len(current_features):_} features ({textwrap.shorten (', '.join(current_features[:40]),30)}), score={scores_mean:.{ndigits}f} ± {scores_std:.{ndigits}f} ~ {final_score:.{ndigits}f}"
+                        f"Tried {len(current_features):_} features ({textwrap.shorten (', '.join(current_features[:40]),150)}), score={scores_mean:.{ndigits}f} ± {scores_std:.{ndigits}f} ~ {final_score:.{ndigits}f}"
                     )
 
             if verbose:
