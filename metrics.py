@@ -294,6 +294,63 @@ def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     )
 
 
+def fast_aucs(y_true: np.ndarray, y_score: np.ndarray) -> tuple[float, float]:
+    """Compute both ROC AUC and PR AUC efficiently."""
+    if y_score.ndim == 2:
+        y_score = y_score[:, -1]
+    desc_score_indices = np.argsort(y_score)[::-1]
+    return fast_numba_aucs(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
+
+
+@njit()
+def fast_numba_aucs(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices: np.ndarray) -> tuple[float, float]:
+    y_score_sorted = y_score[desc_score_indices]
+    y_true_sorted = y_true[desc_score_indices]
+
+    total_pos = np.sum(y_true_sorted)
+    if total_pos == 0:
+        return 0.0, 0.0
+
+    # Variables for ROC AUC
+    last_counted_fps = 0
+    last_counted_tps = 0
+    tps, fps = 0, 0
+    roc_auc = 0.0
+
+    # Variables for PR AUC (aligned with sklearn's step-wise Riemann sum)
+    prev_recall = 0.0
+    pr_auc = 0.0
+
+    n = len(y_true_sorted)
+    for i in range(n):
+        tps += y_true_sorted[i]
+        fps += 1 - y_true_sorted[i]
+
+        if i == n - 1 or y_score_sorted[i + 1] != y_score_sorted[i]:
+            # Update ROC AUC
+            delta_fps = fps - last_counted_fps
+            sum_tps = last_counted_tps + tps
+            roc_auc += delta_fps * sum_tps
+            last_counted_fps = fps
+            last_counted_tps = tps
+
+            # Update PR AUC (key change: use current_precision instead of average)
+            current_precision = tps / (tps + fps) if (tps + fps) > 0 else 0.0
+            current_recall = tps / total_pos
+            delta_recall = current_recall - prev_recall
+            pr_auc += delta_recall * current_precision  # Riemann sum
+            prev_recall = current_recall
+
+    # Normalize ROC AUC
+    denom_roc = tps * fps * 2
+    if denom_roc > 0:
+        roc_auc /= denom_roc
+    else:
+        roc_auc = 0.0
+
+    return roc_auc, pr_auc
+
+
 def fast_calibration_report(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -331,7 +388,10 @@ def fast_calibration_report(
     )
 
     fig = None
-    roc_auc, pr_auc = fast_roc_auc(y_true=y_true, y_score=y_pred), average_precision_score(y_true=y_true, y_score=y_pred)
+
+    # roc_auc, pr_auc = fast_roc_auc(y_true=y_true, y_score=y_pred), average_precision_score(y_true=y_true, y_score=y_pred)
+    roc_auc, pr_auc = fast_aucs(y_true=y_true, y_score=y_pred)
+
     ice = integral_calibration_error_from_metrics(
         calibration_mae=calibration_mae,
         calibration_std=calibration_std,

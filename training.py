@@ -28,8 +28,8 @@ from types import SimpleNamespace
 from collections import defaultdict
 
 from timeit import default_timer as timer
-from pyutilz.pythonlib import prefix_dict_elems
 from pyutilz.system import ensure_dir_exists, tqdmu
+from pyutilz.pythonlib import prefix_dict_elems, get_human_readable_set_size
 
 from mlframe.helpers import get_model_best_iter, check_for_infinity
 
@@ -848,6 +848,8 @@ def train_and_evaluate_model(
             model.fit(train_df, train_target, **fit_params)
             clean_ram()
 
+            model_name = model_name + f" {get_human_readable_set_size(len(train_df))}TR"
+
             if model is not None:
                 # get number of the best iteration
                 try:
@@ -1124,7 +1126,7 @@ def report_model_perf(
         feature_importances = plot_model_feature_importances(
             model=model,
             columns=columns,
-            model_name=(report_title + " " + model_name + f" [{len(columns):_}F]").strip(),
+            model_name=(report_title + " " + model_name + f" [{len(columns):_}F on {get_human_readable_set_size(df)}R]").strip(),
             plot_file=plot_file + "_fiplot.png" if plot_file else "",
             **fi_kwargs,
         )
@@ -1178,7 +1180,7 @@ def report_regression_model_perf(
 
     if show_perf_chart or plot_file:
         title = report_title + " " + model_name
-        title += f" [{len(columns):_}F]" + "\n"
+        title += f" [{len(columns):_}F on {get_human_readable_set_size(df)}R]" + "\n"
 
         title += f" MAE={MAE:.{report_ndigits}f}"
         title += f" RMSE={RMSE:.{report_ndigits}f}"
@@ -1305,7 +1307,7 @@ def report_probabilistic_model_perf(
             title += "-" + str_class_name
 
         class_integral_error = custom_ice_metric(y_true=y_true, y_score=y_score) if custom_ice_metric else 0.0
-        title += f" [{len(columns):_}F]"
+        title += f" [{len(columns):_}F on {get_human_readable_set_size(df)}R]"
         if custom_rice_metric and custom_rice_metric != custom_ice_metric:
             class_robust_integral_error = custom_rice_metric(y_true=y_true, y_score=y_score)
             title += f", RICE={class_robust_integral_error:.4f}"

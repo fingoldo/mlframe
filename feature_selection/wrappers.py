@@ -672,8 +672,6 @@ class RFECV(BaseEstimator, TransformerMixin):
         checked_nfeatures: np.ndarray,
         cv_mean_perf: np.ndarray,
         cv_std_perf: np.ndarray,
-        mean_perf_weight: float = 1.0,
-        std_perf_weight: float = 0.1,
         feature_cost: float = 0.00 / 100,
         smooth_perf: int = 0,
         use_all_fi_runs: bool = True,
