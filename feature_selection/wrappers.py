@@ -17,6 +17,7 @@ while True:
 
         from typing import *
 
+        import warnings
         from os.path import exists
         import pandas as pd, numpy as np
 
@@ -71,7 +72,6 @@ while True:
 # Inits
 # ----------------------------------------------------------------------------------------------------------------------------
 
-
 class OptimumSearch(str, Enum):
     ScipyLocal = "ScipyLocal"  # Brent
     ScipyGlobal = "ScipyGlobal"  # direct, diff evol, shgo
@@ -90,6 +90,23 @@ class VotesAggregation(str, Enum):
     AM = "AM"
     GM = "GM"
 
+# ----------------------------------------------------------------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------------------------------------------------------------
+
+def supress_irritating_3rdparty_warnings()->None:
+
+    for message in [r"Can't optimze method \"evaluate\" because self argument is used",r"Default metric period is 5 because PythonUserDefinedPerObject is/are not implemented for GPU"]
+        # Filter out the specific warning message using a substring or regex pattern.
+        warnings.filterwarnings(
+            "ignore",
+            category=UserWarning,
+            message=message
+        )    
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Core
+# ----------------------------------------------------------------------------------------------------------------------------
 
 class RFECV(BaseEstimator, TransformerMixin):
     """Finds subset of features having best CV score, by iterative narrowing down set of top_n candidates having highest importance, as per estimator's FI scores.
@@ -319,6 +336,8 @@ class RFECV(BaseEstimator, TransformerMixin):
                 leave=leave_progressbars,
                 total=min(len(original_features) + 1, max_refits) if max_refits else len(original_features) + 1,
             )
+
+        supress_irritating_3rdparty_warnings()
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Init scoring
