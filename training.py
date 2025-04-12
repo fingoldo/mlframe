@@ -1584,8 +1584,10 @@ def configure_training_params(
             fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}),
         )
 
-    params = configs.COMMON_RFECV_PARAMS.copy()
-    params.update({"max_runtime_mins": max_runtime_mins, "max_noimproving_iters": max_noimproving_iters, "min_train_size": min_train_size})
+    rfecv_params = configs.COMMON_RFECV_PARAMS.copy()
+    rfecv_params.update(
+        {"max_runtime_mins": max_runtime_mins, "max_noimproving_iters": max_noimproving_iters, "min_train_size": min_train_size, "verbose": rfecv_model_verbose}
+    )
 
     # ----------------------------------------------------------------------------------------------------------------------------------------------------
     # Setting up RFECV
@@ -1596,7 +1598,7 @@ def configure_training_params(
     else:
         if prefer_calibrated_classifiers:
             rfecv_scoring = make_scorer(
-                score_func=partial(configs.fs_and_hpt_integral_calibration_error, verbose=rfecv_model_verbose),
+                score_func=partial(configs.fs_and_hpt_integral_calibration_error, verbose=0),
                 needs_proba=True,
                 needs_threshold=False,
                 greater_is_better=False,
@@ -1610,10 +1612,10 @@ def configure_training_params(
             if use_regression
             else CatBoostClassifier(**(configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.CB_CLASSIF))
         ),
-        fit_params=dict(plot=rfecv_model_verbose),
+        fit_params=dict(plot=rfecv_model_verbose > 1),
         cat_features=cat_features,
         scoring=rfecv_scoring,
-        **params,
+        **rfecv_params,
     )
 
     if prefer_cpu_for_lightgbm:
@@ -1622,7 +1624,7 @@ def configure_training_params(
             fit_params=dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {},
             cat_features=cat_features,
             scoring=rfecv_scoring,
-            **params,
+            **rfecv_params,
         )
     else:
         lgb_rfecv = RFECV(
@@ -1630,7 +1632,7 @@ def configure_training_params(
             fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}),
             cat_features=cat_features,
             scoring=rfecv_scoring,
-            **params,
+            **rfecv_params,
         )
 
     xgb_rfecv = RFECV(
@@ -1642,7 +1644,7 @@ def configure_training_params(
         fit_params=dict(verbose=False),
         cat_features=cat_features,
         scoring=rfecv_scoring,
-        **params,
+        **rfecv_params,
     )
 
     return common_params, common_cb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs

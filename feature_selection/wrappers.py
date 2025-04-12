@@ -208,6 +208,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         frac: float = None,
         skip_retraining_on_same_shape: bool = False,
         stop_file: str = "stop",
+        report_ndigits: int = 4,
     ):
 
         # checks
@@ -266,6 +267,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         frac = self.frac
         best_desired_score = self.best_desired_score
         max_noimproving_iters = self.max_noimproving_iters
+        ndigits = self.report_ndigits
 
         start_time = timer()
         ran_out_of_time = False
@@ -331,6 +333,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 scoring = make_scorer(score_func=mean_squared_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
             else:
                 raise ValueError(f"Appropriate scoring not known for estimator type: {estimator}")
+            self.scoring = scoring
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Init importance_getter
@@ -373,7 +376,10 @@ class RFECV(BaseEstimator, TransformerMixin):
         else:
             Optimizer = None
 
+        prev_score, prev_nfeatures = 0.0, 0
         n_noimproving_iters = 0
+        best_nfeatures = 0
+        best_iter = 0
         best_score = -1e6
 
         while nsteps < len(original_features):
@@ -404,7 +410,13 @@ class RFECV(BaseEstimator, TransformerMixin):
                 break
 
             if verbose:
-                iters_pbar.set_description(f"Cur={len(current_features):_}F, prev={{F}}, noimprov=", refresh=True)
+                desc = f"Trying {len(current_features):_}F"
+                if nsteps > 0:
+                    desc += f", had {prev_nfeatures:_}F with score {prev_score:.{ndigits}f}, best was {best_nfeatures:_}F with score {best_score:.{ndigits}f} @iter={best_iter:_} "
+                iters_pbar.set_description(
+                    desc,
+                    refresh=True,
+                )
 
             selected_features_per_nfeatures[len(current_features)] = current_features
 
@@ -435,6 +447,8 @@ class RFECV(BaseEstimator, TransformerMixin):
                 X_train, y_train, X_test, y_test = split_into_train_test(
                     X=X, y=y, train_index=train_index, test_index=test_index, features_indices=current_features
                 )  # this splits both dataframes & ndarrays in the same fashion
+                if verbose:
+                    print(f"Train set size={len(y_train):_}, train idx sum={train_index.sum():_}")
 
                 if val_cv and has_early_stopping_support(estimator_type):
 
@@ -454,13 +468,15 @@ class RFECV(BaseEstimator, TransformerMixin):
                         pass  # need only 1 last iteration of 2nd split
 
                     X_train, y_train, X_val, y_val = split_into_train_test(X=X_train, y=y_train, train_index=true_train_index, test_index=val_index)
+                    if verbose:
+                        print(f"Val set size={len(y_val):_}, val idx sum={val_index.sum():_}")
 
                     # ----------------------------------------------------------------------------------------------------------------------------
                     # If estimator is known, apply early stopping to its fit params
                     # ----------------------------------------------------------------------------------------------------------------------------
 
                     temp_cat_features = [current_features.index(var) for var in cat_features if var in current_features] if cat_features else None
-                    print(f"Val set size={len(y_val):_}, val idx sum={val_index.sum():_}")
+
                     temp_fit_params = pack_val_set_into_fit_params(
                         model=estimator,
                         X_val=X_val,
@@ -485,7 +501,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     fitted_estimator = copy.copy(estimator)
                 else:
                     fitted_estimator = copy.copy(estimator)
-                print(f"Train set size={len(y_train):_}, train idx sum={train_index.sum():_}")
+
                 fitted_estimator.fit(X=X_train, y=y_train, **temp_fit_params)
 
                 score = scoring(fitted_estimator, X_test, y_test)
@@ -522,31 +538,33 @@ class RFECV(BaseEstimator, TransformerMixin):
                         # print(f"Best dummy score (at 0 features, fold {nfold}): {best_dummy_score}")
 
             if 0 not in evaluated_scores_mean:
-                scores_mean, scores_std = store_averaged_cv_scores(
-                    pos=0, scores=dummy_scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std
+                scores_mean, scores_std, final_score = store_averaged_cv_scores(
+                    pos=0, scores=dummy_scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std, self=self
                 )
+                nofeatures_score = final_score
                 if verbose:
-                    logger.info(f"baseline with nfeatures=0, scores={scores_mean:.6f} ± {scores_std:.6f}")
+                    print(f"Baseline with 0 features, score={scores_mean:.{ndigits}f} ± {scores_std:.{ndigits}f} ~ {final_score:.{ndigits}f}")
                 if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
-                    Optimizer.submit_evaluations(
-                        candidates=[0], evaluations=[scores_mean * self.mean_perf_weight - scores_std * self.std_perf_weight], durations=[None]
-                    )
+                    Optimizer.submit_evaluations(candidates=[0], evaluations=[final_score], durations=[None])
 
-            scores_mean, scores_std = store_averaged_cv_scores(
-                pos=len(current_features), scores=scores, evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std
+            scores_mean, scores_std, final_score = store_averaged_cv_scores(
+                pos=len(current_features),
+                scores=scores,
+                evaluated_scores_mean=evaluated_scores_mean,
+                evaluated_scores_std=evaluated_scores_std,
+                self=self,
             )
+
             if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
-                Optimizer.submit_evaluations(
-                    candidates=[len(current_features)], evaluations=[scores_mean * self.mean_perf_weight - scores_std * self.std_perf_weight], durations=[None]
-                )
+                Optimizer.submit_evaluations(candidates=[len(current_features)], evaluations=[final_score], durations=[None])
 
                 if verbose:
-                    logger.info(
-                        f"Tried {len(current_features):_} features {textwrap.wrap (', '.join(current_features[:40]))},= score={scores_mean:.6f} ± {scores_std:.6f}"
+                    print(
+                        f"Tried {len(current_features):_} features ({textwrap.shorten (', '.join(current_features[:40]),30)}), score={scores_mean:.{ndigits}f} ± {scores_std:.{ndigits}f} ~ {final_score:.{ndigits}f}"
                     )
 
             if verbose:
-                iters_pbar.set_description()
+                prev_nfeatures, prev_score = len(current_features), final_score
                 iters_pbar.update(1)
 
             # ----------------------------------------------------------------------------------------------------------------------------
@@ -557,9 +575,9 @@ class RFECV(BaseEstimator, TransformerMixin):
 
             if len(evaluated_scores_mean) == 2:
                 # only 2 cases covered currently: 0 features & all features
-                if evaluated_scores_mean[0] - evaluated_scores_std[0] > scores_mean - scores_std:
-                    logger.info(
-                        f"Stopping RFECV early: performance with no features {evaluated_scores_mean[0] - evaluated_scores_std[0]:.6f} is not worse than with all features {scores_mean - scores_std:.6f}."
+                if final_score < nofeatures_score:
+                    print(
+                        f"Stopping RFECV early: performance with no features {nofeatures_score:.{ndigits}f} is not worse than with all features {final_score:.{ndigits}f}."
                     )
                     break
 
@@ -576,21 +594,18 @@ class RFECV(BaseEstimator, TransformerMixin):
                     logger.info(f"max_refits={max_refits:_} reached.")
                 break
 
-            if scores_mean >= best_score:
-                best_score = scores_mean
+            if final_score > best_score:
+                best_score = final_score
+                best_iter = nsteps
+                best_nfeatures = len(current_features)
                 n_noimproving_iters = 0
             else:
                 n_noimproving_iters += 1
 
-            if best_desired_score is not None and scores_mean >= best_desired_score:
+            if best_desired_score is not None and final_score > best_desired_score:
                 if verbose:
-                    logger.info(f"best_desired_score {best_desired_score:_.6f} reached.")
+                    logger.info(f"best_desired_score {best_desired_score:_.{ndigits}f} reached.")
                 break
-
-                if best_desired_score is not None and scores_mean <= best_desired_score:
-                    if verbose:
-                        logger.info(f"best_desired_score {best_desired_score:_.6f} reached.")
-                    break
 
             if max_noimproving_iters and n_noimproving_iters >= max_noimproving_iters:
                 if verbose:
@@ -617,8 +632,6 @@ class RFECV(BaseEstimator, TransformerMixin):
             checked_nfeatures=checked_nfeatures,
             cv_mean_perf=cv_mean_perf,
             cv_std_perf=cv_std_perf,
-            mean_perf_weight=self.mean_perf_weight,
-            std_perf_weight=self.std_perf_weight,
             feature_cost=feature_cost,
             smooth_perf=smooth_perf,
             use_all_fi_runs=use_all_fi_runs,
@@ -654,7 +667,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         figsize: tuple = (10, 7),
     ):
 
-        base_perf = np.array(cv_mean_perf) * mean_perf_weight - np.array(cv_std_perf) * std_perf_weight
+        base_perf = np.array(cv_mean_perf) * self.mean_perf_weight - np.array(cv_std_perf) * self.std_perf_weight
         if smooth_perf:
             smoothed_perf = pd.Series(base_perf).rolling(smooth_perf, center=True).mean().values
             idx = np.isnan(smoothed_perf)
@@ -761,15 +774,16 @@ def split_into_train_test(
     return X_train, y_train, X_test, y_test
 
 
-def store_averaged_cv_scores(pos: int, scores: list, evaluated_scores_mean: dict, evaluated_scores_std: dict) -> None:
+def store_averaged_cv_scores(pos: int, scores: list, evaluated_scores_mean: dict, evaluated_scores_std: dict, self: object) -> None:
 
     scores = np.array(scores)
     scores_mean, scores_std = np.mean(scores), np.std(scores)
+    final_score = scores_mean * self.mean_perf_weight - scores_std * self.std_perf_weight
 
     evaluated_scores_mean[pos] = scores_mean
     evaluated_scores_std[pos] = scores_std
 
-    return scores_mean, scores_std
+    return scores_mean, scores_std, final_score
 
 
 def get_feature_importances(
