@@ -31,7 +31,7 @@ from timeit import default_timer as timer
 from pyutilz.system import ensure_dir_exists, tqdmu
 from pyutilz.pythonlib import prefix_dict_elems, get_human_readable_set_size
 
-from mlframe.helpers import get_model_best_iter, check_for_infinity
+from mlframe.helpers import get_model_best_iter, ensure_no_infinity
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Filesystem
@@ -621,10 +621,10 @@ def train_and_evaluate_model(
     best_iter = None
 
     if df is not None:
-        check_for_infinity(df)
+        ensure_no_infinity(df)
     else:
         if train_df is not None:
-            check_for_infinity(train_df)
+            ensure_no_infinity(train_df)
 
     if not custom_ice_metric:
         custom_ice_metric = compute_probabilistic_multiclass_error(nbins=nbins)
@@ -662,20 +662,25 @@ def train_and_evaluate_model(
     train_od_idx, val_od_idx = None, None
 
     if train_target is None:
-        train_target = target.loc[train_idx]
+        train_target = target.loc[train_idx] if isinstance(target, pd.Series) else target.gather(train_idx)
     if val_target is None and val_idx is not None:
-        val_target = target.loc[val_idx]
+        val_target = target.loc[val_idx] if isinstance(target, pd.Series) else target.gather(val_idx)
     if test_target is None and test_idx is not None:
-        test_target = target.loc[test_idx]
+        test_target = target.loc[test_idx] if isinstance(target, pd.Series) else target.gather(test_idx)
 
     if (df is not None) or (train_df is not None):
+        if isinstance(df, pd.DataFrame):
+            if train_df is None:
+                train_df = df.loc[train_idx].drop(columns=real_drop_columns)
+            if val_df is None and val_idx is not None:
+                val_df = df.loc[val_idx].drop(columns=real_drop_columns)
+        elif isinstance(df, pl.DataFrame):
+            if train_df is None:
+                train_df = df[train_idx].drop(real_drop_columns)
+            if val_df is None and val_idx is not None:
+                val_df = df[val_idx].drop(real_drop_columns)
 
-        if train_df is None:
-            train_df = df.loc[train_idx].drop(columns=real_drop_columns)
-        if val_df is None and val_idx is not None:
-            val_df = df.loc[val_idx].drop(columns=real_drop_columns)
-
-        if not trainset_features_stats:
+        if not trainset_features_stats and isinstance(train_df, pd.DataFrame):
             if verbose:
                 logger.info("Computing trainset_features_stats...")
             trainset_features_stats = get_trainset_features_stats(train_df)
@@ -745,9 +750,12 @@ def train_and_evaluate_model(
 
     if model is not None and fit_params:
         if "cat_features" in fit_params:
-            fit_params["cat_features"] = [
-                col for col in fit_params["cat_features"] if col in train_df.head(5).select_dtypes(["category", "object"]).columns.tolist()
-            ]
+            if isinstance(train_df, pd.DataFrame):
+                fit_params["cat_features"] = [
+                    col for col in fit_params["cat_features"] if col in train_df.head(5).select_dtypes(["category", "object"]).columns
+                ]
+            elif isinstance(train_df, pl.DataFrame):
+                fit_params["cat_features"] = [col for col in fit_params["cat_features"] if col in train_df.head(5).select(pl.col(pl.Categorical)).columns]
 
     if model is not None:
         if (not use_cache) or (not exists(model_file_name)):
@@ -848,7 +856,7 @@ def train_and_evaluate_model(
             model.fit(train_df, train_target, **fit_params)
             clean_ram()
 
-            model_name = model_name + f" {get_human_readable_set_size(len(train_df))}TR"
+            model_name = model_name + f" {get_human_readable_set_size(len(train_df))}tr"
 
             if model is not None:
                 # get number of the best iteration
@@ -934,9 +942,13 @@ def train_and_evaluate_model(
                 clean_ram()
 
                 if test_df is None:
-                    test_df = df.loc[test_idx].drop(columns=real_drop_columns)
+                    if isinstance(df, pd.DataFrame):
+                        test_df = df.loc[test_idx].drop(columns=real_drop_columns)
+                    elif isinstance(df, pl.DataFrame):
+                        test_df = df[test_idx].drop(real_drop_columns)
+
                 if test_target is None:
-                    test_target = target.loc[test_idx]
+                    test_target = target.loc[test_idx] if isinstance(target, pd.Series) else target.gather(test_idx)
 
                 if model is not None and pre_pipeline:
                     test_df = pre_pipeline.transform(test_df)
@@ -1126,7 +1138,7 @@ def report_model_perf(
         feature_importances = plot_model_feature_importances(
             model=model,
             columns=columns,
-            model_name=(report_title + " " + model_name + f" [{len(columns):_}F on {get_human_readable_set_size(df)}R]").strip(),
+            model_name=(report_title + " " + model_name + f" [{len(columns):_}F/{get_human_readable_set_size(len(df))}r]").strip(),
             plot_file=plot_file + "_fiplot.png" if plot_file else "",
             **fi_kwargs,
         )
@@ -1180,7 +1192,7 @@ def report_regression_model_perf(
 
     if show_perf_chart or plot_file:
         title = report_title + " " + model_name
-        title += f" [{len(columns):_}F on {get_human_readable_set_size(df)}R]" + "\n"
+        title += f" [{len(columns):_}F/{get_human_readable_set_size(df)}r]" + "\n"
 
         title += f" MAE={MAE:.{report_ndigits}f}"
         title += f" RMSE={RMSE:.{report_ndigits}f}"
@@ -1301,13 +1313,15 @@ def report_probabilistic_model_perf(
             continue
 
         y_true, y_score = (targets == class_name), probs[:, class_id]
+        if isinstance(y_true, pl.Series):
+            y_true = y_true.to_numpy()
 
         title = report_title + " " + model_name
         if len(classes) != 2:
             title += "-" + str_class_name
 
         class_integral_error = custom_ice_metric(y_true=y_true, y_score=y_score) if custom_ice_metric else 0.0
-        title += f" [{len(columns):_}F on {get_human_readable_set_size(df)}R]"
+        title += f" [{len(columns):_}F/{get_human_readable_set_size(len(df))}r]"
         if custom_rice_metric and custom_rice_metric != custom_ice_metric:
             class_robust_integral_error = custom_rice_metric(y_true=y_true, y_score=y_score)
             title += f", RICE={class_robust_integral_error:.4f}"
@@ -1491,12 +1505,15 @@ def configure_training_params(
 ):
     for next_df in (df, train_df):
         if next_df is not None:
-            cat_features = next_df.head().select_dtypes(("category", "object")).columns.tolist()
+            if isinstance(next_df, pd.DataFrame):
+                cat_features = next_df.head().select_dtypes(("category", "object")).columns.tolist()
+            elif isinstance(next_df, pl.DataFrame):
+                cat_features = next_df.head().select(pl.col(pl.Categorical)).columns
             break
 
     if cat_features:
         for next_df in (df, train_df, val_df, test_df):
-            if next_df is not None:
+            if next_df is not None and isinstance(next_df, pd.DataFrame):
                 prepare_df_for_catboost(
                     df=next_df,
                     cat_features=cat_features,

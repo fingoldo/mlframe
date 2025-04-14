@@ -14,7 +14,7 @@ from typing import *
 
 from .config import *
 
-import pandas as pd
+import pandas as pd, polars as pl
 from pyutilz.system import tqdmu
 
 

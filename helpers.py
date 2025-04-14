@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
 from .config import *
 
-import pandas as pd, numpy as np
+import pandas as pd, polars as pl, numpy as np
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.pipeline import Pipeline
 from pyutilz.system import tqdmu
@@ -103,7 +103,18 @@ def get_model_best_iter(model: object) -> int:
             return getattr(real_model, field)
 
 
-def check_for_infinity(df: pd.DataFrame, num_cols_only: bool = False) -> bool:
+def ensure_no_infinity(df: pd.DataFrame, num_cols_only: bool = False) -> bool:
+    if isinstance(df, pd.DataFrame):
+        return ensure_no_infinity_pd(df=df, num_cols_only=num_cols_only)
+    elif isinstance(df, pl.DataFrame):
+        return ensure_no_infinity_pl(df=df, num_cols_only=num_cols_only)
+
+
+def ensure_no_infinity_pl(df: pd.DataFrame, num_cols_only: bool = False) -> bool:
+    return True
+
+
+def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = False) -> bool:
     num_cols = df.head().select_dtypes("number").columns
     inf_cols = []
     if num_cols_only or len(num_cols) == df.shape[1]:

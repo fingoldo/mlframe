@@ -497,9 +497,14 @@ def compute_probabilistic_multiclass_error(
 
         y_pred = probs[class_id]
         if labels is not None:
-            correct_class = (y_true == labels[class_id]).astype(np.int8)
+            correct_class = y_true == labels[class_id]
         else:
-            correct_class = (y_true == class_id).astype(np.int8)
+            correct_class = y_true == class_id
+
+        if isinstance(correct_class, (pd.Series, np.ndarray)):
+            correct_class = correct_class.astype(np.int8)
+        elif isinstance(correct_class, pl.Series):
+            correct_class = correct_class.cast(pl.Int8).to_numpy()
 
         if method == "multicrit":
 
