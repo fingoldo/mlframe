@@ -856,7 +856,7 @@ def train_and_evaluate_model(
             model.fit(train_df, train_target, **fit_params)
             clean_ram()
 
-            model_name = model_name + f" {get_human_readable_set_size(len(train_df))}tr"
+            model_name = model_name + f" trained on {get_human_readable_set_size(len(train_df))} rows"
 
             if model is not None:
                 # get number of the best iteration
@@ -1138,7 +1138,7 @@ def report_model_perf(
         feature_importances = plot_model_feature_importances(
             model=model,
             columns=columns,
-            model_name=(report_title + " " + model_name + f" [{len(columns):_}F/{get_human_readable_set_size(len(df))}r]").strip(),
+            model_name=(report_title + " " + model_name + f" [{len(columns):_}F/{get_human_readable_set_size(len(preds))} rows]").strip(),
             plot_file=plot_file + "_fiplot.png" if plot_file else "",
             **fi_kwargs,
         )
@@ -1192,7 +1192,7 @@ def report_regression_model_perf(
 
     if show_perf_chart or plot_file:
         title = report_title + " " + model_name
-        title += f" [{len(columns):_}F/{get_human_readable_set_size(df)}r]" + "\n"
+        title += f" [{len(columns):_}F/{get_human_readable_set_size(len(y_true))} rows]" + "\n"
 
         title += f" MAE={MAE:.{report_ndigits}f}"
         title += f" RMSE={RMSE:.{report_ndigits}f}"
@@ -1321,7 +1321,7 @@ def report_probabilistic_model_perf(
             title += "-" + str_class_name
 
         class_integral_error = custom_ice_metric(y_true=y_true, y_score=y_score) if custom_ice_metric else 0.0
-        title += f" [{len(columns):_}F/{get_human_readable_set_size(len(df))}r]"
+        title += f" [{len(columns):_}F/{get_human_readable_set_size(len(y_true))} rows]"
         if custom_rice_metric and custom_rice_metric != custom_ice_metric:
             class_robust_integral_error = custom_rice_metric(y_true=y_true, y_score=y_score)
             title += f", RICE={class_robust_integral_error:.4f}"
