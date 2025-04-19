@@ -466,7 +466,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 X_train, y_train, X_test, y_test = split_into_train_test(
                     X=X, y=y, train_index=train_index, test_index=test_index, features_indices=current_features
                 )  # this splits both dataframes & ndarrays in the same fashion
-                if verbose:
+                if verbose > 2:
                     print(f"Train set size={len(y_train):_}, train idx sum={train_index.sum():_}")
 
                 if val_cv and has_early_stopping_support(estimator_type):
@@ -487,7 +487,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                         pass  # need only 1 last iteration of 2nd split
 
                     X_train, y_train, X_val, y_val = split_into_train_test(X=X_train, y=y_train, train_index=true_train_index, test_index=val_index)
-                    if verbose:
+                    if verbose > 2:
                         print(f"Val set size={len(y_val):_}, val idx sum={val_index.sum():_}")
 
                     # ----------------------------------------------------------------------------------------------------------------------------
@@ -565,7 +565,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 )
                 nofeatures_score = final_score
                 if verbose:
-                    print(f"Baseline with 0 features, score={scores_mean:.{ndigits}f} ± {scores_std:.{ndigits}f} ~ {final_score:.{ndigits}f}")
+                    logger.info(f"Baseline with 0 features, score={scores_mean:.{ndigits}f} ± {scores_std:.{ndigits}f} ~ {final_score:.{ndigits}f}")
                 if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
                     Optimizer.submit_evaluations(candidates=[0], evaluations=[final_score], durations=[None])
 
@@ -581,7 +581,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 Optimizer.submit_evaluations(candidates=[len(current_features)], evaluations=[final_score], durations=[None])
 
                 if verbose:
-                    print(
+                    logger.info(
                         f"Tried {len(current_features):_} features ({textwrap.shorten (', '.join(current_features[:40]),150)}), score={scores_mean:.{ndigits}f} ± {scores_std:.{ndigits}f} ~ {final_score:.{ndigits}f}"
                     )
 
@@ -597,7 +597,7 @@ class RFECV(BaseEstimator, TransformerMixin):
             if len(evaluated_scores_mean) == 2:
                 # only 2 cases covered currently: 0 features & all features
                 if final_score < nofeatures_score:
-                    print(
+                    logger.info(
                         f"Stopping RFECV early: performance with no features {nofeatures_score:.{ndigits}f} is not worse than with all features {final_score:.{ndigits}f}."
                     )
                     break

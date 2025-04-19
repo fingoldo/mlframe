@@ -614,6 +614,8 @@ def train_and_evaluate_model(
     Optionally dumps resulting model & test set predictions into the models dir, and loads back by model name on the next call, to save time.
     Example of real OD:
         outlier_detector=Pipeline([("enc",ColumnTransformer(transformers=[('enc', ce.CatBoostEncoder(),['secid'])],remainder='passthrough')),("imp", SimpleImputer()), ("est", IsolationForest(contamination=0.01,n_estimators=500,n_jobs=-1))])
+
+    train_idx etc indices must be fet to .iloc[] after, ie, be integer & unique
     """
 
     clean_ram()
@@ -662,18 +664,18 @@ def train_and_evaluate_model(
     train_od_idx, val_od_idx = None, None
 
     if train_target is None:
-        train_target = target.loc[train_idx] if isinstance(target, pd.Series) else target.gather(train_idx)
+        train_target = target.iloc[train_idx] if isinstance(target, pd.Series) else target.gather(train_idx)
     if val_target is None and val_idx is not None:
-        val_target = target.loc[val_idx] if isinstance(target, pd.Series) else target.gather(val_idx)
+        val_target = target.iloc[val_idx] if isinstance(target, pd.Series) else target.gather(val_idx)
     if test_target is None and test_idx is not None:
-        test_target = target.loc[test_idx] if isinstance(target, pd.Series) else target.gather(test_idx)
+        test_target = target.iloc[test_idx] if isinstance(target, pd.Series) else target.gather(test_idx)
 
     if (df is not None) or (train_df is not None):
         if isinstance(df, pd.DataFrame):
             if train_df is None:
-                train_df = df.loc[train_idx].drop(columns=real_drop_columns)
+                train_df = df.iloc[train_idx].drop(columns=real_drop_columns)
             if val_df is None and val_idx is not None:
-                val_df = df.loc[val_idx].drop(columns=real_drop_columns)
+                val_df = df.iloc[val_idx].drop(columns=real_drop_columns)
         elif isinstance(df, pl.DataFrame):
             if train_df is None:
                 train_df = df[train_idx].drop(real_drop_columns)
@@ -700,11 +702,11 @@ def train_and_evaluate_model(
                 logger.info(f"Outlier rejection: received {len(train_df):_} train samples, kept {train_od_idx.sum():_}.")
                 if train_idx is not None:
                     train_idx = train_idx[train_od_idx]
-                    train_df = df.loc[train_idx].drop(columns=real_drop_columns)
-                    train_target = target.loc[train_idx]
+                    train_df = df.iloc[train_idx].drop(columns=real_drop_columns)
+                    train_target = target.iloc[train_idx]
                 else:
-                    train_df = train_df.loc[train_od_idx, :]
-                    train_target = train_target.loc[train_od_idx]
+                    train_df = train_df.iloc[train_od_idx, :]
+                    train_target = train_target.iloc[train_od_idx]
 
             # val
             if val_df is not None and od_val_set:
@@ -714,11 +716,11 @@ def train_and_evaluate_model(
                     logger.info(f"Outlier rejection: received {len(val_df):_} val samples, kept {val_od_idx.sum():_}.")
                     if val_idx is not None:
                         val_idx = val_idx[val_od_idx]
-                        val_df = df.loc[val_idx].drop(columns=real_drop_columns)
-                        val_target = target.loc[val_idx]
+                        val_df = df.iloc[val_idx].drop(columns=real_drop_columns)
+                        val_target = target.iloc[val_idx]
                     else:
-                        val_df = val_df.loc[val_od_idx, :]
-                        val_target = val_target.loc[val_od_idx]
+                        val_df = val_df.iloc[val_od_idx, :]
+                        val_target = val_target.iloc[val_od_idx]
                 clean_ram()
 
     if model is not None and pre_pipeline:
@@ -762,7 +764,7 @@ def train_and_evaluate_model(
             if sample_weight is not None:
                 if "sample_weight" in get_function_param_names(model_obj.fit):
                     if train_idx is not None:
-                        fit_params["sample_weight"] = sample_weight.loc[train_idx].values
+                        fit_params["sample_weight"] = sample_weight.iloc[train_idx].values
                     else:
                         fit_params["sample_weight"] = sample_weight.values
             if verbose:
@@ -943,12 +945,12 @@ def train_and_evaluate_model(
 
                 if test_df is None:
                     if isinstance(df, pd.DataFrame):
-                        test_df = df.loc[test_idx].drop(columns=real_drop_columns)
+                        test_df = df.iloc[test_idx].drop(columns=real_drop_columns)
                     elif isinstance(df, pl.DataFrame):
                         test_df = df[test_idx].drop(real_drop_columns)
 
                 if test_target is None:
-                    test_target = target.loc[test_idx] if isinstance(target, pd.Series) else target.gather(test_idx)
+                    test_target = target.iloc[test_idx] if isinstance(target, pd.Series) else target.gather(test_idx)
 
                 if model is not None and pre_pipeline:
                     test_df = pre_pipeline.transform(test_df)
@@ -1697,12 +1699,12 @@ def post_calibrate_model(
         )
     model, test_preds, test_probs, val_preds, val_probs, columns, pre_pipeline, metrics = original_model
 
-    meta_model.fit(test_probs[:calib_set_size, 1].reshape(-1, 1), target_series.loc[test_idx].values[:calib_set_size], **fit_params)
+    meta_model.fit(test_probs[:calib_set_size, 1].reshape(-1, 1), target_series.iloc[test_idx].values[:calib_set_size], **fit_params)
 
     if show_val:
         meta_val_probs = meta_model.predict_proba(val_probs[:, 1].reshape(-1, 1))
         _ = report_model_perf(
-            targets=target_series.loc[val_idx],
+            targets=target_series.iloc[val_idx],
             columns=columns,
             df=None,
             model_name="VAL",
@@ -1717,7 +1719,7 @@ def post_calibrate_model(
             custom_ice_metric=configs.integral_calibration_error,
         )
         _ = report_model_perf(
-            targets=target_series.loc[val_idx],
+            targets=target_series.iloc[val_idx],
             columns=columns,
             df=None,
             model_name="VAL fixed",
@@ -1735,7 +1737,7 @@ def post_calibrate_model(
     meta_test_probs = meta_model.predict_proba(test_probs[:, 1].reshape(-1, 1))
 
     _ = report_model_perf(
-        targets=target_series.loc[test_idx],
+        targets=target_series.iloc[test_idx],
         columns=columns,
         df=None,
         model_name="TEST original",
@@ -1751,7 +1753,7 @@ def post_calibrate_model(
     )
 
     _ = report_model_perf(
-        targets=target_series.loc[test_idx].values[calib_set_size:],
+        targets=target_series.iloc[test_idx].values[calib_set_size:],
         columns=columns,
         df=None,
         model_name="TEST fixed ",
@@ -1767,7 +1769,7 @@ def post_calibrate_model(
     )
 
     _ = report_model_perf(
-        targets=target_series.loc[test_idx].values[:calib_set_size],
+        targets=target_series.iloc[test_idx].values[:calib_set_size],
         columns=columns,
         df=None,
         model_name="TEST fixed lucky",
