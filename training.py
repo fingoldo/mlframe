@@ -200,8 +200,7 @@ from mlframe.preprocessing import prepare_df_for_catboost
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import shap
-from mlframe.feature_importance import show_shap_beeswarm_plot
-from mlframe.feature_importance import plot_feature_importance
+from mlframe.feature_importance import show_shap_beeswarm_plot, plot_feature_importance, compute_permutation_importances
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1196,7 +1195,7 @@ def report_regression_model_perf(
     if show_perf_chart or plot_file:
         title = report_title + " " + model_name
         nfeatures = f"{len(columns):_}F/" if len(columns) > 0 else ""
-        title += f" [{nfeatures}{get_human_readable_set_size(len(y_true))} rows]" + "\n"
+        title += f" [{nfeatures}{get_human_readable_set_size(len(targets))} rows]" + "\n"
 
         title += f" MAE={MAE:.{report_ndigits}f}"
         title += f" RMSE={RMSE:.{report_ndigits}f}"

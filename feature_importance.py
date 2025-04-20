@@ -16,8 +16,9 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
-import pandas as pd, numpy as np
+import pandas as pd, polars as pl, numpy as np
 from matplotlib import pyplot as plt
+from sklearn.inspection import permutation_importance
 
 import shap
 
@@ -42,7 +43,7 @@ def plot_feature_importance(
     kind: str,
     n: int = 20,
     figsize: tuple = (12, 6),
-    positive_fi_only: bool = True,
+    positive_fi_only: bool = False,
     show_plots: bool = True,
     plot_file: str = "",
 ):
@@ -64,6 +65,14 @@ def plot_feature_importance(
 
         if plot_file:
             fig.savefig(plot_file)
+
+        if not positive_fi_only:
+            fig = plt.figure(figsize=figsize)
+            ax = plt.gca()  # visible=True
+            ax.barh(range(len(sorted_idx[:n])), feature_importances[sorted_idx[:n]], align="center")
+            ax.set(yticks=range(len(sorted_idx[:n])), yticklabels=sorted_columns[:n])
+            ax.set_title(f"{kind} BOTTOM feature importances")
+
         if show_plots:
             plt.ion()
             plt.show()
@@ -71,3 +80,15 @@ def plot_feature_importance(
             plt.close(fig)
 
     return df
+
+
+def compute_permutation_importances(*sklearn_args, columns: list, **sklearn_kwargs) -> pl.DataFrame:
+
+    result = permutation_importance(*sklearn_args, **sklearn_kwargs)
+
+    return (
+        pl.DataFrame({**result, **dict(feature=columns)})
+        .drop("importances")
+        .filter(~((pl.col("importances_mean") == 0) & (pl.col("importances_std") == 0)))
+        .sort(pl.col("importances_mean") - pl.col("importances_std") * 0.2, descending=True)
+    )
