@@ -66,7 +66,7 @@ def plot_feature_importance(
         if plot_file:
             fig.savefig(plot_file)
 
-        if not positive_fi_only:
+        if not positive_fi_only and feature_importances[0] < 0:
             fig = plt.figure(figsize=figsize)
             ax = plt.gca()  # visible=True
             ax.barh(range(len(sorted_idx[:n])), feature_importances[sorted_idx[:n]], align="center")
