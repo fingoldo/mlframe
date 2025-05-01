@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 from typing import *
 
-import polars as pl
+import polars as pl, polars.selectors as cs
 
 import polars_talib as plta
 
@@ -33,7 +33,7 @@ def apply_ta_indicator(
     suffix: str = "",
 ) -> pl.Expr:
     """Decides if fields are struct and need prefixing.
-    Also creates common naming for TA indicators applied over specific windows, applies grouping."""
+    Also creates common naming for TA indicators applied over specific rolling_windows, applies grouping."""
     if window:
         col = f"{prefix}{func}{window}{suffix}"
     else:
@@ -48,13 +48,104 @@ def apply_ta_indicator(
         return expr
 
 
-def add_ta_features(
+def add_ohlcv_ratios_rlags_rollings(
     ohlcv: pl.DataFrame,
-    windows: list = [5, 10],
-    fss_windows=[[12, 26, 9]],
+    columns_selector: str = "",
+    lags: list = [1],
+    rolling_windows: list = [5],
+    crossbar_ratios_lags: list = [1],
+    min_samples: int = 1,
+    ticker_column: str = "ticker",
+    target_columns_shift: int = 1,
+    target_columns_prefix: str = "target",
+    market_action_prefixes: list = [""],
+    ohlcv_fields_mapping: dict = dict(qty="qty", open="open", high="high", low="low", close="close", volume="volume"),
+    nans_filler: float = 0.0,
+    cast_f64_to_f32: bool = True,
+) -> pl.DataFrame:
+    """Adds more nuanced features to raw ohlcv."""
+
+    all_num_cols = cs.numeric()
+    if columns_selector:
+        all_num_cols = all_num_cols & cs.contains(columns_selector)
+    if target_columns_prefix:
+        all_num_cols = all_num_cols - cs.starts_with(target_columns_prefix)
+
+    interbar_ratios_features = []
+    for prefix in market_action_prefixes:
+
+        qty = pl.col(f"{prefix}{ohlcv_fields_mapping.get('qty')}")
+        low = pl.col(f"{prefix}{ohlcv_fields_mapping.get('low')}")
+        high = pl.col(f"{prefix}{ohlcv_fields_mapping.get('high')}")
+        open = pl.col(f"{prefix}{ohlcv_fields_mapping.get('open')}")
+        close = pl.col(f"{prefix}{ohlcv_fields_mapping.get('close')}")
+        volume = pl.col(f"{prefix}{ohlcv_fields_mapping.get('volume')}")
+
+        interbar_ratios_features.extend(
+            [
+                (close / open - 1).alias(f"{prefix}close_to_open"),
+                (high / open - 1).alias(f"{prefix}high_to_open"),
+                (open / low - 1).alias(f"{prefix}open_to_low"),
+                (close / low - 1).alias(f"{prefix}close_to_low"),
+                (high / low - 1).alias(f"{prefix}high_to_low"),
+                (high / close - 1).alias(f"{prefix}high_to_close"),
+                (volume / qty).alias(f"{prefix}avg_trade_size"),
+            ]
+        )
+        for period_shift in crossbar_ratios_lags:
+            interbar_ratios_features.extend(
+                [
+                    (close / open.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}close_to_open-{period_shift}"),
+                    (high / open.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_open-{period_shift}"),
+                    (open / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}open_to_low-{period_shift}"),
+                    (close / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}close_to_low-{period_shift}"),
+                    (high / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_low-{period_shift}"),
+                    (high / close.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_close-{period_shift}"),
+                    (volume / qty.shift(period_shift).over(ticker_column)).alias(f"{prefix}avg_trade_size-{period_shift}"),
+                ]
+            )
+
+    ohlcv = ohlcv.with_columns(
+        *[
+            (
+                cs.starts_with(target_columns_prefix).shift(target_columns_shift).over(ticker_column).name.prefix(f"prev{target_columns_shift}")
+                if target_columns_prefix
+                else []
+            )
+        ],
+        # interbar ohlcv ratios features
+        *interbar_ratios_features,
+    ).with_columns(
+        # relative lags
+        *[(all_num_cols / all_num_cols.shift(lag).over(ticker_column) - 1).fill_nan(nans_filler).name.suffix(f"_rlag{lag}") for lag in lags],
+        # relative means over rolling_windows
+        *[
+            (all_num_cols / all_num_cols.rolling_mean(window, min_samples=min_samples).over(ticker_column).fill_nan(nans_filler) - 1).name.suffix(
+                f"_rmean{window}"
+            )
+            for window in rolling_windows
+        ],
+        # relative standard deviations over rolling_windows
+        *[
+            (all_num_cols.rolling_std(window, min_samples=min_samples).over(ticker_column) / all_num_cols).fill_nan(nans_filler).name.suffix(f"_rstd{window}")
+            for window in rolling_windows
+        ],
+    )
+
+    if cast_f64_to_f32:
+        ohlcv = ohlcv.with_columns(pl.col(pl.Float64).cast(pl.Float32))
+
+    return ohlcv
+
+
+def add_ohlcv_ta_indicators(
+    ohlcv: pl.DataFrame,
+    rolling_windows: list = [5, 10],
+    fss_rolling_windows=[[12, 26, 9]],
     ticker_column: str = "ticker",
     market_action_prefixes: list = [""],
     ohlcv_fields_mapping: dict = dict(open="open", high="high", low="low", close="close", volume="volume"),
+    cast_f64_to_f32: bool = True,
 ) -> pl.DataFrame:
     """Applies a rich set of Technical Analysis indicators from polars-talib to ohlcv data of multiple assets.
     ohlcv dataframe must be sorted by timestamp.
@@ -212,7 +303,7 @@ def add_ta_features(
         timeperiod_p01_indicators = "correl beta".split()
         timeperiod_hlcv_indicators = "mfi".split()
 
-        for window in windows:
+        for window in rolling_windows:
 
             unnests.append(f"{prefix}aroon{window}")
             unnests.append(f"{prefix}bbands{window}close")
@@ -294,7 +385,7 @@ def add_ta_features(
             )
 
         timeperiod_only_fss_indicators = []  # "macd".split()
-        for fastperiod, slowperiod, signalperiod in fss_windows:
+        for fastperiod, slowperiod, signalperiod in fss_rolling_windows:
             # unnests.append(f"macd{fastperiod}-{slowperiod}-{signalperiod}")
             ta_expressions.extend(
                 [
@@ -320,4 +411,33 @@ def add_ta_features(
     if unnests:
         res = res.unnest(unnests)
 
-    return res.with_columns(pl.col(pl.Float64).cast(pl.Float32))
+    if cast_f64_to_f32:
+        res = res.with_columns(pl.col(pl.Float64).cast(pl.Float32))
+
+    return res
+
+
+def add_ohlcv_wholemarket_features(
+    ohlcv: pl.DataFrame,
+    timestamp_column: str = "date",
+    weighting_columns: list = "volume qty".split(),
+    numaggs: list = "min max mean median std skew kurtosis entropy n_unique".split(),
+    cast_f64_to_f32: bool = True,
+) -> pl.DataFrame:
+    """For all columns of a bar, regardless of a ticker, finds min, max, std, quantiles, etc.
+    Also performs a few weighted calculations (for mean and std).
+    Should be applied AFTER add_ohlcv_ratios_rlags_rollings and add_ohlcv_ta_indicators, to cover as many columns as possible.
+    Then joined with main ohlcv by bar's timestamp (ideally ranks across tickers should be added: (val-min)/(max-min)).
+    Can rlags & ratios be applied to wholemarket features also, after everything else???
+    """
+
+    res = (
+        ohlcv.group_by(timestamp_column)
+        .agg([pl.len().alias("wm_ntickers")] + [getattr(cs.numeric(), func)().name.suffix(f"_wm_{func}") for func in numaggs])
+        .sort(timestamp_column)
+    )
+
+    if cast_f64_to_f32:
+        res = res.with_columns(pl.col(pl.Float64).cast(pl.Float32))
+
+    return res

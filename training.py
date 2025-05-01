@@ -552,6 +552,7 @@ def train_and_evaluate_model(
     model: object,  # s
     df: pd.DataFrame = None,
     target: pd.Series = None,  # s
+    groups: pd.Series = None,
     outlier_detector: object = None,
     od_val_set: bool = True,
     trainset_features_stats: dict = None,
@@ -726,7 +727,7 @@ def train_and_evaluate_model(
         if use_cache and exists(model_file_name):
             train_df = pre_pipeline.transform(train_df, train_target)
         else:
-            train_df = pre_pipeline.fit_transform(train_df, train_target)
+            train_df = pre_pipeline.fit_transform(train_df, train_target, groups=groups)
         if val_df is not None:
             val_df = pre_pipeline.transform(val_df)
         clean_ram()
