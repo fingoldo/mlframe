@@ -15,9 +15,14 @@ logger = logging.getLogger(__name__)
 
 from typing import *
 
+import polars_talib as plta
 import polars as pl, polars.selectors as cs
 
-import polars_talib as plta
+import pyutilz.polarslib as pllib
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Core
+# ----------------------------------------------------------------------------------------------------------------------------
 
 
 def apply_ta_indicator(
@@ -92,48 +97,59 @@ def add_ohlcv_ratios_rlags_rollings(
                 (volume / qty).alias(f"{prefix}avg_trade_size"),
             ]
         )
-        for period_shift in crossbar_ratios_lags:
-            interbar_ratios_features.extend(
-                [
-                    (close / open.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}close_to_open-{period_shift}"),
-                    (high / open.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_open-{period_shift}"),
-                    (open / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}open_to_low-{period_shift}"),
-                    (close / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}close_to_low-{period_shift}"),
-                    (high / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_low-{period_shift}"),
-                    (high / close.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_close-{period_shift}"),
-                    (volume / qty.shift(period_shift).over(ticker_column)).alias(f"{prefix}avg_trade_size-{period_shift}"),
-                ]
-            )
+        if ticker_column:
+            for period_shift in crossbar_ratios_lags:
+                interbar_ratios_features.extend(
+                    [
+                        (close / open.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}close_to_open-{period_shift}"),
+                        (high / open.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_open-{period_shift}"),
+                        (open / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}open_to_low-{period_shift}"),
+                        (close / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}close_to_low-{period_shift}"),
+                        (high / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_low-{period_shift}"),
+                        (high / close.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_close-{period_shift}"),
+                        (volume / qty.shift(period_shift).over(ticker_column)).alias(f"{prefix}avg_trade_size-{period_shift}"),
+                    ]
+                )
+
+    def group_if_needed(expr: pl.Expr, over: str = "") -> pl.Expr:
+        return expr.over(over) if over else expr
+
+    prevtarget_columns = []
+    if ticker_column and target_columns_prefix:
+        prevtarget_columns.append(
+            cs.starts_with(target_columns_prefix).shift(target_columns_shift).over(ticker_column).name.prefix(f"prev{target_columns_shift}")
+        )
 
     ohlcv = ohlcv.with_columns(
-        *[
-            (
-                cs.starts_with(target_columns_prefix).shift(target_columns_shift).over(ticker_column).name.prefix(f"prev{target_columns_shift}")
-                if target_columns_prefix
-                else []
-            )
-        ],
+        *prevtarget_columns,
         # interbar ohlcv ratios features
         *interbar_ratios_features,
     ).with_columns(
         # relative lags
-        *[(all_num_cols / all_num_cols.shift(lag).over(ticker_column) - 1).fill_nan(nans_filler).name.suffix(f"_rlag{lag}") for lag in lags],
+        *[
+            pllib.clean_numeric((all_num_cols / group_if_needed(all_num_cols.shift(lag), over=ticker_column) - 1), nans_filler=nans_filler).name.suffix(
+                f"_rlag{lag}"
+            )
+            for lag in lags
+        ],
         # relative means over rolling_windows
         *[
-            (all_num_cols / all_num_cols.rolling_mean(window, min_samples=min_samples).over(ticker_column).fill_nan(nans_filler) - 1).name.suffix(
-                f"_rmean{window}"
-            )
+            pllib.clean_numeric(
+                (all_num_cols / group_if_needed(all_num_cols.rolling_mean(window, min_samples=min_samples), over=ticker_column) - 1), nans_filler=nans_filler
+            ).name.suffix(f"_rmean{window}")
             for window in rolling_windows
         ],
         # relative standard deviations over rolling_windows
         *[
-            (all_num_cols.rolling_std(window, min_samples=min_samples).over(ticker_column) / all_num_cols).fill_nan(nans_filler).name.suffix(f"_rstd{window}")
+            pllib.clean_numeric(
+                (group_if_needed(all_num_cols.rolling_std(window, min_samples=min_samples), over=ticker_column) / all_num_cols), nans_filler=nans_filler
+            ).name.suffix(f"_rstd{window}")
             for window in rolling_windows
         ],
     )
 
     if cast_f64_to_f32:
-        ohlcv = ohlcv.with_columns(pl.col(pl.Float64).cast(pl.Float32))
+        ohlcv = pllib.cast_f64_to_f32(ohlcv)
 
     return ohlcv
 
@@ -145,6 +161,7 @@ def add_ohlcv_ta_indicators(
     ticker_column: str = "ticker",
     market_action_prefixes: list = [""],
     ohlcv_fields_mapping: dict = dict(open="open", high="high", low="low", close="close", volume="volume"),
+    nans_filler: float = 0.0,
     cast_f64_to_f32: bool = True,
 ) -> pl.DataFrame:
     """Applies a rich set of Technical Analysis indicators from polars-talib to ohlcv data of multiple assets.
@@ -411,33 +428,47 @@ def add_ohlcv_ta_indicators(
     if unnests:
         res = res.unnest(unnests)
 
+    res = res.with_columns(cs.numeric().fill_nan(nans_filler))
+
     if cast_f64_to_f32:
-        res = res.with_columns(pl.col(pl.Float64).cast(pl.Float32))
+        res = pllib.cast_f64_to_f32(res)
 
     return res
 
 
-def add_ohlcv_wholemarket_features(
+def create_ohlcv_wholemarket_features(
     ohlcv: pl.DataFrame,
     timestamp_column: str = "date",
+    target_columns_prefix: str = "target",
     weighting_columns: list = "volume qty".split(),
     numaggs: list = "min max mean median std skew kurtosis entropy n_unique".split(),
+    nans_filler: float = 0.0,
     cast_f64_to_f32: bool = True,
 ) -> pl.DataFrame:
     """For all columns of a bar, regardless of a ticker, finds min, max, std, quantiles, etc.
     Also performs a few weighted calculations (for mean and std).
     Should be applied AFTER add_ohlcv_ratios_rlags_rollings and add_ohlcv_ta_indicators, to cover as many columns as possible.
-    Then joined with main ohlcv by bar's timestamp (ideally ranks across tickers should be added: (val-min)/(max-min)).
-    Can rlags & ratios be applied to wholemarket features also, after everything else???
+    Then joined with main ohlcv by bar's timestamp (ideally ranks across tickers should be added: (val-min)/(max-min)), using cs.expand_selector(ohlcv,cs.numeric()) to get exact col names..
+    Can rlags & rolling means be applied to wholemarket features also, after everything else???
     """
+    all_num_cols = cs.numeric()
+    if target_columns_prefix:
+        all_num_cols = all_num_cols - cs.starts_with(target_columns_prefix)
 
-    res = (
-        ohlcv.group_by(timestamp_column)
-        .agg([pl.len().alias("wm_ntickers")] + [getattr(cs.numeric(), func)().name.suffix(f"_wm_{func}") for func in numaggs])
-        .sort(timestamp_column)
+    wcols = []
+    for wcol in weighting_columns:
+        all_other_num_cols = all_num_cols - pl.col(wcol)
+        weighted_mean = ((all_other_num_cols * pl.col(wcol)).sum() / pl.col(wcol).sum()).name.suffix(f"_wmean_{wcol}")
+        wcols.append(weighted_mean)
+        # !TODO causes error for now
+        # weighted_std = ((pl.col(wcol) * (all_other_num_cols - weighted_mean) ** 2).sum() / pl.col(wcol).sum()).sqrt().name.suffix(f"_wstd_{wcol}")
+        # wcols.append(weighted_std)
+
+    res = ohlcv.group_by(timestamp_column).agg(
+        [pl.len().alias("wm_ntickers")] + [getattr(all_num_cols, func)().name.suffix(f"_wm_{func}") for func in numaggs] + wcols
     )
-
+    res = res.with_columns(pllib.clean_numeric(cs.float(), nans_filler=nans_filler))
     if cast_f64_to_f32:
-        res = res.with_columns(pl.col(pl.Float64).cast(pl.Float32))
+        res = pllib.cast_f64_to_f32(res)
 
-    return res
+    return res.sort(timestamp_column)
