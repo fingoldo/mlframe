@@ -25,34 +25,6 @@ import pyutilz.polarslib as pllib
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-def apply_ta_indicator(
-    expr: pl.Expr,
-    func: str,
-    window: int,
-    ticker_column: str,
-    unnests: list,
-    prefix: str,
-    fastperiod: int = 0,
-    slowperiod: int = 0,
-    signalperiod: int = 0,
-    suffix: str = "",
-) -> pl.Expr:
-    """Decides if fields are struct and need prefixing.
-    Also creates common naming for TA indicators applied over specific rolling_windows, applies grouping."""
-    if window:
-        col = f"{prefix}{func}{window}{suffix}"
-    else:
-        if not fastperiod:
-            col = f"{prefix}{func}"
-        else:
-            col = f"{prefix}{func}{fastperiod}-{slowperiod}-{signalperiod}"
-    expr = expr.over(ticker_column).alias(col)
-    if col in unnests:
-        return expr.name.map_fields(lambda x: f"{col}_{x}")
-    else:
-        return expr
-
-
 def add_ohlcv_ratios_rlags_rollings(
     ohlcv: pl.DataFrame,
     columns_selector: str = "",
@@ -154,6 +126,34 @@ def add_ohlcv_ratios_rlags_rollings(
     return ohlcv
 
 
+def apply_ta_indicator(
+    expr: pl.Expr,
+    func: str,
+    window: int,
+    ticker_column: str,
+    unnests: list,
+    prefix: str,
+    fastperiod: int = 0,
+    slowperiod: int = 0,
+    signalperiod: int = 0,
+    suffix: str = "",
+) -> pl.Expr:
+    """Decides if fields are struct and need prefixing.
+    Also creates common naming for TA indicators applied over specific rolling_windows, applies grouping."""
+    if window:
+        col = f"{prefix}{func}{window}{suffix}"
+    else:
+        if not fastperiod:
+            col = f"{prefix}{func}"
+        else:
+            col = f"{prefix}{func}{fastperiod}-{slowperiod}-{signalperiod}"
+    expr = expr.over(ticker_column).alias(col)
+    if col in unnests:
+        return expr.name.map_fields(lambda x: f"{col}_{x}")
+    else:
+        return expr
+
+
 def add_ohlcv_ta_indicators(
     ohlcv: pl.DataFrame,
     rolling_windows: list = [5, 10],
@@ -179,6 +179,7 @@ def add_ohlcv_ta_indicators(
         volume = pl.col(f"{prefix}{ohlcv_fields_mapping.get('volume')}")
 
         cyclic_indicators = "ht_dcperiod ht_dcphase ht_phasor ht_sine ht_trendmode ht_trendline mama".split()
+        unnests.extend([f"{prefix}ht_phasor", f"{prefix}ht_sine"])
         unnests.extend(f"{prefix}mama".split())
         ta_expressions.extend(
             [
@@ -187,7 +188,9 @@ def add_ohlcv_ta_indicators(
             ]
         )
 
-        ohlc_only_indicators = "bop avgprice".split() + [
+        ohlc_only_indicators = "bop avgprice".split()
+
+        ohlc_only_indicators = ohlc_only_indicators + [
             "cdl2crows",
             "cdl3blackcrows",
             "cdl3inside",
@@ -250,6 +253,7 @@ def add_ohlcv_ta_indicators(
             "cdlupsidegap2crows",
             "cdlxsidegap3methods",
         ]
+
         ta_expressions.extend(
             [
                 apply_ta_indicator(
@@ -308,8 +312,6 @@ def add_ohlcv_ta_indicators(
                 for func in hl_only_indicators
             ]
         )
-
-        unnests.extend([f"{prefix}ht_phasor", f"{prefix}ht_sine"])
 
         excluded = "mavp roc stoch"
         simplified = "bbands t3 apo sar sarext ppo stochrsi adosc"  # Can be improved with more parameters
