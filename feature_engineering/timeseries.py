@@ -193,7 +193,7 @@ def create_aggregated_features(
     nested_subsets: bool = False,
 ):
     """
-    Each suitable variable of a dataframe gets numerical aggregates computed over a number of transformations over the set of its raw values
+    Each suitable variable of a dataframe gets numerical aggregates computed over a number of transformations over the set of its
         1) as is: raw_vals
         2) ratios: div0(raw_vals[1:], raw_vals[:-1], fill=0.0) **ordered feature
         3) wavelets of raw_vals

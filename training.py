@@ -200,7 +200,7 @@ from mlframe.preprocessing import prepare_df_for_catboost
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import shap
-from mlframe.feature_importance import show_shap_beeswarm_plot, plot_feature_importance, compute_permutation_importances
+from mlframe.feature_importance import *
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -607,6 +607,10 @@ def train_and_evaluate_model(
     confidence_analysis_ylabel: str = "Feature value",
     confidence_analysis_title: str = "Confidence of correct Test set predictions",
     confidence_model_kwargs: dict = {},
+    #
+    train_details: str = "",
+    val_details: str = "",
+    test_details: str = "",
 ):
     """Trains & evaluates given model/pipeline on train/test sets.
     Supports feature selection via pre_pipeline.
@@ -858,7 +862,7 @@ def train_and_evaluate_model(
             model.fit(train_df, train_target, **fit_params)
             clean_ram()
 
-            model_name = model_name + f" trained on {get_human_readable_set_size(len(train_df))} rows"
+            model_name = model_name + "\n" + " ".join([f" trained on {get_human_readable_set_size(len(train_df))} rows", train_details])
 
             if model is not None:
                 # get number of the best iteration
@@ -892,7 +896,7 @@ def train_and_evaluate_model(
                 preds=train_preds,
                 probs=train_probs,
                 figsize=figsize,
-                report_title="TRAIN",
+                report_title=" ".join(["TRAIN", train_details]),
                 nbins=nbins,
                 print_report=print_report,
                 plot_file=plot_file + "_train" if plot_file else "",
@@ -923,7 +927,7 @@ def train_and_evaluate_model(
                 preds=val_preds,
                 probs=val_probs,
                 figsize=figsize,
-                report_title="VAL",
+                report_title=" ".join(["VAL", val_details]),
                 nbins=nbins,
                 print_report=print_report,
                 plot_file=plot_file + "_val" if plot_file else "",
@@ -971,7 +975,7 @@ def train_and_evaluate_model(
                 preds=test_preds,
                 probs=test_probs,
                 figsize=figsize,
-                report_title="TEST",
+                report_title=" ".join(["TEST", test_details]),
                 nbins=nbins,
                 print_report=print_report,
                 plot_file=plot_file + "_test" if plot_file else "",
@@ -1506,6 +1510,9 @@ def configure_training_params(
     prefer_calibrated_classifiers: bool = True,
     default_regression_scoring: dict = dict(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False),
     default_classification_scoring: dict = dict(score_func=fast_roc_auc, needs_proba=True, needs_threshold=False, greater_is_better=True),
+    train_details: str = "",
+    val_details: str = "",
+    test_details: str = "",
     **config_kwargs,
 ):
     for next_df in (df, train_df):
@@ -1577,6 +1584,9 @@ def configure_training_params(
         target_label_encoder=target_label_encoder,
         custom_ice_metric=configs.integral_calibration_error,
         custom_rice_metric=configs.final_integral_calibration_error,
+        train_details=train_details,
+        val_details=val_details,
+        test_details=test_details,
     )
 
     common_cb_params = dict(
