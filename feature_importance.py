@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
 
+from os.path import join
 from matplotlib import pyplot as plt
 import pandas as pd, polars as pl, numpy as np
 from sklearn.inspection import permutation_importance
