@@ -66,7 +66,7 @@ def add_ohlcv_ratios_rlags_rollings(
                 (close / low - 1).alias(f"{prefix}close_to_low"),
                 (high / low - 1).alias(f"{prefix}high_to_low"),
                 (high / close - 1).alias(f"{prefix}high_to_close"),
-                (volume / qty).alias(f"{prefix}avg_trade_size"),
+                pllib.clean_numeric((volume / qty), nans_filler=nans_filler).alias(f"{prefix}avg_trade_size"),
             ]
         )
         if ticker_column:
@@ -79,7 +79,9 @@ def add_ohlcv_ratios_rlags_rollings(
                         (close / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}close_to_low-{period_shift}"),
                         (high / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_low-{period_shift}"),
                         (high / close.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_close-{period_shift}"),
-                        (volume / qty.shift(period_shift).over(ticker_column)).alias(f"{prefix}avg_trade_size-{period_shift}"),
+                        pllib.clean_numeric((volume / qty.shift(period_shift).over(ticker_column)), nans_filler=nans_filler).alias(
+                            f"{prefix}avg_trade_size-{period_shift}"
+                        ),
                     ]
                 )
 
@@ -379,13 +381,16 @@ def add_ohlcv_ta_indicators(
                         for func in timeperiod_hl_indicators
                     ],
                     *[
-                        apply_ta_indicator(
-                            getattr(plta, func)(high=high, low=low, close=close, timeperiod=window),
-                            func=func,
-                            window=window,
-                            ticker_column=ticker_column,
-                            unnests=unnests,
-                            prefix=prefix,
+                        pllib.clean_numeric(
+                            apply_ta_indicator(
+                                getattr(plta, func)(high=high, low=low, close=close, timeperiod=window),
+                                func=func,
+                                window=window,
+                                ticker_column=ticker_column,
+                                unnests=unnests,
+                                prefix=prefix,
+                            ),
+                            nans_filler=nans_filler,
                         )
                         for func in timeperiod_hlc_indicators
                     ],
