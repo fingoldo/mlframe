@@ -33,7 +33,6 @@ def add_ohlcv_ratios_rlags_rollings(
     crossbar_ratios_lags: list = [1],
     min_samples: int = 1,
     ticker_column: str = "ticker",
-    target_columns_shift: int = 1,
     target_columns_prefix: str = "target",
     market_action_prefixes: list = [""],
     ohlcv_fields_mapping: dict = dict(qty="qty", open="open", high="high", low="low", close="close", volume="volume"),
@@ -88,14 +87,7 @@ def add_ohlcv_ratios_rlags_rollings(
     def group_if_needed(expr: pl.Expr, over: str = "") -> pl.Expr:
         return expr.over(over) if over else expr
 
-    prevtarget_columns = []
-    if ticker_column and target_columns_prefix:
-        prevtarget_columns.append(
-            cs.starts_with(target_columns_prefix).shift(target_columns_shift).over(ticker_column).name.prefix(f"prev{target_columns_shift}")
-        )
-
     ohlcv = ohlcv.with_columns(
-        *prevtarget_columns,
         # interbar ohlcv ratios features
         *interbar_ratios_features,
     ).with_columns(

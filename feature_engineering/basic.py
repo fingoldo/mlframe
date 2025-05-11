@@ -93,12 +93,12 @@ def run_pysr_fe(df: pl.DataFrame, nsamples: int = 100_000, target_columns_prefix
     # Build a mapping from old → new names
     rename_map = {col: col.replace("=", "_").replace(".", "_") for col in df.columns}
 
-    tmp_df = df.sample(nsamples) if nsamples else df
+    tmp_df = df.head(nsamples) if nsamples else df
     expr = cs.numeric() - cs.starts_with(target_columns_prefix)
     if fill_nans:
         expr = expr.fill_null(0).fill_nan(0)
 
-    model.fit(tmp_df.select(expr).rename(rename_map), tmp_df.select(cs.starts_with(target_columns_prefix)))
+    model.fit(tmp_df.select(expr).rename(rename_map).collect(), tmp_df.select(cs.starts_with(target_columns_prefix)).collect())
 
     del tmp_df
     clean_ram()

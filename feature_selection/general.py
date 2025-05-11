@@ -21,6 +21,7 @@ from timeit import default_timer as timer
 from collections import defaultdict
 
 from pyutilz.system import clean_ram, tqdmu
+from pyutilz.polarslib import bin_numerical_columns
 from pyutilz.benchmarking import benchmark_algos_by_runtime
 
 from mlframe.feature_selection.mi import grok_compute_mutual_information, chatgpt_compute_mutual_information, deepseek_compute_mutual_information
@@ -28,51 +29,6 @@ from mlframe.feature_selection.mi import grok_compute_mutual_information, chatgp
 # ----------------------------------------------------------------------------------------------------------------------------
 # Core
 # ----------------------------------------------------------------------------------------------------------------------------
-
-
-def find_unrelated_features(
-    df: pl.DataFrame,
-    target_columns_prefix: str = "target_",
-    binned_targets: pl.DataFrame = None,
-    clean_targets: bool = False,
-    num_bins: int = 10,
-    exclude_columns: list = [],
-    min_nuniques_to_clip: int = 50,
-    tukey_fences_multiplier: float = 3.0,
-    max_log_text_width: int = 300,
-    verbose: int = 1,
-) -> pl.DataFrame:
-    """DropFinds features that have no direct relationship to at least one of the targets.
-    Mutual Information (MI) is used to estimate presence of a relationship.
-
-    Columns from exclude_columns are exempt of this check, so put here what you arelady have checked is relevant.
-
-    Categorical features support rare categories merging.
-
-    Numerical features:
-        often can have outliers, so we provide an option of clipping outliers.
-
-        First stats like min, max, quantiles are computed for each numerical feature.
-        Features with no change (min==max) are dropped.
-        For the rest, Tukey fences are computed, outliers are reported & clipped (windzorized).
-
-        Next, each num column is binned into num_bins bins using borders=np.linspace(min_val, max_val, num_bins + 1),
-            where min_val and max_val account for clipping.
-
-        Marginal frequencies, and then entropies are computed for each column.
-
-        for each of targets:
-            Marginal frequencies, and then joint entropies & MIs are computed for each combination of explanatory column and target.
-            Columns with zero MI are considered irrelevant to the target.
-            for each of n_reps:
-                columns bins are randomly permuted
-                Marginal frequencies, and then joint entropies & shuffled MIs are computed for each combination of explanatory column and target.
-            as long as shuffled MI for any column exceeds original MI, column is considered irrelevant to the target.
-
-        Columns not relevant to any of the targets are reported & dropped.
-
-    """
-    return
 
 
 def benchmark_mi_algos(base_mi_algos: list, verbose: int = 0) -> list:
@@ -97,9 +53,8 @@ def estimate_features_relevancy(
     # data
     bins: pl.DataFrame,
     target_columns: list,
-    entropies: dict = None,
     # precomputed info
-    mi_algorithms_rankng: list = None,  # ltr
+    mi_algorithms_ranking: list = None,  # ltr
     benchmark_mi_algorithms: bool = True,
     permuted_mutual_informations: dict = None,
     # working params
@@ -144,13 +99,13 @@ def estimate_features_relevancy(
     # What MI implementation is the fastest for current machine?
     # ----------------------------------------------------------------------------------------------------------------------------
 
-    if not mi_algorithms_rankng:
+    if not mi_algorithms_ranking:
         base_mi_algos = [chatgpt_compute_mutual_information, grok_compute_mutual_information, deepseek_compute_mutual_information]
 
         if benchmark_mi_algorithms:
-            base_mi_algos = benchmark_mi_algos(base_mi_algos=base_mi_algos, verbose=verbose)
+            mi_algorithms_ranking = benchmark_mi_algos(base_mi_algos=base_mi_algos, verbose=verbose)
         else:
-            benchmark_mi_algorithms = base_mi_algos
+            mi_algorithms_ranking = base_mi_algos
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # For each of the targets, compute joint freqs and then MI for each of the "normal" columns:
@@ -162,7 +117,7 @@ def estimate_features_relevancy(
     arr = bins.to_numpy(allow_copy=True)
     target_indices = [bins.columns.index(target_col) for target_col in target_columns]
 
-    original_mi_results = base_mi_algos[0](arr, target_indices)
+    original_mi_results = mi_algorithms_ranking[0](arr, target_indices)
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # Start randomly shuffling targets, and computing Mis of original features with such shuffled targets.
@@ -170,8 +125,6 @@ def estimate_features_relevancy(
 
     if verbose > 1:
         logger.info("Permutation testing...")
-
-    mutual_informations = {}
 
     # How many times should we evaluate permuted MIs to have a baseline?
 
@@ -186,12 +139,27 @@ def estimate_features_relevancy(
     if expected_evaluations_num < min_permuted_mi_evaluations:
         num_randomized_permutations += int(np.ceil((min_permuted_mi_evaluations - expected_evaluations_num) / len(feature_columns)))
 
+    all_permuted_mis = defaultdict(list)
+    current_permuted_mis = defaultdict(list)
+
+    if permuted_mutual_informations:
+        for target_name, permuted_mis in permuted_mutual_informations.items():
+            all_permuted_mis[target_name].append(permuted_mis)
+
+    # Actual permutations
+
     for permutation_id in tqdmu(range(num_randomized_permutations), desc="Permutation", leave=leave_progressbar):
 
         for idx in target_indices:
             np.random.shuffle(arr[:, idx])
 
-        permuted_mi_results = base_mi_algos[0](arr, target_indices)
+        permuted_mi_results = mi_algorithms_ranking[0](arr, target_indices)
+
+        for target_idx, target_col_idx in enumerate(target_indices):
+            target_name = target_columns[target_idx]
+            target_mis = permuted_mi_results[target_idx, :]  # for current features DM
+            current_permuted_mis[target_name].append(target_mis)
+            all_permuted_mis[target_name].append(np.delete(target_mis, target_col_idx))  # for DM at next steps in future
 
         if max_runtime_mins and not ran_out_of_time:
             delta = timer() - start_time
@@ -202,46 +170,89 @@ def estimate_features_relevancy(
                 break
 
     # ----------------------------------------------------------------------------------------------------------------------------
-    # Sum up MIs per column (over targets), decide what features have no influence, report & drop them.
+    # Decide what features have no influence & report them.
     # ----------------------------------------------------------------------------------------------------------------------------
 
-    cols_total_mis = defaultdict(int)
+    features_usefulness = np.zeros(bins.shape[1], dtype=np.int32)
 
-    for (col, target_col), mi in mutual_informations.items():
-        if mi > permuted_mutual_informations[target_col] * min_mi_prevalence:
-            cols_total_mis[col] += 1
+    for target_idx, target_col_idx in enumerate(target_indices):
+        target_name = target_columns[target_idx]
+
+        all_permuted_mis[target_name] = np.hstack(all_permuted_mis[target_name])
+        current_permuted_mis[target_name] = np.vstack(current_permuted_mis[target_name])
+
+        if not permuted_max_mi_quantile:
+            baseline_mi = all_permuted_mis[target_name].max() * min_mi_prevalence
         else:
-            cols_total_mis[col] += 0
+            baseline_mi = np.quantile(all_permuted_mis[target_name], permuted_max_mi_quantile) * min_mi_prevalence
 
-    dead_columns = []
-    for col, total_mi in cols_total_mis.items():
-        if total_mi == 0:  # not related to any target
-            dead_columns.append(col)
+        target_features_usefulness = np.zeros(bins.shape[1], dtype=np.int32)
+        # test #1: original MI must be above highest permuted MI for this feature
+        permuted_prevalence = (current_permuted_mis[target_name] >= original_mi_results[target_idx]).sum(axis=0)
+        passed_permutation = ((permuted_prevalence / current_permuted_mis[target_name].shape[0]) <= max_permuted_prevalence_percent).astype(np.int32)
+        target_features_usefulness = target_features_usefulness + passed_permutation
 
-    if dead_columns:
+        # test #2: original MI must be significanly above highest permuted MI of all features (for this target) seen so far
+        passed_baseline = (original_mi_results[target_idx] > baseline_mi).astype(np.int32)
+        target_features_usefulness = target_features_usefulness + passed_baseline
+
+        if verbose > 1:
+            logger.info(
+                f"Target={target_name}, baseline_mi={baseline_mi:.7f}, baseline_n_passed={passed_baseline.sum():_}, permutation_n_passed={passed_permutation.sum():_}"
+            )
+
+        features_usefulness += (target_features_usefulness >= 2).astype(np.int32)  # both tests must be passed
+
+    for feature_idx, feature_name in enumerate(bins.columns):
+        if features_usefulness[feature_idx] == 0 and feature_idx not in target_indices:
+            columns_to_drop.append(feature_name)
+
+    if columns_to_drop:
         if verbose:
             logger.warning(
-                f"Dropping {len(dead_columns):_} columns with no direct impact on any target: {textwrap.shorten(', '.join(dead_columns), width=max_log_text_width)}"
+                f"Found {len(columns_to_drop):_} columns with no direct impact on any target: {textwrap.shorten(', '.join(columns_to_drop), width=max_log_text_width)}"
             )
-        df = df.drop(dead_columns)
-        columns_to_drop.extend(dead_columns)
 
-    if verbose > 1:
-        logger.info(f"Done. {len(columns_to_drop):_} columns_to_drop: {textwrap.shorten(', '.join(columns_to_drop), width=max_log_text_width)}.")
-
-    del bins
-    clean_ram()
-
-    return columns_to_drop, entropies, permuted_mutual_informations, mutual_informations
+    return columns_to_drop, original_mi_results, all_permuted_mis, mi_algorithms_ranking
 
 
-def run_efs(df, exclude_columns, entropies, permuted_mutual_informations, binned_targets, efs_params) -> tuple:
-    binned_targets, public_clips, columns_to_drop, entropies, permuted_mutual_informations, mutual_informations = find_unrelated_features(
-        df, entropies=entropies, permuted_mutual_informations=permuted_mutual_informations, binned_targets=binned_targets, **efs_params
+def run_efs(
+    df: pl.DataFrame,
+    target_columns: list,
+    exclude_columns: list,
+    permuted_mutual_informations: dict,
+    binned_targets: pl.DataFrame,
+    mi_algorithms_ranking: list,
+    binning_params: dict,
+    efs_params: dict,
+) -> tuple:
+
+    bins, binned_targets, public_clips, columns_to_drop, stats = bin_numerical_columns(
+        df=df, target_columns=target_columns, binned_targets=binned_targets, exclude_columns=exclude_columns, **binning_params
+    )
+    if columns_to_drop:
+        df = df.drop(columns_to_drop)
+
+    columns_to_drop, mutual_informations, permuted_mutual_informations, mi_algorithms_ranking = estimate_features_relevancy(
+        bins=bins,
+        target_columns=target_columns,
+        mi_algorithms_ranking=mi_algorithms_ranking,
+        permuted_mutual_informations=permuted_mutual_informations,
+        **efs_params,
     )
 
-    df = df.drop(columns_to_drop)
-    exclude_columns.update(set(df.columns))
-    features_mis = pd.Series(mutual_informations).sort_values(ascending=False)
+    features_mis = pd.DataFrame({target_columns[col]: mutual_informations[col, :] for col in range(len(target_columns))})
+    features_mis["feature"] = bins.columns
 
-    return df, exclude_columns, entropies, permuted_mutual_informations, binned_targets, features_mis
+    if columns_to_drop:
+        df = df.drop(columns_to_drop)
+    exclude_columns.update(set(bins.columns))
+
+    return (
+        df,
+        exclude_columns,
+        permuted_mutual_informations,
+        binned_targets,
+        mi_algorithms_ranking,
+        features_mis.sort_values(target_columns[0], ascending=False),
+    )
