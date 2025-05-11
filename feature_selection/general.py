@@ -75,10 +75,28 @@ def find_unrelated_features(
     return
 
 
+def benchmark_mi_algos(base_mi_algos: list, verbose: int = 0) -> list:
+
+    target_indices = np.array([0, 10, 20], dtype=np.int64)
+
+    # prewarm
+    arr = np.random.randint(0, 15, size=(10, 200), dtype=np.int8)
+    for func in base_mi_algos:
+        _ = func(data=arr, target_indices=target_indices)
+
+    # main
+    arr = np.random.randint(0, 15, size=(1_000_000, 200), dtype=np.int8)
+    base_mi_algos, durations = benchmark_algos_by_runtime(
+        implementations=base_mi_algos, algo_name="MI", n_reps=2, verbose=verbose, data=arr, target_indices=target_indices
+    )
+
+    return base_mi_algos
+
+
 def estimate_features_relevancy(
     # data
     bins: pl.DataFrame,
-    target_columns_prefix: str = "target_",
+    target_columns: list,
     entropies: dict = None,
     # precomputed info
     mi_algorithms_rankng: list = None,  # ltr
@@ -97,33 +115,30 @@ def estimate_features_relevancy(
     max_log_text_width: int = 300,
     verbose: int = 1,
 ):
-    """Computes relevancy of all features to the targets,
-    using the bins computed at previous step.
-    Suggest for droppping columns that have no firm impact on any of the targets.
+    """Computes relevancy of all features to the targets, using integer bins computed at previous step.
+    Suggests for droppping columns that have no firm impact on any of the targets.
 
     We think that a feature has impact on target if:
         it's MI with original target is higher than MI with permuted target in (1-max_permuted_prevalence_percent)
             (default ALL) permutations we tried;
         it's MI with original target is at least min_mi_prevalence times higher than permuted_max_mi_quantile
-            (default MAXIMUM) MI with that target (permuted) across all features and permutaions we tried.
-
-        MAXIMUM can be replaced with some high quantile, like 0.99.
+            (default MAXIMUM) MI with permuted target across all features and permutaions we tried.
 
     Either min_randomized_permutations or max_runtime_mins should be specified.
 
     Reports:
 
     """
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Inits
+    # ----------------------------------------------------------------------------------------------------------------------------
 
     start_time = timer()
     ran_out_of_time = False
 
     columns_to_drop = []
 
-    if entropies is None:
-        entropies = {}
-
-    target_cols = cs.expand_selector(bins, cs.starts_with(target_columns_prefix))
+    assert min_randomized_permutations >= 1
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # What MI implementation is the fastest for current machine?
@@ -131,21 +146,9 @@ def estimate_features_relevancy(
 
     if not mi_algorithms_rankng:
         base_mi_algos = [chatgpt_compute_mutual_information, grok_compute_mutual_information, deepseek_compute_mutual_information]
+
         if benchmark_mi_algorithms:
-
-            target_indices = np.array([0, 10, 20], dtype=np.int64)
-
-            # prewarm
-            arr = np.random.randint(0, 15, size=(10, 200), dtype=np.int8)
-            for func in base_mi_algos:
-                _ = func(data=arr, target_indices=target_indices)
-
-            # main
-            arr = np.random.randint(0, 15, size=(1_000_000, 200), dtype=np.int8)
-            base_mi_algos, durations = benchmark_algos_by_runtime(
-                implementations=base_mi_algos, algo_name="MI", n_reps=2, verbose=verbose, data=arr, target_indices=target_indices
-            )
-
+            base_mi_algos = benchmark_mi_algos(base_mi_algos=base_mi_algos, verbose=verbose)
         else:
             benchmark_mi_algorithms = base_mi_algos
 
@@ -157,6 +160,8 @@ def estimate_features_relevancy(
         logger.info("Computing original MIs...")
 
     arr = bins.to_numpy(allow_copy=True)
+    target_indices = [bins.columns.index(target_col) for target_col in target_columns]
+
     original_mi_results = base_mi_algos[0](arr, target_indices)
 
     # ----------------------------------------------------------------------------------------------------------------------------
@@ -170,58 +175,31 @@ def estimate_features_relevancy(
 
     # How many times should we evaluate permuted MIs to have a baseline?
 
-    permuted_mutual_informations: dict = None
-    min_permuted_mi_evaluations: int = 1000
+    feature_columns = cs.expand_selector(bins, cs.all() - cs.by_name(target_columns))
 
-    for permutation_id in range(min_randomized_permutations):
+    expected_evaluations_num = 0
+    if permuted_mutual_informations:
+        expected_evaluations_num += permuted_mutual_informations[target_columns[0]]
+    expected_evaluations_num += min_randomized_permutations * len(feature_columns)
+
+    num_randomized_permutations = min_randomized_permutations
+    if expected_evaluations_num < min_permuted_mi_evaluations:
+        num_randomized_permutations += int(np.ceil((min_permuted_mi_evaluations - expected_evaluations_num) / len(feature_columns)))
+
+    for permutation_id in tqdmu(range(num_randomized_permutations), desc="Permutation", leave=leave_progressbar):
 
         for idx in target_indices:
             np.random.shuffle(arr[:, idx])
 
-        permuted_mi_results = grok_compute_mutual_information(arr, target_indices)
+        permuted_mi_results = base_mi_algos[0](arr, target_indices)
 
-    mi_results = chatgpt_compute_mutual_information(bins, target_indices)
-
-    for target_id, target_col in enumerate(tqdmu(target_cols, desc="features MIs with targets", leave=leave_progressbar)):
-        for i in tqdmu(range(min_randomized_permutations), desc="bootstrap", leave=leave_progressbar):
-
-            # Shuffle target, if it's time to
-            if i > 0:
-                bins = bins.with_columns(pl.col(target_col).shuffle())
-
-            mi_results = {}
-            cols_to_compute_mis = []
-
-            # Who needs computing, actually?
-
-            for col in tqdmu(cs.expand_selector(bins, cs.all()), desc="var", leave=leave_progressbar):
-                if col.startswith(target_columns_prefix):
-                    continue
-                if (
-                    i == 0 or mutual_informations[(col, target_col)] > permuted_mutual_informations[target_col] * min_mi_prevalence
-                ):  # only compute when it makes sense
-                    cols_to_compute_mis.append(col)
-
-            # Decision making part
-
-            for col, mi in mi_results.items():
-                if i == 0:
-                    # save original MI of col vs target
-                    mutual_informations[(col, target_col)] = mi
-                else:
-                    # if permuted MI is same good or better than original - zero out original. Feature to be dropped.
-                    if mi >= mutual_informations[(col, target_col)]:
-                        mutual_informations[(col, target_col)] = 0
-                        if verbose > 1:
-                            logger.warning(f"After permutation, MI of var={col} with target {target_col} remained high: {mi}")
-
-            if max_runtime_mins and not ran_out_of_time:
-                delta = timer() - start_time
-                ran_out_of_time = delta > max_runtime_mins * 60
-                if ran_out_of_time:
-                    if verbose:
-                        logger.info(f"max_runtime_mins={max_runtime_mins:_.1f} reached.")
-                    break
+        if max_runtime_mins and not ran_out_of_time:
+            delta = timer() - start_time
+            ran_out_of_time = delta > max_runtime_mins * 60
+            if ran_out_of_time:
+                if verbose:
+                    logger.info(f"max_runtime_mins={max_runtime_mins:_.1f} reached.")
+                break
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # Sum up MIs per column (over targets), decide what features have no influence, report & drop them.

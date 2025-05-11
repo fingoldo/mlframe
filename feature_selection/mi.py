@@ -83,12 +83,10 @@ def grok_compute_mutual_information(
         target = target_indices[t]
         target_col = data[:, target]
         for j in prange(n_columns):
-            if j != target:
-                mi_results[t, j] = grok_mutual_information(
-                    target_col, data[:, j], n_bins=n_bins, inv_n_samples=inv_n_samples, log_n_samples=log_n_samples, hist_dtype=hist_dtype
-                )
-            else:
-                mi_results[t, j] = np.nan
+            mi_results[t, j] = grok_mutual_information(
+                target_col, data[:, j], n_bins=n_bins, inv_n_samples=inv_n_samples, log_n_samples=log_n_samples, hist_dtype=hist_dtype
+            )
+
     return mi_results
 
 
