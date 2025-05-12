@@ -19,6 +19,8 @@ import polars_talib as plta
 import polars as pl, polars.selectors as cs
 
 import pyutilz.polarslib as pllib
+from pyutilz.system import clean_ram
+
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Core
@@ -470,23 +472,30 @@ def create_ohlcv_wholemarket_features(
     if cast_f64_to_f32:
         res = pllib.cast_f64_to_f32(res)
 
-    return res.sort(timestamp_column).collect()
+    return res.sort(timestamp_column)
 
 
 def merge_perticker_and_wholemarket_features(
     perticker_features: pl.DataFrame,
     wholemarket_features: pl.DataFrame,
     timestamp_column: str = "date",
+    add_rankings: bool = True,
 ) -> pl.DataFrame:
     """Merges per-ticker and wholemarket features. Add ranks using formula  (val-min)/(max-min)."""
-    rankings = []
-    wholemarket_cols = set(wholemarket_features.collect_schema().names())
-    for col in perticker_features.collect_schema().names():
-        if f"{col}_min" in wholemarket_cols and f"{col}_max" in wholemarket_cols:
-            rankings.append(((pl.col(col) - pl.col(f"{col}_min")) / (pl.col(f"{col}_max") - pl.col(f"{col}_min"))).alias(f"{col}_wm_rnk"))
 
+    rankings = []
+    if add_rankings:
+        wholemarket_cols = set(wholemarket_features.collect_schema().names())
+        for col in perticker_features.collect_schema().names():
+            if f"{col}_min" in wholemarket_cols and f"{col}_max" in wholemarket_cols:
+                rankings.append(((pl.col(col) - pl.col(f"{col}_min")) / (pl.col(f"{col}_max") - pl.col(f"{col}_min"))).alias(f"{col}_wm_rnk"))
+
+    clean_ram()
     joined = perticker_features.join(wholemarket_features, on=timestamp_column, how="left").sort(timestamp_column)
+    clean_ram()
+
     if rankings:
         joined = joined.with_columns(rankings)
+        clean_ram()
 
     return joined.collect()

@@ -120,7 +120,7 @@ def estimate_features_relevancy(
     original_mi_results = mi_algorithms_ranking[0](arr, target_indices)
 
     # ----------------------------------------------------------------------------------------------------------------------------
-    # Start randomly shuffling targets, and computing Mis of original features with such shuffled targets.
+    # Start randomly shuffling targets, and computing MIs of original features with such shuffled targets.
     # ----------------------------------------------------------------------------------------------------------------------------
 
     if verbose > 1:
@@ -225,8 +225,10 @@ def run_efs(
     mi_algorithms_ranking: list,
     binning_params: dict,
     efs_params: dict,
+    use_mis: bool = True,
 ) -> tuple:
 
+    features_mis = None
     clean_ram()
 
     bins, binned_targets, public_clips, columns_to_drop, stats = bin_numerical_columns(
@@ -235,29 +237,25 @@ def run_efs(
     if columns_to_drop:
         df = df.drop(columns_to_drop)
 
-    clean_ram()
-    columns_to_drop, mutual_informations, permuted_mutual_informations, mi_algorithms_ranking = estimate_features_relevancy(
-        bins=bins,
-        target_columns=target_columns,
-        mi_algorithms_ranking=mi_algorithms_ranking,
-        permuted_mutual_informations=permuted_mutual_informations,
-        **efs_params,
-    )
+    if use_mis:
+        clean_ram()
+        columns_to_drop, mutual_informations, permuted_mutual_informations, mi_algorithms_ranking = estimate_features_relevancy(
+            bins=bins,
+            target_columns=target_columns,
+            mi_algorithms_ranking=mi_algorithms_ranking,
+            permuted_mutual_informations=permuted_mutual_informations,
+            **efs_params,
+        )
 
-    features_mis = pd.DataFrame({target_columns[col]: mutual_informations[col, :] for col in range(len(target_columns))})
-    features_mis["feature"] = bins.columns
+        features_mis = pd.DataFrame({target_columns[col]: mutual_informations[col, :] for col in range(len(target_columns))})
+        features_mis["feature"] = bins.columns
+        features_mis = features_mis.sort_values(target_columns[0], ascending=False)
 
-    if columns_to_drop:
-        df = df.drop(columns_to_drop)
+        if columns_to_drop:
+            df = df.drop(columns_to_drop)
+
     exclude_columns.update(set(bins.columns))
 
     clean_ram()
 
-    return (
-        df,
-        exclude_columns,
-        permuted_mutual_informations,
-        binned_targets,
-        mi_algorithms_ranking,
-        features_mis.sort_values(target_columns[0], ascending=False),
-    )
+    return (df, exclude_columns, permuted_mutual_informations, binned_targets, mi_algorithms_ranking, features_mis)
