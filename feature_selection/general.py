@@ -132,7 +132,7 @@ def estimate_features_relevancy(
 
     expected_evaluations_num = 0
     if permuted_mutual_informations:
-        expected_evaluations_num += permuted_mutual_informations[target_columns[0]]
+        expected_evaluations_num += len(permuted_mutual_informations[target_columns[0]])
     expected_evaluations_num += min_randomized_permutations * len(feature_columns)
 
     num_randomized_permutations = min_randomized_permutations
@@ -227,12 +227,15 @@ def run_efs(
     efs_params: dict,
 ) -> tuple:
 
+    clean_ram()
+
     bins, binned_targets, public_clips, columns_to_drop, stats = bin_numerical_columns(
         df=df, target_columns=target_columns, binned_targets=binned_targets, exclude_columns=exclude_columns, **binning_params
     )
     if columns_to_drop:
         df = df.drop(columns_to_drop)
 
+    clean_ram()
     columns_to_drop, mutual_informations, permuted_mutual_informations, mi_algorithms_ranking = estimate_features_relevancy(
         bins=bins,
         target_columns=target_columns,
@@ -247,6 +250,8 @@ def run_efs(
     if columns_to_drop:
         df = df.drop(columns_to_drop)
     exclude_columns.update(set(bins.columns))
+
+    clean_ram()
 
     return (
         df,
