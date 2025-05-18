@@ -58,7 +58,7 @@ def estimate_features_relevancy(
     benchmark_mi_algorithms: bool = True,
     permuted_mutual_informations: dict = None,
     # working params
-    min_mi_prevalence: float = 10,
+    min_mi_prevalence: float = 2,  # 10 is too high for a weak target
     permuted_max_mi_quantile: float = None,
     min_permuted_mi_evaluations: int = 1000,
     min_randomized_permutations: int = 1,

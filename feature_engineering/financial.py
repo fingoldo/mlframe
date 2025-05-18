@@ -30,24 +30,48 @@ from pyutilz.system import clean_ram
 def add_ohlcv_ratios_rlags_rollings(
     ohlcv: pl.DataFrame,
     columns_selector: str = "",
-    lags: list = [1],
-    rolling_windows: list = [5],
-    crossbar_ratios_lags: list = [1],
+    lags: list = None,
+    rolling_windows: list = None,
+    crossbar_ratios_lags: list = None,
     min_samples: int = 1,
     ticker_column: str = "ticker",
-    target_columns_prefix: str = "target",
-    market_action_prefixes: list = [""],
-    ohlcv_fields_mapping: dict = dict(qty="qty", open="open", high="high", low="low", close="close", volume="volume"),
+    targets: list = None,
+    market_action_prefixes: list = None,
+    ohlcv_fields_mapping=None,
     nans_filler: float = 0.0,
     cast_f64_to_f32: bool = True,
 ) -> pl.DataFrame:
-    """Adds more nuanced features to raw ohlcv."""
+    """Adds more nuanced features to raw ohlcv. Dataframe assumed to be sorted by timestamp.
+    Grouping implemented with 'over' mechanics."""
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Inits
+    # ----------------------------------------------------------------------------------------------------------------------------
+
+    if not lags:
+        lags: list = [1]
+    if not rolling_windows:
+        rolling_windows: list = [5]
+    if not crossbar_ratios_lags:
+        crossbar_ratios_lags: list = [1]
+    if not market_action_prefixes:
+        market_action_prefixes: list = [""]
+    if not ohlcv_fields_mapping:
+        ohlcv_fields_mapping: dict = dict(qty="qty", open="open", high="high", low="low", close="close", volume="volume")
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Columns to work with
+    # ----------------------------------------------------------------------------------------------------------------------------
 
     all_num_cols = cs.numeric()
     if columns_selector:
         all_num_cols = all_num_cols & cs.contains(columns_selector)
-    if target_columns_prefix:
-        all_num_cols = all_num_cols - cs.starts_with(target_columns_prefix)
+    if targets:
+        all_num_cols = all_num_cols - cs.by_name(targets)
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Ratios
+    # ----------------------------------------------------------------------------------------------------------------------------
 
     interbar_ratios_features = []
     for prefix in market_action_prefixes:
@@ -88,6 +112,10 @@ def add_ohlcv_ratios_rlags_rollings(
 
     def group_if_needed(expr: pl.Expr, over: str = "") -> pl.Expr:
         return expr.over(over) if over else expr
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Computing
+    # ----------------------------------------------------------------------------------------------------------------------------
 
     ohlcv = ohlcv.with_columns(
         # interbar ohlcv ratios features
@@ -152,11 +180,11 @@ def apply_ta_indicator(
 
 def add_ohlcv_ta_indicators(
     ohlcv: pl.DataFrame,
-    rolling_windows: list = [5, 10],
-    fss_rolling_windows=[[12, 26, 9]],
+    rolling_windows: list = None,
+    fss_rolling_windows=None,
     ticker_column: str = "ticker",
-    market_action_prefixes: list = [""],
-    ohlcv_fields_mapping: dict = dict(open="open", high="high", low="low", close="close", volume="volume"),
+    market_action_prefixes: list = None,
+    ohlcv_fields_mapping: dict = None,
     nans_filler: float = 0.0,
     cast_f64_to_f32: bool = True,
 ) -> pl.DataFrame:
@@ -164,10 +192,25 @@ def add_ohlcv_ta_indicators(
     ohlcv dataframe must be sorted by timestamp.
     market_action_prefixes allow to apply TA per buy/sell groups separately: market_action_prefixes = ["", "buy_", "sell_"]
     """
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Inits
+    # ----------------------------------------------------------------------------------------------------------------------------
+
+    if not rolling_windows:
+        rolling_windows: list = [5, 10]
+    if not fss_rolling_windows:
+        fss_rolling_windows = [[12, 26, 9]]
+    if not market_action_prefixes:
+        market_action_prefixes: list = [""]
+    if not ohlcv_fields_mapping:
+        ohlcv_fields_mapping: dict = dict(open="open", high="high", low="low", close="close", volume="volume")
+
     ta_expressions = []
     unnests = []
 
     for prefix in market_action_prefixes:
+
         low = pl.col(f"{prefix}{ohlcv_fields_mapping.get('low')}")
         high = pl.col(f"{prefix}{ohlcv_fields_mapping.get('high')}")
         open = pl.col(f"{prefix}{ohlcv_fields_mapping.get('open')}")
@@ -440,9 +483,9 @@ def add_ohlcv_ta_indicators(
 def create_ohlcv_wholemarket_features(
     ohlcv: pl.DataFrame,
     timestamp_column: str = "date",
-    target_columns_prefix: str = "target",
-    weighting_columns: list = "volume qty".split(),
-    numaggs: list = "min max mean median std skew kurtosis entropy n_unique".split(),
+    targets: list = None,
+    weighting_columns: list = None,
+    numaggs: list = None,
     nans_filler: float = 0.0,
     cast_f64_to_f32: bool = True,
 ) -> pl.DataFrame:
@@ -450,23 +493,26 @@ def create_ohlcv_wholemarket_features(
     Also performs a few weighted calculations (for mean and std).
     Should be applied AFTER add_ohlcv_ratios_rlags_rollings and add_ohlcv_ta_indicators, to cover as many columns as possible.
     Then joined with main ohlcv by bar's timestamp (ideally ranks across tickers should be added: (val-min)/(max-min)), using cs.expand_selector(ohlcv,cs.numeric()) to get exact col names..
-    Can rlags & rolling means be applied to wholemarket features also, after everything else???
+    rlags & rolling means can be applied one more time to wholemarket features also, after everything else.
     """
-    all_num_cols = cs.numeric()
-    if target_columns_prefix:
-        all_num_cols = all_num_cols - cs.starts_with(target_columns_prefix)
 
-    wcols = []
-    for wcol in weighting_columns:
-        all_other_num_cols = all_num_cols - pl.col(wcol)
-        weighted_mean = ((all_other_num_cols * pl.col(wcol)).sum() / pl.col(wcol).sum()).name.suffix(f"_wmean_{wcol}")
-        wcols.append(weighted_mean)
-        # !TODO causes error for now
-        # weighted_std = ((pl.col(wcol) * (all_other_num_cols - weighted_mean) ** 2).sum() / pl.col(wcol).sum()).sqrt().name.suffix(f"_wstd_{wcol}")
-        # wcols.append(weighted_std)
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Inits
+    # ----------------------------------------------------------------------------------------------------------------------------
+
+    if weighting_columns is None:
+        weighting_columns: list = "volume qty".split()
+    if not numaggs:
+        numaggs: list = "min max mean median std skew kurtosis entropy n_unique".split()
+
+    all_num_cols = cs.numeric()
+    if targets:
+        all_num_cols = all_num_cols - cs.by_name(targets)
+
+    wcols = pllib.add_weighted_aggregates(columns_selector=all_num_cols.name.suffix(f"_wm_"), weighting_columns=weighting_columns)
 
     res = ohlcv.group_by(timestamp_column).agg(
-        [pl.len().alias("wm_ntickers")] + [getattr(all_num_cols, func)().name.suffix(f"_wm_{func}") for func in numaggs] + wcols
+        [pl.len().alias("wm_size")] + [getattr(all_num_cols, func)().name.suffix(f"_wm_{func}") for func in numaggs] + wcols
     )
     res = res.with_columns(pllib.clean_numeric(cs.float(), nans_filler=nans_filler))
     if cast_f64_to_f32:
@@ -487,8 +533,8 @@ def merge_perticker_and_wholemarket_features(
     if add_rankings:
         wholemarket_cols = set(wholemarket_features.collect_schema().names())
         for col in perticker_features.collect_schema().names():
-            if f"{col}_min" in wholemarket_cols and f"{col}_max" in wholemarket_cols:
-                rankings.append(((pl.col(col) - pl.col(f"{col}_min")) / (pl.col(f"{col}_max") - pl.col(f"{col}_min"))).alias(f"{col}_wm_rnk"))
+            if f"{col}_wm_min" in wholemarket_cols and f"{col}_wm_max" in wholemarket_cols:
+                rankings.append(((pl.col(col) - pl.col(f"{col}_wm_min")) / (pl.col(f"{col}_wm_max") - pl.col(f"{col}_wm_min"))).alias(f"{col}_wm_rnk"))
 
     clean_ram()
     joined = perticker_features.join(wholemarket_features, on=timestamp_column, how="left").sort(timestamp_column)
