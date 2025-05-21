@@ -41,3 +41,6 @@ duckdb
 umap-learn
 hdbscan
 seaborn
+polars
+python-dotenv
+polars_talib 
