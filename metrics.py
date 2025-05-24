@@ -559,7 +559,7 @@ def fast_calibration_report(
     # roc_auc, pr_auc = fast_roc_auc(y_true=y_true, y_score=y_pred), average_precision_score(y_true=y_true, y_score=y_pred)
     # roc_auc, pr_auc = fast_aucs(y_true=y_true, y_score=y_pred)
     roc_auc, pr_auc, group_aucs = fast_aucs_per_group_optimized(y_true=y_true, y_score=y_pred, group_ids=group_ids)
-    mean_group_roc_auc, mean_group_pr_auc = compute_mean_aucs_per_group(group_aucs) if group_aucs else None, None
+    mean_group_roc_auc, mean_group_pr_auc = compute_mean_aucs_per_group(group_aucs) if group_aucs else (None, None)
 
     ice = integral_calibration_error_from_metrics(
         calibration_mae=calibration_mae,
