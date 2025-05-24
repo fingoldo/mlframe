@@ -579,6 +579,14 @@ def fast_calibration_report(
             plot_title += f", CMAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}%±{calibration_std*100:.{ndigits}f}%"
         if show_coverage_in_title:
             plot_title += f", COV={calibration_coverage*100:.{int(np.log10(nbins))}f}%"
+        if show_logloss_in_title:
+            plot_title += f", LL={ll:.{ndigits}f}"
+        if show_points_density_in_title:
+            plot_title += f", DENS=[{max_hits:_};{min_hits:_}]"
+
+        if (show_roc_auc_in_title or show_pr_auc_in_title) and (mean_group_roc_auc is not None):
+            plot_title += "\n"
+
         if show_roc_auc_in_title:
             plot_title += f", ROC AUC={roc_auc:.{ndigits}f}"
             if mean_group_roc_auc is not None:
@@ -587,10 +595,7 @@ def fast_calibration_report(
             plot_title += f", PR AUC={pr_auc:.{ndigits}f}"
             if mean_group_pr_auc is not None:
                 plot_title += f"({mean_group_pr_auc:.{ndigits}f} per-group)"
-        if show_logloss_in_title:
-            plot_title += f", LL={ll:.{ndigits}f}"
-        if show_points_density_in_title:
-            plot_title += f", DENS=[{max_hits:_};{min_hits:_}]"
+
         if title:
             plot_title = title.strip() + "\n" + plot_title
         fig = show_calibration_plot(
