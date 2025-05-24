@@ -911,7 +911,7 @@ def train_and_evaluate_model(
                 custom_ice_metric=custom_ice_metric,
                 custom_rice_metric=custom_rice_metric,
                 metrics=metrics["train"],
-                group_ids=group_ids[train_idx] if group_ids else None,
+                group_ids=group_ids[train_idx] if group_ids is not None else None,
             )
 
         if compute_valset_metrics and ((val_idx is not None and len(val_idx) > 0) or val_df is not None):
@@ -943,7 +943,7 @@ def train_and_evaluate_model(
                 custom_ice_metric=custom_ice_metric,
                 custom_rice_metric=custom_rice_metric,
                 metrics=metrics["val"],
-                group_ids=group_ids[val_idx] if group_ids else None,
+                group_ids=group_ids[val_idx] if group_ids is not None else None,
             )
 
         if compute_testset_metrics and ((test_idx is not None and len(test_idx) > 0) or test_df is not None):
@@ -992,7 +992,7 @@ def train_and_evaluate_model(
                 custom_ice_metric=custom_ice_metric,
                 custom_rice_metric=custom_rice_metric,
                 metrics=metrics["test"],
-                group_ids=group_ids[test_idx] if group_ids else None,
+                group_ids=group_ids[test_idx] if group_ids is not None else None,
             )
 
             if include_confidence_analysis:
