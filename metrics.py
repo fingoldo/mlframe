@@ -351,6 +351,172 @@ def fast_numba_aucs(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices:
     return roc_auc, pr_auc
 
 
+def fast_aucs_per_group(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.ndarray) -> Tuple[float, float, Dict[int, Tuple[float, float]]]:
+    """
+    Compute overall AUCs and per-group AUCs efficiently.
+
+    Returns:
+        - Overall ROC AUC
+        - Overall PR AUC
+        - Dictionary mapping group_id -> (roc_auc, pr_auc)
+    """
+    if y_score.ndim == 2:
+        y_score = y_score[:, -1]
+
+    # Overall AUCs
+    desc_score_indices = np.argsort(y_score)[::-1]
+    overall_roc_auc, overall_pr_auc = fast_numba_aucs(y_true, y_score, desc_score_indices)
+
+    # Per-group AUCs
+    unique_groups = np.unique(group_ids)
+    group_aucs = {}
+
+    for group_id in unique_groups:
+        group_mask = group_ids == group_id
+        group_y_true = y_true[group_mask]
+        group_y_score = y_score[group_mask]
+
+        if len(group_y_true) > 1:  # Need at least 2 samples
+            group_desc_indices = np.argsort(group_y_score)[::-1]
+            roc_auc, pr_auc = fast_numba_aucs(group_y_true, group_y_score, group_desc_indices)
+            group_aucs[int(group_id)] = (roc_auc, pr_auc)
+        else:
+            group_aucs[int(group_id)] = (0.0, 0.0)
+
+    return overall_roc_auc, overall_pr_auc, group_aucs
+
+
+def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.ndarray = None) -> Tuple[float, float, Dict[int, Tuple[float, float]]]:
+    """
+    More memory-efficient version that groups data by group first.
+    Better for cases with many groups and reasonable group sizes.
+    """
+    if y_score.ndim == 2:
+        y_score = y_score[:, -1]
+
+    # Overall AUCs
+    desc_score_indices = np.argsort(y_score)[::-1]
+    overall_roc_auc, overall_pr_auc = fast_numba_aucs(y_true, y_score, desc_score_indices)
+
+    # By group very efficiently
+    if group_ids is not None:
+        sort_indices = np.argsort(group_ids)
+        sorted_group_ids = group_ids[sort_indices]
+        sorted_y_true = y_true[sort_indices]
+        sorted_y_score = y_score[sort_indices]
+
+        group_aucs = compute_grouped_group_aucs(sorted_group_ids, sorted_y_true, sorted_y_score)
+    else:
+        group_aucs = {}
+
+    return overall_roc_auc, overall_pr_auc, group_aucs
+
+
+@njit()
+def compute_grouped_group_aucs(sorted_group_ids: np.ndarray, sorted_y_true: np.ndarray, sorted_y_score: np.ndarray) -> Dict[int, Tuple[float, float]]:
+    """
+    Compute AUCs for each group from pre-sorted data.
+    """
+    group_aucs = {}
+    n = len(sorted_group_ids)
+
+    if n == 0:
+        return group_aucs
+
+    start_idx = 0
+    current_group = sorted_group_ids[0]
+
+    for i in range(1, n + 1):
+        # Check if we've reached end or found a new group
+        if i == n or sorted_group_ids[i] != current_group:
+            end_idx = i
+            group_size = end_idx - start_idx
+
+            if group_size > 1:
+                # Extract group data
+                group_y_true = sorted_y_true[start_idx:end_idx]
+                group_y_score = sorted_y_score[start_idx:end_idx]
+
+                # Sort by score for this group
+                group_desc_indices = np.argsort(group_y_score)[::-1]
+
+                # Compute AUCs for this group
+                roc_auc, pr_auc = fast_numba_aucs_simple(group_y_true, group_y_score, group_desc_indices)
+                group_aucs[int(current_group)] = (roc_auc, pr_auc)
+            else:
+                group_aucs[int(current_group)] = (0.0, 0.0)
+
+            # Move to next group
+            if i < n:
+                start_idx = i
+                current_group = sorted_group_ids[i]
+
+    return group_aucs
+
+
+@njit()
+def fast_numba_aucs_simple(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices: np.ndarray) -> Tuple[float, float]:
+    """
+    Simplified version of your original function for per-group computation.
+    """
+    y_score_sorted = y_score[desc_score_indices]
+    y_true_sorted = y_true[desc_score_indices]
+    total_pos = np.sum(y_true_sorted)
+
+    if total_pos == 0:
+        return 0.0, 0.0
+
+    # Variables for ROC AUC
+    last_counted_fps = 0
+    last_counted_tps = 0
+    tps, fps = 0, 0
+    roc_auc = 0.0
+
+    # Variables for PR AUC
+    prev_recall = 0.0
+    pr_auc = 0.0
+    n = len(y_true_sorted)
+
+    for i in range(n):
+        tps += y_true_sorted[i]
+        fps += 1 - y_true_sorted[i]
+
+        if i == n - 1 or y_score_sorted[i + 1] != y_score_sorted[i]:
+            # Update ROC AUC
+            delta_fps = fps - last_counted_fps
+            sum_tps = last_counted_tps + tps
+            roc_auc += delta_fps * sum_tps
+            last_counted_fps = fps
+            last_counted_tps = tps
+
+            # Update PR AUC
+            current_precision = tps / (tps + fps) if (tps + fps) > 0 else 0.0
+            current_recall = tps / total_pos
+            delta_recall = current_recall - prev_recall
+            pr_auc += delta_recall * current_precision
+            prev_recall = current_recall
+
+    # Normalize ROC AUC
+    denom_roc = tps * fps * 2
+    if denom_roc > 0:
+        roc_auc /= denom_roc
+    else:
+        roc_auc = 0.0
+
+    return roc_auc, pr_auc
+
+
+def compute_mean_aucs_per_group(group_aucs: dict) -> tuple:
+
+    # Compute mean per-group AUCs
+    group_roc_aucs = [aucs[0] for aucs in group_aucs.values()]
+    group_pr_aucs = [aucs[1] for aucs in group_aucs.values()]
+
+    mean_roc_auc, mean_pr_auc = np.mean(group_roc_aucs), np.mean(group_pr_aucs)
+
+    return mean_roc_auc, mean_pr_auc
+
+
 def fast_calibration_report(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -370,6 +536,7 @@ def fast_calibration_report(
     title: str = "",
     use_weights=True,
     verbose: bool = False,
+    group_ids:np.ndarray,
     **ice_kwargs,
 ):
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs."""
@@ -390,7 +557,9 @@ def fast_calibration_report(
     fig = None
 
     # roc_auc, pr_auc = fast_roc_auc(y_true=y_true, y_score=y_pred), average_precision_score(y_true=y_true, y_score=y_pred)
-    roc_auc, pr_auc = fast_aucs(y_true=y_true, y_score=y_pred)
+    # roc_auc, pr_auc = fast_aucs(y_true=y_true, y_score=y_pred)
+    roc_auc, pr_auc, group_aucs = fast_aucs_per_user(y_true=y_true, y_score=y_pred, group_ids=group_ids)
+    mean_group_roc_auc, mean_group_pr_auc = compute_mean_aucs_per_group(group_aucs) if group_aucs else None, None
 
     ice = integral_calibration_error_from_metrics(
         calibration_mae=calibration_mae,
@@ -411,11 +580,15 @@ def fast_calibration_report(
         if show_coverage_in_title:
             plot_title += f", COV={calibration_coverage*100:.{int(np.log10(nbins))}f}%"
         if show_roc_auc_in_title:
-            plot_title += f", ROC AUC={roc_auc:.3f}"
+            plot_title += f", ROC AUC={roc_auc:.{ndigits}f}"
+            if mean_group_roc_auc is not None:
+                plot_title += f"({mean_group_roc_auc:.{ndigits}f} per-group)"
         if show_pr_auc_in_title:
-            plot_title += f", PR AUC={pr_auc:.3f}"
+            plot_title += f", PR AUC={pr_auc:.{ndigits}f}"
+            if mean_group_pr_auc is not None:
+                plot_title += f"({mean_group_pr_auc:.{ndigits}f} per-group)"
         if show_logloss_in_title:
-            plot_title += f", LL={ll:.3f}"
+            plot_title += f", LL={ll:.{ndigits}f}"
         if show_points_density_in_title:
             plot_title += f", DENS=[{max_hits:_};{min_hits:_}]"
         if title:

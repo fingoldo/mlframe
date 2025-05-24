@@ -553,6 +553,7 @@ def train_and_evaluate_model(
     df: pd.DataFrame = None,
     target: pd.Series = None,  # s
     groups: pd.Series = None,
+    group_ids:np.ndarray=None,
     outlier_detector: object = None,
     od_val_set: bool = True,
     trainset_features_stats: dict = None,
@@ -620,6 +621,8 @@ def train_and_evaluate_model(
         outlier_detector=Pipeline([("enc",ColumnTransformer(transformers=[('enc', ce.CatBoostEncoder(),['secid'])],remainder='passthrough')),("imp", SimpleImputer()), ("est", IsolationForest(contamination=0.01,n_estimators=500,n_jobs=-1))])
 
     train_idx etc indices must be fet to .iloc[] after, ie, be integer & unique
+
+    group_ids:np.ndarray used to compute per-group AUCs (useful in recsys tasks).
     """
 
     clean_ram()
@@ -908,6 +911,7 @@ def train_and_evaluate_model(
                 custom_ice_metric=custom_ice_metric,
                 custom_rice_metric=custom_rice_metric,
                 metrics=metrics["train"],
+                group_ids=group_ids[train_idx] if group_ids else None,
             )
 
         if compute_valset_metrics and ((val_idx is not None and len(val_idx) > 0) or val_df is not None):
@@ -939,6 +943,7 @@ def train_and_evaluate_model(
                 custom_ice_metric=custom_ice_metric,
                 custom_rice_metric=custom_rice_metric,
                 metrics=metrics["val"],
+                group_ids=group_ids[val_idx] if group_ids else None,
             )
 
         if compute_testset_metrics and ((test_idx is not None and len(test_idx) > 0) or test_df is not None):
@@ -987,6 +992,7 @@ def train_and_evaluate_model(
                 custom_ice_metric=custom_ice_metric,
                 custom_rice_metric=custom_rice_metric,
                 metrics=metrics["test"],
+                group_ids=group_ids[test_idx] if group_ids else None,
             )
 
             if include_confidence_analysis:
@@ -1091,6 +1097,7 @@ def report_model_perf(
     custom_ice_metric: Callable = None,
     custom_rice_metric: Callable = None,
     metrics: dict = None,
+    group_ids:np.ndarray,
 ):
 
     if is_classifier(model) or (model is None and probs is not None):
@@ -1119,6 +1126,7 @@ def report_model_perf(
             custom_ice_metric=custom_ice_metric,
             custom_rice_metric=custom_rice_metric,
             metrics=metrics,
+            group_ids=group_ids,
         )
     else:
 
@@ -1278,6 +1286,7 @@ def report_probabilistic_model_perf(
     custom_ice_metric: Callable = None,
     custom_rice_metric: Callable = None,
     metrics: dict = None,
+    group_ids:np.ndarray,
 ):
     """Detailed performance report (usually on a test set)."""
 
@@ -1349,6 +1358,7 @@ def report_probabilistic_model_perf(
             ndigits=calib_report_ndigits,
             verbose=verbose,
             nbins=nbins,
+            group_ids=group_ids,
         )
 
         if print_report:
@@ -1513,6 +1523,7 @@ def configure_training_params(
     train_details: str = "",
     val_details: str = "",
     test_details: str = "",
+    group_ids:np.ndarray=None,
     **config_kwargs,
 ):
     for next_df in (df, train_df):
@@ -1587,6 +1598,7 @@ def configure_training_params(
         train_details=train_details,
         val_details=val_details,
         test_details=test_details,
+        group_ids=group_ids,
     )
 
     common_cb_params = dict(
