@@ -492,7 +492,7 @@ def add_ohlcv_ta_indicators(
                 ]
             )
 
-        timeperiod_only_fss_indicators = "macd".split()  # []  # "macd".split()
+        timeperiod_only_fss_indicators = []  # "macd".split()
         for fastperiod, slowperiod, signalperiod in fss_rolling_windows:
             # unnests.append(f"macd{fastperiod}-{slowperiod}-{signalperiod}")
             ta_expressions.extend(
