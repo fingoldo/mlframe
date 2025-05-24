@@ -1524,6 +1524,7 @@ def configure_training_params(
     val_details: str = "",
     test_details: str = "",
     group_ids: np.ndarray = None,
+    model_name: str = "",
     **config_kwargs,
 ):
     for next_df in (df, train_df):
@@ -1599,6 +1600,7 @@ def configure_training_params(
         val_details=val_details,
         test_details=test_details,
         group_ids=group_ids,
+        model_name=model_name,
     )
 
     common_cb_params = dict(
