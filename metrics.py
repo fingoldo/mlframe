@@ -509,10 +509,10 @@ def fast_numba_aucs_simple(y_true: np.ndarray, y_score: np.ndarray, desc_score_i
 def compute_mean_aucs_per_group(group_aucs: dict) -> tuple:
 
     # Compute mean per-group AUCs
-    group_roc_aucs = [aucs[0] for aucs in group_aucs.values()]
-    group_pr_aucs = [aucs[1] for aucs in group_aucs.values()]
+    group_roc_aucs = np.array([aucs[0] for aucs in group_aucs.values()])
+    group_pr_aucs = np.array([aucs[1] for aucs in group_aucs.values()])
 
-    mean_roc_auc, mean_pr_auc = np.mean(group_roc_aucs), np.mean(group_pr_aucs)
+    mean_roc_auc, mean_pr_auc = np.mean(group_roc_aucs[group_roc_aucs > 0]), np.mean(group_pr_aucs[group_pr_aucs > 0])
 
     return mean_roc_auc, mean_pr_auc
 
