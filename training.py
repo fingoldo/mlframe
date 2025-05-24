@@ -1097,7 +1097,7 @@ def report_model_perf(
     custom_ice_metric: Callable = None,
     custom_rice_metric: Callable = None,
     metrics: dict = None,
-    group_ids:np.ndarray,
+    group_ids:np.ndarray= None,
 ):
 
     if is_classifier(model) or (model is None and probs is not None):

@@ -27,15 +27,13 @@ from pyutilz.system import clean_ram
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-def add_ohlcv_ratios_rlags_rollings(
+def add_ohlcv_ratios_rlags(
     ohlcv: pl.DataFrame,
     columns_selector: str = "",
     lags: list = None,
-    rolling_windows: list = None,
     crossbar_ratios_lags: list = None,
-    min_samples: int = 1,
     ticker_column: str = "ticker",
-    targets: list = None,
+    exclude_fields: list = None,
     market_action_prefixes: list = None,
     ohlcv_fields_mapping=None,
     nans_filler: float = 0.0,
@@ -50,8 +48,6 @@ def add_ohlcv_ratios_rlags_rollings(
 
     if not lags:
         lags: list = [1]
-    if not rolling_windows:
-        rolling_windows: list = [5]
     if not crossbar_ratios_lags:
         crossbar_ratios_lags: list = [1]
     if not market_action_prefixes:
@@ -66,8 +62,8 @@ def add_ohlcv_ratios_rlags_rollings(
     all_num_cols = cs.numeric()
     if columns_selector:
         all_num_cols = all_num_cols & cs.contains(columns_selector)
-    if targets:
-        all_num_cols = all_num_cols - cs.by_name(targets)
+    if exclude_fields:
+        all_num_cols = all_num_cols - cs.by_name(exclude_fields)
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # Ratios
@@ -128,6 +124,57 @@ def add_ohlcv_ratios_rlags_rollings(
             )
             for lag in lags
         ],
+    )
+
+    if cast_f64_to_f32:
+        ohlcv = pllib.cast_f64_to_f32(ohlcv)
+
+    return ohlcv
+
+
+def add_rollings(
+    ohlcv: pl.DataFrame,
+    rolling_windows: list = None,
+    min_samples: int = 1,
+    ticker_column: str = "ticker",
+    exclude_fields: list = None,
+    market_action_prefixes: list = None,
+    ohlcv_fields_mapping=None,
+    nans_filler: float = 0.0,
+    cast_f64_to_f32: bool = True,
+) -> pl.DataFrame:
+    """Adds more nuanced features to raw ohlcv. Dataframe assumed to be sorted by timestamp.
+    Grouping implemented with 'over' mechanics."""
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Inits
+    # ----------------------------------------------------------------------------------------------------------------------------
+
+    if not rolling_windows:
+        rolling_windows: list = [5]
+    if not market_action_prefixes:
+        market_action_prefixes: list = [""]
+    if not ohlcv_fields_mapping:
+        ohlcv_fields_mapping: dict = dict(qty="qty", open="open", high="high", low="low", close="close", volume="volume")
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Columns to work with
+    # ----------------------------------------------------------------------------------------------------------------------------
+
+    all_num_cols = cs.numeric()
+    if columns_selector:
+        all_num_cols = all_num_cols & cs.contains(columns_selector)
+    if exclude_fields:
+        all_num_cols = all_num_cols - cs.by_name(exclude_fields)
+
+    def group_if_needed(expr: pl.Expr, over: str = "") -> pl.Expr:
+        return expr.over(over) if over else expr
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Computing
+    # ----------------------------------------------------------------------------------------------------------------------------
+
+    ohlcv = ohlcv.with_columns(
         # relative means over rolling_windows
         *[
             pllib.clean_numeric(
@@ -483,7 +530,7 @@ def add_ohlcv_ta_indicators(
 def create_ohlcv_wholemarket_features(
     ohlcv: pl.DataFrame,
     timestamp_column: str = "date",
-    targets: list = None,
+    exclude_fields: list = None,
     weighting_columns: list = None,
     numaggs: list = None,
     nans_filler: float = 0.0,
@@ -506,8 +553,8 @@ def create_ohlcv_wholemarket_features(
         numaggs: list = "min max mean median std skew kurtosis entropy n_unique".split()
 
     all_num_cols = cs.numeric()
-    if targets:
-        all_num_cols = all_num_cols - cs.by_name(targets)
+    if exclude_fields:
+        all_num_cols = all_num_cols - cs.by_name(exclude_fields)
 
     wcols = pllib.add_weighted_aggregates(columns_selector=all_num_cols.name.suffix(f"_wm_"), weighting_columns=weighting_columns)
 
