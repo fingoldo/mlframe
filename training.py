@@ -553,7 +553,7 @@ def train_and_evaluate_model(
     df: pd.DataFrame = None,
     target: pd.Series = None,  # s
     groups: pd.Series = None,
-    group_ids:np.ndarray=None,
+    group_ids: np.ndarray = None,
     outlier_detector: object = None,
     od_val_set: bool = True,
     trainset_features_stats: dict = None,
@@ -1097,7 +1097,7 @@ def report_model_perf(
     custom_ice_metric: Callable = None,
     custom_rice_metric: Callable = None,
     metrics: dict = None,
-    group_ids:np.ndarray= None,
+    group_ids: np.ndarray = None,
 ):
 
     if is_classifier(model) or (model is None and probs is not None):
@@ -1286,7 +1286,7 @@ def report_probabilistic_model_perf(
     custom_ice_metric: Callable = None,
     custom_rice_metric: Callable = None,
     metrics: dict = None,
-    group_ids:np.ndarray,
+    group_ids: np.ndarray = None,
 ):
     """Detailed performance report (usually on a test set)."""
 
@@ -1523,7 +1523,7 @@ def configure_training_params(
     train_details: str = "",
     val_details: str = "",
     test_details: str = "",
-    group_ids:np.ndarray=None,
+    group_ids: np.ndarray = None,
     **config_kwargs,
 ):
     for next_df in (df, train_df):
