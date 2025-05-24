@@ -584,17 +584,14 @@ def fast_calibration_report(
         if show_points_density_in_title:
             plot_title += f", DENS=[{max_hits:_};{min_hits:_}]"
 
-        if (show_roc_auc_in_title or show_pr_auc_in_title) and (mean_group_roc_auc is not None):
-            plot_title += "\n"
-
         if show_roc_auc_in_title:
             plot_title += f", ROC AUC={roc_auc:.{ndigits}f}"
             if mean_group_roc_auc is not None:
-                plot_title += f"({mean_group_roc_auc:.{ndigits}f} per-group)"
+                plot_title += f"[{mean_group_roc_auc:.{ndigits}f}]"
         if show_pr_auc_in_title:
             plot_title += f", PR AUC={pr_auc:.{ndigits}f}"
             if mean_group_pr_auc is not None:
-                plot_title += f"({mean_group_pr_auc:.{ndigits}f} per-group)"
+                plot_title += f"[{mean_group_pr_auc:.{ndigits}f}]"
 
         if title:
             plot_title = title.strip() + "\n" + plot_title
