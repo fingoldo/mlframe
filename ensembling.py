@@ -281,6 +281,7 @@ def score_ensemble(
             )
 
             internal_ensemble_method = f"{ensemble_method} L{ensembling_level}" if ensembling_level > 0 else ensemble_method
+
             next_ens_results = train_and_evaluate_model(
                 model=None,
                 train_probs=train_ensembled_predictions,
@@ -289,7 +290,7 @@ def score_ensemble(
                 df=None,
                 target=target,
                 default_drop_columns=[],
-                model_name=f"Ensemble {internal_ensemble_method} {ensemble_name}",
+                model_name_prefix=f"Ensemble {internal_ensemble_method} {ensemble_name}",
                 train_idx=train_idx,
                 test_idx=test_idx,
                 val_idx=val_idx,
@@ -313,7 +314,7 @@ def score_ensemble(
                     df=None,
                     target=target,
                     default_drop_columns=[],
-                    model_name=f"Conf Ensemble {internal_ensemble_method} {ensemble_name}",
+                    model_name_prefix=f"Conf Ensemble {internal_ensemble_method} {ensemble_name}",
                     train_idx=train_idx[train_confident_indices],
                     test_idx=test_idx[test_confident_indices],
                     val_idx=val_idx[val_confident_indices],

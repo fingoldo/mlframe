@@ -559,6 +559,7 @@ def train_and_evaluate_model(
     trainset_features_stats: dict = None,
     sample_weight: pd.Series = None,
     model_name: str = "",
+    model_name_prefix: str = "",
     pre_pipeline: TransformerMixin = None,
     fit_params: Optional[dict] = None,
     drop_columns: list = [],
@@ -638,13 +639,6 @@ def train_and_evaluate_model(
     if not custom_ice_metric:
         custom_ice_metric = compute_probabilistic_multiclass_error(nbins=nbins)
 
-    ensure_dir_exists(join(data_dir, models_subdir))
-    model_file_name = join(data_dir, models_subdir, f"{model_name}.dump")
-
-    if use_cache and exists(model_file_name):
-        logger.info(f"Loading model from file {model_file_name}")
-        model, *_, pre_pipeline = joblib.load(model_file_name)
-
     if df is not None:
         real_drop_columns = [col for col in drop_columns + default_drop_columns if col in df.columns]
     elif train_df is not None:
@@ -662,8 +656,18 @@ def train_and_evaluate_model(
     if plot_file:
         plot_file = plot_file + "_" + slugify(model_type_name)
 
+    if model_name_prefix:
+        model_name = model_name_prefix + model_name
+
     if model_type_name not in model_name:
         model_name = model_type_name + " " + model_name
+
+    ensure_dir_exists(join(data_dir, models_subdir))
+    model_file_name = join(data_dir, models_subdir, f"{model_name}.dump")
+
+    if use_cache and exists(model_file_name):
+        logger.info(f"Loading model from file {model_file_name}")
+        model, *_, pre_pipeline = joblib.load(model_file_name)
 
     if fit_params is None:
         fit_params = {}
