@@ -536,7 +536,7 @@ def fast_calibration_report(
     title: str = "",
     use_weights=True,
     verbose: bool = False,
-    group_ids:np.ndarray,
+    group_ids: np.ndarray = None,
     **ice_kwargs,
 ):
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs."""
