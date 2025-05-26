@@ -155,7 +155,11 @@ from sklearn.ensemble import HistGradientBoostingClassifier, GradientBoostingCla
 
 from mlframe.feature_selection.wrappers import RFECV, VotesAggregation, OptimumSearch
 from mlframe.feature_selection.filters import MRMR
-from optbinning import BinningProcess
+
+try:
+    from optbinning import BinningProcess
+except Exception as e:
+    pass
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Cats
