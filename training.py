@@ -1533,8 +1533,15 @@ def configure_training_params(
     test_details: str = "",
     group_ids: np.ndarray = None,
     model_name: str = "",
-    **config_kwargs,
+    common_params_kwargs: dict = None,
+    config_kwargs: dict = None,
 ):
+
+    if common_params_kwargs is None:
+        common_params_kwargs = {}
+    if config_kwargs is None:
+        config_kwargs = {}
+
     for next_df in (df, train_df):
         if next_df is not None:
             if isinstance(next_df, pd.DataFrame):
@@ -1609,6 +1616,7 @@ def configure_training_params(
         test_details=test_details,
         group_ids=group_ids,
         model_name=model_name,
+        **common_params_kwargs,
     )
 
     common_cb_params = dict(
