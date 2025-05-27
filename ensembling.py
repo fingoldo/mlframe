@@ -290,7 +290,7 @@ def score_ensemble(
                 df=None,
                 target=target,
                 default_drop_columns=[],
-                model_name_prefix=f"Ensemble {internal_ensemble_method} {ensemble_name}",
+                model_name_prefix=f"Ens{internal_ensemble_method.upper()} {ensemble_name}",
                 train_idx=train_idx,
                 test_idx=test_idx,
                 val_idx=val_idx,
