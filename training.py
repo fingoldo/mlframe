@@ -1511,7 +1511,6 @@ def configure_training_params(
     robustness_features: Sequence = [],
     target_label_encoder: object = None,
     sample_weight: np.ndarray = None,
-    has_time: bool = True,
     prefer_gpu_configs: bool = True,
     use_robust_eval_metric: bool = False,
     nbins: int = 10,
