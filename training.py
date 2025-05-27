@@ -1584,8 +1584,8 @@ def configure_training_params(
                 catboost_custom_classif_metrics = ["AUC", "PRAUC", "BrierScore"]
             config_kwargs["catboost_custom_classif_metrics"] = catboost_custom_classif_metrics
 
-    cpu_configs = get_training_configs(has_time=has_time, has_gpu=False, nbins=nbins, subgroups=indexed_subgroups, verbose=verbose, **config_kwargs)
-    gpu_configs = get_training_configs(has_time=has_time, has_gpu=None, nbins=nbins, subgroups=indexed_subgroups, verbose=verbose, **config_kwargs)
+    cpu_configs = get_training_configs(has_gpu=False, nbins=nbins, subgroups=indexed_subgroups, verbose=verbose, **config_kwargs)
+    gpu_configs = get_training_configs(has_gpu=None, nbins=nbins, subgroups=indexed_subgroups, verbose=verbose, **config_kwargs)
 
     data_fits_gpu_ram = True
     from pyutilz.pandaslib import get_df_memory_consumption
