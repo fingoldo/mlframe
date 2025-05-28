@@ -870,7 +870,7 @@ def train_and_evaluate_model(
             clean_ram()
             if verbose:
                 logger.info("Training the model...")
-
+            model.fit(train_df, train_target, **fit_params)
             try:
                 model.fit(train_df, train_target, **fit_params)
             except Exception as e:
@@ -889,6 +889,7 @@ def train_and_evaluate_model(
                     clean_ram()
                     model.fit(train_df, train_target, **fit_params)
                 else:
+                    print(model_type_name, str(e))
                     raise e
 
             clean_ram()
