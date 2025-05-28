@@ -877,7 +877,7 @@ def train_and_evaluate_model(
                 try_again = False
                 if "out of memory" in str(e):
                     if model_type_name in XGBOOST_MODEL_TYPES:
-                        if model_obj.get_params().get("device") == "gpu":
+                        if model_obj.get_params().get("device") in ("gpu", "cuda"):
                             model_obj.set_params(device="cpu")
                             try_again = True
                     elif model_type_name in CATBOOST_MODEL_TYPES:
@@ -889,7 +889,6 @@ def train_and_evaluate_model(
                     clean_ram()
                     model.fit(train_df, train_target, **fit_params)
                 else:
-                    print(model_type_name, str(e))
                     raise e
 
             clean_ram()
