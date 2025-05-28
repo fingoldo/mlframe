@@ -870,7 +870,25 @@ def train_and_evaluate_model(
             clean_ram()
             if verbose:
                 logger.info("Training the model...")
-            model.fit(train_df, train_target, **fit_params)
+
+            try:
+                model.fit(train_df, train_target, **fit_params)
+            except Exception as e:
+                try_again = False
+                if "out of memory" in str(e):
+                    if model_type_name in XGBOOST_MODEL_TYPES:
+                        if model_obj.get_params().get("device") == "gpu":
+                            model_obj.set_params(device="cpu")
+                            try_again = True
+                    elif model_type_name in CATBOOST_MODEL_TYPES:
+                        if model_obj.get_params().get("task_type") == "GPU":
+                            model_obj.set_params(task_type="CPU")
+                            try_again = True
+                if try_again:
+                    logger.warning(f"{model_type_name} experienced OOM on gpu, switching to cpu...")
+                    clean_ram()
+                    model.fit(train_df, train_target, **fit_params)
+
             clean_ram()
 
             model_name = model_name + "\n" + " ".join([f" trained on {get_human_readable_set_size(len(train_df))} rows", train_details])
