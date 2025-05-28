@@ -26,6 +26,7 @@ while True:
 
         from ..config import *
         from pyutilz.system import tqdmu
+        from pyutilz.system import clean_ram
         from pyutilz.numbalib import set_numba_random_seed
         from pyutilz.pythonlib import store_params_in_object, get_parent_func_args, suppress_stdout_stderr
 
@@ -408,6 +409,8 @@ class RFECV(BaseEstimator, TransformerMixin):
             # ----------------------------------------------------------------------------------------------------------------------------
             # Select current set of features to work on, based on ranking received so far, and the optimum search method
             # ----------------------------------------------------------------------------------------------------------------------------
+
+            clean_ram()
 
             current_features = get_next_features_subset(
                 nsteps=nsteps,
