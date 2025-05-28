@@ -888,6 +888,8 @@ def train_and_evaluate_model(
                     logger.warning(f"{model_type_name} experienced OOM on gpu, switching to cpu...")
                     clean_ram()
                     model.fit(train_df, train_target, **fit_params)
+                else:
+                    raise e
 
             clean_ram()
 
