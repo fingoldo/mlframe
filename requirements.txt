@@ -32,7 +32,6 @@ mlflow
 pywavelets
 category_encoders
 imbalanced-learn
-tensorflow
 optbinning
 zstandard
 beautifulsoup4
