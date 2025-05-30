@@ -1552,14 +1552,14 @@ def configure_training_params(
     test_details: str = "",
     group_ids: np.ndarray = None,
     model_name: str = "",
-    common_params_kwargs: dict = None,
-    config_kwargs: dict = None,
+    common_params: dict = None,
+    config_params: dict = None,
 ):
 
-    if common_params_kwargs is None:
-        common_params_kwargs = {}
-    if config_kwargs is None:
-        config_kwargs = {}
+    if common_params is None:
+        common_params = {}
+    if config_params is None:
+        config_params = {}
 
     for next_df in (df, train_df):
         if next_df is not None:
@@ -1595,16 +1595,16 @@ def configure_training_params(
         indexed_subgroups = None
 
     if not use_regression:
-        if "catboost_custom_classif_metrics" not in config_kwargs:
+        if "catboost_custom_classif_metrics" not in config_params:
             nlabels = len(np.unique(target))
             if nlabels > 2:
                 catboost_custom_classif_metrics = ["AUC", "PRAUC"]
             else:
                 catboost_custom_classif_metrics = ["AUC", "PRAUC", "BrierScore"]
-            config_kwargs["catboost_custom_classif_metrics"] = catboost_custom_classif_metrics
+            config_params["catboost_custom_classif_metrics"] = catboost_custom_classif_metrics
 
-    cpu_configs = get_training_configs(has_gpu=False, subgroups=indexed_subgroups, **config_kwargs)
-    gpu_configs = get_training_configs(has_gpu=None, subgroups=indexed_subgroups, **config_kwargs)
+    cpu_configs = get_training_configs(has_gpu=False, subgroups=indexed_subgroups, **config_params)
+    gpu_configs = get_training_configs(has_gpu=None, subgroups=indexed_subgroups, **config_params)
 
     data_fits_gpu_ram = True
     from pyutilz.pandaslib import get_df_memory_consumption
@@ -1635,7 +1635,7 @@ def configure_training_params(
         test_details=test_details,
         group_ids=group_ids,
         model_name=model_name,
-        **common_params_kwargs,
+        **common_params,
     )
 
     common_cb_params = dict(
