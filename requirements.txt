@@ -42,4 +42,4 @@ hdbscan
 seaborn
 polars
 python-dotenv
-polars_talib 
+polars_talib
