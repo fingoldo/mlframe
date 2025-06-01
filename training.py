@@ -1702,13 +1702,13 @@ def configure_training_params(
     )
 
     if prefer_cpu_for_lightgbm:
-        lgb_fit_params=dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}        
+        lgb_fit_params = dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}
     else:
-        lgb_fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}),
-    
+        lgb_fit_params = ((dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}),)
+
     lgb_rfecv = RFECV(
         estimator=LGBMRegressor(**configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
-        fit_params=lgb_fit_params
+        fit_params=lgb_fit_params,
         cat_features=cat_features,
         scoring=rfecv_scoring,
         **rfecv_params,
