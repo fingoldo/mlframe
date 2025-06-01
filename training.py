@@ -1681,7 +1681,7 @@ def configure_training_params(
     else:
         if prefer_calibrated_classifiers:
             rfecv_scoring = make_scorer(
-                score_func=partial(configs.fs_and_hpt_integral_calibration_error, verbose=0),
+                score_func=partial(configs.fs_and_hpt_integral_calibration_error, verbose=rfecv_model_verbose),
                 needs_proba=True,
                 needs_threshold=False,
                 greater_is_better=False,
