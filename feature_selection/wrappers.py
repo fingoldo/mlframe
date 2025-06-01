@@ -360,6 +360,9 @@ class RFECV(BaseEstimator, TransformerMixin):
                 raise ValueError(f"Appropriate scoring not known for estimator type: {estimator}")
             self.scoring = scoring
 
+        if verbose:
+            logger.info(f"Scoring={scoring}")
+
         # ----------------------------------------------------------------------------------------------------------------------------
         # Init importance_getter
         # ----------------------------------------------------------------------------------------------------------------------------
