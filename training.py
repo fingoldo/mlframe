@@ -1680,8 +1680,13 @@ def configure_training_params(
         rfecv_scoring = make_scorer(**default_regression_scoring)
     else:
         if prefer_calibrated_classifiers:
+
+            def fs_and_hpt_integral_calibration_error(*args, **kwargs):
+                return configs.fs_and_hpt_integral_calibration_error(*args, **kwargs, verbose=rfecv_model_verbose)
+
             rfecv_scoring = make_scorer(
-                score_func=partial(configs.fs_and_hpt_integral_calibration_error, verbose=rfecv_model_verbose),
+                score_func=fs_and_hpt_integral_calibration_error,
+                # score_func=partial(configs.fs_and_hpt_integral_calibration_error, verbose=rfecv_model_verbose),
                 needs_proba=True,
                 needs_threshold=False,
                 greater_is_better=False,
