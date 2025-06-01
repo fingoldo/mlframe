@@ -43,3 +43,4 @@ seaborn
 polars
 python-dotenv
 polars_talib
+lightautoml

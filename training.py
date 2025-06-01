@@ -675,6 +675,8 @@ def train_and_evaluate_model(
 
     if fit_params is None:
         fit_params = {}
+    else:
+        fit_params = copy.copy(fit_params)  # to modify cat_features later and not affect next models
 
     train_od_idx, val_od_idx = None, None
 
@@ -883,6 +885,10 @@ def train_and_evaluate_model(
                     elif model_type_name in CATBOOST_MODEL_TYPES:
                         if model_obj.get_params().get("task_type") == "GPU":
                             model_obj.set_params(task_type="CPU")
+                            try_again = True
+                    elif model_type_name in LGBM_MODEL_TYPES:
+                        if model_obj.get_params().get("device_type") in ("gpu", "cuda"):
+                            model_obj.set_params(device_type="cpu")
                             try_again = True
                 if try_again:
                     logger.warning(f"{model_type_name} experienced OOM on gpu, switching to cpu...")

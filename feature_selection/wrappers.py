@@ -292,6 +292,9 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         start_time = timer()
         ran_out_of_time = False
+        if max_runtime_mins:
+            if verbose:
+                logger.info(f"max_runtime_mins={max_runtime_mins:.2f}")
 
         if random_state is not None:
             set_random_seed(random_state)
@@ -608,7 +611,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
             if max_runtime_mins and not ran_out_of_time:
                 delta = timer() - start_time
-                ran_out_of_time = delta > max_runtime_mins * 60
+                ran_out_of_time = delta > (max_runtime_mins * 60)
                 if ran_out_of_time:
                     if verbose:
                         logger.info(f"max_runtime_mins={max_runtime_mins:_.1f} reached.")
