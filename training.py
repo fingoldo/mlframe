@@ -297,7 +297,7 @@ def get_training_configs(
     weight_by_class_npositives: bool = False,
     nbins: int = 10,
     cb_kwargs: dict = dict(verbose=0),
-    lgb_kwargs: dict = dict(verbose=0),
+    lgb_kwargs: dict = dict(verbose=-1),
     xgb_kwargs: dict = dict(verbosity=0),
     # ----------------------------------------------------------------------------------------------------------------------------
     # featureselectors
@@ -1702,21 +1702,17 @@ def configure_training_params(
     )
 
     if prefer_cpu_for_lightgbm:
-        lgb_rfecv = RFECV(
-            estimator=LGBMRegressor(**cpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**cpu_configs.LGB_GENERAL_PARAMS),
-            fit_params=dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {},
-            cat_features=cat_features,
-            scoring=rfecv_scoring,
-            **rfecv_params,
-        )
+        lgb_fit_params=dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}        
     else:
-        lgb_rfecv = RFECV(
-            estimator=LGBMRegressor(**configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
-            fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}),
-            cat_features=cat_features,
-            scoring=rfecv_scoring,
-            **rfecv_params,
-        )
+        lgb_fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}),
+    
+    lgb_rfecv = RFECV(
+        estimator=LGBMRegressor(**configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
+        fit_params=lgb_fit_params
+        cat_features=cat_features,
+        scoring=rfecv_scoring,
+        **rfecv_params,
+    )
 
     xgb_rfecv = RFECV(
         estimator=(
