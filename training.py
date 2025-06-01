@@ -377,7 +377,7 @@ def get_training_configs(
         return err
 
     if subgroups:
-        # final_integral_calibration_error=partial(robust_mlperf_metric,metric=integral_calibration_error,higher_is_better=False,subgroups=subgroups)
+
         def final_integral_calibration_error(y_true: np.ndarray, y_score: np.ndarray, *args, **kwargs):  # partial won't work with xgboost
             return robust_mlperf_metric(
                 y_true,
@@ -1686,7 +1686,6 @@ def configure_training_params(
 
             rfecv_scoring = make_scorer(
                 score_func=fs_and_hpt_integral_calibration_error,
-                # score_func=partial(configs.fs_and_hpt_integral_calibration_error, verbose=rfecv_model_verbose),
                 needs_proba=True,
                 needs_threshold=False,
                 greater_is_better=False,
