@@ -19,6 +19,7 @@ from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildca
 from .config import *
 
 import pandas as pd, polars as pl, numpy as np
+import polars.selectors as cs
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.pipeline import Pipeline
 from pyutilz.system import tqdmu
