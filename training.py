@@ -23,9 +23,11 @@ import re
 import copy
 import inspect
 
+import zstandard as zstd
 from functools import partial
 from types import SimpleNamespace
 from collections import defaultdict
+
 
 from timeit import default_timer as timer
 from pyutilz.system import ensure_dir_exists, tqdmu
@@ -659,8 +661,15 @@ def train_and_evaluate_model(
         if isinstance(model_obj, TransformedTargetRegressor):
             model_obj = model_obj.regressor
     model_type_name = type(model_obj).__name__ if model_obj is not None else ""
+
     if plot_file:
-        plot_file = plot_file + "_" + slugify(model_type_name)
+        if not plot_file.endswith(os.path.sep):
+            plot_file = plot_file + "_"
+        if model_type_name:
+            plot_file = plot_file + slugify(model_type_name)
+        else:
+            assert model_name_prefix
+            plot_file = plot_file + slugify(model_name_prefix)  # for ensembles
 
     if model_name_prefix:
         model_name = model_name_prefix + model_name
@@ -1882,10 +1891,14 @@ def create_ts_train_val_test_split(
     return train_idx, val_idx, test_idx
 
 
-def save_mlframe_model(model: object, file: str) -> bool:
+def save_mlframe_model(model: object, file: str, zstd_kwargs: dict = None) -> bool:
+    if zstd_kwargs is None:
+        zstd_kwargs = dict(level=4, write_checksum=True, write_content_size=True, threads=-1)
     try:
         with open(file, "wb") as f:
-            dill.dump(model, f)
+            compressor = zstd.ZstdCompressor(**zstd_kwargs)
+            with compressor.stream_writer(f) as zf:
+                dill.dump(model, zf)
         return True
     except Exception as e:
         logger.error(f"Could not save model to file {file}: {e}")
@@ -1894,7 +1907,9 @@ def save_mlframe_model(model: object, file: str) -> bool:
 def load_mlframe_model(file: str) -> object:
     try:
         with open(file, "rb") as f:
-            model = dill.load(f)
+            decompressor = zstd.ZstdDecompressor()
+            with decompressor.stream_reader(f) as zf:
+                model = dill.load(zf)
         return model
     except Exception as e:
         logger.error(f"Could not load model from file {file}: {e}")
