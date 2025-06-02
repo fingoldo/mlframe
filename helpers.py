@@ -23,6 +23,7 @@ import polars.selectors as cs
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.pipeline import Pipeline
 from pyutilz.system import tqdmu
+import pyutilz.polarslib as pllib
 
 ########################################################################################################################################################################################################################################
 # Helper functions
