@@ -23,6 +23,7 @@ import re
 import copy
 import inspect
 
+import os
 import zstandard as zstd
 from functools import partial
 from types import SimpleNamespace
