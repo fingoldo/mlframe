@@ -270,7 +270,6 @@ class MBHOptimizer:
 
             # actual evaluation of initial samples
             if len(sampled_inputs) > 0:
-                sampled_inputs = sampled_inputs.tolist()
                 mode = "Sampled"
                 for x in sampled_inputs:
                     if x not in known_candidates and x not in pre_seeded_candidates:
