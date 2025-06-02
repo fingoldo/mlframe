@@ -604,6 +604,7 @@ def train_and_evaluate_model(
     show_feature_names: bool = False,
     verbose: bool = False,
     use_hpt: bool = False,
+    skip_infinity_checks: bool = False,
     # confidence_analysis
     include_confidence_analysis: bool = False,
     confidence_analysis_use_shap: bool = True,
@@ -634,11 +635,12 @@ def train_and_evaluate_model(
     columns = []
     best_iter = None
 
-    if df is not None:
-        ensure_no_infinity(df)
-    else:
-        if train_df is not None:
-            ensure_no_infinity(train_df)
+    if not skip_infinity_checks:
+        if df is not None:
+            ensure_no_infinity(df)
+        else:
+            if train_df is not None:
+                ensure_no_infinity(train_df)
 
     if not custom_ice_metric:
         custom_ice_metric = compute_probabilistic_multiclass_error(nbins=nbins)

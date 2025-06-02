@@ -110,11 +110,21 @@ def ensure_no_infinity(df: pd.DataFrame, num_cols_only: bool = False) -> bool:
         return ensure_no_infinity_pl(df=df, num_cols_only=num_cols_only)
 
 
-def ensure_no_infinity_pl(df: pd.DataFrame, num_cols_only: bool = False) -> bool:
-    return True
+def ensure_no_infinity_pl(df: pl.DataFrame, num_cols_only: bool = True, nans_filler: float = 0, verbose: int = 1) -> pl.DataFrame:
+    cols = cs.all() if not num_cols_only else cs.numeric()
+    inf_mask = df.select(cols.is_infinite().any())
+    inf_cols = inf_mask.transpose(include_header=True, header_name="column", column_names=["is_inf"]).filter(pl.col("is_inf"))["column"].to_list()
+
+    if len(inf_cols) > 0:
+        df = df.with_columns(pllib.clean_numeric(pl.col(inf_cols), nans_filler=nans_filler))
+
+        if verbose:
+            logger.warning(f"Some factors ({len(inf_cols):_}) contained infinity: {', '.join(inf_cols)}")
+
+    return df
 
 
-def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = False) -> bool:
+def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_filler: float = 0, verbose: int = 1) -> pd.DataFrame:
     num_cols = df.head().select_dtypes("number").columns
     inf_cols = []
     if num_cols_only or len(num_cols) == df.shape[1]:
@@ -128,6 +138,7 @@ def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = False) -> bool
                 inf_cols.append(col)
     if len(inf_cols) > 0:
         for col in inf_cols:
-            df[col] = np.nan_to_num(df[col], posinf=0.0, neginf=0.0)
-        logger.warning(f"Some factors ({len(inf_cols):_}) contained infinity: {', '.join(inf_cols)}")
-        return True
+            df[col] = np.nan_to_num(df[col], posinf=nans_filler, neginf=nans_filler)
+        if verbose:
+            logger.warning(f"Some factors ({len(inf_cols):_}) contained infinity: {', '.join(inf_cols)}")
+    return df
