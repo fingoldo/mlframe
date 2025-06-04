@@ -666,11 +666,12 @@ def train_and_evaluate_model(
     if plot_file:
         if not plot_file.endswith(os.path.sep):
             plot_file = plot_file + "_"
+        if model_name_prefix:
+            plot_file = plot_file + slugify(model_name_prefix) + " "  # for ensembles
         if model_type_name:
-            plot_file = plot_file + slugify(model_type_name)
-        else:
-            assert model_name_prefix
-            plot_file = plot_file + slugify(model_name_prefix)  # for ensembles
+            plot_file = plot_file + slugify(model_type_name) + " "
+
+        plot_file = plot_file.strip()
 
     if model_name_prefix:
         model_name = model_name_prefix + model_name
