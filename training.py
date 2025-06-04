@@ -1390,21 +1390,19 @@ def report_probabilistic_model_perf(
             class_robust_integral_error = custom_rice_metric(y_true=y_true, y_score=y_score)
             title += f", RICE={class_robust_integral_error:.4f}"
 
-        brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, *_, fig = fast_calibration_report(
+        brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, *_, metrics_string, fig = fast_calibration_report(
             y_true=y_true,
             y_pred=y_score,
+            use_weights=use_weights,
+            nbins=nbins,
+            group_ids=group_ids,
+            #
             title=title,
             figsize=figsize,
             plot_file=plot_file + "_perfplot.png" if plot_file else "",
             show_plots=show_perf_chart,
-            show_roc_auc_in_title=True,
-            show_logloss_in_title=True,
-            show_pr_auc_in_title=True,
-            use_weights=use_weights,
             ndigits=calib_report_ndigits,
             verbose=verbose,
-            nbins=nbins,
-            group_ids=group_ids,
         )
 
         if print_report:
