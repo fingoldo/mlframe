@@ -522,6 +522,7 @@ def fast_calibration_report(
     y_pred: np.ndarray,
     nbins: int = 10,
     show_plots: bool = True,
+    #
     show_points_density_in_title: bool = False,
     show_brier_loss_in_title: bool = True,
     show_cmaew_in_title: bool = True,
@@ -529,12 +530,13 @@ def fast_calibration_report(
     show_pr_auc_in_title: bool = True,
     show_logloss_in_title: bool = True,
     show_coverage_in_title: bool = False,
+    #
     plot_file: str = "",
     figsize: tuple = (15, 6),
     ndigits: int = 3,
     backend: str = "matplotlib",
     title: str = "",
-    use_weights=True,
+    use_weights: bool = True,
     verbose: bool = False,
     group_ids: np.ndarray = None,
     **ice_kwargs,
@@ -556,8 +558,6 @@ def fast_calibration_report(
 
     fig = None
 
-    # roc_auc, pr_auc = fast_roc_auc(y_true=y_true, y_score=y_pred), average_precision_score(y_true=y_true, y_score=y_pred)
-    # roc_auc, pr_auc = fast_aucs(y_true=y_true, y_score=y_pred)
     roc_auc, pr_auc, group_aucs = fast_aucs_per_group_optimized(y_true=y_true, y_score=y_pred, group_ids=group_ids)
     mean_group_roc_auc, mean_group_pr_auc = compute_mean_aucs_per_group(group_aucs) if group_aucs else (None, None)
 
@@ -571,30 +571,34 @@ def fast_calibration_report(
     )
     ll = log_loss(y_true=y_true, y_pred=y_pred)
 
-    if plot_file or show_plots:
-        plot_title = f"ICE={ice:.{ndigits}f}"
-        if show_brier_loss_in_title:
-            plot_title += f", BR={brier_loss*100:.{ndigits}f}%"
-        if show_cmaew_in_title:
-            plot_title += f", CMAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}%±{calibration_std*100:.{ndigits}f}%"
-        if show_coverage_in_title:
-            plot_title += f", COV={calibration_coverage*100:.{int(np.log10(nbins))}f}%"
-        if show_logloss_in_title:
-            plot_title += f", LL={ll:.{ndigits}f}"
-        if show_points_density_in_title:
-            plot_title += f", DENS=[{max_hits:_};{min_hits:_}]"
+    metrics_string = f"ICE={ice:.{ndigits}f}"
+    if show_brier_loss_in_title:
+        metrics_string += f", BR={brier_loss*100:.{ndigits}f}%"
+    if show_cmaew_in_title:
+        metrics_string += f", CMAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}%±{calibration_std*100:.{ndigits}f}%"
+    if show_coverage_in_title:
+        metrics_string += f", COV={calibration_coverage*100:.{int(np.log10(nbins))}f}%"
+    if show_logloss_in_title:
+        metrics_string += f", LL={ll:.{ndigits}f}"
+    if show_points_density_in_title:
+        metrics_string += f", DENS=[{max_hits:_};{min_hits:_}]"
 
-        if show_roc_auc_in_title:
-            plot_title += f", ROC AUC={roc_auc:.{ndigits}f}"
-            if mean_group_roc_auc is not None:
-                plot_title += f"[{mean_group_roc_auc:.{ndigits}f}]"
-        if show_pr_auc_in_title:
-            plot_title += f", PR AUC={pr_auc:.{ndigits}f}"
-            if mean_group_pr_auc is not None:
-                plot_title += f"[{mean_group_pr_auc:.{ndigits}f}]"
+    if show_roc_auc_in_title:
+        metrics_string += f", ROC AUC={roc_auc:.{ndigits}f}"
+        if mean_group_roc_auc is not None:
+            metrics_string += f"[{mean_group_roc_auc:.{ndigits}f}]"
+    if show_pr_auc_in_title:
+        metrics_string += f", PR AUC={pr_auc:.{ndigits}f}"
+        if mean_group_pr_auc is not None:
+            metrics_string += f"[{mean_group_pr_auc:.{ndigits}f}]"
+
+    if plot_file or show_plots:
+
+        plot_title = metrics_string
 
         if title:
             plot_title = title.strip() + "\n" + plot_title
+
         fig = show_calibration_plot(
             freqs_predicted=freqs_predicted,
             freqs_true=freqs_true,
@@ -606,7 +610,7 @@ def fast_calibration_report(
             backend=backend,
         )
 
-    return brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, fig
+    return brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, metrics_string, fig
 
 
 def predictions_time_instability(preds: pd.Series) -> float:
@@ -670,6 +674,8 @@ def compute_probabilistic_multiclass_error(
         if len(probs) == 2 and class_id == 0:
             continue
 
+        # Get prediction and ground truth
+
         y_pred = probs[class_id]
         if labels is not None:
             correct_class = y_true == labels[class_id]
@@ -681,58 +687,37 @@ def compute_probabilistic_multiclass_error(
         elif isinstance(correct_class, pl.Series):
             correct_class = correct_class.cast(pl.Int8).to_numpy()
 
-        if method == "multicrit":
+        # Compute detailed classification metrics
 
-            if False:
-                calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(
-                    y_true=correct_class,
-                    y_pred=y_pred,
-                    use_weights=use_weighted_calibration,
-                    nbins=nbins,
-                )
-                brier_loss = brier_score_loss(y_true=correct_class, y_prob=y_pred)
-
-                desc_score_indices = np.argsort(y_pred)[::-1]
-                roc_auc = fast_numba_auc_nonw(y_true=correct_class, y_score=y_pred, desc_score_indices=desc_score_indices)
-
-                class_error = integral_calibration_error_from_metrics(
-                    calibration_mae=calibration_mae,
-                    calibration_std=calibration_std,
-                    calibration_coverage=calibration_coverage,
-                    brier_loss=brier_loss,
-                    roc_auc=roc_auc,
-                    mae_weight=mae_weight,
-                    std_weight=std_weight,
-                    brier_loss_weight=brier_loss_weight,
-                    roc_auc_weight=roc_auc_weight,
-                    min_roc_auc=min_roc_auc,
-                    roc_auc_penalty=roc_auc_penalty,
-                )
-            else:
-                brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, *_, fig = fast_calibration_report(
-                    y_true=correct_class,
-                    y_pred=y_pred,
-                    show_plots=False,
-                    use_weights=use_weighted_calibration,
-                    verbose=False,
-                    mae_weight=mae_weight,
-                    std_weight=std_weight,
-                    brier_loss_weight=brier_loss_weight,
-                    roc_auc_weight=roc_auc_weight,
-                    min_roc_auc=min_roc_auc,
-                    roc_auc_penalty=roc_auc_penalty,
-                )
-                class_error = ice
-
+        if (method == "multicrit") or verbose:
+            brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, *_, metrics_string, fig = fast_calibration_report(
+                y_true=correct_class,
+                y_pred=y_pred,
+                use_weights=use_weighted_calibration,
+                nbins=nbins,
+                #
+                show_plots=False,
+                verbose=False,
+                mae_weight=mae_weight,
+                std_weight=std_weight,
+                brier_loss_weight=brier_loss_weight,
+                roc_auc_weight=roc_auc_weight,
+                min_roc_auc=min_roc_auc,
+                roc_auc_penalty=roc_auc_penalty,
+            )
             if verbose:
-                print(
-                    f"\t class_id={class_id}, BR={brier_loss:.{ndigits}f}, calibration_mae={calibration_mae:.{ndigits}f} ± {calibration_std:.{ndigits}f}, roc_auc={roc_auc:.{ndigits}f}, class_error={class_error:.{ndigits}f}"
-                )
+                logger.info(f"\t class_id={class_id}, {metrics_string}")
 
+        # Find class error
+
+        if method == "multicrit":
+            class_error = ice
         elif method == "brier_score":
-            class_error = brier_score_loss(y_true=correct_class, y_prob=y_pred)
+            class_error = brier_loss
         elif method == "precision":
             class_error = fast_precision(y_true=correct_class, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0)
+
+        # Assign weights
 
         if weight_by_class_npositives:
             weight = correct_class.sum()
@@ -745,7 +730,7 @@ def compute_probabilistic_multiclass_error(
     total_error /= weights_sum
 
     if verbose:
-        print(f"method={method}, size={len(correct_class):_} total_error={total_error:.{ndigits}f}")
+        logger.info(f"method={method}, data size={len(correct_class):_} mean_class_error={total_error:.{ndigits}f}")
 
     return total_error
 
@@ -802,11 +787,10 @@ class CB_EVAL_METRIC:
 
         if self.calibration_plot_period and (self.nruns % self.calibration_plot_period == 0):
             y_true = (target == class_id).astype(np.int8)
-            brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, *_, fig = fast_calibration_report(
+            brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, *_, metrics_string, fig = fast_calibration_report(
                 y_true=y_true,
                 y_pred=y_pred,
                 title=f"{len(approxes[0]):_} records of class {class_id}, integral error={total_error:.4f}, nruns={self.nruns:_}\r\n",
-                show_roc_auc_in_title=True,
                 use_weights=True,
                 verbose=False,
             )
