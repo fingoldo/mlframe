@@ -132,18 +132,16 @@ def add_ohlcv_ratios_rlags(
     return ohlcv
 
 
-def add_rollings(
-    ohlcv: pl.DataFrame,
+def add_fast_rolling_stats(
+    df: pl.DataFrame,
     rolling_windows: list = None,
     min_samples: int = 1,
-    ticker_column: str = "ticker",
+    groupby_column: str = None,
     exclude_fields: list = None,
-    market_action_prefixes: list = None,
-    ohlcv_fields_mapping=None,
     nans_filler: float = 0.0,
     cast_f64_to_f32: bool = True,
 ) -> pl.DataFrame:
-    """Adds more nuanced features to raw ohlcv. Dataframe assumed to be sorted by timestamp.
+    """Adds more nuanced features to raw df. Dataframe assumed to be sorted by timestamp.
     Grouping implemented with 'over' mechanics."""
 
     # ----------------------------------------------------------------------------------------------------------------------------
@@ -152,10 +150,6 @@ def add_rollings(
 
     if not rolling_windows:
         rolling_windows: list = [5]
-    if not market_action_prefixes:
-        market_action_prefixes: list = [""]
-    if not ohlcv_fields_mapping:
-        ohlcv_fields_mapping: dict = dict(qty="qty", open="open", high="high", low="low", close="close", volume="volume")
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # Columns to work with
@@ -174,27 +168,27 @@ def add_rollings(
     # Computing
     # ----------------------------------------------------------------------------------------------------------------------------
 
-    ohlcv = ohlcv.with_columns(
+    df = df.with_columns(
         # relative means over rolling_windows
         *[
             pllib.clean_numeric(
-                (all_num_cols / group_if_needed(all_num_cols.rolling_mean(window, min_samples=min_samples), over=ticker_column) - 1), nans_filler=nans_filler
+                (all_num_cols / group_if_needed(all_num_cols.rolling_mean(window, min_samples=min_samples), over=groupby_column) - 1), nans_filler=nans_filler
             ).name.suffix(f"_rmean{window}")
             for window in rolling_windows
         ],
         # relative standard deviations over rolling_windows
         *[
             pllib.clean_numeric(
-                (group_if_needed(all_num_cols.rolling_std(window, min_samples=min_samples), over=ticker_column) / all_num_cols), nans_filler=nans_filler
+                (group_if_needed(all_num_cols.rolling_std(window, min_samples=min_samples), over=groupby_column) / all_num_cols), nans_filler=nans_filler
             ).name.suffix(f"_rstd{window}")
             for window in rolling_windows
         ],
     )
 
     if cast_f64_to_f32:
-        ohlcv = pllib.cast_f64_to_f32(ohlcv)
+        df = pllib.cast_f64_to_f32(df)
 
-    return ohlcv
+    return df
 
 
 def apply_ta_indicator(
@@ -227,7 +221,7 @@ def apply_ta_indicator(
 
 def add_ohlcv_ta_indicators(
     ohlcv: pl.DataFrame,
-    rolling_windows: list = None,
+    ta_windows: list = None,
     fss_rolling_windows=None,
     ticker_column: str = "ticker",
     market_action_prefixes: list = None,
@@ -244,8 +238,8 @@ def add_ohlcv_ta_indicators(
     # Inits
     # ----------------------------------------------------------------------------------------------------------------------------
 
-    if not rolling_windows:
-        rolling_windows: list = [5, 10]
+    if not ta_windows:
+        ta_windows: list = [5, 10]
     if not fss_rolling_windows:
         fss_rolling_windows = [[12, 26, 9]]
     if not market_action_prefixes:
@@ -408,7 +402,7 @@ def add_ohlcv_ta_indicators(
         timeperiod_p01_indicators = "correl beta".split()
         timeperiod_hlcv_indicators = "mfi".split()
 
-        for window in rolling_windows:
+        for window in ta_windows:
 
             unnests.append(f"{prefix}aroon{window}")
             unnests.append(f"{prefix}bbands{window}close")
