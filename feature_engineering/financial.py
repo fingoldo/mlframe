@@ -134,6 +134,7 @@ def add_ohlcv_ratios_rlags(
 
 def add_fast_rolling_stats(
     df: pl.DataFrame,
+    columns_selector: str = None,
     rolling_windows: list = None,
     min_samples: int = 1,
     groupby_column: str = None,
