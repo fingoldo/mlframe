@@ -60,7 +60,7 @@ def estimate_features_relevancy(
     # working params
     min_mi_prevalence: float = 2,  # 10 is too high for a weak target
     permuted_max_mi_quantile: float = None,
-    min_permuted_mi_evaluations: int = 1000,
+    min_permuted_mi_evaluations: int = 500,
     min_randomized_permutations: int = 1,
     max_permuted_prevalence_percent: float = 0.0,
     # stopping criteria

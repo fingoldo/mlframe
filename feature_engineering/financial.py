@@ -48,9 +48,9 @@ def add_ohlcv_ratios_rlags(
     # Inits
     # ----------------------------------------------------------------------------------------------------------------------------
 
-    if not lags:
+    if lags is None:
         lags: list = [1]
-    if not crossbar_ratios_lags:
+    if crossbar_ratios_lags is None:
         crossbar_ratios_lags: list = [1]
     if not market_action_prefixes:
         market_action_prefixes: list = [""]

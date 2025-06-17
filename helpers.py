@@ -144,3 +144,29 @@ def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_fil
         if verbose:
             logger.warning(f"Some factors ({len(inf_cols):_}) contained infinity: {', '.join(inf_cols)}")
     return df
+
+
+def get_own_ram_usage():
+    import psutil
+    import os
+
+    # Get the current process
+    process = psutil.Process(os.getpid())
+
+    # Get memory info
+    mem_info = process.memory_info()
+
+    # Print Resident Set Size (RSS) in bytes (actual RAM used)
+
+    return mem_info.rss / (1024**3)
+
+
+def show_sys_ram_usage():
+
+    mem = psutil.virtual_memory()
+
+    print(f"Total: {mem.total / 1e9:.2f} GB")
+    print(f"Available: {mem.available / 1e9:.2f} GB")
+    print(f"Used: {mem.used / 1e9:.2f} GB")
+    print(f"Free: {mem.free / 1e9:.2f} GB")
+    print(f"Memory Usage: {mem.percent}%")
