@@ -32,6 +32,8 @@ def add_ohlcv_ratios_rlags(
     columns_selector: str = "",
     lags: list = None,
     crossbar_ratios_lags: list = None,
+    add_ratios: bool = True,
+    add_rlags: bool = True,
     ticker_column: str = "ticker",
     exclude_fields: list = None,
     market_action_prefixes: list = None,
@@ -69,62 +71,68 @@ def add_ohlcv_ratios_rlags(
     # Ratios
     # ----------------------------------------------------------------------------------------------------------------------------
 
-    interbar_ratios_features = []
-    for prefix in market_action_prefixes:
+    if add_ratios:
+        interbar_ratios_features = []
+        for prefix in market_action_prefixes:
 
-        qty = pl.col(f"{prefix}{ohlcv_fields_mapping.get('qty')}")
-        low = pl.col(f"{prefix}{ohlcv_fields_mapping.get('low')}")
-        high = pl.col(f"{prefix}{ohlcv_fields_mapping.get('high')}")
-        open = pl.col(f"{prefix}{ohlcv_fields_mapping.get('open')}")
-        close = pl.col(f"{prefix}{ohlcv_fields_mapping.get('close')}")
-        volume = pl.col(f"{prefix}{ohlcv_fields_mapping.get('volume')}")
+            qty = pl.col(f"{prefix}{ohlcv_fields_mapping.get('qty')}")
+            low = pl.col(f"{prefix}{ohlcv_fields_mapping.get('low')}")
+            high = pl.col(f"{prefix}{ohlcv_fields_mapping.get('high')}")
+            open = pl.col(f"{prefix}{ohlcv_fields_mapping.get('open')}")
+            close = pl.col(f"{prefix}{ohlcv_fields_mapping.get('close')}")
+            volume = pl.col(f"{prefix}{ohlcv_fields_mapping.get('volume')}")
 
-        interbar_ratios_features.extend(
-            [
-                (close / open - 1).alias(f"{prefix}close_to_open"),
-                (high / open - 1).alias(f"{prefix}high_to_open"),
-                (open / low - 1).alias(f"{prefix}open_to_low"),
-                (close / low - 1).alias(f"{prefix}close_to_low"),
-                (high / low - 1).alias(f"{prefix}high_to_low"),
-                (high / close - 1).alias(f"{prefix}high_to_close"),
-                pllib.clean_numeric((volume / qty), nans_filler=nans_filler).alias(f"{prefix}avg_trade_size"),
-            ]
-        )
-        if ticker_column:
-            for period_shift in crossbar_ratios_lags:
-                interbar_ratios_features.extend(
-                    [
-                        (close / open.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}close_to_open-{period_shift}"),
-                        (high / open.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_open-{period_shift}"),
-                        (open / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}open_to_low-{period_shift}"),
-                        (close / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}close_to_low-{period_shift}"),
-                        (high / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_low-{period_shift}"),
-                        (high / close.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_close-{period_shift}"),
-                        pllib.clean_numeric((volume / qty.shift(period_shift).over(ticker_column)), nans_filler=nans_filler).alias(
-                            f"{prefix}avg_trade_size-{period_shift}"
-                        ),
-                    ]
-                )
-
-    def group_if_needed(expr: pl.Expr, over: str = "") -> pl.Expr:
-        return expr.over(over) if over else expr
+            interbar_ratios_features.extend(
+                [
+                    (close / open - 1).alias(f"{prefix}close_to_open"),
+                    (high / open - 1).alias(f"{prefix}high_to_open"),
+                    (open / low - 1).alias(f"{prefix}open_to_low"),
+                    (close / low - 1).alias(f"{prefix}close_to_low"),
+                    (high / low - 1).alias(f"{prefix}high_to_low"),
+                    (high / close - 1).alias(f"{prefix}high_to_close"),
+                    pllib.clean_numeric((volume / qty), nans_filler=nans_filler).alias(f"{prefix}avg_trade_size"),
+                ]
+            )
+            if ticker_column:
+                for period_shift in crossbar_ratios_lags:
+                    interbar_ratios_features.extend(
+                        [
+                            (close / open.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}close_to_open-{period_shift}"),
+                            (high / open.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_open-{period_shift}"),
+                            (open / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}open_to_low-{period_shift}"),
+                            (close / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}close_to_low-{period_shift}"),
+                            (high / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_low-{period_shift}"),
+                            (high / close.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_close-{period_shift}"),
+                            pllib.clean_numeric((volume / qty.shift(period_shift).over(ticker_column)), nans_filler=nans_filler).alias(
+                                f"{prefix}avg_trade_size-{period_shift}"
+                            ),
+                        ]
+                    )
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # Computing
     # ----------------------------------------------------------------------------------------------------------------------------
 
-    ohlcv = ohlcv.with_columns(
-        # interbar ohlcv ratios features
-        *interbar_ratios_features,
-    ).with_columns(
-        # relative lags
-        *[
-            pllib.clean_numeric((all_num_cols / group_if_needed(all_num_cols.shift(lag), over=ticker_column) - 1), nans_filler=nans_filler).name.suffix(
-                f"_rlag{lag}"
-            )
-            for lag in lags
-        ],
-    )
+    if add_ratios:
+        ohlcv = ohlcv.with_columns(
+            # interbar ohlcv ratios features
+            *interbar_ratios_features,
+        )
+
+    if add_rlags:
+
+        def group_if_needed(expr: pl.Expr, over: str = "") -> pl.Expr:
+            return expr.over(over) if over else expr
+
+        ohlcv = ohlcv.with_columns(
+            # relative lags
+            *[
+                pllib.clean_numeric((all_num_cols / group_if_needed(all_num_cols.shift(lag), over=ticker_column) - 1), nans_filler=nans_filler).name.suffix(
+                    f"_rlag{lag}"
+                )
+                for lag in lags
+            ],
+        )
 
     if cast_f64_to_f32:
         ohlcv = pllib.cast_f64_to_f32(ohlcv)
@@ -551,7 +559,7 @@ def create_ohlcv_wholemarket_features(
     if exclude_fields:
         all_num_cols = all_num_cols - cs.by_name(exclude_fields)
 
-    wcols = pllib.add_weighted_aggregates(columns_selector=all_num_cols.name.suffix(f"_wm_"), weighting_columns=weighting_columns)
+    wcols = pllib.add_weighted_aggregates(columns_selector=all_num_cols, weighting_columns=weighting_columns, fpref="wm_")  # .name.suffix(f"_wm_")
 
     res = ohlcv.group_by(timestamp_column).agg(
         [pl.len().alias("wm_size")] + [getattr(all_num_cols, func)().name.suffix(f"_wm_{func}") for func in numaggs] + wcols
