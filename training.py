@@ -260,10 +260,8 @@ import sklearn
 sklearn.set_config(transform_output="pandas")  # need this for val_df = pre_pipeline.transform(val_df) to work for SimpleImputer
 
 CUDA_IS_AVAILABLE = is_cuda_available()
-DATA_DIR = ""
-if DATA_DIR:
-    ensure_dir_exists(DATA_DIR)
 MODELS_SUBDIR = "models"
+PARQUET_COMPRESION: str = "zstd"
 all_results = {}
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -601,7 +599,7 @@ def train_and_evaluate_model(
     compute_trainset_metrics: bool = False,
     compute_valset_metrics: bool = True,
     compute_testset_metrics: bool = True,
-    data_dir: str = DATA_DIR,
+    data_dir: str = "",
     models_subdir: str = MODELS_SUBDIR,
     display_sample_size: int = 0,
     show_feature_names: bool = False,
@@ -1913,3 +1911,564 @@ def load_mlframe_model(file: str) -> object:
         return model
     except Exception as e:
         logger.error(f"Could not load model from file {file}: {e}")
+
+
+# Training Suite
+
+
+def make_train_test_split(df: pd.DataFrame, timestamps: pd.Series, test_size: float = 0.1, val_size: float = 0.1, shuffle: bool = False) -> tuple:
+
+    train_idx, test_idx = train_test_split(df.index if isinstance(df, pd.DataFrame) else np.arange(len(df)), test_size=test_size, shuffle=shuffle)
+    train_idx, val_idx = train_test_split(train_idx, test_size=val_size, shuffle=shuffle)
+
+    train_details: str = f"{timestamps.loc[train_idx].min():%Y-%m-%d}/{timestamps.loc[train_idx].max():%Y-%m-%d}"
+    val_details: str = f"{timestamps.loc[val_idx].min():%Y-%m-%d}/{timestamps.loc[val_idx].max():%Y-%m-%d}"
+    test_details: str = f"{timestamps.loc[test_idx].min():%Y-%m-%d}/{timestamps.loc[test_idx].max():%Y-%m-%d}"
+
+    print(f"{len(train_idx):_} train rows {train_details}, {len(val_idx):_} val rows {val_details}, {len(test_idx):_} test rows {test_details}.")
+
+    return train_idx, val_idx, test_idx, train_details, val_details, test_details
+
+
+def select_target(
+    model_name: str,
+    target: np.ndarray,
+    df: pd.DataFrame,
+    train_df: pd.DataFrame = None,
+    test_df: pd.DataFrame = None,
+    val_df: pd.DataFrame = None,
+    train_idx: np.ndarray = None,
+    val_idx: np.ndarray = None,
+    test_idx: np.ndarray = None,
+    train_details: str = "",
+    val_details: str = "",
+    test_details: str = "",
+    group_ids: np.ndarray = None,
+    #
+    control_params: dict = None,
+    control_params_override: dict = None,
+    config_params: dict = None,
+    config_params_override: dict = None,
+    common_params: dict = None,
+):
+    """From multiple possible targets in a dataframe, selects required one and adjusts params of respective level 0 models."""
+
+    model_name += f" BT{target.value_counts(normalize=True).loc[1]*100:.0f}%"
+    print("model_name=", model_name)
+
+    if control_params is not None:
+        default_control_params = control_params
+    else:
+        default_control_params = dict(
+            use_regression=False,
+            prefer_gpu_configs=True,
+            robustness_features=None,
+            use_robust_eval_metric=True,
+            nbins=10,
+            xgboost_verbose=0,
+            rfecv_model_verbose=0,
+            prefer_cpu_for_lightgbm=True,
+            prefer_calibrated_classifiers=True,
+        )
+    if control_params_override:
+        default_control_params.update(control_params_override)
+
+    default_config_params = dict(
+        has_time=False,
+        learning_rate=0.2,
+        iterations=700,
+        early_stopping_rounds=100,
+        catboost_custom_classif_metrics=None,
+        max_runtime_mins=60 * 3,
+        cv_n_splits=4,
+        max_noimproving_iters=15,
+    )
+    if config_params:
+        default_config_params = config_params
+    if config_params_override:
+        default_config_params.update(config_params_override)
+
+    sample_weight = None
+    common_params, common_cb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs = configure_training_params(
+        df=df,
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
+        target=target,
+        target_label_encoder=None,
+        train_idx=train_idx,
+        val_idx=val_idx,
+        test_idx=test_idx,
+        sample_weight=sample_weight,
+        train_details=train_details,
+        val_details=val_details,
+        test_details=test_details,
+        group_ids=group_ids,
+        model_name=model_name,
+        common_params=common_params,
+        config_params=default_config_params,
+        **default_control_params,
+    )
+
+    return common_params, common_cb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs
+
+
+def process_model(
+    model_file: str,
+    model_name: str,
+    pre_pipeline: object,
+    pre_pipeline_name: str,
+    cur_target: str,
+    trainset_features_stats: dict,
+    models: dict,
+    model_params: dict,
+    common_params: dict,
+    ens_models: list,
+    verbose: int,
+) -> dict:
+
+    fname = f"{model_name}.dump"
+    if pre_pipeline_name:
+        fname = pre_pipeline_name + " " + fname
+    fpath = join(model_file, fname)
+    if exists(fpath):
+        model = load_mlframe_model(fpath)
+    else:
+        if verbose:
+            logger.info(f"train_and_evaluate {model_name}...")
+        model = train_and_evaluate_model(
+            pre_pipeline=pre_pipeline,
+            **model_params,
+            **common_params,
+            model_name_prefix=pre_pipeline_name,
+        )
+        save_mlframe_model(model, fpath)
+    models[cur_target].append(model)
+
+    if ens_models is not None:
+        ens_models.append(model)
+
+    if trainset_features_stats is None:
+        trainset_features_stats = model.trainset_features_stats
+        common_params["trainset_features_stats"] = trainset_features_stats
+
+    return trainset_features_stats
+
+
+def train_mlframe_models_suite(
+    polars_df: pl.DataFrame,
+    pandas_df: pd.DataFrame,
+    target_name: str,
+    model_name: str,
+    preprocess_dataframe: Callable,
+    #
+    columns: list = None,
+    data_dir: str = "",
+    models_dir: str = MODELS_SUBDIR,
+    #
+    use_mlframe_models: bool = True,
+    use_mlframe_xgboost: bool = True,
+    use_mlframe_catboost: bool = True,
+    use_mlframe_lightgbm: bool = True,
+    use_mlframe_ensembles: bool = True,
+    #
+    use_autogluon_models: bool = False,
+    autogluon_init_params: dict = None,
+    autogluon_fit_params: dict = None,
+    #
+    use_lama_models: bool = False,
+    lama_init_params: dict = None,
+    lama_fit_params: dict = None,
+    #
+    use_rfecv: int = 0,
+    report_params: dict = None,
+    skip_infinity_checks: bool = True,
+    verbose: int = 1,
+    #
+    automl_verbose: int = 1,
+    automl_show_fi: bool = True,
+    automl_target_label: str = "target",
+    #
+    config_params: dict = None,
+    config_params_override: dict = None,
+    control_params: dict = None,
+    control_params_override: dict = None,
+) -> dict:
+
+    # cb_kwargs=dict(devices='0-4')
+
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # Inits
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    trainset_features_stats = None
+
+    if autogluon_fit_params is None:
+        autogluon_fit_params = {}
+    if autogluon_init_params is None:
+        autogluon_init_params = {}
+
+    if lama_init_params is None:
+        lama_init_params = dict(task=Task("binary"))
+    if lama_fit_params is None:
+        lama_fit_params = {}
+
+    if report_params is None:
+        report_params = dict(
+            nbins=10,
+            # figsize=figsize,
+            # print_report=print_report,
+            # plot_file=plot_file + "_test" if plot_file else "",
+            # show_perf_chart=show_perf_chart,
+            # show_fi=show_fi,
+            # fi_kwargs=fi_kwargs,
+            # subgroups=subgroups,
+            # subset_index=test_idx,
+            # custom_ice_metric=custom_ice_metric,
+            # custom_rice_metric=custom_rice_metric,
+            # metrics=metrics["test"],
+        )
+
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # Conversion to Pandas & splitting
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    if polars_df is not None and pandas_df is None:
+        if verbose:
+            logger.info(f"Converting polars df to pandas...")
+
+        if columns:
+            tmp = polars_df.select(columns)
+        else:
+            tmp = polars_df
+        pandas_df = tmp.with_columns(pl.col(pl.Float64).cast(pl.Float32)).to_pandas()
+    else:
+        if isinstance(pandas_df, str):
+            pandas_df = pd.read_parquet(pandas_df, columns=columns)
+
+    if verbose:
+        logger.info(f"preprocess_dataframe...")
+    pandas_df, targets, group_ids, timestamps = preprocess_dataframe(pandas_df)
+
+    if verbose:
+        logger.info(f"make_train_test_split...")
+    train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(df=pandas_df, timestamps=timestamps)
+
+    if timestamps is not None:
+        ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), "test_timestamps.parquet")
+        if not exists(ts_file):
+            ensure_dir_exists(join(data_dir, models_dir, slugify(target_name), slugify(model_name)))
+            timestamps.iloc[test_idx].to_frame(name="ts").to_parquet(ts_file, compression=PARQUET_COMPRESION)
+
+    if verbose:
+        logger.info(f"creating train_df,val_df,test_df...")
+    train_df = pandas_df.iloc[train_idx]
+    val_df = pandas_df.iloc[val_idx]
+    test_df = pandas_df.iloc[test_idx]
+
+    columns = pandas_df.columns
+
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # Checks
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    if use_autogluon_models or use_lama_models:
+        if automl_target_label in pandas_df:
+            logger.warning(f"Your datafame ALREADY contains {automl_target_label} column that will be used by automl as temp target!")
+
+        tran_val_idx = np.array(train_idx.tolist() + val_idx.tolist())
+        if verbose:
+            logger.info(f"RSS at start: {get_own_ram_usage():.1f}GBs")
+    else:
+        del pandas_df
+        clean_ram()
+
+    models = defaultdict(list)
+    for cur_target, target in targets.items():
+
+        target = targets[cur_target]
+
+        if use_mlframe_models:
+
+            if use_autogluon_models or use_lama_models:
+                if automl_target_label in pandas_df:
+                    del pandas_df[automl_target_label]
+                    if verbose:
+                        logger.info(f"RSS after automl_target_label deletion: {get_own_ram_usage():.1f}GBs")
+
+            plot_file = join(data_dir, "charts", slugify(target_name), slugify(model_name), slugify(cur_target)) + os.path.sep
+            ensure_dir_exists(plot_file)
+
+            model_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), slugify(cur_target)) + os.path.sep
+            ensure_dir_exists(model_file)
+
+            if verbose:
+                logger.info(f"select_target...")
+            common_params, common_cb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs = select_target(
+                model_name=f"{target_name} {model_name} {cur_target}",
+                target=target,
+                df=None,
+                train_df=train_df,
+                val_df=val_df,
+                test_df=test_df,
+                train_idx=train_idx,
+                val_idx=val_idx,
+                test_idx=test_idx,
+                train_details=train_details,
+                val_details=val_details,
+                test_details=test_details,
+                group_ids=group_ids,
+                config_params=config_params,
+                config_params_override=config_params_override,
+                control_params=control_params,
+                control_params_override=control_params_override,
+                common_params=dict(trainset_features_stats=trainset_features_stats, skip_infinity_checks=skip_infinity_checks, plot_file=plot_file),
+            )
+
+            pre_pipelines = [None]
+            pre_pipeline_names = [""]
+            if use_rfecv >= 1:
+                pre_pipelines.append(cb_rfecv)
+                pre_pipeline_names.append("cb_rfecv ")
+            if use_rfecv >= 2:
+                pre_pipelines.append(lgb_rfecv)
+                pre_pipeline_names.append("lgb_rfecv ")
+            if use_rfecv >= 3:
+                pre_pipelines.append(xgb_rfecv)
+                pre_pipeline_names.append("xgb_rfecv ")
+
+            for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
+                ens_models = [] if use_mlframe_ensembles else None
+                if use_mlframe_catboost:
+                    trainset_features_stats = process_model(
+                        model_file=model_file,
+                        model_name="cb_model",
+                        pre_pipeline=pre_pipeline,
+                        pre_pipeline_name=pre_pipeline_name,
+                        cur_target=cur_target,
+                        models=models,
+                        model_params=common_cb_params,
+                        common_params=common_params,
+                        ens_models=ens_models,
+                        trainset_features_stats=trainset_features_stats,
+                        verbose=verbose,
+                    )
+
+                if use_mlframe_lightgbm:
+                    trainset_features_stats = process_model(
+                        model_file=model_file,
+                        model_name="lgb_model",
+                        pre_pipeline=pre_pipeline,
+                        pre_pipeline_name=pre_pipeline_name,
+                        cur_target=cur_target,
+                        models=models,
+                        model_params=common_lgb_params,
+                        common_params=common_params,
+                        ens_models=ens_models,
+                        trainset_features_stats=trainset_features_stats,
+                        verbose=verbose,
+                    )
+
+                if use_mlframe_xgboost:
+                    trainset_features_stats = process_model(
+                        model_file=model_file,
+                        model_name="xgb_model",
+                        pre_pipeline=pre_pipeline,
+                        pre_pipeline_name=pre_pipeline_name,
+                        cur_target=cur_target,
+                        models=models,
+                        model_params=common_xgb_params,
+                        common_params=common_params,
+                        ens_models=ens_models,
+                        trainset_features_stats=trainset_features_stats,
+                        verbose=verbose,
+                    )
+
+                if ens_models:
+
+                    if verbose:
+                        logger.info(f"evaluating simple ensembles...")
+
+                    ensembles = score_ensemble(
+                        models_and_predictions=ens_models,
+                        ensemble_name=pre_pipeline_name + f"{len(ens_models)}models ",
+                        **common_params,
+                    )
+
+        if use_autogluon_models or use_lama_models:
+
+            pandas_df[automl_target_label] = target
+            print(f"RSS after automl_target_label inserting: {get_own_ram_usage():.1f}GBs")
+
+            automl_train_df = pandas_df.iloc[tran_val_idx].copy()
+
+            test_target = target.iloc[test_idx]
+
+        if use_autogluon_models:
+            if verbose:
+                logger.info(f"train_and_evaluate_autogluon...")
+            models[cur_target].append(
+                train_and_evaluate_autogluon(
+                    train_df=automl_train_df,
+                    test_df=test_df,
+                    test_target=test_target,
+                    columns=columns,
+                    model_name=model_name,
+                    automl_init_params=autogluon_init_params,
+                    automl_fit_params=autogluon_fit_params,
+                    automl_target_label=automl_target_label,
+                    automl_show_fi=automl_show_fi,
+                    automl_verbose=automl_verbose,
+                    report_params=report_params,
+                    group_ids=group_ids[test_idx] if group_ids is not None else None,
+                )
+            )
+
+        if use_lama_models:
+            if verbose:
+                logger.info(f"train_and_evaluate_lama...")
+            models[cur_target].append(
+                train_and_evaluate_lama(
+                    train_df=automl_train_df,
+                    test_df=test_df,
+                    test_target=test_target,
+                    columns=columns,
+                    model_name=model_name,
+                    automl_init_params=lama_init_params,
+                    automl_fit_params=lama_fit_params,
+                    automl_target_label=automl_target_label,
+                    automl_show_fi=automl_show_fi,
+                    automl_verbose=automl_verbose,
+                    report_params=report_params,
+                    group_ids=group_ids[test_idx] if group_ids is not None else None,
+                )
+            )
+
+    return models
+
+
+# AUTOML
+
+
+def train_and_evaluate_autogluon(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    test_target: pd.Series,
+    columns: Iterable,
+    model_name: str,
+    automl_init_params: dict,
+    automl_fit_params: dict,
+    automl_target_label: str,
+    automl_show_fi: str,
+    automl_verbose: int,
+    report_params: dict,
+    group_ids: pd.Series = None,
+) -> dict:
+
+    try:
+        from autogluon.tabular import TabularDataset, TabularPredictor
+    except Exception as e:
+        logger.warning(f"Skipping Autogluon: {e}.")
+    else:
+
+        model_name = f"AutoGluon_{model_name}"
+
+        train_data = TabularDataset(train_df)
+
+        automl = TabularPredictor(label=automl_target_label, verbosity=automl_verbose, **automl_init_params)
+        automl.fit(train_data, **automl_fit_params)
+        clean_ram()
+
+        test_probs = automl.predict_proba(test_df).to_numpy()
+        metrics = {"test": {}}
+        _, _ = report_model_perf(
+            targets=test_target,
+            columns=columns,
+            df=None,
+            model_name=model_name,
+            model=None,
+            target_label_encoder=None,
+            preds=None,
+            probs=test_probs,
+            report_title="TEST",
+            metrics=metrics["test"],
+            group_ids=group_ids if group_ids is not None else None,
+            **report_params,
+        )
+        if automl_show_fi:
+            automl_fi = automl.feature_importance(test_df)
+        else:
+            automl_fi = None
+
+        return SimpleNamespace(model=automl, metrics=metrics, fi=automl_fi, test_target=test_target, test_probs=test_probs)
+
+
+def train_and_evaluate_lama(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    test_target: pd.Series,
+    columns: Iterable,
+    model_name: str,
+    automl_init_params: dict,
+    automl_fit_params: dict,
+    automl_target_label: str,
+    automl_show_fi: str,
+    automl_verbose: int,
+    report_params: dict,
+    group_ids: pd.Series = None,
+) -> dict:
+
+    try:
+        from lightautoml.automl.presets.tabular_presets import TabularAutoML, TabularUtilizedAutoML
+        from lightautoml.report.report_deco import ReportDeco, ReportDecoUtilized
+        from lightautoml.tasks import Task
+        import matplotlib as mpl
+    except Exception as e:
+        logger.warning(f"Skipping LaMa: {e}.")
+    else:
+
+        model_name = f"LaMa_{model_name}"
+
+        # RD = ReportDeco(output_path="LaMa_model_report")
+
+        # automl = RD(TabularAutoML(**lama_init_params))
+        automl = TabularAutoML(**automl_init_params)
+
+        out_of_fold_predictions = automl.fit_predict(train_df, roles={"target": automl_target_label}, verbose=automl_verbose, **automl_fit_params)
+
+        """
+        verbose - controls the verbosity: the higher, the more messages:
+        <1  : messages are not displayed;
+        >=1 : the computation process for layers is displayed;
+        >=2 : the information about folds processing is also displayed;
+        >=3 : the hyperparameters optimization process is also displayed;
+        >=4 : the training process for every algorithm is displayed;
+        """
+
+        test_predictions = automl.predict(test_df)
+        test_probs = np.vstack([1 - test_predictions.data[:, 0], test_predictions.data[:, 0]]).T
+
+        mpl.rcParams.update(mpl.rcParamsDefault)
+
+        metrics = {"test": {}}
+        _, _ = report_model_perf(
+            targets=test_target,
+            columns=columns,
+            df=None,
+            model_name=model_name,
+            model=None,
+            target_label_encoder=None,
+            preds=None,
+            probs=test_probs,
+            report_title="TEST",
+            metrics=metrics["test"],
+            group_ids=group_ids if group_ids is not None else None,
+            **report_params,
+        )
+        if automl_show_fi:
+            automl_fi = automl.get_feature_scores("fast")
+            # automl_fi = automl.feature_importance(calc_method= "accurate",data=temp_test_df)
+        else:
+            automl_fi = None
+
+        return SimpleNamespace(model=automl, metrics=metrics, fi=automl_fi, test_target=test_target, test_probs=test_probs)
