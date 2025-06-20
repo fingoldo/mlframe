@@ -144,6 +144,9 @@ def add_fast_rolling_stats(
     df: pl.DataFrame,
     columns_selector: str = None,
     rolling_windows: list = None,
+    numaggs: list = None,
+    quantiles: list = None,
+    relative: bool = True,
     min_samples: int = 1,
     groupby_column: str = None,
     exclude_fields: list = None,
@@ -159,6 +162,12 @@ def add_fast_rolling_stats(
 
     if not rolling_windows:
         rolling_windows: list = [5]
+
+    if numaggs is None:
+        numaggs: list = "rolling_min rolling_max rolling_mean rolling_std rolling_skew rolling_kurtosis".split()
+
+    if quantiles is None:
+        quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # Columns to work with
@@ -177,22 +186,29 @@ def add_fast_rolling_stats(
     # Computing
     # ----------------------------------------------------------------------------------------------------------------------------
 
-    df = df.with_columns(
-        # relative means over rolling_windows
-        *[
-            pllib.clean_numeric(
-                (all_num_cols / group_if_needed(all_num_cols.rolling_mean(window, min_samples=min_samples), over=groupby_column) - 1), nans_filler=nans_filler
-            ).name.suffix(f"_rmean{window}")
-            for window in rolling_windows
-        ],
-        # relative standard deviations over rolling_windows
-        *[
-            pllib.clean_numeric(
-                (group_if_needed(all_num_cols.rolling_std(window, min_samples=min_samples), over=groupby_column) / all_num_cols), nans_filler=nans_filler
-            ).name.suffix(f"_rstd{window}")
-            for window in rolling_windows
-        ],
-    )
+    exprs = []
+    for func in numaggs:
+        if relative:
+            exprs.extend(
+                [
+                    pllib.clean_numeric(
+                        (all_num_cols / group_if_needed(get(all_num_cols, func)(window, min_samples=min_samples), over=groupby_column) - 1),
+                        nans_filler=nans_filler,
+                    ).name.suffix(f"_r{func.replace('rolling_','')}{window}")
+                    for window in rolling_windows
+                ]
+            )
+        else:
+            exprs.extend(
+                [
+                    group_if_needed(get(all_num_cols, func)(window, min_samples=min_samples), over=groupby_column).name.suffix(
+                        f"_{func.replace('rolling_','')}{window}"
+                    )
+                    for window in rolling_windows
+                ]
+            )
+
+    df = df.with_columns(exprs)
 
     if cast_f64_to_f32:
         df = pllib.cast_f64_to_f32(df)
@@ -261,11 +277,11 @@ def add_ohlcv_ta_indicators(
 
     for prefix in market_action_prefixes:
 
-        low = pl.col(f"{prefix}{ohlcv_fields_mapping.get('low')}")
-        high = pl.col(f"{prefix}{ohlcv_fields_mapping.get('high')}")
-        open = pl.col(f"{prefix}{ohlcv_fields_mapping.get('open')}")
-        close = pl.col(f"{prefix}{ohlcv_fields_mapping.get('close')}")
-        volume = pl.col(f"{prefix}{ohlcv_fields_mapping.get('volume')}")
+        low = pl.col(f"{prefix}{ohlcv_fields_mapping.get('low')}").fill_null(strategy="forward").over(ticker_column).fill_null(0.0).over(ticker_column)
+        high = pl.col(f"{prefix}{ohlcv_fields_mapping.get('high')}").fill_null(strategy="forward").over(ticker_column).fill_null(0.0).over(ticker_column)
+        open = pl.col(f"{prefix}{ohlcv_fields_mapping.get('open')}").fill_null(strategy="forward").over(ticker_column).fill_null(0.0).over(ticker_column)
+        close = pl.col(f"{prefix}{ohlcv_fields_mapping.get('close')}").fill_null(strategy="forward").over(ticker_column).fill_null(0.0).over(ticker_column)
+        volume = pl.col(f"{prefix}{ohlcv_fields_mapping.get('volume')}").fill_null(strategy="forward").over(ticker_column).fill_null(0.0).over(ticker_column)
 
         cyclic_indicators = "ht_dcperiod ht_dcphase ht_phasor ht_sine ht_trendmode ht_trendline mama".split()
         unnests.extend([f"{prefix}ht_phasor", f"{prefix}ht_sine"])

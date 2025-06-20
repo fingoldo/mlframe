@@ -1554,6 +1554,7 @@ def configure_training_params(
     verbose: bool = True,
     rfecv_model_verbose: bool = True,
     prefer_cpu_for_lightgbm: bool = True,
+    prefer_cpu_for_xgboost: bool = False,
     xgboost_verbose: Union[int, bool] = False,
     cb_fit_params: dict = {},  # cb_fit_params=dict(embedding_features=['embeddings'])
     prefer_calibrated_classifiers: bool = True,
@@ -1659,14 +1660,24 @@ def configure_training_params(
         fit_params=dict(plot=verbose, cat_features=cat_features, **cb_fit_params),
     )  # TransformedTargetRegressor(CatBoostRegressor(**configs.CB_REGR),transformer=PowerTransformer())
 
-    common_xgb_params = dict(
-        model=(
-            XGBRegressor(**configs.XGB_GENERAL_PARAMS)
-            if use_regression
-            else XGBClassifier(**(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF))
-        ),
-        fit_params=dict(verbose=xgboost_verbose),
-    )
+    if prefer_cpu_for_xgboost:
+        common_xgb_params = dict(
+            model=(
+                XGBRegressor(**cpu_configs.XGB_GENERAL_PARAMS)
+                if use_regression
+                else XGBClassifier(**(cpu_configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else cpu_configs.XGB_GENERAL_CLASSIF))
+            ),
+            fit_params=dict(verbose=xgboost_verbose),
+        )
+    else:
+        common_xgb_params = dict(
+            model=(
+                XGBRegressor(**configs.XGB_GENERAL_PARAMS)
+                if use_regression
+                else XGBClassifier(**(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF))
+            ),
+            fit_params=dict(verbose=xgboost_verbose),
+        )
 
     if prefer_cpu_for_lightgbm:
         common_lgb_params = dict(
@@ -1675,8 +1686,8 @@ def configure_training_params(
         )
     else:
         common_lgb_params = dict(
-            model=LGBMRegressor(**gpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
-            fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}),
+            model=LGBMRegressor(**configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
+            fit_params=(dict(eval_metric=configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}),
         )
 
     rfecv_params = configs.COMMON_RFECV_PARAMS.copy()
