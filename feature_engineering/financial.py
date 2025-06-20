@@ -192,7 +192,7 @@ def add_fast_rolling_stats(
             exprs.extend(
                 [
                     pllib.clean_numeric(
-                        (all_num_cols / group_if_needed(get(all_num_cols, func)(window, min_samples=min_samples), over=groupby_column) - 1),
+                        (all_num_cols / group_if_needed(getattr(all_num_cols, func)(window, min_samples=min_samples), over=groupby_column) - 1),
                         nans_filler=nans_filler,
                     ).name.suffix(f"_r{func.replace('rolling_','')}{window}")
                     for window in rolling_windows
@@ -277,11 +277,13 @@ def add_ohlcv_ta_indicators(
 
     for prefix in market_action_prefixes:
 
-        low = pl.col(f"{prefix}{ohlcv_fields_mapping.get('low')}").fill_null(strategy="forward").over(ticker_column).fill_null(0.0).over(ticker_column)
-        high = pl.col(f"{prefix}{ohlcv_fields_mapping.get('high')}").fill_null(strategy="forward").over(ticker_column).fill_null(0.0).over(ticker_column)
-        open = pl.col(f"{prefix}{ohlcv_fields_mapping.get('open')}").fill_null(strategy="forward").over(ticker_column).fill_null(0.0).over(ticker_column)
-        close = pl.col(f"{prefix}{ohlcv_fields_mapping.get('close')}").fill_null(strategy="forward").over(ticker_column).fill_null(0.0).over(ticker_column)
-        volume = pl.col(f"{prefix}{ohlcv_fields_mapping.get('volume')}").fill_null(strategy="forward").over(ticker_column).fill_null(0.0).over(ticker_column)
+        low = pl.col(f"{prefix}{ohlcv_fields_mapping.get('low')}").fill_null(0.0)
+        high = pl.col(f"{prefix}{ohlcv_fields_mapping.get('high')}").fill_null(0.0)
+        open = pl.col(f"{prefix}{ohlcv_fields_mapping.get('open')}").fill_null(0.0)
+        close = pl.col(f"{prefix}{ohlcv_fields_mapping.get('close')}").fill_null(0.0)
+        volume = pl.col(f"{prefix}{ohlcv_fields_mapping.get('volume')}").fill_null(
+            0.0
+        )  # .fill_null(strategy="forward").over(ticker_column).fill_null(0.0).over(ticker_column)
 
         cyclic_indicators = "ht_dcperiod ht_dcphase ht_phasor ht_sine ht_trendmode ht_trendline mama".split()
         unnests.extend([f"{prefix}ht_phasor", f"{prefix}ht_sine"])
