@@ -706,8 +706,14 @@ class RFECV(BaseEstimator, TransformerMixin):
         # ultimate_perf = base_perf / (np.log1p(np.arange(len(base_perf))) + comparison_base)
         ultimate_perf = base_perf - np.arange(len(base_perf)) * feature_cost
 
-        best_idx = np.argmax(ultimate_perf)
-        best_top_n = checked_nfeatures[best_idx]
+        sorted_idx = np.argsort(ultimate_perf)[::-1]
+        for idx in sorted_idx:
+            if checked_nfeatures[idx] != 0:
+                best_idx = idx
+                best_top_n = checked_nfeatures[best_idx]
+                break
+            else:
+                logger.warning(f"Can't allow nfeatures to be zero. Using first non-zero value.")
 
         if show_plot or plot_file:
             plt.rcParams.update({"font.size": font_size})
