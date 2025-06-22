@@ -346,6 +346,11 @@ class MBHOptimizer:
 
                 if len(self.known_candidates) > self.last_retrain_ninputs:
 
+                    # First need to check that targets are not all the same:
+                    if np.all(self.known_evaluations== self.known_evaluations[0])
+                        logger.warn(f"All targets are the same! Can't train the underlying process model.")
+                        return None
+
                     if not hasattr(self.model, "partial_fit"):
                         self.model.fit(self.known_candidates.reshape(-1, 1), self.known_evaluations)
                     else:
