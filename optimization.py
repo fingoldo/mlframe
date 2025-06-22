@@ -347,7 +347,7 @@ class MBHOptimizer:
                 if len(self.known_candidates) > self.last_retrain_ninputs:
 
                     # First need to check that targets are not all the same:
-                    if np.all(self.known_evaluations== self.known_evaluations[0])
+                    if np.all(self.known_evaluations == self.known_evaluations[0]):
                         logger.warn(f"All targets are the same! Can't train the underlying process model.")
                         return None
 
