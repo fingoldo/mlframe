@@ -2156,10 +2156,13 @@ def train_mlframe_models_suite(
     else:
         if isinstance(pandas_df, str):
             pandas_df = pd.read_parquet(pandas_df, columns=columns)
+    clean_ram()
 
     if verbose:
         logger.info(f"preprocess_dataframe...")
     pandas_df, targets, group_ids, timestamps = preprocess_dataframe(pandas_df)
+
+    clean_ram()
 
     if verbose:
         logger.info(f"make_train_test_split...")
@@ -2178,6 +2181,8 @@ def train_mlframe_models_suite(
     test_df = pandas_df.iloc[test_idx]
 
     columns = pandas_df.columns
+
+    clean_ram()
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Checks
