@@ -201,7 +201,7 @@ def add_fast_rolling_stats(
         else:
             exprs.extend(
                 [
-                    group_if_needed(get(all_num_cols, func)(window, min_samples=min_samples), over=groupby_column).name.suffix(
+                    group_if_needed(getattr(all_num_cols, func)(window, min_samples=min_samples), over=groupby_column).name.suffix(
                         f"_{func.replace('rolling_','')}{window}"
                     )
                     for window in rolling_windows
