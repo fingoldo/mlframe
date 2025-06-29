@@ -68,6 +68,7 @@ from mlframe.ensembling import ensemble_probabilistic_predictions, score_ensembl
 # FE
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
+
 from mlframe.feature_engineering.basic import create_date_features
 from mlframe.feature_engineering.timeseries import create_aggregated_features
 from mlframe.feature_engineering.numerical import (
@@ -77,7 +78,7 @@ from mlframe.feature_engineering.numerical import (
     get_numaggs_names,
     compute_numaggs_parallel,
 )
-
+from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
 from mlframe.feature_engineering.categorical import compute_countaggs, get_countaggs_names
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
