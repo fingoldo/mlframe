@@ -34,7 +34,7 @@ from timeit import default_timer as timer
 from pyutilz.system import ensure_dir_exists, tqdmu
 from pyutilz.pythonlib import prefix_dict_elems, get_human_readable_set_size
 
-from mlframe.helpers import get_model_best_iter, ensure_no_infinity
+from mlframe.helpers import get_model_best_iter, ensure_no_infinity, get_own_ram_usage
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Filesystem
