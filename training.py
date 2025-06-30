@@ -2301,7 +2301,7 @@ def train_mlframe_models_suite(
                         verbose=verbose,
                     )
 
-                if ens_models:
+                if ens_models and len(ens_models) > 1:
 
                     if verbose:
                         logger.info(f"evaluating simple ensembles...")

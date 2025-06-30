@@ -64,6 +64,8 @@ def run_pysr_feature_engineering(
 
     Returns:
     - Trained PySRRegressor object.
+
+    >>>run_pysr_feature_engineering(df,target_col="target_UP",drop_columns=["target_UP","target_DOWN"],pysr_params_override=dict(niterations=200,))
     """
     if reserved_names is None:
         reserved_names = ["im"]
