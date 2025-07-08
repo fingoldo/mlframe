@@ -782,7 +782,8 @@ def train_and_evaluate_model(
 
         if callback_params:
             if "callbacks" not in fit_params:
-                fit_params["callbacks"] = []
+                if model_type_name not in XGBOOST_MODEL_TYPES:
+                    fit_params["callbacks"] = []
 
         if model_type_name in LGBM_MODEL_TYPES:
             fit_params["eval_set"] = (val_df, val_target)
@@ -796,9 +797,14 @@ def train_and_evaluate_model(
             if callback_params:
                 if model_type_name in CATBOOST_MODEL_TYPES:
                     es_callback = CatBoostCallback(**callback_params)
-                else:
+                    fit_params.get("callbacks").append(es_callback)
+                elif model_type_name in XGBOOST_MODEL_TYPES:
                     es_callback = XGBoostCallback(**callback_params)
-                fit_params.get("callbacks").append(es_callback)
+                    callbacks = model_obj.get_params().get("callbacks", [])
+                    if es_callback not in callbacks:
+                        callbacks.append(es_callback)
+                    model_obj.set_params(callbacks=callbacks)
+
         elif model_type_name in TABNET_MODEL_TYPES:
             fit_params["eval_set"] = [
                 (val_df.values, val_target.values),
