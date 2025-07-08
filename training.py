@@ -2133,6 +2133,7 @@ def train_mlframe_models_suite(
     config_params_override: dict = None,
     control_params: dict = None,
     control_params_override: dict = None,
+    common_params: dict = None,
 ) -> dict:
 
     # cb_kwargs=dict(devices='0-4')
@@ -2142,6 +2143,9 @@ def train_mlframe_models_suite(
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
     trainset_features_stats = None
+
+    if common_params is None:
+        common_params = {}
 
     if autogluon_fit_params is None:
         autogluon_fit_params = {}
@@ -2267,7 +2271,9 @@ def train_mlframe_models_suite(
                 config_params_override=config_params_override,
                 control_params=control_params,
                 control_params_override=control_params_override,
-                common_params=dict(trainset_features_stats=trainset_features_stats, skip_infinity_checks=skip_infinity_checks, plot_file=plot_file),
+                common_params=dict(
+                    trainset_features_stats=trainset_features_stats, skip_infinity_checks=skip_infinity_checks, plot_file=plot_file, **common_params
+                ),
             )
 
             pre_pipelines = [None]
