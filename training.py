@@ -801,6 +801,8 @@ def train_and_evaluate_model(
                 elif model_type_name in XGBOOST_MODEL_TYPES:
                     es_callback = XGBoostCallback(**callback_params)
                     callbacks = model_obj.get_params().get("callbacks", [])
+                    if callbacks is None:
+                        callbacks = []
                     if es_callback not in callbacks:
                         callbacks.append(es_callback)
                     model_obj.set_params(callbacks=callbacks)
