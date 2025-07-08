@@ -2141,7 +2141,7 @@ def train_mlframe_models_suite(
     config_params_override: dict = None,
     control_params: dict = None,
     control_params_override: dict = None,
-    common_params: dict = None,
+    init_common_params: dict = None,
 ) -> dict:
 
     # cb_kwargs=dict(devices='0-4')
@@ -2152,8 +2152,8 @@ def train_mlframe_models_suite(
 
     trainset_features_stats = None
 
-    if common_params is None:
-        common_params = {}
+    if init_common_params is None:
+        init_common_params = {}
 
     if autogluon_fit_params is None:
         autogluon_fit_params = {}
@@ -2280,7 +2280,7 @@ def train_mlframe_models_suite(
                 control_params=control_params,
                 control_params_override=control_params_override,
                 common_params=dict(
-                    trainset_features_stats=trainset_features_stats, skip_infinity_checks=skip_infinity_checks, plot_file=plot_file, **common_params
+                    trainset_features_stats=trainset_features_stats, skip_infinity_checks=skip_infinity_checks, plot_file=plot_file, **init_common_params
                 ),
             )
 
@@ -2621,7 +2621,7 @@ class UniversalCallback:
         if self.monitor_dataset not in metrics_dict:
             raise ValueError(f"Monitor dataset '{self.monitor_dataset}' not found in metrics.")
         available_metrics = list(metrics_dict[self.monitor_dataset].keys())
-        for preferred in ["auc", "AUC"]:
+        for preferred in ["CB_EVAL_METRIC", "auc", "AUC"]:
             if preferred in available_metrics:
                 self.monitor_metric = preferred
                 break
