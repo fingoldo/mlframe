@@ -634,6 +634,8 @@ def train_and_evaluate_model(
     train_details: str = "",
     val_details: str = "",
     test_details: str = "",
+    # CB_EVAL_METRIC
+    callback_params: dict = None,
 ):
     """Trains & evaluates given model/pipeline on train/test sets.
     Supports feature selection via pre_pipeline.
@@ -778,13 +780,25 @@ def train_and_evaluate_model(
     if val_df is not None:
         # insert eval_set where needed
 
+        if callback_params:
+            if "callbacks" not in fit_params:
+                fit_params["callbacks"] = []
+
         if model_type_name in LGBM_MODEL_TYPES:
             fit_params["eval_set"] = (val_df, val_target)
-            # fit_params["callbacks"] = [lgb.early_stopping(stopping_rounds=early_stopping_rounds)]
+            if callback_params:
+                es_callback = LightGBMCallback(**callback_params)
+                fit_params.get("callbacks").append(es_callback)
         elif model_type_name in CATBOOST_MODEL_TYPES or model_type_name in XGBOOST_MODEL_TYPES:
             fit_params["eval_set"] = [
                 (val_df, val_target),
             ]
+            if callback_params:
+                if model_type_name in CATBOOST_MODEL_TYPES:
+                    es_callback = CatBoostCallback(**callback_params)
+                else:
+                    es_callback = XGBoostCallback(**callback_params)
+                fit_params.get("callbacks").append(es_callback)
         elif model_type_name in TABNET_MODEL_TYPES:
             fit_params["eval_set"] = [
                 (val_df.values, val_target.values),
