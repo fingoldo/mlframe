@@ -243,6 +243,20 @@ except Exception as e:
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
+# Early stopping
+# ----------------------------------------------------------------------------------------------------------------------------
+
+import os
+from timeit import default_timer as timer
+from xgboost.callback import TrainingCallback
+
+import catboost as cb
+import xgboost as xgb
+import lightgbm as lgb
+
+from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
+
+# ----------------------------------------------------------------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------------------------------------------------------------
 
@@ -2489,3 +2503,213 @@ def train_and_evaluate_lama(
             automl_fi = None
 
         return SimpleNamespace(model=automl, metrics=metrics, fi=automl_fi, test_target=test_target, test_probs=test_probs)
+
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Early stopping
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+def stop_file(fpath: str):
+    return lambda: os.path.exists(fpath)
+
+
+class UniversalCallback:
+    def __init__(
+        self,
+        time_budget_mins: Optional[float] = None,
+        reporting_interval_mins: Optional[float] = 1.0,
+        patience: Optional[int] = None,
+        min_delta: float = 0.0,
+        monitor_dataset: Optional[str] = None,
+        monitor_metric: Optional[str] = None,
+        mode: Optional[str] = None,
+        stop_flag: Optional[Callable[[], bool]] = None,
+        ndigits: int = 6,
+        verbose: int = 1,
+    ) -> None:
+
+        params = get_parent_func_args()
+        store_params_in_object(obj=self, params=params)
+
+        self.start_time = None
+        self.best_metric = None
+        self.first_iteration = True
+        self.iterations_since_improvement = 0
+        self.metric_history: Dict[str, Dict[str, List[float]]] = {}
+        self.stop_flag = stop_flag if stop_flag is not None else lambda: False
+
+        if self.verbose > 0:
+            logger.info(
+                "UniversalCallback initialized with params: "
+                f"time_budget_mins={time_budget_mins}, patience={patience}, min_delta={min_delta}, "
+                f"monitor_dataset={monitor_dataset}, monitor_metric={monitor_metric}, mode={mode}"
+            )
+
+    def on_start(self) -> None:
+        self.start_time = timer()
+        if self.verbose > 0:
+            self.last_reporting_ts = self.start_time
+            logger.info("Training started. Timer initiated.")
+
+    def update_history(self, metrics_dict: Dict[str, Dict[str, float]]) -> None:
+        for dataset in metrics_dict:
+            if dataset not in self.metric_history:
+                self.metric_history[dataset] = {}
+            for metric, value in metrics_dict[dataset].items():
+                self.metric_history[dataset].setdefault(metric, []).append(value)
+        if self.verbose > 1:
+            logger.debug(f"Updated metric history: {metrics_dict}")
+
+    def derive_mode(self, metric_name: str) -> str:
+        known_metric_modes = {
+            "auc": "max",
+            "accuracy": "max",
+            "acc": "max",
+            "f1": "max",
+            "map": "max",
+            "ndcg": "max",
+            "mse": "min",
+            "rmse": "min",
+            "mae": "min",
+            "logloss": "min",
+            "error": "min",
+            "loss": "min",
+        }
+
+        name = metric_name.lower()
+        for key, default_mode in known_metric_modes.items():
+            if key in name:
+                return default_mode
+        if "score" in name or "auc" in name or "accuracy" in name:
+            return "max"
+        elif "loss" in name or "error" in name:
+            return "min"
+        else:
+            logger.warning(f"Unsure about correct optimization mode for metric={name}, using min for now.")
+            return "min"  # fallback default
+
+    def set_default_monitor_metric(self, metrics_dict: Dict[str, Dict[str, float]]) -> None:
+        if self.monitor_dataset not in metrics_dict:
+            raise ValueError(f"Monitor dataset '{self.monitor_dataset}' not found in metrics.")
+        available_metrics = list(metrics_dict[self.monitor_dataset].keys())
+        for preferred in ["auc", "AUC"]:
+            if preferred in available_metrics:
+                self.monitor_metric = preferred
+                break
+        else:
+            self.monitor_metric = available_metrics[0]
+        self.mode = self.derive_mode(self.monitor_metric)
+        if self.verbose > 0:
+            logger.info(f"Auto-selected monitor_metric: {self.monitor_metric}, mode: {self.mode}")
+
+    def _get_state(self, current_value: float) -> str:
+        return f"iter={self.iter:_}, {self.monitor_dataset} {self.monitor_metric}: current={current_value:.{self.ndigits}f}, best={self.best_metric:.{self.ndigits}f} @{self.best_iter:_}"
+
+    def should_stop(self) -> bool:
+        cur_ts = timer()
+        if self.time_budget_mins is not None and self.start_time is not None:
+
+            elapsed = cur_ts - self.start_time
+            if elapsed > self.time_budget_mins * 60:
+                if self.verbose > 0:
+                    logger.info(f"Stopping early due to time budget exceeded ({elapsed:.2f} sec).")
+                return True
+
+        if self.stop_flag():
+            if self.verbose > 0:
+                logger.info("Stopping early due to external stop flag.")
+            return True
+
+        if self.monitor_dataset in self.metric_history and self.monitor_metric in self.metric_history[self.monitor_dataset]:
+            history = self.metric_history[self.monitor_dataset][self.monitor_metric]
+            if history:
+                current_value = history[-1]
+                if self.best_metric is None:
+                    self.iter = 0
+                    self.best_iter = self.iter
+                    self.best_metric = current_value
+                    self.iterations_since_improvement = 0
+                    if self.verbose > 0:
+                        logger.info(f"Initial metric value: {current_value:.{self.ndigits}f}")
+                        self.last_reporting_ts = cur_ts
+                else:
+                    self.iter += 1
+                    improved = (self.mode == "min" and current_value < self.best_metric - self.min_delta) or (
+                        self.mode == "max" and current_value > self.best_metric + self.min_delta
+                    )
+                    if improved:
+                        self.best_iter = self.iter
+                        self.best_metric = current_value
+                        self.iterations_since_improvement = 0
+                        if self.verbose > 0 and (not self.reporting_interval_mins or (cur_ts - self.last_reporting_ts) >= self.reporting_interval_mins * 60):
+                            logger.info(self._get_state(current_value=current_value))
+                            self.last_reporting_ts = cur_ts
+                    else:
+                        self.iterations_since_improvement += 1
+                        if self.verbose > 0 and (not self.reporting_interval_mins or (cur_ts - self.last_reporting_ts) >= self.reporting_interval_mins * 60):
+                            logger.info(self._get_state(current_value=current_value))
+                            self.last_reporting_ts = cur_ts
+                    if self.patience is not None and self.iterations_since_improvement >= self.patience:
+                        if self.verbose > 0:
+                            logger.info(
+                                f"Stopping early due to no improvement for {self.iterations_since_improvement} iterations. {self._get_state(current_value=current_value)}"
+                            )
+                            self.last_reporting_ts = cur_ts
+                        return True
+        return False
+
+
+class LightGBMCallback(UniversalCallback):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.monitor_dataset = self.monitor_dataset or "valid_0"
+
+    def __call__(self, env: lgb.callback.CallbackEnv) -> bool:
+        if self.first_iteration:
+            self.on_start()
+            self.first_iteration = False
+        metrics_dict = {}
+        for dataset, metric, value, _ in env.evaluation_result_list:
+            metrics_dict.setdefault(dataset, {})[metric] = value
+        self.update_history(metrics_dict)
+        if self.monitor_metric is None:
+            self.set_default_monitor_metric(metrics_dict)
+        if self.should_stop():
+            raise lgb.callback.EarlyStopException(self.best_iter, [(dataset, metric, self.best_metric, False)])
+            return True
+
+
+class XGBoostCallback(UniversalCallback, TrainingCallback):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.monitor_dataset = self.monitor_dataset or "validation_0"
+
+    def after_iteration(self, model: xgb.Booster, epoch: int, evals_log: Dict[str, Dict[str, List[float]]]) -> bool:
+        if self.first_iteration:
+            self.on_start()
+            self.first_iteration = False
+        metrics_dict = {dataset: {metric: values[-1] for metric, values in metric_dict.items()} for dataset, metric_dict in evals_log.items()}
+        self.update_history(metrics_dict)
+        if self.monitor_metric is None:
+            self.set_default_monitor_metric(metrics_dict)
+
+        if self.should_stop():
+            model.set_attr(best_score=self.best_metric, best_iteration=self.best_iter)
+            return True
+
+
+class CatBoostCallback(UniversalCallback):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.monitor_dataset = self.monitor_dataset or "validation"
+
+    def after_iteration(self, info: Any) -> bool:
+        if self.first_iteration:
+            self.on_start()
+            self.first_iteration = False
+        metrics_dict = {dataset: {metric: values[-1] for metric, values in metric_dict.items()} for dataset, metric_dict in info.metrics.items()}
+        self.update_history(metrics_dict)
+        if self.monitor_metric is None:
+            self.set_default_monitor_metric(metrics_dict)
+        return not self.should_stop()
