@@ -735,7 +735,7 @@ def compute_probabilistic_multiclass_error(
     return total_error
 
 
-class CB_EVAL_METRIC:
+class ICE:
     """Custom probabilistic prediction error metric balancing predictive power with calibration.
     Can regularly create a calibration plot.
     """

@@ -218,7 +218,7 @@ from mlframe.feature_importance import *
 from sklearn.metrics import make_scorer
 from sklearn.metrics import roc_auc_score
 from mlframe.metrics import create_robustness_subgroups
-from mlframe.metrics import fast_roc_auc, fast_calibration_report, compute_probabilistic_multiclass_error, CB_EVAL_METRIC
+from mlframe.metrics import fast_roc_auc, fast_calibration_report, compute_probabilistic_multiclass_error, ICE
 from mlframe.metrics import create_robustness_subgroups, create_robustness_subgroups_indices, compute_robustness_metrics, robust_mlperf_metric
 
 from sklearn.metrics import classification_report, roc_auc_score, average_precision_score
@@ -435,7 +435,7 @@ def get_training_configs(
         return metric_name, value, higher_is_better
 
     CB_CALIB_CLASSIF = CB_CLASSIF.copy()
-    CB_CALIB_CLASSIF.update({"eval_metric": CB_EVAL_METRIC(metric=final_integral_calibration_error, higher_is_better=False, max_arr_size=0)})
+    CB_CALIB_CLASSIF.update({"eval_metric": ICE(metric=final_integral_calibration_error, higher_is_better=False, max_arr_size=0)})
 
     LGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
@@ -634,7 +634,7 @@ def train_and_evaluate_model(
     train_details: str = "",
     val_details: str = "",
     test_details: str = "",
-    # CB_EVAL_METRIC
+    #
     callback_params: dict = None,
 ):
     """Trains & evaluates given model/pipeline on train/test sets.
@@ -1813,7 +1813,7 @@ def post_calibrate_model(
             eval_fraction=0.1,
             task_type="GPU",
             early_stopping_rounds=400,
-            eval_metric=CB_EVAL_METRIC(metric=configs.integral_calibration_error, higher_is_better=False),
+            eval_metric=ICE(metric=configs.integral_calibration_error, higher_is_better=False),
             custom_metric="AUC",
         )
     model, test_preds, test_probs, val_preds, val_probs, columns, pre_pipeline, metrics = original_model
@@ -2597,6 +2597,7 @@ class UniversalCallback:
             "f1": "max",
             "map": "max",
             "ndcg": "max",
+            "ice": "min",
             "mse": "min",
             "rmse": "min",
             "mae": "min",
@@ -2613,6 +2614,8 @@ class UniversalCallback:
             return "max"
         elif "loss" in name or "error" in name:
             return "min"
+        elif name.endswith("e"):
+            return "min"
         else:
             logger.warning(f"Unsure about correct optimization mode for metric={name}, using min for now.")
             return "min"  # fallback default
@@ -2621,7 +2624,7 @@ class UniversalCallback:
         if self.monitor_dataset not in metrics_dict:
             raise ValueError(f"Monitor dataset '{self.monitor_dataset}' not found in metrics.")
         available_metrics = list(metrics_dict[self.monitor_dataset].keys())
-        for preferred in ["CB_EVAL_METRIC", "auc", "AUC"]:
+        for preferred in ["ICE", "auc", "AUC"]:
             if preferred in available_metrics:
                 self.monitor_metric = preferred
                 break
