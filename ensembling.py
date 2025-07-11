@@ -244,13 +244,19 @@ def score_ensemble(
     res = {}
     level_models_and_predictions = models_and_predictions
 
+    if level_models_and_predictions[0].val_probs is not None or level_models_and_predictions[0].test_probs is not None  or level_models_and_predictions[0].train_probs is not None:
+        is_regression=False
+    else:
+        is_regression=True
+        ensure_prob_limits=False
+
     for ensembling_level in range(max_ensembling_level):
 
         next_level_models_and_predictions = []
 
         for ensemble_method in ensembling_methods:
 
-            if level_models_and_predictions[0].val_probs is not None:
+            if not is_regression:
                 predictions = (el.val_probs for el in level_models_and_predictions)
             else:
                 predictions = (el.val_preds.reshape(-1, 1) for el in level_models_and_predictions)
@@ -266,7 +272,7 @@ def score_ensemble(
                 verbose=verbose,
             )
 
-            if level_models_and_predictions[0].test_probs is not None:
+            if not is_regression:
                 predictions = (el.test_probs for el in level_models_and_predictions)
             else:
                 predictions = (el.test_preds.reshape(-1, 1) for el in level_models_and_predictions)
@@ -282,12 +288,11 @@ def score_ensemble(
                 verbose=verbose,
             )
 
-            if level_models_and_predictions[0].train_probs is not None:
+            if not is_regression:
                 predictions = (el.train_probs for el in level_models_and_predictions)
             elif level_models_and_predictions[0].train_preds is not None:
-                predictions = (el.train_preds.reshape(-1, 1) for el in level_models_and_predictions)
-            else:
-                predictions = (el.train_preds for el in level_models_and_predictions)
+                predictions = (el.train_preds for el in level_models_and_predictions)        
+                predictions = (el.reshape(-1, 1) for el in predictions if el is not None else el)
 
             train_ensembled_predictions, train_confident_indices = ensemble_probabilistic_predictions(
                 *predictions,
@@ -302,7 +307,7 @@ def score_ensemble(
 
             internal_ensemble_method = f"{ensemble_method} L{ensembling_level}" if ensembling_level > 0 else ensemble_method
 
-            if level_models_and_predictions[0].val_probs is not None or level_models_and_predictions[0].test_probs is not None:
+            if not is_regression:
                 predictive_kwargs = dict(
                     train_probs=train_ensembled_predictions,
                     test_probs=test_ensembled_predictions,
