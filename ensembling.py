@@ -302,11 +302,21 @@ def score_ensemble(
 
             internal_ensemble_method = f"{ensemble_method} L{ensembling_level}" if ensembling_level > 0 else ensemble_method
 
+            if level_models_and_predictions[0].val_probs is not None or level_models_and_predictions[0].test_probs is not None:
+                predictive_kwargs = dict(
+                    train_probs=train_ensembled_predictions,
+                    test_probs=test_ensembled_predictions,
+                    val_probs=val_ensembled_predictions,
+                )
+            else:
+                predictive_kwargs = dict(
+                    train_preds=train_ensembled_predictions,
+                    test_preds=test_ensembled_predictions,
+                    val_preds=val_ensembled_predictions,
+                )
+
             next_ens_results = train_and_evaluate_model(
                 model=None,
-                train_probs=train_ensembled_predictions,
-                test_probs=test_ensembled_predictions,
-                val_probs=val_ensembled_predictions,
                 df=None,
                 target=target,
                 default_drop_columns=[],
@@ -320,6 +330,7 @@ def score_ensemble(
                 custom_ice_metric=custom_ice_metric,
                 custom_rice_metric=custom_rice_metric,
                 subgroups=subgroups,
+                **predictive_kwargs,
                 **kwargs,
             )
             next_level_models_and_predictions.append(next_ens_results)
