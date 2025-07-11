@@ -1998,6 +1998,8 @@ def select_target(
     config_params: dict = None,
     config_params_override: dict = None,
     common_params: dict = None,
+    #
+    sample_weight: np.ndarray = None,
 ):
     """From multiple possible targets in a dataframe, selects required one and adjusts params of respective level 0 models."""
 
@@ -2036,7 +2038,6 @@ def select_target(
     if config_params_override:
         default_config_params.update(config_params_override)
 
-    sample_weight = None
     common_params, common_cb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs = configure_training_params(
         df=df,
         train_df=train_df,
