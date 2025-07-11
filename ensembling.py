@@ -193,6 +193,10 @@ def ensemble_probabilistic_predictions(
     elif ensemble_method == "geo":
         ensembled_predictions = np.power(np.prod(preds, axis=0), 1 / len(preds))
 
+    if np.isnan(ensembled_predictions).any():  # replace possible nans with falues from a safe fallback array
+        arith_mean = np.mean(np.array(preds), axis=0)
+        ensembled_predictions = np.where(np.isnan(ensembled_predictions), arith_mean, ensembled_predictions)
+
     if ensure_prob_limits:
         ensembled_predictions = np.clip(ensembled_predictions, 0.0, 1.0)
 
