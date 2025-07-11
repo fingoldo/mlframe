@@ -1297,7 +1297,8 @@ def report_regression_model_perf(
         title += f" MAE={MAE:.{report_ndigits}f}"
         title += f" RMSE={RMSE:.{report_ndigits}f}"
         title += f" MaxError={MaxError:.{report_ndigits}f}"
-        title += f" MAPE={MAPE*100:.{report_ndigits//2}f}%"
+        # title += f" MAPE={MAPE*100:.{report_ndigits//2}f}%"
+        title += f" R2={R2:.{report_ndigits}f}"
 
         np.random.seed(42)
         idx = np.random.choice(np.arange(len(preds)), size=min(plot_sample_size, len(preds)), replace=False)
