@@ -310,9 +310,9 @@ def score_ensemble(
                 )
             else:
                 predictive_kwargs = dict(
-                    train_preds=train_ensembled_predictions.reshape(1, -1) if (train_ensembled_predictions is not None) else None,
-                    test_preds=test_ensembled_predictions.reshape(1, -1) if (test_ensembled_predictions is not None) else None,
-                    val_preds=val_ensembled_predictions.reshape(1, -1) if (val_ensembled_predictions is not None) else None,
+                    train_preds=train_ensembled_predictions.flatten() if (train_ensembled_predictions is not None) else None,
+                    test_preds=test_ensembled_predictions.flatten() if (test_ensembled_predictions is not None) else None,
+                    val_preds=val_ensembled_predictions.flatten() if (val_ensembled_predictions is not None) else None,
                 )
 
             next_ens_results = train_and_evaluate_model(
