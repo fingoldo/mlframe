@@ -253,7 +253,7 @@ def score_ensemble(
             if level_models_and_predictions[0].val_probs is not None:
                 predictions = (el.val_probs for el in level_models_and_predictions)
             else:
-                predictions = (el.val_preds for el in level_models_and_predictions)
+                predictions = (el.val_preds.reshape(-1, 1) for el in level_models_and_predictions)
 
             val_ensembled_predictions, val_confident_indices = ensemble_probabilistic_predictions(
                 *predictions,
@@ -269,10 +269,10 @@ def score_ensemble(
             if level_models_and_predictions[0].test_probs is not None:
                 predictions = (el.test_probs for el in level_models_and_predictions)
             else:
-                predictions = (el.test_preds for el in level_models_and_predictions)
+                predictions = (el.test_preds.reshape(-1, 1) for el in level_models_and_predictions)
 
             test_ensembled_predictions, test_confident_indices = ensemble_probabilistic_predictions(
-                *(el.test_probs for el in level_models_and_predictions),
+                *predictions,
                 ensemble_method=ensemble_method,
                 max_mae=max_mae,
                 max_std=max_std,
@@ -285,10 +285,10 @@ def score_ensemble(
             if level_models_and_predictions[0].train_probs is not None:
                 predictions = (el.train_probs for el in level_models_and_predictions)
             else:
-                predictions = (el.train_preds for el in level_models_and_predictions)
+                predictions = (el.train_preds.reshape(-1, 1) for el in level_models_and_predictions)
 
             train_ensembled_predictions, train_confident_indices = ensemble_probabilistic_predictions(
-                *(el.train_probs for el in level_models_and_predictions),
+                *predictions,
                 ensemble_method=ensemble_method,
                 max_mae=max_mae,
                 max_std=max_std,
