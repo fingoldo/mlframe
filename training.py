@@ -1326,7 +1326,8 @@ def report_regression_model_perf(
         print(f"MAE: {MAE:.{report_ndigits}f}")
         print(f"RMSE: {RMSE:.{report_ndigits}f}")
         print(f"MaxError: {MaxError:.{report_ndigits}f}")
-        print(f"MAPE: {MAPE*100:.{report_ndigits//2}f}%")
+        # print(f"MAPE: {MAPE*100:.{report_ndigits//2}f}%")
+        print(f"R2: {R2:.{report_ndigits}f}")
 
     if subgroups:
         robustness_report = compute_robustness_metrics(
