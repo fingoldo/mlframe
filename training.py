@@ -2599,9 +2599,10 @@ class UniversalCallback:
             "map": "max",
             "ndcg": "max",
             "ice": "min",
-            "mse": "min",
-            "rmse": "min",
             "mae": "min",
+            "mse": "min",
+            "mape": "min",
+            "rmse": "min",
             "logloss": "min",
             "error": "min",
             "loss": "min",
@@ -2609,7 +2610,7 @@ class UniversalCallback:
 
         name = metric_name.lower()
         for key, default_mode in known_metric_modes.items():
-            if key in name:
+            if key == name:
                 return default_mode
         if "score" in name or "auc" in name or "accuracy" in name:
             return "max"
