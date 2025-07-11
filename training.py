@@ -222,7 +222,7 @@ from mlframe.metrics import fast_roc_auc, fast_calibration_report, compute_proba
 from mlframe.metrics import create_robustness_subgroups, create_robustness_subgroups_indices, compute_robustness_metrics, robust_mlperf_metric
 
 from sklearn.metrics import classification_report, roc_auc_score, average_precision_score
-from sklearn.metrics import mean_absolute_error, max_error, mean_absolute_percentage_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error, max_error, mean_absolute_percentage_error, mean_squared_error, r2_score
 
 try:
     from sklearn.metrics import root_mean_squared_error
@@ -1275,13 +1275,15 @@ def report_regression_model_perf(
 
     MAE = mean_absolute_error(y_true=targets, y_pred=preds)
     MaxError = max_error(y_true=targets, y_pred=preds)
-    MAPE = mean_absolute_percentage_error(y_true=targets, y_pred=preds)
+    R2 = r2_score(y_true=targets, y_pred=preds)
+    # MAPE = mean_absolute_percentage_error(y_true=targets, y_pred=preds)
     RMSE = root_mean_squared_error(y_true=targets, y_pred=preds)
 
     current_metrics = dict(
         MAE=MAE,
         MaxError=MaxError,
-        MAPE=MAPE,
+        R2=R2,
+        # MAPE=MAPE,
         RMSE=RMSE,
     )
     if metrics is not None:
