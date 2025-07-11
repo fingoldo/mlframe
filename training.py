@@ -2003,9 +2003,9 @@ def select_target(
 ):
     """From multiple possible targets in a dataframe, selects required one and adjusts params of respective level 0 models."""
     if target.dtype in (np.float128, np.float64, np.float32, np.float16):
-        model_name += f" MT{target.mean():.4f}"
+        model_name += f" MT={target.mean():.4f}"
     else:
-        model_name += f" BT{target.value_counts(normalize=True).loc[1]*100:.0f}%"
+        model_name += f" BT={target.value_counts(normalize=True).loc[1]*100:.0f}%"
     print("model_name=", model_name)
 
     if control_params is not None:

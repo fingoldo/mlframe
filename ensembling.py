@@ -249,8 +249,14 @@ def score_ensemble(
         next_level_models_and_predictions = []
 
         for ensemble_method in ensembling_methods:
+
+            if level_models_and_predictions[0].val_probs is not None:
+                predictions = (el.val_probs for el in level_models_and_predictions)
+            else:
+                predictions = (el.val_preds for el in level_models_and_predictions)
+
             val_ensembled_predictions, val_confident_indices = ensemble_probabilistic_predictions(
-                *(el.val_probs for el in level_models_and_predictions),
+                *predictions,
                 ensemble_method=ensemble_method,
                 max_mae=max_mae,
                 max_std=max_std,
@@ -259,6 +265,12 @@ def score_ensemble(
                 normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
                 verbose=verbose,
             )
+
+            if level_models_and_predictions[0].test_probs is not None:
+                predictions = (el.test_probs for el in level_models_and_predictions)
+            else:
+                predictions = (el.test_preds for el in level_models_and_predictions)
+
             test_ensembled_predictions, test_confident_indices = ensemble_probabilistic_predictions(
                 *(el.test_probs for el in level_models_and_predictions),
                 ensemble_method=ensemble_method,
@@ -269,6 +281,12 @@ def score_ensemble(
                 normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
                 verbose=verbose,
             )
+
+            if level_models_and_predictions[0].train_probs is not None:
+                predictions = (el.train_probs for el in level_models_and_predictions)
+            else:
+                predictions = (el.train_preds for el in level_models_and_predictions)
+
             train_ensembled_predictions, train_confident_indices = ensemble_probabilistic_predictions(
                 *(el.train_probs for el in level_models_and_predictions),
                 ensemble_method=ensemble_method,
