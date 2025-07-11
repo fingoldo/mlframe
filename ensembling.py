@@ -284,8 +284,10 @@ def score_ensemble(
 
             if level_models_and_predictions[0].train_probs is not None:
                 predictions = (el.train_probs for el in level_models_and_predictions)
-            else:
+            elif level_models_and_predictions[0].train_preds is not None:
                 predictions = (el.train_preds.reshape(-1, 1) for el in level_models_and_predictions)
+            else:
+                predictions = (el.train_preds for el in level_models_and_predictions)
 
             train_ensembled_predictions, train_confident_indices = ensemble_probabilistic_predictions(
                 *predictions,
