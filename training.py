@@ -267,6 +267,18 @@ def get_function_param_names(func):
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
+# Enums
+# ----------------------------------------------------------------------------------------------------------------------------
+
+from enum import StrEnum, auto
+
+
+class TargetTypes(StrEnum):
+    REGRESSION = auto()
+    BINARY_CLASSIFICATION = auto()
+
+
+# ----------------------------------------------------------------------------------------------------------------------------
 # Inits
 # ----------------------------------------------------------------------------------------------------------------------------
 
@@ -2110,6 +2122,25 @@ def process_model(
     return trainset_features_stats
 
 
+def showcase_targets():
+    """Show distribution of targets"""
+    for target_type, targets in target_types:
+        for target_name, target in targets.items():
+            display(f"{distribution} {target_name}")
+            if target_type == TargetTypes.REGRESSION:
+                plt.hist(target, bins=30, color="skyblue", edgecolor="black")
+
+                # Add titles and labels
+                plt.title(f"{target_name} Histogram")
+                plt.xlabel("Value")
+                plt.ylabel("Frequency")
+
+                # Show the plot
+                plt.show()
+            elif target_type == TargetTypes.BINARY_CLASSIFICATION:
+                display(target.value_counts(normalize=True))
+
+
 def train_mlframe_models_suite(
     polars_df: pl.DataFrame,
     pandas_df: pd.DataFrame,
@@ -2208,7 +2239,7 @@ def train_mlframe_models_suite(
 
     if verbose:
         logger.info(f"preprocess_dataframe...")
-    pandas_df, targets, group_ids, timestamps = preprocess_dataframe(pandas_df)
+    pandas_df, target_types, group_ids, timestamps = preprocess_dataframe(pandas_df)
 
     clean_ram()
 
@@ -2224,6 +2255,7 @@ def train_mlframe_models_suite(
 
     if verbose:
         logger.info(f"creating train_df,val_df,test_df...")
+
     train_df = pandas_df.iloc[train_idx]
     val_df = pandas_df.iloc[val_idx]
     test_df = pandas_df.iloc[test_idx]
@@ -2248,167 +2280,170 @@ def train_mlframe_models_suite(
         clean_ram()
 
     models = defaultdict(list)
-    for cur_target, target in targets.items():
 
-        target = targets[cur_target]
+    for target_type, targets in target_types:
+        for cur_target, target in targets.items():
 
-        if use_mlframe_models:
+            target = targets[cur_target]
+
+            if use_mlframe_models:
+
+                if use_autogluon_models or use_lama_models:
+                    if automl_target_label in pandas_df:
+                        del pandas_df[automl_target_label]
+                        if verbose:
+                            logger.info(f"RSS after automl_target_label deletion: {get_own_ram_usage():.1f}GBs")
+
+                plot_file = join(data_dir, "charts", slugify(target_name), slugify(model_name), slugify(cur_target)) + os.path.sep
+                ensure_dir_exists(plot_file)
+
+                model_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), slugify(cur_target)) + os.path.sep
+                ensure_dir_exists(model_file)
+
+                if verbose:
+                    logger.info(f"select_target...")
+
+                common_params, common_cb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs = select_target(
+                    model_name=f"{target_name} {model_name} {cur_target}",
+                    target=target,
+                    df=None,
+                    train_df=train_df,
+                    val_df=val_df,
+                    test_df=test_df,
+                    train_idx=train_idx,
+                    val_idx=val_idx,
+                    test_idx=test_idx,
+                    train_details=train_details,
+                    val_details=val_details,
+                    test_details=test_details,
+                    group_ids=group_ids,
+                    config_params=config_params,
+                    config_params_override=config_params_override,
+                    control_params=control_params,
+                    control_params_override=control_params_override,
+                    common_params=dict(
+                        trainset_features_stats=trainset_features_stats, skip_infinity_checks=skip_infinity_checks, plot_file=plot_file, **init_common_params
+                    ),
+                )
+
+                pre_pipelines = [None]
+                pre_pipeline_names = [""]
+                if use_rfecv >= 1:
+                    pre_pipelines.append(cb_rfecv)
+                    pre_pipeline_names.append("cb_rfecv ")
+                if use_rfecv >= 2:
+                    pre_pipelines.append(lgb_rfecv)
+                    pre_pipeline_names.append("lgb_rfecv ")
+                if use_rfecv >= 3:
+                    pre_pipelines.append(xgb_rfecv)
+                    pre_pipeline_names.append("xgb_rfecv ")
+
+                for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
+                    ens_models = [] if use_mlframe_ensembles else None
+                    if use_mlframe_catboost:
+                        trainset_features_stats = process_model(
+                            model_file=model_file,
+                            model_name="cb_model",
+                            pre_pipeline=pre_pipeline,
+                            pre_pipeline_name=pre_pipeline_name,
+                            cur_target=cur_target,
+                            models=models,
+                            model_params=common_cb_params,
+                            common_params=common_params,
+                            ens_models=ens_models,
+                            trainset_features_stats=trainset_features_stats,
+                            verbose=verbose,
+                        )
+
+                    if use_mlframe_lightgbm:
+                        trainset_features_stats = process_model(
+                            model_file=model_file,
+                            model_name="lgb_model",
+                            pre_pipeline=pre_pipeline,
+                            pre_pipeline_name=pre_pipeline_name,
+                            cur_target=cur_target,
+                            models=models,
+                            model_params=common_lgb_params,
+                            common_params=common_params,
+                            ens_models=ens_models,
+                            trainset_features_stats=trainset_features_stats,
+                            verbose=verbose,
+                        )
+
+                    if use_mlframe_xgboost:
+                        trainset_features_stats = process_model(
+                            model_file=model_file,
+                            model_name="xgb_model",
+                            pre_pipeline=pre_pipeline,
+                            pre_pipeline_name=pre_pipeline_name,
+                            cur_target=cur_target,
+                            models=models,
+                            model_params=common_xgb_params,
+                            common_params=common_params,
+                            ens_models=ens_models,
+                            trainset_features_stats=trainset_features_stats,
+                            verbose=verbose,
+                        )
+
+                    if ens_models and len(ens_models) > 1:
+
+                        if verbose:
+                            logger.info(f"evaluating simple ensembles...")
+
+                        ensembles = score_ensemble(
+                            models_and_predictions=ens_models,
+                            ensemble_name=pre_pipeline_name + f"{len(ens_models)}models ",
+                            **common_params,
+                        )
 
             if use_autogluon_models or use_lama_models:
-                if automl_target_label in pandas_df:
-                    del pandas_df[automl_target_label]
-                    if verbose:
-                        logger.info(f"RSS after automl_target_label deletion: {get_own_ram_usage():.1f}GBs")
 
-            plot_file = join(data_dir, "charts", slugify(target_name), slugify(model_name), slugify(cur_target)) + os.path.sep
-            ensure_dir_exists(plot_file)
+                pandas_df[automl_target_label] = target
+                print(f"RSS after automl_target_label inserting: {get_own_ram_usage():.1f}GBs")
 
-            model_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), slugify(cur_target)) + os.path.sep
-            ensure_dir_exists(model_file)
+                automl_train_df = pandas_df.iloc[tran_val_idx].copy()
 
-            if verbose:
-                logger.info(f"select_target...")
-            common_params, common_cb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs = select_target(
-                model_name=f"{target_name} {model_name} {cur_target}",
-                target=target,
-                df=None,
-                train_df=train_df,
-                val_df=val_df,
-                test_df=test_df,
-                train_idx=train_idx,
-                val_idx=val_idx,
-                test_idx=test_idx,
-                train_details=train_details,
-                val_details=val_details,
-                test_details=test_details,
-                group_ids=group_ids,
-                config_params=config_params,
-                config_params_override=config_params_override,
-                control_params=control_params,
-                control_params_override=control_params_override,
-                common_params=dict(
-                    trainset_features_stats=trainset_features_stats, skip_infinity_checks=skip_infinity_checks, plot_file=plot_file, **init_common_params
-                ),
-            )
+                test_target = target.iloc[test_idx]
 
-            pre_pipelines = [None]
-            pre_pipeline_names = [""]
-            if use_rfecv >= 1:
-                pre_pipelines.append(cb_rfecv)
-                pre_pipeline_names.append("cb_rfecv ")
-            if use_rfecv >= 2:
-                pre_pipelines.append(lgb_rfecv)
-                pre_pipeline_names.append("lgb_rfecv ")
-            if use_rfecv >= 3:
-                pre_pipelines.append(xgb_rfecv)
-                pre_pipeline_names.append("xgb_rfecv ")
-
-            for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
-                ens_models = [] if use_mlframe_ensembles else None
-                if use_mlframe_catboost:
-                    trainset_features_stats = process_model(
-                        model_file=model_file,
-                        model_name="cb_model",
-                        pre_pipeline=pre_pipeline,
-                        pre_pipeline_name=pre_pipeline_name,
-                        cur_target=cur_target,
-                        models=models,
-                        model_params=common_cb_params,
-                        common_params=common_params,
-                        ens_models=ens_models,
-                        trainset_features_stats=trainset_features_stats,
-                        verbose=verbose,
+            if use_autogluon_models:
+                if verbose:
+                    logger.info(f"train_and_evaluate_autogluon...")
+                models[cur_target].append(
+                    train_and_evaluate_autogluon(
+                        train_df=automl_train_df,
+                        test_df=test_df,
+                        test_target=test_target,
+                        columns=columns,
+                        model_name=model_name,
+                        automl_init_params=autogluon_init_params,
+                        automl_fit_params=autogluon_fit_params,
+                        automl_target_label=automl_target_label,
+                        automl_show_fi=automl_show_fi,
+                        automl_verbose=automl_verbose,
+                        report_params=report_params,
+                        group_ids=group_ids[test_idx] if group_ids is not None else None,
                     )
-
-                if use_mlframe_lightgbm:
-                    trainset_features_stats = process_model(
-                        model_file=model_file,
-                        model_name="lgb_model",
-                        pre_pipeline=pre_pipeline,
-                        pre_pipeline_name=pre_pipeline_name,
-                        cur_target=cur_target,
-                        models=models,
-                        model_params=common_lgb_params,
-                        common_params=common_params,
-                        ens_models=ens_models,
-                        trainset_features_stats=trainset_features_stats,
-                        verbose=verbose,
-                    )
-
-                if use_mlframe_xgboost:
-                    trainset_features_stats = process_model(
-                        model_file=model_file,
-                        model_name="xgb_model",
-                        pre_pipeline=pre_pipeline,
-                        pre_pipeline_name=pre_pipeline_name,
-                        cur_target=cur_target,
-                        models=models,
-                        model_params=common_xgb_params,
-                        common_params=common_params,
-                        ens_models=ens_models,
-                        trainset_features_stats=trainset_features_stats,
-                        verbose=verbose,
-                    )
-
-                if ens_models and len(ens_models) > 1:
-
-                    if verbose:
-                        logger.info(f"evaluating simple ensembles...")
-
-                    ensembles = score_ensemble(
-                        models_and_predictions=ens_models,
-                        ensemble_name=pre_pipeline_name + f"{len(ens_models)}models ",
-                        **common_params,
-                    )
-
-        if use_autogluon_models or use_lama_models:
-
-            pandas_df[automl_target_label] = target
-            print(f"RSS after automl_target_label inserting: {get_own_ram_usage():.1f}GBs")
-
-            automl_train_df = pandas_df.iloc[tran_val_idx].copy()
-
-            test_target = target.iloc[test_idx]
-
-        if use_autogluon_models:
-            if verbose:
-                logger.info(f"train_and_evaluate_autogluon...")
-            models[cur_target].append(
-                train_and_evaluate_autogluon(
-                    train_df=automl_train_df,
-                    test_df=test_df,
-                    test_target=test_target,
-                    columns=columns,
-                    model_name=model_name,
-                    automl_init_params=autogluon_init_params,
-                    automl_fit_params=autogluon_fit_params,
-                    automl_target_label=automl_target_label,
-                    automl_show_fi=automl_show_fi,
-                    automl_verbose=automl_verbose,
-                    report_params=report_params,
-                    group_ids=group_ids[test_idx] if group_ids is not None else None,
                 )
-            )
 
-        if use_lama_models:
-            if verbose:
-                logger.info(f"train_and_evaluate_lama...")
-            models[cur_target].append(
-                train_and_evaluate_lama(
-                    train_df=automl_train_df,
-                    test_df=test_df,
-                    test_target=test_target,
-                    columns=columns,
-                    model_name=model_name,
-                    automl_init_params=lama_init_params,
-                    automl_fit_params=lama_fit_params,
-                    automl_target_label=automl_target_label,
-                    automl_show_fi=automl_show_fi,
-                    automl_verbose=automl_verbose,
-                    report_params=report_params,
-                    group_ids=group_ids[test_idx] if group_ids is not None else None,
+            if use_lama_models:
+                if verbose:
+                    logger.info(f"train_and_evaluate_lama...")
+                models[cur_target].append(
+                    train_and_evaluate_lama(
+                        train_df=automl_train_df,
+                        test_df=test_df,
+                        test_target=test_target,
+                        columns=columns,
+                        model_name=model_name,
+                        automl_init_params=lama_init_params,
+                        automl_fit_params=lama_fit_params,
+                        automl_target_label=automl_target_label,
+                        automl_show_fi=automl_show_fi,
+                        automl_verbose=automl_verbose,
+                        report_params=report_params,
+                        group_ids=group_ids[test_idx] if group_ids is not None else None,
+                    )
                 )
-            )
 
     return models
 
