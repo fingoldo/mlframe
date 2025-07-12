@@ -1620,7 +1620,10 @@ def configure_training_params(
     model_name: str = "",
     common_params: dict = None,
     config_params: dict = None,
+    metamodel_func: callable = None,
 ):
+    if metamodel_func is None:
+        metamodel_func = lambda x: x
 
     if common_params is None:
         common_params = {}
@@ -1706,7 +1709,7 @@ def configure_training_params(
 
     common_cb_params = dict(
         model=(
-            CatBoostRegressor(**configs.CB_REGR)
+            metamodel_func(CatBoostRegressor(**configs.CB_REGR))
             if use_regression
             else CatBoostClassifier(**(configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.CB_CLASSIF))
         ),
@@ -1716,7 +1719,7 @@ def configure_training_params(
     if prefer_cpu_for_xgboost:
         common_xgb_params = dict(
             model=(
-                XGBRegressor(**cpu_configs.XGB_GENERAL_PARAMS)
+                metamodel_func(XGBRegressor(**cpu_configs.XGB_GENERAL_PARAMS))
                 if use_regression
                 else XGBClassifier(**(cpu_configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else cpu_configs.XGB_GENERAL_CLASSIF))
             ),
@@ -1725,7 +1728,7 @@ def configure_training_params(
     else:
         common_xgb_params = dict(
             model=(
-                XGBRegressor(**configs.XGB_GENERAL_PARAMS)
+                metamodel_func(XGBRegressor(**configs.XGB_GENERAL_PARAMS))
                 if use_regression
                 else XGBClassifier(**(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF))
             ),
@@ -1734,12 +1737,12 @@ def configure_training_params(
 
     if prefer_cpu_for_lightgbm:
         common_lgb_params = dict(
-            model=LGBMRegressor(**cpu_configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**cpu_configs.LGB_GENERAL_PARAMS),
+            model=metamodel_func(LGBMRegressor(**cpu_configs.LGB_GENERAL_PARAMS)) if use_regression else LGBMClassifier(**cpu_configs.LGB_GENERAL_PARAMS),
             fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}),
         )
     else:
         common_lgb_params = dict(
-            model=LGBMRegressor(**configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
+            model=metamodel_func(LGBMRegressor(**configs.LGB_GENERAL_PARAMS)) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
             fit_params=(dict(eval_metric=configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}),
         )
 
@@ -1768,7 +1771,7 @@ def configure_training_params(
 
     cb_rfecv = RFECV(
         estimator=(
-            CatBoostRegressor(**configs.CB_REGR)
+            metamodel_func(CatBoostRegressor(**configs.CB_REGR))
             if use_regression
             else CatBoostClassifier(**(configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.CB_CLASSIF))
         ),
@@ -1784,7 +1787,7 @@ def configure_training_params(
         lgb_fit_params = dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}
 
     lgb_rfecv = RFECV(
-        estimator=LGBMRegressor(**configs.LGB_GENERAL_PARAMS) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
+        estimator=metamodel_func(LGBMRegressor(**configs.LGB_GENERAL_PARAMS)) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
         fit_params=lgb_fit_params,
         cat_features=cat_features,
         scoring=rfecv_scoring,
@@ -1793,7 +1796,7 @@ def configure_training_params(
 
     xgb_rfecv = RFECV(
         estimator=(
-            XGBRegressor(**configs.XGB_GENERAL_PARAMS)
+            metamodel_func(XGBRegressor(**configs.XGB_GENERAL_PARAMS))
             if use_regression
             else XGBClassifier(**(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF))
         ),
@@ -2025,9 +2028,9 @@ def select_target(
     print("model_name=", model_name)
 
     if control_params is not None:
-        default_control_params = control_params
+        effective_control_params = control_params
     else:
-        default_control_params = dict(
+        effective_control_params = dict(
             use_regression=False,
             prefer_gpu_configs=True,
             robustness_features=None,
@@ -2039,9 +2042,9 @@ def select_target(
             prefer_calibrated_classifiers=True,
         )
     if control_params_override:
-        default_control_params.update(control_params_override)
+        effective_control_params.update(control_params_override)
 
-    default_config_params = dict(
+    effective_config_params = dict(
         has_time=False,
         learning_rate=0.2,
         iterations=700,
@@ -2052,9 +2055,9 @@ def select_target(
         max_noimproving_iters=15,
     )
     if config_params:
-        default_config_params = config_params
+        effective_config_params = config_params
     if config_params_override:
-        default_config_params.update(config_params_override)
+        effective_config_params.update(config_params_override)
 
     common_params, common_cb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs = configure_training_params(
         df=df,
@@ -2073,8 +2076,8 @@ def select_target(
         group_ids=group_ids,
         model_name=model_name,
         common_params=common_params,
-        config_params=default_config_params,
-        **default_control_params,
+        config_params=effective_config_params,
+        **effective_control_params,
     )
 
     return common_params, common_cb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs
@@ -2137,8 +2140,18 @@ def showcase_targets():
 
                 # Show the plot
                 plt.show()
+                display(target.describe())
             elif target_type == TargetTypes.BINARY_CLASSIFICATION:
                 display(target.value_counts(normalize=True))
+
+
+def intize_targets(targets: dict) -> None:
+    for target_name, target in targets.copy().items():
+        if isinstance(target, pl.Series):
+            target = target.cast(pl.Int8)
+        else:
+            target = target.astype(np.int8)
+        targets[target_name] = target
 
 
 def train_mlframe_models_suite(
