@@ -2021,7 +2021,7 @@ def select_target(
     sample_weight: np.ndarray = None,
 ):
     """From multiple possible targets in a dataframe, selects required one and adjusts params of respective level 0 models."""
-    if target.dtype in (np.float128, np.float64, np.float32, np.float16):
+    if target.dtype in (np.float64, np.float32, np.float16):
         model_name += f" MT={target.mean():.4f}"
     else:
         model_name += f" BT={target.value_counts(normalize=True).loc[1]*100:.0f}%"
@@ -2127,9 +2127,9 @@ def process_model(
 
 def showcase_targets(target_types: dict):
     """Show distribution of targets"""
-    for target_type, targets in target_types:
+    for target_type, targets in target_types.items():
         for target_name, target in targets.items():
-            display(f"{distribution} {target_name}")
+            display(f"{target_type} {target_name}")
             if target_type == TargetTypes.REGRESSION:
                 plt.hist(target, bins=30, color="skyblue", edgecolor="black")
 
@@ -2294,11 +2294,9 @@ def train_mlframe_models_suite(
 
     models = defaultdict(list)
 
-    for target_type, targets in target_types:
-        for cur_target, target in targets.items():
-
-            target = targets[cur_target]
-
+    for target_type, targets in tqdmu(target_types.items(), desc="target type"):
+        for cur_target, target in tqdmu(targets.items(), desc="target"):
+            print(cur_target, target)
             if use_mlframe_models:
 
                 if use_autogluon_models or use_lama_models:
