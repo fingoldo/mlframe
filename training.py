@@ -165,6 +165,8 @@ try:
 except Exception as e:
     pass
 
+from mlframe.custom_estimators import log_plus_c, inv_log_plus_c, box_cox_plus_c, inv_box_cox_plus_c
+
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Cats
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2140,7 +2142,10 @@ def showcase_targets(target_types: dict):
 
                 # Show the plot
                 plt.show()
-                display(target.describe())
+                if isinstance(target, (pl.Series, pd.Series)):
+                    display(target.describe())
+                elif isinstance(target, (np.ndarray)):
+                    display(pl.Series(target).describe())
             elif target_type == TargetTypes.BINARY_CLASSIFICATION:
                 display(target.value_counts(normalize=True))
 
@@ -2296,7 +2301,6 @@ def train_mlframe_models_suite(
 
     for target_type, targets in tqdmu(target_types.items(), desc="target type"):
         for cur_target, target in tqdmu(targets.items(), desc="target"):
-            print(cur_target, target)
             if use_mlframe_models:
 
                 if use_autogluon_models or use_lama_models:
