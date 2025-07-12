@@ -2125,7 +2125,7 @@ def process_model(
     return trainset_features_stats
 
 
-def showcase_targets():
+def showcase_targets(target_types: dict):
     """Show distribution of targets"""
     for target_type, targets in target_types:
         for target_name, target in targets.items():
