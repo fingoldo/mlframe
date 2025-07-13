@@ -2323,7 +2323,7 @@ def train_mlframe_models_suite(
                 cur_control_params_override["use_regression"] = target_type == TargetTypes.REGRESSION
 
                 common_params, common_cb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs = select_target(
-                    model_name=f"{target_name} {model_name} {'REG' if target_type == TargetTypes.REGRESSION else ''} {cur_target}",
+                    model_name=f"{target_name} {model_name} {cur_target}",
                     target=target,
                     df=None,
                     train_df=train_df,
