@@ -2088,6 +2088,7 @@ def select_target(
 def process_model(
     model_file: str,
     model_name: str,
+    target_type: str,
     pre_pipeline: object,
     pre_pipeline_name: str,
     cur_target: str,
@@ -2107,7 +2108,7 @@ def process_model(
         model = load_mlframe_model(fpath)
     else:
         if verbose:
-            logger.info(f"train_and_evaluate {model_name}...")
+            logger.info(f"train_and_evaluate {target_type} {model_name}...")
         model = train_and_evaluate_model(
             pre_pipeline=pre_pipeline,
             **model_params,
@@ -2115,7 +2116,7 @@ def process_model(
             model_name_prefix=pre_pipeline_name,
         )
         save_mlframe_model(model, fpath)
-    models[cur_target].append(model)
+    models[cur_target][target_type].append(model)
 
     if ens_models is not None:
         ens_models.append(model)
@@ -2297,7 +2298,7 @@ def train_mlframe_models_suite(
         del pandas_df
         clean_ram()
 
-    models = defaultdict(list)
+    models = defaultdict(lambda: defaultdict(list))
 
     for target_type, targets in tqdmu(target_types.items(), desc="target type"):
         for cur_target, target in tqdmu(targets.items(), desc="target"):
@@ -2363,6 +2364,7 @@ def train_mlframe_models_suite(
                         trainset_features_stats = process_model(
                             model_file=model_file,
                             model_name="cb_model",
+                            target_type=target_type,
                             pre_pipeline=pre_pipeline,
                             pre_pipeline_name=pre_pipeline_name,
                             cur_target=cur_target,
@@ -2378,6 +2380,7 @@ def train_mlframe_models_suite(
                         trainset_features_stats = process_model(
                             model_file=model_file,
                             model_name="lgb_model",
+                            target_type=target_type,
                             pre_pipeline=pre_pipeline,
                             pre_pipeline_name=pre_pipeline_name,
                             cur_target=cur_target,
@@ -2393,6 +2396,7 @@ def train_mlframe_models_suite(
                         trainset_features_stats = process_model(
                             model_file=model_file,
                             model_name="xgb_model",
+                            target_type=target_type,
                             pre_pipeline=pre_pipeline,
                             pre_pipeline_name=pre_pipeline_name,
                             cur_target=cur_target,
