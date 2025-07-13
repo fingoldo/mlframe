@@ -2312,14 +2312,19 @@ def train_mlframe_models_suite(
                 plot_file = join(data_dir, "charts", slugify(target_name), slugify(model_name), slugify(cur_target)) + os.path.sep
                 ensure_dir_exists(plot_file)
 
-                model_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), slugify(cur_target)) + os.path.sep
+                model_file = (
+                    join(data_dir, models_dir, slugify(target_name), slugify(model_name), slugify(cur_target), slugify(target_type.lower())) + os.path.sep
+                )
                 ensure_dir_exists(model_file)
 
                 if verbose:
                     logger.info(f"select_target...")
 
+                cur_control_params_override = control_params_override.copy()
+                cur_control_params_override["use_regression"] = target_type == TargetTypes.REGRESSION
+
                 common_params, common_cb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs = select_target(
-                    model_name=f"{target_name} {model_name} {cur_target}",
+                    model_name=f"{target_name} {model_name} {'REG' if target_type == TargetTypes.REGRESSION else ''} {cur_target}",
                     target=target,
                     df=None,
                     train_df=train_df,
@@ -2335,7 +2340,7 @@ def train_mlframe_models_suite(
                     config_params=config_params,
                     config_params_override=config_params_override,
                     control_params=control_params,
-                    control_params_override=control_params_override,
+                    control_params_override=cur_control_params_override,
                     common_params=dict(
                         trainset_features_stats=trainset_features_stats, skip_infinity_checks=skip_infinity_checks, plot_file=plot_file, **init_common_params
                     ),
