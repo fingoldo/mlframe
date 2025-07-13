@@ -2310,7 +2310,7 @@ def train_mlframe_models_suite(
                         if verbose:
                             logger.info(f"RSS after automl_target_label deletion: {get_own_ram_usage():.1f}GBs")
 
-                parts = slugify(target_name), slugify(target_type.lower()), slugify(model_name), slugify(cur_target)
+                parts = slugify(target_name), slugify(model_name), slugify(target_type.lower()), slugify(cur_target)
                 plot_file = join(data_dir, "charts", *parts) + os.path.sep
                 ensure_dir_exists(plot_file)
 
