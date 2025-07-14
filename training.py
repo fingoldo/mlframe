@@ -2108,7 +2108,7 @@ def process_model(
         model = load_mlframe_model(fpath)
     else:
         if verbose:
-            logger.info(f"train_and_evaluate {target_type} {model_name}...")
+            logger.info(f"Starting train_and_evaluate {target_type} {model_name}, RAM usage {get_own_ram_usage():.1f}GBs...")
         model = train_and_evaluate_model(
             pre_pipeline=pre_pipeline,
             **model_params,
@@ -2124,6 +2124,10 @@ def process_model(
     if trainset_features_stats is None:
         trainset_features_stats = model.trainset_features_stats
         common_params["trainset_features_stats"] = trainset_features_stats
+
+    clean_ram()
+    if verbose:
+        logger.info(f"Finished training. RAM usage {get_own_ram_usage():.1f}GBs...")
 
     return trainset_features_stats
 
@@ -2295,8 +2299,12 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info(f"RSS at start: {get_own_ram_usage():.1f}GBs")
     else:
+        if verbose:
+            logger.info(f"Ram usage before deleting main pandas df: {get_own_ram_usage():.1f}GBs")
         del pandas_df
         clean_ram()
+        if verbose:
+            logger.info(f"Ram usage after deleting main pandas df: {get_own_ram_usage():.1f}GBs")
 
     models = defaultdict(lambda: defaultdict(list))
 
