@@ -2254,10 +2254,19 @@ def train_mlframe_models_suite(
             tmp = polars_df.select(columns)
         else:
             tmp = polars_df
+
+        if verbose:
+            logger.info(f"Converting polars df to pandas, RAM usage before: {get_own_ram_usage():.1f}GBs...")
         pandas_df = tmp.with_columns(pl.col(pl.Float64).cast(pl.Float32)).to_pandas()
+        if verbose:
+            logger.info(f"Converted polars df to pandas, RAM usage after: {get_own_ram_usage():.1f}GBs...")
     else:
         if isinstance(pandas_df, str):
+            if verbose:
+                logger.info(f"Loading pandas df from file, RAM usage before: {get_own_ram_usage():.1f}GBs...")
             pandas_df = pd.read_parquet(pandas_df, columns=columns)
+            if verbose:
+                logger.info(f"Loaded pandas df from file, RAM usage after: {get_own_ram_usage():.1f}GBs...")
     clean_ram()
 
     if verbose:
