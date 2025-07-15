@@ -2203,6 +2203,9 @@ def train_mlframe_models_suite(
     control_params: dict = None,
     control_params_override: dict = None,
     init_common_params: dict = None,
+    #
+    drop_columns: list = None,
+    tail: int = None,
 ) -> dict:
 
     # cb_kwargs=dict(devices='0-4')
@@ -2268,6 +2271,16 @@ def train_mlframe_models_suite(
             if verbose:
                 logger.info(f"Loaded pandas df from file, RAM usage after: {get_own_ram_usage():.1f}GBs...")
     clean_ram()
+
+    if drop_columns:
+        for col in drop_columns:
+            if col in pandas_df:
+                del pandas_df[col]
+        clean_ram()
+
+    if tail:
+        pandas_df = pandas_df.tail(tail)
+        clean_ram()
 
     if verbose:
         logger.info(f"preprocess_dataframe...")
