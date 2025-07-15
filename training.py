@@ -1987,12 +1987,12 @@ def load_mlframe_model(file: str) -> object:
 
 def make_train_test_split(df: pd.DataFrame, timestamps: pd.Series, test_size: float = 0.1, val_size: float = 0.1, shuffle: bool = False) -> tuple:
 
-    train_idx, test_idx = train_test_split(df.index if isinstance(df, pd.DataFrame) else np.arange(len(df)), test_size=test_size, shuffle=shuffle)
+    train_idx, test_idx = train_test_split(np.arange(len(df)), test_size=test_size, shuffle=shuffle)
     train_idx, val_idx = train_test_split(train_idx, test_size=val_size, shuffle=shuffle)
 
-    train_details: str = f"{timestamps.loc[train_idx].min():%Y-%m-%d}/{timestamps.loc[train_idx].max():%Y-%m-%d}"
-    val_details: str = f"{timestamps.loc[val_idx].min():%Y-%m-%d}/{timestamps.loc[val_idx].max():%Y-%m-%d}"
-    test_details: str = f"{timestamps.loc[test_idx].min():%Y-%m-%d}/{timestamps.loc[test_idx].max():%Y-%m-%d}"
+    train_details: str = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
+    val_details: str = f"{timestamps.iloc[val_idx].min():%Y-%m-%d}/{timestamps.iloc[val_idx].max():%Y-%m-%d}"
+    test_details: str = f"{timestamps.iloc[test_idx].min():%Y-%m-%d}/{timestamps.iloc[test_idx].max():%Y-%m-%d}"
 
     print(f"{len(train_idx):_} train rows {train_details}, {len(val_idx):_} val rows {val_details}, {len(test_idx):_} test rows {test_details}.")
 
