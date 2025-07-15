@@ -2276,6 +2276,7 @@ def train_mlframe_models_suite(
         for col in drop_columns:
             if col in pandas_df:
                 del pandas_df[col]
+                logger.info(f"Dropped column {col}")
         clean_ram()
 
     if tail:
