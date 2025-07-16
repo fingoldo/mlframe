@@ -332,10 +332,7 @@ def get_training_configs(
     # ----------------------------------------------------------------------------------------------------------------------------
     # featureselectors
     # ----------------------------------------------------------------------------------------------------------------------------
-    max_runtime_mins: float = 60 * 2,
-    max_noimproving_iters: int = 40,
-    cv=None,
-    cv_n_splits: int = 2,
+    rfecv_kwargs: dict = None,
 ) -> tuple:
     """Returns approximately same training configs for different types of models,
     based on general params supplied like learning rate, task type, time budget.
@@ -473,29 +470,25 @@ def get_training_configs(
 
     # XGB_CALIB_CLASSIF_CPU.update({"device": "cpu","n_jobs":psutil.cpu_count(logical=False)})
 
+    if rfecv_kwargs is None:
+        rfecv_kwargs = {}
+
+    cv = rfecv_kwargs.get("cv")
     if not cv:
         if has_time:
-            cv = TimeSeriesSplit(n_splits=cv_n_splits)
+            cv = TimeSeriesSplit(n_splits=rfecv_kwargs.get("cv_n_splits", 3))
+            logger.info(f"Using TimeSeriesSplit for RFECV...")
         else:
-            cv = StratifiedKFold(n_splits=cv_n_splits, shuffle=not has_time)
+            cv = None
+        rfecv_kwargs["cv"] = cv
 
     COMMON_RFECV_PARAMS = dict(
+        early_stopping_rounds=early_stopping_rounds,
+        #
+        **rfecv_kwargs,
+        #
         cv=cv,
         cv_shuffle=not has_time,
-        skip_retraining_on_same_shape=True,
-        top_predictors_search_method=OptimumSearch.ModelBasedHeuristic,
-        votes_aggregation_method=VotesAggregation.Borda,
-        early_stopping_rounds=early_stopping_rounds,
-        use_last_fi_run_only=False,
-        verbose=True,
-        show_plot=True,
-        keep_estimators=False,
-        feature_cost=0.0 / 100,
-        smooth_perf=0,
-        max_refits=None,
-        max_runtime_mins=max_runtime_mins,
-        max_noimproving_iters=max_noimproving_iters,
-        # frac=0.2,
     )
 
     return SimpleNamespace(
@@ -2052,9 +2045,11 @@ def select_target(
         iterations=700,
         early_stopping_rounds=100,
         catboost_custom_classif_metrics=None,
-        max_runtime_mins=60 * 3,
-        cv_n_splits=4,
-        max_noimproving_iters=15,
+        rfecv_kwargs=dict(
+            max_runtime_mins=60 * 3,
+            cv_n_splits=4,
+            max_noimproving_iters=15,
+        ),
     )
     if config_params:
         effective_config_params = config_params
