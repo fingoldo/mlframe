@@ -484,12 +484,10 @@ def get_training_configs(
 
     COMMON_RFECV_PARAMS = dict(
         early_stopping_rounds=early_stopping_rounds,
-        #
-        **rfecv_kwargs,
-        #
         cv=cv,
         cv_shuffle=not has_time,
     )
+    COMMON_RFECV_PARAMS.update(rfecv_kwargs)
 
     return SimpleNamespace(
         integral_calibration_error=integral_calibration_error,
