@@ -36,6 +36,8 @@ from mlframe.stats import get_tukey_fences_multiplier_for_quantile
 
 
 def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray,**kwargs) -> float:
+    # **kwargs needed for sklearn not to break it by passing unexpected params
+
     if isinstance(y_true, (pd.Series, pl.Series)):
         y_true = y_true.to_numpy()
     if isinstance(y_score, (pd.Series, pl.Series)):

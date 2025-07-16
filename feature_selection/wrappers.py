@@ -220,7 +220,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         importance_getter: Union[str, Callable, None] = None,
         random_state: int = None,
         leave_progressbars: bool = True,
-        verbose: Union[bool, int] = 0,
+        verbose: Union[bool, int] = 1,
         show_plot: bool = False,
         cat_features: Union[Sequence, None] = None,
         keep_estimators: bool = False,
