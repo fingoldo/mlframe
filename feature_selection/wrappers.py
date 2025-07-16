@@ -236,7 +236,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         if frac is not None:
             assert frac > 0.0 and frac < 1.0
             if verbose:
-                logging.info(f"Usin {frac} fraction of the training dataset.")
+                logging.info(f"Using {frac} fraction of the training dataset.")
 
         # assert isinstance(estimator, (BaseEstimator,))
 
