@@ -484,7 +484,7 @@ def get_training_configs(
 
     if 'cv_n_splits' in rfecv_kwargs:
         del rfecv_kwargs['cv_n_splits']
-        
+
     COMMON_RFECV_PARAMS = dict(
         early_stopping_rounds=early_stopping_rounds,
         cv=cv,
@@ -1607,8 +1607,8 @@ def configure_training_params(
     xgboost_verbose: Union[int, bool] = False,
     cb_fit_params: dict = {},  # cb_fit_params=dict(embedding_features=['embeddings'])
     prefer_calibrated_classifiers: bool = True,
-    default_regression_scoring: dict = dict(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False),
-    default_classification_scoring: dict = dict(score_func=fast_roc_auc, needs_proba=True, needs_threshold=False, greater_is_better=True),
+    default_regression_scoring: dict = None,
+    default_classification_scoring: dict =None,
     train_details: str = "",
     val_details: str = "",
     test_details: str = "",
@@ -1620,6 +1620,12 @@ def configure_training_params(
 ):
     if metamodel_func is None:
         metamodel_func = lambda x: x
+
+    if default_regression_scoring is None:
+        default_regression_scoring=dict(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
+        
+    if default_classification_scoring is None:
+        default_classification_scoring= dict(score_func=fast_roc_auc, needs_proba=True, needs_threshold=False, greater_is_better=True)
 
     if common_params is None:
         common_params = {}
