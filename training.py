@@ -482,6 +482,9 @@ def get_training_configs(
             cv = None
         rfecv_kwargs["cv"] = cv
 
+    if 'cv_n_splits' in rfecv_kwargs:
+        del rfecv_kwargs['cv_n_splits']
+        
     COMMON_RFECV_PARAMS = dict(
         early_stopping_rounds=early_stopping_rounds,
         cv=cv,
