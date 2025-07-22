@@ -482,8 +482,8 @@ def get_training_configs(
             cv = None
         rfecv_kwargs["cv"] = cv
 
-    if 'cv_n_splits' in rfecv_kwargs:
-        del rfecv_kwargs['cv_n_splits']
+    if "cv_n_splits" in rfecv_kwargs:
+        del rfecv_kwargs["cv_n_splits"]
 
     COMMON_RFECV_PARAMS = dict(
         early_stopping_rounds=early_stopping_rounds,
@@ -1398,6 +1398,7 @@ def report_probabilistic_model_perf(
     pr_aucs = []
     roc_aucs = []
     integral_errors = []
+    log_losses = []
     robust_integral_errors = []
 
     integral_error = custom_ice_metric(y_true=targets, y_score=probs) if custom_ice_metric else 0.0
@@ -1461,7 +1462,8 @@ def report_probabilistic_model_perf(
             pr_aucs.append(f"{str_class_name}={pr_auc:.{report_ndigits}f}")
             roc_aucs.append(f"{str_class_name}={roc_auc:.{report_ndigits}f}")
             brs.append(f"{str_class_name}={brier_loss * 100:.{report_ndigits}f}%")
-            integral_errors.append(f"{str_class_name}={class_integral_error:.{report_ndigits}f}")
+            integral_errors.append(f"{str_class_name}={ice:.{report_ndigits}f}")
+            log_losses.append(f"{str_class_name}={ll:.{report_ndigits}f}")
             if custom_rice_metric and custom_rice_metric != custom_ice_metric:
                 robust_integral_errors.append(f"{str_class_name}={class_robust_integral_error:.{report_ndigits}f}")
 
@@ -1472,6 +1474,8 @@ def report_probabilistic_model_perf(
                 calibration_mae=calibration_mae,
                 calibration_std=calibration_std,
                 brier_loss=brier_loss,
+                log_loss=ll,
+                ice=ice,
                 class_integral_error=class_integral_error,
             )
             if custom_rice_metric and custom_rice_metric != custom_ice_metric:
@@ -1486,6 +1490,7 @@ def report_probabilistic_model_perf(
         print(f"PR AUCs: {', '.join(pr_aucs)}")
         print(f"CALIBRATIONs: \n{', '.join(calibs)}")
         print(f"BRIER LOSSes: \n\t{', '.join(brs)}")
+        print(f"LOG_LOSSes: \n\t{', '.join(log_losses)}")
         print(f"ICEs: \n\t{', '.join(integral_errors)}")
         if custom_ice_metric != custom_rice_metric:
             print(f"RICEs: \n\t{', '.join(robust_integral_errors)}")
@@ -1608,7 +1613,7 @@ def configure_training_params(
     cb_fit_params: dict = {},  # cb_fit_params=dict(embedding_features=['embeddings'])
     prefer_calibrated_classifiers: bool = True,
     default_regression_scoring: dict = None,
-    default_classification_scoring: dict =None,
+    default_classification_scoring: dict = None,
     train_details: str = "",
     val_details: str = "",
     test_details: str = "",
@@ -1622,10 +1627,10 @@ def configure_training_params(
         metamodel_func = lambda x: x
 
     if default_regression_scoring is None:
-        default_regression_scoring=dict(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
-        
+        default_regression_scoring = dict(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
+
     if default_classification_scoring is None:
-        default_classification_scoring= dict(score_func=fast_roc_auc, needs_proba=True, needs_threshold=False, greater_is_better=True)
+        default_classification_scoring = dict(score_func=fast_roc_auc, needs_proba=True, needs_threshold=False, greater_is_better=True)
 
     if common_params is None:
         common_params = {}
