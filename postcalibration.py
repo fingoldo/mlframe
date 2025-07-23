@@ -171,7 +171,7 @@ def should_run(name: str, include: list[str] = None, skip: list[str] = None) -> 
     return True
 
 
-def test_postcalibrators(
+def compare_postcalibrators(
     model_name: str,
     columns: list,
     calib_probs: np.ndarray,
