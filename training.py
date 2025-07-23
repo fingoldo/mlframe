@@ -1239,7 +1239,7 @@ def report_model_perf(
             metrics=metrics,
         )
     if show_fi:
-        nfeatures = f"{len(columns):_}F/" if columns else ""
+        nfeatures = f"{len(columns):_}F/" if (columns is not None and len(columns) > 0) else ""
         feature_importances = plot_model_feature_importances(
             model=model,
             columns=columns,
@@ -1299,7 +1299,7 @@ def report_regression_model_perf(
 
     if show_perf_chart or plot_file:
         title = report_title + " " + model_name
-        nfeatures = f"{len(columns):_}F/" if columns else ""
+        nfeatures = f"{len(columns):_}F/" if (columns is not None and len(columns) > 0) else ""
         title += f" [{nfeatures}{get_human_readable_set_size(len(targets))} rows]" + "\n"
 
         title += f" MAE={MAE:.{report_ndigits}f}"
@@ -1433,7 +1433,7 @@ def report_probabilistic_model_perf(
             title += "-" + str_class_name
 
         class_integral_error = custom_ice_metric(y_true=y_true, y_score=y_score) if custom_ice_metric else 0.0
-        nfeatures = f"{len(columns):_}F/" if columns else ""
+        nfeatures = f"{len(columns):_}F/" if (columns is not None and len(columns) > 0) else ""
         title += f" [{nfeatures}{get_human_readable_set_size(len(y_true))} rows]"
         if custom_rice_metric and custom_rice_metric != custom_ice_metric:
             class_robust_integral_error = custom_rice_metric(y_true=y_true, y_score=y_score)
