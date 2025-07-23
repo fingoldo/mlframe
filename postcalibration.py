@@ -21,7 +21,7 @@ import re
 from dataclasses import dataclass
 from timeit import default_timer as timer
 
-from sklearn import set_config
+from sklearn import config_context
 from sklearn.base import BaseEstimator, ClassifierMixin
 
 import polars as pl, pandas as pd, numpy as np
@@ -32,6 +32,9 @@ from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 from .training import report_model_perf
 
 import netcal, pycalib
+from pycalib import models  # must be
+from netcal import binning  # must be
+from netcal import scaling  # must be
 import ml_insights as mli
 from betacal import BetaCalibration
 import calibration as verified_calibration
@@ -274,7 +277,7 @@ def test_postcalibrators(
             logger.info(f"Skipping calibrator: {calibrator_name} due to matching skip pattern.")
             continue
 
-        with set_config(transform_output="default"):
+        with config_context(transform_output="default"):
 
             start = timer()
 
