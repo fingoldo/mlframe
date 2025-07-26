@@ -171,48 +171,7 @@ def should_run(name: str, include: list[str] = None, skip: list[str] = None) -> 
     return True
 
 
-def compare_postcalibrators(
-    model_name: str,
-    columns: list,
-    calib_probs: np.ndarray,
-    calib_target: np.ndarray,
-    oos_probs: np.ndarray,
-    oos_target: np.ndarray,
-    num_bins: int = 15,
-    calib_type: str = "test",
-    plot_file: str = "",
-    report_params: dict = None,
-    include_patterns: list = [],
-    skip_patterns: list = [r"netcal\.BetaCalibrationDependent", "netcal\.ENIR", "netcal\.NearIsotonicRegression"],  # r"BetaCalibration\[variant=ab\]"
-) -> tuple:
-    """Given calibration and OOS probabilities and true targets,
-    fits a number of calibrator models  on the calib set and computes ML metrics on the OOS set.
-    returns a pandas dataframe of ML metrics by calibrator name.
-    """
-
-    logger.info(f"Calib set size={len(calib_target):_}, oos set size={len(oos_target):_}, num_bins={num_bins}.")
-
-    if report_params is None:
-        report_params = {"report_ndigits": 4, "calib_report_ndigits": 4, "print_report": False}
-
-    metrics = {"oos": {}}
-    fit_calibrators = {}
-
-    _, _ = report_model_perf(
-        targets=oos_target,
-        columns=columns,
-        df=None,
-        model_name=f"{model_name}",
-        model=None,
-        target_label_encoder=None,
-        preds=None,
-        probs=oos_probs,
-        plot_file=plot_file,
-        report_title="OOS",
-        metrics=metrics["oos"],
-        group_ids=None,
-        **report_params,
-    )
+def get_postcalibrators(calib_target, num_bins: int) -> list:
 
     calibrators = [
         named_calibrator(CalibratedClassifierCV(method="sigmoid", ensemble=False), name="CalibratedClassifierCV", param_str="method=sigmoid", lib="sklearn"),
@@ -269,6 +228,54 @@ def compare_postcalibrators(
     if FullDirichletCalibrator:
         calibrators.append(named_calibrator(FullDirichletCalibrator(), transform_method_name="predict_proba"))
 
+    return calibrators
+
+
+def compare_postcalibrators(
+    model_name: str,
+    columns: list,
+    calib_probs: np.ndarray,
+    calib_target: np.ndarray,
+    oos_probs: np.ndarray,
+    oos_target: np.ndarray,
+    num_bins: int = 15,
+    calib_type: str = "test",
+    plot_file: str = "",
+    report_params: dict = None,
+    include_patterns: list = [],
+    skip_patterns: list = [r"netcal\.BetaCalibrationDependent", "netcal\.ENIR", "netcal\.NearIsotonicRegression"],  # r"BetaCalibration\[variant=ab\]"
+) -> tuple:
+    """Given calibration and OOS probabilities and true targets,
+    fits a number of calibrator models  on the calib set and computes ML metrics on the OOS set.
+    returns a pandas dataframe of ML metrics by calibrator name.
+    """
+
+    logger.info(f"Calib set size={len(calib_target):_}, oos set size={len(oos_target):_}, num_bins={num_bins}.")
+
+    if report_params is None:
+        report_params = {"report_ndigits": 4, "calib_report_ndigits": 4, "print_report": False}
+
+    metrics = {"oos": {}}
+    fit_calibrators = {}
+
+    _, _ = report_model_perf(
+        targets=oos_target,
+        columns=columns,
+        df=None,
+        model_name=f"{model_name}",
+        model=None,
+        target_label_encoder=None,
+        preds=None,
+        probs=oos_probs,
+        plot_file=plot_file,
+        report_title="OOS",
+        metrics=metrics["oos"],
+        group_ids=None,
+        **report_params,
+    )
+
+    calibrators = get_postcalibrators(calib_target=calib_target, num_bins=num_bins)
+
     for nc in tqdmu(calibrators, desc="calibrator"):
         clf = nc.calibrator
         calibrator_name = nc.full_name()
@@ -279,10 +286,24 @@ def compare_postcalibrators(
 
         with config_context(transform_output="default"):
 
+            """
+            config_context needed here to avoid:
+
+            R:\ProgramData\anaconda3\Lib\site-packages\netcal\binning\IsotonicRegression.py:183, in IsotonicRegression.transform(self, X)
+                179     calibrated = self._iso.transform(X)
+                181 # add clipping to [0, 1] to avoid exceeding due to numerical issues
+                182 # https://github.com/EFS-OpenSource/calibration-framework/issues/54
+            --> 183 np.clip(calibrated, 0, 1, out=calibrated)
+                185 return calibrated
+            """
+
             start = timer()
 
             clf.fit(calib_probs, calib_target)
             fitting_time = timer() - start
+
+            if oos_probs is None:
+                continue
 
             start = timer()
             calibrated_probs = clf.postcalibrate_probs(oos_probs)
@@ -309,7 +330,10 @@ def compare_postcalibrators(
         metrics[calibrator_name]["fitting_time"] = fitting_time
         metrics[calibrator_name]["predicting_time"] = predicting_time
 
-    metrics = pd.DataFrame(metrics).T
-    metrics = metrics.drop(columns=[1]).join(metrics[1].apply(pd.Series)).drop(columns=["feature_importances"]).sort_values("ice")
+    if oos_probs is None:
+        metrics = None
+    else:
+        metrics = pd.DataFrame(metrics).T
+        metrics = metrics.drop(columns=[1]).join(metrics[1].apply(pd.Series)).drop(columns=["feature_importances"]).sort_values("ice")
 
     return metrics, fit_calibrators
