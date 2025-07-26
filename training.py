@@ -1998,7 +1998,7 @@ def clean_mlframe_model(model: SimpleNamespace) -> SimpleNamespace:
 
 
 def load_production_models(
-    models_dir: str, target_name: str, featureset_name: str, task_type=TargetTypes.BINARY_CLASSIFICATION, clean_models: bool = True
+    models_dir: str, target_name: str, featureset_name: str, task_type=TargetTypes.BINARY_CLASSIFICATION, directions: list = [], clean_models: bool = True
 ) -> dict:
     """Reads models from disk, instantiates SHAP explainers where possible."""
 
@@ -2006,19 +2006,21 @@ def load_production_models(
     explainers = {}
     postcalibrators = {}
 
+    from mlframe.ensembling import SIMPLE_ENSEMBLING_METHODS
+
     logger.info(f"Loading trained production {featureset_name} {task_type} models for target {target_name}...")
 
     featureset_dir = join(models_dir, target_name, featureset_name, task_type)
     trainset_features_stats = None
-    for direction in tqdmu(TARGET_DIRECTIONS, desc="market direction", leave=False):
+    for direction in tqdmu(directions, desc="direction", leave=False):
 
         models[direction] = {}
         explainers[direction] = {}
         postcalibrators[direction] = {}
 
-        models_dir = join(featureset_dir, direction)
+        final_models_dir = join(featureset_dir, direction)
 
-        for fpath in glob.glob(join(models_dir, f"*_model.dump")):
+        for fpath in glob.glob(join(final_models_dir, f"*_model.dump")):
             base_model_name = basename(fpath)
 
             model = load_mlframe_model(fpath)
@@ -2029,7 +2031,7 @@ def load_production_models(
             model_name = base_model_name.replace(f"_model.dump", "")
             models[direction][model_name] = model
 
-            calib_fpath = fpath.replace("_model.dump", "_model_calibrator.dump")
+            calib_fpath = fpath.replace("_model.dump", "_model_postcalibrator.dump")
             if exists(calib_fpath):
                 postcalibrator = joblib.load(calib_fpath)
                 postcalibrators[direction][model_name] = postcalibrator
@@ -2040,6 +2042,14 @@ def load_production_models(
                 explainers[direction][model_name] = explainer
             except Exception as e:
                 pass
+
+        # ens calibrators
+        for ensembling_method in SIMPLE_ENSEMBLING_METHODS:
+            ens_name = f"ens_{ensembling_method}"
+            calib_fpath = join(final_models_dir, f"{ens_name}_postcalibrator.dump")
+            if exists(calib_fpath):
+                postcalibrator = joblib.load(calib_fpath)
+                postcalibrators[direction][ens_name] = postcalibrator
 
         logger.info(f"Loaded {len(models[direction]):_} production {direction} model(s): {', '.join(models[direction].keys())}")
 

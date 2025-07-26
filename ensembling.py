@@ -25,6 +25,8 @@ import pandas as pd, numpy as np
 from pyutilz.parallel import parallel_run
 from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names, compute_numerical_aggregates_numba, get_basic_feature_names
 
+SIMPLE_ENSEMBLING_METHODS: list = "arithm harm median quad qube geo".split()
+
 basic_features_names = get_basic_feature_names(
     return_drawdown_stats=False,
     return_profit_factor=False,
@@ -231,7 +233,7 @@ def score_ensemble(
     max_std: float = 0.06,
     ensure_prob_limits: bool = True,
     nbins: int = 100,
-    ensembling_methods="arithm harm median quad qube geo".split(),
+    ensembling_methods=SIMPLE_ENSEMBLING_METHODS,
     uncertainty_quantile: float = 0.0,
     normalize_stds_by_mean_preds: bool = True,
     custom_ice_metric: Callable = None,

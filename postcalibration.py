@@ -21,6 +21,13 @@ import re
 from dataclasses import dataclass
 from timeit import default_timer as timer
 
+
+import joblib
+from os.path import join
+from pyutilz.strings import slugify
+from mlframe.training import TargetTypes
+from mlframe.ensembling import ensemble_probabilistic_predictions
+
 from sklearn import config_context
 from sklearn.base import BaseEstimator, ClassifierMixin
 
@@ -250,7 +257,7 @@ def compare_postcalibrators(
     returns a pandas dataframe of ML metrics by calibrator name.
     """
 
-    logger.info(f"Calib set size={len(calib_target):_}, oos set size={len(oos_target):_}, num_bins={num_bins}.")
+    logger.info(f"Calib set size={len(calib_target):_}, oos set size={len(oos_target) if oos_target is not None else 0:_}, num_bins={num_bins}.")
 
     if report_params is None:
         report_params = {"report_ndigits": 4, "calib_report_ndigits": 4, "print_report": False}
@@ -258,21 +265,22 @@ def compare_postcalibrators(
     metrics = {"oos": {}}
     fit_calibrators = {}
 
-    _, _ = report_model_perf(
-        targets=oos_target,
-        columns=columns,
-        df=None,
-        model_name=f"{model_name}",
-        model=None,
-        target_label_encoder=None,
-        preds=None,
-        probs=oos_probs,
-        plot_file=plot_file,
-        report_title="OOS",
-        metrics=metrics["oos"],
-        group_ids=None,
-        **report_params,
-    )
+    if oos_probs is not None:
+        _, _ = report_model_perf(
+            targets=oos_target,
+            columns=columns,
+            df=None,
+            model_name=f"{model_name}",
+            model=None,
+            target_label_encoder=None,
+            preds=None,
+            probs=oos_probs,
+            plot_file=plot_file,
+            report_title="OOS",
+            metrics=metrics["oos"],
+            group_ids=None,
+            **report_params,
+        )
 
     calibrators = get_postcalibrators(calib_target=calib_target, num_bins=num_bins)
 
@@ -337,3 +345,56 @@ def compare_postcalibrators(
         metrics = metrics.drop(columns=[1]).join(metrics[1].apply(pd.Series)).drop(columns=["feature_importances"]).sort_values("ice")
 
     return metrics, fit_calibrators
+
+
+def train_postcalibrators(
+    models: dict,
+    model_name: str,
+    models_dir: str,
+    target_name: str,
+    featureset_name: str,
+    task_type=TargetTypes.BINARY_CLASSIFICATION,
+    include_patterns=[r"SplineCalib", r"pycalib.BetaCalibration"],
+    max_mae: float = None,
+    max_std: float = None,
+    ensembling_method="harm",
+    ensure_prob_limits: bool = True,
+    uncertainty_quantile: float = 0.0,
+    normalize_stds_by_mean_preds: bool = True,
+    verbose: int = 1,
+):
+    ensembled_test_predictions, confident_test_indices = ensemble_probabilistic_predictions(
+        *(el.test_probs for el in models.values()),
+        ensemble_method=ensembling_method,
+        max_mae=max_mae,
+        max_std=max_std,
+        ensure_prob_limits=ensure_prob_limits,
+        uncertainty_quantile=uncertainty_quantile,
+        normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+        verbose=verbose,
+    )
+
+    first_model = list(models.values())[0]
+    columns = first_model.columns
+
+    test_target = first_model.test_target.values
+
+    calib_test_metrics, test_calibrators = compare_postcalibrators(
+        model_name=model_name,
+        columns=columns,
+        calib_probs=ensembled_test_predictions,
+        calib_target=test_target,
+        oos_probs=None,
+        oos_target=None,
+        calib_type="test",
+        include_patterns=include_patterns,
+    )
+
+    final_models_dir = join(models_dir, target_name, featureset_name, task_type, model_name)
+
+    for calib_name, calibrator in test_calibrators.items():
+        ens_name = f"ens_{ensembling_method}"
+        calib_fpath = join(final_models_dir, f"{ens_name}_postcalibrator_{slugify(calib_name)}.dump")
+        joblib.dump(calibrator, calib_fpath, compress=("lzma", 6))
+
+    return test_calibrators
