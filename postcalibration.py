@@ -289,7 +289,7 @@ def compare_postcalibrators(
         calibrator_name = nc.full_name()
 
         if not should_run(calibrator_name, include_patterns, skip_patterns):
-            logger.info(f"Skipping calibrator: {calibrator_name} due to matching skip pattern.")
+            # logger.info(f"Skipping calibrator: {calibrator_name} due to matching skip pattern.")
             continue
 
         with config_context(transform_output="default"):
@@ -308,6 +308,8 @@ def compare_postcalibrators(
             start = timer()
 
             clf.fit(calib_probs, calib_target)
+            fit_calibrators[calibrator_name] = clf
+
             fitting_time = timer() - start
 
             if oos_probs is None:
@@ -333,8 +335,6 @@ def compare_postcalibrators(
             group_ids=None,
             **report_params,
         )
-
-        fit_calibrators[calibrator_name] = clf
         metrics[calibrator_name]["fitting_time"] = fitting_time
         metrics[calibrator_name]["predicting_time"] = predicting_time
 
