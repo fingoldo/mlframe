@@ -128,7 +128,7 @@ def ensemble_probabilistic_predictions(
     max_mae: float = 0.04,
     max_std: float = 0.06,
     uncertainty_quantile: float = 0.2,
-    normalize_stds_by_mean_preds: bool = True,
+    normalize_stds_by_mean_preds: bool = False,
     verbose: bool = True,
 ) -> tuple:
     """Ensembles probabilistic predictions. All elements of the preds tuple must have the same shape.
@@ -215,9 +215,10 @@ def ensemble_probabilistic_predictions(
         else:
             uncertainty = std_preds.mean(axis=1)
 
-        confident_indices = uncertainty >= np.quantile(uncertainty, uncertainty_quantile)
+        threshold = np.quantile(uncertainty, uncertainty_quantile)
+        confident_indices = np.where(uncertainty <= threshold)[0]
 
-    return ensembled_predictions, confident_indices
+    return ensembled_predictions, predictions_stds, confident_indices
 
 
 def score_ensemble(
@@ -271,7 +272,7 @@ def score_ensemble(
             else:
                 predictions = (el.val_preds.reshape(-1, 1) for el in level_models_and_predictions)
 
-            val_ensembled_predictions, val_confident_indices = ensemble_probabilistic_predictions(
+            val_ensembled_predictions, _, val_confident_indices = ensemble_probabilistic_predictions(
                 *predictions,
                 ensemble_method=ensemble_method,
                 max_mae=max_mae,
@@ -287,7 +288,7 @@ def score_ensemble(
             else:
                 predictions = (el.test_preds.reshape(-1, 1) for el in level_models_and_predictions)
 
-            test_ensembled_predictions, test_confident_indices = ensemble_probabilistic_predictions(
+            test_ensembled_predictions, _, test_confident_indices = ensemble_probabilistic_predictions(
                 *predictions,
                 ensemble_method=ensemble_method,
                 max_mae=max_mae,
@@ -304,7 +305,7 @@ def score_ensemble(
                 predictions = (el.train_preds for el in level_models_and_predictions)
                 predictions = (el.reshape(-1, 1) if (el is not None) else el for el in predictions)
 
-            train_ensembled_predictions, train_confident_indices = ensemble_probabilistic_predictions(
+            train_ensembled_predictions, _, train_confident_indices = ensemble_probabilistic_predictions(
                 *predictions,
                 ensemble_method=ensemble_method,
                 max_mae=max_mae,

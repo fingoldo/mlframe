@@ -155,21 +155,6 @@ def named_calibrator(
     )
 
 
-def compute_calib_oos_split(test_probs, test_target):
-    """Splits test set into calibration and OOS halves.
-    Usage:
-        calib_probs,calib_target,oos_probs,oos_target=compute_calib_oos_split(test_probs=ensembled_test_predictions,test_target=test_target)
-    """
-    calib_boundary = int(len(test_target) // 2)
-
-    calib_probs = test_probs[:calib_boundary, :]
-    calib_targets = test_target[:calib_boundary]
-    oos_probs = test_probs[calib_boundary:, :]
-    oos_targets = test_target[calib_boundary:]
-
-    return calib_probs, calib_targets, oos_probs, oos_targets
-
-
 def should_run(name: str, include: list[str] = None, skip: list[str] = None) -> bool:
     if include and not any(re.search(p, name) for p in include):
         return False
