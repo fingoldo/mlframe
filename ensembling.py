@@ -218,7 +218,7 @@ def ensemble_probabilistic_predictions(
         threshold = np.quantile(uncertainty, uncertainty_quantile)
         confident_indices = np.where(uncertainty <= threshold)[0]
 
-    return ensembled_predictions, predictions_stds, confident_indices
+    return ensembled_predictions, std_preds, confident_indices
 
 
 def score_ensemble(
