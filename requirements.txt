@@ -45,3 +45,9 @@ python-dotenv
 polars_talib
 lightautoml
 pysr
+netcal
+pycalib 
+ml-insights 
+betacal 
+uncertainty-calibration
+venn-abers
