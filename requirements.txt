@@ -43,6 +43,7 @@ seaborn
 polars
 python-dotenv
 polars_talib
+polars_ds
 lightautoml
 pysr
 netcal
