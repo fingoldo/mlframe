@@ -41,6 +41,7 @@ umap-learn
 hdbscan
 seaborn
 statsmodels
+scikit-learn
 polars
 python-dotenv
 polars_talib
