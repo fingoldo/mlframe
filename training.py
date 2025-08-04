@@ -806,7 +806,7 @@ def train_and_evaluate_model(
 
         if callback_params:
             if "callbacks" not in fit_params:
-                if model_type_name not in XGBOOST_MODEL_TYPES:
+                if model_type_name not in XGBOOST_MODEL_TYPES and model_type_name not in HGBOOST_MODEL_TYPES:
                     fit_params["callbacks"] = []
 
         if model_type_name in LGBM_MODEL_TYPES:
@@ -814,6 +814,9 @@ def train_and_evaluate_model(
             if callback_params:
                 es_callback = LightGBMCallback(**callback_params)
                 fit_params.get("callbacks").append(es_callback)
+        elif model_type_name in HGBOOST_MODEL_TYPES:
+            fit_params["X_val"] = val_df
+            fit_params["y_val"] = val_target
         elif model_type_name in CATBOOST_MODEL_TYPES or model_type_name in XGBOOST_MODEL_TYPES:
             fit_params["eval_set"] = [
                 (val_df, val_target),
@@ -2803,7 +2806,7 @@ class UniversalCallback:
             raise ValueError(f"Monitor dataset '{self.monitor_dataset}' not found in metrics.")
         available_metrics = list(metrics_dict[self.monitor_dataset].keys())
         logger.info(f"available_metrics={available_metrics}")
-        for preferred in ["ICE", "auc", "AUC"]:
+        for preferred in ["ICE", "integral_calibration_error", "auc", "AUC"]:
             if preferred in available_metrics:
                 self.monitor_metric = preferred
                 break
