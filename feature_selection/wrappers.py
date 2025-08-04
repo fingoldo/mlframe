@@ -227,7 +227,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         estimators_save_path: str = None,  # fitted estimators get saved into join(estimators_save_path,estimator_type_name,nestimator_nfeatures_nfold.dump)
         # Required features and achieved ml metrics get saved in a dict join(estimators_save_path,required_features.dump).
         frac: float = None,
-        skip_retraining_on_same_shape: bool = False,
+        skip_retraining_on_same_shape: bool = True,
         stop_file: str = "stop",
         report_ndigits: int = 4,
     ):

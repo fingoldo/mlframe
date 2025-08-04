@@ -2189,9 +2189,9 @@ def select_target(
 
     models_params = dict(cb=common_cb_params, lgb=common_lgb_params, xgb=common_xgb_params, hgb=common_hgb_params)
     rfecv_models_params = dict(
-        cb=cb_rfecv,
-        lgb=lgb_rfecv,
-        xgb=xgb_rfecv,
+        cb_rfecv=cb_rfecv,
+        lgb_rfecv=lgb_rfecv,
+        xgb_rfecv=xgb_rfecv,
     )
     return common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs
 
@@ -2219,7 +2219,7 @@ def process_model(
         model = load_mlframe_model(fpath)
     else:
         if verbose:
-            logger.info(f"Starting train_and_evaluate {target_type} {model_name}, RAM usage {get_own_ram_usage():.1f}GBs...")
+            logger.info(f"Starting train_and_evaluate {target_type} {pre_pipeline_name} {model_name}, RAM usage {get_own_ram_usage():.1f}GBs...")
         model = train_and_evaluate_model(
             pre_pipeline=pre_pipeline,
             **model_params,
