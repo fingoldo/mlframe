@@ -1772,12 +1772,12 @@ def configure_training_params(
     if prefer_cpu_for_lightgbm:
         common_lgb_params = dict(
             model=metamodel_func(LGBMRegressor(**cpu_configs.LGB_GENERAL_PARAMS)) if use_regression else LGBMClassifier(**cpu_configs.LGB_GENERAL_PARAMS),
-            fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if (prefer_calibrated_classifiers and use_regression) else {}),
+            fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if (prefer_calibrated_classifiers and not use_regression) else {}),
         )
     else:
         common_lgb_params = dict(
             model=metamodel_func(LGBMRegressor(**configs.LGB_GENERAL_PARAMS)) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
-            fit_params=(dict(eval_metric=configs.lgbm_integral_calibration_error) if (prefer_calibrated_classifiers and use_regression) else {}),
+            fit_params=(dict(eval_metric=configs.lgbm_integral_calibration_error) if (prefer_calibrated_classifiers and not use_regression) else {}),
         )
 
     rfecv_params = configs.COMMON_RFECV_PARAMS.copy()
