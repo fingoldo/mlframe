@@ -1772,12 +1772,12 @@ def configure_training_params(
     if prefer_cpu_for_lightgbm:
         common_lgb_params = dict(
             model=metamodel_func(LGBMRegressor(**cpu_configs.LGB_GENERAL_PARAMS)) if use_regression else LGBMClassifier(**cpu_configs.LGB_GENERAL_PARAMS),
-            fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}),
+            fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if (prefer_calibrated_classifiers and use_regression) else {}),
         )
     else:
         common_lgb_params = dict(
             model=metamodel_func(LGBMRegressor(**configs.LGB_GENERAL_PARAMS)) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
-            fit_params=(dict(eval_metric=configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}),
+            fit_params=(dict(eval_metric=configs.lgbm_integral_calibration_error) if (prefer_calibrated_classifiers and use_regression) else {}),
         )
 
     rfecv_params = configs.COMMON_RFECV_PARAMS.copy()
@@ -2504,6 +2504,9 @@ def train_mlframe_models_suite(
                     ens_models = [] if use_mlframe_ensembles else None
 
                     for model_name in mlframe_models:
+                        if model_name == "cb" and target_type == TargetTypes.REGRESSION:
+                            continue
+
                         if model_name not in models_params:
                             logger.warning(f"mlframe model {model_name} not known, skipping...")
                         else:
