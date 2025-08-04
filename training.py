@@ -328,6 +328,7 @@ def get_training_configs(
     weight_by_class_npositives: bool = False,
     nbins: int = 10,
     cb_kwargs: dict = dict(verbose=0),
+    hgb_kwargs: dict = dict(verbose=0),
     lgb_kwargs: dict = dict(verbose=-1),
     xgb_kwargs: dict = dict(verbosity=0),
     # ----------------------------------------------------------------------------------------------------------------------------
@@ -366,6 +367,17 @@ def get_training_configs(
 
     CB_REGR = CB_GENERAL_PARAMS.copy()
     CB_REGR.update({"eval_metric": def_regr_metric, "custom_metric": catboost_custom_regr_metrics})
+
+    HGB_GENERAL_PARAMS = dict(
+        max_iter=iterations,
+        learning_rate=learning_rate,
+        early_stopping=True,
+        validation_fraction=(None if use_explicit_early_stopping else validation_fraction),
+        n_iter_no_change=early_stopping_rounds,
+        categorical_features="from_dtype",
+        random_seed=random_seed,
+        **hgb_kwargs,
+    )
 
     XGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
@@ -504,6 +516,7 @@ def get_training_configs(
         CB_REGR=CB_REGR,
         CB_CLASSIF=CB_CLASSIF,
         CB_CALIB_CLASSIF=CB_CALIB_CLASSIF,
+        HGB_GENERAL_PARAMS=HGB_GENERAL_PARAMS,
         LGB_GENERAL_PARAMS=LGB_GENERAL_PARAMS,
         XGB_GENERAL_PARAMS=XGB_GENERAL_PARAMS,
         XGB_GENERAL_CLASSIF=XGB_GENERAL_CLASSIF,
@@ -1724,7 +1737,15 @@ def configure_training_params(
             else CatBoostClassifier(**(configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.CB_CLASSIF))
         ),
         fit_params=dict(plot=verbose, cat_features=cat_features, **cb_fit_params),
-    )  # TransformedTargetRegressor(CatBoostRegressor(**configs.CB_REGR),transformer=PowerTransformer())
+    )
+
+    common_hgb_params = dict(
+        model=(
+            metamodel_func(HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS))
+            if use_regression
+            else HistGradientBoostingClassifier(**(configs.HGB_GENERAL_PARAMS))
+        ),
+    )
 
     if prefer_cpu_for_xgboost:
         common_xgb_params = dict(
@@ -1816,7 +1837,7 @@ def configure_training_params(
         **rfecv_params,
     )
 
-    return common_params, common_cb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs
+    return common_params, common_cb_params, common_hgb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs
 
 
 def post_calibrate_model(
@@ -2140,28 +2161,36 @@ def select_target(
     if config_params_override:
         effective_config_params.update(config_params_override)
 
-    common_params, common_cb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs = configure_training_params(
-        df=df,
-        train_df=train_df,
-        val_df=val_df,
-        test_df=test_df,
-        target=target,
-        target_label_encoder=None,
-        train_idx=train_idx,
-        val_idx=val_idx,
-        test_idx=test_idx,
-        sample_weight=sample_weight,
-        train_details=train_details,
-        val_details=val_details,
-        test_details=test_details,
-        group_ids=group_ids,
-        model_name=model_name,
-        common_params=common_params,
-        config_params=effective_config_params,
-        **effective_control_params,
+    common_params, common_cb_params, common_hgb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs = (
+        configure_training_params(
+            df=df,
+            train_df=train_df,
+            val_df=val_df,
+            test_df=test_df,
+            target=target,
+            target_label_encoder=None,
+            train_idx=train_idx,
+            val_idx=val_idx,
+            test_idx=test_idx,
+            sample_weight=sample_weight,
+            train_details=train_details,
+            val_details=val_details,
+            test_details=test_details,
+            group_ids=group_ids,
+            model_name=model_name,
+            common_params=common_params,
+            config_params=effective_config_params,
+            **effective_control_params,
+        )
     )
 
-    return common_params, common_cb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs
+    models_params = dict(cb=common_cb_params, lgb=common_lgb_params, xgb=common_xgb_params, hgb=common_hgb_params)
+    rfecv_models_params = dict(
+        cb=cb_rfecv,
+        lgb=lgb_rfecv,
+        xgb=xgb_rfecv,
+    )
+    return common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs
 
 
 def process_model(
@@ -2254,10 +2283,7 @@ def train_mlframe_models_suite(
     data_dir: str = "",
     models_dir: str = MODELS_SUBDIR,
     #
-    use_mlframe_models: bool = True,
-    use_mlframe_xgboost: bool = True,
-    use_mlframe_catboost: bool = True,
-    use_mlframe_lightgbm: bool = True,
+    mlframe_models: list = None,
     use_mlframe_ensembles: bool = True,
     #
     use_autogluon_models: bool = False,
@@ -2268,7 +2294,7 @@ def train_mlframe_models_suite(
     lama_init_params: dict = None,
     lama_fit_params: dict = None,
     #
-    use_rfecv: int = 0,
+    rfecv_models: list = None,
     report_params: dict = None,
     skip_infinity_checks: bool = True,
     verbose: int = 1,
@@ -2294,6 +2320,12 @@ def train_mlframe_models_suite(
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
     trainset_features_stats = None
+
+    if rfecv_models is None:
+        rfecv_models = []
+
+    if mlframe_models is None:
+        mlframe_models = "cb lgb xgb hgb".split()
 
     if init_common_params is None:
         init_common_params = {}
@@ -2412,7 +2444,7 @@ def train_mlframe_models_suite(
 
     for target_type, targets in tqdmu(target_types.items(), desc="target type"):
         for cur_target, target in tqdmu(targets.items(), desc="target"):
-            if use_mlframe_models:
+            if mlframe_models:
 
                 if use_autogluon_models or use_lama_models:
                     if automl_target_label in pandas_df:
@@ -2433,7 +2465,7 @@ def train_mlframe_models_suite(
                 cur_control_params_override = control_params_override.copy()
                 cur_control_params_override["use_regression"] = target_type == TargetTypes.REGRESSION
 
-                common_params, common_cb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs = select_target(
+                common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs = select_target(
                     model_name=f"{target_name} {model_name} {cur_target}",
                     target=target,
                     df=None,
@@ -2458,65 +2490,35 @@ def train_mlframe_models_suite(
 
                 pre_pipelines = [None]
                 pre_pipeline_names = [""]
-                if use_rfecv >= 1:
-                    pre_pipelines.append(cb_rfecv)
-                    pre_pipeline_names.append("cb_rfecv ")
-                if use_rfecv >= 2:
-                    pre_pipelines.append(lgb_rfecv)
-                    pre_pipeline_names.append("lgb_rfecv ")
-                if use_rfecv >= 3:
-                    pre_pipelines.append(xgb_rfecv)
-                    pre_pipeline_names.append("xgb_rfecv ")
+                for model_name in rfecv_models:
+                    if model_name not in rfecv_models_params:
+                        logger.warning(f"RFECV model {model_name} not known, skipping...")
+                    else:
+                        pre_pipelines.append(rfecv_models_params[model_name])
+                        pre_pipeline_names.append(f"{model_name} ")
 
                 for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
                     ens_models = [] if use_mlframe_ensembles else None
-                    if use_mlframe_catboost:
-                        trainset_features_stats = process_model(
-                            model_file=model_file,
-                            model_name="cb_model",
-                            target_type=target_type,
-                            pre_pipeline=pre_pipeline,
-                            pre_pipeline_name=pre_pipeline_name,
-                            cur_target=cur_target,
-                            models=models,
-                            model_params=common_cb_params,
-                            common_params=common_params,
-                            ens_models=ens_models,
-                            trainset_features_stats=trainset_features_stats,
-                            verbose=verbose,
-                        )
 
-                    if use_mlframe_lightgbm:
-                        trainset_features_stats = process_model(
-                            model_file=model_file,
-                            model_name="lgb_model",
-                            target_type=target_type,
-                            pre_pipeline=pre_pipeline,
-                            pre_pipeline_name=pre_pipeline_name,
-                            cur_target=cur_target,
-                            models=models,
-                            model_params=common_lgb_params,
-                            common_params=common_params,
-                            ens_models=ens_models,
-                            trainset_features_stats=trainset_features_stats,
-                            verbose=verbose,
-                        )
+                    for model_name in mlframe_models:
+                        if model_name not in models_params:
+                            logger.warning(f"mlframe model {model_name} not known, skipping...")
+                        else:
 
-                    if use_mlframe_xgboost:
-                        trainset_features_stats = process_model(
-                            model_file=model_file,
-                            model_name="xgb_model",
-                            target_type=target_type,
-                            pre_pipeline=pre_pipeline,
-                            pre_pipeline_name=pre_pipeline_name,
-                            cur_target=cur_target,
-                            models=models,
-                            model_params=common_xgb_params,
-                            common_params=common_params,
-                            ens_models=ens_models,
-                            trainset_features_stats=trainset_features_stats,
-                            verbose=verbose,
-                        )
+                            trainset_features_stats = process_model(
+                                model_file=model_file,
+                                model_name=model_name,
+                                target_type=target_type,
+                                pre_pipeline=pre_pipeline,
+                                pre_pipeline_name=pre_pipeline_name,
+                                cur_target=cur_target,
+                                models=models,
+                                model_params=models_params[model_name],
+                                common_params=common_params,
+                                ens_models=ens_models,
+                                trainset_features_stats=trainset_features_stats,
+                                verbose=verbose,
+                            )
 
                     if ens_models and len(ens_models) > 1:
 

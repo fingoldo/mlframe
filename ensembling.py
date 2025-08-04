@@ -140,7 +140,7 @@ def ensemble_probabilistic_predictions(
 
     preds = [p for p in preds if p is not None]
     if len(preds) == 0:
-        return None, None
+        return None, None, None
 
     if len(preds) > 2:
 
