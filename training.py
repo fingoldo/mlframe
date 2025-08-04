@@ -2501,6 +2501,11 @@ def train_mlframe_models_suite(
                         pre_pipeline_names.append(f"{model_name} ")
 
                 for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
+                    if pre_pipeline_name == "cb_rfecv" and target_type == TargetTypes.REGRESSION:
+                        # File /venv/main/lib/python3.12/site-packages/sklearn/base.py:142, in _clone_parametrized(estimator, safe)
+                        # RuntimeError: Cannot clone object <catboost.core.CatBoostRegressor object at 0x713048b0e840>, as the constructor either does not set or modifies parameter custom_metric
+                        continue
+
                     ens_models = [] if use_mlframe_ensembles else None
 
                     for model_name in mlframe_models:
