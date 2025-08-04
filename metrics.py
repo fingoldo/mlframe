@@ -35,7 +35,7 @@ from mlframe.stats import get_tukey_fences_multiplier_for_quantile
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray,**kwargs) -> float:
+def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
     # **kwargs needed for sklearn not to break it by passing unexpected params
 
     if isinstance(y_true, (pd.Series, pl.Series)):
@@ -569,6 +569,7 @@ def fast_calibration_report(
         calibration_coverage=calibration_coverage,
         brier_loss=brier_loss,
         roc_auc=roc_auc,
+        pr_auc=pr_auc,
         **ice_kwargs,
     )
     ll = log_loss(y_true=y_true, y_pred=y_pred)
@@ -636,6 +637,7 @@ def compute_probabilistic_multiclass_error(
     mae_weight: float = 3,
     std_weight: float = 2,
     roc_auc_weight: float = 1.5,
+    pr_auc_weight: float = 0.1,
     brier_loss_weight: float = 0.4,
     min_roc_auc: float = 0.54,
     roc_auc_penalty: float = 0.00,
@@ -704,6 +706,7 @@ def compute_probabilistic_multiclass_error(
                 std_weight=std_weight,
                 brier_loss_weight=brier_loss_weight,
                 roc_auc_weight=roc_auc_weight,
+                pr_auc_weight=pr_auc_weight,
                 min_roc_auc=min_roc_auc,
                 roc_auc_penalty=roc_auc_penalty,
             )
@@ -810,9 +813,11 @@ def integral_calibration_error_from_metrics(
     calibration_coverage: float,
     brier_loss: float,
     roc_auc: float,
+    pr_auc: float,
     mae_weight: float = 3,
     std_weight: float = 2,
     roc_auc_weight: float = 1.5,
+    pr_auc_weight: float = 0.1,
     brier_loss_weight: float = 0.4,
     min_roc_auc: float = 0.54,
     roc_auc_penalty: float = 0.00,
@@ -821,20 +826,16 @@ def integral_calibration_error_from_metrics(
     ICE is a weighted sum of baseline losses-"roc_auc goodness over 0.5".
     If roc_auc is not good enough, it incurs additional penalty.
     """
-    res = brier_loss * brier_loss_weight + calibration_mae * mae_weight + calibration_std * std_weight - np.abs(roc_auc - 0.5) * roc_auc_weight
+    res = (
+        brier_loss * brier_loss_weight
+        + calibration_mae * mae_weight
+        + calibration_std * std_weight
+        - np.abs(roc_auc - 0.5) * roc_auc_weight
+        - pr_auc * pr_auc_weight
+    )
     if np.abs(roc_auc - 0.5) < (min_roc_auc - 0.5):
         res += roc_auc_penalty
     return res
-
-
-def integral_calibration_error_xgboost(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true, y_pred=y_pred)
-    return integral_calibration_error_from_metrics(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage)
-
-
-def integral_calibration_error_keras(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    calibration_mae, calibration_std, calibration_coverage = fast_calibration_metrics(y_true=y_true.numpy()[:, -1], y_pred=y_pred.numpy()[:, -1])
-    return integral_calibration_error_from_metrics(calibration_mae=calibration_mae, calibration_std=calibration_std, calibration_coverage=calibration_coverage)
 
 
 @njit()
