@@ -6,6 +6,7 @@ KERAS_MODEL_TYPES = ("Sequential",)
 LGBM_MODEL_TYPES = ("LGBMClassifier", "LGBMRegressor")
 XGBOOST_MODEL_TYPES = ("XGBClassifier", "XGBRegressor")
 CATBOOST_MODEL_TYPES = ("CatBoostClassifier", "CatBoostRegressor")
+HGBOOST_MODEL_TYPES = ("HistGradientBoostingClassifier", "HistGradientBoostingRegressor")
 PYTORCH_MODEL_TYPES = ("PytorchLightningEstimator", "PytorchLightningRegressor", "PytorchLightningClassifier")
 TABNET_MODEL_TYPES = ("TabNetClassifier", "TabNetMultiTaskClassifier", "TabNetRegressor", "TabNetMultiTaskRegressor")
 
