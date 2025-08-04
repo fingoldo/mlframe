@@ -375,7 +375,7 @@ def get_training_configs(
         validation_fraction=(None if use_explicit_early_stopping else validation_fraction),
         n_iter_no_change=early_stopping_rounds,
         categorical_features="from_dtype",
-        random_seed=random_seed,
+        random_state=random_seed,
         **hgb_kwargs,
     )
 
@@ -2802,6 +2802,7 @@ class UniversalCallback:
         if self.monitor_dataset not in metrics_dict:
             raise ValueError(f"Monitor dataset '{self.monitor_dataset}' not found in metrics.")
         available_metrics = list(metrics_dict[self.monitor_dataset].keys())
+        logger.info(f"available_metrics={available_metrics}")
         for preferred in ["ICE", "auc", "AUC"]:
             if preferred in available_metrics:
                 self.monitor_metric = preferred
