@@ -988,7 +988,7 @@ def train_and_evaluate_model(
                     logger.warning(e)
 
     metrics = {"train": {}, "val": {}, "test": {}, "best_iter": best_iter}
-
+    test_is_inlier = None
     if compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics:
         if verbose:
             logger.info("Computing model's performance...")
@@ -1067,6 +1067,9 @@ def train_and_evaluate_model(
                         test_df = df.iloc[test_idx].drop(columns=real_drop_columns)
                     elif isinstance(df, pl.DataFrame):
                         test_df = df[test_idx].drop(real_drop_columns)
+
+                if outlier_detector is not None:
+                    test_is_inlier = outlier_detector.predict(test_df) == 1
 
                 if test_target is None:
                     test_target = target.iloc[test_idx] if isinstance(target, pd.Series) else target.gather(test_idx)
@@ -1164,6 +1167,7 @@ def train_and_evaluate_model(
         test_preds=test_preds,
         test_probs=test_probs,
         test_target=test_target,
+        test_is_inlier=test_is_inlier,
         val_preds=val_preds,
         val_probs=val_probs,
         val_target=val_target,
@@ -2220,6 +2224,7 @@ def process_model(
         model = load_mlframe_model(fpath)
         pre_pipeline = model.pre_pipeline
     else:
+        start = timer()
         if verbose:
             logger.info(f"Starting train_and_evaluate {target_type} {pre_pipeline_name} {model_name}, RAM usage {get_own_ram_usage():.1f}GBs...")
         model = train_and_evaluate_model(
@@ -2228,6 +2233,9 @@ def process_model(
             **common_params,
             model_name_prefix=pre_pipeline_name,
         )
+        end = timer()
+        if verbose:
+            logger.info(f"Finished training, took {end-start:.1f} sec. RAM usage {get_own_ram_usage():.1f}GBs...")
         save_mlframe_model(model, fpath)
     models[cur_target][target_type].append(model)
 
@@ -2239,8 +2247,6 @@ def process_model(
         common_params["trainset_features_stats"] = trainset_features_stats
 
     clean_ram()
-    if verbose:
-        logger.info(f"Finished training. RAM usage {get_own_ram_usage():.1f}GBs...")
 
     return trainset_features_stats, pre_pipeline
 
@@ -2506,7 +2512,7 @@ def train_mlframe_models_suite(
                         pre_pipeline_names.append(f"{model_name} ")
 
                 for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
-                    if pre_pipeline_name == "cb_rfecv" and target_type == TargetTypes.REGRESSION:
+                    if pre_pipeline_name == "cb_rfecv" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_fun") is not None:
                         # File /venv/main/lib/python3.12/site-packages/sklearn/base.py:142, in _clone_parametrized(estimator, safe)
                         # RuntimeError: Cannot clone object <catboost.core.CatBoostRegressor object at 0x713048b0e840>, as the constructor either does not set or modifies parameter custom_metric
                         continue
@@ -2514,7 +2520,7 @@ def train_mlframe_models_suite(
                     ens_models = [] if use_mlframe_ensembles else None
 
                     for model_name in mlframe_models:
-                        if model_name == "cb" and target_type == TargetTypes.REGRESSION:
+                        if model_name == "cb" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_fun") is not None:
                             continue
 
                         if model_name not in models_params:
