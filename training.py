@@ -381,6 +381,7 @@ def get_training_configs(
 
     XGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
+        learning_rate=learning_rate,
         enable_categorical=True,
         max_cat_to_onehot=1,
         max_cat_threshold=100,  # affects model size heavily when high cardinality cat features r present!
@@ -2217,6 +2218,7 @@ def process_model(
     fpath = join(model_file, fname)
     if exists(fpath):
         model = load_mlframe_model(fpath)
+        pre_pipeline = model.pre_pipeline
     else:
         if verbose:
             logger.info(f"Starting train_and_evaluate {target_type} {pre_pipeline_name} {model_name}, RAM usage {get_own_ram_usage():.1f}GBs...")
@@ -2240,7 +2242,7 @@ def process_model(
     if verbose:
         logger.info(f"Finished training. RAM usage {get_own_ram_usage():.1f}GBs...")
 
-    return trainset_features_stats
+    return trainset_features_stats, pre_pipeline
 
 
 def showcase_targets(target_types: dict):
@@ -2314,6 +2316,8 @@ def train_mlframe_models_suite(
     #
     drop_columns: list = None,
     tail: int = None,
+    #
+    nans_filler: float = 0.0,
 ) -> dict:
 
     # cb_kwargs=dict(devices='0-4')
@@ -2374,7 +2378,7 @@ def train_mlframe_models_suite(
 
         if verbose:
             logger.info(f"Converting polars df to pandas, RAM usage before: {get_own_ram_usage():.1f}GBs...")
-        pandas_df = tmp.with_columns(pl.col(pl.Float64).cast(pl.Float32)).to_pandas()
+        pandas_df = tmp.fill_null(nans_filler).with_columns(pl.col(pl.Float64).cast(pl.Float32)).to_pandas()
         if verbose:
             logger.info(f"Converted polars df to pandas, RAM usage after: {get_own_ram_usage():.1f}GBs...")
     else:
@@ -2384,6 +2388,7 @@ def train_mlframe_models_suite(
             pandas_df = pd.read_parquet(pandas_df, columns=columns)
             if verbose:
                 logger.info(f"Loaded pandas df from file, RAM usage after: {get_own_ram_usage():.1f}GBs...")
+        pandas_df = pandas_df.fillna(nans_filler)
     clean_ram()
 
     if drop_columns:
@@ -2516,7 +2521,7 @@ def train_mlframe_models_suite(
                             logger.warning(f"mlframe model {model_name} not known, skipping...")
                         else:
 
-                            trainset_features_stats = process_model(
+                            trainset_features_stats, pre_pipeline = process_model(
                                 model_file=model_file,
                                 model_name=model_name,
                                 target_type=target_type,
