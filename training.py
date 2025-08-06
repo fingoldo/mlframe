@@ -2512,7 +2512,7 @@ def train_mlframe_models_suite(
                         pre_pipeline_names.append(f"{rfecv_model_name} ")
 
                 for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
-                    if pre_pipeline_name == "cb_rfecv" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_fun") is not None:
+                    if pre_pipeline_name == "cb_rfecv" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
                         # File /venv/main/lib/python3.12/site-packages/sklearn/base.py:142, in _clone_parametrized(estimator, safe)
                         # RuntimeError: Cannot clone object <catboost.core.CatBoostRegressor object at 0x713048b0e840>, as the constructor either does not set or modifies parameter custom_metric
                         continue
@@ -2520,7 +2520,7 @@ def train_mlframe_models_suite(
                     ens_models = [] if use_mlframe_ensembles else None
 
                     for mlframe_model_name in mlframe_models:
-                        if mlframe_model_name == "cb" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_fun") is not None:
+                        if mlframe_model_name == "cb" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
                             continue
 
                         if mlframe_model_name not in models_params:
