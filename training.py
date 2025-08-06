@@ -2504,12 +2504,12 @@ def train_mlframe_models_suite(
 
                 pre_pipelines = [None]
                 pre_pipeline_names = [""]
-                for model_name in rfecv_models:
-                    if model_name not in rfecv_models_params:
-                        logger.warning(f"RFECV model {model_name} not known, skipping...")
+                for rfecv_model_name in rfecv_models:
+                    if rfecv_model_name not in rfecv_models_params:
+                        logger.warning(f"RFECV model {rfecv_model_name} not known, skipping...")
                     else:
-                        pre_pipelines.append(rfecv_models_params[model_name])
-                        pre_pipeline_names.append(f"{model_name} ")
+                        pre_pipelines.append(rfecv_models_params[rfecv_model_name])
+                        pre_pipeline_names.append(f"{rfecv_model_name} ")
 
                 for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
                     if pre_pipeline_name == "cb_rfecv" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_fun") is not None:
@@ -2519,23 +2519,23 @@ def train_mlframe_models_suite(
 
                     ens_models = [] if use_mlframe_ensembles else None
 
-                    for model_name in mlframe_models:
-                        if model_name == "cb" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_fun") is not None:
+                    for mlframe_model_name in mlframe_models:
+                        if mlframe_model_name == "cb" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_fun") is not None:
                             continue
 
-                        if model_name not in models_params:
-                            logger.warning(f"mlframe model {model_name} not known, skipping...")
+                        if mlframe_model_name not in models_params:
+                            logger.warning(f"mlframe model {modmlframe_model_nameel_name} not known, skipping...")
                         else:
 
                             trainset_features_stats, pre_pipeline = process_model(
                                 model_file=model_file,
-                                model_name=model_name,
+                                model_name=mlframe_model_name,
                                 target_type=target_type,
                                 pre_pipeline=pre_pipeline,
                                 pre_pipeline_name=pre_pipeline_name,
                                 cur_target=cur_target,
                                 models=models,
-                                model_params=models_params[model_name],
+                                model_params=models_params[mlframe_model_name],
                                 common_params=common_params,
                                 ens_models=ens_models,
                                 trainset_features_stats=trainset_features_stats,
