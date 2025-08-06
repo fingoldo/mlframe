@@ -248,7 +248,9 @@ def show_calibration_plot(
         if plot_title:
             fig.update_layout(title=plot_title)
 
-        fig.tight_layout()  # If you've added a suptitle (fig.suptitle(...)), you may want to pass rect to tight_layout() to reserve space: fig.tight_layout(rect=[0, 0, 1, 0.95])  # Leave top space for suptitle
+        fig.tight_layout(
+            rect=[0, 0, 1, 0.95]
+        )  # If you've added a suptitle (fig.suptitle(...)), you may want to pass rect to tight_layout() to reserve space: fig.tight_layout(rect=[0, 0, 1, 0.95])  # Leave top space for suptitle
 
         if plot_file:
             ext = plot_file.split(".")[-1]
