@@ -2394,7 +2394,11 @@ def train_mlframe_models_suite(
             pandas_df = pd.read_parquet(pandas_df, columns=columns)
             if verbose:
                 logger.info(f"Loaded pandas df from file, RAM usage after: {get_own_ram_usage():.1f}GBs...")
+        if verbose:
+            logger.info(f"pandas fillna started...")
         pandas_df = pandas_df.fillna(nans_filler)
+        if verbose:
+            logger.info(f"pandas fillna finished.")
     clean_ram()
 
     if drop_columns:
@@ -2410,7 +2414,7 @@ def train_mlframe_models_suite(
 
     if verbose:
         logger.info(f"preprocess_dataframe...")
-    pandas_df, target_types, group_ids, timestamps = preprocess_dataframe(pandas_df)
+    pandas_df, target_types, group_ids_raw, group_ids, timestamps = preprocess_dataframe(pandas_df)
 
     clean_ram()
 
@@ -2418,11 +2422,17 @@ def train_mlframe_models_suite(
         logger.info(f"make_train_test_split...")
     train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(df=pandas_df, timestamps=timestamps)
 
+    ensure_dir_exists(join(data_dir, models_dir, slugify(target_name), slugify(model_name)))
+
     if timestamps is not None:
         ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), "test_timestamps.parquet")
         if not exists(ts_file):
-            ensure_dir_exists(join(data_dir, models_dir, slugify(target_name), slugify(model_name)))
             timestamps.iloc[test_idx].to_frame(name="ts").to_parquet(ts_file, compression=PARQUET_COMPRESION)
+
+    if group_ids_raw is not None:
+        ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), "test_group_ids_raw.parquet")
+        if not exists(ts_file):
+            group_ids_raw.iloc[test_idx].to_frame().to_parquet(ts_file, compression=PARQUET_COMPRESION)
 
     if verbose:
         logger.info(f"creating train_df,val_df,test_df...")
