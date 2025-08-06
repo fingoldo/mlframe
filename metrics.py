@@ -202,8 +202,12 @@ def show_calibration_plot(
         plt.ylabel(label_freq)
         cbar = plt.colorbar(sc)
         cbar.set_label(colorbar_label)  # , fontsize=12
+
         if plot_title:
             plt.title(plot_title)
+            # fig.suptitle(plot_title, fontsize=10)
+
+        fig.tight_layout()  # If you've added a suptitle (fig.suptitle(...)), you may want to pass rect to tight_layout() to reserve space: fig.tight_layout(rect=[0, 0, 1, 0.95])  # Leave top space for suptitle
 
         if plot_file:
             fig.savefig(plot_file)
@@ -247,11 +251,7 @@ def show_calibration_plot(
         fig.update(layout_coloraxis_showscale=False)
 
         if plot_title:
-            fig.suptitle(plot_title, fontsize=10)
-
-        fig.tight_layout(
-            rect=[0, 0, 1, 0.90]
-        )  # If you've added a suptitle (fig.suptitle(...)), you may want to pass rect to tight_layout() to reserve space: fig.tight_layout(rect=[0, 0, 1, 0.95])  # Leave top space for suptitle
+            fig.update_layout(title=plot_title)
 
         if plot_file:
             ext = plot_file.split(".")[-1]
