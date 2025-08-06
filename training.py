@@ -2324,6 +2324,7 @@ def train_mlframe_models_suite(
     tail: int = None,
     #
     nans_filler: float = 0.0,
+    use_pandas_fillna: bool = False,
 ) -> dict:
 
     # cb_kwargs=dict(devices='0-4')
@@ -2394,11 +2395,15 @@ def train_mlframe_models_suite(
             pandas_df = pd.read_parquet(pandas_df, columns=columns)
             if verbose:
                 logger.info(f"Loaded pandas df from file, RAM usage after: {get_own_ram_usage():.1f}GBs...")
-        if verbose:
-            logger.info(f"pandas fillna started...")
-        pandas_df = pandas_df.fillna(nans_filler)
-        if verbose:
-            logger.info(f"pandas fillna finished.")
+        if use_pandas_fillna:
+            if verbose:
+                logger.info(f"pandas fillna started...")
+            pandas_df = pandas_df.fillna(nans_filler)
+            if verbose:
+                logger.info(f"pandas fillna finished.")
+        else:
+            if verbose:
+                logger.warning(f"Note tht pandas dataframe is expected to be fillna upfront, by you.")
     clean_ram()
 
     if drop_columns:
