@@ -2226,7 +2226,7 @@ def process_model(
     else:
         start = timer()
         if verbose:
-            logger.info(f"Starting train_and_evaluate {target_type} {pre_pipeline_name} {model_name}, RAM usage {get_own_ram_usage():.1f}GBs...")
+            logger.info(f"Starting train_and_evaluate {target_type} [{pre_pipeline_name}] {model_name}, RAM usage {get_own_ram_usage():.1f}GBs...")
         model = train_and_evaluate_model(
             pre_pipeline=pre_pipeline,
             **model_params,
