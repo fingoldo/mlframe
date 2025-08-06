@@ -247,7 +247,7 @@ def show_calibration_plot(
         fig.update(layout_coloraxis_showscale=False)
         if plot_title:
             fig.update_layout(title=plot_title)
-
+        fig.tight_layout()
         if plot_file:
             ext = plot_file.split(".")[-1]
             if not ext:
