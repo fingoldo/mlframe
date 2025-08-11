@@ -185,7 +185,7 @@ def find_best_mps_sequence(prices: np.ndarray, tc: float, tc_mode_is_fraction: b
     return positions, profits
 
 
-@numba.njit(fastmath=FASTMATH)()
+@numba.njit(fastmath=FASTMATH)
 def backfill_zeros_from_right(arr):
     """
     >>>
