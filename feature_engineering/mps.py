@@ -83,7 +83,7 @@ def _trade_cost(price_t, trades, tc, tc_mode_is_fraction):
 
 
 @numba.njit(fastmath=FASTMATH)
-def find_best_mps_sequence(prices: np.ndarray, tc: float, tc_mode_is_fraction: bool, dtype: object = np.float64):
+def find_best_mps_sequence(prices: np.ndarray, tc: float, tc_mode_is_fraction: bool, optimize_consecutive_regions: bool = True, dtype: object = np.float64):
     """
     prices: 1D numpy array float64 (closing prices)
     tc: transaction cost parameter (if tc_mode_is_fraction True -> fraction of price per trade,
@@ -159,21 +159,30 @@ def find_best_mps_sequence(prices: np.ndarray, tc: float, tc_mode_is_fraction: b
         positions[t] = _index_state(cur_idx)
         cur_idx = back[t, cur_idx]
 
-    # compute cumulative profits along the reconstructed path for reporting
-    profits = np.empty(m, dtype=dtype)
-    cum = 0.0
-    # we need to recompute costs on the reconstructed path to produce exact cumulative numbers
-    prev_pos = 0
-    for t in range(m):
-        new_pos = int(positions[t])
-        trades = _trade_count(prev_pos, new_pos)
-        cost = _trade_cost(prices[t], trades, tc, tc_mode_is_fraction)
-        step = new_pos * deltas[t] - cost
-        cum += step
-        profits[t] = step
-        prev_pos = new_pos
+    if optimize_consecutive_regions:
+        positions = backfill_zeros_from_right(positions)
 
-    return positions, cum, profits
+    # compute profits from current idx till the end of current area
+    profits = np.empty(m, dtype=dtype)
+
+    prev_pos = positions[-1]
+    prev_price = prices[-1]
+
+    for t in range(1, m + 1):
+        new_pos = positions[-t - 1]
+        new_price = prices[-t - 1]
+
+        if new_pos == 1:
+            profits[t] = (prev_price - new_price) / new_price
+        else:
+            profits[t] = (new_price - prev_price) / new_price
+
+        if new_pos != prev_pos:
+
+            prev_price = new_price
+            prev_pos = new_pos
+
+    return positions, profits
 
 
 @numba.njit(fastmath=FASTMATH)()
@@ -207,30 +216,27 @@ def find_maximum_profit_system(
     prices: 1D array-like of closing prices
     tc: transaction cost (fraction-of-price if tc_mode='fraction', else fixed currency)
     tc_mode: 'fraction' or 'fixed'
-    returns: dict with keys 'positions', 'total_profit', 'profits'
+    returns: dict with keys 'positions', 'profits'
 
     prices = np.array([100.0, 101.5, 100.0, 99.0, 100.5, 102.0, 101.0])
     r = find_maximum_profit_system(prices, tc=0.005, tc_mode='fraction')
     print("positions:", r['positions'])
-    print("total profit:", r['total_profit'])
     print("profits:", r['profits'])
 
     >>>
     positions: [ 1 -1 -1  1  1 -1]
-    total profit: 3.4725
     profits: [ 1.      0.485   0.5     0.51    0.9975 -0.02  ]
 
     """
     arr = np.asarray(prices, dtype=dtype)
     if tc_mode not in ("fraction", "fixed"):
         raise ValueError("tc_mode must be 'fraction' or 'fixed'")
-    positions, total_profit, profits = find_best_mps_sequence(arr, tc=float(tc), tc_mode_is_fraction=(tc_mode == "fraction"), dtype=dtype)
-    if optimize_consecutive_regions:
-        positions = backfill_zeros_from_right(positions)
+    positions, profits = find_best_mps_sequence(
+        arr, tc=float(tc), tc_mode_is_fraction=(tc_mode == "fraction"), optimize_consecutive_regions=optimize_consecutive_regions, dtype=dtype
+    )
     return {
         "positions": positions,  # length n-1 array of -1/0/1
-        "total_profit": float(total_profit),
-        "profits": profits,  # running cumulative profit after each interval
+        "profits": profits,  # running rel profit (%) form cur_idx till the end of the area
     }
 
 
