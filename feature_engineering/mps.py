@@ -96,7 +96,7 @@ def find_best_mps_sequence(prices: np.ndarray, tc: float, tc_mode_is_fraction: b
     """
     n = prices.shape[0]
     if n < 2:
-        return np.empty(0, dtype=np.int8), 0.0, np.empty(0, dtype=dtype)
+        return np.empty(0, dtype=np.int8), np.empty(0, dtype=dtype)
 
     m = n - 1  # number of intervals
     deltas = np.empty(m, dtype=dtype)
