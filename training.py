@@ -2403,7 +2403,7 @@ def train_mlframe_models_suite(
                 logger.info(f"pandas fillna finished.")
         else:
             if verbose:
-                logger.warning(f"Note tht pandas dataframe is expected to be fillna upfront, by you.")
+                logger.warning(f"Note that pandas dataframe is expected to be fillna upfront, by you.")
     clean_ram()
 
     if drop_columns:
