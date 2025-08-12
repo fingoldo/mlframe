@@ -966,8 +966,13 @@ def train_and_evaluate_model(
                         if model_obj.get_params().get("device_type") in ("gpu", "cuda"):
                             model_obj.set_params(device_type="cpu")
                             try_again = True
+                    if try_again:
+                        logger.warning(f"{model_type_name} experienced OOM on gpu, switching to cpu...")
+                elif "User defined callbacks are not supported for GPU" in str(e):
+                    if "callbacks" in fit_params:
+                        logger.warning(e)
+                        del fit_params["callbacks"]
                 if try_again:
-                    logger.warning(f"{model_type_name} experienced OOM on gpu, switching to cpu...")
                     clean_ram()
                     model.fit(train_df, train_target, **fit_params)
                 else:
