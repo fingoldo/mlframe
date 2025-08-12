@@ -971,6 +971,7 @@ def train_and_evaluate_model(
                 elif "User defined callbacks are not supported for GPU" in str(e):
                     if "callbacks" in fit_params:
                         logger.warning(e)
+                        try_again = True
                         del fit_params["callbacks"]
                 if try_again:
                     clean_ram()
