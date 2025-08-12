@@ -83,6 +83,57 @@ def _trade_cost(price_t, trades, tc, tc_mode_is_fraction):
 
 
 @numba.njit(fastmath=FASTMATH)
+def compute_area_profits(prices, positions):
+    n = prices.shape[0]
+    profits = np.zeros(n, dtype=prices.dtype)
+
+    # We will find consecutive runs of the same non-zero position,
+    # for each run, compute profit = prices[end+1] - prices[start] (or reverse if short)
+
+    # For index i in run, profit[i] = profit of run from prices[i]
+
+    start = 0
+    while start < n - 1:
+        pos = positions[start]
+
+        # If position is zero, no directional profit, profit = 0
+        if pos == 0:
+            profits[start] = 0.0
+            start += 1
+            continue
+
+        # Find the end of this run (where position changes or reaches n-1)
+        end = start
+        while end + 1 < n - 1 and positions[end + 1] == pos:
+            end += 1
+
+        # profit on the run is price difference between prices[end+1] and prices[start]
+        price_diff = prices[end + 1] - prices[start]
+
+        # For longs (pos == 1), profit is price_diff
+        # For shorts (pos == -1), profit is reversed: prices[start] - prices[end+1]
+        # But can write uniformly: pos * price_diff
+        run_profit = pos * price_diff
+
+        # Assign profit for each index in run from i=start..end
+        # profit[i] = profit from prices[i] to prices[end+1] in direction pos
+
+        # So for i in [start..end]:
+        # profit[i] = pos * (prices[end+1] - prices[i])
+
+        for i in range(start, end + 1):
+            profits[i] = pos * (prices[end + 1] - prices[i])
+
+        # For the last price index n-1, there is no next interval, so profits[n-1] = 0 by default
+
+        start = end + 1
+
+    # For last index n-1 (no position interval), profit = 0
+    profits[n - 1] = 0.0
+    return profits
+
+
+@numba.njit(fastmath=FASTMATH)
 def find_best_mps_sequence(prices: np.ndarray, tc: float, tc_mode_is_fraction: bool, optimize_consecutive_regions: bool = True, dtype: object = np.float64):
     """
     prices: 1D numpy array float64 (closing prices)
@@ -163,24 +214,7 @@ def find_best_mps_sequence(prices: np.ndarray, tc: float, tc_mode_is_fraction: b
         positions = backfill_zeros_from_right(positions)
 
     # compute profits from current idx till the end of current area
-    profits = np.empty(m, dtype=dtype)
-
-    prev_pos = positions[-1]
-    prev_price = prices[-1]
-
-    for t in range(1, m + 1):
-        new_pos = positions[-t - 1]
-        new_price = prices[-t - 1]
-
-        if new_pos == 1:
-            profits[t] = (prev_price - new_price) / new_price
-        else:
-            profits[t] = (new_price - prev_price) / new_price
-
-        if new_pos != prev_pos:
-
-            prev_price = new_price
-            prev_pos = new_pos
+    profits = compute_area_profits(prices=prices, positions=positions)
 
     return positions, profits
 
