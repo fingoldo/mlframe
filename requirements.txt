@@ -43,6 +43,8 @@ seaborn
 statsmodels
 scikit-learn
 polars
+hvplot
+altair
 python-dotenv
 polars_talib
 polars_ds
