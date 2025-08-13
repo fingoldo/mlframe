@@ -2545,7 +2545,7 @@ def train_mlframe_models_suite(
                             continue
 
                         if mlframe_model_name not in models_params:
-                            logger.warning(f"mlframe model {modmlframe_model_nameel_name} not known, skipping...")
+                            logger.warning(f"mlframe model {mlframe_model_name} not known, skipping...")
                         else:
 
                             trainset_features_stats, pre_pipeline = process_model(
