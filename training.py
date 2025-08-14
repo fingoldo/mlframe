@@ -789,7 +789,10 @@ def train_and_evaluate_model(
                     logger.info(f"Outlier rejection: received {len(val_df):_} val samples, kept {val_od_idx.sum():_}.")
                     if val_idx is not None:
                         val_idx = val_idx[val_od_idx]
-                        val_df = df.iloc[val_idx].drop(columns=real_drop_columns)
+                        if df is not None:
+                            val_df = df.iloc[val_idx].drop(columns=real_drop_columns)
+                        else:
+                            val_df = val_df.iloc[val_idx].drop(columns=real_drop_columns)
                         val_target = target.iloc[val_idx]
                     else:
                         val_df = val_df.iloc[val_od_idx, :]
