@@ -2036,7 +2036,13 @@ def clean_mlframe_model(model: SimpleNamespace) -> SimpleNamespace:
 
 
 def load_production_models(
-    models_dir: str, target_name: str, featureset_name: str, task_type=TargetTypes.BINARY_CLASSIFICATION, directions: list = [], clean_models: bool = True
+    models_dir: str,
+    target_name: str,
+    featureset_name: str,
+    task_type=TargetTypes.BINARY_CLASSIFICATION,
+    directions: list = [],
+    clean_models: bool = True,
+    model_suffix: str = "_model",
 ) -> dict:
     """Reads models from disk, instantiates SHAP explainers where possible."""
 
@@ -2058,7 +2064,7 @@ def load_production_models(
 
         final_models_dir = join(featureset_dir, direction)
 
-        for fpath in glob.glob(join(final_models_dir, f"*_model.dump")):
+        for fpath in glob.glob(join(final_models_dir, f"*{model_suffix}.dump")):
             base_model_name = basename(fpath)
 
             model = load_mlframe_model(fpath)
@@ -2066,10 +2072,10 @@ def load_production_models(
                 trainset_features_stats = model.trainset_features_stats
             if clean_models:
                 clean_mlframe_model(model)
-            model_name = base_model_name.replace(f"_model.dump", "")
+            model_name = base_model_name.replace(f"{model_suffix}.dump", "")
             models[direction][model_name] = model
 
-            calib_fpath = fpath.replace("_model.dump", "_model_postcalibrator.dump")
+            calib_fpath = fpath.replace(f"{model_suffix}.dump", "_model_postcalibrator.dump")
             if exists(calib_fpath):
                 postcalibrator = joblib.load(calib_fpath)
                 postcalibrators[direction][model_name] = postcalibrator
