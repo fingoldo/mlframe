@@ -770,16 +770,16 @@ def train_and_evaluate_model(
             train_od_idx = is_inlier == 1
             if train_od_idx.sum() < len(train_df):
                 logger.info(f"Outlier rejection: received {len(train_df):_} train samples, kept {train_od_idx.sum():_}.")
-                if train_idx is not None:
+                if train_df is not None:
+                    train_df = train_df.loc[train_od_idx, :]
+                    train_target = train_target.loc[train_od_idx]
+                elif train_idx is not None:
                     train_idx = train_idx[train_od_idx]
                     if df is not None:
                         train_df = df.iloc[train_idx].drop(columns=real_drop_columns)
                     else:
                         train_df = train_df.iloc[train_idx].drop(columns=real_drop_columns)
                     train_target = target.iloc[train_idx]
-                else:
-                    train_df = train_df.iloc[train_od_idx, :]
-                    train_target = train_target.iloc[train_od_idx]
 
             # val
             if val_df is not None and od_val_set:
@@ -787,16 +787,16 @@ def train_and_evaluate_model(
                 val_od_idx = is_inlier == 1
                 if val_od_idx.sum() < len(val_df):
                     logger.info(f"Outlier rejection: received {len(val_df):_} val samples, kept {val_od_idx.sum():_}.")
-                    if val_idx is not None:
+                    if val_df is not None:
+                        val_df = val_df.loc[val_od_idx, :]
+                        val_target = val_target.loc[val_od_idx]
+                    elif val_idx is not None:
                         val_idx = val_idx[val_od_idx]
                         if df is not None:
                             val_df = df.iloc[val_idx].drop(columns=real_drop_columns)
                         else:
                             val_df = val_df.iloc[val_idx].drop(columns=real_drop_columns)
                         val_target = target.iloc[val_idx]
-                    else:
-                        val_df = val_df.iloc[val_od_idx, :]
-                        val_target = val_target.iloc[val_od_idx]
                 clean_ram()
 
     if model is not None and pre_pipeline:
