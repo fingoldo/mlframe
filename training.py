@@ -770,11 +770,11 @@ def train_and_evaluate_model(
             train_od_idx = is_inlier == 1
             if train_od_idx.sum() < len(train_df):
                 logger.info(f"Outlier rejection: received {len(train_df):_} train samples, kept {train_od_idx.sum():_}.")
+                train_idx = train_idx[train_od_idx]
                 if train_df is not None:
                     train_df = train_df.loc[train_od_idx, :]
                     train_target = train_target.loc[train_od_idx]
-                elif train_idx is not None:
-                    train_idx = train_idx[train_od_idx]
+                elif train_idx is not None:                    
                     if df is not None:
                         train_df = df.iloc[train_idx].drop(columns=real_drop_columns)
                     else:
@@ -787,11 +787,11 @@ def train_and_evaluate_model(
                 val_od_idx = is_inlier == 1
                 if val_od_idx.sum() < len(val_df):
                     logger.info(f"Outlier rejection: received {len(val_df):_} val samples, kept {val_od_idx.sum():_}.")
+                    val_idx = val_idx[val_od_idx]
                     if val_df is not None:
                         val_df = val_df.loc[val_od_idx, :]
                         val_target = val_target.loc[val_od_idx]
-                    elif val_idx is not None:
-                        val_idx = val_idx[val_od_idx]
+                    elif val_idx is not None:                        
                         if df is not None:
                             val_df = df.iloc[val_idx].drop(columns=real_drop_columns)
                         else:
@@ -2244,7 +2244,7 @@ def process_model(
     else:
         start = timer()
         if verbose:
-            logger.info(f"Starting train_and_evaluate {target_type} [{pre_pipeline_name}] {model_name}, RAM usage {get_own_ram_usage():.1f}GBs...")
+            logger.info(f"Starting train_and_evaluate {target_type} {pre_pipeline_name if pre_pipeline_name else ""} {model_name} {cur_target}, RAM usage {get_own_ram_usage():.1f}GBs...")
         model = train_and_evaluate_model(
             pre_pipeline=pre_pipeline,
             **model_params,
