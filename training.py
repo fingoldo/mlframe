@@ -667,7 +667,7 @@ def train_and_evaluate_model(
     Supports early stopping via val_idx.
     Optionally dumps resulting model & test set predictions into the models dir, and loads back by model name on the next call, to save time.
     Example of real OD:
-        outlier_detector=Pipeline([("enc",ColumnTransformer(transformers=[('enc', ce.CatBoostEncoder(),['secid'])],remainder='passthrough')),("imp", SimpleImputer()), ("est", IsolationForest(contamination=0.01,n_estimators=500,n_jobs=-1))])
+        outlier_detector=Pipeline([("enc",ce.CatBoostEncoder()),("imp", SimpleImputer()), ("est", IsolationForest(contamination=0.01,n_estimators=500,n_jobs=-1))]))
 
     train_idx etc indices must be fet to .iloc[] after, ie, be integer & unique
 
@@ -772,7 +772,10 @@ def train_and_evaluate_model(
                 logger.info(f"Outlier rejection: received {len(train_df):_} train samples, kept {train_od_idx.sum():_}.")
                 if train_idx is not None:
                     train_idx = train_idx[train_od_idx]
-                    train_df = df.iloc[train_idx].drop(columns=real_drop_columns)
+                    if df is not None:
+                        train_df = df.iloc[train_idx].drop(columns=real_drop_columns)
+                    else:
+                        train_df = train_df.iloc[train_idx].drop(columns=real_drop_columns)
                     train_target = target.iloc[train_idx]
                 else:
                     train_df = train_df.iloc[train_od_idx, :]
