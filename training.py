@@ -2449,7 +2449,7 @@ def train_mlframe_models_suite(
 
     if verbose:
         logger.info(f"make_train_test_split...")
-    train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(df=pandas_df, timestamps=timestamps,test_size=test_size, val_size=val_size, shuffleshuffle,trainset_aging_limit=trainset_aging_limit)
+    train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(df=pandas_df, timestamps=timestamps,test_size=test_size, val_size=val_size, shuffle=shuffle,trainset_aging_limit=trainset_aging_limit)
 
     ensure_dir_exists(join(data_dir, models_dir, slugify(target_name), slugify(model_name)))
 
