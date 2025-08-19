@@ -2115,7 +2115,8 @@ def make_train_test_split(df: pd.DataFrame, timestamps: pd.Series, test_size: fl
     train_idx, val_idx = train_test_split(train_idx, test_size=val_size, shuffle=shuffle)
 
     if trainset_aging_limit:
-        train_idx=train_idx[int(len(train_idx)*trainset_aging_limit):]
+        assert trainset_aging_limit>0 and trainset_aging_limit<1.0
+        train_idx=train_idx[int(len(train_idx)*(1-trainset_aging_limit)):]
         
     train_details: str = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
     val_details: str = f"{timestamps.iloc[val_idx].min():%Y-%m-%d}/{timestamps.iloc[val_idx].max():%Y-%m-%d}"
@@ -2347,7 +2348,7 @@ def train_mlframe_models_suite(
     nans_filler: float = 0.0,
     use_pandas_fillna: bool = False,
     #
-    trainset_aging_limit:float=None
+    test_size: float = 0.1, val_size: float = 0.1, shuffle: bool = False,trainset_aging_limit:float=None
 ) -> dict:
 
     # cb_kwargs=dict(devices='0-4')
@@ -2448,7 +2449,7 @@ def train_mlframe_models_suite(
 
     if verbose:
         logger.info(f"make_train_test_split...")
-    train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(df=pandas_df, timestamps=timestamps,trainset_aging_limit=trainset_aging_limit)
+    train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(df=pandas_df, timestamps=timestamps,test_size=test_size, val_size=val_size, shuffleshuffle,trainset_aging_limit=trainset_aging_limit)
 
     ensure_dir_exists(join(data_dir, models_dir, slugify(target_name), slugify(model_name)))
 
