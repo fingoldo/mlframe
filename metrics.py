@@ -216,8 +216,17 @@ def show_calibration_plot(
         cbar.set_label(colorbar_label)
 
         # Add population labels near each scatter point
+        vertical_offset = 0.02
         for x, y, hit in zip(freqs_predicted, freqs_true, hits):
-            plt.text(x, y, format_population(hit), fontsize=8, ha="right", va="bottom", bbox=dict(facecolor="white", alpha=0.8, edgecolor="none", pad=1))
+            plt.text(
+                x,
+                y + vertical_offset,
+                format_population(hit),
+                fontsize=8,
+                ha="right",
+                va="bottom",
+                bbox=dict(facecolor="white", alpha=0.8, edgecolor="none", pad=1),
+            )
 
         if plot_title:
             plt.title(plot_title)
