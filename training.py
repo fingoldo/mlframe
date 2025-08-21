@@ -2060,7 +2060,7 @@ def load_production_models(
 
     logger.info(f"Loading trained production {featureset_name} {task_type} models for target {target_name}...")
 
-    featureset_dir = join(models_dir, target_name, featureset_name, task_type)
+    featureset_dir = join(models_dir, slugify(target_name), slugify(featureset_name), task_type)
     trainset_features_stats = None
     for direction in tqdmu(directions, desc="direction", leave=False):
 

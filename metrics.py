@@ -657,7 +657,7 @@ def fast_calibration_report(
         if mean_group_pr_auc is not None:
             metrics_string += f"[{mean_group_pr_auc:.{ndigits}f}]"
 
-    metrics_string += f"PR={precision:.{ndigits}f},RE={recall:.{ndigits}f},F1={f1:.{ndigits}f}"
+        metrics_string += f", PR={precision*100:.{ndigits}f}%,RE={recall*100:.{ndigits}f}%,F1={f1:.{ndigits}f}"
 
     if plot_file or show_plots:
 
