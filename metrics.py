@@ -194,28 +194,46 @@ def show_calibration_plot(
     x_min, x_max = np.min(freqs_predicted), np.max(freqs_predicted)
 
     if backend == "matplotlib":
-        # Create figure with two subplots, sharing x-axis
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize, sharex=True, gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05}, constrained_layout=True)
+        # Function to format hits values with B, M, K suffixes
+        def format_population(n):
+            if n >= 1e9:
+                return f"{n/1e9:.1f}B"
+            elif n >= 1e6:
+                return f"{n/1e6:.1f}M"
+            elif n >= 1e3:
+                return f"{n/1e3:.1f}K"
+            else:
+                return f"{n:.0f}"
 
-        # Top plot: Scatter plot (original calibration plot)
+        # Create figure
         cm = plt.cm.get_cmap("RdYlBu")
-        sc = ax1.scatter(x=freqs_predicted, y=freqs_true, marker="o", s=5000 * hits / hits.sum(), c=hits, label=label_freq, cmap=cm)
-        ax1.plot([min(freqs_predicted), max(freqs_predicted)], [min(freqs_predicted), max(freqs_predicted)], "g--", label=label_perfect)
-        ax1.set_ylabel(label_freq)
-        ax1.legend()
-        cbar = fig.colorbar(sc, ax=ax1)
+        fig = plt.figure(figsize=figsize)
+        sc = plt.scatter(x=freqs_predicted, y=freqs_true, marker="o", s=5000 * hits / hits.sum(), c=hits, label=label_freq, cmap=cm)
+        plt.plot([min(freqs_predicted), max(freqs_predicted)], [min(freqs_predicted), max(freqs_predicted)], "g--", label=label_perfect)
+        plt.xlabel(label_prob)
+        plt.ylabel(label_freq)
+        cbar = plt.colorbar(sc)
         cbar.set_label(colorbar_label)
 
+        # Add population labels near each scatter point
+        for x, y, hit in zip(freqs_predicted, freqs_true, hits):
+            plt.text(x, y, format_population(hit), fontsize=8, ha="right", va="bottom", bbox=dict(facecolor="white", alpha=0.8, edgecolor="none", pad=1))
+
         if plot_title:
-            ax1.set_title(plot_title)
+            plt.title(plot_title)
 
-        # Bottom plot: Bar plot of hits
-        ax2.bar(freqs_predicted, hits, width=np.diff(freqs_predicted).mean() * 0.8, align="center")
-        ax2.set_xlabel(label_prob)
-        ax2.set_ylabel("Number of Samples")
+        # Use constrained_layout to avoid issues with colorbar
+        fig.set_constrained_layout(True)
 
-        # Adjust layout to prevent overlap
-        # fig.tight_layout()
+        if plot_file:
+            fig.savefig(plot_file)
+
+        if show_plots:
+            plt.ion()
+            plt.show()
+        else:
+            plt.close(fig)
+
     else:
 
         df = pd.DataFrame(
