@@ -607,7 +607,7 @@ def fast_calibration_report(
     )
     ll = log_loss(y_true=y_true, y_pred=y_pred)
 
-    precision, recall, f1 = compute_pr_recall_f1_metrics(y_truey_true, y_pred=y_pred >= binary_threshold)
+    precision, recall, f1 = compute_pr_recall_f1_metrics(y_true=y_true, y_pred=y_pred >= binary_threshold)
 
     metrics_string = f"ICE={ice:.{ndigits}f}"
     if show_brier_loss_in_title:
