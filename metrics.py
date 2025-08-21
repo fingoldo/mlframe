@@ -194,29 +194,28 @@ def show_calibration_plot(
     x_min, x_max = np.min(freqs_predicted), np.max(freqs_predicted)
 
     if backend == "matplotlib":
+        # Create figure with two subplots, sharing x-axis
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize, sharex=True, gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05})
+
+        # Top plot: Scatter plot (original calibration plot)
         cm = plt.cm.get_cmap("RdYlBu")
-        fig = plt.figure(figsize=figsize)
-        sc = plt.scatter(x=freqs_predicted, y=freqs_true, marker="o", s=5000 * hits / hits.sum(), c=hits, label=label_freq, cmap=cm)
-        plt.plot([x_min, x_max], [x_min, x_max], "g--", label=label_perfect)
-        plt.xlabel(label_prob)
-        plt.ylabel(label_freq)
-        cbar = plt.colorbar(sc)
-        cbar.set_label(colorbar_label)  # , fontsize=12
+        sc = ax1.scatter(x=freqs_predicted, y=freqs_true, marker="o", s=5000 * hits / hits.sum(), c=hits, label=label_freq, cmap=cm)
+        ax1.plot([min(freqs_predicted), max(freqs_predicted)], [min(freqs_predicted), max(freqs_predicted)], "g--", label=label_perfect)
+        ax1.set_ylabel(label_freq)
+        ax1.legend()
+        cbar = fig.colorbar(sc, ax=ax1)
+        cbar.set_label(colorbar_label)
 
         if plot_title:
-            plt.title(plot_title)
-            # fig.suptitle(plot_title, fontsize=10)
+            ax1.set_title(plot_title)
 
-        fig.tight_layout()  # If you've added a suptitle (fig.suptitle(...)), you may want to pass rect to tight_layout() to reserve space: fig.tight_layout(rect=[0, 0, 1, 0.95])  # Leave top space for suptitle
+        # Bottom plot: Bar plot of hits
+        ax2.bar(freqs_predicted, hits, width=np.diff(freqs_predicted).mean() * 0.8, align="center")
+        ax2.set_xlabel(label_prob)
+        ax2.set_ylabel("Number of Samples")
 
-        if plot_file:
-            fig.savefig(plot_file)
-
-        if show_plots:
-            plt.ion()
-            plt.show()
-        else:
-            plt.close(fig)
+        # Adjust layout to prevent overlap
+        fig.tight_layout()
     else:
 
         df = pd.DataFrame(
@@ -524,6 +523,33 @@ def compute_mean_aucs_per_group(group_aucs: dict) -> tuple:
     return mean_roc_auc, mean_pr_auc
 
 
+@njit()
+def compute_pr_recall_f1_metrics(y_true, y_pred):
+    TP = 0
+    FP = 0
+    FN = 0
+
+    # Calculate TP, FP, FN
+    for i in range(len(y_true)):
+        if y_true[i] == 1 and y_pred[i] == 1:
+            TP += 1
+        elif y_true[i] == 0 and y_pred[i] == 1:
+            FP += 1
+        elif y_true[i] == 1 and y_pred[i] == 0:
+            FN += 1
+
+    # Precision
+    precision = TP / (TP + FP) if (TP + FP) > 0 else 0.0
+
+    # Recall
+    recall = TP / (TP + FN) if (TP + FN) > 0 else 0.0
+
+    # F1 Score
+    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+
+    return precision, recall, f1
+
+
 def fast_calibration_report(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -546,9 +572,11 @@ def fast_calibration_report(
     use_weights: bool = True,
     verbose: bool = False,
     group_ids: np.ndarray = None,
+    binary_threshold: float = 0.5,
     **ice_kwargs,
 ):
-    """Bins predictions, then computes regresison-like error metrics between desired and real binned probs."""
+    """Bins predictions, then computes regresison-like error metrics between desired and real binned probs.
+    Input arrays y_true and y_pred are 1d."""
 
     assert backend in ("plotly", "matplotlib")
 
@@ -579,6 +607,8 @@ def fast_calibration_report(
     )
     ll = log_loss(y_true=y_true, y_pred=y_pred)
 
+    precision, recall, f1 = compute_pr_recall_f1_metrics(y_truey_true, y_pred=y_pred >= binary_threshold)
+
     metrics_string = f"ICE={ice:.{ndigits}f}"
     if show_brier_loss_in_title:
         metrics_string += f", BR={brier_loss*100:.{ndigits}f}%"
@@ -600,6 +630,8 @@ def fast_calibration_report(
         if mean_group_pr_auc is not None:
             metrics_string += f"[{mean_group_pr_auc:.{ndigits}f}]"
 
+    metrics_string += f"PR={precision:.{ndigits}f},RE={recall:.{ndigits}f},F1={f1:.{ndigits}f}"
+
     if plot_file or show_plots:
 
         plot_title = metrics_string
@@ -618,7 +650,7 @@ def fast_calibration_report(
             backend=backend,
         )
 
-    return brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, metrics_string, fig
+    return brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, precision, recall, f1, metrics_string, fig
 
 
 def predictions_time_instability(preds: pd.Series) -> float:
