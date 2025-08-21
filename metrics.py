@@ -225,7 +225,7 @@ def show_calibration_plot(
                 fontsize=8,
                 ha="right",
                 va="bottom",
-                bbox=dict(facecolor="white", alpha=0.8, edgecolor="none", pad=1),
+                # bbox=dict(facecolor="white", alpha=0.8, edgecolor="none", pad=1),
             )
 
         if plot_title:
