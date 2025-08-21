@@ -223,7 +223,7 @@ def show_calibration_plot(
             plt.title(plot_title)
 
         # Use constrained_layout to avoid issues with colorbar
-        fig.set_constrained_layout(True)
+        fig.tight_layout()
 
         if plot_file:
             fig.savefig(plot_file)
