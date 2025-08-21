@@ -195,7 +195,7 @@ def show_calibration_plot(
 
     if backend == "matplotlib":
         # Create figure with two subplots, sharing x-axis
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize, sharex=True, gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05})
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize, sharex=True, gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05}, constrained_layout=True)
 
         # Top plot: Scatter plot (original calibration plot)
         cm = plt.cm.get_cmap("RdYlBu")
@@ -215,7 +215,7 @@ def show_calibration_plot(
         ax2.set_ylabel("Number of Samples")
 
         # Adjust layout to prevent overlap
-        fig.tight_layout()
+        # fig.tight_layout()
     else:
 
         df = pd.DataFrame(
