@@ -344,3 +344,40 @@ def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=da
         volumes[i] = vol
 
     return dates, prices, volumes
+
+
+def compute_mps_targets(
+    fpath: str = None,
+    fo_df: pl.DataFrame = None,
+    price_col: str = "pr_close",
+    tc: float = 1e-10,
+    dtype: object = np.float64,
+    tc_mode_is_fraction: bool = True,
+    optimize_consecutive_regions: bool = True,
+) -> pl.DataFrame:
+
+    if fo_df is None:
+        try:
+            fo_df = pl.read_parquet(fpath, columns="ts secid".split() + [price_col], allow_missing_columns=True).sort("ts")
+        except Exception as e:
+            logger.warning(f"File {fpath}, error {e}")
+            return
+
+    grouped_df = fo_df.sort("secid", "ts").group_by("secid").agg(pl.col("ts"), pl.col(price_col).fill_null(strategy="forward").fill_null(strategy="backward"))
+
+    targets_df = []
+    for row in grouped_df.iter_rows(named=True):
+        prices = np.array(row[price_col])
+        if prices[0] is not None:
+            positions, profits = find_best_mps_sequence(
+                prices, tc=float(tc), tc_mode_is_fraction=tc_mode_is_fraction, optimize_consecutive_regions=optimize_consecutive_regions, dtype=dtype
+            )
+            targets_df.append(
+                pl.DataFrame(
+                    dict(ts=row["ts"][:-1], secid=[row["secid"]] * (len(prices) - 1), OPTIMAL_POSITION=positions, OPTIMAL_PROFIT=profits[:-1] / prices[:-1])
+                )
+            )
+
+    # targets_df=pl.concat(targets_df)
+    targets_df = pl.concat([el for el in targets_df if el is not None and len(el) > 0])
+    return targets_df
