@@ -774,7 +774,7 @@ def train_and_evaluate_model(
                 if train_df is not None:
                     train_df = train_df.loc[train_od_idx, :]
                     train_target = train_target.loc[train_od_idx]
-                elif train_idx is not None:                    
+                elif train_idx is not None:
                     if df is not None:
                         train_df = df.iloc[train_idx].drop(columns=real_drop_columns)
                     else:
@@ -791,7 +791,7 @@ def train_and_evaluate_model(
                     if val_df is not None:
                         val_df = val_df.loc[val_od_idx, :]
                         val_target = val_target.loc[val_od_idx]
-                    elif val_idx is not None:                        
+                    elif val_idx is not None:
                         if df is not None:
                             val_df = df.iloc[val_idx].drop(columns=real_drop_columns)
                         else:
@@ -2109,15 +2109,17 @@ def load_production_models(
 # Training Suite
 
 
-def make_train_test_split(df: pd.DataFrame, timestamps: pd.Series, test_size: float = 0.1, val_size: float = 0.1, shuffle: bool = False,trainset_aging_limit:float=None) -> tuple:
+def make_train_test_split(
+    df: pd.DataFrame, timestamps: pd.Series, test_size: float = 0.1, val_size: float = 0.1, shuffle: bool = False, trainset_aging_limit: float = None
+) -> tuple:
 
     train_idx, test_idx = train_test_split(np.arange(len(df)), test_size=test_size, shuffle=shuffle)
     train_idx, val_idx = train_test_split(train_idx, test_size=val_size, shuffle=shuffle)
 
     if trainset_aging_limit:
-        assert trainset_aging_limit>0 and trainset_aging_limit<1.0
-        train_idx=train_idx[int(len(train_idx)*(1-trainset_aging_limit)):]
-        
+        assert trainset_aging_limit > 0 and trainset_aging_limit < 1.0
+        train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)) :]
+
     train_details: str = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
     val_details: str = f"{timestamps.iloc[val_idx].min():%Y-%m-%d}/{timestamps.iloc[val_idx].max():%Y-%m-%d}"
     test_details: str = f"{timestamps.iloc[test_idx].min():%Y-%m-%d}/{timestamps.iloc[test_idx].max():%Y-%m-%d}"
@@ -2248,7 +2250,9 @@ def process_model(
     else:
         start = timer()
         if verbose:
-            logger.info(f"Starting train_and_evaluate {target_type} {pre_pipeline_name.strip() if pre_pipeline_name else ""} {model_name.strip()} {cur_target}, RAM usage {get_own_ram_usage():.1f}GBs...")
+            logger.info(
+                f"Starting train_and_evaluate {target_type} {pre_pipeline_name.strip() if pre_pipeline_name else ''} {model_name.strip()} {cur_target}, RAM usage {get_own_ram_usage():.1f}GBs..."
+            )
         model = train_and_evaluate_model(
             pre_pipeline=pre_pipeline,
             **model_params,
@@ -2348,7 +2352,10 @@ def train_mlframe_models_suite(
     nans_filler: float = 0.0,
     use_pandas_fillna: bool = False,
     #
-    test_size: float = 0.1, val_size: float = 0.1, shuffle: bool = False,trainset_aging_limit:float=None
+    test_size: float = 0.1,
+    val_size: float = 0.1,
+    shuffle: bool = False,
+    trainset_aging_limit: float = None,
 ) -> dict:
 
     # cb_kwargs=dict(devices='0-4')
@@ -2449,7 +2456,9 @@ def train_mlframe_models_suite(
 
     if verbose:
         logger.info(f"make_train_test_split...")
-    train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(df=pandas_df, timestamps=timestamps,test_size=test_size, val_size=val_size, shuffle=shuffle,trainset_aging_limit=trainset_aging_limit)
+    train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
+        df=pandas_df, timestamps=timestamps, test_size=test_size, val_size=val_size, shuffle=shuffle, trainset_aging_limit=trainset_aging_limit
+    )
 
     ensure_dir_exists(join(data_dir, models_dir, slugify(target_name), slugify(model_name)))
 
