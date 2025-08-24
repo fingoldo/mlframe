@@ -2321,6 +2321,7 @@ def train_mlframe_models_suite(
     models_dir: str = MODELS_SUBDIR,
     #
     mlframe_models: list = None,
+    use_ordinary_models: bool = True,
     use_mlframe_ensembles: bool = True,
     #
     use_autogluon_models: bool = False,
@@ -2550,8 +2551,13 @@ def train_mlframe_models_suite(
                     ),
                 )
 
-                pre_pipelines = [None]
-                pre_pipeline_names = [""]
+                pre_pipelines = []
+                pre_pipeline_names = []
+
+                if use_ordinary_models:
+                    pre_pipelines.append(None)
+                    pre_pipeline_names.append("")
+
                 for rfecv_model_name in rfecv_models:
                     if rfecv_model_name not in rfecv_models_params:
                         logger.warning(f"RFECV model {rfecv_model_name} not known, skipping...")
