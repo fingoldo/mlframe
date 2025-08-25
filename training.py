@@ -2999,3 +2999,47 @@ class CatBoostCallback(UniversalCallback):
         if self.monitor_metric is None:
             self.set_default_monitor_metric(metrics_dict)
         return not self.should_stop()
+
+
+def read_oos_predictions(
+    models: list,
+    models_dir: str,
+    max_mae: float = 0,
+    max_std: float = 0,
+    ensure_prob_limits: bool = True,
+    uncertainty_quantile: float = 0.3,
+    normalize_stds_by_mean_preds: bool = False,
+    verbose: int = 1,
+) -> pl.DataFrame:
+
+    res = {}
+
+    test_timestamps = pl.read_parquet(join(models_dir, "test_timestamps.parquet"))
+    test_group_ids_raw = pl.read_parquet(join(models_dir, "test_group_ids_raw.parquet"))
+
+    res["ts"] = test_timestamps["ts"]
+    res["secid"] = test_group_ids_raw["secid"]
+    for target_name, submodels in models.items():
+        all_models_predictions = []
+        for model_name, model in submodels.items():
+            key = f"{target_name}-{model_name}"
+            if model.test_probs is not None:
+                res[key] = model.test_probs[:, 1]
+                all_models_predictions.append(model.test_probs)
+            else:
+                res[key] = model.test_preds
+        for ensembling_method in ("harm", "arithm", "median", "quad", "qube", "geo"):
+            ensembled_predictions, predictions_stds, confident_indices = ensemble_probabilistic_predictions(
+                *all_models_predictions,
+                ensemble_method=ensembling_method,
+                max_mae=max_mae,
+                max_std=max_std,
+                ensure_prob_limits=ensure_prob_limits,
+                uncertainty_quantile=uncertainty_quantile,
+                normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+                verbose=verbose,
+            )
+            res[f"{target_name}_ens_{ensembling_method}"] = ensembled_predictions[:, 1]
+
+    predictions_df = pl.DataFrame(res)
+    return predictions_df
