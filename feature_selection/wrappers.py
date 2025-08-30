@@ -230,6 +230,8 @@ class RFECV(BaseEstimator, TransformerMixin):
         skip_retraining_on_same_shape: bool = True,
         stop_file: str = "stop",
         report_ndigits: int = 4,
+        #
+        special_feature_indices: list = None,
     ):
 
         # checks
@@ -420,20 +422,24 @@ class RFECV(BaseEstimator, TransformerMixin):
 
             clean_ram()
 
-            current_features = get_next_features_subset(
-                nsteps=nsteps,
-                original_features=original_features,
-                feature_importances=feature_importances,
-                evaluated_scores_mean=evaluated_scores_mean,
-                evaluated_scores_std=evaluated_scores_std,
-                use_all_fi_runs=use_all_fi_runs,
-                use_last_fi_run_only=use_last_fi_run_only,
-                use_one_freshest_fi_run=use_one_freshest_fi_run,
-                use_fi_ranking=use_fi_ranking,
-                top_predictors_search_method=top_predictors_search_method,
-                votes_aggregation_method=votes_aggregation_method,
-                Optimizer=Optimizer,
-            )
+            if self.special_feature_indices is not None:
+                current_features = self.special_feature_indices
+            else:
+
+                current_features = get_next_features_subset(
+                    nsteps=nsteps,
+                    original_features=original_features,
+                    feature_importances=feature_importances,
+                    evaluated_scores_mean=evaluated_scores_mean,
+                    evaluated_scores_std=evaluated_scores_std,
+                    use_all_fi_runs=use_all_fi_runs,
+                    use_last_fi_run_only=use_last_fi_run_only,
+                    use_one_freshest_fi_run=use_one_freshest_fi_run,
+                    use_fi_ranking=use_fi_ranking,
+                    top_predictors_search_method=top_predictors_search_method,
+                    votes_aggregation_method=votes_aggregation_method,
+                    Optimizer=Optimizer,
+                )
 
             if current_features is None or len(current_features) == 0:
                 break  # nothing more to try
@@ -645,6 +651,9 @@ class RFECV(BaseEstimator, TransformerMixin):
                     logger.info(f"Max # of noimproved iters reached: {n_noimproving_iters}")
                 break
 
+            if self.special_feature_indices is not None:
+                break
+
         # ----------------------------------------------------------------------------------------------------------------------------
         # Saving best result found so far as final
         # ----------------------------------------------------------------------------------------------------------------------------
@@ -685,7 +694,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         cv_mean_perf: np.ndarray,
         cv_std_perf: np.ndarray,
         feature_cost: float = 0.00 / 100,
-        smooth_perf: int = 0,
+        smooth_perf: int = 3,
         use_all_fi_runs: bool = True,
         use_last_fi_run_only: bool = False,
         use_one_freshest_fi_run: bool = False,
