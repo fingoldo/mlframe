@@ -3132,6 +3132,7 @@ def compute_models_perf(
 
 
 def compute_perf_by_time(
+    predictions_df: pl.DataFrame,
     directions: list,
     group_field: str = None,
     show_perf_chart: bool = True,
