@@ -3023,8 +3023,8 @@ def read_oos_predictions(
     res[group_field] = test_group_ids_raw[group_field]
     for target_name, submodels in models.items():
         all_models_predictions = []
-        res[target_name] = model.test_target
         for model_name, model in submodels.items():
+            res[target_name] = model.test_target
             key = f"{target_name}-{model_name}"
             if model.test_probs is not None:
                 res[key] = model.test_probs[:, 1]
