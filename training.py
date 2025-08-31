@@ -3009,6 +3009,8 @@ def read_oos_predictions(
     ensure_prob_limits: bool = True,
     uncertainty_quantile: float = 0.3,
     normalize_stds_by_mean_preds: bool = False,
+    ts_field: str = "ts",
+    group_field: str = "secid",
     verbose: int = 1,
 ) -> pl.DataFrame:
 
@@ -3017,10 +3019,11 @@ def read_oos_predictions(
     test_timestamps = pl.read_parquet(join(models_dir, "test_timestamps.parquet"))
     test_group_ids_raw = pl.read_parquet(join(models_dir, "test_group_ids_raw.parquet"))
 
-    res["ts"] = test_timestamps["ts"]
-    res["secid"] = test_group_ids_raw["secid"]
+    res[ts_field] = test_timestamps[ts_field]
+    res[group_field] = test_group_ids_raw[group_field]
     for target_name, submodels in models.items():
         all_models_predictions = []
+        res[target_name] = model.test_target
         for model_name, model in submodels.items():
             key = f"{target_name}-{model_name}"
             if model.test_probs is not None:
