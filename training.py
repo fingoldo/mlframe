@@ -3042,7 +3042,7 @@ def read_oos_predictions(
                 normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
                 verbose=verbose,
             )
-            res[f"{target_name}_ens_{ensembling_method}"] = ensembled_predictions[:, 1]
+            res[f"{target_name}-ens_{ensembling_method}"] = ensembled_predictions[:, 1]
 
     predictions_df = pl.DataFrame(res)
     return predictions_df
