@@ -2457,6 +2457,7 @@ def train_mlframe_models_suite(
 
     if verbose:
         logger.info(f"make_train_test_split...")
+
     train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
         df=pandas_df, timestamps=timestamps, test_size=test_size, val_size=val_size, shuffle=shuffle, trainset_aging_limit=trainset_aging_limit
     )
@@ -2787,7 +2788,7 @@ def train_and_evaluate_lama(
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
-# Early stopping
+# Early stopping & callbacks
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -3001,6 +3002,11 @@ class CatBoostCallback(UniversalCallback):
         return not self.should_stop()
 
 
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Post-modelling stuff
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
 def read_oos_predictions(
     models: list,
     models_dir: str,
@@ -3046,3 +3052,145 @@ def read_oos_predictions(
 
     predictions_df = pl.DataFrame(res)
     return predictions_df
+
+
+def compute_models_perf(
+    df: pl.DataFrame,
+    directions: list,
+    report_title: str,
+    charts_dir: str = None,
+    group_field: str = "secid",
+    suffixes=["_prob"],
+    direct_order: bool = True,
+    show_perf_chart: bool = True,
+):
+
+    report_params = {
+        "report_ndigits": 2,
+        "calib_report_ndigits": 2,
+        "print_report": False,
+        "report_title": report_title,
+        "use_weights": True,
+        "show_perf_chart": show_perf_chart,
+    }
+
+    models = "cb lgb xgb ens_harm".split()
+
+    metrics = {}
+
+    group_ids = df[group_field].to_numpy()
+    unique_vals, group_ids = np.unique(group_ids, return_inverse=True)
+
+    for direction in directions:
+        for model in models:
+            for suffix in suffixes:
+
+                if direct_order:
+                    model_name = f"{model}_{direction}{suffix}"
+                else:
+                    model_name = f"{direction}-{model}{suffix}"
+
+                prob_col = f"{model_name}"
+                if prob_col not in df:
+                    prob_col = f"{model_name}_probs"
+                    if prob_col not in df:
+                        continue
+
+                if False:
+                    up = "UP" in model_name
+                    if up:
+                        targets = (df[f"target_UP"].to_numpy() >= MIN_SIGNIFICANT_LONG_RETURN).astype(np.int8)
+                    else:
+                        targets = (df[f"target_DOWN"].to_numpy() >= MIN_SIGNIFICANT_SHORT_RETURN).astype(np.int8)
+
+                up = "_BUY" in model_name
+                targets = df[direction].to_numpy().astype(np.int8)
+
+                probs = df[prob_col].to_numpy()
+                probs = np.vstack([1 - probs, probs]).T
+
+                metrics[model_name] = {}
+                _, _ = report_model_perf(
+                    targets=targets,
+                    columns=None,
+                    df=None,
+                    model_name=f"{model_name}",
+                    model=None,
+                    target_label_encoder=None,
+                    preds=None,
+                    probs=probs,
+                    plot_file=join(charts_dir, model_name) if charts_dir else None,
+                    metrics=metrics[model_name],
+                    group_ids=group_ids,
+                    **report_params,
+                )
+
+    metrics = pd.DataFrame(metrics).T
+    metrics = metrics.drop(columns=[1]).join(metrics[1].apply(pd.Series)).drop(columns=["feature_importances", "class_integral_error"]).sort_values("ice")
+
+    return metrics
+
+
+def compute_perf_by_time(
+    directions: list,
+    group_field: str = None,
+    show_perf_chart: bool = True,
+    ts_field: str = "ts",
+    truncate_to: str = "1mo",
+    truncated_interval_name: str = "month",
+):
+    dfs = []
+    for mo, df in tqdmu(predictions_df.group_by(pl.col(ts_field).dt.truncate(truncate_to), maintain_order=True)):
+        if show_perf_chart:
+            fields = dict(
+                npredictions=pl.len(),
+                min_date=pl.col(ts_field).min().dt.date(),
+                max_date=pl.col(ts_field).max().dt.date(),
+            )
+            if group_field:
+                fields[group_field] = pl.col(group_field).n_unique()
+
+            stats: dict = df.select(**fields).row(0, named=True)
+
+            report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {stats[group_field]/1000:_.1f}K {group_field} "
+        else:
+            report_title = ""
+
+        res = compute_models_perf(df=df, directions=directions, report_title=report_title, suffixes=[""], direct_order=False, show_perf_chart=show_perf_chart)
+
+        res = res.reset_index(drop=False, names="model")
+        res[truncated_interval_name] = mo[0]
+        dfs.append(res)
+
+    dfs = pd.concat(dfs).sort_values(["model", truncated_interval_name])
+    return dfs
+
+
+def visualize_ml_metric_by_time(
+    metric: str = "ice",
+    rotation: float = 45,
+    good_metric_threshold: float = 0.0,
+    good_color="green",
+    bad_color="red",
+    higher_is_better: bool = False,
+    truncated_interval_name: str = "month",
+):
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
+
+    for model in dfs.model.unique():
+        tmp = dfs[dfs.model == model].set_index(truncated_interval_name)
+        ax = tmp.plot(y=metric, kind="bar", title=f"{metric.upper()} of {model}: mean={tmp[metric].mean():.3f}, std={tmp[metric].std():.3f}")
+        ax.xaxis.set_major_formatter(plt.FixedFormatter(tmp.index.strftime("%Y-%m-%d")))
+
+        # Color bars depending on value
+        if good_metric_threshold is not None:
+            for bar, val in zip(ax.patches, tmp[metric]):
+                if val > good_metric_threshold:
+                    bar.set_facecolor(bad_color if not higher_is_better else good_color)
+                else:
+                    bar.set_facecolor(bad_color if higher_is_better else good_color)
+
+        plt.xticks(rotation=rotation)
+        plt.tight_layout()
+        plt.show()
