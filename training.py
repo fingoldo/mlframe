@@ -3154,6 +3154,7 @@ def compute_perf_by_time(
             stats: dict = df.select(**fields).row(0, named=True)
 
             report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {stats[group_field]/1000:_.1f}K {group_field} "
+            print(report_title)
         else:
             report_title = ""
 
