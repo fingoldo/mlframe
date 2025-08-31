@@ -305,7 +305,8 @@ def calibration_metrics_from_freqs(
     if len(hits) > 0:
         diffs = np.abs((freqs_predicted - freqs_true))
         if use_weights:
-            weights = hits / array_size
+            weights = np.log1p(hits)
+            weights /= weights.sum()
             calibration_mae = np.sum(diffs * weights)
             calibration_std = np.sqrt(np.sum(((diffs - calibration_mae) ** 2) * weights))
         else:
