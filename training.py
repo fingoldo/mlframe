@@ -3139,8 +3139,8 @@ def compute_perf_by_time(
     ts_field: str = "ts",
     truncate_to: str = "1mo",
     truncated_interval_name: str = "month",
-):
-    dfs = []
+) -> pd.DataFrame:
+    perf_stats = []
     for mo, df in tqdmu(predictions_df.group_by(pl.col(ts_field).dt.truncate(truncate_to), maintain_order=True)):
         if show_perf_chart:
             fields = dict(
@@ -3161,13 +3161,14 @@ def compute_perf_by_time(
 
         res = res.reset_index(drop=False, names="model")
         res[truncated_interval_name] = mo[0]
-        dfs.append(res)
+        perf_stats.append(res)
 
-    dfs = pd.concat(dfs).sort_values(["model", truncated_interval_name])
-    return dfs
+    perf_stats = pd.concat(perf_stats).sort_values(["model", truncated_interval_name])
+    return perf_stats
 
 
 def visualize_ml_metric_by_time(
+    perf_stats: pd.DataFrame,
     metric: str = "ice",
     rotation: float = 45,
     good_metric_threshold: float = 0.0,
@@ -3177,10 +3178,9 @@ def visualize_ml_metric_by_time(
     truncated_interval_name: str = "month",
 ):
     import matplotlib.pyplot as plt
-    import matplotlib.dates as mdates
 
-    for model in dfs.model.unique():
-        tmp = dfs[dfs.model == model].set_index(truncated_interval_name)
+    for model in perf_stats.model.unique():
+        tmp = perf_stats[perf_stats.model == model].set_index(truncated_interval_name)
         ax = tmp.plot(y=metric, kind="bar", title=f"{metric.upper()} of {model}: mean={tmp[metric].mean():.3f}, std={tmp[metric].std():.3f}")
         ax.xaxis.set_major_formatter(plt.FixedFormatter(tmp.index.strftime("%Y-%m-%d")))
 
