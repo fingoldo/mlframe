@@ -1820,22 +1820,13 @@ def configure_training_params(
         else:
             rfecv_scoring = make_scorer(**default_classification_scoring)
 
-    cb_rfecv = RFECV(
-        # !TODO ! allow sepate params (device ,num_iters) for FS
+    # !TODO ! allow sepate params (device ,num_iters) for FS
 
-        if use_regression:
-            params = configs.CB_REGR
-        elif prefer_calibrated_classifiers:
-            params = configs.CB_CALIB_CLASSIF
-        else:
-            params = configs.CB_CLASSIF
-            
-        params['iterations']=params['iterations']//2
-        estimator=(
-            metamodel_func(CatBoostRegressor(**params))
-            if use_regression
-            else CatBoostClassifier(**params)
-        ),
+    params = configs.CB_REGR if use_regression else (configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.CB_CLASSIF)
+    params["iterations"] = params["iterations"] // 2
+
+    cb_rfecv = RFECV(
+        estimator=(metamodel_func(CatBoostRegressor(**params)) if use_regression else CatBoostClassifier(**params)),
         fit_params=dict(plot=rfecv_model_verbose > 1),
         cat_features=cat_features,
         scoring=rfecv_scoring,
