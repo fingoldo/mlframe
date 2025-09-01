@@ -19,6 +19,7 @@ from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildca
 import numba
 import numpy as np
 import polars as pl
+from os.path import exists
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 
