@@ -1823,6 +1823,7 @@ def configure_training_params(
     cb_rfecv = RFECV(
         # !TODO ! allow sepate params (device ,num_iters) for FS
         params=configs.CB_REGR if use_regression else (configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.CB_CLASSIF)
+        params['iterations']=params['iterations']//2
         estimator=(
             metamodel_func(CatBoostRegressor(**params))
             if use_regression
