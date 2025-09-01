@@ -347,9 +347,24 @@ def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=da
     return dates, prices, volumes
 
 
+def safely_compute_mps(f):
+
+    if not exists(f):
+        return None
+    try:
+        res = compute_mps_targets(f)
+        if res is not None and len(res) > 0:
+            return res
+    except Exception as e:
+        print(f"Error with {f}: {e}")
+    return None
+
+
 def compute_mps_targets(
     fpath: str = None,
     fo_df: pl.DataFrame = None,
+    ts_field: str = "ts",
+    group_field: str = "secid",
     price_col: str = "pr_close",
     tc: float = 1e-10,
     dtype: object = np.float64,
@@ -359,12 +374,16 @@ def compute_mps_targets(
 
     if fo_df is None:
         try:
-            fo_df = pl.read_parquet(fpath, columns="ts secid".split() + [price_col], allow_missing_columns=True).sort("ts")
+            fo_df = pl.read_parquet(fpath, columns=[ts_field, group_field, price_col], allow_missing_columns=True).sort(ts_field)
         except Exception as e:
             logger.warning(f"File {fpath}, error {e}")
             return
 
-    grouped_df = fo_df.sort("secid", "ts").group_by("secid").agg(pl.col("ts"), pl.col(price_col).fill_null(strategy="forward").fill_null(strategy="backward"))
+    grouped_df = (
+        fo_df.sort(group_field, ts_field)
+        .group_by(group_field)
+        .agg(pl.col(ts_field), pl.col(price_col).fill_null(strategy="forward").fill_null(strategy="backward"))
+    )
 
     targets_df = []
     for row in grouped_df.iter_rows(named=True):
@@ -375,7 +394,12 @@ def compute_mps_targets(
             )
             targets_df.append(
                 pl.DataFrame(
-                    dict(ts=row["ts"][:-1], secid=[row["secid"]] * (len(prices) - 1), OPTIMAL_POSITION=positions, OPTIMAL_PROFIT=profits[:-1] / prices[:-1])
+                    dict(
+                        ts=row[ts_field][:-1],
+                        secid=[row[group_field]] * (len(prices) - 1),
+                        OPTIMAL_POSITION=positions,
+                        OPTIMAL_PROFIT=profits[:-1] / prices[:-1],
+                    )
                 )
             )
 
