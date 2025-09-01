@@ -1821,10 +1821,12 @@ def configure_training_params(
             rfecv_scoring = make_scorer(**default_classification_scoring)
 
     cb_rfecv = RFECV(
+        # !TODO ! allow sepate params (device ,num_iters) for FS
+        params=configs.CB_REGR if use_regression else (configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.CB_CLASSIF)
         estimator=(
-            metamodel_func(CatBoostRegressor(**configs.CB_REGR))
+            metamodel_func(CatBoostRegressor(**params))
             if use_regression
-            else CatBoostClassifier(**(configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.CB_CLASSIF))
+            else CatBoostClassifier(**params)
         ),
         fit_params=dict(plot=rfecv_model_verbose > 1),
         cat_features=cat_features,
@@ -2261,7 +2263,7 @@ def process_model(
         )
         end = timer()
         if verbose:
-            logger.info(f"Finished training, took {end-start:.1f} sec. RAM usage {get_own_ram_usage():.1f}GBs...")
+            logger.info(f"Finished training, took {(end-start)/60:.1f} min. RAM usage {get_own_ram_usage():.1f}GBs...")
         save_mlframe_model(model, fpath)
     models[cur_target][target_type].append(model)
 

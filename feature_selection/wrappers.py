@@ -422,7 +422,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
             clean_ram()
 
-            if self.special_feature_indices is not None:
+            if self.special_feature_indices is not None and len(self.special_feature_indices) > 0:
                 current_features = self.special_feature_indices
             else:
 
