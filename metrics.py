@@ -316,7 +316,7 @@ def calibration_metrics_from_freqs(
 
                 weights = hits
 
-            weights /= weights.sum()
+            weights /= weights.sum() + 1e-6
             calibration_mae = np.sum(diffs * weights)
             calibration_std = np.sqrt(np.sum(((diffs - calibration_mae) ** 2) * weights))
         else:
