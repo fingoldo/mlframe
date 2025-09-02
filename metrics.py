@@ -314,7 +314,7 @@ def calibration_metrics_from_freqs(
                 alpha = 0.9  # adjust between (0, 1)
                 weights = hits**alpha
 
-                #weights = hits.astype(np.float64)
+                # weights = hits.astype(np.float64)
 
             weights /= weights.sum() + 1e-6
             # weights = hits / array_size
