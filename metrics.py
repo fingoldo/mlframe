@@ -306,7 +306,7 @@ def calibration_metrics_from_freqs(
         diffs = np.abs((freqs_predicted - freqs_true))
         if use_weights:
 
-            if True:
+            if False:
                 weights = np.log1p(hits)
             elif False:
                 weights = np.sqrt(hits)
