@@ -311,10 +311,10 @@ def calibration_metrics_from_freqs(
             elif False:
                 weights = np.sqrt(hits)
             else:
-                alpha = 0.99  # adjust between (0, 1)
+                alpha = 0.9  # adjust between (0, 1)
                 weights = hits**alpha
 
-                weights = hits.astype(np.float64)
+                #weights = hits.astype(np.float64)
 
             weights /= weights.sum() + 1e-6
             # weights = hits / array_size
