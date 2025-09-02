@@ -308,8 +308,11 @@ def calibration_metrics_from_freqs(
 
             if False:
                 weights = np.log1p(hits)
-            else:
+            elif False:
                 weights = np.sqrt(hits)
+            else:
+                alpha = 0.9  # adjust between (0, 1)
+                weights = hits**alpha
 
             weights /= weights.sum()
             calibration_mae = np.sum(diffs * weights)
