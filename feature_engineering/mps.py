@@ -375,7 +375,11 @@ def compute_mps_targets(
 
     if fo_df is None:
         try:
-            fo_df = pl.read_parquet(fpath, columns=[ts_field, group_field, price_col], allow_missing_columns=True).sort(ts_field)
+            fo_df = (
+                pl.read_parquet(fpath, columns=[ts_field, group_field, price_col], allow_missing_columns=True)
+                .unique(subset=[ts_field, group_field], keep="first")
+                .sort(ts_field)
+            )
         except Exception as e:
             logger.warning(f"File {fpath}, error {e}")
             return
