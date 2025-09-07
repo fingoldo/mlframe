@@ -2481,7 +2481,7 @@ def train_mlframe_models_suite(
     if artifacts is not None:
         ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), "test_artifacts.parquet")
         if not exists(ts_file):
-            obs = artifacts.iloc[test_idx]
+            obj = artifacts.iloc[test_idx]
             if isinstance(obj, pd.Series):
                 obj = obj.to_frame()
             obj.to_parquet(ts_file, compression=PARQUET_COMPRESION)
