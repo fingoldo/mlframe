@@ -2455,7 +2455,7 @@ def train_mlframe_models_suite(
 
     if verbose:
         logger.info(f"preprocess_dataframe...")
-    pandas_df, target_types, group_ids_raw, group_ids, timestamps = preprocess_dataframe(pandas_df)
+    pandas_df, target_types, group_ids_raw, group_ids, timestamps, artifacts = preprocess_dataframe(pandas_df)
 
     clean_ram()
 
@@ -2477,6 +2477,11 @@ def train_mlframe_models_suite(
         ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), "test_group_ids_raw.parquet")
         if not exists(ts_file):
             group_ids_raw.iloc[test_idx].to_frame().to_parquet(ts_file, compression=PARQUET_COMPRESION)
+
+    if artifacts is not None:
+        ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), "test_artifacts.parquet")
+        if not exists(ts_file):
+            artifacts.iloc[test_idx].to_frame().to_parquet(ts_file, compression=PARQUET_COMPRESION)
 
     if verbose:
         logger.info(f"creating train_df,val_df,test_df...")
