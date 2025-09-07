@@ -2383,6 +2383,7 @@ def train_mlframe_models_suite(
         autogluon_init_params = {}
 
     if lama_init_params is None:
+        from lightautoml.tasks import Task
         lama_init_params = dict(task=Task("binary"))
     if lama_fit_params is None:
         lama_fit_params = {}
