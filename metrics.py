@@ -645,7 +645,11 @@ def fast_calibration_report(
         pr_auc=pr_auc,
         **ice_kwargs,
     )
-    ll = log_loss(y_true=y_true, y_pred=y_pred)
+
+    try:
+        ll = log_loss(y_true=y_true, y_pred=y_pred)
+    except Exception as e:
+        ll=None
 
     precision, recall, f1 = compute_pr_recall_f1_metrics(y_true=y_true, y_pred=y_pred >= binary_threshold)
 
@@ -657,7 +661,8 @@ def fast_calibration_report(
     if show_coverage_in_title:
         metrics_string += f", COV={calibration_coverage*100:.{int(np.log10(nbins))}f}%"
     if show_logloss_in_title:
-        metrics_string += f", LL={ll:.{ndigits}f}"
+        if ll is not None:
+            metrics_string += f", LL={ll:.{ndigits}f}"
     if show_points_density_in_title:
         metrics_string += f", DENS=[{max_hits:_};{min_hits:_}]"
 
