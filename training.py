@@ -3209,9 +3209,9 @@ def compute_ml_perf(
                 res[group_field] = mo[0]
             perf_stats.append(res)
         else:
-            logger.warning(f"Problem computing models perf for {report_title}")
+            logger.warning(f"Problem computing models perf for {mo[0]}")
 
-    perf_stats = pd.concat(perf_stats).sort_values(["model", truncated_interval_name])
+    perf_stats = pd.concat(perf_stats).sort_values(["model", truncated_interval_name if by_time else group_field])
     return perf_stats
 
 
