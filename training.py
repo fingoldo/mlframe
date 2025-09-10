@@ -3147,7 +3147,7 @@ def compute_models_perf(
                 metrics = metrics.drop(columns=[label]).join(metrics[label].apply(pd.Series)).drop(columns=["feature_importances", "class_integral_error"]).sort_values("ice")
             except Exception as e:
                 return None
-            metrics['flipped']=label==1
+            metrics['flipped']=(label!=1)
             break
 
     if not transformed:
