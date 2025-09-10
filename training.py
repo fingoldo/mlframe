@@ -3170,11 +3170,18 @@ def compute_ml_perf(
                 max_date=pl.col(ts_field).max().dt.date(),
             )
             if group_field:
-                fields[group_field] = pl.col(group_field).n_unique()
+                if by_time:
+                    fields[group_field] = pl.col(group_field).n_unique()
+                else:
+                    fields[group_field] = pl.col(group_field).unique()
 
             stats: dict = df.select(**fields).row(0, named=True)
 
-            report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {stats[group_field]/1000:_.1f}K {group_field} "
+            if by_time:
+                report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {stats[group_field]/1000:_.2f}K {group_field} "
+            else:
+                report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {group_field=}{stats[group_field][0]} "
+
             print(report_title)
         else:
             report_title = ""
