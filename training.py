@@ -3138,7 +3138,17 @@ def compute_models_perf(
                 )
 
     metrics = pd.DataFrame(metrics).T
-    metrics = metrics.drop(columns=[1]).join(metrics[1].apply(pd.Series)).drop(columns=["feature_importances", "class_integral_error"]).sort_values("ice")
+
+    transformed=False
+    for label in (1,0):
+        if label in metrics.columns:
+            transformed=True
+            metrics = metrics.drop(columns=[label]).join(metrics[label].apply(pd.Series)).drop(columns=["feature_importances", "class_integral_error"]).sort_values("ice")
+            metrics['flipped']=label==1
+            break
+
+    if not transformed:
+        metrics=None
 
     return metrics
 
@@ -3188,12 +3198,15 @@ def compute_ml_perf(
 
         res = compute_models_perf(df=df, directions=directions, report_title=report_title, suffixes=[""], direct_order=False, show_perf_chart=show_perf_chart)
 
-        res = res.reset_index(drop=False, names="model")
-        if by_time:
-            res[truncated_interval_name] = mo[0]
+        if res:
+            res = res.reset_index(drop=False, names="model")
+            if by_time:
+                res[truncated_interval_name] = mo[0]
+            else:
+                res[group_field] = mo[0]
+            perf_stats.append(res)
         else:
-            res[group_field] = mo[0]
-        perf_stats.append(res)
+            logger.warning(f"Problem computing models perf for {report_title}")
 
     perf_stats = pd.concat(perf_stats).sort_values(["model", truncated_interval_name])
     return perf_stats
