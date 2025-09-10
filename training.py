@@ -3180,7 +3180,7 @@ def compute_ml_perf(
             if by_time:
                 report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {stats[group_field]/1000:_.2f}K {group_field} "
             else:
-                report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {group_field=}{stats[group_field][0]} "
+                report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {group_field}={stats[group_field]} "
 
             print(report_title)
         else:
