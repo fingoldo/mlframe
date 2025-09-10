@@ -648,7 +648,8 @@ def fast_calibration_report(
 
     try:
         ll = log_loss(y_true=y_true, y_pred=y_pred)
-    except Exception as e:
+    except ValueError as e:
+        # prevents ValueError: y_true contains only one label (True). Please provide the list of all expected class labels explicitly through the labels argument.
         ll=None
 
     precision, recall, f1 = compute_pr_recall_f1_metrics(y_true=y_true, y_pred=y_pred >= binary_threshold)
