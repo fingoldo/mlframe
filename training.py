@@ -3121,10 +3121,10 @@ def compute_models_perf(
                 probs = df[prob_col].to_numpy()
 
                 metrics[model_name]={'pred_min':np.min(probs),
-                'pred_q_0.05':np.quantile(probs,0.05),
+                'pred_q_0.01':np.quantile(probs,0.01),
                 'pred_mean':np.mean(probs),
                 'pred_median':np.median(probs),
-                'pred_q_0.95':np.quantile(probs,0.95),
+                'pred_q_0.99':np.quantile(probs,0.99),
                 'pred_max':np.max(probs)}
 
                 probs = np.vstack([1 - probs, probs]).T
