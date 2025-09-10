@@ -3203,6 +3203,7 @@ def compute_ml_perf(
 
         if res is not None:
             res = res.reset_index(drop=False, names="model")
+            res['nrecs']=len(df)
             if by_time:
                 res[truncated_interval_name] = mo[0]
             else:
