@@ -3143,7 +3143,10 @@ def compute_models_perf(
     for label in (1,0):
         if label in metrics.columns:
             transformed=True
-            metrics = metrics.drop(columns=[label]).join(metrics[label].apply(pd.Series)).drop(columns=["feature_importances", "class_integral_error"]).sort_values("ice")
+            try:
+                metrics = metrics.drop(columns=[label]).join(metrics[label].apply(pd.Series)).drop(columns=["feature_importances", "class_integral_error"]).sort_values("ice")
+            except Exception as e:
+                return None
             metrics['flipped']=label==1
             break
 
