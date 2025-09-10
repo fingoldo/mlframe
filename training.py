@@ -3143,7 +3143,7 @@ def compute_models_perf(
     return metrics
 
 
-def compute_perf_by_time(
+def compute_ml_perf(
     predictions_df: pl.DataFrame,
     directions: list,
     group_field: str = None,
@@ -3152,8 +3152,17 @@ def compute_perf_by_time(
     truncate_to: str = "1mo",
     truncated_interval_name: str = "month",
 ) -> pd.DataFrame:
+
     perf_stats = []
-    for mo, df in tqdmu(predictions_df.group_by(pl.col(ts_field).dt.truncate(truncate_to), maintain_order=True)):
+    by_time=(ts_field and truncate_to and truncated_interval_name)
+    assert group_field or by_time
+
+    if by_time:
+        grouping=pl.col(ts_field).dt.truncate(truncate_to)
+    else:
+        grouping=pl.col(group_field)
+
+    for mo, df in tqdmu(list(predictions_df.group_by(grouping, maintain_order=True))):
         if show_perf_chart:
             fields = dict(
                 npredictions=pl.len(),
