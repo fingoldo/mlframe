@@ -3198,7 +3198,7 @@ def compute_ml_perf(
 
         res = compute_models_perf(df=df, directions=directions, report_title=report_title, suffixes=[""], direct_order=False, show_perf_chart=show_perf_chart)
 
-        if res:
+        if res is not None:
             res = res.reset_index(drop=False, names="model")
             if by_time:
                 res[truncated_interval_name] = mo[0]
