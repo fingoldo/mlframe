@@ -3126,7 +3126,7 @@ def compute_models_perf(
                 'pred_median':np.median(probs),
                 'pred_q_0.999':np.quantile(probs,0.999),
                 #'pred_max':np.max(probs)
-                'target_mean'=np.mean(targets)
+                'target_mean':np.mean(targets)
                 }
 
                 probs = np.vstack([1 - probs, probs]).T
