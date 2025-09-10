@@ -3119,9 +3119,17 @@ def compute_models_perf(
                 targets = df[direction].to_numpy().astype(np.int8)
 
                 probs = df[prob_col].to_numpy()
+
+                metrics[model_name]={'pred_min':np.min(probs),
+                'pred_q_0.05':np.quantile(probs,0.05),
+                'pred_mean':np.mean(probs),
+                'pred_median':np.median(probs),
+                'pred_q_0.95':np.quantile(probs,0.95),
+                'pred_max':np.max(probs)}
+
                 probs = np.vstack([1 - probs, probs]).T
 
-                metrics[model_name] = {}
+                
                 _, _ = report_model_perf(
                     targets=targets,
                     columns=None,
@@ -3136,6 +3144,8 @@ def compute_models_perf(
                     group_ids=group_ids,
                     **report_params,
                 )
+
+                
 
     metrics = pd.DataFrame(metrics).T
 
