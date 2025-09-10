@@ -3189,7 +3189,10 @@ def compute_ml_perf(
         res = compute_models_perf(df=df, directions=directions, report_title=report_title, suffixes=[""], direct_order=False, show_perf_chart=show_perf_chart)
 
         res = res.reset_index(drop=False, names="model")
-        res[truncated_interval_name] = mo[0]
+        if by_time:
+            res[truncated_interval_name] = mo[0]
+        else:
+            res[group_field] = mo[0]
         perf_stats.append(res)
 
     perf_stats = pd.concat(perf_stats).sort_values(["model", truncated_interval_name])
