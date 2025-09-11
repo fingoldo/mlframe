@@ -422,6 +422,7 @@ def show_mps_regions(
     tc_mode: str = "fraction",
     figsize=(10, 5),
     use_plotly: bool = True,
+    show_chart: bool = True,
     title: str = "Optimal Long/Short/Flat Position",
 ) -> dict:
 
@@ -436,7 +437,8 @@ def show_mps_regions(
         title = title + f" comm={tc*100:.2f}%, {profit_quantile*100:.0f}_percentile_profit={profit_quantile_value*100:.2f}%, max_profit={max_profit*100:.2f}%"
 
     fig = plot_positions(prices=prices, raw_prices=raw_prices, positions=positions, figsize=figsize, use_plotly=use_plotly, title=title)
-    fig.show()
+    if show_chart:
+        fig.show()
 
     return dict(profit_quantile=profit_quantile_value, max_profit=max_profit)
 
