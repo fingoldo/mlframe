@@ -450,7 +450,7 @@ def plot_positions(
             title=title,
             xaxis_title=xlabel,
             yaxis_title=ylabel,
-            showlegend=True if raw_prices is not None else False,
+            showlegend=False,
             width=figsize[0] * plotly_size_multiplier,
             height=figsize[1] * plotly_size_multiplier,
         )
@@ -478,10 +478,6 @@ def plot_positions(
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         ax.set_title(title)
-
-        # Add legend if raw prices are shown
-        if raw_prices is not None:
-            ax.legend()
 
     return fig
 
