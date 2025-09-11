@@ -140,7 +140,13 @@ def compute_area_profits(prices, positions):
 
 @numba.njit(fastmath=FASTMATH)
 def find_best_mps_sequence(
-    prices: np.ndarray, tc: float, tc_mode_is_fraction: bool, optimize_consecutive_regions: bool = True, shift: int = 0, dtype: object = np.float64
+    prices: np.ndarray,
+    raw_prices: np.ndarray,
+    tc: float,
+    tc_mode_is_fraction: bool,
+    optimize_consecutive_regions: bool = True,
+    shift: int = 0,
+    dtype: object = np.float64,
 ):
     """
     prices: 1D numpy array float64 (closing prices)
@@ -225,7 +231,7 @@ def find_best_mps_sequence(
         positions[:-shift] = positions[shift:]
         positions = backfill_zeros(positions, direction="left")
     # compute profits from current idx till the end of current area
-    profits = compute_area_profits(prices=prices, positions=positions)
+    profits = compute_area_profits(prices=raw_prices, positions=positions)
 
     return positions, profits
 
@@ -277,7 +283,13 @@ def backfill_zeros(arr, direction="right"):
 
 # public wrapper to call from normal Python (non-numba callers)
 def find_maximum_profit_system(
-    prices: np.ndarray, tc: float = 3e-4, tc_mode: str = "fraction", optimize_consecutive_regions: bool = True, shift: int = 0, dtype: object = np.float64
+    prices: np.ndarray,
+    raw_prices: np.ndarray = None,
+    tc: float = 3e-4,
+    tc_mode: str = "fraction",
+    optimize_consecutive_regions: bool = True,
+    shift: int = 0,
+    dtype: object = np.float64,
 ):
     """
     prices: 1D array-like of closing prices
@@ -295,11 +307,23 @@ def find_maximum_profit_system(
     profits: [ 1.      0.485   0.5     0.51    0.9975 -0.02  ]
 
     """
-    arr = np.asarray(prices, dtype=dtype)
+    prices_arr = np.asarray(prices, dtype=dtype)
+
+    if raw_prices is not None:
+        raw_prices_arr = np.asarray(raw_prices, dtype=dtype)
+    else:
+        raw_prices_arr = prices_arr
+
     if tc_mode not in ("fraction", "fixed"):
         raise ValueError("tc_mode must be 'fraction' or 'fixed'")
     positions, profits = find_best_mps_sequence(
-        arr, tc=float(tc), tc_mode_is_fraction=(tc_mode == "fraction"), shift=shift, optimize_consecutive_regions=optimize_consecutive_regions, dtype=dtype
+        prices=prices_arr,
+        raw_prices=raw_prices_arr,
+        tc=float(tc),
+        tc_mode_is_fraction=(tc_mode == "fraction"),
+        shift=shift,
+        optimize_consecutive_regions=optimize_consecutive_regions,
+        dtype=dtype,
     )
     return {
         "positions": positions,  # length n-1 array of -1/0/1
@@ -499,7 +523,7 @@ def show_mps_regions(
     profits = None
     if positions is None:
         # Get optimal positions
-        res = find_maximum_profit_system(prices, tc=tc, tc_mode=tc_mode, shift=shift)
+        res = find_maximum_profit_system(prices=prices, raw_prices=raw_prices, tc=tc, tc_mode=tc_mode, shift=shift)
         positions = res["positions"]  # length n-1
 
         max_profit = res["profits"].max()
