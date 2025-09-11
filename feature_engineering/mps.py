@@ -620,7 +620,7 @@ def compute_mps_targets(
     fo_df: pl.DataFrame = None,
     ts_field: str = "ts",
     group_field: str = "secid",
-    price_col: str = "pr_close",
+    price_field: str = "pr_close",
     tc: float = 1e-10,
     sma_size: int = 0,
     ewm_alpha: float = 0.3,
@@ -633,7 +633,7 @@ def compute_mps_targets(
     if fo_df is None:
         try:
             fo_df = (
-                pl.read_parquet(fpath, columns=[ts_field, group_field, price_col], allow_missing_columns=True)
+                pl.read_parquet(fpath, columns=[ts_field, group_field, price_field], allow_missing_columns=True)
                 .unique(subset=[ts_field, group_field], keep="first")
                 .sort(ts_field)
             )
@@ -641,7 +641,7 @@ def compute_mps_targets(
             logger.warning(f"File {fpath}, error {e}")
             return
 
-    basic_expr = pl.col(price_col).fill_null(strategy="forward").fill_null(strategy="backward")
+    basic_expr = pl.col(price_field).fill_null(strategy="forward").fill_null(strategy="backward")
 
     if sma_size:
         final_expr = basic_expr.rolling_mean(window_size=sma_size, min_samples=1)
@@ -654,7 +654,7 @@ def compute_mps_targets(
 
     targets_df = []
     for row in grouped_df.iter_rows(named=True):
-        raw_prices = np.array(row[price_col])
+        raw_prices = np.array(row[price_field])
         final_prices = np.array(row[final_price_alias])
         if final_prices[0] is not None:
             positions, profits = find_best_mps_sequence(
