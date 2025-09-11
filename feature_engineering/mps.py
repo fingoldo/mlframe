@@ -548,8 +548,9 @@ def show_mps_regions(
         if use_plotly:
             profits = res["profits"]
 
-    fig = plot_positions(prices=prices, raw_prices=raw_prices, positions=positions, profits=profits, figsize=figsize, use_plotly=use_plotly, title=title)
     if show_chart:
+
+        fig = plot_positions(prices=prices, raw_prices=raw_prices, positions=positions, profits=profits, figsize=figsize, use_plotly=use_plotly, title=title)
         fig.show()
 
     return dict(profit_quantile=profit_quantile_value, max_profit=max_profit, **res)
