@@ -311,9 +311,21 @@ def plot_positions(
     prices: Union[np.ndarray, list],
     positions: Union[np.ndarray, list],
     raw_prices: Optional[np.ndarray] = None,
+    profits: Optional[np.ndarray] = None,
     use_plotly: bool = True,
     figsize: Tuple[int, int] = (10, 6),
     title: str = "Optimal Positions",
+    xlabel: str = "Time step",
+    ylabel: str = "Price",
+    price_label: str = "Price",
+    raw_price_label: str = "Raw Price",
+    price_line_width: float = 1.5,
+    raw_price_line_width: float = 1.0,
+    price_line_color: str = "black",
+    raw_price_line_color: str = "gray",
+    raw_price_opacity: float = 0.7,
+    background_opacity: float = 0.2,
+    plotly_size_multiplier: int = 80,
 ) -> Union[plt.Figure, go.Figure]:
     """
     Plot price with position background colors using either Plotly or Matplotlib.
@@ -326,12 +338,36 @@ def plot_positions(
         Position data (1=long/green, -1=short/red, 0=flat/black)
     raw_prices : np.ndarray, optional
         Raw price data to plot with different style/color. If None, not plotted.
+    profits : np.ndarray, optional
+        Profit data for tooltips (only used in Plotly mode). If None, no profit tooltips shown.
     use_plotly : bool, default=True
         If True, use Plotly; if False, use Matplotlib
     figsize : tuple of int, default=(10, 6)
         Figure size (width, height)
     title : str
         Plot title
+    xlabel : str, default="Time step"
+        X-axis label
+    ylabel : str, default="Price"
+        Y-axis label
+    price_label : str, default="Price"
+        Label for main price line
+    raw_price_label : str, default="Raw Price"
+        Label for raw price line
+    price_line_width : float, default=1.5
+        Width of main price line
+    raw_price_line_width : float, default=1.0
+        Width of raw price line
+    price_line_color : str, default="black"
+        Color of main price line
+    raw_price_line_color : str, default="gray"
+        Color of raw price line
+    raw_price_opacity : float, default=0.7
+        Opacity of raw price line
+    background_opacity : float, default=0.2
+        Opacity of position background colors
+    plotly_size_multiplier : int, default=80
+        Multiplier to convert figsize to pixels for Plotly
 
     Returns:
     --------
@@ -344,9 +380,9 @@ def plot_positions(
 
     # Common color mapping
     color_map = {
-        1: {"name": "Long", "color": "green", "rgba": "rgba(0, 128, 0, 0.2)"},
-        -1: {"name": "Short", "color": "red", "rgba": "rgba(255, 0, 0, 0.2)"},
-        0: {"name": "Flat", "color": "black", "rgba": "rgba(0, 0, 0, 0.2)"},
+        1: {"name": "Long", "color": "green"},
+        -1: {"name": "Short", "color": "red"},
+        0: {"name": "Flat", "color": "black"},
     }
 
     if use_plotly:
@@ -354,12 +390,42 @@ def plot_positions(
         # Create Plotly figure
         fig = go.Figure()
 
+        # Prepare hover text for profits if provided
+        hover_text = None
+        if profits is not None:
+            hover_text = [f"{price_label}: {price:.2f}<br>Profit: {profit*100:.2f}%" for price, profit in zip(prices, profits)]
+
         # Add raw prices if provided
         if raw_prices is not None:
-            fig.add_trace(go.Scatter(x=x_data, y=raw_prices, mode="lines", line=dict(color="gray", width=1, dash="dot"), name="Raw Price", opacity=0.7))
+            raw_hover_text = None
+            if profits is not None:
+                raw_hover_text = [f"{raw_price_label}: {price:.2f}<br>Profit: {profit*100:.2f}%" for price, profit in zip(raw_prices, profits)]
+
+            fig.add_trace(
+                go.Scatter(
+                    x=x_data,
+                    y=raw_prices,
+                    mode="lines",
+                    line=dict(color=raw_price_line_color, width=raw_price_line_width, dash="dot"),
+                    name=raw_price_label,
+                    opacity=raw_price_opacity,
+                    hovertext=raw_hover_text,
+                    hoverinfo="text" if raw_hover_text else "x+y",
+                )
+            )
 
         # Add price line
-        fig.add_trace(go.Scatter(x=x_data, y=prices, mode="lines", line=dict(color="black", width=1.5), name="Price"))
+        fig.add_trace(
+            go.Scatter(
+                x=x_data,
+                y=prices,
+                mode="lines",
+                line=dict(color=price_line_color, width=price_line_width),
+                name=price_label,
+                hovertext=hover_text,
+                hoverinfo="text" if hover_text else "x+y",
+            )
+        )
 
         # Add background rectangles
         for i, pos in enumerate(positions):
@@ -368,7 +434,7 @@ def plot_positions(
                 x0=i,
                 x1=i + 1,
                 fillcolor=color_info["color"],
-                opacity=0.2,
+                opacity=background_opacity,
                 layer="below",
                 line_width=0,
             )
@@ -376,11 +442,11 @@ def plot_positions(
         # Update layout
         fig.update_layout(
             title=title,
-            xaxis_title="Time step",
-            yaxis_title="Price",
+            xaxis_title=xlabel,
+            yaxis_title=ylabel,
             showlegend=True if raw_prices is not None else False,
-            width=figsize[0] * 80,  # Convert to pixels (approximate)
-            height=figsize[1] * 80,
+            width=figsize[0] * plotly_size_multiplier,
+            height=figsize[1] * plotly_size_multiplier,
         )
 
     else:
@@ -390,19 +456,21 @@ def plot_positions(
 
         # Plot raw prices if provided
         if raw_prices is not None:
-            ax.plot(x_data, raw_prices, color="gray", linewidth=1, linestyle="--", alpha=0.7, label="Raw Price")
+            ax.plot(
+                x_data, raw_prices, color=raw_price_line_color, linewidth=raw_price_line_width, linestyle="--", alpha=raw_price_opacity, label=raw_price_label
+            )
 
         # Plot price line
-        ax.plot(x_data, prices, color="black", linewidth=1.5, label="Price")
+        ax.plot(x_data, prices, color=price_line_color, linewidth=price_line_width, label=price_label)
 
         # Add background colors
         for i, pos in enumerate(positions):
             color_info = color_map.get(pos, color_map[0])
-            ax.axvspan(i, i + 1, facecolor=color_info["color"], alpha=0.2)
+            ax.axvspan(i, i + 1, facecolor=color_info["color"], alpha=background_opacity)
 
         # Set labels and title
-        ax.set_xlabel("Time step")
-        ax.set_ylabel("Price")
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
         ax.set_title(title)
 
         # Add legend if raw prices are shown
@@ -426,6 +494,7 @@ def show_mps_regions(
     title: str = "Optimal Position",
 ) -> dict:
 
+    profits = None
     if positions is None:
         # Get optimal positions
         res = find_maximum_profit_system(prices, tc=tc, tc_mode=tc_mode, shift=shift)
@@ -436,7 +505,10 @@ def show_mps_regions(
 
         title = title + f" tc={tc*100:.2f}%, {profit_quantile*100:.0f}_perc_profit={profit_quantile_value*100:.2f}%, max_profit={max_profit*100:.2f}%"
 
-    fig = plot_positions(prices=prices, raw_prices=raw_prices, positions=positions, figsize=figsize, use_plotly=use_plotly, title=title)
+        if use_plotly:
+            profits = res["profits"]
+
+    fig = plot_positions(prices=prices, raw_prices=raw_prices, positions=positions, profits=profits, figsize=figsize, use_plotly=use_plotly, title=title)
     if show_chart:
         fig.show()
 
