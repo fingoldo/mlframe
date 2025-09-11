@@ -369,8 +369,8 @@ def plot_positions(prices, positions, use_plotly=True, figsize=(10, 6), title="O
         
         return fig
     
-def show_mps_regions(prices: np.ndarray, positions: np.ndarray = None, tc: float = 1e-10, tc_mode: str = "fraction", figsize=(10, 5),
-                      use_plotly:bool=True,title: str = "Optimal Long/Short/Flat Position"):
+def show_mps_regions(prices: np.ndarray, positions: np.ndarray = None, tc: float = 1e-10,profit_quantile:float=0.95, tc_mode: str = "fraction", figsize=(10, 5),
+                      use_plotly:bool=True,title: str = "Optimal Long/Short/Flat Position")->dict:
 
     if positions is None:
         # Get optimal positions
@@ -378,12 +378,14 @@ def show_mps_regions(prices: np.ndarray, positions: np.ndarray = None, tc: float
         positions = res["positions"]  # length n-1
 
         max_profit=res['profits'].max()
-        title =title+ f" comm={tc*100:.2f}%, max_profit={max_profit*100:.2f}%"
+        profit_quantile_value=np.quantile(res['profits'],profit_quantile)
+
+        title =title+ f" comm={tc*100:.2f}%, {profit_quantile*100:.0f}%profit={profit_quantile_value*100:.2f}%, max_profit={max_profit*100:.2f}%"
 
     fig=plot_positions(prices, positions, figsize=figsize,use_plotly=use_plotly,title=title)
     fig.show()
 
-    return res
+    return dict(profit_quantile=profit_quantile_value,max_profit=max_profit)
 
 
 def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=datetime(2024, 1, 1), base_volume=5000, random_seed: int = 42) -> tuple:
