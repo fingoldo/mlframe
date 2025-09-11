@@ -434,13 +434,13 @@ def show_mps_regions(
         max_profit = res["profits"].max()
         profit_quantile_value = np.quantile(res["profits"], profit_quantile)
 
-        title = title + f" comm={tc*100:.2f}%, {profit_quantile*100:.0f}_percentile_profit={profit_quantile_value*100:.2f}%, max_profit={max_profit*100:.2f}%"
+        title = title + f" tc={tc*100:.2f}%, {profit_quantile*100:.0f}_perc_profit={profit_quantile_value*100:.2f}%, max_profit={max_profit*100:.2f}%"
 
     fig = plot_positions(prices=prices, raw_prices=raw_prices, positions=positions, figsize=figsize, use_plotly=use_plotly, title=title)
     if show_chart:
         fig.show()
 
-    return dict(profit_quantile=profit_quantile_value, max_profit=max_profit)
+    return dict(profit_quantile=profit_quantile_value, max_profit=max_profit, **res)
 
 
 def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=datetime(2024, 1, 1), base_volume=5000, random_seed: int = 42) -> tuple:
