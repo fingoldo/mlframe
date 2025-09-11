@@ -393,13 +393,19 @@ def plot_positions(
         # Prepare hover text for profits if provided
         hover_text = None
         if profits is not None:
-            hover_text = [f"{price_label}: {price:.2f}<br>Profit: {profit*100:.2f}%" for price, profit in zip(prices, profits)]
+            hover_text = [
+                f"{price_label}: {price:.2f}<br>Profit: {profit*100:.2f}%<br>Position: {position}"
+                for price, profit, position in zip(prices, profits, positions)
+            ]
 
         # Add raw prices if provided
         if raw_prices is not None:
             raw_hover_text = None
             if profits is not None:
-                raw_hover_text = [f"{raw_price_label}: {price:.2f}<br>Profit: {profit*100:.2f}%" for price, profit in zip(raw_prices, profits)]
+                raw_hover_text = [
+                    f"{raw_price_label}: {price:.2f}<br>Profit: {profit*100:.2f}%<br>Position: {position}"
+                    for price, profit, position in zip(raw_prices, profits, positions)
+                ]
 
             fig.add_trace(
                 go.Scatter(
