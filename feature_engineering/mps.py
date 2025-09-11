@@ -303,6 +303,8 @@ def show_mps_regions(prices: np.ndarray, positions: np.ndarray = None, tc: float
     ax.legend()
     plt.show()
 
+    return res
+
 
 def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=datetime(2024, 1, 1), base_volume=5000, random_seed: int = 42) -> tuple:
     # Generate sample data with more interesting patterns & slight upward trend
