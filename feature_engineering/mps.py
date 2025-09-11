@@ -249,7 +249,7 @@ def backfill_zeros_from_right(arr):
 
 # public wrapper to call from normal Python (non-numba callers)
 def find_maximum_profit_system(
-    prices: np.ndarray, tc: float = 1e-10, tc_mode: str = "fraction", optimize_consecutive_regions: bool = True, dtype: object = np.float64
+    prices: np.ndarray, tc: float = 3e-4, tc_mode: str = "fraction", optimize_consecutive_regions: bool = True, dtype: object = np.float64
 ):
     """
     prices: 1D array-like of closing prices
@@ -368,7 +368,7 @@ def plot_positions(prices, positions, use_plotly=True, figsize=(10, 6), title="O
         
         return fig
     
-def show_mps_regions(prices: np.ndarray, positions: np.ndarray = None, tc: float = 1e-10,profit_quantile:float=0.95, tc_mode: str = "fraction", figsize=(10, 5),
+def show_mps_regions(prices: np.ndarray, positions: np.ndarray = None, tc: float = 3e-4,profit_quantile:float=0.95, tc_mode: str = "fraction", figsize=(10, 5),
                       use_plotly:bool=True,title: str = "Optimal Long/Short/Flat Position")->dict:
 
     if positions is None:
