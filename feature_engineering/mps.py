@@ -216,29 +216,30 @@ def find_best_mps_sequence(prices: np.ndarray, tc: float, tc_mode_is_fraction: b
         cur_idx = back[t, cur_idx]
 
     if optimize_consecutive_regions:
-        positions = backfill_zeros(positions,direction='right')
-        positions = backfill_zeros(positions,direction='left')
+        positions = backfill_zeros(positions, direction="right")
+        positions = backfill_zeros(positions, direction="left")
 
     # compute profits from current idx till the end of current area
     profits = compute_area_profits(prices=prices, positions=positions)
 
     return positions, profits
 
+
 @numba.njit(fastmath=True)
-def backfill_zeros(arr, direction='right'):
+def backfill_zeros(arr, direction="right"):
     """
     Backfill zeros in an array from either right or left based on direction parameter.
-    
+
     Parameters:
     arr : numpy.ndarray
         Input array containing zeros to be backfilled
     direction : str
         Direction of backfill, either 'right' or 'left'
-        
+
     Returns:
     numpy.ndarray
         Array with zeros backfilled from specified direction
-        
+
     Examples:
     >>> a = np.array([0, 0, 1, 0, 0, -1, 0, 0])
     >>> print(backfill_zeros(a, direction='right'))
@@ -248,8 +249,8 @@ def backfill_zeros(arr, direction='right'):
     """
     arr = np.asarray(arr)
     out = arr.copy()
-    
-    if direction == 'right':
+
+    if direction == "right":
         # Go from right to left, filling zeros with the last seen non-zero
         last = 0
         for i in range(len(out) - 1, -1, -1):
@@ -265,7 +266,7 @@ def backfill_zeros(arr, direction='right'):
                 last = out[i]
             elif last != 0:
                 out[i] = last
-                
+
     return out
 
 
@@ -300,113 +301,138 @@ def find_maximum_profit_system(
         "profits": profits,  # running rel profit (%) form cur_idx till the end of the area
     }
 
-def plot_positions(prices, positions, use_plotly=True, figsize=(10, 6), title="Optimal Long/Short/Flat Positions"):
+
+def plot_positions(
+    prices: Union[np.ndarray, list],
+    positions: Union[np.ndarray, list],
+    raw_prices: Optional[np.ndarray] = None,
+    use_plotly: bool = True,
+    figsize: Tuple[int, int] = (10, 6),
+    title: str = "Optimal Positions",
+) -> Union[plt.Figure, go.Figure]:
     """
     Plot price with position background colors using either Plotly or Matplotlib.
-    
+
     Parameters:
     -----------
-    prices : array-like
+    prices : np.ndarray or list
         Price data to plot
-    positions : array-like
+    positions : np.ndarray or list
         Position data (1=long/green, -1=short/red, 0=flat/black)
+    raw_prices : np.ndarray, optional
+        Raw price data to plot with different style/color. If None, not plotted.
     use_plotly : bool, default=True
         If True, use Plotly; if False, use Matplotlib
-    figsize : tuple, default=(10, 6)
+    figsize : tuple of int, default=(10, 6)
         Figure size (width, height)
     title : str
         Plot title
-    
+
     Returns:
     --------
     fig : matplotlib.figure.Figure or plotly.graph_objects.Figure
         The created figure object
     """
-    
+
     # Common data preparation
     x_data = list(range(len(prices)))
-    
+
     # Common color mapping
     color_map = {
         1: {"name": "Long", "color": "green", "rgba": "rgba(0, 128, 0, 0.2)"},
         -1: {"name": "Short", "color": "red", "rgba": "rgba(255, 0, 0, 0.2)"},
-        0: {"name": "Flat", "color": "black", "rgba": "rgba(0, 0, 0, 0.2)"}
+        0: {"name": "Flat", "color": "black", "rgba": "rgba(0, 0, 0, 0.2)"},
     }
-    
+
     if use_plotly:
-        
+
         # Create Plotly figure
         fig = go.Figure()
-        
+
+        # Add raw prices if provided
+        if raw_prices is not None:
+            fig.add_trace(go.Scatter(x=x_data, y=raw_prices, mode="lines", line=dict(color="gray", width=1, dash="dot"), name="Raw Price", opacity=0.7))
+
         # Add price line
-        fig.add_trace(go.Scatter(
-            x=x_data,
-            y=prices,
-            mode='lines',
-            line=dict(color='black', width=1.5),
-            name='Price'
-        ))
-        
+        fig.add_trace(go.Scatter(x=x_data, y=prices, mode="lines", line=dict(color="black", width=1.5), name="Price"))
+
         # Add background rectangles
         for i, pos in enumerate(positions):
             color_info = color_map.get(pos, color_map[0])
             fig.add_vrect(
-                x0=i, x1=i + 1,
+                x0=i,
+                x1=i + 1,
                 fillcolor=color_info["color"],
                 opacity=0.2,
                 layer="below",
                 line_width=0,
             )
-        
+
         # Update layout
         fig.update_layout(
             title=title,
             xaxis_title="Time step",
             yaxis_title="Price",
-            showlegend=False,
+            showlegend=True if raw_prices is not None else False,
             width=figsize[0] * 80,  # Convert to pixels (approximate)
-            height=figsize[1] * 80
+            height=figsize[1] * 80,
         )
-        
-        return fig
-        
-    else:        
-        
+
+    else:
+
         # Create Matplotlib figure
         fig, ax = plt.subplots(figsize=figsize)
-        
+
+        # Plot raw prices if provided
+        if raw_prices is not None:
+            ax.plot(x_data, raw_prices, color="gray", linewidth=1, linestyle="--", alpha=0.7, label="Raw Price")
+
         # Plot price line
         ax.plot(x_data, prices, color="black", linewidth=1.5, label="Price")
-        
+
         # Add background colors
         for i, pos in enumerate(positions):
             color_info = color_map.get(pos, color_map[0])
             ax.axvspan(i, i + 1, facecolor=color_info["color"], alpha=0.2)
-        
+
         # Set labels and title
         ax.set_xlabel("Time step")
         ax.set_ylabel("Price")
         ax.set_title(title)
-        
-        return fig
-    
-def show_mps_regions(prices: np.ndarray, positions: np.ndarray = None, tc: float = 3e-4,profit_quantile:float=0.95, tc_mode: str = "fraction", figsize=(10, 5),
-                      use_plotly:bool=True,title: str = "Optimal Long/Short/Flat Position")->dict:
+
+        # Add legend if raw prices are shown
+        if raw_prices is not None:
+            ax.legend()
+
+    return fig
+
+
+def show_mps_regions(
+    prices: np.ndarray,
+    raw_prices: np.ndarray = None,
+    positions: np.ndarray = None,
+    tc: float = 3e-4,
+    profit_quantile: float = 0.95,
+    tc_mode: str = "fraction",
+    figsize=(10, 5),
+    use_plotly: bool = True,
+    title: str = "Optimal Long/Short/Flat Position",
+) -> dict:
 
     if positions is None:
         # Get optimal positions
         res = find_maximum_profit_system(prices, tc=tc, tc_mode=tc_mode)
         positions = res["positions"]  # length n-1
 
-        max_profit=res['profits'].max()
-        profit_quantile_value=np.quantile(res['profits'],profit_quantile)
+        max_profit = res["profits"].max()
+        profit_quantile_value = np.quantile(res["profits"], profit_quantile)
 
-        title =title+ f" comm={tc*100:.2f}%, {profit_quantile*100:.0f}_percentile_profit={profit_quantile_value*100:.2f}%, max_profit={max_profit*100:.2f}%"
+        title = title + f" comm={tc*100:.2f}%, {profit_quantile*100:.0f}_percentile_profit={profit_quantile_value*100:.2f}%, max_profit={max_profit*100:.2f}%"
 
-    fig=plot_positions(prices, positions, figsize=figsize,use_plotly=use_plotly,title=title)
+    fig = plot_positions(prices=prices, raw_prices=raw_prices, positions=positions, figsize=figsize, use_plotly=use_plotly, title=title)
     fig.show()
 
-    return dict(profit_quantile=profit_quantile_value,max_profit=max_profit)
+    return dict(profit_quantile=profit_quantile_value, max_profit=max_profit)
 
 
 def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=datetime(2024, 1, 1), base_volume=5000, random_seed: int = 42) -> tuple:
@@ -453,12 +479,12 @@ def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=da
     return dates, prices, volumes
 
 
-def safely_compute_mps(f,**kwargs):
+def safely_compute_mps(f, **kwargs):
 
     if not exists(f):
         return None
     try:
-        res = compute_mps_targets(f,**kwargs)
+        res = compute_mps_targets(f, **kwargs)
         if res is not None and len(res) > 0:
             return res
     except Exception as e:
