@@ -135,7 +135,7 @@ def compute_area_profits(prices, positions):
 
     # For last index n-1 (no position interval), profit = 0
     profits[n - 1] = 0.0
-    return profits
+    return np.nan_to_num(profits / prices, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 @numba.njit(fastmath=FASTMATH)
