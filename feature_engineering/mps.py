@@ -316,6 +316,7 @@ def find_maximum_profit_system(
 
     if tc_mode not in ("fraction", "fixed"):
         raise ValueError("tc_mode must be 'fraction' or 'fixed'")
+
     positions, profits = find_best_mps_sequence(
         prices=prices_arr,
         raw_prices=raw_prices_arr,
@@ -325,6 +326,7 @@ def find_maximum_profit_system(
         optimize_consecutive_regions=optimize_consecutive_regions,
         dtype=dtype,
     )
+
     return {
         "positions": positions,  # length n-1 array of -1/0/1
         "profits": profits,  # running rel profit (%) form cur_idx till the end of the area
@@ -620,9 +622,12 @@ def compute_mps_targets(
     group_field: str = "secid",
     price_col: str = "pr_close",
     tc: float = 1e-10,
+    sma_size: int = 0,
+    ewm_alpha: float = 0.3,
     dtype: object = np.float64,
     tc_mode_is_fraction: bool = True,
     optimize_consecutive_regions: bool = True,
+    final_price_alias: str = "final_price",
 ) -> pl.DataFrame:
 
     if fo_df is None:
@@ -636,26 +641,37 @@ def compute_mps_targets(
             logger.warning(f"File {fpath}, error {e}")
             return
 
-    grouped_df = (
-        fo_df.sort(group_field, ts_field)
-        .group_by(group_field)
-        .agg(pl.col(ts_field), pl.col(price_col).fill_null(strategy="forward").fill_null(strategy="backward"))
-    )
+    basic_expr = pl.col(price_col).fill_null(strategy="forward").fill_null(strategy="backward")
+
+    if sma_size:
+        final_expr = basic_expr.rolling_mean(window_size=sma_size, min_samples=1)
+    elif ewm_alpha:
+        final_expr = basic_expr.ewm_mean(alpha=ewm_alpha)
+    else:
+        final_expr = basic_expr
+
+    grouped_df = fo_df.sort(group_field, ts_field).group_by(group_field).agg(pl.col(ts_field), basic_expr, final_expr.alias(final_price_alias))
 
     targets_df = []
     for row in grouped_df.iter_rows(named=True):
-        prices = np.array(row[price_col])
-        if prices[0] is not None:
+        raw_prices = np.array(row[price_col])
+        final_prices = np.array(row[final_price_alias])
+        if final_prices[0] is not None:
             positions, profits = find_best_mps_sequence(
-                prices, tc=float(tc), tc_mode_is_fraction=tc_mode_is_fraction, optimize_consecutive_regions=optimize_consecutive_regions, dtype=dtype
+                prices=final_prices,
+                raw_prices=raw_prices,
+                tc=float(tc),
+                tc_mode_is_fraction=tc_mode_is_fraction,
+                optimize_consecutive_regions=optimize_consecutive_regions,
+                dtype=dtype,
             )
             targets_df.append(
                 pl.DataFrame(
                     dict(
                         ts=row[ts_field][:-1],
-                        secid=[row[group_field]] * (len(prices) - 1),
+                        secid=[row[group_field]] * (len(final_prices) - 1),
                         OPTIMAL_POSITION=positions,
-                        OPTIMAL_PROFIT=profits[:-1] / prices[:-1],
+                        OPTIMAL_PROFIT=profits[:-1],
                     )
                 )
             )
