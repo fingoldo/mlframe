@@ -348,12 +348,12 @@ def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=da
     return dates, prices, volumes
 
 
-def safely_compute_mps(f):
+def safely_compute_mps(f,**kwargs):
 
     if not exists(f):
         return None
     try:
-        res = compute_mps_targets(f)
+        res = compute_mps_targets(f,**kwargs)
         if res is not None and len(res) > 0:
             return res
     except Exception as e:
