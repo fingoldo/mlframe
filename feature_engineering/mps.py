@@ -216,34 +216,56 @@ def find_best_mps_sequence(prices: np.ndarray, tc: float, tc_mode_is_fraction: b
         cur_idx = back[t, cur_idx]
 
     if optimize_consecutive_regions:
-        positions = backfill_zeros_from_right(positions)
+        positions = backfill_zeros(positions,direction='right')
+        positions = backfill_zeros(positions,direction='left')
 
     # compute profits from current idx till the end of current area
     profits = compute_area_profits(prices=prices, positions=positions)
 
     return positions, profits
 
-
-@numba.njit(fastmath=FASTMATH)
-def backfill_zeros_from_right(arr):
+@numba.njit(fastmath=True)
+def backfill_zeros(arr, direction='right'):
     """
-    >>>
-    a = np.array([0, 0, 1, 0, 0, -1, 0, 0])
-    print(backfill_zeros_from_right(a))
-
+    Backfill zeros in an array from either right or left based on direction parameter.
+    
+    Parameters:
+    arr : numpy.ndarray
+        Input array containing zeros to be backfilled
+    direction : str
+        Direction of backfill, either 'right' or 'left'
+        
+    Returns:
+    numpy.ndarray
+        Array with zeros backfilled from specified direction
+        
+    Examples:
+    >>> a = np.array([0, 0, 1, 0, 0, -1, 0, 0])
+    >>> print(backfill_zeros(a, direction='right'))
     [ 1  1  1 -1 -1 -1  0  0]
+    >>> print(backfill_zeros(a, direction='left'))
+    [ 0  0  1  1  1 -1 -1 -1]
     """
     arr = np.asarray(arr)
     out = arr.copy()
-    # Go from right to left, filling zeros with the last seen non-zero
-    mask = out == 0
-    # Find the last non-zero to the right for each position
-    last = 0
-    for i in range(len(out) - 1, -1, -1):
-        if out[i] != 0:
-            last = out[i]
-        elif last != 0:
-            out[i] = last
+    
+    if direction == 'right':
+        # Go from right to left, filling zeros with the last seen non-zero
+        last = 0
+        for i in range(len(out) - 1, -1, -1):
+            if out[i] != 0:
+                last = out[i]
+            elif last != 0:
+                out[i] = last
+    else:  # direction == 'left'
+        # Go from left to right, filling zeros with the last seen non-zero
+        last = 0
+        for i in range(len(out)):
+            if out[i] != 0:
+                last = out[i]
+            elif last != 0:
+                out[i] = last
+                
     return out
 
 
