@@ -369,14 +369,15 @@ def plot_positions(prices, positions, use_plotly=True, figsize=(10, 6), title="O
         
         return fig
     
-def show_mps_regions(prices: np.ndarray, positions: np.ndarray = None, tc: float = 1e-10, tc_mode: str = "fraction", figsize=(10, 5), use_plotly:bool=True):
+def show_mps_regions(prices: np.ndarray, positions: np.ndarray = None, tc: float = 1e-10, tc_mode: str = "fraction", figsize=(10, 5),
+                      use_plotly:bool=True,title: str = "Optimal Long/Short/Flat Position"):
 
     if positions is None:
         # Get optimal positions
         res = find_maximum_profit_system(prices, tc=tc, tc_mode=tc_mode)
         positions = res["positions"]  # length n-1
 
-    fig=plot_positions(prices, positions, figsize=figsize,use_plotly=use_plotly)
+    fig=plot_positions(prices, positions, figsize=figsize,use_plotly=use_plotly,title=title)
     fig.show()
 
     return res
