@@ -423,7 +423,7 @@ def show_mps_regions(
     figsize=(10, 5),
     use_plotly: bool = True,
     show_chart: bool = True,
-    title: str = "Optimal Long/Short/Flat Position",
+    title: str = "Optimal Position",
 ) -> dict:
 
     if positions is None:
