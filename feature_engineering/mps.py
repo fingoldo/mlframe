@@ -377,6 +377,9 @@ def show_mps_regions(prices: np.ndarray, positions: np.ndarray = None, tc: float
         res = find_maximum_profit_system(prices, tc=tc, tc_mode=tc_mode)
         positions = res["positions"]  # length n-1
 
+        max_profit=res['profits'].max()
+        title+ = f" comm={tc*100:.2f}%, max_profit={max_profit*100:.2f}%"
+
     fig=plot_positions(prices, positions, figsize=figsize,use_plotly=use_plotly,title=title)
     fig.show()
 
