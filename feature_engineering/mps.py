@@ -444,6 +444,30 @@ def plot_positions(
                 )
             )
 
+        # OPTIMIZED: Create background using bar trace instead of individual vrects
+        if len(positions) > 0:
+            # Get y-axis range for background bars
+            all_prices = list(prices) + (list(raw_prices) if raw_prices is not None else [])
+            y_min, y_max = min(all_prices), max(all_prices)
+            y_range = y_max - y_min
+            bar_height = y_range * 1.2  # Extend slightly beyond data range
+            bar_base = y_min - y_range * 0.1
+
+            # Create color array for bars
+            bar_colors = [color_map.get(pos, color_map[0])["color"] for pos in positions]
+
+            fig.add_trace(
+                go.Bar(
+                    x=x_data,
+                    y=[bar_height] * len(positions),
+                    base=bar_base,
+                    marker=dict(color=bar_colors, opacity=background_opacity, line=dict(width=0)),
+                    name="Background",
+                    showlegend=False,
+                    hoverinfo="skip",
+                )
+            )
+
         # Add price line
         fig.add_trace(
             go.Scatter(
@@ -457,18 +481,6 @@ def plot_positions(
             )
         )
 
-        # Add background rectangles
-        for i, pos in enumerate(positions):
-            color_info = color_map.get(pos, color_map[0])
-            fig.add_vrect(
-                x0=i,
-                x1=i + 1,
-                fillcolor=color_info["color"],
-                opacity=background_opacity,
-                layer="below",
-                line_width=0,
-            )
-
         # Update layout
         fig.update_layout(
             title=title,
@@ -477,6 +489,8 @@ def plot_positions(
             showlegend=False,
             width=figsize[0] * plotly_size_multiplier,
             height=figsize[1] * plotly_size_multiplier,
+            bargap=0,  # Remove gaps between bars
+            bargroupgap=0,
         )
 
     else:
