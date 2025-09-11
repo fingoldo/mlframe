@@ -341,7 +341,7 @@ def plot_positions(prices, positions, use_plotly=True, figsize=(10, 6), title="O
             title=title,
             xaxis_title="Time step",
             yaxis_title="Price",
-            showlegend=True,
+            showlegend=False,
             width=figsize[0] * 80,  # Convert to pixels (approximate)
             height=figsize[1] * 80
         )
@@ -365,7 +365,6 @@ def plot_positions(prices, positions, use_plotly=True, figsize=(10, 6), title="O
         ax.set_xlabel("Time step")
         ax.set_ylabel("Price")
         ax.set_title(title)
-        ax.legend()
         
         return fig
     
@@ -380,7 +379,7 @@ def show_mps_regions(prices: np.ndarray, positions: np.ndarray = None, tc: float
         max_profit=res['profits'].max()
         profit_quantile_value=np.quantile(res['profits'],profit_quantile)
 
-        title =title+ f" comm={tc*100:.2f}%, {profit_quantile*100:.0f}%profit={profit_quantile_value*100:.2f}%, max_profit={max_profit*100:.2f}%"
+        title =title+ f" comm={tc*100:.2f}%, {profit_quantile*100:.0f}_percentile_profit={profit_quantile_value*100:.2f}%, max_profit={max_profit*100:.2f}%"
 
     fig=plot_positions(prices, positions, figsize=figsize,use_plotly=use_plotly,title=title)
     fig.show()
