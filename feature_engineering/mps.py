@@ -20,7 +20,10 @@ import numba
 import numpy as np
 import polars as pl
 from os.path import exists
+
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+
 from datetime import datetime, timedelta
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -275,33 +278,106 @@ def find_maximum_profit_system(
         "profits": profits,  # running rel profit (%) form cur_idx till the end of the area
     }
 
-
-def show_mps_regions(prices: np.ndarray, positions: np.ndarray = None, tc: float = 1e-10, tc_mode: str = "fraction", figsize=(10, 5)):
+def plot_positions(prices, positions, use_plotly=True, figsize=(10, 6), title="Optimal Long/Short/Flat Positions"):
+    """
+    Plot price with position background colors using either Plotly or Matplotlib.
+    
+    Parameters:
+    -----------
+    prices : array-like
+        Price data to plot
+    positions : array-like
+        Position data (1=long/green, -1=short/red, 0=flat/black)
+    use_plotly : bool, default=True
+        If True, use Plotly; if False, use Matplotlib
+    figsize : tuple, default=(10, 6)
+        Figure size (width, height)
+    title : str
+        Plot title
+    
+    Returns:
+    --------
+    fig : matplotlib.figure.Figure or plotly.graph_objects.Figure
+        The created figure object
+    """
+    
+    # Common data preparation
+    x_data = list(range(len(prices)))
+    
+    # Common color mapping
+    color_map = {
+        1: {"name": "Long", "color": "green", "rgba": "rgba(0, 128, 0, 0.2)"},
+        -1: {"name": "Short", "color": "red", "rgba": "rgba(255, 0, 0, 0.2)"},
+        0: {"name": "Flat", "color": "black", "rgba": "rgba(0, 0, 0, 0.2)"}
+    }
+    
+    if use_plotly:
+        
+        # Create Plotly figure
+        fig = go.Figure()
+        
+        # Add price line
+        fig.add_trace(go.Scatter(
+            x=x_data,
+            y=prices,
+            mode='lines',
+            line=dict(color='black', width=1.5),
+            name='Price'
+        ))
+        
+        # Add background rectangles
+        for i, pos in enumerate(positions):
+            color_info = color_map.get(pos, color_map[0])
+            fig.add_vrect(
+                x0=i, x1=i + 1,
+                fillcolor=color_info["color"],
+                opacity=0.2,
+                layer="below",
+                line_width=0,
+            )
+        
+        # Update layout
+        fig.update_layout(
+            title=title,
+            xaxis_title="Time step",
+            yaxis_title="Price",
+            showlegend=True,
+            width=figsize[0] * 80,  # Convert to pixels (approximate)
+            height=figsize[1] * 80
+        )
+        
+        return fig
+        
+    else:        
+        
+        # Create Matplotlib figure
+        fig, ax = plt.subplots(figsize=figsize)
+        
+        # Plot price line
+        ax.plot(x_data, prices, color="black", linewidth=1.5, label="Price")
+        
+        # Add background colors
+        for i, pos in enumerate(positions):
+            color_info = color_map.get(pos, color_map[0])
+            ax.axvspan(i, i + 1, facecolor=color_info["color"], alpha=0.2)
+        
+        # Set labels and title
+        ax.set_xlabel("Time step")
+        ax.set_ylabel("Price")
+        ax.set_title(title)
+        ax.legend()
+        
+        return fig
+    
+def show_mps_regions(prices: np.ndarray, positions: np.ndarray = None, tc: float = 1e-10, tc_mode: str = "fraction", figsize=(10, 5), use_plotly:bool=True):
 
     if positions is None:
         # Get optimal positions
         res = find_maximum_profit_system(prices, tc=tc, tc_mode=tc_mode)
         positions = res["positions"]  # length n-1
 
-    # Plot price
-    fig, ax = plt.subplots(figsize=figsize)
-    ax.plot(prices, color="k", linewidth=1.5, label="Price")
-
-    # Overlay background colors per interval
-    for i, pos in enumerate(positions):
-        if pos == 1:
-            color = "green"
-        elif pos == -1:
-            color = "red"
-        else:
-            color = "black"
-        ax.axvspan(i, i + 1, facecolor=color, alpha=0.2)
-
-    ax.set_xlabel("Time step")
-    ax.set_ylabel("Price")
-    ax.set_title("Optimal Long/Short/Flat Positions")
-    ax.legend()
-    plt.show()
+    fig=plot_positions(prices, positions, figsize=figsize,use_plotly=use_plotly)
+    fig.show()
 
     return res
 
