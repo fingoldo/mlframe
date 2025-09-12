@@ -2306,9 +2306,10 @@ def showcase_features_and_targets(target_types: dict):
                     display(pl.Series(target).describe())
             elif target_type == TargetTypes.BINARY_CLASSIFICATION:
                 display(target.value_counts(normalize=True))
-    
+
     display(df.head(5))
-    display(df.tail(5))    
+    display(df.tail(5))
+
 
 def intize_targets(targets: dict) -> None:
     for target_name, target in targets.copy().items():
@@ -3129,18 +3130,18 @@ def compute_models_perf(
 
                 probs = df[prob_col].to_numpy()
 
-                metrics[model_name]={'pred_min':np.min(probs),
-                #'pred_q_0.01':np.quantile(probs,0.01),
-                #'pred_mean':np.mean(probs),
-                'pred_median':np.median(probs),
-                'pred_q_0.999':np.quantile(probs,0.999),
-                #'pred_max':np.max(probs)
-                'target_mean':np.mean(targets)
+                metrics[model_name] = {
+                    "pred_min": np.min(probs),
+                    #'pred_q_0.01':np.quantile(probs,0.01),
+                    #'pred_mean':np.mean(probs),
+                    "pred_median": np.median(probs),
+                    "pred_q_0.999": np.quantile(probs, 0.999),
+                    #'pred_max':np.max(probs)
+                    "target_mean": np.mean(targets),
                 }
 
                 probs = np.vstack([1 - probs, probs]).T
 
-                
                 _, _ = report_model_perf(
                     targets=targets,
                     columns=None,
@@ -3156,23 +3157,26 @@ def compute_models_perf(
                     **report_params,
                 )
 
-                
-
     metrics = pd.DataFrame(metrics).T
 
-    transformed=False
-    for label in (1,0):
+    transformed = False
+    for label in (1, 0):
         if label in metrics.columns:
-            transformed=True
+            transformed = True
             try:
-                metrics = metrics.drop(columns=[label]).join(metrics[label].apply(pd.Series)).drop(columns=["feature_importances", "class_integral_error"]).sort_values("ice")
+                metrics = (
+                    metrics.drop(columns=[label])
+                    .join(metrics[label].apply(pd.Series))
+                    .drop(columns=["feature_importances", "class_integral_error"])
+                    .sort_values("ice")
+                )
             except Exception as e:
                 return None
-            metrics['flipped']=(label!=1)
+            metrics["flipped"] = label != 1
             break
 
     if not transformed:
-        metrics=None
+        metrics = None
 
     return metrics
 
@@ -3188,13 +3192,13 @@ def compute_ml_perf(
 ) -> pd.DataFrame:
 
     perf_stats = []
-    by_time=(ts_field and truncate_to and truncated_interval_name)
+    by_time = ts_field and truncate_to and truncated_interval_name
     assert group_field or by_time
 
     if by_time:
-        grouping=pl.col(ts_field).dt.truncate(truncate_to)
+        grouping = pl.col(ts_field).dt.truncate(truncate_to)
     else:
-        grouping=pl.col(group_field)
+        grouping = pl.col(group_field)
 
     for mo, df in tqdmu(list(predictions_df.group_by(grouping, maintain_order=True))):
         if show_perf_chart:
@@ -3224,7 +3228,7 @@ def compute_ml_perf(
 
         if res is not None:
             res = res.reset_index(drop=False, names="model")
-            res['nrecs']=len(df)
+            res["nrecs"] = len(df)
             if by_time:
                 res[truncated_interval_name] = mo[0]
             else:
