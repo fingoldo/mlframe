@@ -2285,8 +2285,6 @@ def showcase_features_and_targets(target_types: dict):
     display(df.info())
     display(df.head().select_dtypes(exclude=np.float32))
 
-    logger.info(f"Showcasing targets & features...")
-
     for target_type, targets in target_types.items():
         for target_name, target in targets.items():
             display(f"{target_type} {target_name}")
