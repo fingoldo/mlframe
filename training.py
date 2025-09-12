@@ -2278,8 +2278,15 @@ def process_model(
     return trainset_features_stats, pre_pipeline
 
 
-def showcase_targets(target_types: dict):
+def showcase_features_and_targets(target_types: dict):
     """Show distribution of targets"""
+
+    clean_ram()
+    display(df.info())
+    display(df.head().select_dtypes(exclude=np.float32))
+
+    logger.info(f"Showcasing targets & features...")
+
     for target_type, targets in target_types.items():
         for target_name, target in targets.items():
             display(f"{target_type} {target_name}")
@@ -2299,7 +2306,9 @@ def showcase_targets(target_types: dict):
                     display(pl.Series(target).describe())
             elif target_type == TargetTypes.BINARY_CLASSIFICATION:
                 display(target.value_counts(normalize=True))
-
+    
+    display(df.head(5))
+    display(df.tail(5))    
 
 def intize_targets(targets: dict) -> None:
     for target_name, target in targets.copy().items():
