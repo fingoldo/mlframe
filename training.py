@@ -2278,7 +2278,7 @@ def process_model(
     return trainset_features_stats, pre_pipeline
 
 
-def showcase_features_and_targets(target_types: dict):
+def showcase_features_and_targets(df:pd.DataFrame,target_types: dict):
     """Show distribution of targets"""
 
     clean_ram()
