@@ -135,7 +135,7 @@ def compute_area_profits(prices, positions):
 
     # For last index n-1 (no position interval), profit = 0
     profits[n - 1] = 0.0
-    return np.nan_to_num(profits / prices, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    return profits / prices
 
 
 @numba.njit(fastmath=FASTMATH)
@@ -329,7 +329,7 @@ def find_maximum_profit_system(
 
     return {
         "positions": positions,  # length n-1 array of -1/0/1
-        "profits": profits,  # running rel profit (%) form cur_idx till the end of the area
+        "profits": np.nan_to_num(profits, copy=False, nan=0.0, posinf=0.0, neginf=0.0),  # running rel profit (%) form cur_idx till the end of the area
     }
 
 
@@ -671,7 +671,7 @@ def compute_mps_targets(
                         ts=row[ts_field][:-1],
                         secid=[row[group_field]] * (len(final_prices) - 1),
                         OPTIMAL_POSITION=positions,
-                        OPTIMAL_PROFIT=profits[:-1],
+                        OPTIMAL_PROFIT=np.nan_to_num(profits[:-1], copy=False, nan=0.0, posinf=0.0, neginf=0.0),
                     )
                 )
             )
