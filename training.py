@@ -2069,7 +2069,7 @@ def load_production_models(
         explainers[direction] = {}
         postcalibrators[direction] = {}
 
-        final_models_dir = join(featureset_dir, direction)
+        final_models_dir = join(featureset_dir, slugify(direction))
 
         for fpath in glob.glob(join(final_models_dir, f"*{model_suffix}.dump")):
             base_model_name = basename(fpath)
