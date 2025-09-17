@@ -79,7 +79,7 @@ from mlframe.feature_engineering.numerical import (
     compute_numaggs_parallel,
 )
 
-# from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
+# from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering # requires local import, causes problems in parallel runs (joblib, processpool, etc)
 from mlframe.feature_engineering.categorical import compute_countaggs, get_countaggs_names
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
