@@ -363,6 +363,14 @@ def score_ensemble(
             res[internal_ensemble_method] = next_ens_results
 
             if uncertainty_quantile:
+                if target is not None:
+                    target_kwargs = dict(target=target)
+                else:
+                    target_kwargs = dict(
+                        train_target=train_target[train_confident_indices] if train_target is not None else None,
+                        test_target=test_target[test_confident_indices] if test_target is not None else None,
+                        val_target=val_target[val_confident_indices] if val_target is not None else None,
+                    )
                 res[internal_ensemble_method + " conf"] = train_and_evaluate_model(
                     model=None,
                     train_probs=train_ensembled_predictions[train_confident_indices] if train_ensembled_predictions is not None else None,
