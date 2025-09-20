@@ -3084,7 +3084,7 @@ def compute_models_perf(
     suffixes=["_prob"],
     direct_order: bool = True,
     show_perf_chart: bool = True,
-    models:list=None,
+    models: list = None,
 ):
 
     report_params = {
@@ -3096,7 +3096,8 @@ def compute_models_perf(
         "show_perf_chart": show_perf_chart,
     }
 
-    models = "cb lgb xgb ens_harm".split()
+    if not models:
+        models = "cb lgb xgb ens_harm".split()
 
     metrics = {}
 
