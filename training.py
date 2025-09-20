@@ -3126,7 +3126,6 @@ def compute_models_perf(
                     else:
                         targets = (df[f"target_DOWN"].to_numpy() >= MIN_SIGNIFICANT_SHORT_RETURN).astype(np.int8)
 
-                up = "_BUY" in model_name
                 targets = df[direction].to_numpy().astype(np.int8)
 
                 probs = df[prob_col].to_numpy()
