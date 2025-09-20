@@ -31,6 +31,12 @@ from pyutilz.pythonlib import sort_dict_by_value
 from mlframe.stats import get_tukey_fences_multiplier_for_quantile
 
 # ----------------------------------------------------------------------------------------------------------------------------
+# Inits
+# ----------------------------------------------------------------------------------------------------------------------------
+
+NUMBA_NJIT_PARAMS = dict(fastmath=False)
+
+# ----------------------------------------------------------------------------------------------------------------------------
 # Core
 # ----------------------------------------------------------------------------------------------------------------------------
 
@@ -49,7 +55,7 @@ def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
     return fast_numba_auc_nonw(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
 
 
-@njit()
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def fast_numba_auc_nonw(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices: np.ndarray) -> float:
     """code taken from fastauc lib."""
     y_score = y_score[desc_score_indices]
@@ -75,7 +81,7 @@ def fast_numba_auc_nonw(y_true: np.ndarray, y_score: np.ndarray, desc_score_indi
         return 0
 
 
-@njit()
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def fast_precision(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, zero_division: int = 0):
     # storage inits
     allpreds = np.zeros(nclasses, dtype=np.int64)
@@ -89,7 +95,7 @@ def fast_precision(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, ze
     return precisions[-1]
 
 
-@njit()
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def fast_classification_report(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, zero_division: int = 0):
     """Custom classification report, proof of concept."""
 
@@ -131,7 +137,7 @@ def fast_classification_report(y_true: np.ndarray, y_pred: np.ndarray, nclasses:
     return hits, misses, accuracy, balanced_accuracy, supports, precisions, recalls, f1s, macro_averages, weighted_averages
 
 
-@njit()
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
     """Computes bins of predicted vs actual events frequencies. Corresponds to sklearn's UNIFORM strategy."""
 
@@ -290,14 +296,14 @@ def show_calibration_plot(
     return fig
 
 
-@njit()
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def maximum_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     epsilon = np.finfo(np.float64).eps
     mape = np.abs(y_pred - y_true) / np.maximum(np.abs(y_true), epsilon)
     return np.nanmax(mape)
 
 
-@njit()
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def calibration_metrics_from_freqs(
     freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray, nbins: int, array_size: int, use_weights: bool = True
 ):
@@ -330,7 +336,7 @@ def calibration_metrics_from_freqs(
     return calibration_mae, calibration_std, calibration_coverage
 
 
-@njit()
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, use_weights: bool = False, verbose: int = 0):
     freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
     if verbose:
@@ -348,7 +354,7 @@ def fast_aucs(y_true: np.ndarray, y_score: np.ndarray) -> tuple[float, float]:
     return fast_numba_aucs(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
 
 
-@njit()
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def fast_numba_aucs(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices: np.ndarray) -> tuple[float, float]:
     y_score_sorted = y_score[desc_score_indices]
     y_true_sorted = y_true[desc_score_indices]
@@ -458,7 +464,7 @@ def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group
     return overall_roc_auc, overall_pr_auc, group_aucs
 
 
-@njit()
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def compute_grouped_group_aucs(sorted_group_ids: np.ndarray, sorted_y_true: np.ndarray, sorted_y_score: np.ndarray) -> Dict[int, Tuple[float, float]]:
     """
     Compute AUCs for each group from pre-sorted data.
@@ -500,7 +506,7 @@ def compute_grouped_group_aucs(sorted_group_ids: np.ndarray, sorted_y_true: np.n
     return group_aucs
 
 
-@njit()
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def fast_numba_aucs_simple(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices: np.ndarray) -> Tuple[float, float]:
     """
     Simplified version of your original function for per-group computation.
@@ -563,7 +569,7 @@ def compute_mean_aucs_per_group(group_aucs: dict) -> tuple:
     return mean_roc_auc, mean_pr_auc
 
 
-@njit()
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def compute_pr_recall_f1_metrics(y_true, y_pred):
     TP = 0
     FP = 0
@@ -650,7 +656,7 @@ def fast_calibration_report(
         ll = log_loss(y_true=y_true, y_pred=y_pred)
     except ValueError as e:
         # prevents ValueError: y_true contains only one label (True). Please provide the list of all expected class labels explicitly through the labels argument.
-        ll=None
+        ll = None
 
     precision, recall, f1 = compute_pr_recall_f1_metrics(y_true=y_true, y_pred=y_pred >= binary_threshold)
 
@@ -889,7 +895,7 @@ class ICE:
         return error
 
 
-@njit()
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def integral_calibration_error_from_metrics(
     calibration_mae: float,
     calibration_std: float,
@@ -921,12 +927,12 @@ def integral_calibration_error_from_metrics(
     return res
 
 
-@njit()
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def brier_score_loss(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     return np.mean((y_true - y_prob) ** 2)
 
 
-@njit()
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def probability_separation_score(y_true: np.ndarray, y_prob: np.ndarray, class_label: int = 1, std_weight: float = 0.5) -> float:
     idx = y_true == class_label
     if idx.sum() == 0:

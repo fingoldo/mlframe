@@ -48,7 +48,7 @@ warnings.simplefilter(action="ignore", category=RuntimeWarning)
 # Inits
 # ----------------------------------------------------------------------------------------------------------------------------
 
-FASTMATH: bool = False
+NUMBA_NJIT_PARAMS = dict(fastmath=False)
 empty_float32_array = np.array([], dtype=np.float32)
 
 
@@ -86,7 +86,7 @@ distributions_features_names = get_distributions_features_names()
 default_quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]  # list vs ndarray gives advantage 125 µs ± 2.79 µs per loop vs 140 µs ± 8.11 µs per loop
 
 
-@numba.njit(fastmath=FASTMATH)
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def compute_simple_stats_numba(arr: np.ndarray) -> tuple:
     for i, next_value in enumerate(arr):
         if np.isfinite(next_value):
@@ -127,7 +127,7 @@ def compute_simple_stats_numba(arr: np.ndarray) -> tuple:
     return minval, maxval, argmin, argmax, mean_value, std_val
 
 
-@numba.njit(fastmath=FASTMATH)
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def compute_simple_stats_numba_arr(arr: np.ndarray, dtype=np.float32):
     return np.array(compute_simple_stats_numba(arr), dtype=dtype)
 
@@ -136,7 +136,7 @@ def get_simple_stats_names() -> list:
     return "min,max,argmin,argmax,mean,std".split(",")
 
 
-@numba.njit(fastmath=FASTMATH)
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def compute_numerical_aggregates_numba(
     arr: np.ndarray,
     weights: np.ndarray = None,
@@ -567,7 +567,7 @@ def compute_nunique_modes_quantiles_numpy(
     return res
 
 
-@numba.njit(fastmath=FASTMATH)
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def compute_ncrossings(arr: np.ndarray, marks: np.ndarray, dtype=np.int32) -> np.ndarray:
     n_crossings = np.zeros(len(marks), dtype=dtype)
     prev_ds = np.full(len(marks), dtype=np.float32, fill_value=np.nan)
@@ -583,7 +583,7 @@ def compute_ncrossings(arr: np.ndarray, marks: np.ndarray, dtype=np.int32) -> np
     return n_crossings
 
 
-@numba.njit(fastmath=FASTMATH)
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def compute_nunique_mode_quantiles_numba(arr: np.ndarray, q: list = default_quantiles) -> tuple:
     """
     NOT RECOMMENDED. use compute_nunique_modes_quantiles_numpy instead, it's faster and more functional.
@@ -627,7 +627,7 @@ def compute_nunique_mode_quantiles_numba(arr: np.ndarray, q: list = default_quan
     return numUnique, mode, quantiles
 
 
-@numba.njit(fastmath=FASTMATH)
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def compute_moments_slope_mi(
     arr: np.ndarray,
     mean_value: float,

@@ -3084,6 +3084,7 @@ def compute_models_perf(
     suffixes=["_prob"],
     direct_order: bool = True,
     show_perf_chart: bool = True,
+    models:list=None,
 ):
 
     report_params = {
