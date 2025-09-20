@@ -231,6 +231,9 @@ def score_ensemble(
     val_idx: np.ndarray,
     ensemble_name: str,
     df: pd.DataFrame = None,
+    train_target: pd.Series = None,
+    test_target: pd.Series = None,
+    val_target: pd.Series = None,
     target_label_encoder: object = None,
     max_mae: float = 0.05,
     max_std: float = 0.06,
@@ -333,10 +336,14 @@ def score_ensemble(
                     val_preds=val_ensembled_predictions.flatten() if (val_ensembled_predictions is not None) else None,
                 )
 
+            if target is not None:
+                target_kwargs = dict(target=target)
+            else:
+                target_kwargs = dict(train_target=train_target, test_target=test_target, val_target=val_target)
+
             next_ens_results = train_and_evaluate_model(
                 model=None,
                 df=None,
-                target=target,
                 default_drop_columns=[],
                 model_name_prefix=f"Ens{internal_ensemble_method.upper()} {ensemble_name}",
                 train_idx=train_idx,
@@ -348,6 +355,7 @@ def score_ensemble(
                 custom_ice_metric=custom_ice_metric,
                 custom_rice_metric=custom_rice_metric,
                 subgroups=subgroups,
+                **target_kwargs,
                 **predictive_kwargs,
                 **kwargs,
             )
@@ -361,7 +369,6 @@ def score_ensemble(
                     test_probs=test_ensembled_predictions[test_confident_indices],
                     val_probs=val_ensembled_predictions[val_confident_indices],
                     df=None,
-                    target=target,
                     default_drop_columns=[],
                     model_name_prefix=f"Conf Ensemble {internal_ensemble_method} {ensemble_name}",
                     train_idx=train_idx[train_confident_indices],
@@ -373,6 +380,7 @@ def score_ensemble(
                     custom_ice_metric=custom_ice_metric,
                     custom_rice_metric=custom_rice_metric,
                     subgroups=subgroups,
+                    **target_kwargs,
                     **kwargs,
                 )
         level_models_and_predictions = next_level_models_and_predictions
