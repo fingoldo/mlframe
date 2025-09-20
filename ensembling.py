@@ -365,9 +365,9 @@ def score_ensemble(
             if uncertainty_quantile:
                 res[internal_ensemble_method + " conf"] = train_and_evaluate_model(
                     model=None,
-                    train_probs=train_ensembled_predictions[train_confident_indices],
-                    test_probs=test_ensembled_predictions[test_confident_indices],
-                    val_probs=val_ensembled_predictions[val_confident_indices],
+                    train_probs=train_ensembled_predictions[train_confident_indices] if train_ensembled_predictions else None,
+                    test_probs=test_ensembled_predictions[test_confident_indices] if test_ensembled_predictions else None,
+                    val_probs=val_ensembled_predictions[val_confident_indices] if val_ensembled_predictions else None,
                     df=None,
                     default_drop_columns=[],
                     model_name_prefix=f"Conf Ensemble {internal_ensemble_method} {ensemble_name}",
