@@ -687,7 +687,7 @@ def train_and_evaluate_model(
                 ensure_no_infinity(train_df)
 
     if not custom_ice_metric:
-        custom_ice_metric = compute_probabilistic_multiclass_error(nbins=nbins)
+        custom_ice_metric =partial( compute_probabilistic_multiclass_error,nbins=nbins)
 
     if df is not None:
         real_drop_columns = [col for col in drop_columns + default_drop_columns if col in df.columns]
