@@ -14,7 +14,7 @@ from typing import *
 
 # from pyutilz.pythonlib import ensure_installed;ensure_installed("numba numpy pandas scipy plotly")
 
-from numba import njit
+import numba
 from math import floor
 from scipy.special import expit
 from matplotlib import pyplot as plt
