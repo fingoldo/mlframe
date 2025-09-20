@@ -224,12 +224,12 @@ def ensemble_probabilistic_predictions(
 
 
 def score_ensemble(
-    target: pd.Series,
     models_and_predictions: Sequence,
-    train_idx: np.ndarray,
-    test_idx: np.ndarray,
-    val_idx: np.ndarray,
     ensemble_name: str,
+    target: pd.Series = None,
+    train_idx: np.ndarray = None,
+    test_idx: np.ndarray = None,
+    val_idx: np.ndarray = None,
     df: pd.DataFrame = None,
     train_target: pd.Series = None,
     test_target: pd.Series = None,
