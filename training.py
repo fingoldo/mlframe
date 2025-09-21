@@ -3035,7 +3035,7 @@ def read_oos_predictions(
     max_mae: float = 0,
     max_std: float = 0,
     ensure_prob_limits: bool = True,
-    uncertainty_quantile: float = 0.3,
+    uncertainty_quantile: float = 0.1,
     normalize_stds_by_mean_preds: bool = False,
     ts_field: str = "ts",
     group_field: str = "secid",
