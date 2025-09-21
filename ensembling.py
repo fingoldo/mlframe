@@ -240,8 +240,8 @@ def score_ensemble(
     ensure_prob_limits: bool = True,
     nbins: int = 100,
     ensembling_methods=SIMPLE_ENSEMBLING_METHODS,
-    uncertainty_quantile: float = 0.0,
-    normalize_stds_by_mean_preds: bool = True,
+    uncertainty_quantile: float = 0.0,  # 0.1
+    normalize_stds_by_mean_preds: bool = False,
     custom_ice_metric: Callable = None,
     custom_rice_metric: Callable = None,
     subgroups: dict = None,
