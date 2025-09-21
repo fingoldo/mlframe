@@ -652,6 +652,8 @@ class RFECV(BaseEstimator, TransformerMixin):
                 break
 
             if self.special_feature_indices is not None:
+                if verbose:
+                    logger.info(f"Quitting as special_feature_indices were checked.")
                 break
 
         # ----------------------------------------------------------------------------------------------------------------------------
