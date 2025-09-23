@@ -662,6 +662,7 @@ def train_and_evaluate_model(
     test_details: str = "",
     #
     callback_params: dict = None,
+    just_evaluate:bool=False,
 ):
     """Trains & evaluates given model/pipeline on train/test sets.
     Supports feature selection via pre_pipeline.
@@ -812,7 +813,6 @@ def train_and_evaluate_model(
 
     if val_df is not None:
         # insert eval_set where needed
-
         if callback_params:
             if "callbacks" not in fit_params:
                 if model_type_name not in XGBOOST_MODEL_TYPES and model_type_name not in HGBOOST_MODEL_TYPES:
@@ -957,37 +957,38 @@ def train_and_evaluate_model(
             if verbose:
                 logger.info("Training the model...")
 
-            try:
-                model.fit(train_df, train_target, **fit_params)
-            except Exception as e:
-                try_again = False
-                if "out of memory" in str(e):
-                    if model_type_name in XGBOOST_MODEL_TYPES:
-                        if model_obj.get_params().get("device") in ("gpu", "cuda"):
-                            model_obj.set_params(device="cpu")
-                            try_again = True
-                    elif model_type_name in CATBOOST_MODEL_TYPES:
-                        if model_obj.get_params().get("task_type") == "GPU":
-                            model_obj.set_params(task_type="CPU")
-                            try_again = True
-                    elif model_type_name in LGBM_MODEL_TYPES:
-                        if model_obj.get_params().get("device_type") in ("gpu", "cuda"):
-                            model_obj.set_params(device_type="cpu")
-                            try_again = True
-                    if try_again:
-                        logger.warning(f"{model_type_name} experienced OOM on gpu, switching to cpu...")
-                elif "User defined callbacks are not supported for GPU" in str(e):
-                    if "callbacks" in fit_params:
-                        logger.warning(e)
-                        try_again = True
-                        del fit_params["callbacks"]
-                if try_again:
-                    clean_ram()
+            if not just_evaluate:
+                try:
                     model.fit(train_df, train_target, **fit_params)
-                else:
-                    raise e
+                except Exception as e:
+                    try_again = False
+                    if "out of memory" in str(e):
+                        if model_type_name in XGBOOST_MODEL_TYPES:
+                            if model_obj.get_params().get("device") in ("gpu", "cuda"):
+                                model_obj.set_params(device="cpu")
+                                try_again = True
+                        elif model_type_name in CATBOOST_MODEL_TYPES:
+                            if model_obj.get_params().get("task_type") == "GPU":
+                                model_obj.set_params(task_type="CPU")
+                                try_again = True
+                        elif model_type_name in LGBM_MODEL_TYPES:
+                            if model_obj.get_params().get("device_type") in ("gpu", "cuda"):
+                                model_obj.set_params(device_type="cpu")
+                                try_again = True
+                        if try_again:
+                            logger.warning(f"{model_type_name} experienced OOM on gpu, switching to cpu...")
+                    elif "User defined callbacks are not supported for GPU" in str(e):
+                        if "callbacks" in fit_params:
+                            logger.warning(e)
+                            try_again = True
+                            del fit_params["callbacks"]
+                    if try_again:
+                        clean_ram()
+                        model.fit(train_df, train_target, **fit_params)
+                    else:
+                        raise e
 
-            clean_ram()
+                clean_ram()
 
             model_name = model_name + "\n" + " ".join([f" trained on {get_human_readable_set_size(len(train_df))} rows", train_details])
 
@@ -2250,6 +2251,16 @@ def process_model(
     if exists(fpath):
         model = load_mlframe_model(fpath)
         pre_pipeline = model.pre_pipeline
+
+        temp_model_params=model_params.copy()
+        temp_model_params['model']=model        
+        train_and_evaluate_model(
+                just_evaluate=True,
+                    pre_pipeline=pre_pipeline,
+                    **temp_model_params,
+                    **common_params,
+                    model_name_prefix=pre_pipeline_name,
+                )
     else:
         start = timer()
         if verbose:
