@@ -2379,6 +2379,7 @@ def train_mlframe_models_suite(
     val_size: float = 0.1,
     shuffle: bool = False,
     trainset_aging_limit: float = None,
+    use_mrmr_fs:bool=False,
 ) -> dict:
 
     # cb_kwargs=dict(devices='0-4')
@@ -2598,6 +2599,10 @@ def train_mlframe_models_suite(
                     else:
                         pre_pipelines.append(rfecv_models_params[rfecv_model_name])
                         pre_pipeline_names.append(f"{rfecv_model_name} ")
+
+                if use_mrmr_fs:
+                    pre_pipelines.append(MRMR())
+                    pre_pipeline_names.append("MRMR")
 
                 for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
                     if pre_pipeline_name == "cb_rfecv" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
