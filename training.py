@@ -2253,7 +2253,7 @@ def process_model(
         pre_pipeline = model.pre_pipeline
 
         temp_model_params=model_params.copy()
-        temp_model_params['model']=model        
+        temp_model_params['model']=model.model        
         train_and_evaluate_model(
                 just_evaluate=True,
                     pre_pipeline=pre_pipeline,
