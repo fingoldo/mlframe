@@ -388,7 +388,7 @@ def get_training_configs(
         max_cat_threshold=100,  # affects model size heavily when high cardinality cat features r present!
         tree_method="hist",
         device=("cuda" if has_gpu else "cpu"),
-        n_jobs=psutil.cpu_count(logical=False)//4,
+        n_jobs=psutil.cpu_count(logical=False) // 4,
         early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
         **xgb_kwargs,
