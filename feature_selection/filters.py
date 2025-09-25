@@ -3195,7 +3195,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                             )
                             for chunk in jobs_list
                         ],
-                        max_nbytes=0,
+                        #max_nbytes=0,
                         n_jobs=n_jobs,
                         **parallel_kwargs,
                     )
