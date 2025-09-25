@@ -662,7 +662,7 @@ def train_and_evaluate_model(
     test_details: str = "",
     #
     callback_params: dict = None,
-    just_evaluate:bool=False,
+    just_evaluate: bool = False,
 ):
     """Trains & evaluates given model/pipeline on train/test sets.
     Supports feature selection via pre_pipeline.
@@ -2252,15 +2252,15 @@ def process_model(
         model = load_mlframe_model(fpath)
         pre_pipeline = model.pre_pipeline
 
-        temp_model_params=model_params.copy()
-        temp_model_params['model']=model.model        
+        temp_model_params = model_params.copy()
+        temp_model_params["model"] = model.model
         train_and_evaluate_model(
-                just_evaluate=True,
-                    pre_pipeline=pre_pipeline,
-                    **temp_model_params,
-                    **common_params,
-                    model_name_prefix=pre_pipeline_name,
-                )
+            just_evaluate=True,
+            pre_pipeline=pre_pipeline,
+            **temp_model_params,
+            **common_params,
+            model_name_prefix=pre_pipeline_name,
+        )
     else:
         start = timer()
         if verbose:
@@ -2277,7 +2277,7 @@ def process_model(
         if verbose:
             logger.info(f"Finished training, took {(end-start)/60:.1f} min. RAM usage {get_own_ram_usage():.1f}GBs...")
         save_mlframe_model(model, fpath)
-    
+
     models[cur_target][target_type].append(model)
 
     if ens_models is not None:
@@ -2380,7 +2380,7 @@ def train_mlframe_models_suite(
     val_size: float = 0.1,
     shuffle: bool = False,
     trainset_aging_limit: float = None,
-    use_mrmr_fs:bool=False,
+    use_mrmr_fs: bool = False,
 ) -> dict:
 
     # cb_kwargs=dict(devices='0-4')
@@ -2602,7 +2602,7 @@ def train_mlframe_models_suite(
                         pre_pipeline_names.append(f"{rfecv_model_name} ")
 
                 if use_mrmr_fs:
-                    pre_pipelines.append(MRMR(n_workers=psu))
+                    pre_pipelines.append(MRMR(n_workers=psutil.cpu_count(logical=False)))
                     pre_pipeline_names.append("MRMR")
 
                 for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
@@ -2679,7 +2679,7 @@ def train_mlframe_models_suite(
             if use_lama_models:
                 if verbose:
                     logger.info(f"train_and_evaluate_lama...")
-                                    
+
                 models[cur_target][target_type].append(
                     train_and_evaluate_lama(
                         train_df=automl_train_df,
