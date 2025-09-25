@@ -982,6 +982,12 @@ def train_and_evaluate_model(
                             logger.warning(e)
                             try_again = True
                             del fit_params["callbacks"]
+                    elif "CUDA Tree Learner" in str(e):
+                        print("⚠️ CUDA is not enabled in this LightGBM build. Falling back to CPU.")
+                        # Option 1: fallback to CPU by forcing device_type=cpu
+                        model.set_params(device_type="cpu")
+                        try_again = True
+
                     if try_again:
                         clean_ram()
                         model.fit(train_df, train_target, **fit_params)
