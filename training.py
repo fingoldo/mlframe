@@ -2396,7 +2396,7 @@ def train_mlframe_models_suite(
         rfecv_models = []
 
     if mrmr_kwargs is None:
-        mrmr_kwargs = dict(n_workers=max(1,psutil.cpu_count(logical=False)// 4,verbose=3)
+        mrmr_kwargs = dict(n_workers=max(1, psutil.cpu_count(logical=False) // 4), verbose=3)
 
     if mlframe_models is None:
         mlframe_models = "cb lgb xgb hgb".split()
