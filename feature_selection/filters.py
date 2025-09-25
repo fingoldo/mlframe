@@ -2999,7 +2999,6 @@ class MRMR(BaseEstimator, TransformerMixin):
                         )
                         for chunk in split_list_into_chunks(all_pairs, len(all_pairs) // (n_jobs * prefetch_factor))
                     ],
-                    max_nbytes=0,
                     n_jobs=n_jobs,
                     **parallel_kwargs,
                 )
