@@ -2277,6 +2277,7 @@ def process_model(
         if verbose:
             logger.info(f"Finished training, took {(end-start)/60:.1f} min. RAM usage {get_own_ram_usage():.1f}GBs...")
         save_mlframe_model(model, fpath)
+    
     models[cur_target][target_type].append(model)
 
     if ens_models is not None:
@@ -2678,7 +2679,8 @@ def train_mlframe_models_suite(
             if use_lama_models:
                 if verbose:
                     logger.info(f"train_and_evaluate_lama...")
-                models[cur_target].append(
+                                    
+                models[cur_target][target_type].append(
                     train_and_evaluate_lama(
                         train_df=automl_train_df,
                         test_df=test_df,
