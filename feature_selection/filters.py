@@ -649,6 +649,7 @@ def mi_direct_gpu(
 ) -> tuple:
 
     import cupy as cp
+
     classes_x, freqs_x, _ = merge_vars(factors_data=factors_data, vars_indices=x, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
     if classes_y is None:
         classes_y, freqs_y, _ = merge_vars(factors_data=factors_data, vars_indices=y, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
@@ -1499,11 +1500,12 @@ def screen_predictors(
     run_out_of_time = False
 
     if random_seed is not None:
-        np.random.seed(random_seed)        
+        np.random.seed(random_seed)
         set_numba_random_seed(random_seed)
         try:
             cp.random.seed(random_seed)
-        except Exception as e: pass
+        except Exception as e:
+            pass
 
     max_failed = int(full_npermutations * (1 - min_nonzero_confidence))
     if max_failed <= 1:
@@ -1532,6 +1534,7 @@ def screen_predictors(
 
     if use_gpu:
         import cupy as cp
+
         classes_y_safe = cp.asarray(classes_y.astype(np.int32))
         freqs_y_safe = cp.asarray(freqs_y)
     else:
