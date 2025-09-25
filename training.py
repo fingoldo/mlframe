@@ -2602,7 +2602,7 @@ def train_mlframe_models_suite(
                         pre_pipeline_names.append(f"{rfecv_model_name} ")
 
                 if use_mrmr_fs:
-                    pre_pipelines.append(MRMR())
+                    pre_pipelines.append(MRMR(n_workers=psu))
                     pre_pipeline_names.append("MRMR")
 
                 for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
