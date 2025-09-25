@@ -388,7 +388,7 @@ def get_training_configs(
         max_cat_threshold=100,  # affects model size heavily when high cardinality cat features r present!
         tree_method="hist",
         device=("cuda" if has_gpu else "cpu"),
-        n_jobs=psutil.cpu_count(logical=False) // 4,
+        n_jobs=psutil.cpu_count(logical=False),
         early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
         **xgb_kwargs,
@@ -2381,6 +2381,7 @@ def train_mlframe_models_suite(
     shuffle: bool = False,
     trainset_aging_limit: float = None,
     use_mrmr_fs: bool = False,
+    mrmr_kwargs: dict = None,
 ) -> dict:
 
     # cb_kwargs=dict(devices='0-4')
@@ -2393,6 +2394,9 @@ def train_mlframe_models_suite(
 
     if rfecv_models is None:
         rfecv_models = []
+
+    if mrmr_kwargs is None:
+        mrmr_kwargs = dict(n_workers=max(1,psutil.cpu_count(logical=False)// 4,verbose=3)
 
     if mlframe_models is None:
         mlframe_models = "cb lgb xgb hgb".split()
@@ -2602,7 +2606,7 @@ def train_mlframe_models_suite(
                         pre_pipeline_names.append(f"{rfecv_model_name} ")
 
                 if use_mrmr_fs:
-                    pre_pipelines.append(MRMR(n_workers=psutil.cpu_count(logical=False)))
+                    pre_pipelines.append(MRMR(**mrmr_kwargs))
                     pre_pipeline_names.append("MRMR")
 
                 for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
