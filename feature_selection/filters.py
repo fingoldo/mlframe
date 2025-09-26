@@ -2684,7 +2684,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # service
         random_state: int = None,
         n_jobs: int = -1,
-        skip_retraining_on_same_shape: bool = False,
+        skip_retraining_on_same_shape: bool = True,
         # hidden
         n_features_in_: int = 0,
         feature_names_in_: Sequence = None,
