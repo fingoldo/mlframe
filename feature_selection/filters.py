@@ -2625,8 +2625,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         # confidence
         min_occupancy: int = None,
         min_nonzero_confidence: float = 0.99,
-        full_npermutations: int = 10,
-        baseline_npermutations: int = 5,
+        full_npermutations: int = 3,
+        baseline_npermutations: int = 2,
         # stopping conditions
         min_relevance_gain: float = 0.0001,
         max_consec_unconfirmed: int = 10,
