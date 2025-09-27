@@ -8,80 +8,63 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-while True:
-    try:
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Normal Imports
-        # ----------------------------------------------------------------------------------------------------------------------------
 
-        from typing import *
+# ----------------------------------------------------------------------------------------------------------------------------
+# Normal Imports
+# ----------------------------------------------------------------------------------------------------------------------------
 
-        import copy
-        import psutil
-        import textwrap
-        from collections import defaultdict
-        from timeit import default_timer as timer
+from typing import *
 
-        import pandas as pd, numpy as np
-        from itertools import combinations
-        from os.path import exists
-        import math
-        import os
-        import gc
+import copy
+import psutil
+import textwrap
+from collections import defaultdict
+from timeit import default_timer as timer
 
-        from pyutilz.system import tqdmu
-        from pyutilz.pythonlib import sort_dict_by_value
-        from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
-        from pyutilz.parallel import mem_map_array, split_list_into_chunks, parallel_run
-        from pyutilz.numbalib import set_numba_random_seed, arr2str, python_dict_2_numba_dict, generate_combinations_recursive_njit
+import pandas as pd, numpy as np
+from itertools import combinations
+from os.path import exists
+import math
+import os
+import gc
 
-        # from mlframe.boruta_shap import BorutaShap
+from pyutilz.system import tqdmu
+from pyutilz.pythonlib import sort_dict_by_value
+from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
+from pyutilz.parallel import mem_map_array, split_list_into_chunks, parallel_run
+from pyutilz.numbalib import set_numba_random_seed, arr2str, python_dict_2_numba_dict, generate_combinations_recursive_njit
 
-        from scipy.stats import mode
-        from scipy import special as sp
-        from astropy.stats import histogram
-        from numpy.polynomial.hermite import hermval
+# from mlframe.boruta_shap import BorutaShap
 
-        from catboost import CatBoostClassifier
-        from sklearn.metrics import make_scorer
+from scipy.stats import mode
+from scipy import special as sp
+from astropy.stats import histogram
+from numpy.polynomial.hermite import hermval
 
-        from mlframe.arrays import arrayMinMax
-        from mlframe.utils import set_random_seed
-        from mlframe.feature_selection.wrappers import RFECV
-        from mlframe.metrics import compute_probabilistic_multiclass_error
+from catboost import CatBoostClassifier
+from sklearn.metrics import make_scorer
 
-        from sklearn.preprocessing import KBinsDiscretizer, OrdinalEncoder
-        from sklearn.model_selection import KFold
-        from sklearn.base import is_classifier, is_regressor, BaseEstimator, TransformerMixin
-        from sklearn.impute import SimpleImputer
-        from itertools import combinations
+from mlframe.arrays import arrayMinMax
+from mlframe.utils import set_random_seed
+from mlframe.feature_selection.wrappers import RFECV
+from mlframe.metrics import compute_probabilistic_multiclass_error
 
-        from numba.core import types
-        from numba import njit, jit
-        import numba
+from sklearn.preprocessing import KBinsDiscretizer, OrdinalEncoder
+from sklearn.model_selection import KFold
+from sklearn.base import is_classifier, is_regressor, BaseEstimator, TransformerMixin
+from sklearn.impute import SimpleImputer
+from itertools import combinations
 
-        from joblib import Parallel, delayed
+from numba.core import types
+from numba import njit, jit
+import numba
 
-        from numba import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
-        import warnings
+from joblib import Parallel, delayed
 
-    except ModuleNotFoundError as e:
+from numba import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
+import warnings
 
-        logger.warning(e)
-
-        if "cannot import name" in str(e):
-            raise (e)
-
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Packages auto-install
-        # ----------------------------------------------------------------------------------------------------------------------------
-
-        from pyutilz.pythonlib import ensure_installed
-
-        ensure_installed("numba numpy pandas scipy astropy scikit-learn joblib catboost psutil")  # cupy-cuda11x
-
-    else:
-        break
+# ensure_installed("numba numpy pandas scipy astropy scikit-learn joblib catboost psutil")  # cupy-cuda11x
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
@@ -2642,8 +2625,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         # confidence
         min_occupancy: int = None,
         min_nonzero_confidence: float = 0.99,
-        full_npermutations: int = 1_000,
-        baseline_npermutations: int = 100,
+        full_npermutations: int = 10,
+        baseline_npermutations: int = 5,
         # stopping conditions
         min_relevance_gain: float = 0.0001,
         max_consec_unconfirmed: int = 10,

@@ -8,68 +8,47 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-while True:
-    try:
+# ----------------------------------------------------------------------------------------------------------------------------
+# Normal Imports
+# ----------------------------------------------------------------------------------------------------------------------------
 
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Normal Imports
-        # ----------------------------------------------------------------------------------------------------------------------------
+from typing import *
 
-        from typing import *
+import warnings
+from os.path import exists
+import pandas as pd, numpy as np
+from contextlib import nullcontext
 
-        import warnings
-        from os.path import exists
-        import pandas as pd, numpy as np
-        from contextlib import nullcontext
+import textwrap
 
-        import textwrap
+from ..config import *
+from pyutilz.system import tqdmu
+from pyutilz.system import clean_ram
+from pyutilz.numbalib import set_numba_random_seed
+from pyutilz.pythonlib import store_params_in_object, get_parent_func_args, suppress_stdout_stderr
 
-        from ..config import *
-        from pyutilz.system import tqdmu
-        from pyutilz.system import clean_ram
-        from pyutilz.numbalib import set_numba_random_seed
-        from pyutilz.pythonlib import store_params_in_object, get_parent_func_args, suppress_stdout_stderr
+from mlframe.config import *
+from mlframe.optimization import *
+from mlframe.votenrank import Leaderboard
+from mlframe.utils import set_random_seed
+from mlframe.baselines import get_best_dummy_score
+from mlframe.helpers import has_early_stopping_support
+from mlframe.preprocessing import pack_val_set_into_fit_params
+from mlframe.metrics import compute_probabilistic_multiclass_error
 
-        from mlframe.config import *
-        from mlframe.optimization import *
-        from mlframe.votenrank import Leaderboard
-        from mlframe.utils import set_random_seed
-        from mlframe.baselines import get_best_dummy_score
-        from mlframe.helpers import has_early_stopping_support
-        from mlframe.preprocessing import pack_val_set_into_fit_params
-        from mlframe.metrics import compute_probabilistic_multiclass_error
+from sklearn.pipeline import Pipeline
+from sklearn.dummy import DummyClassifier, DummyRegressor
+from sklearn.metrics import make_scorer, mean_squared_error
+from sklearn.base import is_classifier, is_regressor, BaseEstimator, TransformerMixin
+from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold, StratifiedShuffleSplit, GroupKFold, GroupShuffleSplit, KFold
 
-        from sklearn.pipeline import Pipeline
-        from sklearn.dummy import DummyClassifier, DummyRegressor
-        from sklearn.metrics import make_scorer, mean_squared_error
-        from sklearn.base import is_classifier, is_regressor, BaseEstimator, TransformerMixin
-        from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold, StratifiedShuffleSplit, GroupKFold, GroupShuffleSplit, KFold
+from enum import Enum, auto
+from timeit import default_timer as timer
 
-        from enum import Enum, auto
-        from timeit import default_timer as timer
+import matplotlib.pyplot as plt
 
-        import matplotlib.pyplot as plt
-
-        import random
-        import copy
-
-    except ModuleNotFoundError as e:
-
-        logger.warning(e)
-
-        if "cannot import name" in str(e):
-            raise (e)
-
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Packages auto-install
-        # ----------------------------------------------------------------------------------------------------------------------------
-
-        from pyutilz.pythonlib import ensure_installed
-
-        ensure_installed("numpy pandas scikit-learn")  # cupy
-
-    else:
-        break
+import random
+import copy
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
@@ -717,7 +696,8 @@ class RFECV(BaseEstimator, TransformerMixin):
             base_perf = smoothed_perf
 
         # ultimate_perf = base_perf / (np.log1p(np.arange(len(base_perf))) + comparison_base)
-        ultimate_perf = base_perf - np.arange(len(base_perf)) * feature_cost
+        # ultimate_perf = base_perf - np.arange(len(base_perf)) * feature_cost
+        ultimate_perf = base_perf - np.array(checked_nfeatures) * feature_cost
 
         sorted_idx = np.argsort(ultimate_perf)[::-1]
         for idx in sorted_idx:
