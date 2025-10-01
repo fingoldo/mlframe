@@ -2124,21 +2124,37 @@ def make_train_test_split(
     val_size: float = 0.1,
     shuffle_val: bool = False,
     shuffle_test: bool = False,
+    val_sequential_fraction: float = None,
+    test_sequential_fraction: float = None,
     trainset_aging_limit: float = None,
     timestamps: pd.Series = None,
     wholeday_splitting: bool = True,
-    combined_val_splitting: bool = True,
 ) -> tuple:
+    """
+    Split data into train, validation, and test sets with flexible sequential/shuffled control.
+    
+    Args:
+        val_sequential_fraction: Fraction of validation set that should be sequential (0.0-1.0).
+                                If None and shuffle_val=True: fully shuffled
+                                If None and shuffle_val=False: fully sequential
+        test_sequential_fraction: Fraction of test set that should be sequential (0.0-1.0).
+                                 If None and shuffle_test=True: fully shuffled
+                                 If None and shuffle_test=False: fully sequential
+    """
 
-    def _calculate_split_sizes(total_size, target_size, shuffle, use_combined):
+    def _calculate_split_sizes(total_size, target_size, shuffle, sequential_fraction):
         """Calculate sequential and shuffled portions for a split."""
         n_total = int(total_size * target_size)
-        if use_combined and shuffle:
-            n_shuffled = int(n_total * 0.5)
-            n_sequential = n_total - n_shuffled
+        
+        if sequential_fraction is not None:
+            assert 0.0 <= sequential_fraction <= 1.0, "sequential_fraction must be between 0.0 and 1.0"
+            n_sequential = int(n_total * sequential_fraction)
+            n_shuffled = n_total - n_sequential
         else:
+            # Legacy behavior: fully shuffled or fully sequential
             n_shuffled = n_total if shuffle else 0
             n_sequential = 0 if shuffle else n_total
+        
         return n_sequential, n_shuffled
 
     def _perform_split(sorted_items, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf):
@@ -2180,7 +2196,7 @@ def make_train_test_split(
 
     def _build_details(timestamps, idx, sequential_idx, n_shuffled, unit):
         """Build detail string for a split set."""
-        if sequential_idx is not None:
+        if sequential_idx is not None and len(sequential_idx) > 0:
             details = f"{timestamps.iloc[sequential_idx].min():%Y-%m-%d}/{timestamps.iloc[sequential_idx].max():%Y-%m-%d}"
             if n_shuffled > 0:
                 details += f" +{n_shuffled} {unit}"
@@ -2196,8 +2212,8 @@ def make_train_test_split(
     else:
         n_total = len(df)
     
-    n_test_seq, n_test_shuf = _calculate_split_sizes(n_total, test_size, shuffle_test, False)
-    n_val_seq, n_val_shuf = _calculate_split_sizes(n_total, val_size, shuffle_val, combined_val_splitting)
+    n_test_seq, n_test_shuf = _calculate_split_sizes(n_total, test_size, shuffle_test, test_sequential_fraction)
+    n_val_seq, n_val_shuf = _calculate_split_sizes(n_total, val_size, shuffle_val, val_sequential_fraction)
 
     # Perform splitting
     if wholeday_splitting and timestamps is not None:
@@ -2227,7 +2243,7 @@ def make_train_test_split(
         val_details = _build_details(timestamps, val_idx, val_seq_idx, n_val_shuf, "days")
         
         test_seq_idx = np.where(dates.isin(test_dates_seq))[0] if test_dates_seq is not None else None
-        test_details = _build_details(timestamps, test_idx, test_seq_idx, 0, "days")
+        test_details = _build_details(timestamps, test_idx, test_seq_idx, n_test_shuf, "days")
         
     elif timestamps is not None:
         # Row-based splitting with timestamps
@@ -2244,7 +2260,7 @@ def make_train_test_split(
         # Build detail strings
         train_details = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
         val_details = _build_details(timestamps, val_idx, val_idx_seq, n_val_shuf, "records")
-        test_details = _build_details(timestamps, test_idx, test_idx_seq, 0, "records")
+        test_details = _build_details(timestamps, test_idx, test_idx_seq, n_test_shuf, "records")
         
     else:
         # Row-based splitting without timestamps (fallback to sklearn)
@@ -2513,10 +2529,12 @@ def train_mlframe_models_suite(
     #
     test_size: float = 0.1,
     val_size: float = 0.1,
-    shuffle: bool = False,
+    shuffle_val: bool = False,
+    shuffle_test: bool = False,
+    val_sequential_fraction: float = None,
+    test_sequential_fraction: float = None,
     trainset_aging_limit: float = None,
     wholeday_splitting:bool=True,
-    combined_val_splitting:bool=True,
     use_mrmr_fs: bool = False,
     mrmr_kwargs: dict = None,
 ) -> dict:
@@ -2627,7 +2645,13 @@ def train_mlframe_models_suite(
         logger.info(f"make_train_test_split...")
 
     train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
-        df=pandas_df, timestamps=timestamps, test_size=test_size, val_size=val_size, shuffle=shuffle, trainset_aging_limit=trainset_aging_limit,wholeday_splitting=wholeday_splitting,combined_val_splitting=combined_val_splitting,
+        df=pandas_df, timestamps=timestamps, test_size=test_size, val_size=val_size,     shuffle_val=shuffle_val,
+    shuffle_test=shuffle_test,
+    val_sequential_fraction=val_sequential_fraction,
+    test_sequential_fraction=test_sequential_fraction,
+    trainset_aging_limit=trainset_aging_limit,
+    wholeday_splitting=wholeday_splitting,
+
     )
 
     ensure_dir_exists(join(data_dir, models_dir, slugify(target_name), slugify(model_name)))
