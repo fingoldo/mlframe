@@ -2118,23 +2118,70 @@ def load_production_models(
 
 # Training Suite
 
-
 def make_train_test_split(
-    df: pd.DataFrame, timestamps: pd.Series, test_size: float = 0.1, val_size: float = 0.1, shuffle: bool = False, trainset_aging_limit: float = None
+    df: pd.DataFrame,
+    test_size: float = 0.1,
+    val_size: float = 0.1,
+    shuffle: bool = False,
+    trainset_aging_limit: float = None,
+    timestamps: pd.Series = None,
+    use_wholeday_splitting: bool = True,
 ) -> tuple:
 
-    train_idx, test_idx = train_test_split(np.arange(len(df)), test_size=test_size, shuffle=shuffle)
-    train_idx, val_idx = train_test_split(train_idx, test_size=val_size, shuffle=shuffle)
+    if use_wholeday_splitting and timestamps is not None:
+        # Extract dates from timestamps
+        dates = pd.to_datetime(timestamps).dt.date
+        unique_dates = dates.unique()
+        
+        # Split unique dates instead of individual rows
+        date_train_idx, date_test_idx = train_test_split(
+            np.arange(len(unique_dates)), test_size=test_size, shuffle=shuffle
+        )
+        date_train_idx, date_val_idx = train_test_split(
+            date_train_idx, test_size=val_size, shuffle=shuffle
+        )
+        
+        # Map date indices back to row indices
+        train_dates = unique_dates[date_train_idx]
+        val_dates = unique_dates[date_val_idx]
+        test_dates = unique_dates[date_test_idx]
+        
+        train_idx = np.where(dates.isin(train_dates))[0]
+        val_idx = np.where(dates.isin(val_dates))[0]
+        test_idx = np.where(dates.isin(test_dates))[0]
+        
+        if trainset_aging_limit:
+            assert trainset_aging_limit > 0 and trainset_aging_limit < 1.0
+            # Apply aging limit to dates, not rows
+            n_dates_to_keep = int(len(train_dates) * trainset_aging_limit)
+            if n_dates_to_keep > 0:
+                # Sort train_dates and keep only the most recent ones
+                train_dates_sorted = np.sort(train_dates)
+                recent_dates = train_dates_sorted[-n_dates_to_keep:]
+                train_idx = np.where(dates.isin(recent_dates))[0]
+    else:
+        # Original row-based splitting
+        train_idx, test_idx = train_test_split(
+            np.arange(len(df)), test_size=test_size, shuffle=shuffle
+        )
+        train_idx, val_idx = train_test_split(
+            train_idx, test_size=val_size, shuffle=shuffle
+        )
 
-    if trainset_aging_limit:
-        assert trainset_aging_limit > 0 and trainset_aging_limit < 1.0
-        train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)) :]
+        if trainset_aging_limit:
+            assert trainset_aging_limit > 0 and trainset_aging_limit < 1.0
+            train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)) :]
 
-    train_details: str = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
-    val_details: str = f"{timestamps.iloc[val_idx].min():%Y-%m-%d}/{timestamps.iloc[val_idx].max():%Y-%m-%d}"
-    test_details: str = f"{timestamps.iloc[test_idx].min():%Y-%m-%d}/{timestamps.iloc[test_idx].max():%Y-%m-%d}"
+    if timestamps is not None:
+        train_details: str = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
+        val_details: str = f"{timestamps.iloc[val_idx].min():%Y-%m-%d}/{timestamps.iloc[val_idx].max():%Y-%m-%d}"
+        test_details: str = f"{timestamps.iloc[test_idx].min():%Y-%m-%d}/{timestamps.iloc[test_idx].max():%Y-%m-%d}"
+    else:
+        train_details, val_details, test_details = "", "", ""
 
-    print(f"{len(train_idx):_} train rows {train_details}, {len(val_idx):_} val rows {val_details}, {len(test_idx):_} test rows {test_details}.")
+    print(
+        f"{len(train_idx):_} train rows {train_details}, {len(val_idx):_} val rows {val_details}, {len(test_idx):_} test rows {test_details}."
+    )
 
     return train_idx, val_idx, test_idx, train_details, val_details, test_details
 
@@ -2386,6 +2433,7 @@ def train_mlframe_models_suite(
     val_size: float = 0.1,
     shuffle: bool = False,
     trainset_aging_limit: float = None,
+    use_wholeday_splitting:bool=True,
     use_mrmr_fs: bool = False,
     mrmr_kwargs: dict = None,
 ) -> dict:
@@ -2496,35 +2544,37 @@ def train_mlframe_models_suite(
         logger.info(f"make_train_test_split...")
 
     train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
-        df=pandas_df, timestamps=timestamps, test_size=test_size, val_size=val_size, shuffle=shuffle, trainset_aging_limit=trainset_aging_limit
+        df=pandas_df, timestamps=timestamps, test_size=test_size, val_size=val_size, shuffle=shuffle, trainset_aging_limit=trainset_aging_limit,use_wholeday_splitting=use_wholeday_splitting
     )
 
     ensure_dir_exists(join(data_dir, models_dir, slugify(target_name), slugify(model_name)))
 
-    if timestamps is not None:
-        ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), "test_timestamps.parquet")
-        if not exists(ts_file):
-            timestamps.iloc[test_idx].to_frame(name="ts").to_parquet(ts_file, compression=PARQUET_COMPRESION)
+    for idx,idx_name in zip([train_idx,val_idx,test_idx],"train val test".split()):
 
-    if group_ids_raw is not None:
-        ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), "test_group_ids_raw.parquet")
-        if not exists(ts_file):
-            group_ids_raw.iloc[test_idx].to_frame().to_parquet(ts_file, compression=PARQUET_COMPRESION)
+        if timestamps is not None:
+            ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_timestamps.parquet")
+            if not exists(ts_file):
+                timestamps.iloc[idx].to_frame(name="ts").to_parquet(ts_file, compression=PARQUET_COMPRESION)
 
-    if artifacts is not None:
-        ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), "test_artifacts.parquet")
-        if not exists(ts_file):
-            obj = artifacts.iloc[test_idx]
-            if isinstance(obj, pd.Series):
-                obj = obj.to_frame()
-            obj.to_parquet(ts_file, compression=PARQUET_COMPRESION)
+        if group_ids_raw is not None:
+            ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_group_ids_raw.parquet")
+            if not exists(ts_file):
+                group_ids_raw.iloc[idx].to_frame().to_parquet(ts_file, compression=PARQUET_COMPRESION)
+
+        if artifacts is not None:
+            ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_artifacts.parquet")
+            if not exists(ts_file):
+                obj = artifacts.iloc[idx]
+                if isinstance(obj, pd.Series):
+                    obj = obj.to_frame()
+                obj.to_parquet(ts_file, compression=PARQUET_COMPRESION)
 
     if verbose:
         logger.info(f"creating train_df,val_df,test_df...")
 
-    train_df = pandas_df.iloc[train_idx]
-    val_df = pandas_df.iloc[val_idx]
+    train_df = pandas_df.iloc[train_idx]    
     test_df = pandas_df.iloc[test_idx]
+    val_df = pandas_df.iloc[val_idx]
 
     columns = pandas_df.columns
 
