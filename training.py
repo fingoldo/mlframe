@@ -2533,7 +2533,7 @@ def train_mlframe_models_suite(
     val_size: float = 0.1,
     shuffle_val: bool = False,
     shuffle_test: bool = False,
-    val_sequential_fraction: float = None,
+    val_sequential_fraction: float = 0.5,
     test_sequential_fraction: float = None,
     trainset_aging_limit: float = None,
     wholeday_splitting:bool=True,
