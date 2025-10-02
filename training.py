@@ -2129,6 +2129,7 @@ def make_train_test_split(
     trainset_aging_limit: float = None,
     timestamps: pd.Series = None,
     wholeday_splitting: bool = True,
+    random_seed:int=None,
 ) -> tuple:
     """
     Split data into train, validation, and test sets with flexible sequential/shuffled control.
@@ -2141,7 +2142,8 @@ def make_train_test_split(
                                  If None and shuffle_test=True: fully shuffled
                                  If None and shuffle_test=False: fully sequential
     """
-
+    if random_seed:
+        np.random.seed(random_seed)
     def _calculate_split_sizes(total_size, target_size, shuffle, sequential_fraction):
         """Calculate sequential and shuffled portions for a split."""
         n_total = int(total_size * target_size)
@@ -2537,6 +2539,7 @@ def train_mlframe_models_suite(
     wholeday_splitting:bool=True,
     use_mrmr_fs: bool = False,
     mrmr_kwargs: dict = None,
+    random_seed:int=42,
 ) -> dict:
 
     # cb_kwargs=dict(devices='0-4')
@@ -2646,13 +2649,14 @@ def train_mlframe_models_suite(
 
     train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
         df=pandas_df, timestamps=timestamps, test_size=test_size, val_size=val_size,     shuffle_val=shuffle_val,
-    shuffle_test=shuffle_test,
-    val_sequential_fraction=val_sequential_fraction,
-    test_sequential_fraction=test_sequential_fraction,
-    trainset_aging_limit=trainset_aging_limit,
-    wholeday_splitting=wholeday_splitting,
+        shuffle_test=shuffle_test,
+        val_sequential_fraction=val_sequential_fraction,
+        test_sequential_fraction=test_sequential_fraction,
+        trainset_aging_limit=trainset_aging_limit,
+        wholeday_splitting=wholeday_splitting,
+        random_seed=random_seed,
 
-    )
+        )
 
     ensure_dir_exists(join(data_dir, models_dir, slugify(target_name), slugify(model_name)))
 
