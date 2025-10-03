@@ -34,6 +34,7 @@ from timeit import default_timer as timer
 from pyutilz.system import ensure_dir_exists, tqdmu
 from pyutilz.pythonlib import prefix_dict_elems, get_human_readable_set_size
 
+from mlframe.lightninglib import *
 from mlframe.helpers import get_model_best_iter, ensure_no_infinity, get_own_ram_usage
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -332,6 +333,7 @@ def get_training_configs(
     hgb_kwargs: dict = dict(verbose=0),
     lgb_kwargs: dict = dict(verbose=-1),
     xgb_kwargs: dict = dict(verbosity=0),
+    mlp_kwargs: dict = dict(verbose=0),
     # ----------------------------------------------------------------------------------------------------------------------------
     # featureselectors
     # ----------------------------------------------------------------------------------------------------------------------------
@@ -379,6 +381,18 @@ def get_training_configs(
         random_state=random_seed,
         **hgb_kwargs,
     )
+
+    MLP_GENERAL_PARAMS   = dict(
+        max_iter=iterations,
+        learning_rate=learning_rate,
+        early_stopping=True,
+        validation_fraction=(None if use_explicit_early_stopping else validation_fraction),
+        n_iter_no_change=early_stopping_rounds,
+        categorical_features="from_dtype",
+        random_state=random_seed,
+        **mlp_kwargs,
+    )
+  
 
     XGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
@@ -524,6 +538,7 @@ def get_training_configs(
         XGB_GENERAL_CLASSIF=XGB_GENERAL_CLASSIF,
         XGB_CALIB_CLASSIF=XGB_CALIB_CLASSIF,
         COMMON_RFECV_PARAMS=COMMON_RFECV_PARAMS,
+        MLP_GENERAL_PARAMS=MLP_GENERAL_PARAMS,
     )
 
 
@@ -1769,12 +1784,20 @@ def configure_training_params(
     )
 
     common_hgb_params = dict(
-        model=(
+           model=(
             metamodel_func(HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS))
             if use_regression
             else HistGradientBoostingClassifier(**(configs.HGB_GENERAL_PARAMS))
-        ),
+     ),
     )
+
+    common_mlp_params = dict(
+           model=(
+            metamodel_func(PytorchLightningRegressor(**configs.HGB_GENERAL_PARAMS))
+            if use_regression
+            else PytorchLightningClassifier(**(configs.HGB_GENERAL_PARAMS))
+     ),
+    )    
 
     if prefer_cpu_for_xgboost:
         common_xgb_params = dict(

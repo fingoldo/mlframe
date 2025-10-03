@@ -94,7 +94,7 @@ class PytorchLightningEstimator(BaseEstimator):
         else:
             return_proba = False
 
-        # For faster initialization, you can create model parameters with the desired dtype directly on the device:
+        # For faster initialization, you can create model parameters with desired dtype directly on the device:
         with self.trainer.init_module():
             self.model = self.model(model=self.network, loss_fn=self.loss_fn, learning_rate=self.args.lr, args=self.args, return_proba=return_proba)
 
