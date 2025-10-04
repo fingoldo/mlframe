@@ -2979,7 +2979,7 @@ def train_mlframe_models_suite(
                         continue
 
                     ens_models = [] if use_mlframe_ensembles else None
-                    orig_pre_pipeline=pre_pipeline
+                    orig_pre_pipeline = pre_pipeline
                     for mlframe_model_name in mlframe_models:
                         if mlframe_model_name == "cb" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
                             continue
@@ -2990,25 +2990,22 @@ def train_mlframe_models_suite(
                             logger.warning(f"mlframe model {mlframe_model_name} not known, skipping...")
                         else:
 
-                            if mlframe_model_name=="hgb":
-                                pre_pipeline=Pipeline(
+                            if mlframe_model_name == "hgb":
+                                pre_pipeline = Pipeline(
                                     steps=[
-                                        *[[("pre", orig_pre_pipeline)] if orig_pre_pipeline else []],
+                                        *([("pre", orig_pre_pipeline)] if orig_pre_pipeline else []),
                                         ("ce", ce.CatBoostEncoder(verbose=2)),
                                     ]
-                                )                                   
-                            elif mlframe_model_name=="mlp":
+                                )
+                            elif mlframe_model_name == "mlp":
                                 Pipeline(
-                                        steps=[
-                                            *[[("pre", orig_pre_pipeline)] if orig_pre_pipeline else []],
-                                            ("ce", ce.CatBoostEncoder()),
-                                            ("imp", SimpleImputer()),
-                                            ("scaler", StandardScaler()),
-                                            (
-                                                "est",
-                                            ),
-                                        ]
-                                    )                                
+                                    steps=[
+                                        *([("pre", orig_pre_pipeline)] if orig_pre_pipeline else []),
+                                        ("ce", ce.CatBoostEncoder()),
+                                        ("imp", SimpleImputer()),
+                                        ("scaler", StandardScaler()),
+                                    ]
+                                )
 
                             trainset_features_stats, pre_pipeline = process_model(
                                 model_file=model_file,
@@ -3025,8 +3022,8 @@ def train_mlframe_models_suite(
                                 verbose=verbose,
                             )
 
-                            if mlframe_model_name not in ("hgb","mlp"):
-                                orig_pre_pipeline=pre_pipeline
+                            if mlframe_model_name not in ("hgb", "mlp"):
+                                orig_pre_pipeline = pre_pipeline
 
                     if ens_models and len(ens_models) > 1:
 
