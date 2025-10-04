@@ -539,7 +539,7 @@ def get_training_configs(
     parser.add_argument("--epochs", type=int, default=iterations)
     parser.add_argument("--dropout_prob", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=random_seed)
-    parser.add_argument("--batch_size", type=int, default=2048*8)  # 4194304
+    parser.add_argument("--batch_size", type=int, default=2048 * 8)  # 4194304
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--lr", type=float, default=learning_rate)
     parser.add_argument("--weight_decay", type=float, default=0.001)
@@ -607,7 +607,7 @@ def get_training_configs(
         # Precision & accelerators:
         # ----------------------------------------------------------------------------------------------------------------------
         precision=args.precision,
-        #accelerator="cuda",  # devices=find_usable_cuda_devices(2)
+        # accelerator="cuda",  # devices=find_usable_cuda_devices(2)
         # accelerator="ddp",plugins=DDPPlugin(find_unused_parameters=False),
         num_nodes=args.nodes,
         # ----------------------------------------------------------------------------------------------------------------------
