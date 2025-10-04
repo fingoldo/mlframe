@@ -34,8 +34,39 @@ from timeit import default_timer as timer
 from pyutilz.system import ensure_dir_exists, tqdmu
 from pyutilz.pythonlib import prefix_dict_elems, get_human_readable_set_size
 
-from mlframe.lightninglib import *
 from mlframe.helpers import get_model_best_iter, ensure_no_infinity, get_own_ram_usage
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# ANNS
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from lightning.pytorch.utilities.warnings import PossibleUserWarning
+
+import torch
+import torch.nn.functional as F
+from torch.utils.data import DataLoader, Dataset
+
+# import pl_bolts
+import lightning as L
+from lightning import LightningDataModule
+from lightning.pytorch.tuner import Tuner
+from lightning.pytorch.callbacks import Callback
+from lightning.pytorch.loggers import MLFlowLogger, TensorBoardLogger, WandbLogger
+from lightning.pytorch.callbacks import RichProgressBar, TQDMProgressBar, ModelPruning, LearningRateMonitor, LearningRateFinder
+from lightning.pytorch.callbacks import ModelCheckpoint, DeviceStatsMonitor, StochasticWeightAveraging, GradientAccumulationScheduler
+
+from lightning.pytorch.serve import ServableModule, ServableModuleValidator
+from lightning.pytorch.callbacks.early_stopping import EarlyStopping as EarlyStoppingCallback
+from lightning.pytorch.accelerators import find_usable_cuda_devices
+from lightning.pytorch.profilers import AdvancedProfiler, PyTorchProfiler, XLAProfiler
+from lightning.pytorch import seed_everything
+
+from mlframe.lightninglib import MLPNeuronsByLayerArchitecture, generate_mlp
+from mlframe.lightninglib import PytorchLightningRegressor,PytorchLightningClassifier, TorchDataset, TorchDataModule, AggregatingValidationCallback, NetworkGraphLoggingCallback
+
+
+from lightning.pytorch.callbacks import ModelCheckpoint
+import argparse,warnings
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Filesystem
@@ -1785,7 +1816,7 @@ def configure_training_params(
 
     common_hgb_params = dict(
            model=(
-            metamodel_func(HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS))
+            metamodel_func(make_pipeline(ce.CatBoostEncoder(), HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS)))
             if use_regression
             else HistGradientBoostingClassifier(**(configs.HGB_GENERAL_PARAMS))
      ),
@@ -1793,9 +1824,9 @@ def configure_training_params(
 
     common_mlp_params = dict(
            model=(
-            metamodel_func(PytorchLightningRegressor(**configs.HGB_GENERAL_PARAMS))
+            metamodel_func(make_pipeline(ce.CatBoostEncoder(),SimpleImputer(),StandardScaler(),PytorchLightningRegressor(**configs.MLP_GENERAL_PARAMS)
             if use_regression
-            else PytorchLightningClassifier(**(configs.HGB_GENERAL_PARAMS))
+            else PytorchLightningClassifier(**configs.MLP_GENERAL_PARAMS)))
      ),
     )    
 
@@ -1890,7 +1921,7 @@ def configure_training_params(
         **rfecv_params,
     )
 
-    return common_params, common_cb_params, common_hgb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs
+    return common_params, common_cb_params, common_hgb_params, common_lgb_params, common_xgb_params,common_mlp_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs
 
 
 def post_calibrate_model(
@@ -2373,7 +2404,7 @@ def select_target(
     if config_params_override:
         effective_config_params.update(config_params_override)
 
-    common_params, common_cb_params, common_hgb_params, common_lgb_params, common_xgb_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs = (
+    common_params, common_cb_params, common_hgb_params, common_lgb_params, common_xgb_params,common_mlp_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs = (
         configure_training_params(
             df=df,
             train_df=train_df,
@@ -2396,7 +2427,7 @@ def select_target(
         )
     )
 
-    models_params = dict(cb=common_cb_params, lgb=common_lgb_params, xgb=common_xgb_params, hgb=common_hgb_params)
+    models_params = dict(cb=common_cb_params, lgb=common_lgb_params, xgb=common_xgb_params, hgb=common_hgb_params,mlp=common_mlp_params)
     rfecv_models_params = dict(
         cb_rfecv=cb_rfecv,
         lgb_rfecv=lgb_rfecv,
@@ -2580,7 +2611,7 @@ def train_mlframe_models_suite(
         mrmr_kwargs = dict(n_workers=max(1, psutil.cpu_count(logical=False)), verbose=2, fe_max_steps=0)
 
     if mlframe_models is None:
-        mlframe_models = "cb lgb xgb hgb".split()
+        mlframe_models = "cb lgb xgb hgb mlp".split()
 
     if init_common_params is None:
         init_common_params = {}
@@ -2786,7 +2817,7 @@ def train_mlframe_models_suite(
 
                 if use_ordinary_models:
                     pre_pipelines.append(None)
-                    pre_pipeline_names.append("")
+                    pre_pipeline_names.append("")                     
 
                 for rfecv_model_name in rfecv_models:
                     if rfecv_model_name not in rfecv_models_params:
@@ -2810,6 +2841,8 @@ def train_mlframe_models_suite(
                     for mlframe_model_name in mlframe_models:
                         if mlframe_model_name == "cb" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
                             continue
+
+                        # !TODO ! some models (hgb, ann) require imputers, cat handlers, scalers
 
                         if mlframe_model_name not in models_params:
                             logger.warning(f"mlframe model {mlframe_model_name} not known, skipping...")
