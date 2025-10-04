@@ -582,7 +582,7 @@ def get_training_configs(
         callbacks.append(early_stopping)
 
     trainer = L.Trainer(
-        devices=torch.cuda.device_count(),
+        devices=1, #torch.cuda.device_count(),
         # ----------------------------------------------------------------------------------------------------------------------
         # Runtime:
         # ----------------------------------------------------------------------------------------------------------------------
