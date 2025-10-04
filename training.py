@@ -1921,11 +1921,14 @@ def configure_training_params(
     )
 
     common_hgb_params = dict(
-           model=(
-            metamodel_func(make_pipeline(ce.CatBoostEncoder(), HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS)))
-            if use_regression
-            else HistGradientBoostingClassifier(**(configs.HGB_GENERAL_PARAMS))
-     ),
+        model=metamodel_func(
+            make_pipeline(
+                ce.CatBoostEncoder(),
+                HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS)
+                if use_regression
+                else HistGradientBoostingClassifier(**configs.HGB_GENERAL_PARAMS)
+            )
+        )
     )
 
     if use_regression:
