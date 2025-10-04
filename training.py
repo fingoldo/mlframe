@@ -1937,7 +1937,7 @@ def configure_training_params(
         consec_layers_neurons_ratio=1.5,
         activation_function=torch.nn.ReLU(),
         weights_init_fcn=partial(nn.init.xavier_normal_, gain=2.0),
-        dropout_prob = 0.2,
+        dropout_prob=0.2,
         inputs_dropout_prob=0.1,
         use_batchnorm=False,
     )
