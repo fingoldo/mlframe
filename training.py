@@ -629,7 +629,7 @@ def get_training_configs(
 
     MLP_GENERAL_PARAMS   = dict(
         model=MLPTorchModel,datamodule=TorchDataModule,features_dtype=torch.float32,labels_dtype= torch.int64,loss_fn=F.cross_entropy,tune_params=False,
-                                    args=args,trainer=trainer
+                                    args=args,trainer=trainer,
         **mlp_kwargs,
     )
   
