@@ -372,7 +372,7 @@ def get_training_configs(
     hgb_kwargs: dict = dict(verbose=0),
     lgb_kwargs: dict = dict(verbose=-1),
     xgb_kwargs: dict = dict(verbosity=0),
-    mlp_kwargs: dict = dict(verbose=0),
+    mlp_kwargs: dict = dict(),
     # ----------------------------------------------------------------------------------------------------------------------------
     # featureselectors
     # ----------------------------------------------------------------------------------------------------------------------------
