@@ -20,6 +20,9 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
+import lightning as L
+from lightning.pytorch.callbacks import ModelCheckpoint
+
 from lightning import LightningDataModule
 from lightning.pytorch.tuner import Tuner
 from lightning.pytorch.callbacks import Callback, LearningRateFinder
@@ -470,3 +473,94 @@ class PeriodicLearningRateFinder(LearningRateFinder):
             print(f"Finding optimal learning rate. Current rate={getattr(pl_module,'learning_rate')}")
             self.lr_find(trainer, pl_module)
             print(f"Set learning rate to {getattr(pl_module,'learning_rate')}")
+
+
+
+
+
+class MLPTorchModel(L.LightningModule):
+    def __init__(
+        self,
+        args: object,
+        loss_fn: Callable,
+        return_proba: bool,
+        model: torch.nn.Module = None,
+        learning_rate: float = 0.1,
+        l1_alpha: float = 0.0,
+        optimizer=torch.optim.Adam,
+        optimizer_kwargs: dict = {},
+        lr_scheduler: object = None,
+        lr_scheduler_kwargs: dict = {},
+    ):
+        super().__init__()
+        self.save_hyperparameters()  # ignore=["model"]
+        store_params_in_object(obj=self, params=get_parent_func_args())
+
+        try:
+            self.example_input_array = model.example_input_array  # specifying allows to skip example_input_array when doing ONNX export
+        except Exception:
+            pass
+
+    def forward(self, x):
+        with torch.inference_mode():
+            logits = self.model(x)
+
+        if not self.return_proba:
+            return logits
+        else:
+            return torch.softmax(logits, dim=1)
+
+    def compute_loss(self, batch):
+        features, labels = batch
+        logits = self.model(features)
+
+        loss = self.loss_fn(logits, labels)
+
+        if self.l1_alpha:  # l2 regularization is already implemented in optimizers via weight_decay parameter
+            l1_norm = torch.sum(torch.linalg.norm(p, 1) for p in self.model.parameters())
+            loss += self.l1_alpha * l1_norm
+
+        return loss
+
+    def training_step(self, batch, batch_idx):
+        loss = self.compute_loss(batch)
+        self.log("train_loss", loss, on_epoch=False, on_step=True, prog_bar=True)
+
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        features, labels = batch
+        predictions = self.forward(features)
+        # we can still compute val_loss if needed
+        return predictions, labels
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        return self.forward(batch)
+
+    def configure_optimizers(self):
+
+        optimizer = self.optimizer(params=self.model.parameters(), **self.optimizer_kwargs)
+        res = {"optimizer": optimizer}
+        if self.lr_scheduler:
+            res["lr_scheduler"] = self.lr_scheduler(optimizer=optimizer, **self.lr_scheduler_kwargs)
+
+        return res
+
+    def on_train_end(self):
+        # Lightning ES callback do not auto-load best weights, so we locate ModelCheckpoint & do that ourselves.
+        for callback in self.trainer.callbacks:
+            if isinstance(callback, ModelCheckpoint):
+                logger.info(f"Loading weights from {callback.best_model_path}")
+                best_model = self.__class__.load_from_checkpoint(callback.best_model_path)
+                self.load_state_dict(best_model.state_dict())
+                break
+
+
+def get_predictions(model, dataloader):
+    model.eval()
+    probs = []
+    with torch.inference_mode():
+        for features, labels in dataloader:
+            logits = model(features)
+            probs.append(torch.softmax(logits))
+    return torch.concat(probs)

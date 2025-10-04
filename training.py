@@ -43,6 +43,7 @@ from mlframe.helpers import get_model_best_iter, ensure_no_infinity, get_own_ram
 from lightning.pytorch.utilities.warnings import PossibleUserWarning
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
@@ -61,7 +62,7 @@ from lightning.pytorch.accelerators import find_usable_cuda_devices
 from lightning.pytorch.profilers import AdvancedProfiler, PyTorchProfiler, XLAProfiler
 from lightning.pytorch import seed_everything
 
-from mlframe.lightninglib import MLPNeuronsByLayerArchitecture, generate_mlp
+from mlframe.lightninglib import MLPNeuronsByLayerArchitecture, generate_mlp,MLPTorchModel
 from mlframe.lightninglib import PytorchLightningRegressor,PytorchLightningClassifier, TorchDataset, TorchDataModule, AggregatingValidationCallback, NetworkGraphLoggingCallback
 
 
@@ -370,10 +371,10 @@ def get_training_configs(
     # ----------------------------------------------------------------------------------------------------------------------------
     rfecv_kwargs: dict = None,
 ) -> tuple:
-    """Returns approximately same training configs for different types of models,
+    """Returns comparable training configs for different types of models,
     based on general params supplied like learning rate, task type, time budget.
     Useful for more or less fair comparison between different models on the same data/task, and their upcoming ensembling.
-    This procedure is good for manual EDA and getting the feeling of what ML models are capable of for a particular task.
+    This procedure is good for getting the feeling of what ML models are capable of for a particular task.
     """
 
     if has_gpu is None:
@@ -413,17 +414,6 @@ def get_training_configs(
         **hgb_kwargs,
     )
 
-    MLP_GENERAL_PARAMS   = dict(
-        max_iter=iterations,
-        learning_rate=learning_rate,
-        early_stopping=True,
-        validation_fraction=(None if use_explicit_early_stopping else validation_fraction),
-        n_iter_no_change=early_stopping_rounds,
-        categorical_features="from_dtype",
-        random_state=random_seed,
-        **mlp_kwargs,
-    )
-  
 
     XGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
@@ -531,6 +521,120 @@ def get_training_configs(
     Note: it is recommended to use the smaller max_bin (e.g. 63) to get the better speed up"""
 
     # XGB_CALIB_CLASSIF_CPU.update({"device": "cpu","n_jobs":psutil.cpu_count(logical=False)})
+
+
+    parser = argparse.ArgumentParser(description="Exp", conflict_handler="resolve")
+
+    parser.add_argument(
+        "--experiment_path",
+        type=str,
+        default="logs",
+    )
+    parser.add_argument("--optim", type=str, default="SGD")
+    parser.add_argument("--epochs", type=int, default=iterations)
+    parser.add_argument("--dropout_prob", type=float, default=0.2)
+    parser.add_argument("--seed", type=int, default=random_seed)
+    parser.add_argument("--batch_size", type=int, default=1683146) # 4194304
+    parser.add_argument("--num_workers", type=int, default=0)
+    parser.add_argument("--lr", type=float, default=learning_rate)
+    parser.add_argument("--weight_decay", type=float, default=0.001)
+    parser.add_argument("--nodes", type=int, default=1)
+    parser.add_argument("--precision", type=str, default="bf16-mixed") # test "16-true" and "bf16-true"? # With true 16-bit precision you can additionally lower your memory consumption by up to half so that you can train and deploy larger models. However, this setting can sometimes lead to unstable training.
+    # BFloat16 Mixed precision is similar to FP16 mixed precision, however, it maintains more of the “dynamic range” that FP32 offers. This means it is able to improve numerical stability than FP16 mixed precision.
+    parser.add_argument(
+        "--f", type=str, default=""
+    )
+    args = parser.parse_args([])  
+
+    early_stopping_metric_name="val_ICE"
+    checkpointing = ModelCheckpoint(
+        monitor=early_stopping_metric_name,
+        dirpath=args.experiment_path,
+        filename="model-{"+early_stopping_metric_name+":.4f}",
+        enable_version_counter=True,
+        save_last=False,
+        save_top_k=1,
+        mode="min",
+    )
+    
+    logger=TensorBoardLogger(save_dir=args.experiment_path,log_graph=True) #save_dir="s3://my_bucket/logs/" 
+    progress_bar = TQDMProgressBar(refresh_rate=50) #leave=True 
+
+    callbacks=[checkpointing,NetworkGraphLoggingCallback(), 
+                    LearningRateMonitor(logging_interval='epoch'),progress_bar,
+                    StochasticWeightAveraging(swa_lrs=1e-2),
+                    #PeriodicLearningRateFinder(period=10),
+                    AggregatingValidationCallback(metric_name="ICE",metric_fcn=partial(fs_and_hpt_integral_calibration_error, verbose=False)),
+                    ]    
+
+    if use_explicit_early_stopping:
+        early_stopping=EarlyStoppingCallback(monitor=early_stopping_metric_name, min_delta=0.001, patience=early_stopping_rounds, mode="min",verbose=True) # stopping_threshold: Stops training immediately once the monitored quantity reaches this threshold.
+        callbacks.append(early_stopping)
+
+    trainer = L.Trainer(
+
+        #----------------------------------------------------------------------------------------------------------------------
+        # Runtime:
+        #----------------------------------------------------------------------------------------------------------------------
+            
+        min_epochs=1,
+        max_epochs=args.epochs,
+        max_time={"days": 0, "hours": 0,"minutes":20},
+        #max_steps=1,    
+        
+        #----------------------------------------------------------------------------------------------------------------------
+        # Intervals:
+        #----------------------------------------------------------------------------------------------------------------------
+        
+        check_val_every_n_epoch=1,
+        #val_check_interval=val_check_interval,
+        #log_every_n_steps=log_every_n_steps,   
+        
+        #----------------------------------------------------------------------------------------------------------------------
+        # Flags:
+        #----------------------------------------------------------------------------------------------------------------------    
+        
+        #enable_model_summary=True,
+        gradient_clip_val=0.5, 
+        gradient_clip_algorithm="value", # "norm"
+        
+        accumulate_grad_batches=1,
+        
+        #----------------------------------------------------------------------------------------------------------------------
+        # Precision & accelerators:
+        #----------------------------------------------------------------------------------------------------------------------           
+        
+        precision=args.precision,
+
+        # accelerator="cuda", devices=find_usable_cuda_devices(2)
+        # accelerator="ddp",plugins=DDPPlugin(find_unused_parameters=False),
+
+        num_nodes=args.nodes,
+        
+        #----------------------------------------------------------------------------------------------------------------------
+        # Callbacks:
+        #----------------------------------------------------------------------------------------------------------------------              
+        
+        callbacks=callbacks, 
+        # DeviceStatsMonitor(),
+        # ModelPruning("l1_unstructured", amount=0.5)        
+        
+        #----------------------------------------------------------------------------------------------------------------------
+        # Logging:
+        #----------------------------------------------------------------------------------------------------------------------
+            
+        default_root_dir=args.experiment_path,
+        #logger=logger,
+    )      
+
+    MLP_GENERAL_PARAMS   = dict(
+        model=MLPTorchModel,datamodule=TorchDataModule,features_dtype=torch.float32,labels_dtype= torch.int64,loss_fn=F.cross_entropy,tune_params=False,
+                                    args=args,trainer=trainer
+        **mlp_kwargs,
+    )
+  
+
+
 
     if rfecv_kwargs is None:
         rfecv_kwargs = {}
@@ -1822,11 +1926,31 @@ def configure_training_params(
      ),
     )
 
+    if use_regression:
+        num_classes=1
+    else:
+        num_classes=2
+
+    network=generate_mlp(
+        num_features= df.shape[1],
+        num_classes=num_classes,
+        nlayers = 7,
+        first_layer_num_neurons = 150,
+        min_layer_neurons = 1,
+        neurons_by_layer_arch = MLPNeuronsByLayerArchitecture.Declining,
+        consec_layers_neurons_ratio = 1.5,
+        activation_function = torch.nn.ReLU(),
+        weights_init_fcn = partial(nn.init.xavier_normal_,gain=2.0),
+        #dropout_prob = 0.4,
+        inputs_dropout_prob=0.1,
+        use_batchnorm = False,
+    )        
+
     common_mlp_params = dict(
            model=(
-            metamodel_func(make_pipeline(ce.CatBoostEncoder(),SimpleImputer(),StandardScaler(),PytorchLightningRegressor(**configs.MLP_GENERAL_PARAMS)
+            metamodel_func(make_pipeline(ce.CatBoostEncoder(),SimpleImputer(),StandardScaler(),PytorchLightningRegressor(network=network,**configs.MLP_GENERAL_PARAMS)
             if use_regression
-            else PytorchLightningClassifier(**configs.MLP_GENERAL_PARAMS)))
+            else PytorchLightningClassifier(network=network,**configs.MLP_GENERAL_PARAMS)))
      ),
     )    
 
