@@ -557,7 +557,7 @@ def get_training_configs(
         mode="min",
     )
     
-    logger=TensorBoardLogger(save_dir=args.experiment_path,log_graph=True) #save_dir="s3://my_bucket/logs/" 
+    tb_logger=TensorBoardLogger(save_dir=args.experiment_path,log_graph=True) #save_dir="s3://my_bucket/logs/" 
     progress_bar = TQDMProgressBar(refresh_rate=50) #leave=True 
 
     callbacks=[checkpointing,NetworkGraphLoggingCallback(), 
@@ -571,8 +571,15 @@ def get_training_configs(
         early_stopping=EarlyStoppingCallback(monitor=early_stopping_metric_name, min_delta=0.001, patience=early_stopping_rounds, mode="min",verbose=True) # stopping_threshold: Stops training immediately once the monitored quantity reaches this threshold.
         callbacks.append(early_stopping)
 
+    num_gpus=1
+    try:
+        num_gpus = len(cuda.gpus)
+    except Exception as e:
+        logger.warning('Could not read num_gpus')
+
     trainer = L.Trainer(
 
+        devices=num_gpus,
         #----------------------------------------------------------------------------------------------------------------------
         # Runtime:
         #----------------------------------------------------------------------------------------------------------------------
@@ -624,7 +631,7 @@ def get_training_configs(
         #----------------------------------------------------------------------------------------------------------------------
             
         default_root_dir=args.experiment_path,
-        #logger=logger,
+        #logger=tb_logger,
     )      
 
     MLP_GENERAL_PARAMS   = dict(
