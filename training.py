@@ -539,7 +539,7 @@ def get_training_configs(
     parser.add_argument("--epochs", type=int, default=iterations)
     parser.add_argument("--dropout_prob", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=random_seed)
-    parser.add_argument("--batch_size", type=int, default=1024)  # 4194304
+    parser.add_argument("--batch_size", type=int, default=2048)  # 4194304
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--lr", type=float, default=learning_rate)
     parser.add_argument("--weight_decay", type=float, default=0.001)
