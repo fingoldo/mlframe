@@ -1919,9 +1919,17 @@ def configure_training_params(
 
     common_hgb_params = dict(
         model=metamodel_func(
-            Pipeline(steps=[
-                ('ce',ce.CatBoostEncoder(verbose=2)),
-                ('est',HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS) if use_regression else HistGradientBoostingClassifier(**configs.HGB_GENERAL_PARAMS)),
+            Pipeline(
+                steps=[
+                    ("ce", ce.CatBoostEncoder(verbose=2)),
+                    (
+                        "est",
+                        (
+                            HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS)
+                            if use_regression
+                            else HistGradientBoostingClassifier(**configs.HGB_GENERAL_PARAMS)
+                        ),
+                    ),
                 ]
             )
         )
@@ -1950,16 +1958,20 @@ def configure_training_params(
     common_mlp_params = dict(
         model=(
             metamodel_func(
-                Pipeline(steps=[
-                    ('ce',ce.CatBoostEncoder()),
-                    ('imp',SimpleImputer()),
-                    ('scaler',StandardScaler()),
-                    ('est',(
-                        PytorchLightningRegressor(network=network, **configs.MLP_GENERAL_PARAMS)
-                        if use_regression
-                        else PytorchLightningClassifier(network=network, **configs.MLP_GENERAL_PARAMS)
-                    )),
-                ]
+                Pipeline(
+                    steps=[
+                        ("ce", ce.CatBoostEncoder()),
+                        ("imp", SimpleImputer()),
+                        ("scaler", StandardScaler()),
+                        (
+                            "est",
+                            (
+                                PytorchLightningRegressor(network=network, **configs.MLP_GENERAL_PARAMS)
+                                if use_regression
+                                else PytorchLightningClassifier(network=network, **configs.MLP_GENERAL_PARAMS)
+                            ),
+                        ),
+                    ]
                 )
             )
         ),
