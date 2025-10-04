@@ -139,11 +139,14 @@ class PytorchLightningEstimator(BaseEstimator):
         return res.detach().cpu().numpy()
 
 
-class PytorchLightningRegressor(PytorchLightningEstimator, RegressorMixin):
+class PytorchLightningRegressor(RegressorMixin, PytorchLightningEstimator):
+    _estimator_type = "regressor"
     pass
 
 
-class PytorchLightningClassifier(PytorchLightningEstimator, ClassifierMixin):
+class PytorchLightningClassifier(ClassifierMixin, PytorchLightningEstimator):
+    _estimator_type = "classifier"
+
     def predict_proba(self, X):
         return self.predict(X)
 
@@ -473,9 +476,6 @@ class PeriodicLearningRateFinder(LearningRateFinder):
             print(f"Finding optimal learning rate. Current rate={getattr(pl_module,'learning_rate')}")
             self.lr_find(trainer, pl_module)
             print(f"Set learning rate to {getattr(pl_module,'learning_rate')}")
-
-
-
 
 
 class MLPTorchModel(L.LightningModule):
