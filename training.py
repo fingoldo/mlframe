@@ -1919,19 +1919,7 @@ def configure_training_params(
 
     common_hgb_params = dict(
         model=metamodel_func(
-            Pipeline(
-                steps=[
-                    ("ce", ce.CatBoostEncoder(verbose=2)),
-                    (
-                        "est",
-                        (
-                            HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS)
-                            if use_regression
-                            else HistGradientBoostingClassifier(**configs.HGB_GENERAL_PARAMS)
-                        ),
-                    ),
-                ]
-            )
+            (HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS) if use_regression else HistGradientBoostingClassifier(**configs.HGB_GENERAL_PARAMS)),
         )
     )
 
@@ -1958,21 +1946,11 @@ def configure_training_params(
     common_mlp_params = dict(
         model=(
             metamodel_func(
-                Pipeline(
-                    steps=[
-                        ("ce", ce.CatBoostEncoder()),
-                        ("imp", SimpleImputer()),
-                        ("scaler", StandardScaler()),
-                        (
-                            "est",
-                            (
-                                PytorchLightningRegressor(network=network, **configs.MLP_GENERAL_PARAMS)
-                                if use_regression
-                                else PytorchLightningClassifier(network=network, **configs.MLP_GENERAL_PARAMS)
-                            ),
-                        ),
-                    ]
-                )
+                (
+                    PytorchLightningRegressor(network=network, **configs.MLP_GENERAL_PARAMS)
+                    if use_regression
+                    else PytorchLightningClassifier(network=network, **configs.MLP_GENERAL_PARAMS)
+                ),
             )
         ),
     )
@@ -3001,7 +2979,7 @@ def train_mlframe_models_suite(
                         continue
 
                     ens_models = [] if use_mlframe_ensembles else None
-
+                    orig_pre_pipeline=pre_pipeline
                     for mlframe_model_name in mlframe_models:
                         if mlframe_model_name == "cb" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
                             continue
@@ -3011,6 +2989,26 @@ def train_mlframe_models_suite(
                         if mlframe_model_name not in models_params:
                             logger.warning(f"mlframe model {mlframe_model_name} not known, skipping...")
                         else:
+
+                            if mlframe_model_name=="hgb":
+                                pre_pipeline=Pipeline(
+                                    steps=[
+                                        *[[("pre", orig_pre_pipeline)] if orig_pre_pipeline else []],
+                                        ("ce", ce.CatBoostEncoder(verbose=2)),
+                                    ]
+                                )                                   
+                            elif mlframe_model_name=="mlp":
+                                Pipeline(
+                                        steps=[
+                                            *[[("pre", orig_pre_pipeline)] if orig_pre_pipeline else []],
+                                            ("ce", ce.CatBoostEncoder()),
+                                            ("imp", SimpleImputer()),
+                                            ("scaler", StandardScaler()),
+                                            (
+                                                "est",
+                                            ),
+                                        ]
+                                    )                                
 
                             trainset_features_stats, pre_pipeline = process_model(
                                 model_file=model_file,
@@ -3026,6 +3024,9 @@ def train_mlframe_models_suite(
                                 trainset_features_stats=trainset_features_stats,
                                 verbose=verbose,
                             )
+
+                            if mlframe_model_name not in ("hgb","mlp"):
+                                orig_pre_pipeline=pre_pipeline
 
                     if ens_models and len(ens_models) > 1:
 
