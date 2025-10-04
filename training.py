@@ -62,12 +62,19 @@ from lightning.pytorch.accelerators import find_usable_cuda_devices
 from lightning.pytorch.profilers import AdvancedProfiler, PyTorchProfiler, XLAProfiler
 from lightning.pytorch import seed_everything
 
-from mlframe.lightninglib import MLPNeuronsByLayerArchitecture, generate_mlp,MLPTorchModel
-from mlframe.lightninglib import PytorchLightningRegressor,PytorchLightningClassifier, TorchDataset, TorchDataModule, AggregatingValidationCallback, NetworkGraphLoggingCallback
+from mlframe.lightninglib import MLPNeuronsByLayerArchitecture, generate_mlp, MLPTorchModel
+from mlframe.lightninglib import (
+    PytorchLightningRegressor,
+    PytorchLightningClassifier,
+    TorchDataset,
+    TorchDataModule,
+    AggregatingValidationCallback,
+    NetworkGraphLoggingCallback,
+)
 
 
 from lightning.pytorch.callbacks import ModelCheckpoint
-import argparse,warnings
+import argparse, warnings
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Filesystem
@@ -414,7 +421,6 @@ def get_training_configs(
         **hgb_kwargs,
     )
 
-
     XGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
         learning_rate=learning_rate,
@@ -522,7 +528,6 @@ def get_training_configs(
 
     # XGB_CALIB_CLASSIF_CPU.update({"device": "cpu","n_jobs":psutil.cpu_count(logical=False)})
 
-
     parser = argparse.ArgumentParser(description="Exp", conflict_handler="resolve")
 
     parser.add_argument(
@@ -534,109 +539,101 @@ def get_training_configs(
     parser.add_argument("--epochs", type=int, default=iterations)
     parser.add_argument("--dropout_prob", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=random_seed)
-    parser.add_argument("--batch_size", type=int, default=1683146) # 4194304
+    parser.add_argument("--batch_size", type=int, default=1683146)  # 4194304
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--lr", type=float, default=learning_rate)
     parser.add_argument("--weight_decay", type=float, default=0.001)
     parser.add_argument("--nodes", type=int, default=1)
-    parser.add_argument("--precision", type=str, default="bf16-mixed") # test "16-true" and "bf16-true"? # With true 16-bit precision you can additionally lower your memory consumption by up to half so that you can train and deploy larger models. However, this setting can sometimes lead to unstable training.
-    # BFloat16 Mixed precision is similar to FP16 mixed precision, however, it maintains more of the “dynamic range” that FP32 offers. This means it is able to improve numerical stability than FP16 mixed precision.
     parser.add_argument(
-        "--f", type=str, default=""
-    )
-    args = parser.parse_args([])  
+        "--precision", type=str, default="bf16-mixed"
+    )  # test "16-true" and "bf16-true"? # With true 16-bit precision you can additionally lower your memory consumption by up to half so that you can train and deploy larger models. However, this setting can sometimes lead to unstable training.
+    # BFloat16 Mixed precision is similar to FP16 mixed precision, however, it maintains more of the “dynamic range” that FP32 offers. This means it is able to improve numerical stability than FP16 mixed precision.
+    parser.add_argument("--f", type=str, default="")
+    args = parser.parse_args([])
 
-    early_stopping_metric_name="val_ICE"
+    early_stopping_metric_name = "val_ICE"
     checkpointing = ModelCheckpoint(
         monitor=early_stopping_metric_name,
         dirpath=args.experiment_path,
-        filename="model-{"+early_stopping_metric_name+":.4f}",
+        filename="model-{" + early_stopping_metric_name + ":.4f}",
         enable_version_counter=True,
         save_last=False,
         save_top_k=1,
         mode="min",
     )
-    
-    tb_logger=TensorBoardLogger(save_dir=args.experiment_path,log_graph=True) #save_dir="s3://my_bucket/logs/" 
-    progress_bar = TQDMProgressBar(refresh_rate=50) #leave=True 
 
-    callbacks=[checkpointing,NetworkGraphLoggingCallback(), 
-                    LearningRateMonitor(logging_interval='epoch'),progress_bar,
-                    StochasticWeightAveraging(swa_lrs=1e-2),
-                    #PeriodicLearningRateFinder(period=10),
-                    AggregatingValidationCallback(metric_name="ICE",metric_fcn=partial(fs_and_hpt_integral_calibration_error, verbose=False)),
-                    ]    
+    tb_logger = TensorBoardLogger(save_dir=args.experiment_path, log_graph=True)  # save_dir="s3://my_bucket/logs/"
+    progress_bar = TQDMProgressBar(refresh_rate=50)  # leave=True
+
+    callbacks = [
+        checkpointing,
+        NetworkGraphLoggingCallback(),
+        LearningRateMonitor(logging_interval="epoch"),
+        progress_bar,
+        StochasticWeightAveraging(swa_lrs=1e-2),
+        # PeriodicLearningRateFinder(period=10),
+        AggregatingValidationCallback(metric_name="ICE", metric_fcn=partial(fs_and_hpt_integral_calibration_error, verbose=False)),
+    ]
 
     if use_explicit_early_stopping:
-        early_stopping=EarlyStoppingCallback(monitor=early_stopping_metric_name, min_delta=0.001, patience=early_stopping_rounds, mode="min",verbose=True) # stopping_threshold: Stops training immediately once the monitored quantity reaches this threshold.
+        early_stopping = EarlyStoppingCallback(
+            monitor=early_stopping_metric_name, min_delta=0.001, patience=early_stopping_rounds, mode="min", verbose=True
+        )  # stopping_threshold: Stops training immediately once the monitored quantity reaches this threshold.
         callbacks.append(early_stopping)
 
-
     trainer = L.Trainer(
-
-        devices=1, #torch.cuda.device_count(),
-        #----------------------------------------------------------------------------------------------------------------------
+        devices=1,  # torch.cuda.device_count(),
+        # ----------------------------------------------------------------------------------------------------------------------
         # Runtime:
-        #----------------------------------------------------------------------------------------------------------------------
-            
+        # ----------------------------------------------------------------------------------------------------------------------
         min_epochs=1,
         max_epochs=args.epochs,
-        max_time={"days": 0, "hours": 0,"minutes":20},
-        #max_steps=1,    
-        
-        #----------------------------------------------------------------------------------------------------------------------
+        max_time={"days": 0, "hours": 0, "minutes": 20},
+        # max_steps=1,
+        # ----------------------------------------------------------------------------------------------------------------------
         # Intervals:
-        #----------------------------------------------------------------------------------------------------------------------
-        
+        # ----------------------------------------------------------------------------------------------------------------------
         check_val_every_n_epoch=1,
-        #val_check_interval=val_check_interval,
-        #log_every_n_steps=log_every_n_steps,   
-        
-        #----------------------------------------------------------------------------------------------------------------------
+        # val_check_interval=val_check_interval,
+        # log_every_n_steps=log_every_n_steps,
+        # ----------------------------------------------------------------------------------------------------------------------
         # Flags:
-        #----------------------------------------------------------------------------------------------------------------------    
-        
-        #enable_model_summary=True,
-        gradient_clip_val=0.5, 
-        gradient_clip_algorithm="value", # "norm"
-        
+        # ----------------------------------------------------------------------------------------------------------------------
+        # enable_model_summary=True,
+        gradient_clip_val=0.5,
+        gradient_clip_algorithm="value",  # "norm"
         accumulate_grad_batches=1,
-        
-        #----------------------------------------------------------------------------------------------------------------------
+        # ----------------------------------------------------------------------------------------------------------------------
         # Precision & accelerators:
-        #----------------------------------------------------------------------------------------------------------------------           
-        
+        # ----------------------------------------------------------------------------------------------------------------------
         precision=args.precision,
-
         # accelerator="cuda", devices=find_usable_cuda_devices(2)
         # accelerator="ddp",plugins=DDPPlugin(find_unused_parameters=False),
-
         num_nodes=args.nodes,
-        
-        #----------------------------------------------------------------------------------------------------------------------
+        # ----------------------------------------------------------------------------------------------------------------------
         # Callbacks:
-        #----------------------------------------------------------------------------------------------------------------------              
-        
-        callbacks=callbacks, 
+        # ----------------------------------------------------------------------------------------------------------------------
+        callbacks=callbacks,
         # DeviceStatsMonitor(),
-        # ModelPruning("l1_unstructured", amount=0.5)        
-        
-        #----------------------------------------------------------------------------------------------------------------------
+        # ModelPruning("l1_unstructured", amount=0.5)
+        # ----------------------------------------------------------------------------------------------------------------------
         # Logging:
-        #----------------------------------------------------------------------------------------------------------------------
-            
+        # ----------------------------------------------------------------------------------------------------------------------
         default_root_dir=args.experiment_path,
-        #logger=tb_logger,
-    )      
+        # logger=tb_logger,
+    )
 
-    MLP_GENERAL_PARAMS   = dict(
-        model=MLPTorchModel,datamodule=TorchDataModule,features_dtype=torch.float32,labels_dtype= torch.int64,loss_fn=F.cross_entropy,tune_params=False,
-                                    args=args,trainer=trainer,
+    MLP_GENERAL_PARAMS = dict(
+        model=MLPTorchModel,
+        datamodule=TorchDataModule,
+        features_dtype=torch.float32,
+        labels_dtype=torch.int64,
+        loss_fn=F.cross_entropy,
+        tune_params=False,
+        args=args,
+        trainer=trainer,
         **mlp_kwargs,
     )
-  
-
-
 
     if rfecv_kwargs is None:
         rfecv_kwargs = {}
@@ -1923,41 +1920,48 @@ def configure_training_params(
     common_hgb_params = dict(
         model=metamodel_func(
             make_pipeline(
-                ce.CatBoostEncoder(),
-                HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS)
-                if use_regression
-                else HistGradientBoostingClassifier(**configs.HGB_GENERAL_PARAMS)
+                ce.CatBoostEncoder(verbose=2),
+                HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS) if use_regression else HistGradientBoostingClassifier(**configs.HGB_GENERAL_PARAMS),
             )
         )
     )
 
     if use_regression:
-        num_classes=1
+        num_classes = 1
     else:
-        num_classes=2
+        num_classes = 2
 
-    network=generate_mlp(
-        num_features= df.shape[1],
+    network = generate_mlp(
+        num_features=df.shape[1],
         num_classes=num_classes,
-        nlayers = 7,
-        first_layer_num_neurons = 150,
-        min_layer_neurons = 1,
-        neurons_by_layer_arch = MLPNeuronsByLayerArchitecture.Declining,
-        consec_layers_neurons_ratio = 1.5,
-        activation_function = torch.nn.ReLU(),
-        weights_init_fcn = partial(nn.init.xavier_normal_,gain=2.0),
-        #dropout_prob = 0.4,
+        nlayers=7,
+        first_layer_num_neurons=150,
+        min_layer_neurons=1,
+        neurons_by_layer_arch=MLPNeuronsByLayerArchitecture.Declining,
+        consec_layers_neurons_ratio=1.5,
+        activation_function=torch.nn.ReLU(),
+        weights_init_fcn=partial(nn.init.xavier_normal_, gain=2.0),
+        # dropout_prob = 0.4,
         inputs_dropout_prob=0.1,
-        use_batchnorm = False,
-    )        
+        use_batchnorm=False,
+    )
 
     common_mlp_params = dict(
-           model=(
-            metamodel_func(make_pipeline(ce.CatBoostEncoder(),SimpleImputer(),StandardScaler(),PytorchLightningRegressor(network=network,**configs.MLP_GENERAL_PARAMS)
-            if use_regression
-            else PytorchLightningClassifier(network=network,**configs.MLP_GENERAL_PARAMS)))
-     ),
-    )    
+        model=(
+            metamodel_func(
+                make_pipeline(
+                    ce.CatBoostEncoder(),
+                    SimpleImputer(),
+                    StandardScaler(),
+                    (
+                        PytorchLightningRegressor(network=network, **configs.MLP_GENERAL_PARAMS)
+                        if use_regression
+                        else PytorchLightningClassifier(network=network, **configs.MLP_GENERAL_PARAMS)
+                    ),
+                )
+            )
+        ),
+    )
 
     if prefer_cpu_for_xgboost:
         common_xgb_params = dict(
@@ -2050,7 +2054,19 @@ def configure_training_params(
         **rfecv_params,
     )
 
-    return common_params, common_cb_params, common_hgb_params, common_lgb_params, common_xgb_params,common_mlp_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs
+    return (
+        common_params,
+        common_cb_params,
+        common_hgb_params,
+        common_lgb_params,
+        common_xgb_params,
+        common_mlp_params,
+        cb_rfecv,
+        lgb_rfecv,
+        xgb_rfecv,
+        cpu_configs,
+        gpu_configs,
+    )
 
 
 def post_calibrate_model(
@@ -2301,6 +2317,7 @@ def load_production_models(
 
 # Training Suite
 
+
 def make_train_test_split(
     df: pd.DataFrame,
     test_size: float = 0.1,
@@ -2312,11 +2329,11 @@ def make_train_test_split(
     trainset_aging_limit: float = None,
     timestamps: pd.Series = None,
     wholeday_splitting: bool = True,
-    random_seed:int=None,
+    random_seed: int = None,
 ) -> tuple:
     """
     Split data into train, validation, and test sets with flexible sequential/shuffled control.
-    
+
     Args:
         val_sequential_fraction: Fraction of validation set that should be sequential (0.0-1.0).
                                 If None and shuffle_val=True: fully shuffled
@@ -2327,10 +2344,11 @@ def make_train_test_split(
     """
     if random_seed:
         np.random.seed(random_seed)
+
     def _calculate_split_sizes(total_size, target_size, shuffle, sequential_fraction):
         """Calculate sequential and shuffled portions for a split."""
         n_total = int(total_size * target_size)
-        
+
         if sequential_fraction is not None:
             assert 0.0 <= sequential_fraction <= 1.0, "sequential_fraction must be between 0.0 and 1.0"
             n_sequential = int(n_total * sequential_fraction)
@@ -2339,7 +2357,7 @@ def make_train_test_split(
             # Legacy behavior: fully shuffled or fully sequential
             n_shuffled = n_total if shuffle else 0
             n_sequential = 0 if shuffle else n_total
-        
+
         return n_sequential, n_shuffled
 
     def _perform_split(sorted_items, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf):
@@ -2348,35 +2366,35 @@ def make_train_test_split(
         test_seq = val_seq = None
         test_list = []
         val_list = []
-        
+
         # Sequential test (most recent)
         if n_test_seq > 0:
             test_seq = remaining[-n_test_seq:]
             test_list.append(test_seq)
             remaining = remaining[:-n_test_seq]
-        
+
         # Sequential val (next most recent)
         if n_val_seq > 0:
             val_seq = remaining[-n_val_seq:]
             val_list.append(val_seq)
             remaining = remaining[:-n_val_seq]
-        
+
         # Shuffled test from remaining
         if n_test_shuf > 0:
             test_shuf_idx = np.random.choice(len(remaining), n_test_shuf, replace=False)
             test_list.append(remaining[test_shuf_idx])
             remaining = np.delete(remaining, test_shuf_idx)
-        
+
         # Shuffled val from remaining
         if n_val_shuf > 0:
             val_shuf_idx = np.random.choice(len(remaining), n_val_shuf, replace=False)
             val_list.append(remaining[val_shuf_idx])
             remaining = np.delete(remaining, val_shuf_idx)
-        
+
         test_items = np.concatenate(test_list) if test_list else np.array([], dtype=remaining.dtype)
         val_items = np.concatenate(val_list) if val_list else np.array([], dtype=remaining.dtype)
         train_items = remaining
-        
+
         return train_items, val_items, test_items, val_seq, test_seq
 
     def _build_details(timestamps, idx, sequential_idx, n_shuffled, unit):
@@ -2396,7 +2414,7 @@ def make_train_test_split(
         n_total = len(unique_dates)
     else:
         n_total = len(df)
-    
+
     n_test_seq, n_test_shuf = _calculate_split_sizes(n_total, test_size, shuffle_test, test_sequential_fraction)
     n_val_seq, n_val_shuf = _calculate_split_sizes(n_total, val_size, shuffle_val, val_sequential_fraction)
 
@@ -2404,15 +2422,13 @@ def make_train_test_split(
     if wholeday_splitting and timestamps is not None:
         # Date-based splitting
         sorted_dates = np.sort(unique_dates)
-        train_dates, val_dates, test_dates, val_dates_seq, test_dates_seq = _perform_split(
-            sorted_dates, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf
-        )
-        
+        train_dates, val_dates, test_dates, val_dates_seq, test_dates_seq = _perform_split(sorted_dates, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf)
+
         # Map dates to row indices
         train_idx = np.where(dates.isin(train_dates))[0]
         val_idx = np.where(dates.isin(val_dates))[0]
         test_idx = np.where(dates.isin(test_dates))[0]
-        
+
         # Apply aging limit
         if trainset_aging_limit:
             assert trainset_aging_limit > 0 and trainset_aging_limit < 1.0
@@ -2420,51 +2436,43 @@ def make_train_test_split(
             if n_dates_to_keep > 0:
                 recent_dates = np.sort(train_dates)[-n_dates_to_keep:]
                 train_idx = np.where(dates.isin(recent_dates))[0]
-        
+
         # Build detail strings
         train_details = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
-        
+
         val_seq_idx = np.where(dates.isin(val_dates_seq))[0] if val_dates_seq is not None else None
         val_details = _build_details(timestamps, val_idx, val_seq_idx, n_val_shuf, "days")
-        
+
         test_seq_idx = np.where(dates.isin(test_dates_seq))[0] if test_dates_seq is not None else None
         test_details = _build_details(timestamps, test_idx, test_seq_idx, n_test_shuf, "days")
-        
+
     elif timestamps is not None:
         # Row-based splitting with timestamps
         sorted_idx = np.argsort(timestamps.values)
-        train_idx, val_idx, test_idx, val_idx_seq, test_idx_seq = _perform_split(
-            sorted_idx, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf
-        )
-        
+        train_idx, val_idx, test_idx, val_idx_seq, test_idx_seq = _perform_split(sorted_idx, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf)
+
         # Apply aging limit
         if trainset_aging_limit:
             assert trainset_aging_limit > 0 and trainset_aging_limit < 1.0
-            train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)):]
-        
+            train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)) :]
+
         # Build detail strings
         train_details = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
         val_details = _build_details(timestamps, val_idx, val_idx_seq, n_val_shuf, "records")
         test_details = _build_details(timestamps, test_idx, test_idx_seq, n_test_shuf, "records")
-        
+
     else:
         # Row-based splitting without timestamps (fallback to sklearn)
-        train_idx, test_idx = train_test_split(
-            np.arange(len(df)), test_size=test_size, shuffle=shuffle_test
-        )
-        train_idx, val_idx = train_test_split(
-            train_idx, test_size=val_size, shuffle=shuffle_val
-        )
-        
+        train_idx, test_idx = train_test_split(np.arange(len(df)), test_size=test_size, shuffle=shuffle_test)
+        train_idx, val_idx = train_test_split(train_idx, test_size=val_size, shuffle=shuffle_val)
+
         if trainset_aging_limit:
             assert trainset_aging_limit > 0 and trainset_aging_limit < 1.0
-            train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)):]
-        
+            train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)) :]
+
         train_details, val_details, test_details = "", "", ""
 
-    print(
-        f"{len(train_idx):_} train rows {train_details}, {len(val_idx):_} val rows {val_details}, {len(test_idx):_} test rows {test_details}."
-    )
+    print(f"{len(train_idx):_} train rows {train_details}, {len(val_idx):_} val rows {val_details}, {len(test_idx):_} test rows {test_details}.")
 
     return train_idx, val_idx, test_idx, train_details, val_details, test_details
 
@@ -2533,30 +2541,40 @@ def select_target(
     if config_params_override:
         effective_config_params.update(config_params_override)
 
-    common_params, common_cb_params, common_hgb_params, common_lgb_params, common_xgb_params,common_mlp_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs = (
-        configure_training_params(
-            df=df,
-            train_df=train_df,
-            val_df=val_df,
-            test_df=test_df,
-            target=target,
-            target_label_encoder=None,
-            train_idx=train_idx,
-            val_idx=val_idx,
-            test_idx=test_idx,
-            sample_weight=sample_weight,
-            train_details=train_details,
-            val_details=val_details,
-            test_details=test_details,
-            group_ids=group_ids,
-            model_name=model_name,
-            common_params=common_params,
-            config_params=effective_config_params,
-            **effective_control_params,
-        )
+    (
+        common_params,
+        common_cb_params,
+        common_hgb_params,
+        common_lgb_params,
+        common_xgb_params,
+        common_mlp_params,
+        cb_rfecv,
+        lgb_rfecv,
+        xgb_rfecv,
+        cpu_configs,
+        gpu_configs,
+    ) = configure_training_params(
+        df=df,
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
+        target=target,
+        target_label_encoder=None,
+        train_idx=train_idx,
+        val_idx=val_idx,
+        test_idx=test_idx,
+        sample_weight=sample_weight,
+        train_details=train_details,
+        val_details=val_details,
+        test_details=test_details,
+        group_ids=group_ids,
+        model_name=model_name,
+        common_params=common_params,
+        config_params=effective_config_params,
+        **effective_control_params,
     )
 
-    models_params = dict(cb=common_cb_params, lgb=common_lgb_params, xgb=common_xgb_params, hgb=common_hgb_params,mlp=common_mlp_params)
+    models_params = dict(cb=common_cb_params, lgb=common_lgb_params, xgb=common_xgb_params, hgb=common_hgb_params, mlp=common_mlp_params)
     rfecv_models_params = dict(
         cb_rfecv=cb_rfecv,
         lgb_rfecv=lgb_rfecv,
@@ -2719,10 +2737,10 @@ def train_mlframe_models_suite(
     val_sequential_fraction: float = 0.5,
     test_sequential_fraction: float = None,
     trainset_aging_limit: float = None,
-    wholeday_splitting:bool=True,
+    wholeday_splitting: bool = True,
     use_mrmr_fs: bool = False,
     mrmr_kwargs: dict = None,
-    random_seed:int=42,
+    random_seed: int = 42,
 ) -> dict:
 
     # cb_kwargs=dict(devices='0-4')
@@ -2831,19 +2849,22 @@ def train_mlframe_models_suite(
         logger.info(f"make_train_test_split...")
 
     train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
-        df=pandas_df, timestamps=timestamps, test_size=test_size, val_size=val_size,     shuffle_val=shuffle_val,
+        df=pandas_df,
+        timestamps=timestamps,
+        test_size=test_size,
+        val_size=val_size,
+        shuffle_val=shuffle_val,
         shuffle_test=shuffle_test,
         val_sequential_fraction=val_sequential_fraction,
         test_sequential_fraction=test_sequential_fraction,
         trainset_aging_limit=trainset_aging_limit,
         wholeday_splitting=wholeday_splitting,
         random_seed=random_seed,
-
-        )
+    )
 
     ensure_dir_exists(join(data_dir, models_dir, slugify(target_name), slugify(model_name)))
 
-    for idx,idx_name in zip([train_idx,val_idx,test_idx],"train val test".split()):
+    for idx, idx_name in zip([train_idx, val_idx, test_idx], "train val test".split()):
 
         if timestamps is not None:
             ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_timestamps.parquet")
@@ -2866,7 +2887,7 @@ def train_mlframe_models_suite(
     if verbose:
         logger.info(f"creating train_df,val_df,test_df...")
 
-    train_df = pandas_df.iloc[train_idx]    
+    train_df = pandas_df.iloc[train_idx]
     test_df = pandas_df.iloc[test_idx]
     val_df = pandas_df.iloc[val_idx]
 
@@ -2946,7 +2967,7 @@ def train_mlframe_models_suite(
 
                 if use_ordinary_models:
                     pre_pipelines.append(None)
-                    pre_pipeline_names.append("")                     
+                    pre_pipeline_names.append("")
 
                 for rfecv_model_name in rfecv_models:
                     if rfecv_model_name not in rfecv_models_params:
