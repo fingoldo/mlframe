@@ -1932,7 +1932,7 @@ def configure_training_params(
         num_classes = 2
 
     network = generate_mlp(
-        num_features=df.shape[1],
+        num_features=train_df.shape[1],
         num_classes=num_classes,
         nlayers=7,
         first_layer_num_neurons=150,
