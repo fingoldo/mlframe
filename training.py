@@ -607,7 +607,7 @@ def get_training_configs(
         # Precision & accelerators:
         # ----------------------------------------------------------------------------------------------------------------------
         precision=args.precision,
-        accelerator="cuda", #devices=find_usable_cuda_devices(2)
+        accelerator="cuda",  # devices=find_usable_cuda_devices(2)
         # accelerator="ddp",plugins=DDPPlugin(find_unused_parameters=False),
         num_nodes=args.nodes,
         # ----------------------------------------------------------------------------------------------------------------------
