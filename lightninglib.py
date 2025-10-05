@@ -16,6 +16,7 @@ from typing import *
 
 # from pyutilz.pythonlib import ensure_installed;ensure_installed("torch torchvision torchaudio lightning pandas scikit-learn")
 
+import os
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
@@ -217,13 +218,14 @@ class TorchDataModule(LightningDataModule):
         params=dict(
             sampler=None,
             batch_sampler=None,
-            num_workers=0,
+            num_workers=min(8, os.cpu_count()),
             collate_fn=lambda x: x,  # required for __getitems__ to work in TorchDataset down the road
             drop_last=False,
             timeout=0,
             worker_init_fn=None,
             prefetch_factor=None,
             persistent_workers=False,
+            pin_memory=True,
         ),
     ):
         # A simple way to prevent redundant dataset replicas is to rely on torch.multiprocessing to share the data automatically between spawned processes via shared memory.
@@ -494,7 +496,7 @@ class MLPTorchModel(L.LightningModule):
         lr_scheduler_kwargs: dict = {},
     ):
         super().__init__()
-        self.save_hyperparameters()  # ignore=["model"]
+        self.save_hyperparameters(ignore=["model"])
         store_params_in_object(obj=self, params=get_parent_func_args())
 
         try:
