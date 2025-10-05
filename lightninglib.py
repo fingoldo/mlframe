@@ -495,7 +495,7 @@ class MLPTorchModel(L.LightningModule):
         lr_scheduler_kwargs: dict = {},
     ):
         super().__init__()
-        self.save_hyperparameters(ignore=["model"])
+        self.save_hyperparameters()  # ignore=["model"]
         store_params_in_object(obj=self, params=get_parent_func_args())
 
         try:
