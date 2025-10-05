@@ -225,7 +225,6 @@ class TorchDataModule(LightningDataModule):
             worker_init_fn=None,
             prefetch_factor=None,
             persistent_workers=False,
-            pin_memory=True,
         ),
     ):
         # A simple way to prevent redundant dataset replicas is to rely on torch.multiprocessing to share the data automatically between spawned processes via shared memory.
