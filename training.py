@@ -2997,7 +2997,7 @@ def train_mlframe_models_suite(
                                     ]
                                 )
                             elif mlframe_model_name == "mlp":
-                                pre_pipeline =Pipeline(
+                                pre_pipeline = Pipeline(
                                     steps=[
                                         *([("pre", orig_pre_pipeline)] if orig_pre_pipeline else []),
                                         ("ce", ce.CatBoostEncoder()),
