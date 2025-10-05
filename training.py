@@ -539,13 +539,13 @@ def get_training_configs(
     parser.add_argument("--epochs", type=int, default=iterations)
     parser.add_argument("--dropout_prob", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=random_seed)
-    parser.add_argument("--batch_size", type=int, default=2048 * 16)  # 4194304
+    parser.add_argument("--batch_size", type=int, default=2048 * 2)  # 4194304
     parser.add_argument("--num_workers", type=int, default=0)
-    parser.add_argument("--lr", type=float, default=learning_rate)
+    parser.add_argument("--lr", type=float, default=1e-3)  # learning_rate
     parser.add_argument("--weight_decay", type=float, default=0.001)
     parser.add_argument("--nodes", type=int, default=1)
     parser.add_argument(
-        "--precision", type=str, default="bf16-mixed"
+        "--precision", type=str, default="32-true"
     )  # test "16-true" and "bf16-true"? # With true 16-bit precision you can additionally lower your memory consumption by up to half so that you can train and deploy larger models. However, this setting can sometimes lead to unstable training.
     # BFloat16 Mixed precision is similar to FP16 mixed precision, however, it maintains more of the “dynamic range” that FP32 offers. This means it is able to improve numerical stability than FP16 mixed precision.
     parser.add_argument("--f", type=str, default="")
@@ -1936,7 +1936,7 @@ def configure_training_params(
         neurons_by_layer_arch=MLPNeuronsByLayerArchitecture.Declining,
         consec_layers_neurons_ratio=1.5,
         activation_function=torch.nn.ReLU(),
-        weights_init_fcn=partial(nn.init.xavier_normal_, gain=2.0),
+        weights_init_fcn=partial(nn.init.kaiming_normal_, gain=2.0),
         dropout_prob=0.2,
         inputs_dropout_prob=0.1,
         use_batchnorm=False,

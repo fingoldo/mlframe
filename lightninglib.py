@@ -177,6 +177,7 @@ class TorchDataset(Dataset):
             labels = labels.to_numpy()
 
         self.features = torch.tensor(features, dtype=features_dtype, device=device)
+        labels = np.asarray(labels).reshape(-1)
         self.labels = torch.tensor(labels, dtype=labels_dtype, device=device)
         self.device = device
 
@@ -502,8 +503,7 @@ class MLPTorchModel(L.LightningModule):
             pass
 
     def forward(self, x):
-        with torch.inference_mode():
-            logits = self.model(x)
+        logits = self.model(x)
 
         if not self.return_proba:
             return logits
@@ -517,8 +517,8 @@ class MLPTorchModel(L.LightningModule):
         loss = self.loss_fn(logits, labels)
 
         if self.l1_alpha:  # l2 regularization is already implemented in optimizers via weight_decay parameter
-            l1_norm = torch.sum(torch.linalg.norm(p, 1) for p in self.model.parameters())
-            loss += self.l1_alpha * l1_norm
+            l1_norm = sum(p.abs().sum() for p in self.model.parameters())
+            loss = loss + self.l1_alpha * l1_norm
 
         return loss
 
@@ -535,7 +535,12 @@ class MLPTorchModel(L.LightningModule):
         return predictions, labels
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        return self.forward(batch)
+        features, _ = batch
+        with torch.inference_mode():
+            logits = self.model(features)
+            if self.return_proba:
+                return torch.softmax(logits, dim=1)
+            return logits
 
     def configure_optimizers(self):
 
