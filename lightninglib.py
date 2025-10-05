@@ -220,7 +220,7 @@ class TorchDataModule(LightningDataModule):
             batch_sampler=None,
             num_workers=min(8, os.cpu_count()),
             collate_fn=lambda x: x,  # required for __getitems__ to work in TorchDataset down the road
-            drop_last=False,
+            drop_last=True,
             timeout=0,
             worker_init_fn=None,
             prefetch_factor=None,
@@ -525,7 +525,7 @@ class MLPTorchModel(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss = self.compute_loss(batch)
-        self.log("train_loss", loss, on_epoch=False, on_step=True, prog_bar=True)
+        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
 
         return loss
 

@@ -601,7 +601,7 @@ def get_training_configs(
         # ----------------------------------------------------------------------------------------------------------------------
         # enable_model_summary=True,
         gradient_clip_val=1.0,
-        gradient_clip_algorithm="value",  # "norm"
+        gradient_clip_algorithm="norm",
         accumulate_grad_batches=2,
         # ----------------------------------------------------------------------------------------------------------------------
         # Precision & accelerators:
