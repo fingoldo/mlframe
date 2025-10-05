@@ -1936,7 +1936,7 @@ def configure_training_params(
         neurons_by_layer_arch=MLPNeuronsByLayerArchitecture.Declining,
         consec_layers_neurons_ratio=1.5,
         activation_function=torch.nn.ReLU(),
-        weights_init_fcn=partial(nn.init.kaiming_normal_, gain=2.0),
+        weights_init_fcn=partial(nn.init.kaiming_normal_, nonlinearity="relu"),
         dropout_prob=0.2,
         inputs_dropout_prob=0.1,
         use_batchnorm=False,
