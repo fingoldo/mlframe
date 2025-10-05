@@ -539,7 +539,7 @@ def get_training_configs(
     parser.add_argument("--epochs", type=int, default=iterations)
     parser.add_argument("--dropout_prob", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=random_seed)
-    parser.add_argument("--batch_size", type=int, default=2048 * 2)  # 4194304
+    parser.add_argument("--batch_size", type=int, default=2048 * 2*4)  # 4194304
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--lr", type=float, default=1e-3)  # learning_rate
     parser.add_argument("--weight_decay", type=float, default=0.001)
@@ -600,7 +600,7 @@ def get_training_configs(
         # Flags:
         # ----------------------------------------------------------------------------------------------------------------------
         # enable_model_summary=True,
-        gradient_clip_val=0.5,
+        gradient_clip_val=1.0,
         gradient_clip_algorithm="value",  # "norm"
         accumulate_grad_batches=2,
         # ----------------------------------------------------------------------------------------------------------------------
