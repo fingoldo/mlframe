@@ -539,7 +539,7 @@ def get_training_configs(
     parser.add_argument("--epochs", type=int, default=iterations)
     parser.add_argument("--dropout_prob", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=random_seed)
-    parser.add_argument("--batch_size", type=int, default=2048 * 2 * 4)  # 4194304
+    parser.add_argument("--batch_size", type=int, default=2048 * 4)  # 4194304
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--lr", type=float, default=1e-3)  # learning_rate
     parser.add_argument("--weight_decay", type=float, default=0.001)
@@ -570,7 +570,7 @@ def get_training_configs(
         NetworkGraphLoggingCallback(),
         LearningRateMonitor(logging_interval="epoch"),
         progress_bar,
-        StochasticWeightAveraging(swa_lrs=1e-2),
+        #StochasticWeightAveraging(swa_lrs=1e-2),
         # PeriodicLearningRateFinder(period=10),
         AggregatingValidationCallback(metric_name="ICE", metric_fcn=partial(fs_and_hpt_integral_calibration_error, verbose=False)),
     ]
@@ -1937,8 +1937,8 @@ def configure_training_params(
         consec_layers_neurons_ratio=1.5,
         activation_function=torch.nn.ReLU(),
         weights_init_fcn=partial(nn.init.kaiming_normal_, nonlinearity="relu"),
-        # dropout_prob=0.2,
-        # inputs_dropout_prob=0.1,
+        dropout_prob=0.1,
+        inputs_dropout_prob=0.1,
         use_batchnorm=True,
     )
 
