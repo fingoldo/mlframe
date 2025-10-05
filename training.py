@@ -1930,8 +1930,8 @@ def configure_training_params(
     network = generate_mlp(
         num_features=train_df.shape[1],
         num_classes=num_classes,
-        nlayers=7,
-        first_layer_num_neurons=50,
+        nlayers=10,
+        first_layer_num_neurons=100,
         min_layer_neurons=1,
         neurons_by_layer_arch=MLPNeuronsByLayerArchitecture.Declining,
         consec_layers_neurons_ratio=1.5,
@@ -1939,7 +1939,7 @@ def configure_training_params(
         weights_init_fcn=partial(nn.init.kaiming_normal_, nonlinearity="relu"),
         # dropout_prob=0.2,
         # inputs_dropout_prob=0.1,
-        use_batchnorm=False,
+        use_batchnorm=True,
     )
 
     common_mlp_params = dict(
