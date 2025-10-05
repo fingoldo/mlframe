@@ -570,7 +570,7 @@ def get_training_configs(
         NetworkGraphLoggingCallback(),
         LearningRateMonitor(logging_interval="epoch"),
         progress_bar,
-        #StochasticWeightAveraging(swa_lrs=1e-2),
+        # StochasticWeightAveraging(swa_lrs=1e-2),
         # PeriodicLearningRateFinder(period=10),
         AggregatingValidationCallback(metric_name="ICE", metric_fcn=partial(fs_and_hpt_integral_calibration_error, verbose=False)),
     ]
