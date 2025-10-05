@@ -524,8 +524,26 @@ class MLPTorchModel(L.LightningModule):
         return loss
 
     def training_step(self, batch, batch_idx):
+        features, labels = batch
+
+        # skip empty batches
+        if features.size(0) == 0:
+            # return None tells Lightning to skip this batch
+            return None
+
         loss = self.compute_loss(batch)
-        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+
+        # ensure loss is a scalar and requires grad
+        if loss.requires_grad is False:
+            raise RuntimeError("Loss does not require gradients!")
+
+        self.log(
+            "train_loss",
+            loss,
+            on_epoch=False,
+            on_step=True,
+            prog_bar=True,
+        )
 
         return loss
 
