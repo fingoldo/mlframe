@@ -102,7 +102,7 @@ from sklearn.ensemble import IsolationForest
 # Ensembling
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from mlframe.ensembling import ensemble_probabilistic_predictions, score_ensemble, compare_ensembles
+from mlframe.ensembling import ensemble_probabilistic_predictions, score_ensemble, compare_ensembles, SIMPLE_ENSEMBLING_METHODS
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # FE
@@ -3504,7 +3504,7 @@ def compute_models_perf(
     }
 
     if not models:
-        models = "cb lgb xgb ens_harm".split()
+        models = "cb lgb xgb".split() + [f"ens_{method}" for method in SIMPLE_ENSEMBLING_METHODS]
 
     metrics = {}
 

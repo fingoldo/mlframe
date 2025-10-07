@@ -133,9 +133,8 @@ def ensemble_probabilistic_predictions(
 ) -> tuple:
     """Ensembles probabilistic predictions. All elements of the preds tuple must have the same shape.
     uncertainty_quantile>0 produces separate charts for points where the models are confident (agree).
-    """
-
-    assert ensemble_method in ("harm", "arithm", "median", "quad", "qube", "geo")
+    """    
+    assert ensemble_method in SIMPLE_ENSEMBLING_METHODS
     confident_indices = None
 
     preds = [p for p in preds if p is not None]
