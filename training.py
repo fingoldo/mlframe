@@ -3657,12 +3657,13 @@ def visualize_ml_metric_by_time(
     bad_color="red",
     higher_is_better: bool = False,
     truncated_interval_name: str = "month",
+    figsize=(12, 6),
 ):
     import matplotlib.pyplot as plt
 
     for model in perf_stats.model.unique():
         tmp = perf_stats[perf_stats.model == model].set_index(truncated_interval_name)
-        ax = tmp.plot(y=metric, kind="bar", title=f"{metric.upper()} of {model}: mean={tmp[metric].mean():.3f}, std={tmp[metric].std():.3f}")
+        ax = tmp.plot(y=metric, kind="bar", title=f"{metric.upper()} of {model}: mean={tmp[metric].mean():.3f}, std={tmp[metric].std():.3f}", figsize=figsize)
         ax.xaxis.set_major_formatter(plt.FixedFormatter(tmp.index.strftime("%Y-%m-%d")))
 
         # Color bars depending on value
