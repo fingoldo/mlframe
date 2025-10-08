@@ -3693,3 +3693,87 @@ def visualize_ml_metric_by_time(
         plt.xticks(rotation=rotation)
         plt.tight_layout()
         plt.show()
+
+
+def preprocess_dataframe_simple(
+    df: pd.DataFrame,
+    ts_field: str = None,
+    datetime_features: dict = None,
+    group_field: str = None,
+    classification_targets: Iterable = None,
+    classification_thresholds: dict = None,
+    regression_targets: Iterable = None,
+    columns_to_drop: set = set(),
+    prepare_artifacts_func: callable = None,
+) -> tuple:
+    """
+    Canned preprocess_dataframe template that creates simple regression and/or binary classification targets.
+    datetime_features={"weekday": np.int8, "hour": np.int8, "minute": np.int8}"""
+
+    # convert_float64_to_float32(df)
+    clean_ram()
+    display(df.info())
+
+    if ts_field:
+        columns_to_drop.add(ts_field)
+    if group_field:
+        columns_to_drop.add(group_field)
+
+    target_types = {}
+
+    if classification_targets:
+        targets = {}
+        for col in classification_targets:
+            if classification_thresholds:
+                for thresh_col, thresh_val in classification_thresholds.items():
+                    if thresh_col == col:
+                        targets[f"{col}_above_{thresh_val}"] = df[col] >= thresh_val
+            else:
+                targets[col] = df[col]
+            columns_to_drop.add(col)
+
+        intize_targets(targets)
+        target_types[TargetTypes.BINARY_CLASSIFICATION] = targets
+
+    if regression_targets:
+        targets = {}
+        for col in regression_targets:
+            targets[col] = df[col]
+            columns_to_drop.add(col)
+
+        target_types[TargetTypes.REGRESSION] = targets
+
+    if ts_field:
+        timestamps = df[ts_field]
+
+        if datetime_features:
+            df = create_date_features(df, cols=[ts_field], delete_original_cols=True, methods=datetime_features)
+    else:
+        timestamps = None
+
+    clean_ram()
+
+    if group_field and group_field in df:
+        group_ids_raw = df[group_field]
+        unique_vals, group_ids = np.unique(group_ids_raw, return_inverse=True)
+    else:
+        group_ids_raw = None
+        group_ids = None
+
+    if prepare_artifacts_func:
+        artifacts = prepare_artifacts_func(df)
+    else:
+        artifacts = None
+
+    if columns_to_drop:
+        if isinstance(df, pl.DataFrame):
+            df = df.drop(columns_to_drop)
+        else:
+            # df.drop(columns=columns_to_drop, inplace=True, errors="ignore") #PROHIBITELIVEY SLOW!
+            for col in columns_to_drop:
+                if col in df:
+                    del df[col]
+
+    showcase_features_and_targets(df, target_types)
+
+    return df, target_types, group_ids_raw, group_ids, timestamps, artifacts
