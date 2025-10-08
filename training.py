@@ -1656,7 +1656,10 @@ def report_probabilistic_model_perf(
             roc_aucs.append(f"{str_class_name}={roc_auc:.{report_ndigits}f}")
             brs.append(f"{str_class_name}={brier_loss * 100:.{report_ndigits}f}%")
             integral_errors.append(f"{str_class_name}={ice:.{report_ndigits}f}")
-            log_losses.append(f"{str_class_name}={ll:.{report_ndigits}f}")
+            if ll is None:
+                log_losses.append(f"{str_class_name}=None")
+            else:
+                log_losses.append(f"{str_class_name}={ll:.{report_ndigits}f}")
             if custom_rice_metric and custom_rice_metric != custom_ice_metric:
                 robust_integral_errors.append(f"{str_class_name}={class_robust_integral_error:.{report_ndigits}f}")
 
