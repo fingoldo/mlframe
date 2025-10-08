@@ -2861,7 +2861,7 @@ def train_mlframe_models_suite(
         random_seed=random_seed,
     )
 
-    if data_dir or models_dir:
+    if data_dir is not None and models_dir:
         ensure_dir_exists(join(data_dir, models_dir, slugify(target_name), slugify(model_name)))
 
         for idx, idx_name in zip([train_idx, val_idx, test_idx], "train val test".split()):
@@ -2928,13 +2928,13 @@ def train_mlframe_models_suite(
 
                 parts = slugify(target_name), slugify(model_name), slugify(target_type.lower()), slugify(cur_target)
 
-                if data_dir:
+                if data_dir is not None:
                     plot_file = join(data_dir, "charts", *parts) + os.path.sep
                     ensure_dir_exists(plot_file)
                 else:
                     plot_file = None
 
-                if models_dir:
+                if models_dir is not None:
                     model_file = join(data_dir, models_dir, *parts) + os.path.sep
                     ensure_dir_exists(model_file)
                 else:
