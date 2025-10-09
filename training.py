@@ -2988,7 +2988,7 @@ def train_mlframe_models_suite(
 
                 if use_mrmr_fs:
                     pre_pipelines.append(MRMR(**mrmr_kwargs))
-                    pre_pipeline_names.append("MRMR")
+                    pre_pipeline_names.append("MRMR ")
 
                 for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
                     if pre_pipeline_name == "cb_rfecv" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
