@@ -133,7 +133,7 @@ def ensemble_probabilistic_predictions(
 ) -> tuple:
     """Ensembles probabilistic predictions. All elements of the preds tuple must have the same shape.
     uncertainty_quantile>0 produces separate charts for points where the models are confident (agree).
-    """    
+    """
     assert ensemble_method in SIMPLE_ENSEMBLING_METHODS
     confident_indices = None
 
@@ -220,6 +220,50 @@ def ensemble_probabilistic_predictions(
         uncertainty = None
 
     return ensembled_predictions, uncertainty, confident_indices
+
+
+def build_predictive_kwargs(train_data, test_data, val_data, is_regression: bool):
+    """
+    Build predictive_kwargs dict for classification or regression tasks.
+
+    Parameters
+    ----------
+    train_data : tuple or None
+        (train_ensembled_predictions, train_confident_indices)
+    test_data : tuple or None
+        (test_ensembled_predictions, test_confident_indices)
+    val_data : tuple or None
+        (val_ensembled_predictions, val_confident_indices)
+    is_regression : bool
+        Whether the task is regression (True) or classification (False).
+
+    Returns
+    -------
+    dict
+        predictive_kwargs containing appropriately filtered and flattened arrays.
+    """
+
+    def process(data, flatten=False):
+        if data is None:
+            return None
+        preds, indices = data
+        if preds is None or indices is None:
+            return None
+        result = preds[indices]
+        return result.flatten() if flatten else result
+
+    if not is_regression:
+        return dict(
+            train_probs=process(train_data),
+            test_probs=process(test_data),
+            val_probs=process(val_data),
+        )
+    else:
+        return dict(
+            train_preds=process(train_data, flatten=True),
+            test_preds=process(test_data, flatten=True),
+            val_preds=process(val_data, flatten=True),
+        )
 
 
 def score_ensemble(
@@ -322,18 +366,9 @@ def score_ensemble(
 
             internal_ensemble_method = f"{ensemble_method} L{ensembling_level}" if ensembling_level > 0 else ensemble_method
 
-            if not is_regression:
-                predictive_kwargs = dict(
-                    train_probs=train_ensembled_predictions,
-                    test_probs=test_ensembled_predictions,
-                    val_probs=val_ensembled_predictions,
-                )
-            else:
-                predictive_kwargs = dict(
-                    train_preds=train_ensembled_predictions.flatten() if (train_ensembled_predictions is not None) else None,
-                    test_preds=test_ensembled_predictions.flatten() if (test_ensembled_predictions is not None) else None,
-                    val_preds=val_ensembled_predictions.flatten() if (val_ensembled_predictions is not None) else None,
-                )
+            predictive_kwargs = build_predictive_kwargs(
+                train_data=train_ensembled_predictions, test_data=test_ensembled_predictions, val_data=val_ensembled_predictions, is_regression=is_regression
+            )
 
             if target is not None:
                 target_kwargs = dict(target=target)
@@ -370,27 +405,33 @@ def score_ensemble(
                         test_target=test_target.iloc[test_confident_indices] if (test_target is not None and test_confident_indices is not None) else None,
                         val_target=val_target.iloc[val_confident_indices] if (val_target is not None and val_confident_indices is not None) else None,
                     )
-                res[internal_ensemble_method + " conf"] = train_and_evaluate_model(
-                    model=None,
-                    train_probs=(
+
+                predictive_kwargs = build_predictive_kwargs(
+                    train_data=(
                         train_ensembled_predictions[train_confident_indices]
                         if (train_ensembled_predictions is not None and train_confident_indices is not None)
                         else None
                     ),
-                    test_probs=(
+                    test_data=(
                         test_ensembled_predictions[test_confident_indices]
                         if (test_ensembled_predictions is not None and test_confident_indices is not None)
                         else None
                     ),
-                    val_probs=(
+                    val_data=(
                         val_ensembled_predictions[val_confident_indices]
                         if (val_ensembled_predictions is not None and val_confident_indices is not None)
                         else None
                     ),
+                    is_regression=is_regression,
+                )
+
+                res[internal_ensemble_method + " conf"] = train_and_evaluate_model(
+                    model=None,
+                    **predictive_kwargs,
                     df=None,
                     default_drop_columns=[],
                     model_name_prefix=f"Conf Ensemble {internal_ensemble_method} {ensemble_name}",
-                    train_idx=train_idx[train_confident_indices] if (train_idx is not None and train_confident_indices is not None ) else None,
+                    train_idx=train_idx[train_confident_indices] if (train_idx is not None and train_confident_indices is not None) else None,
                     test_idx=test_idx[test_confident_indices] if (test_idx is not None and test_confident_indices is not None) else None,
                     val_idx=val_idx[val_confident_indices] if (val_idx is not None and val_confident_indices is not None) else None,
                     target_label_encoder=target_label_encoder,
