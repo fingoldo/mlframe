@@ -228,12 +228,8 @@ def build_predictive_kwargs(train_data, test_data, val_data, is_regression: bool
 
     Parameters
     ----------
-    train_data : tuple or None
-        (train_ensembled_predictions, train_confident_indices)
-    test_data : tuple or None
-        (test_ensembled_predictions, test_confident_indices)
-    val_data : tuple or None
-        (val_ensembled_predictions, val_confident_indices)
+    train_data, test_data, val_data : tuple | np.ndarray | None
+        Either a tuple (predictions, indices), or just predictions, or None.
     is_regression : bool
         Whether the task is regression (True) or classification (False).
 
@@ -244,13 +240,28 @@ def build_predictive_kwargs(train_data, test_data, val_data, is_regression: bool
     """
 
     def process(data, flatten=False):
+        # Case 1: None → None
         if data is None:
             return None
-        preds, indices = data
-        if preds is None or indices is None:
-            return None
-        result = preds[indices]
-        return result.flatten() if flatten else result
+
+        # Case 2: Tuple or list → try to unpack (preds, indices)
+        if isinstance(data, (tuple, list)):
+            if len(data) == 2:
+                preds, indices = data
+                if preds is None:
+                    return None
+                if indices is None:
+                    result = preds
+                else:
+                    result = preds[indices]
+            else:
+                # Unexpected tuple/list length
+                result = data[0]
+        else:
+            # Case 3: raw ndarray (no indices)
+            result = data
+
+        return result.flatten() if (flatten and result is not None) else result
 
     if not is_regression:
         return dict(
