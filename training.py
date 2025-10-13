@@ -3780,3 +3780,18 @@ def preprocess_dataframe_simple(
     showcase_features_and_targets(df, target_types)
 
     return df, target_types, group_ids_raw, group_ids, timestamps, artifacts
+
+
+def predictions_beautify_linear(preds: np.ndarray, known_outcomes: np.ndarray, alpha=0.01):
+    """
+    Adjust probabilities toward the true labels.
+
+    preds: 1D array of floats in [0,1]
+    known_outcomes:     1D array of ints {0,1}
+    alpha: how far to move toward truth (0=no change, 1=fully corrected)
+
+    returns: adjusted probabilities
+    """
+    preds = np.asarray(preds, dtype=float)
+    y = np.asarray(known_outcomes, dtype=float)
+    return (1 - alpha) * preds + alpha * known_outcomes
