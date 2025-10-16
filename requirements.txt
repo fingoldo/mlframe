@@ -57,4 +57,4 @@ betacal
 uncertainty-calibration
 venn-abers
 orjson
-undetected_chromedriver
+pyjwt
