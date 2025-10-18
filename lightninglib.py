@@ -103,7 +103,7 @@ class PytorchLightningEstimator(BaseEstimator):
             # model_params
             self.model = self.model_class(network=self.network, **self.model_params)
 
-            self.model.example_input_array = torch.tensor(X.iloc[0:2, :].values, dtype=torch.float32)
+            self.model.example_input_array = torch.tensor(X.iloc[0:2, :].values, dtype=self.datamodule_params.get("features_dtype", torch.float32))
 
         if self.tune_params:
             tuner = Tuner(self.trainer)
