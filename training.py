@@ -623,7 +623,7 @@ def get_training_configs(
         mlp_datamodule_params.update(mlp_kwargs.get("datamodule_params", {}))
 
     checkpointing = ModelCheckpoint(
-        monitor="val_" + early_stopping_metric_name,
+        monitor=early_stopping_metric_name,
         dirpath=mlp_trainer_params["default_root_dir"],
         filename="model-{" + early_stopping_metric_name + ":.4f}",
         enable_version_counter=True,
@@ -632,7 +632,7 @@ def get_training_configs(
         mode="min",
     )
     metric_computing_callback = AggregatingValidationCallback(
-        metric_name=early_stopping_metric_name, metric_fcn=partial(fs_and_hpt_integral_calibration_error, verbose=False)
+        metric_name="val_" + early_stopping_metric_name, metric_fcn=partial(fs_and_hpt_integral_calibration_error, verbose=False)
     )
 
     # tb_logger = TensorBoardLogger(save_dir=args.experiment_path, log_graph=True)  # save_dir="s3://my_bucket/logs/"
