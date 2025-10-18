@@ -670,7 +670,7 @@ def get_training_configs(
         datamodule_class=TorchDataModule,
         datamodule_params=mlp_datamodule_params,  # includes dataloader_params
         trainer=trainer,
-        tune_params=False,
+        tune_params=mlp_kwargs.get('tune_params',False),
     )
 
     if rfecv_kwargs is None:
@@ -2012,8 +2012,8 @@ def configure_training_params(
         consec_layers_neurons_ratio=1.5,
         activation_function=torch.nn.ReLU(),
         weights_init_fcn=partial(nn.init.kaiming_normal_, nonlinearity="relu"),
-        dropout_prob=0.1,
-        inputs_dropout_prob=0.1,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
         use_batchnorm=True,
     )
     if mlp_kwargs:
