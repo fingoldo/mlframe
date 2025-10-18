@@ -609,7 +609,7 @@ def get_training_configs(
         timeout=0,
         worker_init_fn=None,
         prefetch_factor=None,
-        persistent_workers=True,
+        persistent_workers=False,  # ValueError: persistent_workers option needs num_workers > 0
         batch_size=1024,
         shuffle=False,
     )
