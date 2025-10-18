@@ -32,7 +32,7 @@ from collections import defaultdict
 
 from timeit import default_timer as timer
 from pyutilz.system import ensure_dir_exists, tqdmu
-from pyutilz.pythonlib import prefix_dict_elems, get_human_readable_set_size
+from pyutilz.pythonlib import prefix_dict_elems, get_human_readable_set_size,is_jupyter_notebook
 
 from mlframe.helpers import get_model_best_iter, ensure_no_infinity, get_own_ram_usage
 
@@ -368,11 +368,14 @@ def get_training_configs(
     use_weighted_calibration: bool = True,
     weight_by_class_npositives: bool = False,
     nbins: int = 10,
-    cb_kwargs: dict = dict(verbose=0),
-    hgb_kwargs: dict = dict(verbose=0),
-    lgb_kwargs: dict = dict(verbose=-1),
-    xgb_kwargs: dict = dict(verbosity=0),
-    mlp_kwargs: dict = dict(),
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # model-specific params
+    # ----------------------------------------------------------------------------------------------------------------------------    
+    cb_kwargs: dict =None,
+    hgb_kwargs: dict = None,
+    lgb_kwargs: dict = None,
+    xgb_kwargs: dict = None,
+    mlp_kwargs: dict = None,
     # ----------------------------------------------------------------------------------------------------------------------------
     # featureselectors
     # ----------------------------------------------------------------------------------------------------------------------------
@@ -386,6 +389,17 @@ def get_training_configs(
 
     if has_gpu is None:
         has_gpu = CUDA_IS_AVAILABLE
+
+    if cb_kwargs is None:
+        cb_kwargs = dict(verbose=0)    
+    if lgb_kwargs is None:
+        lgb_kwargs = dict(verbose=-1)
+    if xgb_kwargs is None:
+        xgb_kwargs = dict(verbosity=0)
+    if hgb_kwargs is None:
+        hgb_kwargs= dict(verbose=0)        
+    if mlp_kwargs is None:
+        mlp_kwargs = dict()        
 
     if not early_stopping_rounds:
         early_stopping_rounds = max(2, iterations // 3)
@@ -527,67 +541,15 @@ def get_training_configs(
     Note: it is recommended to use the smaller max_bin (e.g. 63) to get the better speed up"""
 
     # XGB_CALIB_CLASSIF_CPU.update({"device": "cpu","n_jobs":psutil.cpu_count(logical=False)})
+    
 
-    parser = argparse.ArgumentParser(description="Exp", conflict_handler="resolve")
-
-    parser.add_argument(
-        "--experiment_path",
-        type=str,
-        default="logs",
-    )
-    parser.add_argument("--optim", type=str, default="AdamW")
-    parser.add_argument("--epochs", type=int, default=iterations)
-    parser.add_argument("--dropout_prob", type=float, default=0.2)
-    parser.add_argument("--seed", type=int, default=random_seed)
-    parser.add_argument("--batch_size", type=int, default=2048 * 4)  # 4194304
-    parser.add_argument("--num_workers", type=int, default=0)
-    parser.add_argument("--lr", type=float, default=1e-3)  # learning_rate
-    parser.add_argument("--weight_decay", type=float, default=0.001)
-    parser.add_argument("--nodes", type=int, default=1)
-    parser.add_argument(
-        "--precision", type=str, default="32-true"
-    )  # test "16-true" and "bf16-true"? # With true 16-bit precision you can additionally lower your memory consumption by up to half so that you can train and deploy larger models. However, this setting can sometimes lead to unstable training.
-    # BFloat16 Mixed precision is similar to FP16 mixed precision, however, it maintains more of the “dynamic range” that FP32 offers. This means it is able to improve numerical stability than FP16 mixed precision.
-    parser.add_argument("--f", type=str, default="")
-    args = parser.parse_args([])
-
-    early_stopping_metric_name = "val_ICE"
-    checkpointing = ModelCheckpoint(
-        monitor=early_stopping_metric_name,
-        dirpath=args.experiment_path,
-        filename="model-{" + early_stopping_metric_name + ":.4f}",
-        enable_version_counter=True,
-        save_last=False,
-        save_top_k=1,
-        mode="min",
-    )
-
-    tb_logger = TensorBoardLogger(save_dir=args.experiment_path, log_graph=True)  # save_dir="s3://my_bucket/logs/"
-    progress_bar = TQDMProgressBar(refresh_rate=50)  # leave=True
-
-    callbacks = [
-        checkpointing,
-        NetworkGraphLoggingCallback(),
-        LearningRateMonitor(logging_interval="epoch"),
-        progress_bar,
-        # StochasticWeightAveraging(swa_lrs=1e-2),
-        # PeriodicLearningRateFinder(period=10),
-        AggregatingValidationCallback(metric_name="ICE", metric_fcn=partial(fs_and_hpt_integral_calibration_error, verbose=False)),
-    ]
-
-    if use_explicit_early_stopping:
-        early_stopping = EarlyStoppingCallback(
-            monitor=early_stopping_metric_name, min_delta=0.001, patience=early_stopping_rounds, mode="min", verbose=True
-        )  # stopping_threshold: Stops training immediately once the monitored quantity reaches this threshold.
-        callbacks.append(early_stopping)
-
-    trainer = L.Trainer(
-        devices=1,  # torch.cuda.device_count(),
+    mlp_trainer_params:dict = {
+        devices=1 if is_jupyter_notebook else  torch.cuda.device_count(),
         # ----------------------------------------------------------------------------------------------------------------------
         # Runtime:
         # ----------------------------------------------------------------------------------------------------------------------
         min_epochs=1,
-        max_epochs=args.epochs,
+        max_epochs=iterations,
         max_time={"days": 0, "hours": 0, "minutes": 30},
         # max_steps=1,
         # ----------------------------------------------------------------------------------------------------------------------
@@ -606,33 +568,122 @@ def get_training_configs(
         # ----------------------------------------------------------------------------------------------------------------------
         # Precision & accelerators:
         # ----------------------------------------------------------------------------------------------------------------------
-        precision=args.precision,
+        precision="32-true",
+
+        # test "16-true" and "bf16-true"? # With true 16-bit precision you can additionally lower your memory consumption by up to half so that you can train and deploy larger models. However, this setting can sometimes lead to unstable training.
+        # BFloat16 Mixed precision is similar to FP16 mixed precision, however, it maintains more of the “dynamic range” that FP32 offers. This means it is able to improve numerical stability than FP16 mixed precision.
+
         # accelerator="cuda",  # devices=find_usable_cuda_devices(2)
         # accelerator="ddp",plugins=DDPPlugin(find_unused_parameters=False),
-        num_nodes=args.nodes,
+        num_nodes=1,
+        # ----------------------------------------------------------------------------------------------------------------------
+        # Logging:
+        # ----------------------------------------------------------------------------------------------------------------------
+        default_root_dir="logs",
+        # logger=tb_logger,        
+    }
+
+    if mlp_kwargs:
+        mlp_trainer_params.update(mlp_kwargs.get("trainer_params",{}))
+
+
+    loss_fn=F.cross_entropy
+    labels_dtype=torch.int64    
+    early_stopping_metric_name = "ICE"
+
+
+    mlp_model_params=dict(
+        loss_fn=loss_fn,
+        return_proba=True,
+        tune_params=False,
+        learning_rate = 1e-3,
+        l1_alpha = 0.0,
+        optimizer=torch.optim.AdamW,
+        optimizer_kwargs = {},
+        lr_scheduler = None,
+        lr_scheduler_kwargs = {},    )
+    if mlp_kwargs:
+        mlp_model_params.update(mlp_kwargs.get("model_params",{}))    
+    
+
+    mlp_dataloader_params=dict(
+
+        sampler=None,
+        batch_sampler=None,
+        num_workers=0, # min(8, psutil.cpu_count(logical=False)),
+        collate_fn=lambda x: x,  # required for __getitems__ to work in TorchDataset down the road
+        drop_last=False,
+        timeout=0,
+        worker_init_fn=None,
+        prefetch_factor=None,
+        persistent_workers=True,
+        batch_size = 1024, 
+        shuffle=False       
+    )    
+    if mlp_kwargs:
+        mlp_dataloader_params.update(mlp_kwargs.get("dataloader_params",{})) 
+
+
+    mlp_datamodule_params=dict(
+        read_fcn = None,
+        data_placement_device = None,
+        features_dtype = torch.float32,
+        labels_dtype =labels_dtype,
+        dataloader_params=mlp_dataloader_params
+        
+    )
+    if mlp_kwargs:
+        mlp_datamodule_params.update(mlp_kwargs.get("datamodule_params",{}))           
+
+    checkpointing = ModelCheckpoint(
+        monitor=early_stopping_metric_name,
+        dirpath=mlp_trainer_params['default_root_dir'],
+        filename="model-{" + early_stopping_metric_name + ":.4f}",
+        enable_version_counter=True,
+        save_last=False,
+        save_top_k=1,
+        mode="min",
+    )
+    metric_computing_callback=AggregatingValidationCallback(metric_name=early_stopping_metric_name, metric_fcn=partial(fs_and_hpt_integral_calibration_error, verbose=False))
+
+    #tb_logger = TensorBoardLogger(save_dir=args.experiment_path, log_graph=True)  # save_dir="s3://my_bucket/logs/"
+    progress_bar = TQDMProgressBar(refresh_rate=50)  # leave=True
+
+    callbacks = [
+        checkpointing,
+        metric_computing_callback,
+        NetworkGraphLoggingCallback(),
+        LearningRateMonitor(logging_interval="epoch"),
+        progress_bar,
+        # StochasticWeightAveraging(swa_lrs=1e-2),
+        # PeriodicLearningRateFinder(period=10),        
+    ]
+
+    if use_explicit_early_stopping:
+        early_stopping = EarlyStoppingCallback(
+            monitor=early_stopping_metric_name, min_delta=0.001, patience=early_stopping_rounds, mode="min", verbose=True
+        )  # stopping_threshold: Stops training immediately once the monitored quantity reaches this threshold.
+        callbacks.append(early_stopping)
+
+    trainer = L.Trainer(
+        **mlp_trainer_params,
         # ----------------------------------------------------------------------------------------------------------------------
         # Callbacks:
         # ----------------------------------------------------------------------------------------------------------------------
         callbacks=callbacks,
         # DeviceStatsMonitor(),
-        # ModelPruning("l1_unstructured", amount=0.5)
-        # ----------------------------------------------------------------------------------------------------------------------
-        # Logging:
-        # ----------------------------------------------------------------------------------------------------------------------
-        default_root_dir=args.experiment_path,
-        # logger=tb_logger,
+        # ModelPruning("l1_unstructured", amount=0.5)        
     )
 
     MLP_GENERAL_PARAMS = dict(
-        model=MLPTorchModel,
-        datamodule=TorchDataModule,
-        features_dtype=torch.float32,
-        labels_dtype=torch.int64,
-        loss_fn=F.cross_entropy,
-        tune_params=False,
-        args=args,
+        model_class=MLPTorchModel,
+        model_params=mlp_model_params,
+
+        datamodule_class=TorchDataModule,  
+        datamodule_params=mlp_datamodule_params, # includes dataloader_params
         trainer=trainer,
-        **mlp_kwargs,
+        tune_params=False,
+
     )
 
     if rfecv_kwargs is None:
@@ -1838,7 +1889,7 @@ def configure_training_params(
             if isinstance(next_df, pd.DataFrame):
                 cat_features = next_df.head().select_dtypes(("category", "object")).columns.tolist()
             elif isinstance(next_df, pl.DataFrame):
-                cat_features = next_df.head().select(pl.col(pl.Categorical)).columns
+                cat_features = next_df.head().select(pl.col(pl.Categorical,pl.Object)).columns
             break
 
     if cat_features:
@@ -1878,7 +1929,7 @@ def configure_training_params(
     cpu_configs = get_training_configs(has_gpu=False, subgroups=indexed_subgroups, **config_params)
     gpu_configs = get_training_configs(has_gpu=None, subgroups=indexed_subgroups, **config_params)
 
-    data_fits_gpu_ram = True
+    data_fits_gpu_ram = True # ! TODO ! 
     from pyutilz.pandaslib import get_df_memory_consumption
     from pyutilz.system import compute_total_gpus_ram, get_gpuinfo_gpu_info
 
@@ -1910,7 +1961,7 @@ def configure_training_params(
         **common_params,
     )
 
-    common_cb_params = dict(
+    cb_params = dict(
         model=(
             metamodel_func(CatBoostRegressor(**configs.CB_REGR))
             if use_regression
@@ -1919,46 +1970,14 @@ def configure_training_params(
         fit_params=dict(plot=verbose, cat_features=cat_features, **cb_fit_params),
     )
 
-    common_hgb_params = dict(
+    hgb_params = dict(
         model=metamodel_func(
             (HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS) if use_regression else HistGradientBoostingClassifier(**configs.HGB_GENERAL_PARAMS)),
         )
     )
 
-    if use_regression:
-        num_classes = 1
-    else:
-        num_classes = 2
-
-    network = generate_mlp(
-        num_features=train_df.shape[1],
-        num_classes=num_classes,
-        nlayers=20,
-        first_layer_num_neurons=100,
-        min_layer_neurons=1,
-        neurons_by_layer_arch=MLPNeuronsByLayerArchitecture.Declining,
-        consec_layers_neurons_ratio=1.5,
-        activation_function=torch.nn.ReLU(),
-        weights_init_fcn=partial(nn.init.kaiming_normal_, nonlinearity="relu"),
-        # dropout_prob=0.1,
-        # inputs_dropout_prob=0.1,
-        use_batchnorm=True,
-    )
-
-    common_mlp_params = dict(
-        model=(
-            metamodel_func(
-                (
-                    PytorchLightningRegressor(network=network, **configs.MLP_GENERAL_PARAMS)
-                    if use_regression
-                    else PytorchLightningClassifier(network=network, **configs.MLP_GENERAL_PARAMS)
-                ),
-            )
-        ),
-    )
-
     if prefer_cpu_for_xgboost:
-        common_xgb_params = dict(
+        xgb_params = dict(
             model=(
                 metamodel_func(XGBRegressor(**cpu_configs.XGB_GENERAL_PARAMS))
                 if use_regression
@@ -1967,7 +1986,7 @@ def configure_training_params(
             fit_params=dict(verbose=xgboost_verbose),
         )
     else:
-        common_xgb_params = dict(
+        xgb_params = dict(
             model=(
                 metamodel_func(XGBRegressor(**configs.XGB_GENERAL_PARAMS))
                 if use_regression
@@ -1977,21 +1996,63 @@ def configure_training_params(
         )
 
     if prefer_cpu_for_lightgbm:
-        common_lgb_params = dict(
+        lgb_params = dict(
             model=metamodel_func(LGBMRegressor(**cpu_configs.LGB_GENERAL_PARAMS)) if use_regression else LGBMClassifier(**cpu_configs.LGB_GENERAL_PARAMS),
             fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if (prefer_calibrated_classifiers and not use_regression) else {}),
         )
     else:
-        common_lgb_params = dict(
+        lgb_params = dict(
             model=metamodel_func(LGBMRegressor(**configs.LGB_GENERAL_PARAMS)) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
             fit_params=(dict(eval_metric=configs.lgbm_integral_calibration_error) if (prefer_calibrated_classifiers and not use_regression) else {}),
         )
 
-    rfecv_params = configs.COMMON_RFECV_PARAMS.copy()
+    # ----------------------------------------------------------------------------------------------------------------------------------------------------
+    # MLP
+    # ----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    mlp_kwargs=config_params.get('mlp_kwargs',{})
+
+    if use_regression:
+        num_classes = 1
+    else:
+        num_classes = 2
+    
+    mlp_network_params=dict(nlayers=20,
+        first_layer_num_neurons=100,
+        min_layer_neurons=1,
+        neurons_by_layer_arch=MLPNeuronsByLayerArchitecture.Declining,
+        consec_layers_neurons_ratio=1.5,
+        activation_function=torch.nn.ReLU(),
+        weights_init_fcn=partial(nn.init.kaiming_normal_, nonlinearity="relu"),
+        dropout_prob=0.1,
+        inputs_dropout_prob=0.1,
+        use_batchnorm=True,)
+    if mlp_kwargs:
+        mlp_network_params.update(mlp_kwargs.get("network_params",{})) 
+
+    network = generate_mlp(
+        num_features=train_df.shape[1],
+        num_classes=num_classes,
+        **mlp_network_params
+    )
+
+    mlp_params = dict(
+        model=(
+            metamodel_func(
+                (
+                    PytorchLightningRegressor(network=network, **configs.MLP_GENERAL_PARAMS)
+                    if use_regression
+                    else PytorchLightningClassifier(network=network, **configs.MLP_GENERAL_PARAMS)
+                ),
+            )
+        ),
+    )   
 
     # ----------------------------------------------------------------------------------------------------------------------------------------------------
     # Setting up RFECV
     # ----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    rfecv_params = configs.COMMON_RFECV_PARAMS.copy()
 
     if use_regression:
         rfecv_scoring = make_scorer(**default_regression_scoring)
@@ -2010,7 +2071,7 @@ def configure_training_params(
         else:
             rfecv_scoring = make_scorer(**default_classification_scoring)
 
-    # !TODO ! allow sepate params (device ,num_iters) for FS
+    # !TODO ! allow separate params (device ,num_iters) for FS
 
     params = configs.CB_REGR if use_regression else (configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.CB_CLASSIF)
     params["iterations"] = params["iterations"] // 2
@@ -2050,16 +2111,17 @@ def configure_training_params(
 
     return (
         common_params,
-        common_cb_params,
-        common_hgb_params,
-        common_lgb_params,
-        common_xgb_params,
-        common_mlp_params,
+        cb_params,
+        hgb_params,
+        lgb_params,
+        xgb_params,
+        mlp_params,
         cb_rfecv,
         lgb_rfecv,
         xgb_rfecv,
         cpu_configs,
         gpu_configs,
+        cat_features,
     )
 
 
@@ -2537,16 +2599,17 @@ def select_target(
 
     (
         common_params,
-        common_cb_params,
-        common_hgb_params,
-        common_lgb_params,
-        common_xgb_params,
-        common_mlp_params,
+        cb_params,
+        hgb_params,
+        lgb_params,
+        xgb_params,
+        mlp_params,
         cb_rfecv,
         lgb_rfecv,
         xgb_rfecv,
         cpu_configs,
         gpu_configs,
+        cat_features,
     ) = configure_training_params(
         df=df,
         train_df=train_df,
@@ -2568,13 +2631,13 @@ def select_target(
         **effective_control_params,
     )
 
-    models_params = dict(cb=common_cb_params, lgb=common_lgb_params, xgb=common_xgb_params, hgb=common_hgb_params, mlp=common_mlp_params)
+    models_params = dict(cb=cb_params, lgb=lgb_params, xgb=xgb_params, hgb=hgb_params, mlp=mlp_params)
     rfecv_models_params = dict(
         cb_rfecv=cb_rfecv,
         lgb_rfecv=lgb_rfecv,
         xgb_rfecv=xgb_rfecv,
     )
-    return common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs
+    return common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs,cat_features
 
 
 def process_model(
@@ -2742,6 +2805,9 @@ def train_mlframe_models_suite(
     use_mrmr_fs: bool = False,
     mrmr_kwargs: dict = None,
     random_seed: int = 42,
+    #
+    imputer:object,
+    scaler:object,        
 ) -> dict:
 
     # cb_kwargs=dict(devices='0-4')
@@ -2751,6 +2817,11 @@ def train_mlframe_models_suite(
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
     trainset_features_stats = None
+
+    if imputer is None:
+        imputer=SimpleImputer(strategy="most_frequent",add_indicator=True)
+    if scaler is None:
+        scaler=StandardScaler()
 
     if rfecv_models is None:
         rfecv_models = []
@@ -2949,7 +3020,7 @@ def train_mlframe_models_suite(
                 cur_control_params_override = control_params_override.copy()
                 cur_control_params_override["use_regression"] = target_type == TargetTypes.REGRESSION
 
-                common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs = select_target(
+                common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs,cat_features = select_target(
                     model_name=f"{target_name} {model_name} {cur_target}",
                     target=target,
                     df=None,
@@ -3002,13 +3073,12 @@ def train_mlframe_models_suite(
                         if mlframe_model_name == "cb" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
                             continue
 
-                        # !TODO ! some models (hgb, ann) require imputers, cat handlers, scalers
 
                         if mlframe_model_name not in models_params:
                             logger.warning(f"mlframe model {mlframe_model_name} not known, skipping...")
                         else:
 
-                            if mlframe_model_name == "hgb":
+                            if mlframe_model_name == "hgb" and cat_features:
                                 pre_pipeline = Pipeline(
                                     steps=[
                                         *([("pre", orig_pre_pipeline)] if orig_pre_pipeline else []),
@@ -3019,9 +3089,9 @@ def train_mlframe_models_suite(
                                 pre_pipeline = Pipeline(
                                     steps=[
                                         *([("pre", orig_pre_pipeline)] if orig_pre_pipeline else []),
-                                        ("ce", ce.CatBoostEncoder()),
-                                        ("imp", SimpleImputer()),
-                                        ("scaler", StandardScaler()),
+                                        *([("ce", ce.CatBoostEncoder())] if cat_features else []),
+                                        ("imp", imputer),
+                                        ("scaler", scaler),
                                     ]
                                 )
 

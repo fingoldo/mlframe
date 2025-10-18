@@ -21,6 +21,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
+import psutil
 import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint
 
@@ -60,15 +61,13 @@ class PytorchLightningEstimator(BaseEstimator):
 
     def __init__(
         self,
-        model: object,
+        model_class: object,
+        model_params:dict,
         network: object,
-        datamodule: object,
+        datamodule_class: object,
+        datamodule_params:dict,
         trainer: object,
-        args: object,
-        loss_fn: Callable,
-        features_dtype: object = torch.float32,
-        labels_dtype: object = torch.int64,
-        tune_params: bool = True,
+        tune_params:bool=False,
     ):
         store_params_in_object(obj=self, params=get_parent_func_args())
 
@@ -76,17 +75,17 @@ class PytorchLightningEstimator(BaseEstimator):
 
         if isinstance(fit_params, dict):
             eval_set = fit_params.get("eval_set")
+            if eval_set is None:
+                eval_set = None, None
         else:
             eval_set = None, None
 
-        dm = self.datamodule(
+        dm = self.datamodule_class(
             train_features=X,
             train_labels=y,
             val_features=eval_set[0],
             val_labels=eval_set[1],
-            features_dtype=self.features_dtype,
-            labels_dtype=self.labels_dtype,
-            batch_size=self.args.batch_size,
+            **self.datamodule_params,
         )
 
         if isinstance(self, ClassifierMixin):
@@ -100,7 +99,8 @@ class PytorchLightningEstimator(BaseEstimator):
 
         # For faster initialization, you can create model parameters with desired dtype directly on the device:
         with self.trainer.init_module():
-            self.model = self.model(model=self.network, loss_fn=self.loss_fn, learning_rate=self.args.lr, args=self.args, return_proba=return_proba)
+            # model_params
+            self.model = self.model_class(network=self.network, **self.model_params)
 
             self.model.example_input_array = torch.tensor(X.iloc[0:2, :].values, dtype=torch.float32)
 
@@ -125,7 +125,7 @@ class PytorchLightningEstimator(BaseEstimator):
             new_lr = lr_finder.suggestion()
             logger.info(f"Using suggested LR={new_lr}")
             self.model.hparams.learning_rate = new_lr
-            self.model.model.learning_rate = new_lr
+            self.model.network.learning_rate = new_lr
 
         self.trainer.fit(model=self.model, datamodule=dm)
 
@@ -134,7 +134,7 @@ class PytorchLightningEstimator(BaseEstimator):
     def predict(self, X):
         if isinstance(X, (pd.DataFrame, pd.Series)):
             X = X.to_numpy()
-        X = torch.tensor(X, dtype=self.features_dtype, device=self.model.device)
+        X = torch.tensor(X, dtype=self.datamodule_params.get('features_dtype',torch.float32), device=self.model.device)
         self.model.eval()
         res = self.model(X)
         return res.detach().cpu().numpy()
@@ -168,7 +168,7 @@ class TorchDataset(Dataset):
         labels: Union[pd.DataFrame, np.ndarray],
         features_dtype: object = torch.float32,
         labels_dtype: object = torch.float32,
-        device: str = None,
+        device: str = None,        
     ):
         "Converts pandas/numpy data into tensors of specified type, if needed"
 
@@ -214,18 +214,7 @@ class TorchDataModule(LightningDataModule):
         data_placement_device: str = None,
         features_dtype: object = torch.float32,
         labels_dtype: object = torch.int64,
-        batch_size: int = 32,
-        params=dict(
-            sampler=None,
-            batch_sampler=None,
-            num_workers=min(8, os.cpu_count()),
-            collate_fn=lambda x: x,  # required for __getitems__ to work in TorchDataset down the road
-            drop_last=True,
-            timeout=0,
-            worker_init_fn=None,
-            prefetch_factor=None,
-            persistent_workers=False,
-        ),
+        dataloader_params:dict={},
     ):
         # A simple way to prevent redundant dataset replicas is to rely on torch.multiprocessing to share the data automatically between spawned processes via shared memory.
         # For this, all data pre-loading should be done on the main process inside DataModule.__init__(). As a result, all tensor-data will get automatically shared when using
@@ -281,22 +270,22 @@ class TorchDataModule(LightningDataModule):
             TorchDataset(
                 features=self.train_features, labels=self.train_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype, device=device
             ),
-            shuffle=(self.batch_size < len(self.train_labels)),
-            batch_size=self.batch_size,
             pin_memory=on_gpu,
-            **self.params,
+            **self.dataloader_params,
         )
 
     def val_dataloader(self):
 
         on_gpu = self.on_gpu()
         device = self.data_placement_device if (self.data_placement_device and on_gpu) else None
+
+        dataloader_params=self.dataloader_params.copy()
+        dataloader_params["shuffle"]=False
+
         return DataLoader(
             TorchDataset(features=self.val_features, labels=self.val_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype, device=device),
-            shuffle=False,
-            batch_size=self.batch_size,
             pin_memory=on_gpu,
-            **self.params,
+            **dataloader_params,
         )
 
 
@@ -483,10 +472,9 @@ class PeriodicLearningRateFinder(LearningRateFinder):
 class MLPTorchModel(L.LightningModule):
     def __init__(
         self,
-        args: object,
         loss_fn: Callable,
         return_proba: bool,
-        model: torch.nn.Module = None,
+        network: torch.nn.Module = None,
         learning_rate: float = 0.1,
         l1_alpha: float = 0.0,
         optimizer=torch.optim.Adam,
@@ -495,16 +483,16 @@ class MLPTorchModel(L.LightningModule):
         lr_scheduler_kwargs: dict = {},
     ):
         super().__init__()
-        self.save_hyperparameters()  # ignore=["model"]
+        self.save_hyperparameters()  # ignore=["network"]
         store_params_in_object(obj=self, params=get_parent_func_args())
 
         try:
-            self.example_input_array = model.example_input_array  # specifying allows to skip example_input_array when doing ONNX export
+            self.example_input_array = network.example_input_array  # specifying allows to skip example_input_array when doing ONNX export
         except Exception:
             pass
 
     def forward(self, x):
-        logits = self.model(x)
+        logits = self.network(x)
 
         if not self.return_proba:
             return logits
@@ -513,12 +501,12 @@ class MLPTorchModel(L.LightningModule):
 
     def compute_loss(self, batch):
         features, labels = batch
-        logits = self.model(features)
+        logits = self.network(features)
 
         loss = self.loss_fn(logits, labels)
 
         if self.l1_alpha:  # l2 regularization is already implemented in optimizers via weight_decay parameter
-            l1_norm = sum(p.abs().sum() for p in self.model.parameters())
+            l1_norm = sum(p.abs().sum() for p in self.network.parameters())
             loss = loss + self.l1_alpha * l1_norm
 
         return loss
@@ -556,14 +544,14 @@ class MLPTorchModel(L.LightningModule):
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         features, _ = batch
         with torch.inference_mode():
-            logits = self.model(features)
+            logits = self.network(features)
             if self.return_proba:
                 return torch.softmax(logits, dim=1)
             return logits
 
     def configure_optimizers(self):
 
-        optimizer = self.optimizer(params=self.model.parameters(), **self.optimizer_kwargs)
+        optimizer = self.optimizer(params=self.network.parameters(), **self.optimizer_kwargs)
         res = {"optimizer": optimizer}
         if self.lr_scheduler:
             res["lr_scheduler"] = self.lr_scheduler(optimizer=optimizer, **self.lr_scheduler_kwargs)
