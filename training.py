@@ -2806,7 +2806,7 @@ def train_mlframe_models_suite(
     mrmr_kwargs: dict = None,
     random_seed: int = 42,
     #
-    imputer:object,
+    imputer:object=None,
     scaler:object,        
 ) -> dict:
 
