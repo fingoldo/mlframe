@@ -543,8 +543,8 @@ def get_training_configs(
     # XGB_CALIB_CLASSIF_CPU.update({"device": "cpu","n_jobs":psutil.cpu_count(logical=False)})
     
 
-    mlp_trainer_params:dict = {
-        devices=1 if is_jupyter_notebook else  torch.cuda.device_count(),
+    mlp_trainer_params:dict = dict(
+        devices=1 if is_jupyter_notebook() else  torch.cuda.device_count(),
         # ----------------------------------------------------------------------------------------------------------------------
         # Runtime:
         # ----------------------------------------------------------------------------------------------------------------------
@@ -581,7 +581,7 @@ def get_training_configs(
         # ----------------------------------------------------------------------------------------------------------------------
         default_root_dir="logs",
         # logger=tb_logger,        
-    }
+    )
 
     if mlp_kwargs:
         mlp_trainer_params.update(mlp_kwargs.get("trainer_params",{}))
