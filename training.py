@@ -584,8 +584,7 @@ def get_training_configs(
         mlp_trainer_params.update(mlp_kwargs.get("trainer_params", {}))
 
     loss_fn = F.cross_entropy
-    labels_dtype = torch.int64
-    early_stopping_metric_name = "ICE"
+    labels_dtype = torch.int64    
 
     mlp_model_params = dict(
         loss_fn=loss_fn,
@@ -622,10 +621,11 @@ def get_training_configs(
     if mlp_kwargs:
         mlp_datamodule_params.update(mlp_kwargs.get("datamodule_params", {}))
 
+    early_stopping_metric_name = "ICE"
     checkpointing = ModelCheckpoint(
         monitor="val_" + early_stopping_metric_name,
         dirpath=mlp_trainer_params["default_root_dir"],
-        filename="model-{" + "val_" + early_stopping_metric_name + ":.4f}",
+        filename="model-{" +  early_stopping_metric_name + ":.4f}",
         enable_version_counter=True,
         save_last=False,
         save_top_k=1,
