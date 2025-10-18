@@ -32,7 +32,7 @@ from collections import defaultdict
 
 from timeit import default_timer as timer
 from pyutilz.system import ensure_dir_exists, tqdmu
-from pyutilz.pythonlib import prefix_dict_elems, get_human_readable_set_size,is_jupyter_notebook
+from pyutilz.pythonlib import prefix_dict_elems, get_human_readable_set_size, is_jupyter_notebook
 
 from mlframe.helpers import get_model_best_iter, ensure_no_infinity, get_own_ram_usage
 
@@ -370,8 +370,8 @@ def get_training_configs(
     nbins: int = 10,
     # ----------------------------------------------------------------------------------------------------------------------------
     # model-specific params
-    # ----------------------------------------------------------------------------------------------------------------------------    
-    cb_kwargs: dict =None,
+    # ----------------------------------------------------------------------------------------------------------------------------
+    cb_kwargs: dict = None,
     hgb_kwargs: dict = None,
     lgb_kwargs: dict = None,
     xgb_kwargs: dict = None,
@@ -391,15 +391,15 @@ def get_training_configs(
         has_gpu = CUDA_IS_AVAILABLE
 
     if cb_kwargs is None:
-        cb_kwargs = dict(verbose=0)    
+        cb_kwargs = dict(verbose=0)
     if lgb_kwargs is None:
         lgb_kwargs = dict(verbose=-1)
     if xgb_kwargs is None:
         xgb_kwargs = dict(verbosity=0)
     if hgb_kwargs is None:
-        hgb_kwargs= dict(verbose=0)        
+        hgb_kwargs = dict(verbose=0)
     if mlp_kwargs is None:
-        mlp_kwargs = dict()        
+        mlp_kwargs = dict()
 
     if not early_stopping_rounds:
         early_stopping_rounds = max(2, iterations // 3)
@@ -541,10 +541,9 @@ def get_training_configs(
     Note: it is recommended to use the smaller max_bin (e.g. 63) to get the better speed up"""
 
     # XGB_CALIB_CLASSIF_CPU.update({"device": "cpu","n_jobs":psutil.cpu_count(logical=False)})
-    
 
-    mlp_trainer_params:dict = dict(
-        devices=1 if is_jupyter_notebook() else  torch.cuda.device_count(),
+    mlp_trainer_params: dict = dict(
+        devices=1 if is_jupyter_notebook() else torch.cuda.device_count(),
         # ----------------------------------------------------------------------------------------------------------------------
         # Runtime:
         # ----------------------------------------------------------------------------------------------------------------------
@@ -569,10 +568,8 @@ def get_training_configs(
         # Precision & accelerators:
         # ----------------------------------------------------------------------------------------------------------------------
         precision="32-true",
-
         # test "16-true" and "bf16-true"? # With true 16-bit precision you can additionally lower your memory consumption by up to half so that you can train and deploy larger models. However, this setting can sometimes lead to unstable training.
         # BFloat16 Mixed precision is similar to FP16 mixed precision, however, it maintains more of the “dynamic range” that FP32 offers. This means it is able to improve numerical stability than FP16 mixed precision.
-
         # accelerator="cuda",  # devices=find_usable_cuda_devices(2)
         # accelerator="ddp",plugins=DDPPlugin(find_unused_parameters=False),
         num_nodes=1,
@@ -580,73 +577,66 @@ def get_training_configs(
         # Logging:
         # ----------------------------------------------------------------------------------------------------------------------
         default_root_dir="logs",
-        # logger=tb_logger,        
+        # logger=tb_logger,
     )
 
     if mlp_kwargs:
-        mlp_trainer_params.update(mlp_kwargs.get("trainer_params",{}))
+        mlp_trainer_params.update(mlp_kwargs.get("trainer_params", {}))
 
-
-    loss_fn=F.cross_entropy
-    labels_dtype=torch.int64    
+    loss_fn = F.cross_entropy
+    labels_dtype = torch.int64
     early_stopping_metric_name = "ICE"
 
-
-    mlp_model_params=dict(
+    mlp_model_params = dict(
         loss_fn=loss_fn,
         return_proba=True,
         tune_params=False,
-        learning_rate = 1e-3,
-        l1_alpha = 0.0,
+        learning_rate=1e-3,
+        l1_alpha=0.0,
         optimizer=torch.optim.AdamW,
-        optimizer_kwargs = {},
-        lr_scheduler = None,
-        lr_scheduler_kwargs = {},    )
+        optimizer_kwargs={},
+        lr_scheduler=None,
+        lr_scheduler_kwargs={},
+    )
     if mlp_kwargs:
-        mlp_model_params.update(mlp_kwargs.get("model_params",{}))    
-    
+        mlp_model_params.update(mlp_kwargs.get("model_params", {}))
 
-    mlp_dataloader_params=dict(
-
+    mlp_dataloader_params = dict(
         sampler=None,
         batch_sampler=None,
-        num_workers=0, # min(8, psutil.cpu_count(logical=False)),
+        num_workers=0,  # min(8, psutil.cpu_count(logical=False)),
         collate_fn=lambda x: x,  # required for __getitems__ to work in TorchDataset down the road
         drop_last=False,
         timeout=0,
         worker_init_fn=None,
         prefetch_factor=None,
         persistent_workers=True,
-        batch_size = 1024, 
-        shuffle=False       
-    )    
-    if mlp_kwargs:
-        mlp_dataloader_params.update(mlp_kwargs.get("dataloader_params",{})) 
-
-
-    mlp_datamodule_params=dict(
-        read_fcn = None,
-        data_placement_device = None,
-        features_dtype = torch.float32,
-        labels_dtype =labels_dtype,
-        dataloader_params=mlp_dataloader_params
-        
+        batch_size=1024,
+        shuffle=False,
     )
     if mlp_kwargs:
-        mlp_datamodule_params.update(mlp_kwargs.get("datamodule_params",{}))           
+        mlp_dataloader_params.update(mlp_kwargs.get("dataloader_params", {}))
+
+    mlp_datamodule_params = dict(
+        read_fcn=None, data_placement_device=None, features_dtype=torch.float32, labels_dtype=labels_dtype, dataloader_params=mlp_dataloader_params
+    )
+    if mlp_kwargs:
+        mlp_datamodule_params.update(mlp_kwargs.get("datamodule_params", {}))
 
     checkpointing = ModelCheckpoint(
         monitor=early_stopping_metric_name,
-        dirpath=mlp_trainer_params['default_root_dir'],
+        dirpath=mlp_trainer_params["default_root_dir"],
         filename="model-{" + early_stopping_metric_name + ":.4f}",
         enable_version_counter=True,
         save_last=False,
         save_top_k=1,
         mode="min",
     )
-    metric_computing_callback=AggregatingValidationCallback(metric_name=early_stopping_metric_name, metric_fcn=partial(fs_and_hpt_integral_calibration_error, verbose=False))
+    metric_computing_callback = AggregatingValidationCallback(
+        metric_name=early_stopping_metric_name, metric_fcn=partial(fs_and_hpt_integral_calibration_error, verbose=False)
+    )
 
-    #tb_logger = TensorBoardLogger(save_dir=args.experiment_path, log_graph=True)  # save_dir="s3://my_bucket/logs/"
+    # tb_logger = TensorBoardLogger(save_dir=args.experiment_path, log_graph=True)  # save_dir="s3://my_bucket/logs/"
     progress_bar = TQDMProgressBar(refresh_rate=50)  # leave=True
 
     callbacks = [
@@ -656,7 +646,7 @@ def get_training_configs(
         LearningRateMonitor(logging_interval="epoch"),
         progress_bar,
         # StochasticWeightAveraging(swa_lrs=1e-2),
-        # PeriodicLearningRateFinder(period=10),        
+        # PeriodicLearningRateFinder(period=10),
     ]
 
     if use_explicit_early_stopping:
@@ -672,18 +662,16 @@ def get_training_configs(
         # ----------------------------------------------------------------------------------------------------------------------
         callbacks=callbacks,
         # DeviceStatsMonitor(),
-        # ModelPruning("l1_unstructured", amount=0.5)        
+        # ModelPruning("l1_unstructured", amount=0.5)
     )
 
     MLP_GENERAL_PARAMS = dict(
         model_class=MLPTorchModel,
         model_params=mlp_model_params,
-
-        datamodule_class=TorchDataModule,  
-        datamodule_params=mlp_datamodule_params, # includes dataloader_params
+        datamodule_class=TorchDataModule,
+        datamodule_params=mlp_datamodule_params,  # includes dataloader_params
         trainer=trainer,
         tune_params=False,
-
     )
 
     if rfecv_kwargs is None:
@@ -1889,7 +1877,7 @@ def configure_training_params(
             if isinstance(next_df, pd.DataFrame):
                 cat_features = next_df.head().select_dtypes(("category", "object")).columns.tolist()
             elif isinstance(next_df, pl.DataFrame):
-                cat_features = next_df.head().select(pl.col(pl.Categorical,pl.Object)).columns
+                cat_features = next_df.head().select(pl.col(pl.Categorical, pl.Object)).columns
             break
 
     if cat_features:
@@ -1929,7 +1917,7 @@ def configure_training_params(
     cpu_configs = get_training_configs(has_gpu=False, subgroups=indexed_subgroups, **config_params)
     gpu_configs = get_training_configs(has_gpu=None, subgroups=indexed_subgroups, **config_params)
 
-    data_fits_gpu_ram = True # ! TODO ! 
+    data_fits_gpu_ram = True  # ! TODO !
     from pyutilz.pandaslib import get_df_memory_consumption
     from pyutilz.system import compute_total_gpus_ram, get_gpuinfo_gpu_info
 
@@ -2010,14 +1998,15 @@ def configure_training_params(
     # MLP
     # ----------------------------------------------------------------------------------------------------------------------------------------------------
 
-    mlp_kwargs=config_params.get('mlp_kwargs',{})
+    mlp_kwargs = config_params.get("mlp_kwargs", {})
 
     if use_regression:
         num_classes = 1
     else:
         num_classes = 2
-    
-    mlp_network_params=dict(nlayers=20,
+
+    mlp_network_params = dict(
+        nlayers=20,
         first_layer_num_neurons=100,
         min_layer_neurons=1,
         neurons_by_layer_arch=MLPNeuronsByLayerArchitecture.Declining,
@@ -2026,15 +2015,12 @@ def configure_training_params(
         weights_init_fcn=partial(nn.init.kaiming_normal_, nonlinearity="relu"),
         dropout_prob=0.1,
         inputs_dropout_prob=0.1,
-        use_batchnorm=True,)
-    if mlp_kwargs:
-        mlp_network_params.update(mlp_kwargs.get("network_params",{})) 
-
-    network = generate_mlp(
-        num_features=train_df.shape[1],
-        num_classes=num_classes,
-        **mlp_network_params
+        use_batchnorm=True,
     )
+    if mlp_kwargs:
+        mlp_network_params.update(mlp_kwargs.get("network_params", {}))
+
+    network = generate_mlp(num_features=train_df.shape[1], num_classes=num_classes, **mlp_network_params)
 
     mlp_params = dict(
         model=(
@@ -2046,7 +2032,7 @@ def configure_training_params(
                 ),
             )
         ),
-    )   
+    )
 
     # ----------------------------------------------------------------------------------------------------------------------------------------------------
     # Setting up RFECV
@@ -2637,7 +2623,7 @@ def select_target(
         lgb_rfecv=lgb_rfecv,
         xgb_rfecv=xgb_rfecv,
     )
-    return common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs,cat_features
+    return common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs, cat_features
 
 
 def process_model(
@@ -2806,8 +2792,8 @@ def train_mlframe_models_suite(
     mrmr_kwargs: dict = None,
     random_seed: int = 42,
     #
-    imputer:object=None,
-    scaler:object,        
+    imputer: object = None,
+    scaler: object = None,
 ) -> dict:
 
     # cb_kwargs=dict(devices='0-4')
@@ -2819,9 +2805,9 @@ def train_mlframe_models_suite(
     trainset_features_stats = None
 
     if imputer is None:
-        imputer=SimpleImputer(strategy="most_frequent",add_indicator=True)
+        imputer = SimpleImputer(strategy="most_frequent", add_indicator=True)
     if scaler is None:
-        scaler=StandardScaler()
+        scaler = StandardScaler()
 
     if rfecv_models is None:
         rfecv_models = []
@@ -3020,7 +3006,7 @@ def train_mlframe_models_suite(
                 cur_control_params_override = control_params_override.copy()
                 cur_control_params_override["use_regression"] = target_type == TargetTypes.REGRESSION
 
-                common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs,cat_features = select_target(
+                common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs, cat_features = select_target(
                     model_name=f"{target_name} {model_name} {cur_target}",
                     target=target,
                     df=None,
@@ -3072,7 +3058,6 @@ def train_mlframe_models_suite(
                     for mlframe_model_name in mlframe_models:
                         if mlframe_model_name == "cb" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
                             continue
-
 
                         if mlframe_model_name not in models_params:
                             logger.warning(f"mlframe model {mlframe_model_name} not known, skipping...")
