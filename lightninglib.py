@@ -137,8 +137,14 @@ class PytorchLightningEstimator(BaseEstimator):
             X = X.to_numpy()
         X = torch.tensor(X, dtype=self.datamodule_params.get("features_dtype", torch.float32), device=self.model.device)
         self.model.eval()
-        res = self.model(X)
-        return res.detach().cpu().numpy()
+        with torch.no_grad():
+            res = self.model(X)
+
+        res = res.detach().cpu()
+        if res.dtype == torch.bfloat16:
+            res = res.to(torch.float32)
+
+        return res.numpy()
 
 
 class PytorchLightningRegressor(RegressorMixin, PytorchLightningEstimator):
@@ -267,7 +273,6 @@ class TorchDataModule(LightningDataModule):
 
         on_gpu = self.on_gpu()
         device = self.data_placement_device if (self.data_placement_device and on_gpu) else None
-        logger.info(f"using {self.features_dtype}")
         return DataLoader(
             TorchDataset(
                 features=self.train_features, labels=self.train_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype, device=device
