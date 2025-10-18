@@ -584,7 +584,7 @@ def get_training_configs(
         mlp_trainer_params.update(mlp_kwargs.get("trainer_params", {}))
 
     loss_fn = F.cross_entropy
-    labels_dtype = torch.int64    
+    labels_dtype = torch.int64
 
     mlp_model_params = dict(
         loss_fn=loss_fn,
@@ -625,7 +625,7 @@ def get_training_configs(
     checkpointing = ModelCheckpoint(
         monitor="val_" + early_stopping_metric_name,
         dirpath=mlp_trainer_params["default_root_dir"],
-        filename="model-{" +  early_stopping_metric_name + ":.4f}",
+        filename="model-{" + early_stopping_metric_name + ":.4f}",
         enable_version_counter=True,
         save_last=False,
         save_top_k=1,
@@ -650,7 +650,7 @@ def get_training_configs(
 
     if use_explicit_early_stopping:
         early_stopping = EarlyStoppingCallback(
-            monitor=early_stopping_metric_name, min_delta=0.001, patience=early_stopping_rounds, mode="min", verbose=True
+            monitor="val_" + early_stopping_metric_name, min_delta=0.001, patience=early_stopping_rounds, mode="min", verbose=True
         )  # stopping_threshold: Stops training immediately once the monitored quantity reaches this threshold.
         callbacks.append(early_stopping)
 
