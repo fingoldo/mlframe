@@ -62,12 +62,13 @@ class PytorchLightningEstimator(BaseEstimator):
     def __init__(
         self,
         model_class: object,
-        model_params:dict,
+        model_params: dict,
         network: object,
         datamodule_class: object,
-        datamodule_params:dict,
+        datamodule_params: dict,
         trainer: object,
-        tune_params:bool=False,
+        tune_params: bool = False,
+        tune_batch_size: bool = False,
     ):
         store_params_in_object(obj=self, params=get_parent_func_args())
 
@@ -108,7 +109,7 @@ class PytorchLightningEstimator(BaseEstimator):
             tuner = Tuner(self.trainer)
 
             # Auto-scale batch size with binary search
-            if False:
+            if self.tune_batch_size:
                 tuner.scale_batch_size(
                     model=self.model, datamodule=dm, mode="binsearch", init_val=self.args.batch_size
                 )  # dm has to have in __init__ & persist the batch_size parameter. scale_batch_size sets it.
@@ -134,7 +135,7 @@ class PytorchLightningEstimator(BaseEstimator):
     def predict(self, X):
         if isinstance(X, (pd.DataFrame, pd.Series)):
             X = X.to_numpy()
-        X = torch.tensor(X, dtype=self.datamodule_params.get('features_dtype',torch.float32), device=self.model.device)
+        X = torch.tensor(X, dtype=self.datamodule_params.get("features_dtype", torch.float32), device=self.model.device)
         self.model.eval()
         res = self.model(X)
         return res.detach().cpu().numpy()
@@ -168,7 +169,7 @@ class TorchDataset(Dataset):
         labels: Union[pd.DataFrame, np.ndarray],
         features_dtype: object = torch.float32,
         labels_dtype: object = torch.float32,
-        device: str = None,        
+        device: str = None,
     ):
         "Converts pandas/numpy data into tensors of specified type, if needed"
 
@@ -214,7 +215,7 @@ class TorchDataModule(LightningDataModule):
         data_placement_device: str = None,
         features_dtype: object = torch.float32,
         labels_dtype: object = torch.int64,
-        dataloader_params:dict={},
+        dataloader_params: dict = {},
     ):
         # A simple way to prevent redundant dataset replicas is to rely on torch.multiprocessing to share the data automatically between spawned processes via shared memory.
         # For this, all data pre-loading should be done on the main process inside DataModule.__init__(). As a result, all tensor-data will get automatically shared when using
@@ -279,8 +280,8 @@ class TorchDataModule(LightningDataModule):
         on_gpu = self.on_gpu()
         device = self.data_placement_device if (self.data_placement_device and on_gpu) else None
 
-        dataloader_params=self.dataloader_params.copy()
-        dataloader_params["shuffle"]=False
+        dataloader_params = self.dataloader_params.copy()
+        dataloader_params["shuffle"] = False
 
         return DataLoader(
             TorchDataset(features=self.val_features, labels=self.val_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype, device=device),

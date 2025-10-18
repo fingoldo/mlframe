@@ -625,7 +625,7 @@ def get_training_configs(
     checkpointing = ModelCheckpoint(
         monitor="val_" + early_stopping_metric_name,
         dirpath=mlp_trainer_params["default_root_dir"],
-        filename="model-{" + early_stopping_metric_name + ":.4f}",
+        filename="model-{" + "val_" + early_stopping_metric_name + ":.4f}",
         enable_version_counter=True,
         save_last=False,
         save_top_k=1,
@@ -2796,6 +2796,16 @@ def train_mlframe_models_suite(
 ) -> dict:
 
     # cb_kwargs=dict(devices='0-4')
+
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # Warnings
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    warnings.filterwarnings(
+        "ignore",
+        message=r"The '.*_dataloader' does not have many workers",
+        module="lightning.pytorch.trainer.connectors.data_connector",
+    )
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Inits
