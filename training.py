@@ -590,7 +590,6 @@ def get_training_configs(
     mlp_model_params = dict(
         loss_fn=loss_fn,
         return_proba=True,
-        tune_params=False,
         learning_rate=1e-3,
         l1_alpha=0.0,
         optimizer=torch.optim.AdamW,
