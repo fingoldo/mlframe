@@ -623,7 +623,7 @@ def get_training_configs(
         mlp_datamodule_params.update(mlp_kwargs.get("datamodule_params", {}))
 
     checkpointing = ModelCheckpoint(
-        monitor="val_"9early_stopping_metric_name,
+        monitor="val_" + early_stopping_metric_name,
         dirpath=mlp_trainer_params["default_root_dir"],
         filename="model-{" + early_stopping_metric_name + ":.4f}",
         enable_version_counter=True,
