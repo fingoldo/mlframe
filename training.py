@@ -670,7 +670,7 @@ def get_training_configs(
         datamodule_class=TorchDataModule,
         datamodule_params=mlp_datamodule_params,  # includes dataloader_params
         trainer=trainer,
-        tune_params=mlp_kwargs.get('tune_params',False),
+        tune_params=mlp_kwargs.get("tune_params", False),
     )
 
     if rfecv_kwargs is None:
