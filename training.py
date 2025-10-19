@@ -70,10 +70,10 @@ from mlframe.lightninglib import (
     TorchDataModule,
     AggregatingValidationCallback,
     NetworkGraphLoggingCallback,
+    BestEpochModelCheckpoint,
 )
 
 
-from lightning.pytorch.callbacks import ModelCheckpoint
 import argparse, warnings
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -584,7 +584,7 @@ def get_training_configs(
         mlp_trainer_params.update(mlp_kwargs.get("trainer_params", {}))
 
     loss_fn = F.cross_entropy
-    labels_dtype = torch.int64
+    labels_dtype = torch.int8
 
     mlp_model_params = dict(
         loss_fn=loss_fn,
@@ -622,7 +622,7 @@ def get_training_configs(
         mlp_datamodule_params.update(mlp_kwargs.get("datamodule_params", {}))
 
     early_stopping_metric_name = "ICE"
-    checkpointing = ModelCheckpoint(
+    checkpointing = BestEpochModelCheckpoint(
         monitor="val_" + early_stopping_metric_name,
         dirpath=mlp_trainer_params["default_root_dir"],
         filename="model-{" + "val_" + early_stopping_metric_name + ":.4f}",

@@ -36,6 +36,9 @@ import pandas as pd, numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
+from sklearn.metrics import r2_score, accuracy_score
+from copy import deepcopy
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # ENUMS
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -72,15 +75,9 @@ class PytorchLightningEstimator(BaseEstimator):
     ):
         store_params_in_object(obj=self, params=get_parent_func_args())
 
-    def fit(self, X, y, **fit_params):
-
-        if isinstance(fit_params, dict):
-            eval_set = fit_params.get("eval_set")
-            if eval_set is None:
-                eval_set = None, None
-        else:
-            eval_set = None, None
-
+    def _fit_common(self, X, y, eval_set: tuple = (None, None), is_partial_fit: bool = False, classes: Optional[np.ndarray] = None):
+        """Common logic for fit and partial_fit."""
+        # Create datamodule
         dm = self.datamodule_class(
             train_features=X,
             train_labels=y,
@@ -89,62 +86,128 @@ class PytorchLightningEstimator(BaseEstimator):
             **self.datamodule_params,
         )
 
+        # Initialize model if not partial_fit or model doesn't exist
+        if not is_partial_fit or not hasattr(self, "model"):
+            with self.trainer.init_module():
+                self.model = self.model_class(network=self.network, **self.model_params)
+                self.model.example_input_array = torch.tensor(
+                    X.iloc[0:2, :].values if isinstance(X, pd.DataFrame) else X[0:2, :], dtype=self.datamodule_params.get("features_dtype", torch.float32)
+                )
+
+        # Set classifier-specific attributes
         if isinstance(self, ClassifierMixin):
-            return_proba = True
-            if isinstance(y, pd.Series):
-                self.classes_ = sorted(y.unique())
-            else:
-                self.classes_ = sorted(np.unique(y))
-        else:
-            return_proba = False
+            self.return_proba = True
+            if is_partial_fit and classes is not None:
+                self.classes_ = np.array(classes)
+            elif not hasattr(self, "classes_"):
+                self.classes_ = sorted(np.unique(y) if not isinstance(y, pd.Series) else y.unique())
 
-        # For faster initialization, you can create model parameters with desired dtype directly on the device:
-        with self.trainer.init_module():
-            # model_params
-            self.model = self.model_class(network=self.network, **self.model_params)
-
-            self.model.example_input_array = torch.tensor(X.iloc[0:2, :].values, dtype=self.datamodule_params.get("features_dtype", torch.float32))
-
-        if self.tune_params:
+        # Tune parameters if requested and not already tuned (for partial_fit)
+        if self.tune_params and not (is_partial_fit and hasattr(self, "_tuned")):
             tuner = Tuner(self.trainer)
-
-            # Auto-scale batch size with binary search
             if self.tune_batch_size:
-                tuner.scale_batch_size(
-                    model=self.model, datamodule=dm, mode="binsearch", init_val=self.args.batch_size
-                )  # dm has to have in __init__ & persist the batch_size parameter. scale_batch_size sets it.
-
-            # Run learning rate finder
+                tuner.scale_batch_size(model=self.model, datamodule=dm, mode="binsearch", init_val=self.datamodule_params.get("batch_size", 32))
             lr_finder = tuner.lr_find(self.model, datamodule=dm)
-
-            # Results can be found in lr_finder.results
-
-            # Plot with
-            fig = lr_finder.plot(suggest=True)
-            fig.show()
-
             new_lr = lr_finder.suggestion()
             logger.info(f"Using suggested LR={new_lr}")
             self.model.hparams.learning_rate = new_lr
-            self.model.network.learning_rate = new_lr
+            if is_partial_fit:
+                self._tuned = True  # Mark as tuned for subsequent partial_fit calls
 
+        # Train the model
         self.trainer.fit(model=self.model, datamodule=dm)
+
+        # Store best epoch from checkpoint callback
+        for callback in self.trainer.callbacks:
+            if isinstance(callback, BestEpochModelCheckpoint):
+                self.best_epoch = callback.best_epoch
+                logger.info(f"Best epoch recorded: {self.best_epoch}")
+                break
 
         return self
 
-    def predict(self, X):
+    def fit(self, X, y, **fit_params):
+        """Fit the model to the data."""
+        eval_set = fit_params.get("eval_set", (None, None))
+        return self._fit_common(X, y, eval_set=eval_set, is_partial_fit=False)
+
+    def partial_fit(self, X, y, classes: Optional[np.ndarray] = None, **fit_params):
+        """Incremental training for online learning."""
+        eval_set = fit_params.get("eval_set", (None, None))
+        return self._fit_common(X, y, eval_set=eval_set, is_partial_fit=True, classes=classes)
+
+    def predict(self, X, device: Optional[str] = None):
+        """Predict using the model, handling device mismatches gracefully.
+
+        Args:
+            X: Input data (numpy array, pandas DataFrame, or Series).
+            device: Optional device to place the model and input tensor (e.g., 'cpu', 'cuda'). If None, tries self.model.device, falls back to 'cpu' on failure.
+
+        Returns:
+            numpy.ndarray: Model predictions.
+        """
         if isinstance(X, (pd.DataFrame, pd.Series)):
             X = X.to_numpy()
-        X = torch.tensor(X, dtype=self.datamodule_params.get("features_dtype", torch.float32), device=self.model.device)
+
+        # Determine target device
+        target_device = device if device is not None else getattr(self.model, "device", "cpu")
+
+        try:
+            # Try original behavior: place tensor on model's device
+            X_tensor = torch.tensor(X, dtype=self.datamodule_params.get("features_dtype", torch.float32), device=target_device)
+        except RuntimeError as e:
+            # Handle device mismatch (e.g., model on GPU but no GPU available)
+            logger.warning(f"Failed to place tensor on {target_device}: {e}. Falling back to CPU.")
+            self.model.to("cpu")  # Move model to CPU
+            X_tensor = torch.tensor(X, dtype=self.datamodule_params.get("features_dtype", torch.float32), device="cpu")
+
         self.model.eval()
         with torch.no_grad():
-            res = self.model(X)
+            res = self.model(X_tensor)
 
         res = res.detach().cpu()
         if res.dtype == torch.bfloat16:
             res = res.to(torch.float32)
 
         return res.numpy()
+
+    def get_params(self, deep: bool = True) -> Dict[str, Any]:
+        """Returns a dictionary of all parameters for scikit-learn compatibility."""
+        params = {
+            "model_class": self.model_class,
+            "model_params": deepcopy(self.model_params) if deep else self.model_params,
+            "network": self.network,
+            "datamodule_class": self.datamodule_class,
+            "datamodule_params": deepcopy(self.datamodule_params) if deep else self.datamodule_params,
+            "trainer": self.trainer,
+            "tune_params": self.tune_params,
+            "tune_batch_size": self.tune_batch_size,
+            "monitor_metric": self.monitor_metric,
+            "monitor_mode": self.monitor_mode,
+        }
+        return params
+
+    def set_params(self, **params: Any) -> "PytorchLightningEstimator":
+        """Sets parameters for scikit-learn compatibility."""
+        for key, value in params.items():
+            if key in ("model_params", "datamodule_params"):
+                setattr(self, key, deepcopy(value))  # Deep copy nested dicts
+            elif hasattr(self, key):
+                setattr(self, key, value)
+            else:
+                logger.warning(f"Parameter {key} not found in {self.__class__.__name__}")
+        return self
+
+    def score(self, X, y, sample_weight: Optional[np.ndarray] = None) -> float:
+        """Returns the coefficient of determination R^2 for regression or accuracy for classification."""
+        y_pred = self.predict(X)
+        if isinstance(self, RegressorMixin):
+            return r2_score(y, y_pred, sample_weight=sample_weight)
+        elif isinstance(self, ClassifierMixin):
+            y_pred = np.argmax(y_pred, axis=1)  # Convert probabilities to class labels
+            return accuracy_score(y, y_pred, sample_weight=sample_weight)
+        else:
+            raise ValueError("Estimator must be a RegressorMixin or ClassifierMixin")
 
 
 class PytorchLightningRegressor(RegressorMixin, PytorchLightningEstimator):
@@ -155,8 +218,14 @@ class PytorchLightningRegressor(RegressorMixin, PytorchLightningEstimator):
 class PytorchLightningClassifier(ClassifierMixin, PytorchLightningEstimator):
     _estimator_type = "classifier"
 
-    def predict_proba(self, X):
-        return self.predict(X)
+    def predict(self, X, device: Optional[str] = None):
+        """Predict class labels for samples in X."""
+        proba = super().predict(X, device=device)  # Get probabilities from parent
+        return np.argmax(proba, axis=1)  # Convert to class labels
+
+    def predict_proba(self, X, device: Optional[str] = None):
+        """Predict class probabilities for samples in X."""
+        return super().predict(X, device=device)  # Relay to parent's predict (returns probabilities)
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -330,6 +399,40 @@ class AggregatingValidationCallback(Callback):
         self.init_accumulators()
 
 
+# Custom ModelCheckpoint to track best epoch
+class BestEpochModelCheckpoint(ModelCheckpoint):
+    def __init__(self, monitor: str = "val_loss", mode: str = "min", **kwargs):
+        super().__init__(monitor=monitor, mode=mode, **kwargs)
+        self.best_epoch = None  # Track the epoch of the best model
+
+    def on_validation_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
+        super().on_validation_end(trainer, pl_module)
+        # When a new best model is saved, update best_epoch
+        if self.best_k_models and self.best_model_path:
+            current_score = self.best_k_models[self.best_model_path]
+            if self.monitor_op(current_score, self.best) or self.best is None:
+                self.best_epoch = trainer.current_epoch
+                logger.info(f"New best model at epoch {self.best_epoch} with {self.monitor}={current_score:.4f}")
+
+
+class PeriodicLearningRateFinder(LearningRateFinder):
+    def __init__(self, period: int, *args, **kwargs):
+        assert period > 0 and isinstance(period, int)
+        super().__init__(*args, **kwargs)
+        self.period = period
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        if (trainer.current_epoch % self.period) == 0 or trainer.current_epoch == 0:
+            print(f"Finding optimal learning rate. Current rate={getattr(pl_module,'learning_rate')}")
+            self.lr_find(trainer, pl_module)
+            print(f"Set learning rate to {getattr(pl_module,'learning_rate')}")
+
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Network structure
+# ----------------------------------------------------------------------------------------------------------------------------
+
+
 def generate_mlp(
     num_features: int,
     num_classes: int,
@@ -434,46 +537,40 @@ def generate_mlp(
     # Init weights explicitly if weights_init_fcn is set
     # ----------------------------------------------------------------------------------------------------------------------------
 
-    if weights_init_fcn:  # e.g., torch.nn.init.xavier_uniform
-
-        if isinstance(weights_init_fcn, partial):
-            func_to_check = weights_init_fcn.func
-        else:
-            func_to_check = weights_init_fcn
+    if weights_init_fcn:
 
         def init_weights(m):
-            for block_name in ("weight", "bias"):
-                if hasattr(m, block_name):
-                    block = getattr(m, block_name)
+            if isinstance(m, (nn.Linear, nn.BatchNorm1d)):  # Only initialize parametric layers
+                if isinstance(weights_init_fcn, partial):
+                    func_to_check = weights_init_fcn.func
+                else:
+                    func_to_check = weights_init_fcn
+
+                # Initialize weights (2D for Linear, 1D for BatchNorm gamma)
+                if hasattr(m, "weight") and m.weight is not None:
                     if func_to_check in (
                         torch.nn.init.xavier_normal_,
                         torch.nn.init.xavier_uniform_,
                         torch.nn.init.kaiming_normal_,
                         torch.nn.init.kaiming_uniform_,
                     ):
-                        if block.dim() >= 2:
-                            weights_init_fcn(block)
+                        if m.weight.dim() >= 2:  # Linear weights
+                            weights_init_fcn(m.weight)
+                        elif isinstance(m, nn.BatchNorm1d):  # BatchNorm gamma
+                            weights_init_fcn(m.weight)
                     else:
-                        weights_init_fcn(block)
+                        weights_init_fcn(m.weight)
+
+                # Initialize biases (1D)
+                if hasattr(m, "bias") and m.bias is not None:
+                    weights_init_fcn(m.bias)
 
         model.apply(init_weights)
+        logger.info(f"Applied {weights_init_fcn.__name__} initialization to Linear and BatchNorm1d layers")
 
     model.example_input_array = torch.zeros(1, num_features)
 
     return model
-
-
-class PeriodicLearningRateFinder(LearningRateFinder):
-    def __init__(self, period: int, *args, **kwargs):
-        assert period > 0 and isinstance(period, int)
-        super().__init__(*args, **kwargs)
-        self.period = period
-
-    def on_train_epoch_start(self, trainer, pl_module):
-        if (trainer.current_epoch % self.period) == 0 or trainer.current_epoch == 0:
-            print(f"Finding optimal learning rate. Current rate={getattr(pl_module,'learning_rate')}")
-            self.lr_find(trainer, pl_module)
-            print(f"Set learning rate to {getattr(pl_module,'learning_rate')}")
 
 
 class MLPTorchModel(L.LightningModule):
@@ -488,10 +585,21 @@ class MLPTorchModel(L.LightningModule):
         optimizer_kwargs: dict = {},
         lr_scheduler: object = None,
         lr_scheduler_kwargs: dict = {},
+        compile_network: bool = True,  # New flag to toggle torch.compile
     ):
         super().__init__()
         self.save_hyperparameters()  # ignore=["network"]
         store_params_in_object(obj=self, params=get_parent_func_args())
+
+        # Apply torch.compile if enabled and PyTorch >= 2.0
+        if compile_network and torch.__version__ >= "2.0":
+            try:
+                self.network = torch.compile(self.network, mode="default")
+                logger.info("Applied torch.compile to network for optimized forward/backward passes")
+            except Exception as e:
+                logger.warning(f"Failed to apply torch.compile: {e}. Falling back to uncompiled network.")
+        elif compile_network:
+            logger.warning("torch.compile requires PyTorch >= 2.0. Skipping compilation.")
 
         try:
             self.example_input_array = network.example_input_array  # specifying allows to skip example_input_array when doing ONNX export
@@ -567,19 +675,11 @@ class MLPTorchModel(L.LightningModule):
 
     def on_train_end(self):
         # Lightning ES callback do not auto-load best weights, so we locate ModelCheckpoint & do that ourselves.
+
         for callback in self.trainer.callbacks:
-            if isinstance(callback, ModelCheckpoint):
-                logger.info(f"Loading weights from {callback.best_model_path}")
+            if isinstance(callback, BestEpochModelCheckpoint):
+                logger.info(f"Loading weights from {callback.best_model_path} (best epoch: {callback.best_epoch})")
                 best_model = self.__class__.load_from_checkpoint(callback.best_model_path)
                 self.load_state_dict(best_model.state_dict())
+                self.best_iteration = callback.best_epoch  # Store for access
                 break
-
-
-def get_predictions(model, dataloader):
-    model.eval()
-    probs = []
-    with torch.inference_mode():
-        for features, labels in dataloader:
-            logits = model(features)
-            probs.append(torch.softmax(logits))
-    return torch.concat(probs)
