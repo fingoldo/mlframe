@@ -490,23 +490,6 @@ def get_training_configs(
     else:
         final_integral_calibration_error = integral_calibration_error
 
-    def fs_and_hpt_integral_calibration_error(*args, verbose: bool = True, **kwargs):
-        err = compute_probabilistic_multiclass_error(
-            *args,
-            **kwargs,
-            mae_weight=mae_weight,
-            std_weight=std_weight,
-            brier_loss_weight=brier_loss_weight,
-            roc_auc_weight=roc_auc_weight,
-            pr_auc_weight=pr_auc_weight,
-            min_roc_auc=min_roc_auc,
-            roc_auc_penalty=roc_auc_penalty,
-            use_weighted_calibration=use_weighted_calibration,
-            weight_by_class_npositives=weight_by_class_npositives,
-            nbins=nbins,
-            verbose=verbose,
-        )
-        return err
 
     XGB_CALIB_CLASSIF = XGB_GENERAL_CLASSIF.copy()
     XGB_CALIB_CLASSIF.update({"eval_metric": final_integral_calibration_error})
