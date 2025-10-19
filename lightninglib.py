@@ -271,14 +271,20 @@ class TorchDataset(Dataset):
 
     def __getitem__(self, idx):
         # Returns, given an index, the i-th sample and label
-        return self.features[idx], self.labels[idx]
+        x, y = self.features[idx], self.labels[idx]
+        if x.ndim == 1:  # Convert [3072] to [3072, 1] if needed
+            x = x.unsqueeze(-1)
+        return x, y
 
     def __getitems__(self, indices: List):
         if len(indices) == len(self.labels):
-            # print(indices[:10], indices[-10:])
-            return self.features, self.labels
+            x, y = self.features, self.labels
         else:
-            return self.features[indices], self.labels[indices]
+            x, y = self.features[indices], self.labels[indices]
+
+        if x.ndim == 1:  # Convert [3072] to [3072, 1] if needed
+            x = x.unsqueeze(-1)
+        return x, y
 
 
 class TorchDataModule(LightningDataModule):
