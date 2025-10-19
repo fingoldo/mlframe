@@ -51,6 +51,9 @@ class MLPNeuronsByLayerArchitecture(Enum):
     ExpandingThenDeclining = auto()
     Autoencoder = auto()
 
+def custom_collate_fn(batch):
+    # Return the batch as-is (mimicking lambda x: x)
+    return batch
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Sklearn compatibility

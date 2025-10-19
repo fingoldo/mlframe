@@ -598,12 +598,12 @@ def get_training_configs(
     )
     if mlp_kwargs:
         mlp_model_params.update(mlp_kwargs.get("model_params", {}))
-
+    
     mlp_dataloader_params = dict(
         sampler=None,
         batch_sampler=None,
         num_workers=0,  # min(8, psutil.cpu_count(logical=False)),
-        # collate_fn=lambda x: x,  # required for __getitems__ to work in TorchDataset down the road
+        collate_fn=custom_collate_fn,  # required for __getitems__ to work in TorchDataset down the road
         drop_last=False,
         timeout=0,
         worker_init_fn=None,
