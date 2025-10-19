@@ -77,6 +77,12 @@ class PytorchLightningEstimator(BaseEstimator):
 
     def _fit_common(self, X, y, eval_set: tuple = (None, None), is_partial_fit: bool = False, classes: Optional[np.ndarray] = None):
         """Common logic for fit and partial_fit."""
+
+        # Enable TF32 for float32 matrix multiplication if on GPU
+        if torch.cuda.is_available():
+            torch.set_float32_matmul_precision("high")
+            logger.info("Enabled TF32 for float32 matrix multiplication to improve performance on GPU")
+
         # Create datamodule
         dm = self.datamodule_class(
             train_features=X,
@@ -602,11 +608,18 @@ class MLPTorchModel(L.LightningModule):
         self.save_hyperparameters()  # ignore=["network"]
         store_params_in_object(obj=self, params=get_parent_func_args())
 
-        # Apply torch.compile if enabled and PyTorch >= 2.0
+        # Apply torch.compile if enabled
         if compile_network and torch.__version__ >= "2.0":
             try:
-                self.network = torch.compile(self.network, mode="default")
-                logger.info("Applied torch.compile to network for optimized forward/backward passes")
+                # Log GPU SM count for debugging
+                if torch.cuda.is_available():
+                    device = torch.device("cuda")
+                    sm_count = torch.cuda.get_device_properties(device).multi_processor_count
+                    logger.info(f"GPU SM count: {sm_count}")
+
+                # Use reduce-overhead mode to avoid max_autotune_gemm on low-SM GPUs
+                self.network = torch.compile(self.network, mode="reduce-overhead")
+                logger.info("Applied torch.compile with reduce-overhead mode for optimized forward/backward passes")
             except Exception as e:
                 logger.warning(f"Failed to apply torch.compile: {e}. Falling back to uncompiled network.")
         elif compile_network:
