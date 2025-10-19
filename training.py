@@ -2827,7 +2827,7 @@ def train_mlframe_models_suite(
         mrmr_kwargs = dict(n_workers=max(1, psutil.cpu_count(logical=False)), verbose=2, fe_max_steps=0)
 
     if mlframe_models is None:
-        mlframe_models = "cb lgb xgb hgb mlp".split()
+        mlframe_models = "cb lgb xgb hgb mlp ngb".split()
 
     if init_common_params is None:
         init_common_params = {}
@@ -3084,7 +3084,7 @@ def train_mlframe_models_suite(
                                         ("ce", ce.CatBoostEncoder(verbose=2)),
                                     ]
                                 )
-                            elif mlframe_model_name == "mlp":
+                            elif mlframe_model_name in ("mlp","ngb"):
                                 pre_pipeline = Pipeline(
                                     steps=[
                                         *([("pre", orig_pre_pipeline)] if orig_pre_pipeline else []),
@@ -3109,7 +3109,7 @@ def train_mlframe_models_suite(
                                 verbose=verbose,
                             )
 
-                            if mlframe_model_name not in ("hgb", "mlp"):
+                            if mlframe_model_name not in ("hgb", "mlp","ngb"):
                                 orig_pre_pipeline = pre_pipeline
 
                     if ens_models and len(ens_models) > 1:

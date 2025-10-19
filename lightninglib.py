@@ -192,7 +192,7 @@ class PytorchLightningEstimator(BaseEstimator):
             "network": self.network,
             "datamodule_class": self.datamodule_class,
             "datamodule_params": deepcopy(self.datamodule_params) if deep else self.datamodule_params,
-            "trainer": self.trainer,
+            # "trainer": self.trainer,
             "tune_params": self.tune_params,
             "tune_batch_size": self.tune_batch_size,
             "float32_matmul_precision": self.float32_matmul_precision,
