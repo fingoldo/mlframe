@@ -537,16 +537,17 @@ def generate_mlp(
     # Init weights explicitly if weights_init_fcn is set
     # ----------------------------------------------------------------------------------------------------------------------------
 
+    # Weights initialization
     if weights_init_fcn:
 
         def init_weights(m):
-            if isinstance(m, (nn.Linear, nn.BatchNorm1d)):  # Only initialize parametric layers
+            if isinstance(m, (nn.Linear, nn.BatchNorm1d)):
                 if isinstance(weights_init_fcn, partial):
                     func_to_check = weights_init_fcn.func
                 else:
                     func_to_check = weights_init_fcn
 
-                # Initialize weights (2D for Linear, 1D for BatchNorm gamma)
+                # Initialize weights
                 if hasattr(m, "weight") and m.weight is not None:
                     if func_to_check in (
                         torch.nn.init.xavier_normal_,
@@ -554,19 +555,27 @@ def generate_mlp(
                         torch.nn.init.kaiming_normal_,
                         torch.nn.init.kaiming_uniform_,
                     ):
-                        if m.weight.dim() >= 2:  # Linear weights
+                        if m.weight.dim() >= 2:  # Only for Linear weights (2D)
                             weights_init_fcn(m.weight)
-                        elif isinstance(m, nn.BatchNorm1d):  # BatchNorm gamma
-                            weights_init_fcn(m.weight)
+                        elif isinstance(m, nn.BatchNorm1d):  # BatchNorm weight (gamma, 1D)
+                            torch.nn.init.normal_(m.weight, mean=1.0, std=0.02)  # Standard for BatchNorm
                     else:
                         weights_init_fcn(m.weight)
 
-                # Initialize biases (1D)
+                # Initialize biases
                 if hasattr(m, "bias") and m.bias is not None:
-                    weights_init_fcn(m.bias)
+                    if func_to_check in (
+                        torch.nn.init.xavier_normal_,
+                        torch.nn.init.xavier_uniform_,
+                        torch.nn.init.kaiming_normal_,
+                        torch.nn.init.kaiming_uniform_,
+                    ):
+                        torch.nn.init.constant_(m.bias, 0.0)  # Standard for biases
+                    else:
+                        weights_init_fcn(m.bias)
 
         model.apply(init_weights)
-        logger.info(f"Applied {weights_init_fcn.__name__} initialization to Linear and BatchNorm1d layers")
+        logger.info(f"Applied {weights_init_fcn.__name__} initialization to Linear weights; normal_/constant_ for BatchNorm weights/biases and Linear biases")
 
     model.example_input_array = torch.zeros(1, num_features)
 
