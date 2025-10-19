@@ -1014,7 +1014,7 @@ def train_and_evaluate_model(
         # insert eval_set where needed
         if callback_params:
             if "callbacks" not in fit_params:
-                if model_type_name not in XGBOOST_MODEL_TYPES and model_type_name not in HGBOOST_MODEL_TYPES:
+                if model_type_name not in XGBOOST_MODEL_TYPES and model_type_name not in HGBOOST_MODEL_TYPES and model_type_name not in NGBOOST_MODEL_TYPES:
                     fit_params["callbacks"] = []
 
         if model_type_name in LGBM_MODEL_TYPES:
