@@ -221,17 +221,6 @@ class PytorchLightningEstimator(BaseEstimator):
         else:
             raise ValueError("Estimator must be a RegressorMixin or ClassifierMixin")
 
-    def __getstate__(self):
-        state = self.__dict__.copy()
-        # Remove non-pickleable attributes
-        # state.pop("trainer", None)
-        return state
-
-    def __setstate__(self, state):
-        self.__dict__.update(state)
-        # Reinitialize if needed
-        self.config = None  # Or set a default value
-
 
 class PytorchLightningRegressor(RegressorMixin, PytorchLightningEstimator):
     _estimator_type = "regressor"
@@ -656,16 +645,18 @@ class MLPTorchModel(L.LightningModule):
         # Apply torch.compile if enabled
         if compile_network and torch.__version__ >= "2.0":
             try:
-                if torch.cuda.is_available():
-                    device = torch.device("cuda")
-                    sm_count = torch.cuda.get_device_properties(device).multi_processor_count
-                    logger.info(f"GPU SM count: {sm_count}")
 
-                self.network = torch.compile(self.network, mode=compile_network)
+                self.network = torch.compile(
+                    self.network, mode=compile_network
+                )  # Serializing a compiled model with pickle fails with Can't pickle local object 'convert_frame.<locals>._convert_frame' and cannot pickle 'ConfigModuleInstance' object when using dil
                 self.is_compiled = True  # Mark as compiled
                 logger.info("Applied torch.compile with for optimized forward/backward passes")
             except Exception as e:
                 logger.warning(f"Failed to apply torch.compile: {e}. Falling back to uncompiled network.")
+                if torch.cuda.is_available():
+                    device = torch.device("cuda")
+                    sm_count = torch.cuda.get_device_properties(device).multi_processor_count
+                    logger.info(f"GPU SM count: {sm_count}")
         elif compile_network:
             logger.warning("torch.compile requires PyTorch >= 2.0. Skipping compilation.")
 
