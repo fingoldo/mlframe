@@ -584,7 +584,7 @@ def get_training_configs(
         mlp_trainer_params.update(mlp_kwargs.get("trainer_params", {}))
 
     loss_fn = F.cross_entropy
-    labels_dtype = torch.int8
+    labels_dtype = torch.int64
 
     mlp_model_params = dict(
         loss_fn=loss_fn,
