@@ -62,7 +62,7 @@ from lightning.pytorch.accelerators import find_usable_cuda_devices
 from lightning.pytorch.profilers import AdvancedProfiler, PyTorchProfiler, XLAProfiler
 from lightning.pytorch import seed_everything
 
-from mlframe.lightninglib import MLPNeuronsByLayerArchitecture, generate_mlp, MLPTorchModel
+from mlframe.lightninglib import MLPNeuronsByLayerArchitecture, generate_mlp, MLPTorchModel, custom_collate_fn
 from mlframe.lightninglib import (
     PytorchLightningRegressor,
     PytorchLightningClassifier,
@@ -598,7 +598,7 @@ def get_training_configs(
     )
     if mlp_kwargs:
         mlp_model_params.update(mlp_kwargs.get("model_params", {}))
-    
+
     mlp_dataloader_params = dict(
         sampler=None,
         batch_sampler=None,
