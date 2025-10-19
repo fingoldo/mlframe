@@ -644,7 +644,7 @@ def get_training_configs(
         NetworkGraphLoggingCallback(),
         LearningRateMonitor(logging_interval="epoch"),
         progress_bar,
-        StochasticWeightAveraging(swa_epoch_start=10, swa_lrs=1e-3),
+        StochasticWeightAveraging(swa_epoch_start=3, swa_lrs=1e-3),
         # PeriodicLearningRateFinder(period=10),
     ]
 
