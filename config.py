@@ -3,8 +3,8 @@ from enum import Enum, auto
 THOUSANDS_SEPARATOR = "_"
 
 KERAS_MODEL_TYPES = ("Sequential",)
-NGBOOST_MODEL_TYPES = ("NGBClassifier", "NGBRegressor")
 LGBM_MODEL_TYPES = ("LGBMClassifier", "LGBMRegressor")
+NGBOOST_MODEL_TYPES = ("NGBClassifier", "NGBRegressor")
 XGBOOST_MODEL_TYPES = ("XGBClassifier", "XGBRegressor")
 CATBOOST_MODEL_TYPES = ("CatBoostClassifier", "CatBoostRegressor")
 HGBOOST_MODEL_TYPES = ("HistGradientBoostingClassifier", "HistGradientBoostingRegressor")
