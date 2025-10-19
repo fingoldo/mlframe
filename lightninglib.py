@@ -455,14 +455,18 @@ def generate_mlp(
     consec_layers_neurons_ratio: float = 1.1,
     activation_function: Callable = torch.nn.ReLU,
     weights_init_fcn: Callable = None,
-    dropout_prob: float = 0.1,
+    dropout_prob: float = 0.15,
     inputs_dropout_prob: float = 0.002,
     use_batchnorm: bool = False,
     batchnorm_kwargs=dict(eps=0.00001, momentum=0.1),
+    verbose: int = 0,
 ):
     """Generates multilayer perceptron with specific architecture.
     If first_layer_num_neurons is not specified, uses num_features.
     Suitable in NAS and HPT/HPO procedures for generating ANN candidates.
+
+    Args:
+        verbose (int): If 1, logs the network architecture (e.g., 10-2-5-1).
     """
 
     # Auto inits
@@ -481,6 +485,7 @@ def generate_mlp(
     assert first_layer_num_neurons >= min_layer_neurons and isinstance(first_layer_num_neurons, int)
 
     layers = []
+    layer_sizes = [num_features]  # Track layer sizes for verbose logging
     if inputs_dropout_prob:
         layers.append(nn.Dropout(inputs_dropout_prob))
 
@@ -521,6 +526,7 @@ def generate_mlp(
         # ----------------------------------------------------------------------------------------------------------------------------
 
         layers.append(nn.Linear(prev_layer_neurons, cur_layer_neurons))
+        layer_sizes.append(cur_layer_neurons)
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Add optional bells & whistles - batchnorm, activation, dropout
@@ -542,8 +548,17 @@ def generate_mlp(
 
     if num_classes:
         layers.append(nn.Linear(prev_layer_neurons, num_classes))
+        layer_sizes.append(num_classes)
 
     model = nn.Sequential(*layers)
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Log network architecture if verbose is enabled
+    # ----------------------------------------------------------------------------------------------------------------------------
+
+    if verbose == 1:
+        architecture = "-".join(str(size) for size in layer_sizes)
+        logger.info(f"Network architecture: {architecture}")
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # Init weights explicitly if weights_init_fcn is set

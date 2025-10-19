@@ -2014,7 +2014,7 @@ def configure_training_params(
         consec_layers_neurons_ratio=1.5,
         activation_function=torch.nn.ReLU(),
         weights_init_fcn=partial(nn.init.kaiming_normal_, nonlinearity="relu"),
-        dropout_prob=0.1,
+        dropout_prob=0.15,
         inputs_dropout_prob=0.002,
         use_batchnorm=True,
     )
