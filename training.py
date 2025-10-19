@@ -178,7 +178,11 @@ from pyutilz.parallel import distribute_work, parallel_run
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import lightgbm as lgb
+
+from ngboost.scores import LogScore, CRPScore
 from ngboost import NGBClassifier, NGBRegressor
+from ngboost.distns import k_categorical, Bernoulli
+
 from lightgbm import LGBMClassifier, LGBMRegressor
 from catboost import CatBoostRegressor, CatBoostClassifier
 from xgboost import XGBClassifier, XGBRegressor, DMatrix, QuantileDMatrix
@@ -2851,7 +2855,7 @@ def train_mlframe_models_suite(
         mrmr_kwargs = dict(n_workers=max(1, psutil.cpu_count(logical=False)), verbose=2, fe_max_steps=0)
 
     if mlframe_models is None:
-        mlframe_models = "cb lgb xgb hgb mlp ngb".split()
+        mlframe_models = "cb lgb xgb hgb mlp".split()
 
     if init_common_params is None:
         init_common_params = {}
