@@ -403,7 +403,7 @@ def get_training_configs(
     if mlp_kwargs is None:
         mlp_kwargs = dict()
     if ngb_kwargs is None:
-        ngb_kwargs = dict(verbose=False)
+        ngb_kwargs = dict(verbose=True)
 
     if not early_stopping_rounds:
         early_stopping_rounds = max(2, iterations // 3)
@@ -549,7 +549,6 @@ def get_training_configs(
     NGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
         learning_rate=learning_rate,
-        early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
         **ngb_kwargs,
     )
@@ -1027,6 +1026,9 @@ def train_and_evaluate_model(
         elif model_type_name in HGBOOST_MODEL_TYPES:
             fit_params["X_val"] = val_df
             fit_params["y_val"] = val_target
+        elif model_type_name in NGBOOST_MODEL_TYPES:
+            fit_params["X_val"] = val_df
+            fit_params["Y_val"] = val_target
         elif model_type_name in CATBOOST_MODEL_TYPES or model_type_name in XGBOOST_MODEL_TYPES:
             fit_params["eval_set"] = [
                 (val_df, val_target),
@@ -2054,6 +2056,7 @@ def configure_training_params(
                 (NGBRegressor(**configs.NGB_GENERAL_PARAMS) if use_regression else NGBClassifier(**configs.NGB_GENERAL_PARAMS)),
             )
         ),
+        fit_params=dict(early_stopping_rounds=config_params.get("early_stopping_rounds")),
     )
     # ----------------------------------------------------------------------------------------------------------------------------------------------------
     # Setting up RFECV
