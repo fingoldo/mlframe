@@ -671,6 +671,7 @@ def get_training_configs(
         datamodule_params=mlp_datamodule_params,  # includes dataloader_params
         trainer=trainer,
         tune_params=mlp_kwargs.get("tune_params", False),
+        float32_matmul_precision=mlp_kwargs.get("float32_matmul_precision", None),
     )
 
     if rfecv_kwargs is None:

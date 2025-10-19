@@ -72,6 +72,7 @@ class PytorchLightningEstimator(BaseEstimator):
         trainer: object,
         tune_params: bool = False,
         tune_batch_size: bool = False,
+        float32_matmul_precision: str = None,
     ):
         store_params_in_object(obj=self, params=get_parent_func_args())
 
@@ -79,9 +80,10 @@ class PytorchLightningEstimator(BaseEstimator):
         """Common logic for fit and partial_fit."""
 
         # Enable TF32 for float32 matrix multiplication if on GPU
-        if torch.cuda.is_available():
-            torch.set_float32_matmul_precision("high")
-            logger.info("Enabled TF32 for float32 matrix multiplication to improve performance on GPU")
+        if self.float32_matmul_precision and torch.cuda.is_available():
+            assert self.float32_matmul_precision in "highest high medium"
+            torch.set_float32_matmul_precision(self.float32_matmul_precision)
+            logger.info(f"Enabled float32_matmul_precision={self.float32_matmul_precision} for float32 matrix multiplication to improve performance on GPU")
 
         # Create datamodule
         dm = self.datamodule_class(
