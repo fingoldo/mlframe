@@ -2039,15 +2039,13 @@ def configure_training_params(
     if mlp_kwargs:
         mlp_network_params.update(mlp_kwargs.get("network_params", {}))
 
-    network = generate_mlp(num_features=train_df.shape[1], num_classes=num_classes, **mlp_network_params)
-
     mlp_params = dict(
         model=(
             metamodel_func(
                 (
-                    PytorchLightningRegressor(network=network, **configs.MLP_GENERAL_PARAMS)
+                    PytorchLightningRegressor(network_params=mlp_network_params, **configs.MLP_GENERAL_PARAMS)
                     if use_regression
-                    else PytorchLightningClassifier(network=network, **configs.MLP_GENERAL_PARAMS)
+                    else PytorchLightningClassifier(network_params=mlp_network_params, **configs.MLP_GENERAL_PARAMS)
                 ),
             )
         ),

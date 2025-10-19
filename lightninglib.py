@@ -71,7 +71,7 @@ class PytorchLightningEstimator(BaseEstimator):
         self,
         model_class: object,
         model_params: dict,
-        network: object,
+        network_params: dict,
         datamodule_class: object,
         datamodule_params: dict,
         trainer: object,
@@ -99,14 +99,6 @@ class PytorchLightningEstimator(BaseEstimator):
             **self.datamodule_params,
         )
 
-        # Initialize model if not partial_fit or model doesn't exist
-        if not is_partial_fit or not hasattr(self, "model"):
-            with self.trainer.init_module():
-                self.model = self.model_class(network=self.network, **self.model_params)
-                self.model.example_input_array = torch.tensor(
-                    X.iloc[0:2, :].values if isinstance(X, pd.DataFrame) else X[0:2, :], dtype=self.datamodule_params.get("features_dtype", torch.float32)
-                )
-
         # Set classifier-specific attributes
         if isinstance(self, ClassifierMixin):
             self.return_proba = True
@@ -114,6 +106,21 @@ class PytorchLightningEstimator(BaseEstimator):
                 self.classes_ = np.array(classes)
             elif not hasattr(self, "classes_"):
                 self.classes_ = sorted(np.unique(y) if not isinstance(y, pd.Series) else y.unique())
+
+            num_classes = len(self.classes_)
+        else:
+            num_classes = 1
+
+        # Initialize model if not partial_fit or model doesn't exist
+        if not is_partial_fit or not hasattr(self, "model"):
+            self.network = network = generate_mlp(
+                num_features=X.shape[1], num_classes=num_classes, **self.network_params
+            )  # init here to allow feature selectors
+            with self.trainer.init_module():
+                self.model = self.model_class(network=self.network, **self.model_params)
+                self.model.example_input_array = torch.tensor(
+                    X.iloc[0:2, :].values if isinstance(X, pd.DataFrame) else X[0:2, :], dtype=self.datamodule_params.get("features_dtype", torch.float32)
+                )
 
         # Tune parameters if requested and not already tuned (for partial_fit)
         if self.tune_params and not (is_partial_fit and hasattr(self, "_tuned")):
