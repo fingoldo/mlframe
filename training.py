@@ -178,6 +178,7 @@ from pyutilz.parallel import distribute_work, parallel_run
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import lightgbm as lgb
+from ngboost import NGBClassifier, NGBRegressor
 from lightgbm import LGBMClassifier, LGBMRegressor
 from catboost import CatBoostRegressor, CatBoostClassifier
 from xgboost import XGBClassifier, XGBRegressor, DMatrix, QuantileDMatrix
@@ -376,6 +377,7 @@ def get_training_configs(
     lgb_kwargs: dict = None,
     xgb_kwargs: dict = None,
     mlp_kwargs: dict = None,
+    ngb_kwargs: dict = None,
     # ----------------------------------------------------------------------------------------------------------------------------
     # featureselectors
     # ----------------------------------------------------------------------------------------------------------------------------
@@ -400,6 +402,8 @@ def get_training_configs(
         hgb_kwargs = dict(verbose=0)
     if mlp_kwargs is None:
         mlp_kwargs = dict()
+    if ngb_kwargs is None:
+        ngb_kwargs = dict(verbose=False)
 
     if not early_stopping_rounds:
         early_stopping_rounds = max(2, iterations // 3)
@@ -541,6 +545,14 @@ def get_training_configs(
     Note: it is recommended to use the smaller max_bin (e.g. 63) to get the better speed up"""
 
     # XGB_CALIB_CLASSIF_CPU.update({"device": "cpu","n_jobs":psutil.cpu_count(logical=False)})
+
+    NGB_GENERAL_PARAMS = dict(
+        n_estimators=iterations,
+        learning_rate=learning_rate,
+        early_stopping_rounds=early_stopping_rounds,
+        random_seed=random_seed,
+        **ngb_kwargs,
+    )
 
     mlp_trainer_params: dict = dict(
         devices=1 if is_jupyter_notebook() else torch.cuda.device_count(),
@@ -713,6 +725,7 @@ def get_training_configs(
         XGB_CALIB_CLASSIF=XGB_CALIB_CLASSIF,
         COMMON_RFECV_PARAMS=COMMON_RFECV_PARAMS,
         MLP_GENERAL_PARAMS=MLP_GENERAL_PARAMS,
+        NGB_GENERAL_PARAMS=NGB_GENERAL_PARAMS,
     )
 
 
@@ -2035,6 +2048,13 @@ def configure_training_params(
         ),
     )
 
+    ngb_params = dict(
+        model=(
+            metamodel_func(
+                (NGBRegressor(**configs.NGB_GENERAL_PARAMS) if use_regression else NGBClassifier(**configs.NGB_GENERAL_PARAMS)),
+            )
+        ),
+    )
     # ----------------------------------------------------------------------------------------------------------------------------------------------------
     # Setting up RFECV
     # ----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -3084,7 +3104,7 @@ def train_mlframe_models_suite(
                                         ("ce", ce.CatBoostEncoder(verbose=2)),
                                     ]
                                 )
-                            elif mlframe_model_name in ("mlp","ngb"):
+                            elif mlframe_model_name in ("mlp", "ngb"):
                                 pre_pipeline = Pipeline(
                                     steps=[
                                         *([("pre", orig_pre_pipeline)] if orig_pre_pipeline else []),
@@ -3109,7 +3129,7 @@ def train_mlframe_models_suite(
                                 verbose=verbose,
                             )
 
-                            if mlframe_model_name not in ("hgb", "mlp","ngb"):
+                            if mlframe_model_name not in ("hgb", "mlp", "ngb"):
                                 orig_pre_pipeline = pre_pipeline
 
                     if ens_models and len(ens_models) > 1:
