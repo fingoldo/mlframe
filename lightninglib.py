@@ -608,8 +608,9 @@ class MLPTorchModel(L.LightningModule):
         optimizer_kwargs: dict = {},
         lr_scheduler: object = None,
         lr_scheduler_kwargs: dict = {},
-        compile_network: bool = True,  # New flag to toggle torch.compile
+        compile_network: str = None,  # New flag to toggle torch.compile
     ):
+        """compile_network='max-autotune-no-cudagraphs' at least works on rtx 5060."""
         super().__init__()
         self.save_hyperparameters()  # ignore=["network"]
         store_params_in_object(obj=self, params=get_parent_func_args())
@@ -624,7 +625,7 @@ class MLPTorchModel(L.LightningModule):
                     sm_count = torch.cuda.get_device_properties(device).multi_processor_count
                     logger.info(f"GPU SM count: {sm_count}")
 
-                self.network = torch.compile(self.network, mode="max-autotune-no-cudagraphs")
+                self.network = torch.compile(self.network, mode=compile_network)
                 self.is_compiled = True  # Mark as compiled
                 logger.info("Applied torch.compile with reduce-overhead mode for optimized forward/backward passes")
             except Exception as e:
