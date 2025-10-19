@@ -2988,6 +2988,9 @@ def train_mlframe_models_suite(
     models = defaultdict(lambda: defaultdict(list))
 
     for target_type, targets in tqdmu(target_types.items(), desc="target type"):
+
+        # !TODO ! optimize for creation of inner feature matrices of cb,lgb,xgb here. They should be created once per featureset, not once per target.
+
         for cur_target, target in tqdmu(targets.items(), desc="target"):
             if mlframe_models:
 

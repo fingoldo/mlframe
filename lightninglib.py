@@ -190,8 +190,7 @@ class PytorchLightningEstimator(BaseEstimator):
             "trainer": self.trainer,
             "tune_params": self.tune_params,
             "tune_batch_size": self.tune_batch_size,
-            "monitor_metric": self.monitor_metric,
-            "monitor_mode": self.monitor_mode,
+            "float32_matmul_precision": self.float32_matmul_precision,
         }
         return params
 
