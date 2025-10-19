@@ -51,9 +51,11 @@ class MLPNeuronsByLayerArchitecture(Enum):
     ExpandingThenDeclining = auto()
     Autoencoder = auto()
 
+
 def custom_collate_fn(batch):
     # Return the batch as-is (mimicking lambda x: x)
     return batch
+
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Sklearn compatibility
@@ -218,6 +220,17 @@ class PytorchLightningEstimator(BaseEstimator):
             return accuracy_score(y, y_pred, sample_weight=sample_weight)
         else:
             raise ValueError("Estimator must be a RegressorMixin or ClassifierMixin")
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # Remove non-pickleable attributes
+        state.pop("trainer", None)
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        # Reinitialize if needed
+        self.config = None  # Or set a default value
 
 
 class PytorchLightningRegressor(RegressorMixin, PytorchLightningEstimator):
