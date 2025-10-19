@@ -410,16 +410,16 @@ class BestEpochModelCheckpoint(ModelCheckpoint):
     def __init__(self, monitor: str = "val_loss", mode: str = "min", **kwargs):
         super().__init__(monitor=monitor, mode=mode, **kwargs)
         self.best_epoch = None  # Track the epoch of the best model
-        # Set monitor_op based on mode
+        self.best = float("inf") if mode == "min" else float("-inf")  # Initialize best score
         self.monitor_op = torch.lt if mode == "min" else torch.gt
         logger.info(f"Initialized BestEpochModelCheckpoint with monitor={monitor}, mode={mode}")
 
     def on_validation_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
         super().on_validation_end(trainer, pl_module)
-        # When a new best model is saved, update best_epoch
+        # Update best_epoch when a new best model is saved
         if self.best_k_models and self.best_model_path:
             current_score = self.best_k_models[self.best_model_path]
-            if self.best is None or self.monitor_op(current_score, self.best):
+            if self.monitor_op(current_score, self.best):
                 self.best = current_score  # Update best score
                 self.best_epoch = trainer.current_epoch
                 logger.info(f"New best model at epoch {self.best_epoch} with {self.monitor}={current_score:.4f}")
