@@ -624,7 +624,7 @@ class MLPTorchModel(L.LightningModule):
                     sm_count = torch.cuda.get_device_properties(device).multi_processor_count
                     logger.info(f"GPU SM count: {sm_count}")
 
-                self.network = torch.compile(self.network, mode="reduce-overhead")
+                self.network = torch.compile(self.network, mode="max-autotune-no-cudagraphs")
                 self.is_compiled = True  # Mark as compiled
                 logger.info("Applied torch.compile with reduce-overhead mode for optimized forward/backward passes")
             except Exception as e:
