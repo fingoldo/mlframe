@@ -549,7 +549,6 @@ def get_training_configs(
     NGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
         learning_rate=learning_rate,
-        random_seed=random_seed,
         **ngb_kwargs,
     )
 
