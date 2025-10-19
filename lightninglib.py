@@ -226,12 +226,12 @@ class PytorchLightningClassifier(ClassifierMixin, PytorchLightningEstimator):
 
     def predict(self, X, device: Optional[str] = None):
         """Predict class labels for samples in X."""
-        proba = super().predict(X, device=device)  # Get probabilities from parent
+        proba = super(PytorchLightningClassifier, self).predict(X, device=device)  # Get probabilities from parent
         return np.argmax(proba, axis=1)  # Convert to class labels
 
     def predict_proba(self, X, device: Optional[str] = None):
         """Predict class probabilities for samples in X."""
-        return super().predict(X, device=device)  # Relay to parent's predict (returns probabilities)
+        return super(PytorchLightningClassifier, self).predict(X, device=device)  # Relay to parent's predict
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
