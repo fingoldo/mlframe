@@ -614,17 +614,18 @@ class MLPTorchModel(L.LightningModule):
         self.save_hyperparameters()  # ignore=["network"]
         store_params_in_object(obj=self, params=get_parent_func_args())
 
+        self.is_compiled = False  # Track if network is compiled
+
         # Apply torch.compile if enabled
         if compile_network and torch.__version__ >= "2.0":
             try:
-                # Log GPU SM count for debugging
                 if torch.cuda.is_available():
                     device = torch.device("cuda")
                     sm_count = torch.cuda.get_device_properties(device).multi_processor_count
                     logger.info(f"GPU SM count: {sm_count}")
 
-                # Use reduce-overhead mode to avoid max_autotune_gemm on low-SM GPUs
                 self.network = torch.compile(self.network, mode="reduce-overhead")
+                self.is_compiled = True  # Mark as compiled
                 logger.info("Applied torch.compile with reduce-overhead mode for optimized forward/backward passes")
             except Exception as e:
                 logger.warning(f"Failed to apply torch.compile: {e}. Falling back to uncompiled network.")
@@ -656,7 +657,18 @@ class MLPTorchModel(L.LightningModule):
 
         return loss
 
+    def cpu(self):
+        """Override cpu() to skip moving compiled models to CPU due to CUDA graphs."""
+        if self.is_compiled:
+            logger.warning("Skipping move to CPU for compiled model to avoid CUDA graphs error")
+            return self
+        return super().cpu()
+
     def training_step(self, batch, batch_idx):
+
+        if self.is_compiled:
+            torch.compiler.cudagraph_mark_step_begin()  # Reset CUDA graph state
+
         features, labels = batch
 
         # skip empty batches
