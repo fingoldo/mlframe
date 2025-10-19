@@ -104,7 +104,7 @@ def get_model_best_iter(model: object) -> int:
     else:
         real_model = model
 
-    for field in "best_iteration best_iteration_".split():
+    for field in "best_iteration best_iteration_ best_epoch".split():
         if hasattr(real_model, field):
             return getattr(real_model, field)
 
