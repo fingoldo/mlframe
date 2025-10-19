@@ -644,7 +644,7 @@ def get_training_configs(
         NetworkGraphLoggingCallback(),
         LearningRateMonitor(logging_interval="epoch"),
         progress_bar,
-        StochasticWeightAveraging(swa_lrs=1e-3),
+        StochasticWeightAveraging(swa_epoch_start=20,swa_lrs=1e-3),
         # PeriodicLearningRateFinder(period=10),
     ]
 
@@ -2013,8 +2013,8 @@ def configure_training_params(
         consec_layers_neurons_ratio=1.5,
         activation_function=torch.nn.ReLU(),
         weights_init_fcn=partial(nn.init.kaiming_normal_, nonlinearity="relu"),
-        dropout_prob=0.0,
-        inputs_dropout_prob=0.0,
+        dropout_prob=0.1,
+        inputs_dropout_prob=0.002,
         use_batchnorm=True,
     )
     if mlp_kwargs:

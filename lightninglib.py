@@ -455,8 +455,8 @@ def generate_mlp(
     consec_layers_neurons_ratio: float = 1.1,
     activation_function: Callable = torch.nn.ReLU,
     weights_init_fcn: Callable = None,
-    dropout_prob: float = 0.0,
-    inputs_dropout_prob: float = 0.0,
+    dropout_prob: float = 0.1,
+    inputs_dropout_prob: float = 0.002,
     use_batchnorm: bool = False,
     batchnorm_kwargs=dict(eps=0.00001, momentum=0.1),
 ):
