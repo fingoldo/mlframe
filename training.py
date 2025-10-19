@@ -595,6 +595,7 @@ def get_training_configs(
         optimizer_kwargs={},
         lr_scheduler=None,
         lr_scheduler_kwargs={},
+        compile_network
     )
     if mlp_kwargs:
         mlp_model_params.update(mlp_kwargs.get("model_params", {}))
