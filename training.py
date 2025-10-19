@@ -644,9 +644,10 @@ def get_training_configs(
         NetworkGraphLoggingCallback(),
         LearningRateMonitor(logging_interval="epoch"),
         progress_bar,
-        StochasticWeightAveraging(swa_epoch_start=3, swa_lrs=1e-3),
         # PeriodicLearningRateFinder(period=10),
     ]
+    if mlp_kwargs.get("use_swa", False):
+        callbacks.append(StochasticWeightAveraging(swa_epoch_start=5, swa_lrs=1e-3))
 
     if use_explicit_early_stopping:
         early_stopping = EarlyStoppingCallback(
