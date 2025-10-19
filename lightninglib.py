@@ -575,7 +575,9 @@ def generate_mlp(
                         weights_init_fcn(m.bias)
 
         model.apply(init_weights)
-        logger.info(f"Applied {weights_init_fcn.__name__} initialization to Linear weights; normal_/constant_ for BatchNorm weights/biases and Linear biases")
+        # Handle logging for partial functions
+        init_name = weights_init_fcn.func.__name__ if isinstance(weights_init_fcn, partial) else weights_init_fcn.__name__
+        logger.info(f"Applied {init_name} initialization to Linear weights; normal_/constant_ for BatchNorm weights/biases and Linear biases")
 
     model.example_input_array = torch.zeros(1, num_features)
 
