@@ -663,7 +663,7 @@ class MLPTorchModel(L.LightningModule):
 
                 self.network = torch.compile(self.network, mode=compile_network)
                 self.is_compiled = True  # Mark as compiled
-                logger.info("Applied torch.compile with reduce-overhead mode for optimized forward/backward passes")
+                logger.info("Applied torch.compile with for optimized forward/backward passes")
             except Exception as e:
                 logger.warning(f"Failed to apply torch.compile: {e}. Falling back to uncompiled network.")
         elif compile_network:
