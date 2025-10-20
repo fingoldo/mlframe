@@ -1633,7 +1633,7 @@ def screen_predictors(
                             max_veteranes_interactions_order=max_veteranes_interactions_order,
                             selected_vars=selected_vars,
                             cached_MIs=cached_MIs,
-                            cached_confident_MIs=cached_confident_MIs,
+                            cached_confident_MIs=dict(cached_confident_MIs),
                             cached_cond_MIs=dict(cached_cond_MIs),
                             entropy_cache=dict(entropy_cache),
                             max_runtime_mins=max_runtime_mins,
