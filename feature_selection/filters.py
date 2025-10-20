@@ -1616,8 +1616,8 @@ def screen_predictors(
                     and (use_simple_mode is False or len(cached_MIs) < num_possible_candidates)
                     and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS
                 ):
-                    temp_cached_cond_MIs = sanitized(cached_cond_MIs)
-                    temp_entropy_cache = sanitized(entropy_cache)
+                    temp_cached_cond_MIs = sanitize(cached_cond_MIs)
+                    temp_entropy_cache = sanitize(entropy_cache)
                     res = workers_pool(
                         delayed(evaluate_candidates)(
                             workload=workload,
