@@ -2759,6 +2759,7 @@ def train_mlframe_models_suite(
     #
     imputer: object = None,
     scaler: object = None,
+    category_encoder: object = None,
 ) -> dict:
 
     # cb_kwargs=dict(devices='0-4')
@@ -2779,8 +2780,12 @@ def train_mlframe_models_suite(
 
     trainset_features_stats = None
 
-    if imputer is None:
-        imputer = SimpleImputer(strategy="most_frequent", add_indicator=True)
+    #if imputer is None:
+    #    imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
+
+    if category_encoder is None:
+        category_encoder=ce.CatBoostEncoder()
+
     if scaler is None:
         scaler = StandardScaler()
 
@@ -2840,7 +2845,7 @@ def train_mlframe_models_suite(
 
         if verbose:
             logger.info(f"Converting polars df to pandas, RAM usage before: {get_own_ram_usage():.1f}GBs...")
-        pandas_df = tmp.fill_null(nans_filler).with_columns(pl.col(pl.Float64).cast(pl.Float32)).to_pandas()
+        pandas_df = tmp.fill_null(nans_filler).with_columns(pl.col(pl.Float64).cast(pl.Float32)).to_pandas(use_pyarrow_extension_array=True) # ! TODO !
         if verbose:
             logger.info(f"Converted polars df to pandas, RAM usage after: {get_own_ram_usage():.1f}GBs...")
     else:
@@ -3052,8 +3057,8 @@ def train_mlframe_models_suite(
                                 pre_pipeline = Pipeline(
                                     steps=[
                                         *([("pre", orig_pre_pipeline)] if orig_pre_pipeline else []),
-                                        *([("ce", ce.CatBoostEncoder())] if cat_features else []),
-                                        ("imp", imputer),
+                                        *([("ce", category_encoder)] if cat_features else []),
+                                        *([("imp", imputer)] if imputer else []),
                                         ("scaler", scaler),
                                     ]
                                 )
