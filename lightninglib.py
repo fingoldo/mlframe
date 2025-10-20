@@ -156,7 +156,7 @@ class PytorchLightningEstimator(BaseEstimator):
             if self.use_swa:
                 callbacks.append(StochasticWeightAveraging(swa_epoch_start=5, swa_lrs=1e-3))
 
-            if eval_set != (None, None):
+            if eval_set is not None and (eval_set[0] is not None):
 
                 early_stopping_rounds = fit_params.get("early_stopping_rounds", 100)
                 logger.info(f"Using early_stopping_rounds={early_stopping_rounds:_}")
