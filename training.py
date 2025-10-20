@@ -2422,7 +2422,7 @@ def make_train_test_split(
         n_total = len(df)
 
     n_test_seq, n_test_shuf = _calculate_split_sizes(n_total, test_size, shuffle_test, test_sequential_fraction)
-    n_val_seq, n_val_shuf = _calculate_split_sizes(n_total, val_size, shuffle_val, val_sequential_fraction)
+    n_val_seq, n_val_shuf = _calculate_split_sizes(n_total - (n_test_seq, n_test_shuf), val_size, shuffle_val, val_sequential_fraction)
 
     # Perform splitting
     if wholeday_splitting and timestamps is not None:
