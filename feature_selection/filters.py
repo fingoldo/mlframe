@@ -1616,7 +1616,8 @@ def screen_predictors(
                     and (use_simple_mode is False or len(cached_MIs) < num_possible_candidates)
                     and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS
                 ):
-
+                    temp_cached_cond_MIs=dict(cached_cond_MIs)
+                    temp_entropy_cache=dict(entropy_cache)
                     res = workers_pool(
                         delayed(evaluate_candidates)(
                             workload=workload,
@@ -1637,7 +1638,7 @@ def screen_predictors(
                             selected_vars=selected_vars,
                             cached_MIs=cached_MIs,
                             cached_confident_MIs=cached_confident_MIs,
-                            cached_cond_MIs=dict(cached_cond_MIs),
+                            cached_cond_MIs=temp_cached_cond_MIs,
                             entropy_cache=dict(entropy_cache),
                             max_runtime_mins=max_runtime_mins,
                             start_time=start_time,
@@ -3830,3 +3831,4 @@ def create_binary_transformations(preset: str = "minimal"):
     njit_functions_dict(binary_transformations)
 
     return binary_transformations
+
