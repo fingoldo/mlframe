@@ -27,7 +27,11 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 
 from lightning import LightningDataModule
 from lightning.pytorch.tuner import Tuner
+
 from lightning.pytorch.callbacks import Callback, LearningRateFinder
+from lightning.pytorch.callbacks.early_stopping import EarlyStopping as EarlyStoppingCallback
+from lightning.pytorch.callbacks import RichProgressBar, TQDMProgressBar, ModelPruning, LearningRateMonitor, LearningRateFinder
+from lightning.pytorch.callbacks import ModelCheckpoint, DeviceStatsMonitor, StochasticWeightAveraging, GradientAccumulationScheduler
 
 from enum import Enum, auto
 from functools import partial
@@ -35,8 +39,9 @@ import pandas as pd, numpy as np
 
 from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
+from mlframe.metrics import compute_probabilistic_multiclass_error
 
-from sklearn.metrics import r2_score, accuracy_score
+from sklearn.metrics import r2_score, accuracy_score, root_mean_squared_error
 from copy import deepcopy
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -74,15 +79,19 @@ class PytorchLightningEstimator(BaseEstimator):
         network_params: dict,
         datamodule_class: object,
         datamodule_params: dict,
-        trainer: object,
+        trainer_params: object,
+        use_swa: bool = False,
         tune_params: bool = False,
         tune_batch_size: bool = False,
         float32_matmul_precision: str = None,
     ):
         store_params_in_object(obj=self, params=get_parent_func_args())
 
-    def _fit_common(self, X, y, eval_set: tuple = (None, None), is_partial_fit: bool = False, classes: Optional[np.ndarray] = None):
+    def _fit_common(self, X, y, eval_set: tuple = (None, None), is_partial_fit: bool = False, classes: Optional[np.ndarray] = None, fit_params: dict = None):
         """Common logic for fit and partial_fit."""
+
+        if fit_params is None:
+            fit_params = {}
 
         # Enable TF32 for float32 matrix multiplication if on GPU
         if self.float32_matmul_precision and torch.cuda.is_available():
@@ -114,6 +123,61 @@ class PytorchLightningEstimator(BaseEstimator):
         # Initialize model if not partial_fit or model doesn't exist
         if not is_partial_fit:
             self.network = generate_mlp(num_features=X.shape[1], num_classes=num_classes, **self.network_params)  # init here to allow feature selectors
+
+            if num_classes > 1:
+                early_stopping_metric_name = "ICE"
+                metric_fcn = compute_probabilistic_multiclass_error
+            else:
+                early_stopping_metric_name = "MSE"
+                metric_fcn = root_mean_squared_error
+
+            checkpointing = BestEpochModelCheckpoint(
+                monitor="val_" + early_stopping_metric_name,
+                dirpath=self.trainer_params["default_root_dir"],
+                filename="model-{" + "val_" + early_stopping_metric_name + ":.4f}",
+                enable_version_counter=True,
+                save_last=False,
+                save_top_k=1,
+                mode="min",
+            )
+            metric_computing_callback = AggregatingValidationCallback(metric_name=early_stopping_metric_name, metric_fcn=metric_fcn)
+
+            # tb_logger = TensorBoardLogger(save_dir=args.experiment_path, log_graph=True)  # save_dir="s3://my_bucket/logs/"
+            progress_bar = TQDMProgressBar(refresh_rate=50)  # leave=True
+
+            callbacks = [
+                checkpointing,
+                metric_computing_callback,
+                NetworkGraphLoggingCallback(),
+                LearningRateMonitor(logging_interval="epoch"),
+                progress_bar,
+                # PeriodicLearningRateFinder(period=10),
+            ]
+            if self.use_swa:
+                callbacks.append(StochasticWeightAveraging(swa_epoch_start=5, swa_lrs=1e-3))
+
+            if eval_set != (None, None):
+
+                early_stopping_rounds = fit_params.get("early_stopping_rounds", 100)
+                logger.info(f"Using early_stopping_rounds={early_stopping_rounds:_}")
+
+                early_stopping = EarlyStoppingCallback(
+                    monitor="val_" + early_stopping_metric_name, min_delta=0.001, patience=early_stopping_rounds, mode="min", verbose=True
+                )  # stopping_threshold: Stops training immediately once the monitored quantity reaches this threshold.
+                callbacks.append(early_stopping)
+
+            trainer = L.Trainer(
+                **self.trainer_params,
+                # ----------------------------------------------------------------------------------------------------------------------
+                # Callbacks:
+                # ----------------------------------------------------------------------------------------------------------------------
+                callbacks=callbacks,
+                # DeviceStatsMonitor(),
+                # ModelPruning("l1_unstructured", amount=0.5)
+            )
+
+            self.trainer = trainer
+
             with self.trainer.init_module():
                 self.model = self.model_class(network=self.network, **self.model_params)
                 self.model.example_input_array = torch.tensor(
@@ -147,12 +211,12 @@ class PytorchLightningEstimator(BaseEstimator):
     def fit(self, X, y, **fit_params):
         """Fit the model to the data."""
         eval_set = fit_params.get("eval_set", (None, None))
-        return self._fit_common(X, y, eval_set=eval_set, is_partial_fit=False)
+        return self._fit_common(X, y, eval_set=eval_set, is_partial_fit=False, fit_params=fit_params)
 
     def partial_fit(self, X, y, classes: Optional[np.ndarray] = None, **fit_params):
         """Incremental training for online learning."""
         eval_set = fit_params.get("eval_set", (None, None))
-        return self._fit_common(X, y, eval_set=eval_set, is_partial_fit=True, classes=classes)
+        return self._fit_common(X, y, eval_set=eval_set, is_partial_fit=True, classes=classes, fit_params=fit_params)
 
     def predict(self, X, device: Optional[str] = None):
         """Predict using the model, handling device mismatches gracefully.

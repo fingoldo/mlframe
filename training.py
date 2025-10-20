@@ -45,32 +45,13 @@ from lightning.pytorch.utilities.warnings import PossibleUserWarning
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
 
-# import pl_bolts
-import lightning as L
-from lightning import LightningDataModule
-from lightning.pytorch.tuner import Tuner
-from lightning.pytorch.callbacks import Callback
-from lightning.pytorch.loggers import MLFlowLogger, TensorBoardLogger, WandbLogger
-from lightning.pytorch.callbacks import RichProgressBar, TQDMProgressBar, ModelPruning, LearningRateMonitor, LearningRateFinder
-from lightning.pytorch.callbacks import ModelCheckpoint, DeviceStatsMonitor, StochasticWeightAveraging, GradientAccumulationScheduler
 
-from lightning.pytorch.serve import ServableModule, ServableModuleValidator
-from lightning.pytorch.callbacks.early_stopping import EarlyStopping as EarlyStoppingCallback
-from lightning.pytorch.accelerators import find_usable_cuda_devices
-from lightning.pytorch.profilers import AdvancedProfiler, PyTorchProfiler, XLAProfiler
-from lightning.pytorch import seed_everything
-
-from mlframe.lightninglib import MLPNeuronsByLayerArchitecture, generate_mlp, MLPTorchModel, custom_collate_fn
+from mlframe.lightninglib import MLPNeuronsByLayerArchitecture, MLPTorchModel, custom_collate_fn
 from mlframe.lightninglib import (
     PytorchLightningRegressor,
     PytorchLightningClassifier,
-    TorchDataset,
     TorchDataModule,
-    AggregatingValidationCallback,
-    NetworkGraphLoggingCallback,
-    BestEpochModelCheckpoint,
 )
 
 
@@ -635,56 +616,13 @@ def get_training_configs(
     if mlp_kwargs:
         mlp_datamodule_params.update(mlp_kwargs.get("datamodule_params", {}))
 
-    early_stopping_metric_name = "ICE"
-    checkpointing = BestEpochModelCheckpoint(
-        monitor="val_" + early_stopping_metric_name,
-        dirpath=mlp_trainer_params["default_root_dir"],
-        filename="model-{" + "val_" + early_stopping_metric_name + ":.4f}",
-        enable_version_counter=True,
-        save_last=False,
-        save_top_k=1,
-        mode="min",
-    )
-    metric_computing_callback = AggregatingValidationCallback(
-        metric_name=early_stopping_metric_name, metric_fcn=partial(fs_and_hpt_integral_calibration_error, verbose=False)
-    )
-
-    # tb_logger = TensorBoardLogger(save_dir=args.experiment_path, log_graph=True)  # save_dir="s3://my_bucket/logs/"
-    progress_bar = TQDMProgressBar(refresh_rate=50)  # leave=True
-
-    callbacks = [
-        checkpointing,
-        metric_computing_callback,
-        NetworkGraphLoggingCallback(),
-        LearningRateMonitor(logging_interval="epoch"),
-        progress_bar,
-        # PeriodicLearningRateFinder(period=10),
-    ]
-    if mlp_kwargs.get("use_swa", False):
-        callbacks.append(StochasticWeightAveraging(swa_epoch_start=5, swa_lrs=1e-3))
-
-    if use_explicit_early_stopping:
-        early_stopping = EarlyStoppingCallback(
-            monitor="val_" + early_stopping_metric_name, min_delta=0.001, patience=early_stopping_rounds, mode="min", verbose=True
-        )  # stopping_threshold: Stops training immediately once the monitored quantity reaches this threshold.
-        callbacks.append(early_stopping)
-
-    trainer = L.Trainer(
-        **mlp_trainer_params,
-        # ----------------------------------------------------------------------------------------------------------------------
-        # Callbacks:
-        # ----------------------------------------------------------------------------------------------------------------------
-        callbacks=callbacks,
-        # DeviceStatsMonitor(),
-        # ModelPruning("l1_unstructured", amount=0.5)
-    )
-
     MLP_GENERAL_PARAMS = dict(
         model_class=MLPTorchModel,
         model_params=mlp_model_params,
         datamodule_class=TorchDataModule,
         datamodule_params=mlp_datamodule_params,  # includes dataloader_params
-        trainer=trainer,
+        trainer_params=mlp_trainer_params,
+        use_swa=mlp_kwargs.get("use_swa", False),
         tune_params=mlp_kwargs.get("tune_params", False),
         float32_matmul_precision=mlp_kwargs.get("float32_matmul_precision", None),
     )
