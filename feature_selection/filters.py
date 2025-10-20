@@ -3837,7 +3837,7 @@ from numba.typed import Dict as NumbaDict
 
 def sanitize(obj):
     """Recursively convert numba-managed objects to plain Python / NumPy."""
-    if isinstance(obj, NumbaDict):
+    if isinstance(obj, numba.typed.Dict):
         return {k: sanitize(v) for k, v in obj.items()}
     elif isinstance(obj, dict):
         return {k: sanitize(v) for k, v in obj.items()}
@@ -3846,6 +3846,6 @@ def sanitize(obj):
     elif isinstance(obj, tuple):
         return tuple(sanitize(v) for v in obj)
     elif isinstance(obj, np.ndarray):
-        return np.array(obj, copy=True)  # detach from numba memory
+        return np.array(obj, copy=True)
     else:
         return obj
