@@ -972,8 +972,7 @@ def evaluate_candidates(
     best_candidate = None
     expected_gains = {}
 
-    if verbose:
-        logger.info("In evaluate_candidates")
+    # if verbose: logger.info("In evaluate_candidates")
 
     entropy_cache_dict = numba.typed.Dict.empty(
         key_type=types.unicode_type,
