@@ -112,10 +112,8 @@ class PytorchLightningEstimator(BaseEstimator):
             num_classes = 1
 
         # Initialize model if not partial_fit or model doesn't exist
-        if not is_partial_fit or not hasattr(self, "model"):
-            self.network = network = generate_mlp(
-                num_features=X.shape[1], num_classes=num_classes, **self.network_params
-            )  # init here to allow feature selectors
+        if not is_partial_fit:
+            self.network = generate_mlp(num_features=X.shape[1], num_classes=num_classes, **self.network_params)  # init here to allow feature selectors
             with self.trainer.init_module():
                 self.model = self.model_class(network=self.network, **self.model_params)
                 self.model.example_input_array = torch.tensor(
