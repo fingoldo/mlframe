@@ -802,7 +802,7 @@ class MLPTorchModel(L.LightningModule):
     def on_train_end(self):
         # Lightning ES callback do not auto-load best weights, so we locate ModelCheckpoint & do that ourselves.
 
-        for callback in trainer.callbacks:
+        for callback in self.trainer.callbacks:
             if isinstance(callback, BestEpochModelCheckpoint):
                 logger.info(f"Loading weights from {callback.best_model_path} (best epoch: {callback.best_epoch})")
                 best_model = self.__class__.load_from_checkpoint(callback.best_model_path)
