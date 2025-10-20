@@ -1527,6 +1527,11 @@ def screen_predictors(
         #    classes_y_memmap = mem_map_array(obj=classes_y, file_name="classes_y", mmap_mode="r")
         if verbose >= 2:
             logger.info("Starting parallel pool...")
+
+        from loky import set_loky_pickler
+
+        set_loky_pickler("cloudpickle")
+
         workers_pool = Parallel(n_jobs=n_workers, **parallel_kwargs)
         workers_pool(delayed(test)(i) for i in range(n_workers))
     else:
