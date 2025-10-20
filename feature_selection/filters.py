@@ -1052,11 +1052,14 @@ def evaluate_candidates(
 
         if run_out_of_time:
             break
-
+    """
     for key, value in entropy_cache_dict.items():
         entropy_cache[key] = value
     for key, value in cached_cond_MIs_dict.items():
         cached_cond_MIs[key] = value
+    """
+    entropy_cache = dict(entropy_cache_dict)
+    cached_cond_MIs = dict(cached_cond_MIs_dict)
 
     return best_gain, best_candidate, partial_gains, expected_gains, cached_MIs, cached_cond_MIs, entropy_cache
 
@@ -1633,7 +1636,7 @@ def screen_predictors(
                             max_veteranes_interactions_order=max_veteranes_interactions_order,
                             selected_vars=selected_vars,
                             cached_MIs=cached_MIs,
-                            cached_confident_MIs=dict(cached_confident_MIs),
+                            cached_confident_MIs=cached_confident_MIs,
                             cached_cond_MIs=dict(cached_cond_MIs),
                             entropy_cache=dict(entropy_cache),
                             max_runtime_mins=max_runtime_mins,
