@@ -1616,8 +1616,8 @@ def screen_predictors(
                     and (use_simple_mode is False or len(cached_MIs) < num_possible_candidates)
                     and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS
                 ):
-                    temp_cached_cond_MIs = dict(cached_cond_MIs)
-                    temp_entropy_cache = dict(entropy_cache)
+                    temp_cached_cond_MIs = sanitized(cached_cond_MIs)
+                    temp_entropy_cache = sanitized(entropy_cache)
                     res = workers_pool(
                         delayed(evaluate_candidates)(
                             workload=workload,
@@ -3831,3 +3831,25 @@ def create_binary_transformations(preset: str = "minimal"):
     njit_functions_dict(binary_transformations)
 
     return binary_transformations
+
+
+import numpy as np
+import numba
+from numba import types
+from numba.typed import Dict as NumbaDict
+
+
+def sanitize(obj):
+    """Recursively convert numba-managed objects to plain Python / NumPy."""
+    if isinstance(obj, NumbaDict):
+        return {k: sanitize(v) for k, v in obj.items()}
+    elif isinstance(obj, dict):
+        return {k: sanitize(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize(v) for v in obj]
+    elif isinstance(obj, tuple):
+        return tuple(sanitize(v) for v in obj)
+    elif isinstance(obj, np.ndarray):
+        return np.array(obj, copy=True)  # detach from numba memory
+    else:
+        return obj
