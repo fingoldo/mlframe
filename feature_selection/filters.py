@@ -972,12 +972,8 @@ def evaluate_candidates(
     best_candidate = None
     expected_gains = {}
 
-    from pyutilz.logginglib import init_logging
-
-    global logger
-    logger = init_logging(default_caller_name="scalping.py", format="%(asctime)s - %(levelname)s - %(funcName)s-line:%(lineno)d - %(message)s")
-
-    # if verbose: logger.info("In evaluate_candidates")
+    if verbose:
+        logger.info("In evaluate_candidates")
 
     entropy_cache_dict = numba.typed.Dict.empty(
         key_type=types.unicode_type,
