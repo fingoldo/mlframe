@@ -176,9 +176,7 @@ class PytorchLightningEstimator(BaseEstimator):
                 # ModelPruning("l1_unstructured", amount=0.5)
             )
 
-            self.trainer = trainer
-
-            with self.trainer.init_module():
+            with trainer.init_module():
                 self.model = self.model_class(network=self.network, **self.model_params)
                 self.model.example_input_array = torch.tensor(
                     X.iloc[0:2, :].values if isinstance(X, pd.DataFrame) else X[0:2, :], dtype=self.datamodule_params.get("features_dtype", torch.float32)
@@ -186,7 +184,7 @@ class PytorchLightningEstimator(BaseEstimator):
 
         # Tune parameters if requested and not already tuned (for partial_fit)
         if self.tune_params and not (is_partial_fit and hasattr(self, "_tuned")):
-            tuner = Tuner(self.trainer)
+            tuner = Tuner(trainer)
             if self.tune_batch_size:
                 tuner.scale_batch_size(model=self.model, datamodule=dm, mode="binsearch", init_val=self.datamodule_params.get("batch_size", 32))
             lr_finder = tuner.lr_find(self.model, datamodule=dm)
@@ -197,10 +195,10 @@ class PytorchLightningEstimator(BaseEstimator):
                 self._tuned = True  # Mark as tuned for subsequent partial_fit calls
 
         # Train the model
-        self.trainer.fit(model=self.model, datamodule=dm)
+        trainer.fit(model=self.model, datamodule=dm)
 
         # Store best epoch from checkpoint callback
-        for callback in self.trainer.callbacks:
+        for callback in trainer.callbacks:
             if isinstance(callback, BestEpochModelCheckpoint):
                 self.best_epoch = callback.best_epoch
                 logger.info(f"Best epoch recorded: {self.best_epoch}")
@@ -261,7 +259,6 @@ class PytorchLightningEstimator(BaseEstimator):
             "network": self.network,
             "datamodule_class": self.datamodule_class,
             "datamodule_params": deepcopy(self.datamodule_params) if deep else self.datamodule_params,
-            "trainer": self.trainer,
             "tune_params": self.tune_params,
             "tune_batch_size": self.tune_batch_size,
             "float32_matmul_precision": self.float32_matmul_precision,
@@ -805,7 +802,7 @@ class MLPTorchModel(L.LightningModule):
     def on_train_end(self):
         # Lightning ES callback do not auto-load best weights, so we locate ModelCheckpoint & do that ourselves.
 
-        for callback in self.trainer.callbacks:
+        for callback in trainer.callbacks:
             if isinstance(callback, BestEpochModelCheckpoint):
                 logger.info(f"Loading weights from {callback.best_model_path} (best epoch: {callback.best_epoch})")
                 best_model = self.__class__.load_from_checkpoint(callback.best_model_path)
