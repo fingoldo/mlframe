@@ -11,6 +11,7 @@ joblib
 lightgbm
 lightning
 line-profiler
+memory_profiler
 numba
 pandas
 polars

@@ -2780,11 +2780,11 @@ def train_mlframe_models_suite(
 
     trainset_features_stats = None
 
-    #if imputer is None:
+    # if imputer is None:
     #    imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
 
     if category_encoder is None:
-        category_encoder=ce.CatBoostEncoder()
+        category_encoder = ce.CatBoostEncoder()
 
     if scaler is None:
         scaler = StandardScaler()
@@ -2845,7 +2845,7 @@ def train_mlframe_models_suite(
 
         if verbose:
             logger.info(f"Converting polars df to pandas, RAM usage before: {get_own_ram_usage():.1f}GBs...")
-        pandas_df = tmp.fill_null(nans_filler).with_columns(pl.col(pl.Float64).cast(pl.Float32)).to_pandas(use_pyarrow_extension_array=True) # ! TODO !
+        pandas_df = tmp.fill_null(nans_filler).with_columns(pl.col(pl.Float64).cast(pl.Float32)).to_pandas(use_pyarrow_extension_array=True)  # ! TODO !
         if verbose:
             logger.info(f"Converted polars df to pandas, RAM usage after: {get_own_ram_usage():.1f}GBs...")
     else:
@@ -3059,7 +3059,7 @@ def train_mlframe_models_suite(
                                         *([("pre", orig_pre_pipeline)] if orig_pre_pipeline else []),
                                         *([("ce", category_encoder)] if cat_features else []),
                                         *([("imp", imputer)] if imputer else []),
-                                        #("scaler", scaler),
+                                        # ("scaler", scaler),
                                     ]
                                 )
 
