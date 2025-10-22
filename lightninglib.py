@@ -842,28 +842,17 @@ class MLPTorchModel(L.LightningModule):
             "NaNs:", has_nans)
         
         if has_nans:
-            print(x)
-
-            mask = torch.isnan(x)
-            print("Total NaNs:", mask.sum().item())            
-
-            rows_with_nans = mask.any(dim=1).nonzero(as_tuple=True)[0]
-            cols_with_nans = mask.any(dim=0).nonzero(as_tuple=True)[0]
-            print("Rows with NaNs:", rows_with_nans)
-            print("Columns with NaNs:", cols_with_nans)
-
-            # Find which rows have NaNs
+            # Find which rows have any NaNs
             nan_rows = torch.any(torch.isnan(x), dim=1)
+            idx = torch.nonzero(nan_rows, as_tuple=False)[0].item()  # first bad row
 
-            # Get indices of such rows
-            idxs = torch.nonzero(nan_rows, as_tuple=False).flatten()
+            # Now show only the NaN positions and their actual values
+            row = x[idx]
+            mask = torch.isnan(row)
 
-            if len(idxs) > 0:
-                i = idxs[0].item()  # pick the first one
-                print(f"Example row with NaN at index {i}:")
-                print(x[i])
-            else:
-                print("No NaNs found in x.")            
+            print(f"Row {idx} has {mask.sum().item()} NaNs at columns:",
+                torch.nonzero(mask, as_tuple=False).flatten().tolist())
+            print("NaN values:", row[mask])                    
 
         
         for i, layer in enumerate(self.network):
