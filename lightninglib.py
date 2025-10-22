@@ -835,11 +835,7 @@ class MLPTorchModel(L.LightningModule):
 
     def forward(self, x):
         logits = self.network(x)
-
-        if not self.return_proba:
-            return logits
-        else:
-            return torch.softmax(logits, dim=1)
+        return logits  # No softmax here
 
     def compute_loss(self, batch):
         features, labels = batch
