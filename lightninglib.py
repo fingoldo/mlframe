@@ -35,7 +35,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint, DeviceStatsMonitor, Sto
 
 from enum import Enum, auto
 from functools import partial
-import pandas as pd, numpy as np
+import pandas as pd, numpy as np, polars as pl
 
 from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
