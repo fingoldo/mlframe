@@ -62,6 +62,59 @@ def custom_collate_fn(batch):
     return batch
 
 
+def to_tensor_any(data, dtype=torch.float32, device=None, safe=True):
+    """
+    Converts pandas / polars / numpy / torch input to a torch.Tensor
+    with minimal copies and correct dtype.
+
+    If safe=True, ignores categorical/object columns gracefully.
+    """
+    if torch.is_tensor(data):
+        t = data.to(dtype=dtype)
+        return t.to(device) if device else t
+
+    # --- Pandas
+    if isinstance(data, (pd.DataFrame, pd.Series)):
+        try:
+            arr = data.to_numpy(
+                dtype=np.float32 if dtype == torch.float32 else np.float64,
+                copy=False,
+            )
+        except Exception:
+            if not safe:
+                raise
+            arr = data.select_dtypes(include=["number"]).to_numpy(
+                dtype=np.float32 if dtype == torch.float32 else np.float64,
+                copy=False,
+            )
+
+    # --- Polars
+    elif isinstance(data, pl.DataFrame):
+        target_dtype = pl.Float32 if dtype == torch.float32 else pl.Float64
+        try:
+            arr = data.select(pl.all().cast(target_dtype)).to_numpy()
+        except Exception:
+            if not safe:
+                raise
+            arr = data.select(
+                [c for c, dt in zip(data.columns, data.dtypes) if dt.is_numeric()]
+            ).select(pl.all().cast(target_dtype)).to_numpy()
+
+    # --- NumPy
+    elif isinstance(data, np.ndarray):
+        arr = data
+
+    # --- Fallback
+    else:
+        raise TypeError(f"Unsupported data type: {type(data)}")
+
+    expected_np = np.float32 if dtype == torch.float32 else np.float64
+    if arr.dtype != expected_np:
+        arr = arr.astype(expected_np, copy=False)
+
+    t = torch.from_numpy(arr)
+    return t.to(device) if device else t
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Sklearn compatibility
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -182,22 +235,12 @@ class PytorchLightningEstimator(BaseEstimator):
                 features_dtype=self.datamodule_params.get("features_dtype", torch.float32)
                 data_slice=X.iloc[0:2, :].values if isinstance(X, pd.DataFrame) else X[0:2, :]
                 
-                try_dtype=None
-                if features_dtype==torch.float32:
-                    try_dtype=np.float32
-                elif features_dtype==torch.float64:
-                    try_dtype=np.float64
-                
-                if try_dtype:
-                    try:
-                        data_slice=data_slice.to_numpy(dtype=try_dtype, copy=False)
-                    except Exception as e:
-                        pass
-                        # if any categoricals, network must know itself how to handle them
-
-                self.model.example_input_array = torch.tensor(
-                    data_slice, dtype=features_dtype
-                )
+                try:
+                    self.model.example_input_array = to_tensor_any(
+                        data_slice, dtype=features_dtype, safe=True
+                    )
+                except Exception as e:
+                    raise RuntimeError(f"Failed to prepare example_input_array: {e}")
 
         # Tune parameters if requested and not already tuned (for partial_fit)
         if self.tune_params and not (is_partial_fit and hasattr(self, "_tuned")):
@@ -329,100 +372,77 @@ class PytorchLightningClassifier(ClassifierMixin, PytorchLightningEstimator):
 
 
 class TorchDataset(Dataset):
-    """Unified dataset supporting pandas, polars, numpy, and torch backends.
-    Converts to torch tensors lazily, unless device='cuda' (then on init).
+    """Wrapper around pandas, polars, numpy or tensor datasets.
+    Stores features as-is unless device='cuda', in which case the whole
+    dataset is preloaded onto GPU as a tensor. Labels are always tensors.
     """
 
     def __init__(
         self,
-        features: Union[pd.DataFrame, np.ndarray, torch.Tensor, pl.DataFrame],
-        labels: Union[pd.DataFrame, np.ndarray, torch.Tensor, pl.DataFrame],
+        features: Union[pd.DataFrame, np.ndarray, pl.DataFrame, torch.Tensor],
+        labels: Union[pd.DataFrame, np.ndarray, pl.DataFrame, torch.Tensor],
         features_dtype: torch.dtype = torch.float32,
         labels_dtype: torch.dtype = torch.float32,
-        device: str = None,
+        device: Optional[str] = None,
     ):
-        self.device = device
         self.features_dtype = features_dtype
         self.labels_dtype = labels_dtype
+        self.device = device
 
-        # Always make labels a tensor (for PyTorch training)
-        self.labels = self._to_tensor(labels, labels_dtype, device)
-
-        # Keep features in original backend unless on CUDA
+        # Store features as-is, unless GPU
         if device == "cuda":
-            self.features = self._to_tensor(features, features_dtype, device)
+            self.features = to_tensor_any(features, features_dtype, device)
         else:
             self.features = features
+
+        # Labels are always tensors
+        if isinstance(labels, (pd.DataFrame, pd.Series)):
+            labels = labels.to_numpy()
+        elif isinstance(labels, pl.DataFrame):
+            labels = labels.to_numpy()
+        elif not isinstance(labels, (np.ndarray, torch.Tensor)):
+            labels = np.asarray(labels)
+
+        labels = np.asarray(labels).reshape(-1)
+        self.labels = torch.tensor(labels, dtype=labels_dtype, device=device)
+
+    def _extract(self, data, indices):
+        """Extract and convert subset to tensor."""
+        if isinstance(data, torch.Tensor):
+            subset = data[indices]
+
+        elif isinstance(data, np.ndarray):
+            subset = data[indices]
+
+        elif isinstance(data, pd.DataFrame):
+            subset = data.iloc[indices, :].to_numpy()
+
+        elif isinstance(data, pl.DataFrame):
+            np_dtype = np.float32 if self.features_dtype == torch.float32 else np.float64
+            subset = (
+                data[indices]
+                .select(pl.all().cast(np_dtype))
+                .to_numpy()
+            )
+        else:
+            raise TypeError(f"Unsupported data type for extraction: {type(data)}")
+
+        return torch.tensor(subset, dtype=self.features_dtype, device=self.device)
 
     def __len__(self):
         return len(self.labels)
 
-    # --- helper for conversion to torch tensor
-    def _to_tensor(self, data, dtype, device=None):
-        if torch.is_tensor(data):
-            t = data.to(dtype=dtype)
-            return t.to(device) if device else t
-
-        if isinstance(data, (pd.DataFrame, pd.Series)):
-            arr = data.to_numpy(dtype=np.float32 if dtype == torch.float32 else np.float64, copy=False)
-        elif isinstance(data, pl.DataFrame):
-            arr = data.to_numpy()
-        elif isinstance(data, np.ndarray):
-            arr = data
-        else:
-            raise TypeError(f"Unsupported data type: {type(data)}")
-
-        # ensure dtype
-        expected_np = np.float32 if dtype == torch.float32 else np.float64
-        if arr.dtype != expected_np:
-            arr = arr.astype(expected_np, copy=False)
-
-        t = torch.from_numpy(arr)
-        return t.to(device) if device else t
-
-    # --- accessors
     def __getitem__(self, idx):
-        x = self._extract(self.features, idx)
+        x = self._extract(self.features, [idx])
         y = self.labels[idx]
-
-        if not torch.is_tensor(x):
-            x = self._to_tensor(x, self.features_dtype)
-        if x.ndim == 1:
-            x = x.unsqueeze(-1)
+        if x.ndim == 2 and x.shape[0] == 1:
+            x = x.squeeze(0)
         return x, y
 
     def __getitems__(self, indices: List[int]):
         x = self._extract(self.features, indices)
         y = self.labels[indices]
-
-        if not torch.is_tensor(x):
-            x = self._to_tensor(x, self.features_dtype)
-        if x.ndim == 1:
-            x = x.unsqueeze(-1)
         return x, y
-
-    # --- unified extraction (casting Polars lazily with pl.all().cast)
-    def _extract(self, data, indices):
-        if torch.is_tensor(data):
-            return data[indices]
-        elif isinstance(data, np.ndarray):
-            return data[indices]
-        elif isinstance(data, pd.DataFrame):
-            return data.iloc[indices].to_numpy(copy=False)
-        elif isinstance(data, pl.DataFrame):
-            # choose correct float dtype
-            target_dtype = pl.Float32 if self.features_dtype == torch.float32 else pl.Float64
-
-            # slice first, then cast everything with pl.all()
-            if isinstance(indices, (list, np.ndarray)):
-                df_slice = data[indices]
-            else:
-                df_slice = data[indices:indices+1] if isinstance(indices, int) else data[indices]
-
-            df_cast = df_slice.select(pl.all().cast(target_dtype))
-            return df_cast.to_numpy()
-        else:
-            raise TypeError(f"Unsupported data type: {type(data)}")
 
 class TorchDataModule(LightningDataModule):
     """Template of a reasonable Lightning datamodule.
