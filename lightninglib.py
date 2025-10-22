@@ -830,14 +830,36 @@ class MLPTorchModel(L.LightningModule):
         except Exception:
             pass
 
+def forward(self, x):
+    print("Input stats:", 
+          "min:", x.min().item(), 
+          "max:", x.max().item(), 
+          "NaNs:", torch.isnan(x).any().item())
+    
+    for i, layer in enumerate(self.network):
+        x = layer(x)
 
-    def forward(self, x):
-        logits = self.network(x)
-        # Debug: check for NaNs/infs
-        if torch.isnan(logits).any() or torch.isinf(logits).any():
-            print("Warning: NaN or Inf in logits")
-        print("Logits min/max:", logits.min().item(), logits.max().item())
-        return logits  # no softmax
+        # Check activations
+        if torch.isnan(x).any() or torch.isinf(x).any():
+            print(f"NaN/Inf detected at layer {i}: {layer}")
+            print("Activation stats:", 
+                  "min:", x.min().item(), 
+                  "max:", x.max().item())
+            # Check weights and biases if they exist
+            if hasattr(layer, 'weight'):
+                w = layer.weight
+                print("  weight stats:", "min:", w.min().item(), "max:", w.max().item(), 
+                      "NaNs:", torch.isnan(w).any().item())
+            if hasattr(layer, 'bias') and layer.bias is not None:
+                b = layer.bias
+                print("  bias stats:", "min:", b.min().item(), "max:", b.max().item(),
+                      "NaNs:", torch.isnan(b).any().item())
+            break  # Stop here to fix the issue
+        else:
+            print(f"Layer {i} OK: {layer}, activation min/max:", x.min().item(), x.max().item())
+            
+    return x
+
 
     def training_step(self, batch, batch_idx):
         features, labels = batch
