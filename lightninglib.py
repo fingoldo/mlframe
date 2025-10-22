@@ -443,9 +443,16 @@ class TorchDataModule(LightningDataModule):
 
         on_gpu = self.on_gpu()
         device = self.data_placement_device if (self.data_placement_device and on_gpu) else None
+
+        features=self.train_features
+        try:
+            features=features.astype('float32')
+        except Exception as e:
+            pass
+
         return DataLoader(
             TorchDataset(
-                features=self.train_features, labels=self.train_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype, device=device
+                features=features, labels=self.train_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype, device=device
             ),
             pin_memory=on_gpu,
             **self.dataloader_params,
@@ -459,8 +466,14 @@ class TorchDataModule(LightningDataModule):
         dataloader_params = self.dataloader_params.copy()
         dataloader_params["shuffle"] = False
 
+        features=self.val_features
+        try:
+            features=features.astype('float32')
+        except Exception as e:
+            pass
+
         return DataLoader(
-            TorchDataset(features=self.val_features, labels=self.val_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype, device=device),
+            TorchDataset(features=features, labels=self.val_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype, device=device),
             pin_memory=on_gpu,
             **dataloader_params,
         )
