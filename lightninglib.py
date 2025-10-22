@@ -835,10 +835,14 @@ class MLPTorchModel(L.LightningModule):
             pass
 
     def forward(self, x):
+        has_nans=torch.isnan(x).any().item()
         print("Input stats:", 
             "min:", x.min().item(), 
             "max:", x.max().item(), 
-            "NaNs:", torch.isnan(x).any().item())
+            "NaNs:", has_nans)
+        
+        if has_nans:
+            print(x)
         
         for i, layer in enumerate(self.network):
             x = layer(x)
