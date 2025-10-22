@@ -635,7 +635,7 @@ def generate_mlp(
     weights_init_fcn: Callable = None,
     dropout_prob: float = 0.15,
     inputs_dropout_prob: float = 0.002,
-    use_batchnorm: bool = False,
+    use_batchnorm: bool = True,
     batchnorm_kwargs=dict(eps=0.00001, momentum=0.1),
     verbose: int = 0,
 ):
@@ -835,6 +835,7 @@ class MLPTorchModel(L.LightningModule):
 
     def forward(self, x):
         logits = self.network(x)
+        print(logits.min(), logits.max())
         return logits  # No softmax here
 
     def compute_loss(self, batch):
