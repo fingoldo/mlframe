@@ -841,6 +841,9 @@ class MLPTorchModel(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         features, labels = batch
+
+        print("Features min/max/nan:", features.min().item(), features.max().item(), torch.isnan(features).any())
+
         logits = self(features)  # <-- uses forward
         loss = self.loss_fn(logits, labels)
 
