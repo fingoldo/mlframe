@@ -437,11 +437,14 @@ class TorchDataset(Dataset):
         y = self.labels[idx]
         if x.ndim == 2 and x.shape[0] == 1:
             x = x.squeeze(0)
+        print(x,y)
         return x, y
 
     def __getitems__(self, indices: List[int]):
         x = self._extract(self.features, indices)
         y = self.labels[indices]
+
+        print(x,y)
         return x, y
 
 class TorchDataModule(LightningDataModule):
