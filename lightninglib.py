@@ -437,11 +437,15 @@ class TorchDataset(Dataset):
         y = self.labels[idx]
         if x.ndim == 2 and x.shape[0] == 1:
             x = x.squeeze(0)
+        if torch.isnan(x).any():
+            raise ValueError("NaNs in input x!")            
         return x, y
 
     def __getitems__(self, indices: List[int]):
         x = self._extract(self.features, indices)
         y = self.labels[indices]
+        if torch.isnan(x).any():
+            raise ValueError("NaNs in inputs x!")
         return x, y
 
 class TorchDataModule(LightningDataModule):
