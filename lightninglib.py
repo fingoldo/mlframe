@@ -190,7 +190,7 @@ class PytorchLightningEstimator(BaseEstimator):
                 
                 if try_dtype:
                     try:
-                        data_slice=data_slice.astype(try_dtype)
+                        data_slice=data_slice.to_numpy(dtype=try_dtype, copy=False)
                     except Exception as e:
                         pass
                         # if any categoricals, network must know itself how to handle them
@@ -243,8 +243,8 @@ class PytorchLightningEstimator(BaseEstimator):
         Returns:
             numpy.ndarray: Model predictions.
         """
-        if isinstance(X, (pd.DataFrame, pd.Series)):
-            X = X.to_numpy()
+        if isinstance(X, (pd.DataFrame, pd.Series,pl.DataFrame,pl.Series)):
+            X = X.to_numpy(dtype=np.float32, copy=False)
 
         # Determine target device
         target_device = device if device is not None else getattr(self.model, "device", "cpu")
@@ -329,51 +329,100 @@ class PytorchLightningClassifier(ClassifierMixin, PytorchLightningEstimator):
 
 
 class TorchDataset(Dataset):
-    """Wrapper around pandas dataframe or numpy array.
-    Supports placing entire dataset on GPU.
+    """Unified dataset supporting pandas, polars, numpy, and torch backends.
+    Converts to torch tensors lazily, unless device='cuda' (then on init).
     """
 
     def __init__(
         self,
-        features: Union[pd.DataFrame, np.ndarray],
-        labels: Union[pd.DataFrame, np.ndarray],
-        features_dtype: object = torch.float32,
-        labels_dtype: object = torch.float32,
+        features: Union[pd.DataFrame, np.ndarray, torch.Tensor, pl.DataFrame],
+        labels: Union[pd.DataFrame, np.ndarray, torch.Tensor, pl.DataFrame],
+        features_dtype: torch.dtype = torch.float32,
+        labels_dtype: torch.dtype = torch.float32,
         device: str = None,
     ):
-        "Converts pandas/numpy data into tensors of specified type, if needed"
-
-        if isinstance(features, (pd.DataFrame, pd.Series)):
-            features = features.to_numpy()
-        if isinstance(labels, (pd.DataFrame, pd.Series)):
-            labels = labels.to_numpy()
-
-        self.features = torch.tensor(features, dtype=features_dtype, device=device)
-        labels = np.asarray(labels).reshape(-1)
-        self.labels = torch.tensor(labels, dtype=labels_dtype, device=device)
         self.device = device
+        self.features_dtype = features_dtype
+        self.labels_dtype = labels_dtype
+
+        # Always make labels a tensor (for PyTorch training)
+        self.labels = self._to_tensor(labels, labels_dtype, device)
+
+        # Keep features in original backend unless on CUDA
+        if device == "cuda":
+            self.features = self._to_tensor(features, features_dtype, device)
+        else:
+            self.features = features
 
     def __len__(self):
-        # Returns the total amount of samples in your Dataset
         return len(self.labels)
 
-    def __getitem__(self, idx):
-        # Returns, given an index, the i-th sample and label
-        x, y = self.features[idx], self.labels[idx]
-        if x.ndim == 1:  # Convert [3072] to [3072, 1] if needed
-            x = x.unsqueeze(-1)
-        return x, y
+    # --- helper for conversion to torch tensor
+    def _to_tensor(self, data, dtype, device=None):
+        if torch.is_tensor(data):
+            t = data.to(dtype=dtype)
+            return t.to(device) if device else t
 
-    def __getitems__(self, indices: List):
-        if len(indices) == len(self.labels):
-            x, y = self.features, self.labels
+        if isinstance(data, (pd.DataFrame, pd.Series)):
+            arr = data.to_numpy(dtype=np.float32 if dtype == torch.float32 else np.float64, copy=False)
+        elif isinstance(data, pl.DataFrame):
+            arr = data.to_numpy()
+        elif isinstance(data, np.ndarray):
+            arr = data
         else:
-            x, y = self.features[indices], self.labels[indices]
+            raise TypeError(f"Unsupported data type: {type(data)}")
 
-        if x.ndim == 1:  # Convert [3072] to [3072, 1] if needed
+        # ensure dtype
+        expected_np = np.float32 if dtype == torch.float32 else np.float64
+        if arr.dtype != expected_np:
+            arr = arr.astype(expected_np, copy=False)
+
+        t = torch.from_numpy(arr)
+        return t.to(device) if device else t
+
+    # --- accessors
+    def __getitem__(self, idx):
+        x = self._extract(self.features, idx)
+        y = self.labels[idx]
+
+        if not torch.is_tensor(x):
+            x = self._to_tensor(x, self.features_dtype)
+        if x.ndim == 1:
             x = x.unsqueeze(-1)
         return x, y
 
+    def __getitems__(self, indices: List[int]):
+        x = self._extract(self.features, indices)
+        y = self.labels[indices]
+
+        if not torch.is_tensor(x):
+            x = self._to_tensor(x, self.features_dtype)
+        if x.ndim == 1:
+            x = x.unsqueeze(-1)
+        return x, y
+
+    # --- unified extraction (casting Polars lazily with pl.all().cast)
+    def _extract(self, data, indices):
+        if torch.is_tensor(data):
+            return data[indices]
+        elif isinstance(data, np.ndarray):
+            return data[indices]
+        elif isinstance(data, pd.DataFrame):
+            return data.iloc[indices].to_numpy(copy=False)
+        elif isinstance(data, pl.DataFrame):
+            # choose correct float dtype
+            target_dtype = pl.Float32 if self.features_dtype == torch.float32 else pl.Float64
+
+            # slice first, then cast everything with pl.all()
+            if isinstance(indices, (list, np.ndarray)):
+                df_slice = data[indices]
+            else:
+                df_slice = data[indices:indices+1] if isinstance(indices, int) else data[indices]
+
+            df_cast = df_slice.select(pl.all().cast(target_dtype))
+            return df_cast.to_numpy()
+        else:
+            raise TypeError(f"Unsupported data type: {type(data)}")
 
 class TorchDataModule(LightningDataModule):
     """Template of a reasonable Lightning datamodule.
