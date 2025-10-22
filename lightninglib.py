@@ -843,6 +843,15 @@ class MLPTorchModel(L.LightningModule):
         
         if has_nans:
             print(x)
+
+            mask = torch.isnan(x)
+            print("Total NaNs:", mask.sum().item())            
+            
+            rows_with_nans = mask.any(dim=1).nonzero(as_tuple=True)[0]
+            cols_with_nans = mask.any(dim=0).nonzero(as_tuple=True)[0]
+            print("Rows with NaNs:", rows_with_nans)
+            print("Columns with NaNs:", cols_with_nans)
+
         
         for i, layer in enumerate(self.network):
             x = layer(x)
