@@ -178,8 +178,25 @@ class PytorchLightningEstimator(BaseEstimator):
 
             with trainer.init_module():
                 self.model = self.model_class(network=self.network, **self.model_params)
+                
+                features_dtype=self.datamodule_params.get("features_dtype", torch.float32)
+                data_slice=X.iloc[0:2, :].values if isinstance(X, pd.DataFrame) else X[0:2, :]
+                
+                try_dtype=None
+                if features_dtype==torch.float32:
+                    try_dtype=np.float32
+                elif features_dtype==torch.float64:
+                    try_dtype=np.float64
+                
+                if try_dtype:
+                    try:
+                        data_slice=data_slice.astype(try_dtype)
+                    except Exception as e:
+                        pass
+                        # if any categoricals, network must know itself how to handle them
+
                 self.model.example_input_array = torch.tensor(
-                    X.iloc[0:2, :].values if isinstance(X, pd.DataFrame) else X[0:2, :], dtype=self.datamodule_params.get("features_dtype", torch.float32)
+                    data_slice, dtype=features_dtype
                 )
 
         # Tune parameters if requested and not already tuned (for partial_fit)
