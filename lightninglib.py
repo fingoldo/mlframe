@@ -830,46 +830,30 @@ class MLPTorchModel(L.LightningModule):
         except Exception:
             pass
 
+
     def forward(self, x):
         logits = self.network(x)
-        print(logits.min(), logits.max())
-        return logits  # No softmax here
+        # Debug: check for NaNs/infs
+        if torch.isnan(logits).any() or torch.isinf(logits).any():
+            print("Warning: NaN or Inf in logits")
+        print("Logits min/max:", logits.min().item(), logits.max().item())
+        return logits  # no softmax
 
-    def compute_loss(self, batch):
+    def training_step(self, batch, batch_idx):
         features, labels = batch
-        logits = self.network(features)
-
+        logits = self(features)  # <-- uses forward
         loss = self.loss_fn(logits, labels)
 
-        if self.l1_alpha:  # l2 regularization is already implemented in optimizers via weight_decay parameter
+        # Optional L1 regularization
+        if self.l1_alpha:
             l1_norm = sum(p.abs().sum() for p in self.network.parameters())
             loss = loss + self.l1_alpha * l1_norm
 
-        return loss
-
-    def training_step(self, batch, batch_idx):
-
-        features, labels = batch
-
-        # skip empty batches
-        if features.size(0) == 0:
-            # return None tells Lightning to skip this batch
-            return None
-
-        loss = self.compute_loss(batch)
-
-        # ensure loss is a scalar and requires grad
-        if loss.requires_grad is False:
-            raise RuntimeError("Loss does not require gradients!")
-
-        self.log(
-            "train_loss",
-            loss,
-            on_epoch=False,
-            on_step=True,
-            prog_bar=True,
-        )
-
+        # Debug: check for NaNs/infs in loss
+        if torch.isnan(loss) or torch.isinf(loss):
+            print("Warning: NaN or Inf in loss")
+        
+        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
