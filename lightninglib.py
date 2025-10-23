@@ -346,11 +346,17 @@ class PytorchLightningEstimator(BaseEstimator):
 
 class PytorchLightningRegressor(PytorchLightningEstimator, RegressorMixin):
     _estimator_type = "regressor"
-    pass
+    
+    def _get_tags(self):
+        return {"estimator_type": self._estimator_type}    
+    
 
 
 class PytorchLightningClassifier(PytorchLightningEstimator,ClassifierMixin):
     _estimator_type = "classifier"
+    
+    def _get_tags(self):
+        return {"estimator_type": self._estimator_type}    
     
     def predict(self, X, device: Optional[str] = None):
         """Predict class labels for samples in X."""
