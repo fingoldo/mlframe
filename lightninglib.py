@@ -866,8 +866,10 @@ class MLPTorchModel(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         features, labels = batch
-        print(features)
-        print(labels)
+        
+        if torch.isnan(features).any() or torch.isinf(features).any():
+            print("NaN or Inf detected in input features!")
+
         logits = self(features)  # <-- uses forward
         loss = self.loss_fn(logits, labels)
         print(logits)
