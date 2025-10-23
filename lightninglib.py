@@ -395,9 +395,6 @@ class TorchDataset(Dataset):
         else:
             self.features = features
 
-        print("Checking for nans in TorchDataset__init__")
-        print([col for col in self.features.head().drop('ts','asset_code','secid').columns if self.features.select(pl.col(col).is_nan().any())[0, 0]])
-
         # Labels are always tensors
         if isinstance(labels, (pd.DataFrame, pd.Series)):
             labels = labels.to_numpy()
@@ -836,57 +833,12 @@ class MLPTorchModel(L.LightningModule):
             self.example_input_array = network.example_input_array  # specifying allows to skip example_input_array when doing ONNX export
         except Exception:
             pass
-
-    def forward(self, x):
-        has_nans=torch.isnan(x).any().item()
-        print("Input stats:", 
-            "min:", x.min().item(), 
-            "max:", x.max().item(), 
-            "NaNs:", has_nans)
-        
-        if has_nans:
-            # Find which rows have any NaNs
-            nan_rows = torch.any(torch.isnan(x), dim=1)
-            idx = torch.nonzero(nan_rows, as_tuple=False)[0].item()  # first bad row
-
-            # Now show only the NaN positions and their actual values
-            row = x[idx]
-            mask = torch.isnan(row)
-
-            print(f"Row {idx} has {mask.sum().item()} NaNs at columns:",
-                torch.nonzero(mask, as_tuple=False).flatten().tolist())
-            print("NaN values:", row[mask])                    
-
-        
-        for i, layer in enumerate(self.network):
-            x = layer(x)
-
-            # Check activations
-            if torch.isnan(x).any() or torch.isinf(x).any():
-                print(f"NaN/Inf detected at layer {i}: {layer}")
-                print("Activation stats:", 
-                    "min:", x.min().item(), 
-                    "max:", x.max().item())
-                # Check weights and biases if they exist
-                if hasattr(layer, 'weight'):
-                    w = layer.weight
-                    print("  weight stats:", "min:", w.min().item(), "max:", w.max().item(), 
-                        "NaNs:", torch.isnan(w).any().item())
-                if hasattr(layer, 'bias') and layer.bias is not None:
-                    b = layer.bias
-                    print("  bias stats:", "min:", b.min().item(), "max:", b.max().item(),
-                        "NaNs:", torch.isnan(b).any().item())
-                break  # Stop here to fix the issue
-            else:
-                print(f"Layer {i} OK: {layer}, activation min/max:", x.min().item(), x.max().item())
-                
-        return x
-
+            
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.network(x)
 
     def training_step(self, batch, batch_idx):
         features, labels = batch
-
-        print("Features min/max/nan:", features.min().item(), features.max().item(), torch.isnan(features).any())
 
         logits = self(features)  # <-- uses forward
         loss = self.loss_fn(logits, labels)
@@ -895,10 +847,6 @@ class MLPTorchModel(L.LightningModule):
         if self.l1_alpha:
             l1_norm = sum(p.abs().sum() for p in self.network.parameters())
             loss = loss + self.l1_alpha * l1_norm
-
-        # Debug: check for NaNs/infs in loss
-        if torch.isnan(loss) or torch.isinf(loss):
-            print("Warning: NaN or Inf in loss")
         
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
         return loss
