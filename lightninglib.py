@@ -344,12 +344,12 @@ class PytorchLightningEstimator(BaseEstimator):
             raise ValueError("Estimator must be a RegressorMixin or ClassifierMixin")
 
 
-class PytorchLightningRegressor(BaseEstimator, RegressorMixin, PytorchLightningEstimator):
+class PytorchLightningRegressor(PytorchLightningEstimator, RegressorMixin):
     _estimator_type = "regressor"
     pass
 
 
-class PytorchLightningClassifier(BaseEstimator, ClassifierMixin, PytorchLightningEstimator):
+class PytorchLightningClassifier(PytorchLightningEstimator,ClassifierMixin):
     _estimator_type = "classifier"
     
     def predict(self, X, device: Optional[str] = None):
