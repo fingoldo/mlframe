@@ -714,7 +714,7 @@ def generate_mlp(
         if use_batchnorm:
             layers.append(nn.BatchNorm1d(cur_layer_neurons, **batchnorm_kwargs))
         if activation_function:
-            layers.append(activation_function)
+            layers.append(activation_function())
         if dropout_prob:
             layers.append(nn.Dropout(dropout_prob))
 
