@@ -848,6 +848,7 @@ class MLPTorchModel(L.LightningModule):
             l1_norm = sum(p.abs().sum() for p in self.network.parameters())
             loss = loss + self.l1_alpha * l1_norm
         
+        print("loss=",loss)
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
         return loss
 
