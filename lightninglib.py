@@ -137,7 +137,6 @@ class PytorchLightningEstimator(BaseEstimator):
         tune_batch_size: bool = False,
         float32_matmul_precision: str = None,
     ):
-        BaseEstimator.__init__(self)  # important for sklearn tags machinery
         store_params_in_object(obj=self, params=get_parent_func_args())
 
     def _fit_common(self, X, y, eval_set: tuple = (None, None), is_partial_fit: bool = False, classes: Optional[np.ndarray] = None, fit_params: dict = None):
