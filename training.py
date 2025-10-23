@@ -2848,6 +2848,7 @@ def train_mlframe_models_suite(
         pandas_df = tmp.fill_null(nans_filler).with_columns(pl.col(pl.Float64).cast(pl.Float32)).to_pandas()  # ! TODO !
         if verbose:
             logger.info(f"Converted polars df to pandas, RAM usage after: {get_own_ram_usage():.1f}GBs...")
+        print("cols iwth nans",pandas_df.columns[pandas_df.isna().any()].tolist())
     else:
         if isinstance(pandas_df, str):
             if verbose:
