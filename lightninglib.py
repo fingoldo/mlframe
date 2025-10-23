@@ -352,14 +352,14 @@ class PytorchLightningRegressor(PytorchLightningEstimator,RegressorMixin):
 class PytorchLightningClassifier(PytorchLightningEstimator,ClassifierMixin):
     _estimator_type = "classifier"
 
-    def predict(self, X, device: Optional[str] = None):
+    def predict(self, X, ):
         """Predict class labels for samples in X."""
-        proba = super(PytorchLightningClassifier, self).predict(X, device=device)  # Get probabilities from parent
+        proba = super(PytorchLightningClassifier, self).predict(X)  # Get probabilities from parent
         return np.argmax(proba, axis=1)  # Convert to class labels
 
-    def predict_proba(self, X, device: Optional[str] = None):
+    def predict_proba(self, X):
         """Predict class probabilities for samples in X."""
-        return super(PytorchLightningClassifier, self).predict(X, device=device)  # Relay to parent's predict
+        return super(PytorchLightningClassifier, self).predict(X)  # Relay to parent's predict
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
