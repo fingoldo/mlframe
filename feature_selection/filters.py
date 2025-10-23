@@ -2938,6 +2938,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 logger.info(f"MRMR+ selected {len(selected_vars):_} out of {self.n_features_in_:_} features before the Feature Engineering step.")
 
             if len(selected_vars)==0:
+                logging.info("Proceeding with all features though.")
                 selected_vars=np.arange(self.n_features_in_)
 
             if verbose >= 2:
