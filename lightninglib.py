@@ -23,7 +23,6 @@ from torch.utils.data import DataLoader, Dataset
 
 import psutil
 import lightning as L
-from lightning.pytorch.callbacks import ModelCheckpoint
 
 from lightning import LightningDataModule
 from lightning.pytorch.tuner import Tuner
@@ -149,8 +148,9 @@ class PytorchLightningEstimator(BaseEstimator):
         # Enable TF32 for float32 matrix multiplication if on GPU
         if self.float32_matmul_precision and torch.cuda.is_available():
             assert self.float32_matmul_precision in "highest high medium".split()
-            torch.set_float32_matmul_precision(self.float32_matmul_precision)
-            logger.info(f"Enabled float32_matmul_precision={self.float32_matmul_precision} for float32 matrix multiplication to improve performance on GPU")
+            if self.float32_matmul_precision and hasattr(torch, "set_float32_matmul_precision"):
+                torch.set_float32_matmul_precision(self.float32_matmul_precision)
+                logger.info(f"Enabled float32_matmul_precision={self.float32_matmul_precision} for float32 matrix multiplication to improve performance on GPU")
 
         # Create datamodule
         dm = self.datamodule_class(
@@ -276,40 +276,36 @@ class PytorchLightningEstimator(BaseEstimator):
         eval_set = fit_params.get("eval_set", (None, None))
         return self._fit_common(X, y, eval_set=eval_set, is_partial_fit=True, classes=classes, fit_params=fit_params)
 
-    def predict(self, X, device: Optional[str] = None):
-        """Predict using the model, handling device mismatches gracefully.
+    def predict(self, X, device: Optional[str] = None) -> np.ndarray:
+        """
+        Predict using the model, handling device safely.
 
         Args:
-            X: Input data (numpy array, pandas DataFrame, or Series).
-            device: Optional device to place the model and input tensor (e.g., 'cpu', 'cuda'). If None, tries self.model.device, falls back to 'cpu' on failure.
+            X: Input data (numpy array, pandas DataFrame, polars DataFrame, or torch.Tensor)
+            device: Optional device string ('cpu' or 'cuda'). Defaults to model's device, or 'cpu' if unavailable.
 
         Returns:
-            numpy.ndarray: Model predictions.
+            numpy.ndarray: Model predictions (logits for regression or probabilities for classification)
         """
-        if isinstance(X, (pd.DataFrame, pd.Series,pl.DataFrame,pl.Series)):
-            X = X.to_numpy(dtype=np.float32, copy=False)
+        # Convert to tensor if not already
+        if not torch.is_tensor(X):
+            X = to_tensor_any(X, dtype=self.datamodule_params.get("features_dtype", torch.float32))
 
         # Determine target device
-        target_device = device if device is not None else getattr(self.model, "device", "cpu")
-
-        try:
-            # Try original behavior: place tensor on model's device
-            X_tensor = torch.tensor(X, dtype=self.datamodule_params.get("features_dtype", torch.float32), device=target_device)
-        except RuntimeError as e:
-            # Handle device mismatch (e.g., model on GPU but no GPU available)
-            logger.warning(f"Failed to place tensor on {target_device}: {e}. Falling back to CPU.")
-            self.model.to("cpu")  # Move model to CPU
-            X_tensor = torch.tensor(X, dtype=self.datamodule_params.get("features_dtype", torch.float32), device="cpu")
+        target_device = device or getattr(self.model, "device", torch.device("cpu"))
+        self.model.to(target_device)
+        X = X.to(target_device)
 
         self.model.eval()
         with torch.no_grad():
-            res = self.model(X_tensor)
+            output = self.model(X)
 
-        res = res.detach().cpu()
-        if res.dtype == torch.bfloat16:
-            res = res.to(torch.float32)
+        # Ensure output is on CPU and converted to numpy
+        output = output.detach().cpu()
+        if output.dtype == torch.bfloat16:
+            output = output.to(torch.float32)
+        return output.numpy()
 
-        return res.numpy()
 
     def get_params(self, deep: bool = True) -> Dict[str, Any]:
         """Returns a dictionary of all parameters for scikit-learn compatibility."""
@@ -418,16 +414,13 @@ class TorchDataset(Dataset):
             subset = data.iloc[indices, :].to_numpy()
 
         elif isinstance(data, pl.DataFrame):
-            np_dtype = np.float32 if self.features_dtype == torch.float32 else np.float64
-            subset = (
-                data[indices]
-                .select(pl.all().cast(np_dtype))
-                .to_numpy()
-            )
+            target = pl.Float32 if self.features_dtype == torch.float32 else pl.Float64
+            subset = data[indices].select(pl.all().cast(target)).to_numpy()
         else:
             raise TypeError(f"Unsupported data type for extraction: {type(data)}")
 
-        return torch.tensor(subset, dtype=self.features_dtype, device=self.device)
+        arr = subset if isinstance(subset, np.ndarray) else np.asarray(subset)
+        return torch.from_numpy(arr).to(dtype=self.features_dtype, device=self.device)
 
     def __len__(self):
         return len(self.labels)
@@ -464,13 +457,16 @@ class TorchDataModule(LightningDataModule):
         data_placement_device: str = None,
         features_dtype: object = torch.float32,
         labels_dtype: object = torch.int64,
-        dataloader_params: dict = {},
+        dataloader_params: dict = None,
     ):
         # A simple way to prevent redundant dataset replicas is to rely on torch.multiprocessing to share the data automatically between spawned processes via shared memory.
         # For this, all data pre-loading should be done on the main process inside DataModule.__init__(). As a result, all tensor-data will get automatically shared when using
         # the 'ddp_spawn' strategy.
 
         assert data_placement_device in (None, "cuda")
+
+        if dataloader_params is None:
+            dataloader_params={}
 
         super().__init__()
 
@@ -586,24 +582,52 @@ class AggregatingValidationCallback(Callback):
         self.init_accumulators()
 
 
-# Custom ModelCheckpoint to track best epoch
 class BestEpochModelCheckpoint(ModelCheckpoint):
+    """
+    Custom ModelCheckpoint that tracks the epoch of the best model
+    according to the monitored metric.
+    """
+
     def __init__(self, monitor: str = "val_loss", mode: str = "min", **kwargs):
         super().__init__(monitor=monitor, mode=mode, **kwargs)
-        self.best_epoch = None  # Track the epoch of the best model
-        self.best = float("inf") if mode == "min" else float("-inf")  # Initialize best score
-        self.monitor_op = torch.lt if mode == "min" else torch.gt
+        self.best_epoch: Optional[int] = None
+        self.best_score: Optional[float] = None
+
+        # Determine comparison operator
+        if mode == "min":
+            self.monitor_op = lambda a, b: a < b
+            self.best_score = float("inf")
+        elif mode == "max":
+            self.monitor_op = lambda a, b: a > b
+            self.best_score = float("-inf")
+        else:
+            raise ValueError(f"Unsupported mode: {mode}")
+
         logger.info(f"Initialized BestEpochModelCheckpoint with monitor={monitor}, mode={mode}")
 
     def on_validation_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
+        """
+        Update best_epoch after each validation step if current metric improves.
+        """
         super().on_validation_end(trainer, pl_module)
-        # Update best_epoch when a new best model is saved
-        if self.best_k_models and self.best_model_path:
-            current_score = self.best_k_models[self.best_model_path]
-            if self.monitor_op(current_score, self.best):
-                self.best = current_score  # Update best score
-                self.best_epoch = trainer.current_epoch
-                logger.info(f"New best model at epoch {self.best_epoch} with {self.monitor}={current_score:.4f}")
+
+        # Get the current value of the monitored metric
+        current_score = trainer.callback_metrics.get(self.monitor)
+
+        if current_score is None:
+            logger.warning(f"Monitor metric '{self.monitor}' not found in callback_metrics.")
+            return
+
+        # Convert to float in case it's a tensor
+        if isinstance(current_score, torch.Tensor):
+            current_score = current_score.item()
+
+        # Check if it's the new best
+        if self.monitor_op(current_score, self.best_score):
+            self.best_score = current_score
+            self.best_epoch = trainer.current_epoch
+            logger.info(f"New best model at epoch {self.best_epoch} with {self.monitor}={self.best_score:.4f}")
+
 
 
 class PeriodicLearningRateFinder(LearningRateFinder):
@@ -637,7 +661,7 @@ def generate_mlp(
     dropout_prob: float = 0.15,
     inputs_dropout_prob: float = 0.002,
     use_batchnorm: bool = True,
-    batchnorm_kwargs=dict(eps=0.00001, momentum=0.1),
+    batchnorm_kwargs:dict=None,
     verbose: int = 0,
 ):
     """Generates multilayer perceptron with specific architecture.
@@ -649,6 +673,10 @@ def generate_mlp(
     """
 
     # Auto inits
+
+    if batchnorm_kwargs is None:
+        batchnorm_kwargs=dict(eps=0.00001, momentum=0.1)
+
     if not first_layer_num_neurons:
         first_layer_num_neurons = num_features
     if num_classes:
@@ -799,12 +827,19 @@ class MLPTorchModel(L.LightningModule):
         learning_rate: float = 1e-3,
         l1_alpha: float = 0.0,
         optimizer=torch.optim.AdamW,
-        optimizer_kwargs: dict = {},
+        optimizer_kwargs: dict = None,
         lr_scheduler: object = None,
-        lr_scheduler_kwargs: dict = {},
+        lr_scheduler_kwargs: dict = None,
         compile_network: str = None,  # New flag to toggle torch.compile
     ):
         """compile_network='max-autotune-no-cudagraphs' at least works on rtx 5060."""
+    
+        if optimizer_kwargs is None:
+            optimizer_kwargs={}
+        
+        if lr_scheduler_kwargs is None:
+            lr_scheduler_kwargs={}
+
         super().__init__()
         self.save_hyperparameters()  # ignore=["network"]
         store_params_in_object(obj=self, params=get_parent_func_args())
