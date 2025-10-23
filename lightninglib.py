@@ -809,6 +809,7 @@ class MLPTorchModel(L.LightningModule):
         self.save_hyperparameters()  # ignore=["network"]
         store_params_in_object(obj=self, params=get_parent_func_args())
 
+        self.network = network
         self.is_compiled = False  # Track if network is compiled
 
         # Apply torch.compile if enabled
