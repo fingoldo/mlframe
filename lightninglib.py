@@ -866,14 +866,12 @@ class MLPTorchModel(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         features, labels = batch
-        
+
         if torch.isnan(features).any() or torch.isinf(features).any():
             print("NaN or Inf detected in input features!")
 
         logits = self(features)  # <-- uses forward
         loss = self.loss_fn(logits, labels)
-        print(logits)
-        print(loss)
 
         # Optional L1 regularization
         if self.l1_alpha:
@@ -886,9 +884,11 @@ class MLPTorchModel(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         features, labels = batch
         logits = self(features)
-        loss = self.loss_fn(logits, labels)
+        
+        #loss = self.loss_fn(logits, labels)
         # log loss
-        self.log("val_loss", loss, prog_bar=True)
+        #self.log("val_loss", loss, prog_bar=True)
+        
         # return (predictions, labels) for callbacks that want to aggregate
         return logits.detach(), labels.detach()
 
