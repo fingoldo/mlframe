@@ -432,7 +432,7 @@ class TorchDataset(Dataset):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        x = self._extract(self.features, [idx])
+        x = self._extract(self.features, idx)
         y = self.labels[idx]
         if x.ndim == 2 and x.shape[0] == 1:
             x = x.squeeze(0)
