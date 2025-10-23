@@ -395,6 +395,9 @@ class TorchDataset(Dataset):
         else:
             self.features = features
 
+        print("Checking for nans in TorchDataset__init__")
+        print([col for col in self.features.head().drop('ts','asset_code','secid').columns if self.features.select(pl.col(col).is_nan().any())[0, 0]])
+
         # Labels are always tensors
         if isinstance(labels, (pd.DataFrame, pd.Series)):
             labels = labels.to_numpy()
