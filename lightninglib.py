@@ -137,6 +137,7 @@ class PytorchLightningEstimator(BaseEstimator):
         tune_batch_size: bool = False,
         float32_matmul_precision: str = None,
     ):
+        super().__init__()  # important for sklearn tags machinery
         store_params_in_object(obj=self, params=get_parent_func_args())
 
     def _fit_common(self, X, y, eval_set: tuple = (None, None), is_partial_fit: bool = False, classes: Optional[np.ndarray] = None, fit_params: dict = None):
@@ -351,11 +352,6 @@ class PytorchLightningRegressor(PytorchLightningEstimator,RegressorMixin):
 
 class PytorchLightningClassifier(PytorchLightningEstimator,ClassifierMixin):
     _estimator_type = "classifier"
-
-    def _get_tags(self):
-        tags = super()._get_tags()
-        tags["estimator_type"] = "classifier"
-        return tags
     
     def predict(self, X, device: Optional[str] = None):
         """Predict class labels for samples in X."""
