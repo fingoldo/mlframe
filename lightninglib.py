@@ -857,8 +857,10 @@ class MLPTorchModel(L.LightningModule):
         features, labels = batch
         logits = self(features)
         loss = self.loss_fn(logits, labels)
+        # log loss
         self.log("val_loss", loss, prog_bar=True)
-        return loss
+        # return (predictions, labels) for callbacks that want to aggregate
+        return logits.detach(), labels.detach()
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         features, _ = batch
