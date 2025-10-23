@@ -148,7 +148,7 @@ class PytorchLightningEstimator(BaseEstimator):
 
         # Enable TF32 for float32 matrix multiplication if on GPU
         if self.float32_matmul_precision and torch.cuda.is_available():
-            assert self.float32_matmul_precision in "highest high medium"
+            assert self.float32_matmul_precision in "highest high medium".split()
             torch.set_float32_matmul_precision(self.float32_matmul_precision)
             logger.info(f"Enabled float32_matmul_precision={self.float32_matmul_precision} for float32 matrix multiplication to improve performance on GPU")
 
@@ -849,7 +849,6 @@ class MLPTorchModel(L.LightningModule):
             l1_norm = sum(p.abs().sum() for p in self.network.parameters())
             loss = loss + self.l1_alpha * l1_norm
         
-        logger.info("loss=",loss)
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
         return loss
     
@@ -872,12 +871,11 @@ class MLPTorchModel(L.LightningModule):
 
     def configure_optimizers(self):
 
-        optimizer = self.optimizer(params=self.network.parameters(), **self.optimizer_kwargs)
-        res = {"optimizer": optimizer}
+        optimizer = self.optimizer(self.network.parameters(), **self.optimizer_kwargs)
         if self.lr_scheduler:
-            res["lr_scheduler"] = self.lr_scheduler(optimizer=optimizer, **self.lr_scheduler_kwargs)
-
-        return res
+            scheduler = self.lr_scheduler(optimizer=optimizer, **self.lr_scheduler_kwargs)
+            return {"optimizer": optimizer, "lr_scheduler": {"scheduler": scheduler, "interval": "epoch"}}
+        return optimizer
 
     def on_train_end(self):
         # Lightning ES callback do not auto-load best weights, so we locate ModelCheckpoint & do that ourselves.
