@@ -2845,7 +2845,7 @@ def train_mlframe_models_suite(
 
         if verbose:
             logger.info(f"Converting polars df to pandas, RAM usage before: {get_own_ram_usage():.1f}GBs...")
-        pandas_df = tmp.fill_null(nans_filler).with_columns(pl.col(pl.Float64).cast(pl.Float32)).to_pandas(use_pyarrow_extension_array=True)  # ! TODO !
+        pandas_df = tmp.fill_null(nans_filler).with_columns(pl.col(pl.Float64).cast(pl.Float32)).to_pandas()  # ! TODO !
         if verbose:
             logger.info(f"Converted polars df to pandas, RAM usage after: {get_own_ram_usage():.1f}GBs...")
     else:
