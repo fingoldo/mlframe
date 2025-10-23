@@ -313,7 +313,7 @@ class PytorchLightningEstimator(BaseEstimator):
         params = {
             "model_class": self.model_class,
             "model_params": deepcopy(self.model_params) if deep else self.model_params,
-            "network": self.network,
+            #"network": self.network,
             "datamodule_class": self.datamodule_class,
             "datamodule_params": deepcopy(self.datamodule_params) if deep else self.datamodule_params,
             "tune_params": self.tune_params,
