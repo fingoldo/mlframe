@@ -851,12 +851,13 @@ class MLPTorchModel(L.LightningModule):
         logger.info("loss=",loss)
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
         return loss
-
+    
     def validation_step(self, batch, batch_idx):
         features, labels = batch
-        predictions = self.forward(features)
-        # we can still compute val_loss if needed
-        return predictions, labels
+        logits = self(features)
+        loss = self.loss_fn(logits, labels)
+        self.log("val_loss", loss, prog_bar=True)
+        return loss
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         features, _ = batch
