@@ -305,7 +305,12 @@ class PytorchLightningEstimator(BaseEstimator):
         output = output.detach().cpu()
         if output.dtype == torch.bfloat16:
             output = output.to(torch.float32)
-        return output.numpy()
+
+        output=output.numpy()
+        if self.return_proba:
+            output = F.softmax(output, dim=1)
+            
+        return 
 
 
     def get_params(self, deep: bool = True) -> Dict[str, Any]:
