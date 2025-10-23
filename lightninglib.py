@@ -308,9 +308,8 @@ class PytorchLightningEstimator(BaseEstimator):
         if output.dtype == torch.bfloat16:
             output = output.to(torch.float32)
 
-        output=output.numpy()
+        return output.numpy()
 
-        return 
 
 
     def get_params(self, deep: bool = True) -> Dict[str, Any]:
