@@ -876,6 +876,8 @@ class MLPTorchModel(L.LightningModule):
 
         logits = self(features)  # <-- uses forward
         loss = self.loss_fn(logits, labels)
+        print(logits)
+        print(loss)
 
         # Optional L1 regularization
         if self.l1_alpha:
