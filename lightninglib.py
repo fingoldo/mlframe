@@ -345,12 +345,12 @@ class PytorchLightningEstimator(BaseEstimator):
 
 
 class PytorchLightningRegressor(PytorchLightningEstimator,RegressorMixin):
-    _estimator_type = "regressor"
+    #_estimator_type = "regressor"
     pass
 
 
 class PytorchLightningClassifier(PytorchLightningEstimator,ClassifierMixin):
-    _estimator_type = "classifier"
+    #_estimator_type = "classifier"
     
     def predict(self, X, device: Optional[str] = None):
         """Predict class labels for samples in X."""
