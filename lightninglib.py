@@ -300,6 +300,8 @@ class PytorchLightningEstimator(BaseEstimator):
         self.model.eval()
         with torch.no_grad():
             output = self.model(X)
+        if self.return_proba:
+            output = F.softmax(output, dim=1)            
 
         # Ensure output is on CPU and converted to numpy
         output = output.detach().cpu()
@@ -307,9 +309,7 @@ class PytorchLightningEstimator(BaseEstimator):
             output = output.to(torch.float32)
 
         output=output.numpy()
-        if self.return_proba:
-            output = F.softmax(output, dim=1)
-            
+
         return 
 
 
