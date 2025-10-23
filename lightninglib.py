@@ -344,7 +344,7 @@ class PytorchLightningEstimator(BaseEstimator):
             raise ValueError("Estimator must be a RegressorMixin or ClassifierMixin")
 
 
-class PytorchLightningRegressor(RegressorMixin,PytorchLightningEstimator):
+class PytorchLightningRegressor(RegressorMixin,PytorchLightningEstimator): # RegressorMixin must come first
     _estimator_type = "regressor"
 
     def _get_tags(self):
@@ -352,7 +352,7 @@ class PytorchLightningRegressor(RegressorMixin,PytorchLightningEstimator):
     
 
 
-class PytorchLightningClassifier(ClassifierMixin,PytorchLightningEstimator,):
+class PytorchLightningClassifier(ClassifierMixin,PytorchLightningEstimator,): # ClassifierMixin must come first
     _estimator_type = "classifier"
     
     def _get_tags(self):
@@ -748,7 +748,7 @@ def generate_mlp(
         if use_batchnorm:
             layers.append(nn.BatchNorm1d(cur_layer_neurons, **batchnorm_kwargs))
         if activation_function:
-            layers.append(activation_function())
+            layers.append(activation_function)
         if dropout_prob:
             layers.append(nn.Dropout(dropout_prob))
 
