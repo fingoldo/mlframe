@@ -137,6 +137,7 @@ class PytorchLightningEstimator(BaseEstimator):
         tune_batch_size: bool = False,
         float32_matmul_precision: str = None,
     ):
+        super().__init__()
         store_params_in_object(obj=self, params=get_parent_func_args())
 
     def _fit_common(self, X, y, eval_set: tuple = (None, None), is_partial_fit: bool = False, classes: Optional[np.ndarray] = None, fit_params: dict = None):
@@ -346,7 +347,7 @@ class PytorchLightningEstimator(BaseEstimator):
 
 class PytorchLightningRegressor(PytorchLightningEstimator, RegressorMixin):
     _estimator_type = "regressor"
-    
+
     def _get_tags(self):
         return {"estimator_type": self._estimator_type}    
     
