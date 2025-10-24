@@ -430,6 +430,7 @@ class TorchDataset(Dataset):
         return len(self.labels)
 
     def __getitem__(self, idx):
+        logger.warning(idx)
         x = self._extract(self.features, idx)
         y = self.labels[idx]
         if x.ndim == 2 and x.shape[0] == 1:
