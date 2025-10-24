@@ -559,7 +559,7 @@ class TorchDataModule(LightningDataModule):
                 features=features, labels=self.train_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype,batch_size=batch_size, device=device
             ),
             pin_memory=on_gpu,
-            **self.dataloader_params,
+            **dataloader_params,
         )
 
     def val_dataloader(self):
