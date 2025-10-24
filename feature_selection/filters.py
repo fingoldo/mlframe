@@ -2610,7 +2610,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # quantization
         quantization_method: str = "quantile",
         quantization_nbins: int = 10,
-        quantization_dtype: object = np.int16,
+        quantization_dtype: object = np.int32,
         # factors
         factors_names_to_use: Sequence[str] = None,
         factors_to_use: Sequence[int] = None,
@@ -2939,7 +2939,7 @@ class MRMR(BaseEstimator, TransformerMixin):
 
             if len(selected_vars)==0:
                 logging.info("Proceeding with all features though.")
-                selected_vars=[i for i in cols if i not in target_indices]
+                selected_vars=np.array([i for i in cols if i not in target_indices])
 
             if verbose >= 2:
                 logger.info(f"Computing prospective FE pairs...")
