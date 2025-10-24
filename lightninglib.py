@@ -543,7 +543,7 @@ class TorchDataModule(LightningDataModule):
         on_gpu = self.on_gpu()
         device = self.data_placement_device if (self.data_placement_device and on_gpu) else None
 
-        batch_size=dataloader_params.get("batch_size",64)
+        batch_size=self.dataloader_params.get("batch_size",64)
 
         dataloader_params = self.dataloader_params.copy()
         dataloader_params["batch_size"] = None        
@@ -567,7 +567,7 @@ class TorchDataModule(LightningDataModule):
         on_gpu = self.on_gpu()
         device = self.data_placement_device if (self.data_placement_device and on_gpu) else None
 
-        batch_size=dataloader_params.get("batch_size",64)
+        batch_size=self.dataloader_params.get("batch_size",64)
 
         dataloader_params = self.dataloader_params.copy()
         dataloader_params["batch_size"] = None
