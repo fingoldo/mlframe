@@ -542,7 +542,9 @@ class TorchDataModule(LightningDataModule):
 
         on_gpu = self.on_gpu()
         device = self.data_placement_device if (self.data_placement_device and on_gpu) else None
-        
+
+        batch_size=dataloader_params.get("batch_size",64)
+
         dataloader_params = self.dataloader_params.copy()
         dataloader_params["batch_size"] = None        
 
@@ -554,7 +556,7 @@ class TorchDataModule(LightningDataModule):
 
         return DataLoader(
             TorchDataset(
-                features=features, labels=self.train_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype,batch_size=dataloader_params.get("batch_size",64), device=device
+                features=features, labels=self.train_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype,batch_size=batch_size, device=device
             ),
             pin_memory=on_gpu,
             **self.dataloader_params,
@@ -564,6 +566,8 @@ class TorchDataModule(LightningDataModule):
 
         on_gpu = self.on_gpu()
         device = self.data_placement_device if (self.data_placement_device and on_gpu) else None
+
+        batch_size=dataloader_params.get("batch_size",64)
 
         dataloader_params = self.dataloader_params.copy()
         dataloader_params["batch_size"] = None
@@ -576,7 +580,7 @@ class TorchDataModule(LightningDataModule):
             pass
 
         return DataLoader(
-            TorchDataset(features=features, labels=self.val_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype,batch_size=dataloader_params.get("batch_size",64) device=device),
+            TorchDataset(features=features, labels=self.val_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype,batch_size=batch_size, device=device),
             pin_memory=on_gpu,
             **dataloader_params,
         )
