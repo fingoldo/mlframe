@@ -372,30 +372,50 @@ class PytorchLightningClassifier(ClassifierMixin,PytorchLightningEstimator,): # 
 
 
 class TorchDataset(Dataset):
-    """Wrapper around pandas, polars, numpy or tensor datasets.
-    Stores features as-is unless device='cuda', in which case the whole
-    dataset is preloaded onto GPU as a tensor. Labels are always tensors.
+    """
+    Wrapper around pandas, polars, numpy or tensor datasets.
+
+    - If batch_size == 0: behaves like a normal Dataset (returns one sample per __getitem__)
+    - If batch_size > 0: returns whole batches directly (vectorized extraction)
+      and should be used with DataLoader(batch_size=None)
+
+    Parameters
+    ----------
+    features : Union[pd.DataFrame, np.ndarray, pl.DataFrame, torch.Tensor]
+        Feature matrix.
+    labels : Union[pd.DataFrame, np.ndarray, pl.DataFrame, torch.Tensor]
+        Target vector.
+    features_dtype : torch.dtype
+        Desired dtype for features.
+    labels_dtype : torch.dtype
+        Desired dtype for labels.
+    device : Optional[str]
+        Device where tensors should live ("cpu" or "cuda").
+    batch_size : int
+        If >0, enables batched fetching mode.
     """
 
     def __init__(
         self,
-        features: Union[pd.DataFrame, np.ndarray, pl.DataFrame, torch.Tensor],
-        labels: Union[pd.DataFrame, np.ndarray, pl.DataFrame, torch.Tensor],
+        features,
+        labels,
         features_dtype: torch.dtype = torch.float32,
         labels_dtype: torch.dtype = torch.float32,
         device: Optional[str] = None,
+        batch_size: int = 0,
     ):
         self.features_dtype = features_dtype
         self.labels_dtype = labels_dtype
         self.device = device
+        self.batch_size = batch_size
 
-        # Store features as-is, unless GPU
+        # Store features as-is, unless GPU preloading requested
         if device == "cuda":
             self.features = to_tensor_any(features, features_dtype, device)
         else:
             self.features = features
 
-        # Labels are always tensors
+        # Always store labels as tensor
         if isinstance(labels, (pd.DataFrame, pd.Series)):
             labels = labels.to_numpy()
         elif isinstance(labels, pl.DataFrame):
@@ -406,37 +426,50 @@ class TorchDataset(Dataset):
         labels = np.asarray(labels).reshape(-1)
         self.labels = torch.tensor(labels, dtype=labels_dtype, device=device)
 
+        # Determine # of batches if in batch mode
+        if batch_size > 0:
+            self.num_batches = int(np.ceil(len(self.labels) / batch_size))
+
+    def __len__(self):
+        return self.num_batches if self.batch_size > 0 else len(self.labels)
+
     def _extract(self, data, indices):
         """Extract and convert subset to tensor."""
         if isinstance(data, torch.Tensor):
             subset = data[indices]
-
         elif isinstance(data, np.ndarray):
             subset = data[indices]
-
         elif isinstance(data, pd.DataFrame):
             subset = data.iloc[indices, :].to_numpy()
-
         elif isinstance(data, pl.DataFrame):
             target = pl.Float32 if self.features_dtype == torch.float32 else pl.Float64
             subset = data[indices].select(pl.all().cast(target)).to_numpy()
         else:
             raise TypeError(f"Unsupported data type for extraction: {type(data)}")
 
-        arr = subset if isinstance(subset, np.ndarray) else np.asarray(subset)
-        return torch.from_numpy(arr).to(dtype=self.features_dtype, device=self.device)
-
-    def __len__(self):
-        return len(self.labels)
+        if isinstance(subset, np.ndarray):
+            return torch.from_numpy(subset).to(dtype=self.features_dtype, device=self.device)
+        return subset.to(dtype=self.features_dtype, device=self.device)
 
     def __getitem__(self, idx):
-        logger.warning(idx)
-        x = self._extract(self.features, idx)
-        y = self.labels[idx]
-        if x.ndim == 2 and x.shape[0] == 1:
+        if self.batch_size > 0:
+            # batched mode
+            start = idx * self.batch_size
+            end = min((idx + 1) * self.batch_size, len(self.labels))
+            indices = slice(start, end)
+        else:
+            # sample mode
+            indices = idx
+
+        x = self._extract(self.features, indices)
+        y = self.labels[indices]
+
+        # Squeeze single-sample dimension only in sample mode
+        if self.batch_size == 0 and x.ndim == 2 and x.shape[0] == 1:
             x = x.squeeze(0)
 
         return x, y
+
 
 class TorchDataModule(LightningDataModule):
     """Template of a reasonable Lightning datamodule.
@@ -509,6 +542,9 @@ class TorchDataModule(LightningDataModule):
 
         on_gpu = self.on_gpu()
         device = self.data_placement_device if (self.data_placement_device and on_gpu) else None
+        
+        dataloader_params = self.dataloader_params.copy()
+        dataloader_params["batch_size"] = None        
 
         features=self.train_features
         try:
@@ -518,7 +554,7 @@ class TorchDataModule(LightningDataModule):
 
         return DataLoader(
             TorchDataset(
-                features=features, labels=self.train_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype, device=device
+                features=features, labels=self.train_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype,batch_size=dataloader_params.get("batch_size",64), device=device
             ),
             pin_memory=on_gpu,
             **self.dataloader_params,
@@ -530,6 +566,7 @@ class TorchDataModule(LightningDataModule):
         device = self.data_placement_device if (self.data_placement_device and on_gpu) else None
 
         dataloader_params = self.dataloader_params.copy()
+        dataloader_params["batch_size"] = None
         dataloader_params["shuffle"] = False
 
         features=self.val_features
@@ -539,7 +576,7 @@ class TorchDataModule(LightningDataModule):
             pass
 
         return DataLoader(
-            TorchDataset(features=features, labels=self.val_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype, device=device),
+            TorchDataset(features=features, labels=self.val_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype,batch_size=dataloader_params.get("batch_size",64) device=device),
             pin_memory=on_gpu,
             **dataloader_params,
         )
