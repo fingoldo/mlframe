@@ -2939,7 +2939,7 @@ class MRMR(BaseEstimator, TransformerMixin):
 
             if len(selected_vars)==0:
                 logging.info("Proceeding with all features though.")
-                selected_vars=np.arange(self.n_features_in_)
+                selected_vars=[i for i in cols if i not in target_indices]
 
             if verbose >= 2:
                 logger.info(f"Computing prospective FE pairs...")
