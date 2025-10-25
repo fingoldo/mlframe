@@ -3063,7 +3063,7 @@ def train_mlframe_models_suite(
                                         *([("pre", orig_pre_pipeline)] if orig_pre_pipeline else []),
                                         *([("ce", category_encoder)] if cat_features else []),
                                         *([("imp", imputer)] if imputer else []),
-                                        ("scaler", scaler),
+                                        #("scaler", scaler),
                                     ]
                                 )
 
