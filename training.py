@@ -226,10 +226,11 @@ from sklearn.compose import TransformedTargetRegressor
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import PowerTransformer
 from sklearn.compose import TransformedTargetRegressor
+from sklearn.preprocessing import StandardScaler,RobustScaler
+
 from mlframe.preprocessing import prepare_df_for_catboost
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
