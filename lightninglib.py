@@ -698,6 +698,7 @@ def generate_mlp(
     weights_init_fcn: Callable = None,
     dropout_prob: float = 0.15,
     inputs_dropout_prob: float = 0.002,
+    use_layernorm: bool = True,
     use_batchnorm: bool = True,
     batchnorm_kwargs:dict=None,
     verbose: int = 0,
@@ -733,6 +734,8 @@ def generate_mlp(
     layer_sizes = [num_features]  # Track layer sizes for verbose logging
     if inputs_dropout_prob:
         layers.append(nn.Dropout(inputs_dropout_prob))
+    if use_layernorm:
+        layers.append(nn.LayerNorm(**batchnorm_kwargs))
 
     prev_layer_neurons = num_features
     cur_layer_neurons = first_layer_num_neurons
