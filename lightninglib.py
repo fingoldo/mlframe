@@ -685,6 +685,11 @@ class PeriodicLearningRateFinder(LearningRateFinder):
 # Network structure
 # ----------------------------------------------------------------------------------------------------------------------------
 
+def get_valid_num_groups(num_channels, preferred_num_groups):
+        for g in range(preferred_num_groups, 0, -1):
+            if num_channels % g == 0:
+                return g
+        return 1  # Fallback to 1 (LayerNorm-like) if no divisor found
 
 def generate_mlp(
     num_features: int,
@@ -739,7 +744,9 @@ def generate_mlp(
         layers.append(nn.LayerNorm(num_features,**norm_kwargs))
     
     if groupnorm_num_groups:
-        layers.append(nn.GroupNorm(num_groups=groupnorm_num_groups, num_channels=num_features, **norm_kwargs))  # Reuse kwargs for eps, etc.        
+        num_groups_for_input = get_valid_num_groups(num_features, groupnorm_num_groups)
+        if num_groups_for_input>1:
+            layers.append(nn.GroupNorm(num_groups=num_groups_for_input, num_channels=num_features, **norm_kwargs))  # Reuse kwargs for eps, etc.        
 
     prev_layer_neurons = num_features
     cur_layer_neurons = first_layer_num_neurons
