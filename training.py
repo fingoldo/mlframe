@@ -2786,9 +2786,6 @@ def train_mlframe_models_suite(
     if category_encoder is None:
         category_encoder = ce.CatBoostEncoder()
 
-    if scaler is None:
-        scaler = StandardScaler()
-
     if rfecv_models is None:
         rfecv_models = []
 
@@ -3063,7 +3060,7 @@ def train_mlframe_models_suite(
                                         *([("pre", orig_pre_pipeline)] if orig_pre_pipeline else []),
                                         *([("ce", category_encoder)] if cat_features else []),
                                         *([("imp", imputer)] if imputer else []),
-                                        #("scaler", scaler),
+                                        *([("scaler", scaler)] if scaler else []),
                                     ]
                                 )
 
