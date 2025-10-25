@@ -735,7 +735,7 @@ def generate_mlp(
     if inputs_dropout_prob:
         layers.append(nn.Dropout(inputs_dropout_prob))
     if use_layernorm:
-        layers.append(nn.LayerNorm(**batchnorm_kwargs))
+        layers.append(nn.LayerNorm(num_features,**batchnorm_kwargs))
 
     prev_layer_neurons = num_features
     cur_layer_neurons = first_layer_num_neurons
