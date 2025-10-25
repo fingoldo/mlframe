@@ -700,7 +700,8 @@ def generate_mlp(
     inputs_dropout_prob: float = 0.002,
     use_layernorm: bool = True,
     use_batchnorm: bool = True,
-    batchnorm_kwargs:dict=None,
+    groupnorm_num_groups: int = 0,
+    norm_kwargs:dict=None,
     verbose: int = 0,
 ):
     """Generates multilayer perceptron with specific architecture.
@@ -713,8 +714,8 @@ def generate_mlp(
 
     # Auto inits
 
-    if batchnorm_kwargs is None:
-        batchnorm_kwargs=dict(eps=0.00001, momentum=0.1)
+    if norm_kwargs is None:
+        norm_kwargs=dict(eps=0.00001, momentum=0.1)
 
     if not first_layer_num_neurons:
         first_layer_num_neurons = num_features
@@ -735,7 +736,10 @@ def generate_mlp(
     if inputs_dropout_prob:
         layers.append(nn.Dropout(inputs_dropout_prob))
     if use_layernorm:
-        layers.append(nn.LayerNorm(num_features,**batchnorm_kwargs))
+        layers.append(nn.LayerNorm(num_features,**norm_kwargs))
+    
+    if groupnorm_num_groups:
+        layers.append(nn.GroupNorm(num_groups=groupnorm_num_groups, num_channels=num_features, **norm_kwargs))  # Reuse kwargs for eps, etc.        
 
     prev_layer_neurons = num_features
     cur_layer_neurons = first_layer_num_neurons
@@ -781,7 +785,7 @@ def generate_mlp(
         # ----------------------------------------------------------------------------------------------------------------------------
 
         if use_batchnorm:
-            layers.append(nn.BatchNorm1d(cur_layer_neurons, **batchnorm_kwargs))
+            layers.append(nn.BatchNorm1d(cur_layer_neurons, **norm_kwargs))
         if activation_function:
             layers.append(activation_function)
         if dropout_prob:
