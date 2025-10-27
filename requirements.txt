@@ -59,3 +59,5 @@ uncertainty-calibration
 venn-abers
 orjson
 pyjwt
+vl-convert-python
+vegafusion[embed]
