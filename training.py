@@ -3775,7 +3775,7 @@ def preprocess_dataframe_simple(
             elif classification_exact_values:
                 for exact_col, exact_val in classification_exact_values.items():
                     if exact_col == col:
-                        targets[f"{col}_above_{exact_val}"] = df[col] == exact_val                        
+                        targets[f"{col}_above_{exact_val}"] = (df[col] == exact_val).astype(np.int8)
             else:
                 targets[col] = df[col]
             columns_to_drop.add(col)
