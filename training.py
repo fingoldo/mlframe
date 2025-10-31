@@ -3745,6 +3745,7 @@ def preprocess_dataframe_simple(
     group_field: str = None,
     classification_targets: Iterable = None,
     classification_thresholds: dict = None,
+    classification_exact_values: dict = None,
     regression_targets: Iterable = None,
     columns_to_drop: set = set(),
     prepare_artifacts_func: callable = None,
@@ -3771,6 +3772,10 @@ def preprocess_dataframe_simple(
                 for thresh_col, thresh_val in classification_thresholds.items():
                     if thresh_col == col:
                         targets[f"{col}_above_{thresh_val}"] = df[col] >= thresh_val
+            elif classification_exact_values:
+                for exact_col, exact_val in classification_exact_values.items():
+                    if exact_col == col:
+                        targets[f"{col}_above_{exact_val}"] = df[col] == exact_val                        
             else:
                 targets[col] = df[col]
             columns_to_drop.add(col)
