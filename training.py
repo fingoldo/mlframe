@@ -2511,7 +2511,12 @@ def select_target(
     if target.dtype in (np.float64, np.float32, np.float16):
         model_name += f" MT={target.mean():.4f}"
     else:
-        model_name += f" BT={target.value_counts(normalize=True).loc[1]*100:.0f}%"
+        vlcnts=target.value_counts(normalize=True)
+        if 1 in vlcnts.index:
+            perc=vlcnts.loc[1]
+        else:
+            perc=0
+        model_name += f" BT={perc*100:.0f}%"
     print("model_name=", model_name)
 
     if control_params is not None:
