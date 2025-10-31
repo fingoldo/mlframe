@@ -2912,7 +2912,8 @@ def train_mlframe_models_suite(
         ensure_dir_exists(join(data_dir, models_dir, slugify(target_name), slugify(model_name)))
 
         for idx, idx_name in zip([train_idx, val_idx, test_idx], "train val test".split()):
-
+            if idx is None:
+                continue
             if timestamps is not None:
                 ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_timestamps.parquet")
                 if not exists(ts_file):
@@ -2935,7 +2936,7 @@ def train_mlframe_models_suite(
         logger.info(f"creating train_df,val_df,test_df...")
 
     train_df = pandas_df.iloc[train_idx]
-    test_df = pandas_df.iloc[test_idx]
+    test_df = pandas_df.iloc[test_idx] if test_idx is not None else None
     val_df = pandas_df.iloc[val_idx]
 
     print("train_df cols with nans",train_df.columns[train_df.isna().any()].tolist())
