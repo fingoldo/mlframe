@@ -2482,7 +2482,7 @@ def make_train_test_split(
 
         train_details, val_details, test_details = "", "", ""
 
-    print(f"{len(train_idx):_} train rows {train_details}, {len(val_idx):_} val rows {val_details}, {len(test_idx):_} test rows {test_details}.")
+    print(f"{len(train_idx):_} train rows {train_details}, {len(val_idx):_} val rows {val_details}, {len(test_idx) if test_idx else 0:_} test rows {test_details}.")
 
     return train_idx, val_idx, test_idx, train_details, val_details, test_details
 
