@@ -626,6 +626,7 @@ def get_training_configs(
         use_swa=mlp_kwargs.get("use_swa", False),
         tune_params=mlp_kwargs.get("tune_params", False),
         float32_matmul_precision=mlp_kwargs.get("float32_matmul_precision", None),
+        early_stopping_rounds=early_stopping_rounds,
     )
 
     if rfecv_kwargs is None:

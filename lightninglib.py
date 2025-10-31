@@ -137,6 +137,7 @@ class PytorchLightningEstimator(BaseEstimator):
         tune_params: bool = False,
         tune_batch_size: bool = False,
         float32_matmul_precision: str = None,
+        early_stopping_rounds:int=100,
     ):
         store_params_in_object(obj=self, params=get_parent_func_args())
 
@@ -212,7 +213,7 @@ class PytorchLightningEstimator(BaseEstimator):
 
             if eval_set is not None and (eval_set[0] is not None):
 
-                early_stopping_rounds = fit_params.get("early_stopping_rounds", 100)
+                early_stopping_rounds = self.early_stopping_rounds
                 logger.info(f"Using early_stopping_rounds={early_stopping_rounds:_}")
 
                 early_stopping = EarlyStoppingCallback(
