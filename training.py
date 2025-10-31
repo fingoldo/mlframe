@@ -2470,7 +2470,10 @@ def make_train_test_split(
 
     else:
         # Row-based splitting without timestamps (fallback to sklearn)
-        train_idx, test_idx = train_test_split(np.arange(len(df)), test_size=test_size, shuffle=shuffle_test)
+        if test_size>0:
+            train_idx, test_idx = train_test_split(np.arange(len(df)), test_size=test_size, shuffle=shuffle_test)
+        else:
+            train_idx, test_idx = np.arange(len(df)),None
         train_idx, val_idx = train_test_split(train_idx, test_size=val_size, shuffle=shuffle_val)
 
         if trainset_aging_limit:
@@ -3780,7 +3783,7 @@ def preprocess_dataframe_simple(
             elif classification_exact_values:
                 for exact_col, exact_val in classification_exact_values.items():
                     if exact_col == col:
-                        targets[f"{col}_above_{exact_val}"] = (df[col] == exact_val).astype(np.int8)
+                        targets[f"{col}_eq_{exact_val}"] = (df[col] == exact_val).astype(np.int8)
             else:
                 targets[col] = df[col]
             columns_to_drop.add(col)
