@@ -2604,7 +2604,7 @@ def process_model(
     target_type: str,
     pre_pipeline: object,
     pre_pipeline_name: str,
-    cur_target: str,
+    cur_target_name: str,
     trainset_features_stats: dict,
     models: dict,
     model_params: dict,
@@ -2639,7 +2639,7 @@ def process_model(
         start = timer()
         if verbose:
             logger.info(
-                f"Starting train_and_evaluate {target_type} {pre_pipeline_name.strip() if pre_pipeline_name else ''} {model_name.strip()} {cur_target}, RAM usage {get_own_ram_usage():.1f}GBs..."
+                f"Starting train_and_evaluate {target_type} {pre_pipeline_name.strip() if pre_pipeline_name else ''} {model_name.strip()} {cur_target_name}, RAM usage {get_own_ram_usage():.1f}GBs..."
             )
         model = train_and_evaluate_model(
             pre_pipeline=pre_pipeline,
@@ -2654,7 +2654,7 @@ def process_model(
         if fpath:
             save_mlframe_model(model, fpath)
 
-    models[cur_target][target_type].append(model)
+    models[cur_target_name][target_type].append(model)
 
     if ens_models is not None:
         ens_models.append(model)
@@ -2970,7 +2970,7 @@ def train_mlframe_models_suite(
 
         # !TODO ! optimize for creation of inner feature matrices of cb,lgb,xgb here. They should be created once per featureset, not once per target.
 
-        for cur_target, target in tqdmu(targets.items(), desc="target"):
+        for cur_target_name, cur_target_values in tqdmu(targets.items(), desc="target"):
             if mlframe_models:
 
                 if use_autogluon_models or use_lama_models:
@@ -2979,7 +2979,7 @@ def train_mlframe_models_suite(
                         if verbose:
                             logger.info(f"RSS after automl_target_label deletion: {get_own_ram_usage():.1f}GBs")
 
-                parts = slugify(target_name), slugify(model_name), slugify(target_type.lower()), slugify(cur_target)
+                parts = slugify(target_name), slugify(model_name), slugify(target_type.lower()), slugify(cur_target_name)
 
                 if data_dir is not None:
                     plot_file = join(data_dir, "charts", *parts) + os.path.sep
@@ -3000,8 +3000,8 @@ def train_mlframe_models_suite(
                 cur_control_params_override["use_regression"] = target_type == TargetTypes.REGRESSION
 
                 common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs, cat_features = select_target(
-                    model_name=f"{target_name} {model_name} {cur_target}",
-                    target=target,
+                    model_name=f"{target_name} {model_name} {cur_target_name}",
+                    target=cur_target_values,
                     df=None,
                     train_df=train_df,
                     val_df=val_df,
@@ -3079,7 +3079,7 @@ def train_mlframe_models_suite(
                                 target_type=target_type,
                                 pre_pipeline=pre_pipeline,
                                 pre_pipeline_name=pre_pipeline_name,
-                                cur_target=cur_target,
+                                cur_target_name=cur_target_name,
                                 models=models,
                                 model_params=models_params[mlframe_model_name],
                                 common_params=common_params,
@@ -3104,17 +3104,17 @@ def train_mlframe_models_suite(
 
             if use_autogluon_models or use_lama_models:
 
-                pandas_df[automl_target_label] = target
+                pandas_df[automl_target_label] = cur_target_values
                 print(f"RSS after automl_target_label inserting: {get_own_ram_usage():.1f}GBs")
 
                 automl_train_df = pandas_df.iloc[tran_val_idx].copy()
 
-                test_target = target.iloc[test_idx]
+                test_target = cur_target_values.iloc[test_idx]
 
             if use_autogluon_models:
                 if verbose:
                     logger.info(f"train_and_evaluate_autogluon...")
-                models[cur_target].append(
+                models[cur_target_name].append(
                     train_and_evaluate_autogluon(
                         train_df=automl_train_df,
                         test_df=test_df,
@@ -3135,7 +3135,7 @@ def train_mlframe_models_suite(
                 if verbose:
                     logger.info(f"train_and_evaluate_lama...")
 
-                models[cur_target][target_type].append(
+                models[cur_target_name][target_type].append(
                     train_and_evaluate_lama(
                         train_df=automl_train_df,
                         test_df=test_df,
