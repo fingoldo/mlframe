@@ -3006,13 +3006,17 @@ def train_mlframe_models_suite(
                 cat_features = next_df.head().select(pl.col(pl.Categorical, pl.Object)).columns
             break
 
-    if False and cat_features:
+    if cat_features:
         for next_df in ( train_df, val_df, test_df):
             if next_df is not None and isinstance(next_df, pd.DataFrame):
-                prepare_df_for_catboost(
-                    df=next_df,
-                    cat_features=cat_features,
-                )
+                if isinstance(next_df, pd.DataFrame):
+                    obj_features = next_df.head().select_dtypes( "object").columns.tolist()
+                    if obj_features:
+                        prepare_df_for_catboost(
+                            df=next_df,
+                            cat_features=obj_features,
+                        )
+
 
     # ensure_dataframe_float32_convertability(df)
     
