@@ -229,7 +229,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import PowerTransformer
 from sklearn.compose import TransformedTargetRegressor
-from sklearn.preprocessing import StandardScaler,RobustScaler
+from sklearn.preprocessing import StandardScaler, RobustScaler
 
 from mlframe.preprocessing import prepare_df_for_catboost
 
@@ -599,7 +599,7 @@ def get_training_configs(
         sampler=None,
         batch_sampler=None,
         num_workers=0,  # min(8, psutil.cpu_count(logical=False)),
-        #collate_fn=custom_collate_fn,  # required for __getitems__ to work in TorchDataset down the road
+        # collate_fn=custom_collate_fn,  # required for __getitems__ to work in TorchDataset down the road
         drop_last=False,
         timeout=0,
         worker_init_fn=None,
@@ -2471,10 +2471,10 @@ def make_train_test_split(
 
     else:
         # Row-based splitting without timestamps (fallback to sklearn)
-        if test_size>0:
+        if test_size > 0:
             train_idx, test_idx = train_test_split(np.arange(len(df)), test_size=test_size, shuffle=shuffle_test)
         else:
-            train_idx, test_idx = np.arange(len(df)),None
+            train_idx, test_idx = np.arange(len(df)), None
         train_idx, val_idx = train_test_split(train_idx, test_size=val_size, shuffle=shuffle_val)
 
         if trainset_aging_limit:
@@ -2483,7 +2483,9 @@ def make_train_test_split(
 
         train_details, val_details, test_details = "", "", ""
 
-    print(f"{len(train_idx):_} train rows {train_details}, {len(val_idx):_} val rows {val_details}, {len(test_idx) if test_idx else 0:_} test rows {test_details}.")
+    print(
+        f"{len(train_idx):_} train rows {train_details}, {len(val_idx):_} val rows {val_details}, {len(test_idx) if test_idx is not None else 0:_} test rows {test_details}."
+    )
 
     return train_idx, val_idx, test_idx, train_details, val_details, test_details
 
@@ -2515,11 +2517,11 @@ def select_target(
     if target.dtype in (np.float64, np.float32, np.float16):
         model_name += f" MT={target.mean():.4f}"
     else:
-        vlcnts=target.value_counts(normalize=True)
+        vlcnts = target.value_counts(normalize=True)
         if 1 in vlcnts.index:
-            perc=vlcnts.loc[1]
+            perc = vlcnts.loc[1]
         else:
-            perc=0
+            perc = 0
         model_name += f" BT={perc*100:.0f}%"
     print("model_name=", model_name)
 
@@ -2771,6 +2773,7 @@ def train_mlframe_models_suite(
     scaler: object = None,
     category_encoder: object = None,
 ) -> dict:
+    """In a unified fashion, train a bunch of models over the same data."""
 
     # cb_kwargs=dict(devices='0-4')
 
@@ -2855,7 +2858,7 @@ def train_mlframe_models_suite(
         pandas_df = tmp.fill_null(nans_filler).with_columns(pl.col(pl.Float64).cast(pl.Float32)).to_pandas()  # ! TODO !
         if verbose:
             logger.info(f"Converted polars df to pandas, RAM usage after: {get_own_ram_usage():.1f}GBs...")
-        print("pandas_df cols with nans",pandas_df.columns[pandas_df.isna().any()].tolist())
+        print("pandas_df cols with nans", pandas_df.columns[pandas_df.isna().any()].tolist())
     else:
         if isinstance(pandas_df, str):
             if verbose:
@@ -2940,8 +2943,8 @@ def train_mlframe_models_suite(
     test_df = pandas_df.iloc[test_idx] if test_idx is not None else None
     val_df = pandas_df.iloc[val_idx]
 
-    print("train_df cols with nans",train_df.columns[train_df.isna().any()].tolist())
-    print("val_df cols with nans",val_df.columns[val_df.isna().any()].tolist())
+    print("train_df cols with nans", train_df.columns[train_df.isna().any()].tolist())
+    print("val_df cols with nans", val_df.columns[val_df.isna().any()].tolist())
 
     columns = pandas_df.columns
 
