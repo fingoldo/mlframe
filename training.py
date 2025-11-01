@@ -2126,8 +2126,7 @@ def configure_training_params(
         lgb_rfecv,
         xgb_rfecv,
         cpu_configs,
-        gpu_configs,
-        cat_features,
+        gpu_configs,        
     )
 
 
@@ -2655,7 +2654,7 @@ def select_target(
         lgb_rfecv=lgb_rfecv,
         xgb_rfecv=xgb_rfecv,
     )
-    return common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs, cat_features
+    return common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs
 
 
 def process_model(
@@ -3078,7 +3077,7 @@ def train_mlframe_models_suite(
                 cur_control_params_override = control_params_override.copy()
                 cur_control_params_override["use_regression"] = target_type == TargetTypes.REGRESSION
 
-                common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs, cat_features = select_target(
+                common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs = select_target(
                     model_name=f"{target_name} {model_name} {cur_target_name}",
                     target=cur_target_values,
                     df=None,
