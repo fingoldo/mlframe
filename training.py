@@ -297,6 +297,50 @@ def get_function_param_names(func):
     signature = inspect.signature(func)
     return list(signature.parameters.keys())
 
+def parse_catboost_devices(devices: str,all_gpus:list=None) -> List[Dict]:
+    """
+    Parses a GPU devices string and returns a list of GPU info dicts
+    corresponding to the specified device indices.
+    
+    Parameters
+    ----------
+    devices : str
+        A string specifying device indices. Formats supported:
+          - "0"             (single GPU)
+          - "0:1:3"         (multiple GPUs)
+          - "0-3"           (range of GPUs, inclusive)
+    
+    Returns
+    -------
+    list[dict]
+        Filtered list of GPU info dictionaries.
+    """
+
+    if not all_gpus:
+        all_gpus = get_gpuinfo_gpu_info()
+        
+    if not devices:
+        return all_gpus
+
+    # Parse the devices string
+    device_indices = []
+    if "-" in devices:  # range format
+        start, end = devices.split("-")
+        device_indices = list(range(int(start), int(end) + 1))
+    elif ":" in devices:  # multiple specific GPUs
+        device_indices = [int(x) for x in devices.split(":")]
+    else:  # single GPU
+        device_indices = [int(devices)]
+
+    # Validate indices
+    max_index = len(all_gpus) - 1
+    invalid = [i for i in device_indices if i < 0 or i > max_index]
+    if invalid:
+        raise ValueError(f"Invalid GPU indices {invalid}. Available range: 0-{max_index}")
+
+    # Filter GPU list
+    filtered_gpus = [gpu for gpu in all_gpus if gpu["index"] in device_indices]
+    return filtered_gpus
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Enums
@@ -322,6 +366,13 @@ CUDA_IS_AVAILABLE = is_cuda_available()
 MODELS_SUBDIR = "models"
 PARQUET_COMPRESION: str = "zstd"
 all_results = {}
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Constants
+# ----------------------------------------------------------------------------------------------------------------------------
+
+GPU_VRAM_SAFE_SATURATION_LIMIT:float=0.9
+GPU_VRAM_SAFE_FREE_LIMIT_GB:float=0.1
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Custom Error Metrics & training configs
@@ -1786,21 +1837,28 @@ def configure_training_params(
     train_df: pd.DataFrame = None,
     test_df: pd.DataFrame = None,
     val_df: pd.DataFrame = None,
+    #
     target: pd.Series = None,
+    target_label_encoder: object = None,
     train_target: pd.Series = None,
-    test_target: pd.Series = None,
+    test_target: pd.Series = None,    
     val_target: pd.Series = None,
+    #
     train_idx: np.ndarray = None,
     val_idx: np.ndarray = None,
     test_idx: np.ndarray = None,
-    robustness_features: Sequence = [],
-    target_label_encoder: object = None,
-    sample_weight: np.ndarray = None,
-    prefer_gpu_configs: bool = True,
+    #
+    cat_features:list=None,
+    #
+    robustness_features: Sequence = [],    
+    cont_nbins: int = 6,
     use_robust_eval_metric: bool = False,
+    #
+    sample_weight: np.ndarray = None,
+    prefer_gpu_configs: bool = True,    
     nbins: int = 10,
     use_regression: bool = False,
-    cont_nbins: int = 6,
+    
     verbose: bool = True,
     rfecv_model_verbose: bool = True,
     prefer_cpu_for_lightgbm: bool = True,
@@ -1833,23 +1891,14 @@ def configure_training_params(
     if config_params is None:
         config_params = {}
 
-    for next_df in (df, train_df):
-        if next_df is not None:
-            if isinstance(next_df, pd.DataFrame):
-                cat_features = next_df.head().select_dtypes(("category", "object")).columns.tolist()
-            elif isinstance(next_df, pl.DataFrame):
-                cat_features = next_df.head().select(pl.col(pl.Categorical, pl.Object)).columns
-            break
-
-    if cat_features:
-        for next_df in (df, train_df, val_df, test_df):
-            if next_df is not None and isinstance(next_df, pd.DataFrame):
-                prepare_df_for_catboost(
-                    df=next_df,
-                    cat_features=cat_features,
-                )
-
-    # ensure_dataframe_float32_convertability(df)
+    if not use_regression:
+        if "catboost_custom_classif_metrics" not in config_params:
+            nlabels = len(np.unique(target))
+            if nlabels > 2:
+                catboost_custom_classif_metrics = ["AUC", "PRAUC"]
+            else:
+                catboost_custom_classif_metrics = ["AUC", "PRAUC", "BrierScore"]
+            config_params["catboost_custom_classif_metrics"] = catboost_custom_classif_metrics
 
     if robustness_features:
         for next_df in (df, train_df):
@@ -1864,24 +1913,33 @@ def configure_training_params(
             subgroups=subgroups, train_idx=train_idx, val_idx=val_idx, test_idx=test_idx, group_weights={}, cont_nbins=cont_nbins
         )
     else:
-        indexed_subgroups = None
-
-    if not use_regression:
-        if "catboost_custom_classif_metrics" not in config_params:
-            nlabels = len(np.unique(target))
-            if nlabels > 2:
-                catboost_custom_classif_metrics = ["AUC", "PRAUC"]
-            else:
-                catboost_custom_classif_metrics = ["AUC", "PRAUC", "BrierScore"]
-            config_params["catboost_custom_classif_metrics"] = catboost_custom_classif_metrics
+        indexed_subgroups = None 
 
     cpu_configs = get_training_configs(has_gpu=False, subgroups=indexed_subgroups, **config_params)
     gpu_configs = get_training_configs(has_gpu=None, subgroups=indexed_subgroups, **config_params)
 
-    data_fits_gpu_ram = True  # ! TODO !
+    train_df_size=get_df_memory_consumption(train_df)
+    val_df_size=get_df_memory_consumption(val_df) if val_df is not None else 0
+    data_size_gb= (train_df_size+val_df_size)/(1024**3)
+
+    all_gpus=get_gpuinfo_gpu_info()
+    single_gpu_limits=compute_total_gpus_ram(all_gpus)    
+
+    data_fits_gpu_ram =(GPU_VRAM_SAFE_SATURATION_LIMIT*data_size_gb+GPU_VRAM_SAFE_FREE_LIMIT_GB)<single_gpu_limits.get("gpu_max_ram_total",0)    
+    
+    cb_devices=config_params.get("cb_kwargs",{}).get("devices")
+    if cb_devices:
+        multi_gpu_limits=compute_total_gpus_ram(parse_catboost_devices(cb_devices,all_gpus=all_gpus))
+        data_fits_cb_gpu_ram =(GPU_VRAM_SAFE_SATURATION_LIMIT*data_size_gb+GPU_VRAM_SAFE_FREE_LIMIT_GB)<multi_gpu_limits.get("gpus_ram_total",0)    
+    else:
+        data_fits_cb_gpu_ram=data_fits_gpu_ram
+
+
+    logger.info(f"data_fits_gpu_ram={data_fits_gpu_ram}, data_fits_cb_gpu_ram={data_fits_cb_gpu_ram}, cb_devices={cb_devices}")
 
     configs = gpu_configs if (prefer_gpu_configs and data_fits_gpu_ram) else cpu_configs
-
+    cb_configs = gpu_configs if (prefer_gpu_configs and data_fits_cb_gpu_ram) else cpu_configs
+  
     common_params = dict(
         nbins=nbins,
         subgroups=subgroups,
@@ -1910,9 +1968,9 @@ def configure_training_params(
 
     cb_params = dict(
         model=(
-            metamodel_func(CatBoostRegressor(**configs.CB_REGR))
+            metamodel_func(CatBoostRegressor(**cb_configs.CB_REGR))
             if use_regression
-            else CatBoostClassifier(**(configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.CB_CLASSIF))
+            else CatBoostClassifier(**(cb_configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else cb_configs.CB_CLASSIF))
         ),
         fit_params=dict(plot=verbose, cat_features=cat_features, **cb_fit_params),
     )
@@ -1998,7 +2056,8 @@ def configure_training_params(
     # Setting up RFECV
     # ----------------------------------------------------------------------------------------------------------------------------------------------------
 
-    rfecv_params = configs.COMMON_RFECV_PARAMS.copy()
+    rfecv_params = configs.COMMON_RFECV_PARAMS
+    cb_rfecv_params = cb_configs.COMMON_RFECV_PARAMS
 
     if use_regression:
         rfecv_scoring = make_scorer(**default_regression_scoring)
@@ -2015,19 +2074,19 @@ def configure_training_params(
                 greater_is_better=False,
             )
         else:
-            rfecv_scoring = make_scorer(**default_classification_scoring)
+            rfecv_scoring = make_scorer(**default_classification_scoring)    
 
+    params = (cb_configs.CB_REGR if use_regression else (cb_configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else cb_configs.CB_CLASSIF)).copy()
+    
     # !TODO ! allow separate params (device ,num_iters) for FS
-
-    params = configs.CB_REGR if use_regression else (configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.CB_CLASSIF)
-    params["iterations"] = params["iterations"] // 2
+    # params["iterations"] = params["iterations"] // 2
 
     cb_rfecv = RFECV(
         estimator=(metamodel_func(CatBoostRegressor(**params)) if use_regression else CatBoostClassifier(**params)),
         fit_params=dict(plot=rfecv_model_verbose > 1),
         cat_features=cat_features,
         scoring=rfecv_scoring,
-        **rfecv_params,
+        **cb_rfecv_params,
     )
 
     if prefer_cpu_for_lightgbm:
@@ -2499,6 +2558,7 @@ def select_target(
     val_details: str = "",
     test_details: str = "",
     group_ids: np.ndarray = None,
+    cat_features:list=None,
     #
     control_params: dict = None,
     control_params_override: dict = None,
@@ -2567,7 +2627,6 @@ def select_target(
         xgb_rfecv,
         cpu_configs,
         gpu_configs,
-        cat_features,
     ) = configure_training_params(
         df=df,
         train_df=train_df,
@@ -2575,6 +2634,7 @@ def select_target(
         test_df=test_df,
         target=target,
         target_label_encoder=None,
+        cat_features=cat_features,
         train_idx=train_idx,
         val_idx=val_idx,
         test_idx=test_idx,
@@ -2938,6 +2998,25 @@ def train_mlframe_models_suite(
     test_df = pandas_df.iloc[test_idx] if test_idx is not None else None
     val_df = pandas_df.iloc[val_idx]
 
+
+    for next_df in (pandas_df, polars_df):
+        if next_df is not None:
+            if isinstance(next_df, pd.DataFrame):
+                cat_features = next_df.head().select_dtypes(("category", "object")).columns.tolist()
+            elif isinstance(next_df, pl.DataFrame):
+                cat_features = next_df.head().select(pl.col(pl.Categorical, pl.Object)).columns
+            break
+
+    if False and cat_features:
+        for next_df in ( train_df, val_df, test_df):
+            if next_df is not None and isinstance(next_df, pd.DataFrame):
+                prepare_df_for_catboost(
+                    df=next_df,
+                    cat_features=cat_features,
+                )
+
+    # ensure_dataframe_float32_convertability(df)
+    
     print("train_df cols with nans", train_df.columns[train_df.isna().any()].tolist())
     print("val_df cols with nans", val_df.columns[val_df.isna().any()].tolist())
 
@@ -3013,6 +3092,7 @@ def train_mlframe_models_suite(
                     val_details=val_details,
                     test_details=test_details,
                     group_ids=group_ids,
+                    cat_features=cat_features,
                     config_params=config_params,
                     config_params_override=config_params_override,
                     control_params=control_params,
