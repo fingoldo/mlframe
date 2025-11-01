@@ -32,6 +32,8 @@ from collections import defaultdict
 
 from timeit import default_timer as timer
 from pyutilz.system import ensure_dir_exists, tqdmu
+from pyutilz.pandaslib import get_df_memory_consumption
+from pyutilz.system import compute_total_gpus_ram, get_gpuinfo_gpu_info
 from pyutilz.pythonlib import prefix_dict_elems, get_human_readable_set_size, is_jupyter_notebook
 
 from mlframe.helpers import get_model_best_iter, ensure_no_infinity, get_own_ram_usage
@@ -1381,7 +1383,7 @@ def report_model_perf(
     group_ids: np.ndarray = None,
 ):
 
-    if is_classifier(model) or (model is None and probs is not None):
+    if is_classifier(model) or type(model).__name__=="NGBClassifier" or (model is None and probs is not None):
         preds, probs = report_probabilistic_model_perf(
             targets=targets,
             columns=columns,
@@ -1877,8 +1879,6 @@ def configure_training_params(
     gpu_configs = get_training_configs(has_gpu=None, subgroups=indexed_subgroups, **config_params)
 
     data_fits_gpu_ram = True  # ! TODO !
-    from pyutilz.pandaslib import get_df_memory_consumption
-    from pyutilz.system import compute_total_gpus_ram, get_gpuinfo_gpu_info
 
     configs = gpu_configs if (prefer_gpu_configs and data_fits_gpu_ram) else cpu_configs
 
@@ -1958,11 +1958,6 @@ def configure_training_params(
     # ----------------------------------------------------------------------------------------------------------------------------------------------------
 
     mlp_kwargs = config_params.get("mlp_kwargs", {})
-
-    if use_regression:
-        num_classes = 1
-    else:
-        num_classes = 2
 
     mlp_network_params = dict(
         nlayers=20,
@@ -3332,7 +3327,7 @@ class UniversalCallback:
         self.start_time = timer()
         if self.verbose > 0:
             self.last_reporting_ts = self.start_time
-            logger.info("Training started. Timer initiated.")
+            logger.info(f"Training started. Timer initiated. RAM usage {get_own_ram_usage():.1f}GBs.")
 
     def update_history(self, metrics_dict: Dict[str, Dict[str, float]]) -> None:
         for dataset in metrics_dict:
