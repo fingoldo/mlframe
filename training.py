@@ -2766,10 +2766,27 @@ def intize_targets(targets: dict) -> None:
             target = target.astype(np.int8)
         targets[target_name] = target
 
+# Define the zero-copy conversion function
+def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
+    assert isinstance(df, (pl.DataFrame, pl.Series))
+    arr_df = df.to_arrow()
+    pandas_df = arr_df.to_pandas(types_mapper=lambda t: pd.ArrowDtype(t))
+    return pandas_df
+
+# Helper function to save series or dataframe to parquet
+def save_series_or_df(obj: Union[pd.Series, pd.DataFrame, pl.Series, pl.DataFrame], file: str, compression: str, name: str = None):
+    if isinstance(obj, (pd.Series, pl.Series)):
+        if name:
+            obj = obj.to_frame(name=name)
+        else:
+            obj = obj.to_frame()
+    if isinstance(obj, pd.DataFrame):
+        obj.to_parquet(file, compression=compression)
+    elif isinstance(obj, pl.DataFrame):
+        obj.write_parquet(file, compression=compression)
 
 def train_mlframe_models_suite(
-    polars_df: pl.DataFrame,
-    pandas_df: pd.DataFrame,
+    df: Union[pl.DataFrame, pd.DataFrame, str],
     target_name: str,
     model_name: str,
     preprocess_dataframe: Callable,
@@ -2808,8 +2825,7 @@ def train_mlframe_models_suite(
     drop_columns: list = None,
     tail: int = None,
     #
-    nans_filler: float = 0.0,
-    use_pandas_fillna: bool = False,
+    fillna_value: float = None,
     #
     test_size: float = 0.1,
     val_size: float = 0.1,
@@ -2828,56 +2844,41 @@ def train_mlframe_models_suite(
     category_encoder: object = None,
 ) -> dict:
     """In a unified fashion, train a bunch of models over the same data."""
-
-    # cb_kwargs=dict(devices='0-4')
-
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Warnings
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
-
     warnings.filterwarnings(
         "ignore",
         message=r"The '.*_dataloader' does not have many workers",
         module="lightning.pytorch.trainer.connectors.data_connector",
     )
-
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Inits
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
-
     trainset_features_stats = None
-
+    
     # if imputer is None:
-    #    imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
-
+    # imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
+    
     if category_encoder is None:
         category_encoder = ce.CatBoostEncoder()
-
     if rfecv_models is None:
         rfecv_models = []
-
     if mrmr_kwargs is None:
         mrmr_kwargs = dict(n_workers=max(1, psutil.cpu_count(logical=False)), verbose=2, fe_max_steps=0)
-
     if mlframe_models is None:
         mlframe_models = "cb lgb xgb mlp".split()
-
     if init_common_params is None:
         init_common_params = {}
-
     if autogluon_fit_params is None:
         autogluon_fit_params = {}
     if autogluon_init_params is None:
         autogluon_init_params = {}
-
     if lama_init_params is None:
         from lightautoml.tasks import Task
-
         lama_init_params = dict(task=Task("binary"))
-
     if lama_fit_params is None:
         lama_fit_params = {}
-
     if report_params is None:
         report_params = dict(
             nbins=10,
@@ -2893,69 +2894,51 @@ def train_mlframe_models_suite(
             # custom_rice_metric=custom_rice_metric,
             # metrics=metrics["test"],
         )
-
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
-    # Conversion to Pandas & splitting
+    # Load, fill, and prepare df
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
-
-    if polars_df is not None and pandas_df is None:
-
-        if columns:
-            tmp = polars_df.select(columns)
-        else:
-            tmp = polars_df
-
+    if isinstance(df, str):
         if verbose:
-            logger.info(f"Converting polars df to pandas, RAM usage before: {get_own_ram_usage():.1f}GBs...")
-
-        pandas_df = tmp.fill_null(nans_filler).with_columns(pl.col(pl.Float64).cast(pl.Float32)).to_pandas()  # ! TODO !
-
+            logger.info(f"Loading df from file with Polars, RAM usage before: {get_own_ram_usage():.1f}GBs...")
+        df = pl.read_parquet(df, columns=columns)
         if verbose:
-            logger.info(f"Converted polars df to pandas, RAM usage after: {get_own_ram_usage():.1f}GBs...")
-
-        print("pandas_df cols with nans", pandas_df.columns[pandas_df.isna().any()].tolist())
-        
-    else:
-        if isinstance(pandas_df, str):
+            logger.info(f"Loaded df from file with Polars, RAM usage after: {get_own_ram_usage():.1f}GBs...")
+    if fillna_value is not None:
+        if isinstance(df, pl.DataFrame):
+            df = df.fill_null(fillna_value).fill_nan(fillna_value)
             if verbose:
-                logger.info(f"Loading pandas df from file, RAM usage before: {get_own_ram_usage():.1f}GBs...")
-            pandas_df = pd.read_parquet(pandas_df, columns=columns)
+                logger.info(f"Filled nulls/nans in Polars df.")
+        elif isinstance(df, pd.DataFrame):
+            df = df.fillna(fillna_value)
             if verbose:
-                logger.info(f"Loaded pandas df from file, RAM usage after: {get_own_ram_usage():.1f}GBs...")
-        if use_pandas_fillna:
-            if verbose:
-                logger.info(f"pandas fillna started...")
-            pandas_df = pandas_df.fillna(nans_filler)
-            if verbose:
-                logger.info(f"pandas fillna finished.")
-        else:
-            if verbose:
-                logger.warning(f"Note that pandas dataframe is expected to be fillna upfront, by you.")
+                logger.info(f"Filled nans in Pandas df.")
+    if isinstance(df, pl.DataFrame):
+        df = df.with_columns(pl.col(pl.Float64).cast(pl.Float32))
+        null_cols = [col for col in df.columns if df.null_count().select(pl.col(col)).item() > 0 or (df[col].dtype.is_float() and df[col].is_nan().sum() > 0)]
+        print("df cols with nulls/nans", null_cols)
+    elif isinstance(df, pd.DataFrame):
+        print("df cols with nans", df.columns[df.isna().any()].tolist())
     clean_ram()
-
     if drop_columns:
         for col in drop_columns:
-            if col in pandas_df:
-                del pandas_df[col]
+            if col in df.columns:
+                if isinstance(df, pd.DataFrame):
+                    del df[col]
+                else:
+                    df = df.drop(col)
                 logger.info(f"Dropped column {col}")
         clean_ram()
-
     if tail:
-        pandas_df = pandas_df.tail(tail)
+        df = df.tail(tail)
         clean_ram()
-
     if verbose:
         logger.info(f"preprocess_dataframe...")
-
-    pandas_df, target_types, group_ids_raw, group_ids, timestamps, artifacts = preprocess_dataframe(pandas_df)
-
+    df, target_types, group_ids_raw, group_ids, timestamps, artifacts = preprocess_dataframe(df)
     clean_ram()
-
     if verbose:
         logger.info(f"make_train_test_split...")
-
     train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
-        df=pandas_df,
+        df=df,
         timestamps=timestamps,
         test_size=test_size,
         val_size=val_size,
@@ -2967,122 +2950,96 @@ def train_mlframe_models_suite(
         wholeday_splitting=wholeday_splitting,
         random_seed=random_seed,
     )
-
     if data_dir is not None and models_dir:
         ensure_dir_exists(join(data_dir, models_dir, slugify(target_name), slugify(model_name)))
-
         for idx, idx_name in zip([train_idx, val_idx, test_idx], "train val test".split()):
             if idx is None:
                 continue
             if timestamps is not None:
                 ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_timestamps.parquet")
                 if not exists(ts_file):
-                    timestamps.iloc[idx].to_frame(name="ts").to_parquet(ts_file, compression=PARQUET_COMPRESION)
-
+                    save_series_or_df(timestamps[idx], ts_file, PARQUET_COMPRESION, name="ts")
             if group_ids_raw is not None:
-                ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_group_ids_raw.parquet")
-                if not exists(ts_file):
-                    group_ids_raw.iloc[idx].to_frame().to_parquet(ts_file, compression=PARQUET_COMPRESION)
-
+                gid_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_group_ids_raw.parquet")
+                if not exists(gid_file):
+                    save_series_or_df(group_ids_raw[idx], gid_file, PARQUET_COMPRESION)
             if artifacts is not None:
-                ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_artifacts.parquet")
-                if not exists(ts_file):
-                    obj = artifacts.iloc[idx]
-                    if isinstance(obj, pd.Series):
-                        obj = obj.to_frame()
-                    obj.to_parquet(ts_file, compression=PARQUET_COMPRESION)
-
+                art_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_artifacts.parquet")
+                if not exists(art_file):
+                    save_series_or_df(artifacts[idx], art_file, PARQUET_COMPRESION)
     if verbose:
         logger.info(f"creating train_df,val_df,test_df...")
-
-    train_df = pandas_df.iloc[train_idx]
-    test_df = pandas_df.iloc[test_idx] if test_idx is not None else None
-    val_df = pandas_df.iloc[val_idx]
-
-
-    for next_df in (pandas_df, polars_df):
-        if next_df is not None:
-            if isinstance(next_df, pd.DataFrame):
-                cat_features = next_df.head().select_dtypes(("category", "object")).columns.tolist()
-            elif isinstance(next_df, pl.DataFrame):
-                cat_features = next_df.head().select(pl.col(pl.Categorical, pl.Object)).columns
-            break
-
+    train_df = df[train_idx]
+    test_df = df[test_idx] if test_idx is not None else None
+    val_df = df[val_idx]
+    if isinstance(df, pd.DataFrame):
+        cat_features = df.head().select_dtypes(("category", "object")).columns.tolist()
+    elif isinstance(df, pl.DataFrame):
+        cat_features = [col for col in df.columns if df.schema[col] in (pl.Categorical, pl.Object)]
     if cat_features:
-        for next_df in ( train_df, val_df, test_df):
+        for next_df in (train_df, val_df, test_df):
             if next_df is not None and isinstance(next_df, pd.DataFrame):
-                if isinstance(next_df, pd.DataFrame):
-                    obj_features = next_df.head().select_dtypes( "object").columns.tolist()
-                    if obj_features:
-                        prepare_df_for_catboost(
-                            df=next_df,
-                            cat_features=obj_features,
-                        )
-
-
+                obj_features = next_df.head().select_dtypes("object").columns.tolist()
+                if obj_features:
+                    prepare_df_for_catboost(
+                        df=next_df,
+                        cat_features=obj_features,
+                    )
     # ensure_dataframe_float32_convertability(df)
-    
-    print("train_df cols with nans", train_df.columns[train_df.isna().any()].tolist())
-    print("val_df cols with nans", val_df.columns[val_df.isna().any()].tolist())
-
-    columns = pandas_df.columns
-
+    if isinstance(train_df, pd.DataFrame):
+        print("train_df cols with nans", train_df.columns[train_df.isna().any()].tolist())
+    elif isinstance(train_df, pl.DataFrame):
+        null_cols = [col for col in train_df.columns if train_df.null_count().select(pl.col(col)).item() > 0 or (train_df[col].dtype.is_float() and train_df[col].is_nan().sum() > 0)]
+        print("train_df cols with nulls/nans", null_cols)
+    if isinstance(val_df, pd.DataFrame):
+        print("val_df cols with nans", val_df.columns[val_df.isna().any()].tolist())
+    elif isinstance(val_df, pl.DataFrame):
+        null_cols = [col for col in val_df.columns if val_df.null_count().select(pl.col(col)).item() > 0 or (val_df[col].dtype.is_float() and val_df[col].is_nan().sum() > 0)]
+        print("val_df cols with nulls/nans", null_cols)
+    columns = df.columns
     clean_ram()
-
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Checks
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
-
     if use_autogluon_models or use_lama_models:
-        if automl_target_label in pandas_df:
-            logger.warning(f"Your datafame ALREADY contains {automl_target_label} column that will be used by automl as temp target!")
-
         tran_val_idx = np.array(train_idx.tolist() + val_idx.tolist())
         if verbose:
             logger.info(f"RSS at start: {get_own_ram_usage():.1f}GBs")
     else:
         if verbose:
-            logger.info(f"Ram usage before deleting main pandas df: {get_own_ram_usage():.1f}GBs")
-        del pandas_df
+            logger.info(f"Ram usage before deleting main df: {get_own_ram_usage():.1f}GBs")
+        del df
         clean_ram()
         if verbose:
-            logger.info(f"Ram usage after deleting main pandas df: {get_own_ram_usage():.1f}GBs")
-
+            logger.info(f"Ram usage after deleting main df: {get_own_ram_usage():.1f}GBs")
     models = defaultdict(lambda: defaultdict(list))
-
     for target_type, targets in tqdmu(target_types.items(), desc="target type"):
-
         # !TODO ! optimize for creation of inner feature matrices of cb,lgb,xgb here. They should be created once per featureset, not once per target.
-
         for cur_target_name, cur_target_values in tqdmu(targets.items(), desc="target"):
             if mlframe_models:
-
                 if use_autogluon_models or use_lama_models:
-                    if automl_target_label in pandas_df:
-                        del pandas_df[automl_target_label]
+                    if automl_target_label in df.columns:
+                        if isinstance(df, pd.DataFrame):
+                            del df[automl_target_label]
+                        else:
+                            df = df.drop(automl_target_label)
                         if verbose:
                             logger.info(f"RSS after automl_target_label deletion: {get_own_ram_usage():.1f}GBs")
-
                 parts = slugify(target_name), slugify(model_name), slugify(target_type.lower()), slugify(cur_target_name)
-
                 if data_dir is not None:
                     plot_file = join(data_dir, "charts", *parts) + os.path.sep
                     ensure_dir_exists(plot_file)
                 else:
                     plot_file = None
-
                 if models_dir is not None:
                     model_file = join(data_dir, models_dir, *parts) + os.path.sep
                     ensure_dir_exists(model_file)
                 else:
                     model_file = None
-
                 if verbose:
                     logger.info(f"select_target...")
-
                 cur_control_params_override = control_params_override.copy()
                 cur_control_params_override["use_regression"] = target_type == TargetTypes.REGRESSION
-
                 common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs = select_target(
                     model_name=f"{target_name} {model_name} {cur_target_name}",
                     target=cur_target_values,
@@ -3106,41 +3063,33 @@ def train_mlframe_models_suite(
                         trainset_features_stats=trainset_features_stats, skip_infinity_checks=skip_infinity_checks, plot_file=plot_file, **init_common_params
                     ),
                 )
-
                 pre_pipelines = []
                 pre_pipeline_names = []
-
                 if use_ordinary_models:
                     pre_pipelines.append(None)
                     pre_pipeline_names.append("")
-
                 for rfecv_model_name in rfecv_models:
                     if rfecv_model_name not in rfecv_models_params:
                         logger.warning(f"RFECV model {rfecv_model_name} not known, skipping...")
                     else:
                         pre_pipelines.append(rfecv_models_params[rfecv_model_name])
                         pre_pipeline_names.append(f"{rfecv_model_name} ")
-
                 if use_mrmr_fs:
                     pre_pipelines.append(MRMR(**mrmr_kwargs))
                     pre_pipeline_names.append("MRMR ")
-
                 for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
                     if pre_pipeline_name == "cb_rfecv" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
                         # File /venv/main/lib/python3.12/site-packages/sklearn/base.py:142, in _clone_parametrized(estimator, safe)
                         # RuntimeError: Cannot clone object <catboost.core.CatBoostRegressor object at 0x713048b0e840>, as the constructor either does not set or modifies parameter custom_metric
                         continue
-
                     ens_models = [] if use_mlframe_ensembles else None
                     orig_pre_pipeline = pre_pipeline
                     for mlframe_model_name in mlframe_models:
                         if mlframe_model_name == "cb" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
                             continue
-
                         if mlframe_model_name not in models_params:
                             logger.warning(f"mlframe model {mlframe_model_name} not known, skipping...")
                         else:
-
                             if mlframe_model_name == "hgb" and cat_features:
                                 pre_pipeline = Pipeline(
                                     steps=[
@@ -3157,7 +3106,6 @@ def train_mlframe_models_suite(
                                         *([("scaler", scaler)] if scaler else []),
                                     ]
                                 )
-
                             trainset_features_stats, pre_pipeline = process_model(
                                 model_file=model_file,
                                 model_name=mlframe_model_name,
@@ -3172,37 +3120,35 @@ def train_mlframe_models_suite(
                                 trainset_features_stats=trainset_features_stats,
                                 verbose=verbose,
                             )
-
                             if mlframe_model_name not in ("hgb", "mlp", "ngb"):
                                 orig_pre_pipeline = pre_pipeline
-
                     if ens_models and len(ens_models) > 1:
-
                         if verbose:
                             logger.info(f"evaluating simple ensembles...")
-
                         ensembles = score_ensemble(
                             models_and_predictions=ens_models,
                             ensemble_name=pre_pipeline_name + f"{len(ens_models)}models ",
                             **common_params,
                         )
-
             if use_autogluon_models or use_lama_models:
-
-                pandas_df[automl_target_label] = cur_target_values
+                if isinstance(df, pd.DataFrame):
+                    df[automl_target_label] = cur_target_values
+                else:
+                    df = df.with_columns(pl.Series(automl_target_label, cur_target_values))
                 print(f"RSS after automl_target_label inserting: {get_own_ram_usage():.1f}GBs")
-
-                automl_train_df = pandas_df.iloc[tran_val_idx].copy()
-
-                test_target = cur_target_values.iloc[test_idx]
-
+                if isinstance(df, pd.DataFrame):
+                    automl_train_df = df.iloc[tran_val_idx].copy()
+                else:
+                    automl_train_df = get_pandas_view_of_polars_df(df[tran_val_idx])
+                test_target = cur_target_values[test_idx]
+                test_df_automl = test_df if isinstance(test_df, pd.DataFrame) else (get_pandas_view_of_polars_df(test_df) if test_df is not None else None)
             if use_autogluon_models:
                 if verbose:
                     logger.info(f"train_and_evaluate_autogluon...")
                 models[cur_target_name].append(
                     train_and_evaluate_autogluon(
                         train_df=automl_train_df,
-                        test_df=test_df,
+                        test_df=test_df_automl,
                         test_target=test_target,
                         columns=columns,
                         model_name=model_name,
@@ -3215,15 +3161,13 @@ def train_mlframe_models_suite(
                         group_ids=group_ids[test_idx] if group_ids is not None else None,
                     )
                 )
-
             if use_lama_models:
                 if verbose:
                     logger.info(f"train_and_evaluate_lama...")
-
                 models[cur_target_name][target_type].append(
                     train_and_evaluate_lama(
                         train_df=automl_train_df,
-                        test_df=test_df,
+                        test_df=test_df_automl,
                         test_target=test_target,
                         columns=columns,
                         model_name=model_name,
@@ -3236,9 +3180,7 @@ def train_mlframe_models_suite(
                         group_ids=group_ids[test_idx] if group_ids is not None else None,
                     )
                 )
-
     return models
-
 
 # AUTOML
 
