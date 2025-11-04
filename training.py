@@ -2955,9 +2955,9 @@ def showcase_features_and_targets(df: Union[pd.DataFrame, pl.DataFrame], target_
 def intize_targets(targets: dict) -> None:
     for target_name, target in targets.copy().items():
         if isinstance(target, pl.Series):
-            target = target.cast(pl.Int8)
+            target = target.cast(pl.Int8).to_numpy()
         else:
-            target = target.astype(np.int8)
+            target = target.astype(np.int8).values
         targets[target_name] = target
 
 
