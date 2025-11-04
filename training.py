@@ -130,8 +130,7 @@ from IPython.display import display
 
 import polars.selectors as cs
 import pandas as pd, numpy as np, polars as pl
-from pyutilz.polarslib import polars_df_info
-from pyutilz.pandaslib import get_df_memory_consumption, showcase_df_columns
+from pyutilz.pandaslib import get_df_memory_consumption, showcase_df_columns, polars_df_info
 from pyutilz.pandaslib import ensure_dataframe_float32_convertability, optimize_dtypes, remove_constant_columns, convert_float64_to_float32
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -293,6 +292,16 @@ def get_function_param_names(func):
     return list(signature.parameters.keys())
 
 
+def get_dataframe_info(df: Union[pd.DataFrame, pl.DataFrame]) -> str:
+    if isinstance(df, pd.DataFrame):
+        buf = io.StringIO()
+        df.info(buf=buf, verbose=False)
+        info = buf.getvalue()
+    elif isinstance(df, pl.DataFrame):
+        info = polars_df_info(df)
+    return info
+
+
 def parse_catboost_devices(devices: str, all_gpus: list = None) -> List[Dict]:
     """
     Parses a GPU devices string and returns a list of GPU info dicts
@@ -406,13 +415,7 @@ class DataFramePreprocessor:
 
     def show_raw_data(self, df: Union[pd.DataFrame, pl.DataFrame]) -> None:
 
-        if isinstance(df, pd.DataFrame):
-            buf = io.StringIO()
-            df.info(buf=buf, verbose=False)
-            info = buf.getvalue()
-        elif isinstance(df, pl.DataFrame):
-            info = polars_df_info(df)
-
+        info = get_dataframe_info(df)
         print(info)
 
     def show_processed_data(self, df: Union[pd.DataFrame, pl.DataFrame], target_by_type: dict) -> None:
@@ -2876,16 +2879,33 @@ def process_model(
     return trainset_features_stats, pre_pipeline
 
 
-def showcase_features_and_targets(df: pd.DataFrame, target_by_type: dict):
+def showcase_features_and_targets(df: Union[pd.DataFrame, pl.DataFrame], target_by_type: dict) -> None:
     """Show distribution of targets"""
 
-    clean_ram()
-    display(df.info())
-    display(df.head().select_dtypes(exclude=np.float32))
+    print(get_dataframe_info(df))
+
+    head = df.head(5)
+    if isinstance(df, pl.DataFrame):
+        head = head.to_pandas()
+
+    non_floats = head.select_dtypes(exclude=np.float32)
+
+    caption = "Non-float32 dtypes"
+
+    logger.info(f"{caption}: {non_floats.columns}")
+
+    in_jupyter_notebook=is_jupyter_notebook()
+
+    if in_jupyter_notebook:
+        display(non_floats.style(caption="Non-float32 dtypes"))
 
     for target_type, targets in target_by_type.items():
         for target_name, target in targets.items():
-            display(f"{target_type} {target_name}")
+            line = f"{target_type} {target_name}"
+            if in_jupyter_notebook:
+                display(line)
+            else:
+                print(line)
             if target_type == TargetTypes.REGRESSION:
                 plt.hist(target, bins=30, color="skyblue", edgecolor="black")
 
@@ -2896,15 +2916,32 @@ def showcase_features_and_targets(df: pd.DataFrame, target_by_type: dict):
 
                 # Show the plot
                 plt.show()
-                if isinstance(target, (pl.Series, pd.Series)):
-                    display(target.describe())
-                elif isinstance(target, (np.ndarray)):
-                    display(pl.Series(target).describe())
-            elif target_type == TargetTypes.BINARY_CLASSIFICATION:
-                display(target.value_counts(normalize=True))
 
-    display(df.head(5))
-    display(df.tail(5))
+                if isinstance(target, (pl.Series, pd.Series)):
+                    desc_data = target.describe()
+                elif isinstance(target, (np.ndarray)):
+                    desc_data = pl.Series(target).describe()
+
+                if in_jupyter_notebook:
+                    display(desc_data)
+                else:
+                    print(desc_data)
+
+            elif target_type == TargetTypes.BINARY_CLASSIFICATION:
+                desc_data = target.value_counts(normalize=True)
+                if in_jupyter_notebook:
+                    display(desc_data)
+                else:
+                    print(desc_data)
+    
+    if in_jupyter_notebook:
+        display(head)
+
+        tail=df.tail(5)
+        if isinstance(df,pl.DataFrame):
+            tail=tail.to_pandas()
+
+        display(tail
 
 
 def intize_targets(targets: dict) -> None:
