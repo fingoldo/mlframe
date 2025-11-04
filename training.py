@@ -3226,11 +3226,11 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info(f"Ram usage after deleting main df: {get_own_ram_usage():.1f}GBs")
 
-    if isinstance(df,pl.DataFrame):
-        train_df=get_pandas_view_of_polars_df(train_df)
-        val_df=get_pandas_view_of_polars_df(val_df)
+    if isinstance(df, pl.DataFrame):
+        train_df = get_pandas_view_of_polars_df(train_df)
+        val_df = get_pandas_view_of_polars_df(val_df)
         if test_df is not None:
-            test_df=get_pandas_view_of_polars_df(test_df)
+            test_df = get_pandas_view_of_polars_df(test_df)
 
     models = defaultdict(lambda: defaultdict(list))
     for target_type, targets in tqdmu(target_by_type.items(), desc="target type"):
