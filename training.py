@@ -1088,11 +1088,17 @@ def train_and_evaluate_model(
 
     if target is not None:
         if train_target is None and (train_idx is not None):
-            train_target = target.iloc[train_idx] if isinstance(target, pd.Series) else (target.gather(train_idx) if isinstance(target, pl.Series) else target[train_idx])
+            train_target = (
+                target.iloc[train_idx] if isinstance(target, pd.Series) else (target.gather(train_idx) if isinstance(target, pl.Series) else target[train_idx])
+            )
         if val_target is None and (val_idx is not None):
-            val_target = target.iloc[val_idx] if isinstance(target, pd.Series) else (target.gather(val_idx)  if isinstance(target, pl.Series) else target[val_idx])
+            val_target = (
+                target.iloc[val_idx] if isinstance(target, pd.Series) else (target.gather(val_idx) if isinstance(target, pl.Series) else target[val_idx])
+            )
         if test_target is None and (test_idx is not None):
-            test_target = target.iloc[test_idx] if isinstance(target, pd.Series) else (target.gather(test_idx)   if isinstance(target, pl.Series) else target[test_idx])
+            test_target = (
+                target.iloc[test_idx] if isinstance(target, pd.Series) else (target.gather(test_idx) if isinstance(target, pl.Series) else target[test_idx])
+            )
 
     if (df is not None) or (train_df is not None):
         if isinstance(df, pd.DataFrame):
