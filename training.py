@@ -2724,7 +2724,10 @@ def select_target(
     if target.dtype in (np.float64, np.float32, np.float16):
         model_name += f" MT={target.mean():.4f}"
     else:
-        vlcnts = target.value_counts(normalize=True)
+        if isinstance(target, (pl.Series, pd.Series)):
+            vlcnts = target.value_counts(normalize=True)
+        elif isinstance(target, (np.ndarray)):
+            vlcnts = pl.Series(target).value_counts(normalize=True)        
         if isinstance(target, pl.Series):
             vlcnts = vlcnts.filter(pl.col(target.name) == 1)
             if len(vlcnts) > 0:
