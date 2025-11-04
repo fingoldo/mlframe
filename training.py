@@ -436,6 +436,8 @@ class DataFramePreprocessor:
 
         if self.ts_field:
             timestamps = df[self.ts_field]
+            if isinstance(timestamps,pl.Series):
+                timestamps=timestamps.to_
             if self.datetime_features:
                 df = create_date_features(df, cols=[self.ts_field], delete_original_cols=True, methods=self.datetime_features)
         else:
