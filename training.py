@@ -2937,7 +2937,7 @@ def showcase_features_and_targets(df: Union[pd.DataFrame, pl.DataFrame], target_
 
             elif target_type == TargetTypes.BINARY_CLASSIFICATION:
                 if isinstance(target, (pl.Series, pd.Series)):
-                    desc_data =  target.value_counts(normalize=True)
+                    desc_data = target.value_counts(normalize=True)
                 elif isinstance(target, (np.ndarray)):
                     desc_data = pl.Series(target).value_counts(normalize=True)
 
