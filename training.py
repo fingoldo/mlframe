@@ -2725,10 +2725,12 @@ def select_target(
         model_name += f" MT={target.mean():.4f}"
     else:
         vlcnts = target.value_counts(normalize=True)
-        if isinstance(target,pl.Series):
-            vlcnts=vlcnts.filter(pl.col(target.name)==1)
-            if len(vlcnts)>0:
-                perc=vlcnts['proportion'][0]
+        if isinstance(target, pl.Series):
+            vlcnts = vlcnts.filter(pl.col(target.name) == 1)
+            if len(vlcnts) > 0:
+                perc = vlcnts["proportion"][0]
+            else:
+                perc = 0
         else:
             if 1 in vlcnts.index:
                 perc = vlcnts.loc[1]
