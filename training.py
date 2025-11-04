@@ -2898,7 +2898,7 @@ def showcase_features_and_targets(df: Union[pd.DataFrame, pl.DataFrame], target_
     in_jupyter_notebook = is_jupyter_notebook()
 
     if in_jupyter_notebook:
-        display(non_floats.style(caption="Non-float32 dtypes"))
+        display(non_floats.style.set_caption("Non-float32 dtypes"))
 
     for target_type, targets in target_by_type.items():
         for target_name, target in targets.items():
