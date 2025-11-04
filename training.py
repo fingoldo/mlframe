@@ -3205,8 +3205,6 @@ def train_mlframe_models_suite(
         df=df.with_columns(pl.col(pl.Object).cast(pl.Categorical))
         cat_features = df.head().select(pl.col(pl.Categorical)).columns
 
-    if cat_features:
-
     # ensure_dataframe_float32_convertability(df)
     if isinstance(train_df, pd.DataFrame):
         print("train_df cols with nans", train_df.columns[train_df.isna().any()].tolist())
