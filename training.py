@@ -2936,7 +2936,11 @@ def showcase_features_and_targets(df: Union[pd.DataFrame, pl.DataFrame], target_
                     print(desc_data)
 
             elif target_type == TargetTypes.BINARY_CLASSIFICATION:
-                desc_data = target.value_counts(normalize=True)
+                if isinstance(target, (pl.Series, pd.Series)):
+                    desc_data =  target.value_counts(normalize=True)
+                elif isinstance(target, (np.ndarray)):
+                    desc_data = pl.Series(target).value_counts(normalize=True)
+
                 if in_jupyter_notebook:
                     display(desc_data)
                 else:
