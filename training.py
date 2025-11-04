@@ -2894,7 +2894,7 @@ def showcase_features_and_targets(df: Union[pd.DataFrame, pl.DataFrame], target_
 
     logger.info(f"{caption}: {non_floats.columns}")
 
-    in_jupyter_notebook=is_jupyter_notebook()
+    in_jupyter_notebook = is_jupyter_notebook()
 
     if in_jupyter_notebook:
         display(non_floats.style(caption="Non-float32 dtypes"))
@@ -2933,15 +2933,15 @@ def showcase_features_and_targets(df: Union[pd.DataFrame, pl.DataFrame], target_
                     display(desc_data)
                 else:
                     print(desc_data)
-    
+
     if in_jupyter_notebook:
         display(head)
 
-        tail=df.tail(5)
-        if isinstance(df,pl.DataFrame):
-            tail=tail.to_pandas()
+        tail = df.tail(5)
+        if isinstance(df, pl.DataFrame):
+            tail = tail.to_pandas()
 
-        display(tail
+        display(tail)
 
 
 def intize_targets(targets: dict) -> None:
