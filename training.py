@@ -23,6 +23,7 @@ import re
 import copy
 import inspect
 
+import io
 import os
 import zstandard as zstd
 from functools import partial
@@ -136,6 +137,7 @@ from IPython.display import display
 
 import polars.selectors as cs
 import pandas as pd, numpy as np, polars as pl
+from pyutilz.polarslib import polars_df_info
 from pyutilz.pandaslib import get_df_memory_consumption, showcase_df_columns
 from pyutilz.pandaslib import ensure_dataframe_float32_convertability, optimize_dtypes, remove_constant_columns, convert_float64_to_float32
 
@@ -297,11 +299,12 @@ def get_function_param_names(func):
     signature = inspect.signature(func)
     return list(signature.parameters.keys())
 
-def parse_catboost_devices(devices: str,all_gpus:list=None) -> List[Dict]:
+
+def parse_catboost_devices(devices: str, all_gpus: list = None) -> List[Dict]:
     """
     Parses a GPU devices string and returns a list of GPU info dicts
     corresponding to the specified device indices.
-    
+
     Parameters
     ----------
     devices : str
@@ -309,7 +312,7 @@ def parse_catboost_devices(devices: str,all_gpus:list=None) -> List[Dict]:
           - "0"             (single GPU)
           - "0:1:3"         (multiple GPUs)
           - "0-3"           (range of GPUs, inclusive)
-    
+
     Returns
     -------
     list[dict]
@@ -318,7 +321,7 @@ def parse_catboost_devices(devices: str,all_gpus:list=None) -> List[Dict]:
 
     if not all_gpus:
         all_gpus = get_gpuinfo_gpu_info()
-        
+
     if not devices:
         return all_gpus
 
@@ -341,6 +344,7 @@ def parse_catboost_devices(devices: str,all_gpus:list=None) -> List[Dict]:
     # Filter GPU list
     filtered_gpus = [gpu for gpu in all_gpus if gpu["index"] in device_indices]
     return filtered_gpus
+
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Enums
@@ -371,8 +375,164 @@ all_results = {}
 # Constants
 # ----------------------------------------------------------------------------------------------------------------------------
 
-GPU_VRAM_SAFE_SATURATION_LIMIT:float=0.9
-GPU_VRAM_SAFE_FREE_LIMIT_GB:float=0.1
+GPU_VRAM_SAFE_SATURATION_LIMIT: float = 0.9
+GPU_VRAM_SAFE_FREE_LIMIT_GB: float = 0.1
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Constants
+# ----------------------------------------------------------------------------------------------------------------------------
+
+
+class DataFramePreprocessor:
+    """Class that prepares a dataframe before actual ML starts."""
+
+    def __init__(
+        self,
+        ts_field: str = None,
+        datetime_features: dict = None,
+        group_field: str = None,
+        columns_to_drop: set = None,
+    ):
+
+        params = get_parent_func_args()
+        store_params_in_object(obj=self, params=params)
+
+        if self.columns_to_drop is None:
+            self.columns_to_drop = set()
+
+        if self.ts_field:
+            self.columns_to_drop.add(self.ts_field)
+        if self.group_field:
+            self.columns_to_drop.add(self.group_field)
+
+    def add_features(self, df: Union[pd.DataFrame, pl.DataFrame]) -> Union[pd.DataFrame, pl.DataFrame]:
+        return df
+
+    def build_targets(self, df: Union[pd.DataFrame, pl.DataFrame]) -> dict:
+        return {}
+
+    def show_raw_data(self, df: Union[pd.DataFrame, pl.DataFrame]) -> None:
+
+        if isinstance(df, pd.DataFrame):
+            buf = io.StringIO()
+            df.info(buf=buf, verbose=False)
+            info = buf.getvalue()
+        elif isinstance(df, pl.DataFrame):
+            info = polars_df_info(df)
+
+        if is_jupyter_notebook():
+            display(info)
+        else:
+            print(info)
+
+    def show_processed_data(self, df: Union[pd.DataFrame, pl.DataFrame], target_by_type: dict) -> None:
+        showcase_features_and_targets(df, target_by_type)
+
+    def prepare_artifacts(self, df: Union[pd.DataFrame, pl.DataFrame]):
+        return {}
+
+    def process(self, df: Union[pd.DataFrame, pl.DataFrame]) -> tuple:
+        # convert_float64_to_float32(df)  # Uncomment if needed
+
+        self.show_raw_data(df)
+
+        df = self.add_features(df)
+
+        target_by_type = self.build_targets(df)
+
+        if self.ts_field:
+            timestamps = df[self.ts_field]
+            if self.datetime_features:
+                df = create_date_features(df, cols=[self.ts_field], delete_original_cols=True, methods=self.datetime_features)
+        else:
+            timestamps = None
+
+        group_ids_raw = None
+        group_ids = None
+        if self.group_field and self.group_field in df:
+            group_ids_raw = df[self.group_field]
+            group_ids_raw_np = group_ids_raw.to_numpy() if isinstance(group_ids_raw, pl.Series) else group_ids_raw.values
+            unique_vals, group_ids = np.unique(group_ids_raw_np, return_inverse=True)
+
+        artifacts = self.prepare_artifacts(df)
+
+        if self.columns_to_drop:
+            cols_to_drop = [col for col in self.columns_to_drop if col in df.columns]
+            if isinstance(df, pl.DataFrame):
+                df = df.drop(cols_to_drop)
+            else:
+                for col in cols_to_drop:
+                    del df[col]
+
+        self.show_processed_data(df, target_by_type)
+
+        if self.columns_to_drop or self.datetime_features:
+            clean_ram()
+
+        return df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts
+
+
+class SimpleDataFramePreprocessor(DataFramePreprocessor):
+    def __init__(
+        self,
+        ts_field: str = None,
+        datetime_features: dict = None,
+        group_field: str = None,
+        columns_to_drop: set = None,
+        #
+        regression_targets: Iterable = None,
+        classification_targets: Iterable = None,
+        classification_exact_values: dict = None,
+        classification_thresholds: dict = None,
+    ):
+        super().__init__(ts_field=ts_field, datetime_features=datetime_features, group_field=group_field, columns_to_drop=columns_to_drop)
+
+        self.regression_targets = regression_targets
+        self.classification_targets = classification_targets
+        self.classification_thresholds = classification_thresholds
+        self.classification_exact_values = classification_exact_values
+
+    def build_targets(self, df: Union[pd.DataFrame, pl.DataFrame]) -> dict:
+        target_by_type = {}
+        is_pandas = isinstance(df, pd.DataFrame)
+        is_polars = isinstance(df, pl.DataFrame)
+
+        if self.classification_targets:
+            targets = {}
+            for col in self.classification_targets:
+                if self.classification_thresholds and col in self.classification_thresholds:
+                    thresh_val = self.classification_thresholds[col]
+                    target_name = f"{col}_above_{thresh_val}"
+                    if is_pandas:
+                        targets[target_name] = (df[col] >= thresh_val).astype(np.int8)
+                    elif is_polars:
+                        targets[target_name] = (df[col] >= thresh_val).cast(pl.Int8)
+                elif self.classification_exact_values and col in self.classification_exact_values:
+                    exact_val = self.classification_exact_values[col]
+                    target_name = f"{col}_eq_{exact_val}"
+                    if is_pandas:
+                        targets[target_name] = (df[col] == exact_val).astype(np.int8)
+                    elif is_polars:
+                        targets[target_name] = (df[col] == exact_val).cast(pl.Int8)
+                else:
+                    target_name = col
+                    if is_pandas:
+                        targets[target_name] = df[col].astype(np.int8)
+                    elif is_polars:
+                        targets[target_name] = df[col].cast(pl.Int8)
+                self.columns_to_drop.add(col)
+
+            intize_targets(targets)
+            target_by_type[TargetTypes.BINARY_CLASSIFICATION] = targets
+
+        if self.regression_targets:
+            targets = {}
+            for col in self.regression_targets:
+                targets[col] = df[col]
+                self.columns_to_drop.add(col)
+            target_by_type[TargetTypes.REGRESSION] = targets
+
+        return target_by_type
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Custom Error Metrics & training configs
@@ -1434,7 +1594,7 @@ def report_model_perf(
     group_ids: np.ndarray = None,
 ):
 
-    if is_classifier(model) or type(model).__name__=="NGBClassifier" or (model is None and probs is not None):
+    if is_classifier(model) or type(model).__name__ == "NGBClassifier" or (model is None and probs is not None):
         preds, probs = report_probabilistic_model_perf(
             targets=targets,
             columns=columns,
@@ -1841,24 +2001,23 @@ def configure_training_params(
     target: pd.Series = None,
     target_label_encoder: object = None,
     train_target: pd.Series = None,
-    test_target: pd.Series = None,    
+    test_target: pd.Series = None,
     val_target: pd.Series = None,
     #
     train_idx: np.ndarray = None,
     val_idx: np.ndarray = None,
     test_idx: np.ndarray = None,
     #
-    cat_features:list=None,
+    cat_features: list = None,
     #
-    robustness_features: Sequence = [],    
+    robustness_features: Sequence = [],
     cont_nbins: int = 6,
     use_robust_eval_metric: bool = False,
     #
     sample_weight: np.ndarray = None,
-    prefer_gpu_configs: bool = True,    
+    prefer_gpu_configs: bool = True,
     nbins: int = 10,
     use_regression: bool = False,
-    
     verbose: bool = True,
     rfecv_model_verbose: bool = True,
     prefer_cpu_for_lightgbm: bool = True,
@@ -1913,33 +2072,32 @@ def configure_training_params(
             subgroups=subgroups, train_idx=train_idx, val_idx=val_idx, test_idx=test_idx, group_weights={}, cont_nbins=cont_nbins
         )
     else:
-        indexed_subgroups = None 
+        indexed_subgroups = None
 
     cpu_configs = get_training_configs(has_gpu=False, subgroups=indexed_subgroups, **config_params)
     gpu_configs = get_training_configs(has_gpu=None, subgroups=indexed_subgroups, **config_params)
 
-    train_df_size=get_df_memory_consumption(train_df)
-    val_df_size=get_df_memory_consumption(val_df) if val_df is not None else 0
-    data_size_gb= (train_df_size+val_df_size)/(1024**3)
+    train_df_size = get_df_memory_consumption(train_df)
+    val_df_size = get_df_memory_consumption(val_df) if val_df is not None else 0
+    data_size_gb = (train_df_size + val_df_size) / (1024**3)
 
-    all_gpus=get_gpuinfo_gpu_info()
-    single_gpu_limits=compute_total_gpus_ram(all_gpus)    
+    all_gpus = get_gpuinfo_gpu_info()
+    single_gpu_limits = compute_total_gpus_ram(all_gpus)
 
-    data_fits_gpu_ram =(GPU_VRAM_SAFE_SATURATION_LIMIT*data_size_gb+GPU_VRAM_SAFE_FREE_LIMIT_GB)<single_gpu_limits.get("gpu_max_ram_total",0)    
-    
-    cb_devices=config_params.get("cb_kwargs",{}).get("devices")
+    data_fits_gpu_ram = (GPU_VRAM_SAFE_SATURATION_LIMIT * data_size_gb + GPU_VRAM_SAFE_FREE_LIMIT_GB) < single_gpu_limits.get("gpu_max_ram_total", 0)
+
+    cb_devices = config_params.get("cb_kwargs", {}).get("devices")
     if cb_devices:
-        multi_gpu_limits=compute_total_gpus_ram(parse_catboost_devices(cb_devices,all_gpus=all_gpus))
-        data_fits_cb_gpu_ram =(GPU_VRAM_SAFE_SATURATION_LIMIT*data_size_gb+GPU_VRAM_SAFE_FREE_LIMIT_GB)<multi_gpu_limits.get("gpus_ram_total",0)    
+        multi_gpu_limits = compute_total_gpus_ram(parse_catboost_devices(cb_devices, all_gpus=all_gpus))
+        data_fits_cb_gpu_ram = (GPU_VRAM_SAFE_SATURATION_LIMIT * data_size_gb + GPU_VRAM_SAFE_FREE_LIMIT_GB) < multi_gpu_limits.get("gpus_ram_total", 0)
     else:
-        data_fits_cb_gpu_ram=data_fits_gpu_ram
-
+        data_fits_cb_gpu_ram = data_fits_gpu_ram
 
     logger.info(f"data_fits_gpu_ram={data_fits_gpu_ram}, data_fits_cb_gpu_ram={data_fits_cb_gpu_ram}, cb_devices={cb_devices}")
 
     configs = gpu_configs if (prefer_gpu_configs and data_fits_gpu_ram) else cpu_configs
     cb_configs = gpu_configs if (prefer_gpu_configs and data_fits_cb_gpu_ram) else cpu_configs
-  
+
     common_params = dict(
         nbins=nbins,
         subgroups=subgroups,
@@ -2074,10 +2232,10 @@ def configure_training_params(
                 greater_is_better=False,
             )
         else:
-            rfecv_scoring = make_scorer(**default_classification_scoring)    
+            rfecv_scoring = make_scorer(**default_classification_scoring)
 
     params = (cb_configs.CB_REGR if use_regression else (cb_configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else cb_configs.CB_CLASSIF)).copy()
-    
+
     # !TODO ! allow separate params (device ,num_iters) for FS
     # params["iterations"] = params["iterations"] // 2
 
@@ -2126,7 +2284,7 @@ def configure_training_params(
         lgb_rfecv,
         xgb_rfecv,
         cpu_configs,
-        gpu_configs,        
+        gpu_configs,
     )
 
 
@@ -2557,7 +2715,7 @@ def select_target(
     val_details: str = "",
     test_details: str = "",
     group_ids: np.ndarray = None,
-    cat_features:list=None,
+    cat_features: list = None,
     #
     control_params: dict = None,
     control_params_override: dict = None,
@@ -2727,14 +2885,14 @@ def process_model(
     return trainset_features_stats, pre_pipeline
 
 
-def showcase_features_and_targets(df: pd.DataFrame, target_types: dict):
+def showcase_features_and_targets(df: pd.DataFrame, target_by_type: dict):
     """Show distribution of targets"""
 
     clean_ram()
     display(df.info())
     display(df.head().select_dtypes(exclude=np.float32))
 
-    for target_type, targets in target_types.items():
+    for target_type, targets in target_by_type.items():
         for target_name, target in targets.items():
             display(f"{target_type} {target_name}")
             if target_type == TargetTypes.REGRESSION:
@@ -2766,12 +2924,14 @@ def intize_targets(targets: dict) -> None:
             target = target.astype(np.int8)
         targets[target_name] = target
 
+
 # Define the zero-copy conversion function
 def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
     assert isinstance(df, (pl.DataFrame, pl.Series))
     arr_df = df.to_arrow()
     pandas_df = arr_df.to_pandas(types_mapper=lambda t: pd.ArrowDtype(t))
     return pandas_df
+
 
 # Helper function to save series or dataframe to parquet
 def save_series_or_df(obj: Union[pd.Series, pd.DataFrame, pl.Series, pl.DataFrame], file: str, compression: str, name: str = None):
@@ -2785,11 +2945,12 @@ def save_series_or_df(obj: Union[pd.Series, pd.DataFrame, pl.Series, pl.DataFram
     elif isinstance(obj, pl.DataFrame):
         obj.write_parquet(file, compression=compression)
 
+
 def train_mlframe_models_suite(
     df: Union[pl.DataFrame, pd.DataFrame, str],
     target_name: str,
     model_name: str,
-    preprocess_dataframe: Callable,
+    preprocessor: DataFramePreprocessor,
     #
     columns: list = None,
     data_dir: str = "",
@@ -2856,7 +3017,7 @@ def train_mlframe_models_suite(
     # Inits
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     trainset_features_stats = None
-    
+
     # if imputer is None:
     # imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
 
@@ -2876,6 +3037,7 @@ def train_mlframe_models_suite(
         autogluon_init_params = {}
     if lama_init_params is None:
         from lightautoml.tasks import Task
+
         lama_init_params = dict(task=Task("binary"))
     if lama_fit_params is None:
         lama_fit_params = {}
@@ -2933,7 +3095,7 @@ def train_mlframe_models_suite(
         clean_ram()
     if verbose:
         logger.info(f"preprocess_dataframe...")
-    df, target_types, group_ids_raw, group_ids, timestamps, artifacts = preprocess_dataframe(df)
+    df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts = preprocessor.process(df)
     clean_ram()
     if verbose:
         logger.info(f"make_train_test_split...")
@@ -2969,20 +3131,20 @@ def train_mlframe_models_suite(
                     save_series_or_df(artifacts[idx], art_file, PARQUET_COMPRESION)
     if verbose:
         logger.info(f"creating train_df,val_df,test_df...")
-    
-    if isinstance(df,pd.DataFrame):
+
+    if isinstance(df, pd.DataFrame):
         train_df = df.iloc[train_idx]
         test_df = df.iloc[test_idx] if test_idx is not None else None
-        val_df = df.iloc[val_idx]      
+        val_df = df.iloc[val_idx]
 
-        cat_features = df.head().select_dtypes(("category", "object")).columns.tolist()  
-    elif isinstance(df,pl.DataFrame):
+        cat_features = df.head().select_dtypes(("category", "object")).columns.tolist()
+    elif isinstance(df, pl.DataFrame):
         train_df = df[train_idx]
         test_df = df[test_idx] if test_idx is not None else None
         val_df = df[val_idx]
 
         cat_features = [col for col in df.columns if df.schema[col] in (pl.Categorical, pl.Object)]
-        
+
     if cat_features:
         for next_df in (train_df, val_df, test_df):
             if next_df is not None and isinstance(next_df, pd.DataFrame):
@@ -2996,12 +3158,20 @@ def train_mlframe_models_suite(
     if isinstance(train_df, pd.DataFrame):
         print("train_df cols with nans", train_df.columns[train_df.isna().any()].tolist())
     elif isinstance(train_df, pl.DataFrame):
-        null_cols = [col for col in train_df.columns if train_df.null_count().select(pl.col(col)).item() > 0 or (train_df[col].dtype.is_float() and train_df[col].is_nan().sum() > 0)]
+        null_cols = [
+            col
+            for col in train_df.columns
+            if train_df.null_count().select(pl.col(col)).item() > 0 or (train_df[col].dtype.is_float() and train_df[col].is_nan().sum() > 0)
+        ]
         print("train_df cols with nulls/nans", null_cols)
     if isinstance(val_df, pd.DataFrame):
         print("val_df cols with nans", val_df.columns[val_df.isna().any()].tolist())
     elif isinstance(val_df, pl.DataFrame):
-        null_cols = [col for col in val_df.columns if val_df.null_count().select(pl.col(col)).item() > 0 or (val_df[col].dtype.is_float() and val_df[col].is_nan().sum() > 0)]
+        null_cols = [
+            col
+            for col in val_df.columns
+            if val_df.null_count().select(pl.col(col)).item() > 0 or (val_df[col].dtype.is_float() and val_df[col].is_nan().sum() > 0)
+        ]
         print("val_df cols with nulls/nans", null_cols)
     columns = df.columns
     clean_ram()
@@ -3020,7 +3190,7 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info(f"Ram usage after deleting main df: {get_own_ram_usage():.1f}GBs")
     models = defaultdict(lambda: defaultdict(list))
-    for target_type, targets in tqdmu(target_types.items(), desc="target type"):
+    for target_type, targets in tqdmu(target_by_type.items(), desc="target type"):
         # !TODO ! optimize for creation of inner feature matrices of cb,lgb,xgb here. They should be created once per featureset, not once per target.
         for cur_target_name, cur_target_values in tqdmu(targets.items(), desc="target"):
             if mlframe_models:
@@ -3188,6 +3358,7 @@ def train_mlframe_models_suite(
                     )
                 )
     return models
+
 
 # AUTOML
 
@@ -3780,95 +3951,6 @@ def visualize_ml_metric_by_time(
         plt.show()
 
 
-def preprocess_dataframe_simple(
-    df: pd.DataFrame,
-    ts_field: str = None,
-    datetime_features: dict = None,
-    group_field: str = None,
-    classification_targets: Iterable = None,
-    classification_thresholds: dict = None,
-    classification_exact_values: dict = None,
-    regression_targets: Iterable = None,
-    columns_to_drop: set = set(),
-    prepare_artifacts_func: callable = None,
-) -> tuple:
-    """
-    Canned preprocess_dataframe template that creates simple regression and/or binary classification targets.
-    datetime_features={"weekday": np.int8, "hour": np.int8, "minute": np.int8}"""
-
-    # convert_float64_to_float32(df)
-    clean_ram()
-    display(df.info())
-
-    if ts_field:
-        columns_to_drop.add(ts_field)
-    if group_field:
-        columns_to_drop.add(group_field)
-
-    target_types = {}
-
-    if classification_targets:
-        targets = {}
-        for col in classification_targets:
-            if classification_thresholds:
-                for thresh_col, thresh_val in classification_thresholds.items():
-                    if thresh_col == col:
-                        targets[f"{col}_above_{thresh_val}"] = df[col] >= thresh_val
-            elif classification_exact_values:
-                for exact_col, exact_val in classification_exact_values.items():
-                    if exact_col == col:
-                        targets[f"{col}_eq_{exact_val}"] = (df[col] == exact_val).astype(np.int8)
-            else:
-                targets[col] = df[col]
-            columns_to_drop.add(col)
-
-        intize_targets(targets)
-        target_types[TargetTypes.BINARY_CLASSIFICATION] = targets
-
-    if regression_targets:
-        targets = {}
-        for col in regression_targets:
-            targets[col] = df[col]
-            columns_to_drop.add(col)
-
-        target_types[TargetTypes.REGRESSION] = targets
-
-    if ts_field:
-        timestamps = df[ts_field]
-
-        if datetime_features:
-            df = create_date_features(df, cols=[ts_field], delete_original_cols=True, methods=datetime_features)
-    else:
-        timestamps = None
-
-    clean_ram()
-
-    if group_field and group_field in df:
-        group_ids_raw = df[group_field]
-        unique_vals, group_ids = np.unique(group_ids_raw, return_inverse=True)
-    else:
-        group_ids_raw = None
-        group_ids = None
-
-    if prepare_artifacts_func:
-        artifacts = prepare_artifacts_func(df)
-    else:
-        artifacts = None
-
-    if columns_to_drop:
-        if isinstance(df, pl.DataFrame):
-            df = df.drop(columns_to_drop)
-        else:
-            # df.drop(columns=columns_to_drop, inplace=True, errors="ignore") #PROHIBITELIVEY SLOW!
-            for col in columns_to_drop:
-                if col in df:
-                    del df[col]
-
-    showcase_features_and_targets(df, target_types)
-
-    return df, target_types, group_ids_raw, group_ids, timestamps, artifacts
-
-
 def predictions_beautify_linear(preds: np.ndarray, known_outcomes: np.ndarray, alpha=0.01):
     """
     Adjust probabilities toward the true labels.
@@ -3881,4 +3963,4 @@ def predictions_beautify_linear(preds: np.ndarray, known_outcomes: np.ndarray, a
     """
     preds = np.asarray(preds, dtype=float)
     y = np.asarray(known_outcomes, dtype=float)
-    return (1 - alpha) * preds + alpha * known_outcomes
+    return (1 - alpha) * preds + alpha * y

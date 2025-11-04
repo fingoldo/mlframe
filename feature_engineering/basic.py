@@ -38,23 +38,50 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 
 
 def create_date_features(
-    df: pd.DataFrame,
-    cols: list,
+    df: Union[pd.DataFrame, pl.DataFrame],
+    cols: List[str],
     delete_original_cols: bool = True,
-    methods: dict = {"day": np.int8, "weekday": np.int8, "month": np.int8},  # "week": np.int8, #, "quarter": np.int8 #  , "year": np.int16
-) -> pd.DataFrame:
+    methods: Dict[str, np.dtype] = {"day": np.int8, "weekday": np.int8, "month": np.int8},
+) -> Union[pd.DataFrame, pl.DataFrame]:
     if len(cols) == 0:
-        return
+        return df
+
+    is_pandas = isinstance(df, pd.DataFrame)
+    is_polars = isinstance(df, pl.DataFrame)
+    if not (is_pandas or is_polars):
+        raise ValueError("df must be pandas or polars DataFrame")
+
+    dtype_map = {
+        np.int8: pl.Int8,
+        np.int16: pl.Int16,
+        # Add more mappings as needed for other dtypes
+    }
 
     for col in cols:
-        obj = df[col].dt
-        for method, dtype in methods.items():
-            df[col + "_" + method] = getattr(obj, method).astype(dtype)
+        if is_pandas:
+            obj = df[col].dt
+            for method, dtype in methods.items():
+                df[col + "_" + method] = getattr(obj, method).astype(dtype)
+        elif is_polars:
+            for method, np_dtype in methods.items():
+                pl_dtype = dtype_map.get(np_dtype)
+                if pl_dtype is None:
+                    raise ValueError(f"Unsupported dtype {np_dtype} for Polars")
+
+                if method == "weekday":
+                    # Adjust to match pandas weekday (0=Monday to 6=Sunday)
+                    expr = (pl.col(col).dt.weekday() - 1).cast(pl_dtype).alias(col + "_" + method)
+                else:
+                    expr = getattr(pl.col(col).dt, method)().cast(pl_dtype).alias(col + "_" + method)
+                df = df.with_columns(expr)
 
     if delete_original_cols:
-        for col in cols:
-            del df[col]
-        # df.drop(columns=cols, inplace=True)
+        if is_pandas:
+            for col in cols:
+                if col in df:
+                    del df[col]
+        elif is_polars:
+            df = df.drop(cols)
 
     return df
 
