@@ -2860,7 +2860,7 @@ def train_mlframe_models_suite(
         mrmr_kwargs = dict(n_workers=max(1, psutil.cpu_count(logical=False)), verbose=2, fe_max_steps=0)
 
     if mlframe_models is None:
-        mlframe_models = "cb lgb xgb hgb mlp".split()
+        mlframe_models = "cb lgb xgb mlp".split()
 
     if init_common_params is None:
         init_common_params = {}
@@ -2899,8 +2899,6 @@ def train_mlframe_models_suite(
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
     if polars_df is not None and pandas_df is None:
-        if verbose:
-            logger.info(f"Converting polars df to pandas...")
 
         if columns:
             tmp = polars_df.select(columns)
@@ -2909,10 +2907,14 @@ def train_mlframe_models_suite(
 
         if verbose:
             logger.info(f"Converting polars df to pandas, RAM usage before: {get_own_ram_usage():.1f}GBs...")
+
         pandas_df = tmp.fill_null(nans_filler).with_columns(pl.col(pl.Float64).cast(pl.Float32)).to_pandas()  # ! TODO !
+
         if verbose:
             logger.info(f"Converted polars df to pandas, RAM usage after: {get_own_ram_usage():.1f}GBs...")
+
         print("pandas_df cols with nans", pandas_df.columns[pandas_df.isna().any()].tolist())
+        
     else:
         if isinstance(pandas_df, str):
             if verbose:
