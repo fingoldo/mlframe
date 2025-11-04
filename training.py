@@ -2619,17 +2619,17 @@ def make_train_test_split(
 
         return train_items, val_items, test_items, val_seq, test_seq
 
-    def _build_details(timestamps, idx, sequential_idx, n_shuffled, unit)->str:
+    def _build_details(timestamps, idx, sequential_idx, n_shuffled, unit) -> str:
         """Build detail string for a split set."""
         if sequential_idx is not None and len(sequential_idx) > 0:
             details = f"{timestamps.iloc[sequential_idx].min():%Y-%m-%d}/{timestamps.iloc[sequential_idx].max():%Y-%m-%d}"
             if n_shuffled > 0:
                 details += f" +{n_shuffled} {unit}"
         else:
-            if len(idx)>0:
+            if len(idx) > 0:
                 details = f"{timestamps.iloc[idx].min():%Y-%m-%d}/{timestamps.iloc[idx].max():%Y-%m-%d}"
             else:
-                details=""
+                details = ""
         return details
 
     # Calculate split sizes
@@ -3203,8 +3203,9 @@ def train_mlframe_models_suite(
         val_df = df.iloc[val_idx]
 
         cat_features = df.head().select_dtypes("category").columns.tolist()
+
     elif isinstance(df, pl.DataFrame):
-        
+
         df = df.with_columns(pl.col(pl.Object).cast(pl.Categorical))
         cat_features = df.head().select(pl.col(pl.Categorical)).columns
 
