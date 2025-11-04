@@ -3226,7 +3226,7 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info(f"Ram usage after deleting main df: {get_own_ram_usage():.1f}GBs")
 
-    if isinstance(df, pl.DataFrame):
+    if isinstance(train_df, pl.DataFrame):
         train_df = get_pandas_view_of_polars_df(train_df)
         val_df = get_pandas_view_of_polars_df(val_df)
         if test_df is not None:
