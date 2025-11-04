@@ -2619,14 +2619,17 @@ def make_train_test_split(
 
         return train_items, val_items, test_items, val_seq, test_seq
 
-    def _build_details(timestamps, idx, sequential_idx, n_shuffled, unit):
+    def _build_details(timestamps, idx, sequential_idx, n_shuffled, unit)->str:
         """Build detail string for a split set."""
         if sequential_idx is not None and len(sequential_idx) > 0:
             details = f"{timestamps.iloc[sequential_idx].min():%Y-%m-%d}/{timestamps.iloc[sequential_idx].max():%Y-%m-%d}"
             if n_shuffled > 0:
                 details += f" +{n_shuffled} {unit}"
         else:
-            details = f"{timestamps.iloc[idx].min():%Y-%m-%d}/{timestamps.iloc[idx].max():%Y-%m-%d}"
+            if len(idx)>0:
+                details = f"{timestamps.iloc[idx].min():%Y-%m-%d}/{timestamps.iloc[idx].max():%Y-%m-%d}"
+            else:
+                details=""
         return details
 
     # Calculate split sizes
