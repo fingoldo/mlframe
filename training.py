@@ -3213,6 +3213,9 @@ def train_mlframe_models_suite(
         test_df = df[test_idx] if test_idx is not None else None
         val_df = df[val_idx]
 
+    if len(val_df) == 0:
+        val_df = None
+
     # ensure_dataframe_float32_convertability(df)
     if isinstance(train_df, pd.DataFrame):
         print("train_df cols with nans", train_df.columns[train_df.isna().any()].tolist())

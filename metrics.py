@@ -625,6 +625,21 @@ def fast_calibration_report(
     Input arrays y_true and y_pred are 1d."""
 
     assert backend in ("plotly", "matplotlib")
+    if len(y_true) == 0:
+        (
+            brier_loss,
+            calibration_mae,
+            calibration_std,
+            calibration_coverage,
+        ) = (
+            1.0,
+            1.0,
+            1.0,
+            0.0,
+        )
+        roc_auc, pr_auc, ice, ll, precision, recall, f1 = 0.5, 0.0, 1.0, 1.0, 0.0, 0.0
+        metrics_string, fig = "", None
+        return brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, precision, recall, f1, metrics_string, fig
 
     brier_loss = brier_score_loss(y_true=y_true, y_prob=y_pred)
 
