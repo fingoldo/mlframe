@@ -1,63 +1,107 @@
-gpu-info
-py-cpuinfo
+# ================================================================================================
+# 🧮 Core Scientific & Numeric Computing
+# Fundamental libraries for numerical arrays, analysis, and tabular data
+# ================================================================================================
+duckdb
+numba
 numpy
+pandas
+polars
+pyarrow
+scipy
+# ================================================================================================
+# ⚙️ Hardware / System Info & Profiling
+# Inspect system hardware and profile code performance
+# ================================================================================================
+gpu-info
+joblib
+psutil
+pympler
+py-cpuinfo
+# ================================================================================================
+# 🤖 Machine Learning & Model Training
+# Libraries for ML algorithms, preprocessing, and automation
+# ================================================================================================
 catboost
-notebook
+category_encoders
+imbalanced-learn
+lightautoml
+lightgbm
+optbinning
+properscoring
+pysr
+scikit-learn
+xgboost
+# ================================================================================================
+# 🧠 Calibration, Uncertainty & Interpretability
+# Tools for model explainability, calibration, and experiment tracking
+# ================================================================================================
+betacal
+#ml-insights
+netcal
+pycalib
+shap
+uncertainty-calibration
+venn-abers
+# ================================================================================================
+# 📊 Visualization & Exploration
+# Plotting, dashboards, and interactive visual analysis
+# ================================================================================================
+altair
+hvplot
+mlflow
+plotly
+seaborn
+vegafusion[embed]
+vl-convert-python
+# ================================================================================================
+# 🌌 Specialized Science & Signal Processing
+# Scientific utilities, entropy, and signal analysis tools
+# ================================================================================================
 antropy
 astropy
 entropy-estimators
+polars_ds
+polars_talib
+pywavelets
+# ================================================================================================
+# 🧩 Storage, Serialization & Data Exchange
+# For database connections, serialization, and compression
+# ================================================================================================
+dill
+orjson
+portalocker
+psycopg2-binary
+pymongo
+sqlalchemy
+zstandard
+# ================================================================================================
+# 🧠 Dimensionality Reduction & Clustering
+# For unsupervised learning and structure discovery
+# ================================================================================================
+hdbscan
+umap-learn
+# ================================================================================================
+# 🧪 Statistical Modeling
+# Classical statistics and econometrics
+# ================================================================================================
+statsmodels
+# ================================================================================================
+# 📔 Development, Notebook & Code Quality
+# Jupyter tools, code formatting, and environment setup
+# ================================================================================================
+jupyter-black
 ipython-autotime
-joblib
-lightgbm
-lightning
 line-profiler
 memory_profiler
-numba
-pandas
-polars
-dill
-plotly
-psutil
-scikit-learn
-scipy
-shap
-xgboost
-portalocker
-pymongo
-psycopg2-binary
-sqlalchemy
-properscoring
-pyarrow
-pympler
-mlflow
-pywavelets
-category_encoders
-imbalanced-learn
-optbinning
-zstandard
+nbqa
+notebook
+python-dotenv
+ruff
+# ================================================================================================
+# 🌐 Web, Parsing & Utilities
+# General-purpose utilities, parsing, and caching
+# ================================================================================================
 beautifulsoup4
 expiringdict
-duckdb
-umap-learn
-hdbscan
-seaborn
-statsmodels
-scikit-learn
-polars
-hvplot
-altair
-python-dotenv
-polars_talib
-polars_ds
-lightautoml
-pysr
-netcal
-pycalib 
-#ml-insights 
-betacal 
-uncertainty-calibration
-venn-abers
-orjson
 pyjwt
-vl-convert-python
-vegafusion[embed]
