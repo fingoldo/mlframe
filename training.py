@@ -379,7 +379,7 @@ GPU_VRAM_SAFE_SATURATION_LIMIT: float = 0.9
 GPU_VRAM_SAFE_FREE_LIMIT_GB: float = 0.1
 
 # ----------------------------------------------------------------------------------------------------------------------------
-# Constants
+# Classes
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
@@ -533,6 +533,7 @@ class SimpleDataFramePreprocessor(DataFramePreprocessor):
             target_by_type[TargetTypes.REGRESSION] = targets
 
         return target_by_type
+
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Custom Error Metrics & training configs
