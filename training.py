@@ -124,13 +124,6 @@ import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 from IPython.display import display
 
-
-# -----------------------------------------------------------------------------------------------------------------------------------------------------
-# IPython
-# -----------------------------------------------------------------------------------------------------------------------------------------------------
-
-from IPython.display import display
-
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Pandas
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -420,10 +413,7 @@ class DataFramePreprocessor:
         elif isinstance(df, pl.DataFrame):
             info = polars_df_info(df)
 
-        if is_jupyter_notebook():
-            display(info)
-        else:
-            print(info)
+        print(info)
 
     def show_processed_data(self, df: Union[pd.DataFrame, pl.DataFrame], target_by_type: dict) -> None:
         showcase_features_and_targets(df, target_by_type)
