@@ -2725,10 +2725,15 @@ def select_target(
         model_name += f" MT={target.mean():.4f}"
     else:
         vlcnts = target.value_counts(normalize=True)
-        if 1 in vlcnts.index:
-            perc = vlcnts.loc[1]
+        if isinstance(target,pl.Series):
+            vlcnts=vlcnts.filter(pl.col(target.name)==1)
+            if len(vlcnts)>0:
+                perc=vlcnts['proportion'][0]
         else:
-            perc = 0
+            if 1 in vlcnts.index:
+                perc = vlcnts.loc[1]
+            else:
+                perc = 0
         model_name += f" BT={perc*100:.0f}%"
     print("model_name=", model_name)
 
