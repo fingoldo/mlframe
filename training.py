@@ -2859,7 +2859,7 @@ def train_mlframe_models_suite(
     
     # if imputer is None:
     # imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
-    
+
     if category_encoder is None:
         category_encoder = ce.CatBoostEncoder()
     if rfecv_models is None:
@@ -2969,13 +2969,20 @@ def train_mlframe_models_suite(
                     save_series_or_df(artifacts[idx], art_file, PARQUET_COMPRESION)
     if verbose:
         logger.info(f"creating train_df,val_df,test_df...")
-    train_df = df[train_idx]
-    test_df = df[test_idx] if test_idx is not None else None
-    val_df = df[val_idx]
-    if isinstance(df, pd.DataFrame):
-        cat_features = df.head().select_dtypes(("category", "object")).columns.tolist()
-    elif isinstance(df, pl.DataFrame):
+    
+    if isinstance(df,pd.DataFrame):
+        train_df = df.iloc[train_idx]
+        test_df = df.iloc[test_idx] if test_idx is not None else None
+        val_df = df.iloc[val_idx]      
+
+        cat_features = df.head().select_dtypes(("category", "object")).columns.tolist()  
+    elif isinstance(df,pl.DataFrame):
+        train_df = df[train_idx]
+        test_df = df[test_idx] if test_idx is not None else None
+        val_df = df[val_idx]
+
         cat_features = [col for col in df.columns if df.schema[col] in (pl.Categorical, pl.Object)]
+        
     if cat_features:
         for next_df in (train_df, val_df, test_df):
             if next_df is not None and isinstance(next_df, pd.DataFrame):
