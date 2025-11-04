@@ -3186,17 +3186,8 @@ def train_mlframe_models_suite(
         train_df = df.iloc[train_idx]
         test_df = df.iloc[test_idx] if test_idx is not None else None
         val_df = df.iloc[val_idx]
-
-        cat_features = df.head().select_dtypes(("category", "object")).columns.tolist()
-    elif isinstance(df, pl.DataFrame):
-        train_df = df[train_idx]
-        test_df = df[test_idx] if test_idx is not None else None
-        val_df = df[val_idx]
-
-        cat_features = [col for col in df.columns if df.schema[col] in (pl.Categorical, pl.Object)]
-
-    if cat_features:
-        for next_df in (train_df, val_df, test_df):
+        
+        for next_df in (df):
             if next_df is not None and isinstance(next_df, pd.DataFrame):
                 obj_features = next_df.head().select_dtypes("object").columns.tolist()
                 if obj_features:
@@ -3204,6 +3195,18 @@ def train_mlframe_models_suite(
                         df=next_df,
                         cat_features=obj_features,
                     )
+
+        cat_features = df.head().select_dtypes(("category", "object")).columns.tolist()
+    elif isinstance(df, pl.DataFrame):
+        train_df = df[train_idx]
+        test_df = df[test_idx] if test_idx is not None else None
+        val_df = df[val_idx]
+
+        df=df.with_columns(pl.col(pl.Object).cast(pl.Categorical))
+        cat_features = df.head().select(pl.col(pl.Categorical)).columns
+
+    if cat_features:
+
     # ensure_dataframe_float32_convertability(df)
     if isinstance(train_df, pd.DataFrame):
         print("train_df cols with nans", train_df.columns[train_df.isna().any()].tolist())
