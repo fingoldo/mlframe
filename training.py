@@ -130,7 +130,8 @@ from IPython.display import display
 
 import polars.selectors as cs
 import pandas as pd, numpy as np, polars as pl
-from pyutilz.pandaslib import get_df_memory_consumption, showcase_df_columns, polars_df_info
+from pyutilz.pandaslib import  polars_df_info
+from pyutilz.pandaslib import get_df_memory_consumption, showcase_df_columns
 from pyutilz.pandaslib import ensure_dataframe_float32_convertability, optimize_dtypes, remove_constant_columns, convert_float64_to_float32
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
