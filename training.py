@@ -3188,9 +3188,6 @@ def train_mlframe_models_suite(
         logger.info(f"creating train_df,val_df,test_df...")
 
     if isinstance(df, pd.DataFrame):
-        train_df = df.iloc[train_idx]
-        test_df = df.iloc[test_idx] if test_idx is not None else None
-        val_df = df.iloc[val_idx]
 
         for next_df in df:
             if next_df is not None and isinstance(next_df, pd.DataFrame):
@@ -3201,14 +3198,19 @@ def train_mlframe_models_suite(
                         cat_features=obj_features,
                     )
 
-        cat_features = df.head().select_dtypes(("category", "object")).columns.tolist()
+        train_df = df.iloc[train_idx]
+        test_df = df.iloc[test_idx] if test_idx is not None else None
+        val_df = df.iloc[val_idx]
+
+        cat_features = df.head().select_dtypes("category").columns.tolist()
     elif isinstance(df, pl.DataFrame):
+        
+        df = df.with_columns(pl.col(pl.Object).cast(pl.Categorical))
+        cat_features = df.head().select(pl.col(pl.Categorical)).columns
+
         train_df = df[train_idx]
         test_df = df[test_idx] if test_idx is not None else None
         val_df = df[val_idx]
-
-        df = df.with_columns(pl.col(pl.Object).cast(pl.Categorical))
-        cat_features = df.head().select(pl.col(pl.Categorical)).columns
 
     # ensure_dataframe_float32_convertability(df)
     if isinstance(train_df, pd.DataFrame):
