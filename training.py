@@ -3189,8 +3189,8 @@ def train_mlframe_models_suite(
 
     if isinstance(df, pd.DataFrame):
 
-        for next_df in df:
-            if next_df is not None and isinstance(next_df, pd.DataFrame):
+        for next_df in (df,):
+            if next_df is not None:
                 obj_features = next_df.head().select_dtypes("object").columns.tolist()
                 if obj_features:
                     prepare_df_for_catboost(
