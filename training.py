@@ -2727,7 +2727,8 @@ def select_target(
         if isinstance(target, (pl.Series, pd.Series)):
             vlcnts = target.value_counts(normalize=True)
         elif isinstance(target, (np.ndarray)):
-            vlcnts = pl.Series(target).value_counts(normalize=True)        
+            vlcnts = pd.Series(target).value_counts(normalize=True)
+
         if isinstance(target, pl.Series):
             vlcnts = vlcnts.filter(pl.col(target.name) == 1)
             if len(vlcnts) > 0:
