@@ -3206,7 +3206,7 @@ def train_mlframe_models_suite(
 
     elif isinstance(df, pl.DataFrame):
 
-        df = df.with_columns(pl.col(pl.Object).cast(pl.Categorical))
+        df = df.with_columns(pl.col(pl.Utf8).cast(pl.Categorical))
         cat_features = df.head().select(pl.col(pl.Categorical)).columns
 
         train_df = df[train_idx]
