@@ -3936,17 +3936,23 @@ def compute_ml_perf(
     show_perf_chart: bool = True,
     ts_field: str = "ts",
     truncate_to: str = "1mo",
-    truncated_interval_name: str = "month",
+    alias: str = "month",
 ) -> pd.DataFrame:
 
     perf_stats = []
-    by_time = ts_field and truncate_to and truncated_interval_name
+    by_time = ts_field and truncate_to and alias
     assert (group_field is not None) or by_time
 
     if by_time:
         grouping = pl.col(ts_field).dt.truncate(truncate_to)
     else:
-        grouping = pl.col(group_field) if isinstance(group_field, str) else group_field
+        if isinstance(group_field, str):
+            grouping = pl.col(group_field)
+            group_field_name = alias if alias else group_field.meta.root_names()[0]
+
+        else:
+            grouping = group_field
+            group_field_name = group_field
 
     for mo, df in tqdmu(list(predictions_df.group_by(grouping, maintain_order=True))):
         if show_perf_chart:
@@ -3970,7 +3976,7 @@ def compute_ml_perf(
                 else:
                     report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {group_field}={stats[group_field]} "
             elif isinstance(group_field, pl.Expr):
-                report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {group_field.meta.root_names()[0]}={mo[0]} "
+                report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {group_field_name}={mo[0]} "
 
             print(report_title)
         else:
@@ -3982,18 +3988,18 @@ def compute_ml_perf(
             res = res.reset_index(drop=False, names="model")
             res["nrecs"] = len(df)
             if by_time:
-                res[truncated_interval_name] = mo[0]
+                res[alias] = mo[0]
             else:
                 if isinstance(group_field, str):
                     res[group_field] = mo[0]
                 elif isinstance(group_field, pl.Expr):
-                    res[group_field.meta.root_names()[0]] = mo[0]
+                    res[group_field_name] = mo[0]
 
             perf_stats.append(res)
         else:
             logger.warning(f"Problem computing models perf for {mo[0]}")
 
-    perf_stats = pd.concat(perf_stats).sort_values(["model", truncated_interval_name if by_time else group_field])
+    perf_stats = pd.concat(perf_stats).sort_values(["model", alias if by_time else group_field_name])
     return perf_stats
 
 
