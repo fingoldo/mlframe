@@ -3948,11 +3948,11 @@ def compute_ml_perf(
     else:
         if isinstance(group_field, str):
             grouping = pl.col(group_field)
-            group_field_name = alias if alias else group_field.meta.root_names()[0]
+            group_field_name = group_field
 
         else:
             grouping = group_field
-            group_field_name = group_field
+            
 
     for mo, df in tqdmu(list(predictions_df.group_by(grouping, maintain_order=True))):
         if show_perf_chart:
