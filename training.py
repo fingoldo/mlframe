@@ -3988,7 +3988,7 @@ def compute_ml_perf(
                     res[group_field] = mo[0]
                 elif isinstance(group_field, pl.Expr):
                     res[group_field.meta.root_names()[0]] = mo[0]
-                    
+
             perf_stats.append(res)
         else:
             logger.warning(f"Problem computing models perf for {mo[0]}")
