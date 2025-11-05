@@ -3941,12 +3941,12 @@ def compute_ml_perf(
 
     perf_stats = []
     by_time = ts_field and truncate_to and truncated_interval_name
-    assert group_field or by_time
+    assert (group_field is not None) or by_time
 
     if by_time:
         grouping = pl.col(ts_field).dt.truncate(truncate_to)
     else:
-        grouping = pl.col(group_field) if isinstance(group_field, str) else group_field
+        grouping = pl.col(group_field)
 
     for mo, df in tqdmu(list(predictions_df.group_by(grouping, maintain_order=True))):
         if show_perf_chart:
