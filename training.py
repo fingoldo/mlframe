@@ -2984,11 +2984,6 @@ def intize_targets(targets: dict) -> None:
 def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
     assert isinstance(df, (pl.DataFrame, pl.Series))
     arr_df = df.to_arrow()
-
-    mapping={name: pl.Utf8 for name, dtype in zip(df.columns, df.dtypes) if dtype == pl.Categorical} # to prevent ArrowTypeError: Converting unsigned dictionary indices to pandas not yet supported, index type: uint32
-    if mapping:
-        arr_df = arr_df.cast(mapping)    
-
     pandas_df = arr_df.to_pandas(types_mapper=lambda t: pd.ArrowDtype(t))
     return pandas_df
 
