@@ -3943,16 +3943,17 @@ def compute_ml_perf(
     by_time = ts_field and truncate_to and alias
     assert (group_field is not None) or by_time
 
+    group_field_name = group_field
+
     if by_time:
         grouping = pl.col(ts_field).dt.truncate(truncate_to)
     else:
         if isinstance(group_field, str):
-            grouping = pl.col(group_field)
-            group_field_name = group_field
+            grouping = pl.col(group_field)           
 
         else:
             grouping = group_field
-            
+            group_field_name = alias if alias else group_field.meta.root_names()[0]
 
     for mo, df in tqdmu(list(predictions_df.group_by(grouping, maintain_order=True))):
         if show_perf_chart:
