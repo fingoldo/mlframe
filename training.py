@@ -3984,7 +3984,11 @@ def compute_ml_perf(
             if by_time:
                 res[truncated_interval_name] = mo[0]
             else:
-                res[group_field] = mo[0]
+                if isinstance(group_field, str):
+                    res[group_field] = mo[0]
+                elif isinstance(group_field, pl.Expr):
+                    res[group_field.meta.root_names()[0]] = mo[0]
+                    
             perf_stats.append(res)
         else:
             logger.warning(f"Problem computing models perf for {mo[0]}")
