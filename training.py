@@ -3970,7 +3970,7 @@ def compute_ml_perf(
                 else:
                     report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {group_field}={stats[group_field]} "
             elif isinstance(group_field, pl.Expr):
-                report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {group_field.name}={mo[0]} "
+                report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {group_field.meta.root_names()[0]}={mo[0]} "
 
             print(report_title)
         else:
