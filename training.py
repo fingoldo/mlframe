@@ -3946,7 +3946,7 @@ def compute_ml_perf(
     if by_time:
         grouping = pl.col(ts_field).dt.truncate(truncate_to)
     else:
-        grouping = pl.col(group_field)
+        grouping = pl.col(group_field) if isinstance(group_field, str) else group_field
 
     for mo, df in tqdmu(list(predictions_df.group_by(grouping, maintain_order=True))):
         if show_perf_chart:
@@ -3955,18 +3955,23 @@ def compute_ml_perf(
                 min_date=pl.col(ts_field).min().dt.date(),
                 max_date=pl.col(ts_field).max().dt.date(),
             )
-            if group_field:
-                if by_time:
-                    fields[group_field] = pl.col(group_field).n_unique()
-                else:
-                    fields[group_field] = pl.col(group_field).unique()
+            if group_field is not None:
+                if isinstance(group_field,str):
+                    if by_time:
+                        fields[group_field] = pl.col(group_field).n_unique()
+                    else:
+                        fields[group_field] = pl.col(group_field).unique()                
 
             stats: dict = df.select(**fields).row(0, named=True)
 
-            if by_time:
-                report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {stats[group_field]/1000:_.2f}K {group_field} "
-            else:
-                report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {group_field}={stats[group_field]} "
+            if isinstance(group_field,str):
+                if by_time:
+                    report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {stats[group_field]/1000:_.2f}K {group_field} "
+                else:
+                    report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {group_field}={stats[group_field]} "
+            elif isinstance(group_field,pl.Expr):
+                report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {group_field.alias}={mo[0]} "
+
 
             print(report_title)
         else:
