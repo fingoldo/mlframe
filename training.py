@@ -418,9 +418,11 @@ class DataFramePreprocessor:
     def show_raw_data(self, df: Union[pd.DataFrame, pl.DataFrame]) -> None:
 
         info = get_dataframe_info(df)
+        print("Raw data:")
         print(info)
 
     def show_processed_data(self, df: Union[pd.DataFrame, pl.DataFrame], target_by_type: dict) -> None:
+        print("Processed data:")
         showcase_features_and_targets(df, target_by_type)
 
     def prepare_artifacts(self, df: Union[pd.DataFrame, pl.DataFrame]):
@@ -2916,7 +2918,7 @@ def showcase_features_and_targets(df: Union[pd.DataFrame, pl.DataFrame], target_
 
     caption = "Non-float32 dtypes"
 
-    logger.info(f"{caption}: {non_floats.columns}")
+    logger.info(f"{caption}: {non_floats.dtypes.to_dict()}")
 
     in_jupyter_notebook = is_jupyter_notebook()
 
@@ -2955,7 +2957,7 @@ def showcase_features_and_targets(df: Union[pd.DataFrame, pl.DataFrame], target_
                 if isinstance(target, (pl.Series, pd.Series)):
                     desc_data = target.value_counts(normalize=True)
                 elif isinstance(target, (np.ndarray)):
-                    desc_data = pl.Series(target).value_counts(normalize=True)
+                    desc_data = pl.Series(target).value_counts(normalize=True, sort=True)
 
                 if in_jupyter_notebook:
                     display(desc_data)
@@ -3085,7 +3087,6 @@ def train_mlframe_models_suite(
 ) -> dict:
     """In a unified fashion, train a bunch of models over the same data."""
 
-    print(verbose)
     if verbose:
         logger.info(f"Starting MLFRAME models suite training. RAM usage: {get_own_ram_usage():.1f}GB.")
 
@@ -3178,12 +3179,13 @@ def train_mlframe_models_suite(
                     df = df.drop(col)
         elif isinstance(df, pl.DataFrame):
             df = df.drop(drop_columns, strict=False)
-
+        clean_ram()
         if verbose:
             logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
     if tail:
         df = df.tail(tail)
+        clean_ram()
 
     # Now can perform costly operations
 
@@ -3194,6 +3196,7 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info(f"Ensuring float32 dtypes...")
         df = ensure_dataframe_float32_convertability(df)
+        clean_ram()
         if verbose:
             logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
@@ -3204,6 +3207,7 @@ def train_mlframe_models_suite(
             df = df.fill_null(fillna_value).fill_nan(fillna_value)
         elif isinstance(df, pd.DataFrame):
             df = df.fillna(fillna_value)
+        clean_ram()
         if verbose:
             logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
@@ -3211,12 +3215,14 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info(f"Fixing infinities...")
         df = ensure_no_infinity(df)
+        clean_ram()
         if verbose:
             logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
     if verbose:
-        logger.info(f"preprocess_dataframe...")
+        logger.info(f"Preprocessing dataframe...")
     df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts = preprocessor.process(df)
+    clean_ram()
     if verbose:
         logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
@@ -3289,30 +3295,10 @@ def train_mlframe_models_suite(
         test_df = df[test_idx] if test_idx is not None else None
         val_df = df[val_idx]
 
-        if isinstance(train_df, pl.DataFrame):
-
-            logger.info(f"Done. Getting pandas view of polars dataframes: {get_own_ram_usage():.1f}GB.")
-
-            train_df = get_pandas_view_of_polars_df(train_df)
-            val_df = get_pandas_view_of_polars_df(val_df)
-            if test_df is not None:
-                test_df = get_pandas_view_of_polars_df(test_df)
-
+    clean_ram()
     if verbose:
-        if cat_features:
-            logger.info(f"cat_features={','.join(cat_features)}")
-
         logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
-    if len(val_df) == 0:
-        val_df = None
-
-    columns = df.columns
-    clean_ram()
-
-    # -----------------------------------------------------------------------------------------------------------------------------------------------------
-    # Checks
-    # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
     if use_autogluon_models or use_lama_models:
         tran_val_idx = np.array(train_idx.tolist() + val_idx.tolist())
@@ -3325,7 +3311,42 @@ def train_mlframe_models_suite(
         del df
         clean_ram()
         if verbose:
-            logger.info(f"Ram usage after deleting main df: {get_own_ram_usage():.1f}GBs")
+            logger.info(f"Ram usage after deleting main df: {get_own_ram_usage():.1f}GBs")        
+
+    if isinstance(train_df, pl.DataFrame):
+
+        logger.info(f"Getting pandas view of polars dataframes...")
+
+        train_df = get_pandas_view_of_polars_df(train_df)
+        val_df = get_pandas_view_of_polars_df(val_df)
+        if test_df is not None:
+            test_df = get_pandas_view_of_polars_df(test_df)    
+
+        if verbose:
+            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")                
+
+    if cat_features:
+        logger.info(f"Ensuring cat_features={','.join(cat_features)}")
+        for next_df in (train_df,val_df,test_df):
+            if next_df is not None:
+                cat_features = next_df.head().select_dtypes(["object", "category", "string[pyarrow]", "large_string[pyarrow]"]).columns.tolist()
+                if cat_features:
+                    prepare_df_for_catboost(
+                        df=next_df,
+                        cat_features=cat_features,
+                    )        
+
+        if verbose:
+            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")                     
+
+    if len(val_df) == 0:
+        val_df = None
+
+    columns = df.columns
+
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # Checks
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
     models = defaultdict(lambda: defaultdict(list))
     for target_type, targets in tqdmu(target_by_type.items(), desc="target type"):
