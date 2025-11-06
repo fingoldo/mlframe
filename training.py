@@ -131,7 +131,7 @@ from IPython.display import display
 import polars.selectors as cs
 import pandas as pd, numpy as np, polars as pl, pyarrow as pa
 
-from pyutilz.polarslib import polars_df_info
+from pyutilz.polarslib import polars_df_info, cast_f64_to_f32
 from pyutilz.pandaslib import get_df_memory_consumption, showcase_df_columns
 from pyutilz.pandaslib import ensure_dataframe_float32_convertability, optimize_dtypes, remove_constant_columns, convert_float64_to_float32
 
@@ -3027,7 +3027,11 @@ def train_mlframe_models_suite(
     model_name: str,
     preprocessor: DataFramePreprocessor,
     #
+    n_rows: int = None,
+    tail: int = None,
     columns: list = None,
+    drop_columns: list = None,
+    #
     data_dir: str = "",
     models_dir: str = MODELS_SUBDIR,
     #
@@ -3058,10 +3062,9 @@ def train_mlframe_models_suite(
     control_params_override: dict = None,
     init_common_params: dict = None,
     #
-    drop_columns: list = None,
-    tail: int = None,
-    #
+    fix_infinities: bool = True,
     fillna_value: float = None,
+    ensure_float32_dtypes: bool = True,
     #
     test_size: float = 0.1,
     val_size: float = 0.1,
@@ -3080,17 +3083,24 @@ def train_mlframe_models_suite(
     category_encoder: object = None,
 ) -> dict:
     """In a unified fashion, train a bunch of models over the same data."""
+
+    if verbose:
+        logger.info(f"Starting MLFRAME models suite training. RAM usage: {get_own_ram_usage():.1f}GB.")
+
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Warnings
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
     warnings.filterwarnings(
         "ignore",
         message=r"The '.*_dataloader' does not have many workers",
         module="lightning.pytorch.trainer.connectors.data_connector",
     )
+
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Inits
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
     trainset_features_stats = None
 
     # if imputer is None:
@@ -3110,12 +3120,14 @@ def train_mlframe_models_suite(
         autogluon_fit_params = {}
     if autogluon_init_params is None:
         autogluon_init_params = {}
+
     if lama_init_params is None:
         from lightautoml.tasks import Task
 
         lama_init_params = dict(task=Task("binary"))
     if lama_fit_params is None:
         lama_fit_params = {}
+
     if report_params is None:
         report_params = dict(
             nbins=10,
@@ -3131,47 +3143,85 @@ def train_mlframe_models_suite(
             # custom_rice_metric=custom_rice_metric,
             # metrics=metrics["test"],
         )
+
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Load, fill, and prepare df
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
     if isinstance(df, str):
+
         if verbose:
-            logger.info(f"Loading df from file with Polars, RAM usage before: {get_own_ram_usage():.1f}GBs...")
-        df = pl.read_parquet(df, columns=columns)
+            logger.info(f"Loading df from file with Polars...")
+
+        params = {}
+        if n_rows:
+            params["n_rows"] = n_rows
+        if columns:
+            params["columns"] = columns
+        df = pl.read_parquet(df, **params)
+
         if verbose:
-            logger.info(f"Loaded df from file with Polars, RAM usage after: {get_own_ram_usage():.1f}GBs...")
-    if fillna_value is not None:
-        if isinstance(df, pl.DataFrame):
-            df = df.fill_null(fillna_value).fill_nan(fillna_value)
-            if verbose:
-                logger.info(f"Filled nulls/nans in Polars df.")
-        elif isinstance(df, pd.DataFrame):
-            df = df.fillna(fillna_value)
-            if verbose:
-                logger.info(f"Filled nans in Pandas df.")
-    if isinstance(df, pl.DataFrame):
-        df = df.with_columns(pl.col(pl.Float64).cast(pl.Float32))
-        null_cols = [col for col in df.columns if df.null_count().select(pl.col(col)).item() > 0 or (df[col].dtype.is_float() and df[col].is_nan().sum() > 0)]
-        print("df cols with nulls/nans", null_cols)
-    elif isinstance(df, pd.DataFrame):
-        print("df cols with nans", df.columns[df.isna().any()].tolist())
-    clean_ram()
+            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+
+    # Now decreaase "attack surface" as much as possible
+
     if drop_columns:
-        for col in drop_columns:
-            if col in df.columns:
-                if isinstance(df, pd.DataFrame):
+        logger.info(f"Dropping {len(drop_columns):_} columns...")
+        if isinstance(df, pd.DataFrame):
+            df_columns = set(df.columns)
+            for col in drop_columns:
+                if col in df_columns:
                     del df[col]
                 else:
                     df = df.drop(col)
-                logger.info(f"Dropped column {col}")
-        clean_ram()
+        elif isinstance(df, pl.DataFrame):
+            df = df.drop(drop_columns, strict=False)
+
+        if verbose:
+            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+
     if tail:
         df = df.tail(tail)
-        clean_ram()
+
+    # Now can perform costly operations
+
+    if ensure_float32_dtypes:
+        """Lightgbm uses np.result_type(*df_dtypes) to detect array dtype when converting from Pandas input,
+        which results in float64 for int32 and above. For the rational mem usage, it makes sense to convert cols to float32 directly before training lightgbm.
+        """
+        if verbose:
+            logger.info(f"Ensuring float32 dtypes...")
+        df = ensure_dataframe_float32_convertability(df)
+        if verbose:
+            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+
+    if fillna_value is not None:
+        if verbose:
+            logger.info(f"Filling nulls/nans in the dataframe...")
+        if isinstance(df, pl.DataFrame):
+            df = df.fill_null(fillna_value).fill_nan(fillna_value)
+        elif isinstance(df, pd.DataFrame):
+            df = df.fillna(fillna_value)
+        if verbose:
+            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+
+    if fix_infinities:
+        if verbose:
+            logger.info(f"Fixing infinities...")
+        df = ensure_no_infinity(df)
+        if verbose:
+            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+
     if verbose:
         logger.info(f"preprocess_dataframe...")
     df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts = preprocessor.process(df)
-    clean_ram()
+    if verbose:
+        logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # Train-val-test split
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
     if verbose:
         logger.info(f"make_train_test_split...")
     train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
@@ -3187,6 +3237,11 @@ def train_mlframe_models_suite(
         wholeday_splitting=wholeday_splitting,
         random_seed=random_seed,
     )
+    if verbose:
+        logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+
+    # Save timestamps ,group ids & artifacts per set
+
     if data_dir is not None and models_dir:
         ensure_dir_exists(join(data_dir, models_dir, slugify(target_name), slugify(model_name)))
         for idx, idx_name in zip([train_idx, val_idx, test_idx], "train val test".split()):
@@ -3204,6 +3259,7 @@ def train_mlframe_models_suite(
                 art_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_artifacts.parquet")
                 if not exists(art_file):
                     save_series_or_df(artifacts[idx], art_file, PARQUET_COMPRESION)
+
     if verbose:
         logger.info(f"creating train_df,val_df,test_df...")
 
@@ -3225,56 +3281,37 @@ def train_mlframe_models_suite(
     elif isinstance(df, pl.DataFrame):
 
         df = df.with_columns(pl.col(pl.Utf8).cast(pl.Categorical))
-        cat_features = df.head().select(pl.col(pl.Categorical)).columns
+        cat_features = df.head(1).select(pl.col(pl.Categorical)).columns
 
         train_df = df[train_idx]
         test_df = df[test_idx] if test_idx is not None else None
         val_df = df[val_idx]
 
+    if verbose:
+        logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+
     if len(val_df) == 0:
         val_df = None
 
-    # ensure_dataframe_float32_convertability(df)
-    if isinstance(train_df, pd.DataFrame):
-        print("train_df cols with nans", train_df.columns[train_df.isna().any()].tolist())
-    elif isinstance(train_df, pl.DataFrame):
-        null_cols = [
-            col
-            for col in train_df.columns
-            if train_df.null_count().select(pl.col(col)).item() > 0 or (train_df[col].dtype.is_float() and train_df[col].is_nan().sum() > 0)
-        ]
-        print("train_df cols with nulls/nans", null_cols)
-    if isinstance(val_df, pd.DataFrame):
-        print("val_df cols with nans", val_df.columns[val_df.isna().any()].tolist())
-    elif isinstance(val_df, pl.DataFrame):
-        null_cols = [
-            col
-            for col in val_df.columns
-            if val_df.null_count().select(pl.col(col)).item() > 0 or (val_df[col].dtype.is_float() and val_df[col].is_nan().sum() > 0)
-        ]
-        print("val_df cols with nulls/nans", null_cols)
     columns = df.columns
     clean_ram()
+
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Checks
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
     if use_autogluon_models or use_lama_models:
         tran_val_idx = np.array(train_idx.tolist() + val_idx.tolist())
         if verbose:
             logger.info(f"RSS at start: {get_own_ram_usage():.1f}GBs")
     else:
+
         if verbose:
             logger.info(f"Ram usage before deleting main df: {get_own_ram_usage():.1f}GBs")
         del df
         clean_ram()
         if verbose:
             logger.info(f"Ram usage after deleting main df: {get_own_ram_usage():.1f}GBs")
-
-    if isinstance(train_df, pl.DataFrame):
-        train_df = get_pandas_view_of_polars_df(train_df)
-        val_df = get_pandas_view_of_polars_df(val_df)
-        if test_df is not None:
-            test_df = get_pandas_view_of_polars_df(test_df)
 
     models = defaultdict(lambda: defaultdict(list))
     for target_type, targets in tqdmu(target_by_type.items(), desc="target type"):
@@ -3289,6 +3326,7 @@ def train_mlframe_models_suite(
                             df = df.drop(automl_target_label)
                         if verbose:
                             logger.info(f"RSS after automl_target_label deletion: {get_own_ram_usage():.1f}GBs")
+                
                 parts = slugify(target_name), slugify(model_name), slugify(target_type.lower()), slugify(cur_target_name)
                 if data_dir is not None:
                     plot_file = join(data_dir, "charts", *parts) + os.path.sep
@@ -3300,6 +3338,7 @@ def train_mlframe_models_suite(
                     ensure_dir_exists(model_file)
                 else:
                     model_file = None
+                
                 if verbose:
                     logger.info(f"select_target...")
                 cur_control_params_override = control_params_override.copy()
@@ -3327,20 +3366,25 @@ def train_mlframe_models_suite(
                         trainset_features_stats=trainset_features_stats, skip_infinity_checks=skip_infinity_checks, plot_file=plot_file, **init_common_params
                     ),
                 )
+                
                 pre_pipelines = []
                 pre_pipeline_names = []
+
                 if use_ordinary_models:
                     pre_pipelines.append(None)
                     pre_pipeline_names.append("")
+
                 for rfecv_model_name in rfecv_models:
                     if rfecv_model_name not in rfecv_models_params:
                         logger.warning(f"RFECV model {rfecv_model_name} not known, skipping...")
                     else:
                         pre_pipelines.append(rfecv_models_params[rfecv_model_name])
                         pre_pipeline_names.append(f"{rfecv_model_name} ")
+
                 if use_mrmr_fs:
                     pre_pipelines.append(MRMR(**mrmr_kwargs))
                     pre_pipeline_names.append("MRMR ")
+
                 for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
                     if pre_pipeline_name == "cb_rfecv" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
                         # File /venv/main/lib/python3.12/site-packages/sklearn/base.py:142, in _clone_parametrized(estimator, safe)
@@ -3386,6 +3430,7 @@ def train_mlframe_models_suite(
                             )
                             if mlframe_model_name not in ("hgb", "mlp", "ngb"):
                                 orig_pre_pipeline = pre_pipeline
+                    
                     if ens_models and len(ens_models) > 1:
                         if verbose:
                             logger.info(f"evaluating simple ensembles...")
