@@ -3085,6 +3085,7 @@ def train_mlframe_models_suite(
 ) -> dict:
     """In a unified fashion, train a bunch of models over the same data."""
 
+    print(verbose)
     if verbose:
         logger.info(f"Starting MLFRAME models suite training. RAM usage: {get_own_ram_usage():.1f}GB.")
 
