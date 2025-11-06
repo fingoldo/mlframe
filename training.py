@@ -3296,7 +3296,7 @@ def train_mlframe_models_suite(
             train_df = get_pandas_view_of_polars_df(train_df)
             val_df = get_pandas_view_of_polars_df(val_df)
             if test_df is not None:
-                test_df = get_pandas_view_of_polars_df(test_df)        
+                test_df = get_pandas_view_of_polars_df(test_df)
 
     if verbose:
         if cat_features:
