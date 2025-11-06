@@ -109,7 +109,7 @@ def get_model_best_iter(model: object) -> int:
             return getattr(real_model, field)
 
 
-def ensure_no_infinity(df: pd.DataFrame, num_cols_only: bool = False) -> bool:
+def ensure_no_infinity(df: pd.DataFrame, num_cols_only: bool = True) -> bool:
     if isinstance(df, pd.DataFrame):
         return ensure_no_infinity_pd(df=df, num_cols_only=num_cols_only)
     elif isinstance(df, pl.DataFrame):
