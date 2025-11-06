@@ -129,7 +129,8 @@ from IPython.display import display
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import polars.selectors as cs
-import pandas as pd, numpy as np, polars as pl
+import pandas as pd, numpy as np, polars as pl, pyarrow as pa
+
 from pyutilz.polarslib import polars_df_info
 from pyutilz.pandaslib import get_df_memory_consumption, showcase_df_columns
 from pyutilz.pandaslib import ensure_dataframe_float32_convertability, optimize_dtypes, remove_constant_columns, convert_float64_to_float32
@@ -2982,9 +2983,28 @@ def intize_targets(targets: dict) -> None:
 
 # Define the zero-copy conversion function
 def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
-    assert isinstance(df, (pl.DataFrame, pl.Series))
-    arr_df = df.to_arrow()
-    pandas_df = arr_df.to_pandas(types_mapper=lambda t: pd.ArrowDtype(t))
+    """
+    Return a zero-copy (Arrow-backed) pandas DataFrame view of a Polars DataFrame.
+    - Numeric, boolean, string columns: zero-copy Arrow view
+    - Categorical (dictionary) columns: converted to string
+    """
+    assert isinstance(df, (pl.DataFrame, pl.Series)), "Input must be a Polars DataFrame or Series"
+
+    tbl = df.to_arrow()
+
+    fixed_cols = []
+    for col in tbl.columns:
+        if pa.types.is_dictionary(col.type):
+            # Convert dictionary array to its string representation
+            col = pa.compute.cast(col, pa.string())
+        fixed_cols.append(col)
+
+    tbl_fixed = pa.table(fixed_cols, names=tbl.column_names)
+
+    pandas_df = tbl_fixed.to_pandas(
+        types_mapper=pd.ArrowDtype,  # keep Arrow-backed columns for zero-copy
+    )
+
     return pandas_df
 
 
@@ -3191,18 +3211,16 @@ def train_mlframe_models_suite(
 
         for next_df in (df,):
             if next_df is not None:
-                obj_features = next_df.head().select_dtypes("object").columns.tolist()
-                if obj_features:
+                cat_features = next_df.head().select_dtypes(["object", "category", "string[pyarrow]", "large_string[pyarrow]"]).columns.tolist()
+                if cat_features:
                     prepare_df_for_catboost(
                         df=next_df,
-                        cat_features=obj_features,
+                        cat_features=cat_features,
                     )
 
         train_df = df.iloc[train_idx]
         test_df = df.iloc[test_idx] if test_idx is not None else None
         val_df = df.iloc[val_idx]
-
-        cat_features = df.head().select_dtypes("category").columns.tolist()
 
     elif isinstance(df, pl.DataFrame):
 
