@@ -3299,7 +3299,6 @@ def train_mlframe_models_suite(
     if verbose:
         logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
-
     if use_autogluon_models or use_lama_models:
         tran_val_idx = np.array(train_idx.tolist() + val_idx.tolist())
         if verbose:
@@ -3311,7 +3310,7 @@ def train_mlframe_models_suite(
         del df
         clean_ram()
         if verbose:
-            logger.info(f"Ram usage after deleting main df: {get_own_ram_usage():.1f}GBs")        
+            logger.info(f"Ram usage after deleting main df: {get_own_ram_usage():.1f}GBs")
 
     if isinstance(train_df, pl.DataFrame):
 
@@ -3320,24 +3319,24 @@ def train_mlframe_models_suite(
         train_df = get_pandas_view_of_polars_df(train_df)
         val_df = get_pandas_view_of_polars_df(val_df)
         if test_df is not None:
-            test_df = get_pandas_view_of_polars_df(test_df)    
+            test_df = get_pandas_view_of_polars_df(test_df)
 
         if verbose:
-            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")                
+            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
     if cat_features:
         logger.info(f"Ensuring cat_features={','.join(cat_features)}")
-        for next_df in (train_df,val_df,test_df):
+        for next_df in (train_df, val_df, test_df):
             if next_df is not None:
                 cat_features = next_df.head().select_dtypes(["object", "category", "string[pyarrow]", "large_string[pyarrow]"]).columns.tolist()
                 if cat_features:
                     prepare_df_for_catboost(
                         df=next_df,
                         cat_features=cat_features,
-                    )        
+                    )
 
         if verbose:
-            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")                     
+            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
     if len(val_df) == 0:
         val_df = None
@@ -3345,7 +3344,7 @@ def train_mlframe_models_suite(
     columns = df.columns
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
-    # Checks
+    # Actual training
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
     models = defaultdict(lambda: defaultdict(list))
