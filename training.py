@@ -3341,7 +3341,7 @@ def train_mlframe_models_suite(
     if len(val_df) == 0:
         val_df = None
 
-    columns = df.columns
+    columns = train_df.columns
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Actual training
