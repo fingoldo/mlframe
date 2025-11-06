@@ -3284,6 +3284,7 @@ def train_mlframe_models_suite(
 
         df = df.with_columns(pl.col(pl.Utf8).cast(pl.Categorical))
         cat_features = df.head(1).select(pl.col(pl.Categorical)).columns
+        print("cat_features=", cat_features)
 
         train_df = df[train_idx]
         test_df = df[test_idx] if test_idx is not None else None
