@@ -133,7 +133,7 @@ def ensure_no_infinity_pl(df: pl.DataFrame, num_cols_only: bool = True, nans_fil
 def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_filler: float = 0, verbose: int = 1) -> pd.DataFrame:
     num_cols = df.head().select_dtypes("number").columns
     inf_cols = []
-    if num_cols_only or len(num_cols) == df.shape[1]:
+    if not num_cols_only or len(num_cols) == df.shape[1]:
         tmp = np.isinf(df).any()
         tmp = tmp[tmp == True]
         inf_cols = tmp.index.values.tolist()
