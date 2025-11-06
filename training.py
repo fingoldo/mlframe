@@ -3284,13 +3284,24 @@ def train_mlframe_models_suite(
 
         df = df.with_columns(pl.col(pl.Utf8).cast(pl.Categorical))
         cat_features = df.head(1).select(pl.col(pl.Categorical)).columns
-        print("cat_features=", cat_features)
 
         train_df = df[train_idx]
         test_df = df[test_idx] if test_idx is not None else None
         val_df = df[val_idx]
 
+        if isinstance(train_df, pl.DataFrame):
+
+            logger.info(f"Done. Getting pandas view of polars dataframes: {get_own_ram_usage():.1f}GB.")
+
+            train_df = get_pandas_view_of_polars_df(train_df)
+            val_df = get_pandas_view_of_polars_df(val_df)
+            if test_df is not None:
+                test_df = get_pandas_view_of_polars_df(test_df)        
+
     if verbose:
+        if cat_features:
+            logger.info(f"cat_features={','.join(cat_features)}")
+
         logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
     if len(val_df) == 0:
