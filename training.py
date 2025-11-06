@@ -3326,7 +3326,7 @@ def train_mlframe_models_suite(
                             df = df.drop(automl_target_label)
                         if verbose:
                             logger.info(f"RSS after automl_target_label deletion: {get_own_ram_usage():.1f}GBs")
-                
+
                 parts = slugify(target_name), slugify(model_name), slugify(target_type.lower()), slugify(cur_target_name)
                 if data_dir is not None:
                     plot_file = join(data_dir, "charts", *parts) + os.path.sep
@@ -3338,7 +3338,7 @@ def train_mlframe_models_suite(
                     ensure_dir_exists(model_file)
                 else:
                     model_file = None
-                
+
                 if verbose:
                     logger.info(f"select_target...")
                 cur_control_params_override = control_params_override.copy()
@@ -3366,7 +3366,7 @@ def train_mlframe_models_suite(
                         trainset_features_stats=trainset_features_stats, skip_infinity_checks=skip_infinity_checks, plot_file=plot_file, **init_common_params
                     ),
                 )
-                
+
                 pre_pipelines = []
                 pre_pipeline_names = []
 
@@ -3430,7 +3430,7 @@ def train_mlframe_models_suite(
                             )
                             if mlframe_model_name not in ("hgb", "mlp", "ngb"):
                                 orig_pre_pipeline = pre_pipeline
-                    
+
                     if ens_models and len(ens_models) > 1:
                         if verbose:
                             logger.info(f"evaluating simple ensembles...")
