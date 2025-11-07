@@ -3334,7 +3334,7 @@ def train_mlframe_models_suite(
                         df=next_df,
                         cat_features=cat_features,
                     )
-
+        print(train_df[cat_features[0]])
         if verbose:
             logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
