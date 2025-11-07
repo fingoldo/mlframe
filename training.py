@@ -2998,7 +2998,7 @@ def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
     for col in tbl.columns:
         if pa.types.is_dictionary(col.type):
             # Convert dictionary array to its string representation
-            col = pa.compute.cast(col, pa.large_string())
+            col = pa.compute.cast(col, pa.string())
         fixed_cols.append(col)
 
     tbl_fixed = pa.table(fixed_cols, names=tbl.column_names)
@@ -3312,7 +3312,7 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info(f"Ram usage after deleting main df: {get_own_ram_usage():.1f}GBs")
 
-    if isinstance(train_df, pl.DataFrame):
+    if false and isinstance(train_df, pl.DataFrame):
 
         logger.info(f"Getting pandas view of polars dataframes...")
 
@@ -3327,13 +3327,11 @@ def train_mlframe_models_suite(
     if cat_features:
         logger.info(f"Ensuring cat_features={','.join(cat_features)}")
         for next_df in (train_df, val_df, test_df):
-            if next_df is not None:
-                cat_features = next_df.head().select_dtypes(["object", "category", "string[pyarrow]", "large_string[pyarrow]"]).columns.tolist()
-                if cat_features:
-                    prepare_df_for_catboost(
-                        df=next_df,
-                        cat_features=cat_features,
-                    )
+            if next_df is not None and isinstance(next_df, pd.DataFrame):
+                prepare_df_for_catboost(
+                    df=next_df,
+                    cat_features=cat_features,
+                )
         print(train_df[cat_features[0]])
         if verbose:
             logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
