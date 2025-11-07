@@ -3312,7 +3312,7 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info(f"Ram usage after deleting main df: {get_own_ram_usage():.1f}GBs")
 
-    if false and isinstance(train_df, pl.DataFrame):
+    if False and isinstance(train_df, pl.DataFrame):
 
         logger.info(f"Getting pandas view of polars dataframes...")
 
