@@ -2998,7 +2998,7 @@ def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
     for col in tbl.columns:
         if pa.types.is_dictionary(col.type):
             # Convert dictionary array to its string representation
-            col = pa.compute.cast(col, pa.string())
+            col = pa.compute.cast(col, pa.large_string())
         fixed_cols.append(col)
 
     tbl_fixed = pa.table(fixed_cols, names=tbl.column_names)
