@@ -166,6 +166,10 @@ from lightgbm import LGBMClassifier, LGBMRegressor
 from catboost import CatBoostRegressor, CatBoostClassifier
 from xgboost import XGBClassifier, XGBRegressor, DMatrix, QuantileDMatrix
 
+import flaml.default as flaml_zeroshot
+# from flaml.default import LGBMClassifier,LGBMRegressor,XGBClassifier,XGBRegressor
+# from flaml.default import ExtraTreesClassifier,ExtraTreesRegressor,RandomForestClassifier,RandomForestRegressor
+
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.dummy import DummyClassifier, DummyRegressor
 
@@ -561,7 +565,7 @@ def get_training_configs(
     mae_weight: float = 3,
     std_weight: float = 2,
     roc_auc_weight: float = 1.5,
-    pr_auc_weight: float = 30.5,
+    pr_auc_weight: float = 0.1,
     brier_loss_weight: float = 0.4,
     min_roc_auc: float = 0.54,
     roc_auc_penalty: float = 0.00,
@@ -2041,6 +2045,7 @@ def configure_training_params(
     common_params: dict = None,
     config_params: dict = None,
     metamodel_func: callable = None,
+    use_flaml:bool=True,
 ):
     if metamodel_func is None:
         metamodel_func = lambda x: x
@@ -2148,30 +2153,30 @@ def configure_training_params(
     if prefer_cpu_for_xgboost:
         xgb_params = dict(
             model=(
-                metamodel_func(XGBRegressor(**cpu_configs.XGB_GENERAL_PARAMS))
+                metamodel_func((XGBRegressor if not use_flaml else flaml_zeroshot.XGBRegressor)(**cpu_configs.XGB_GENERAL_PARAMS))
                 if use_regression
-                else XGBClassifier(**(cpu_configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else cpu_configs.XGB_GENERAL_CLASSIF))
+                else (XGBClassifier if not use_flaml else flaml_zeroshot.XGBClassifier)(**(cpu_configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else cpu_configs.XGB_GENERAL_CLASSIF))
             ),
             fit_params=dict(verbose=xgboost_verbose),
         )
     else:
         xgb_params = dict(
             model=(
-                metamodel_func(XGBRegressor(**configs.XGB_GENERAL_PARAMS))
+                metamodel_func((XGBRegressor if not use_flaml else flaml_zeroshot.XGBRegressor)(**configs.XGB_GENERAL_PARAMS))
                 if use_regression
-                else XGBClassifier(**(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF))
+                else (XGBClassifier if not use_flaml else flaml_zeroshot.XGBClassifier)(**(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF))
             ),
             fit_params=dict(verbose=xgboost_verbose),
         )
 
     if prefer_cpu_for_lightgbm:
         lgb_params = dict(
-            model=metamodel_func(LGBMRegressor(**cpu_configs.LGB_GENERAL_PARAMS)) if use_regression else LGBMClassifier(**cpu_configs.LGB_GENERAL_PARAMS),
+            model=metamodel_func((LGBMRegressor if not use_flaml else flaml_zeroshot.LGBMRegressor)(**cpu_configs.LGB_GENERAL_PARAMS)) if use_regression else (LGBMClassifier if not use_flaml else flaml_zeroshot.LGBMClassifier)(**cpu_configs.LGB_GENERAL_PARAMS),
             fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if (prefer_calibrated_classifiers and not use_regression) else {}),
         )
     else:
         lgb_params = dict(
-            model=metamodel_func(LGBMRegressor(**configs.LGB_GENERAL_PARAMS)) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
+            model=metamodel_func((LGBMRegressor if not use_flaml else flaml_zeroshot.LGBMRegressor)(**configs.LGB_GENERAL_PARAMS)) if use_regression else (LGBMClassifier if not use_flaml else flaml_zeroshot.LGBMClassifier)(**configs.LGB_GENERAL_PARAMS),
             fit_params=(dict(eval_metric=configs.lgbm_integral_calibration_error) if (prefer_calibrated_classifiers and not use_regression) else {}),
         )
 
@@ -2259,7 +2264,7 @@ def configure_training_params(
         lgb_fit_params = dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}
 
     lgb_rfecv = RFECV(
-        estimator=metamodel_func(LGBMRegressor(**configs.LGB_GENERAL_PARAMS)) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS),
+        estimator=metamodel_func((LGBMRegressor if not use_flaml else flaml_zeroshot.LGBMRegressor)(**configs.LGB_GENERAL_PARAMS)) if use_regression else (LGBMClassifier if not use_flaml else flaml_zeroshot.LGBMClassifier)(**configs.LGB_GENERAL_PARAMS),
         fit_params=lgb_fit_params,
         cat_features=cat_features,
         scoring=rfecv_scoring,
@@ -2268,9 +2273,9 @@ def configure_training_params(
 
     xgb_rfecv = RFECV(
         estimator=(
-            metamodel_func(XGBRegressor(**configs.XGB_GENERAL_PARAMS))
+            metamodel_func((XGBRegressor if not use_flaml else flaml_zeroshot.XGBRegressor)(**configs.XGB_GENERAL_PARAMS))
             if use_regression
-            else XGBClassifier(**(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF))
+            else (XGBClassifier if not use_flaml else flaml_zeroshot.XGBClassifier)(**(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF))
         ),
         fit_params=dict(verbose=False),
         cat_features=cat_features,

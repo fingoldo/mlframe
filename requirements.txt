@@ -25,6 +25,7 @@ py-cpuinfo
 catboost
 category_encoders
 imbalanced-learn
+flaml
 lightautoml
 lightgbm
 optbinning
