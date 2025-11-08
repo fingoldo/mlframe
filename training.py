@@ -3171,22 +3171,7 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
-    # Now decreaase "attack surface" as much as possible
-
-    if drop_columns:
-        logger.info(f"Dropping {len(drop_columns):_} columns...")
-        if isinstance(df, pd.DataFrame):
-            df_columns = set(df.columns)
-            for col in drop_columns:
-                if col in df_columns:
-                    del df[col]
-                else:
-                    df = df.drop(col)
-        elif isinstance(df, pl.DataFrame):
-            df = df.drop(drop_columns, strict=False)
-        clean_ram()
-        if verbose:
-            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+    # Now decrease "attack surface" as much as possible
 
     if tail:
         df = df.tail(tail)
@@ -3230,6 +3215,21 @@ def train_mlframe_models_suite(
     clean_ram()
     if verbose:
         logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+
+    if drop_columns:
+        logger.info(f"Dropping {len(drop_columns):_} columns...")
+        if isinstance(df, pd.DataFrame):
+            df_columns = set(df.columns)
+            for col in drop_columns:
+                if col in df_columns:
+                    del df[col]
+                else:
+                    df = df.drop(col)
+        elif isinstance(df, pl.DataFrame):
+            df = df.drop(drop_columns, strict=False)
+        clean_ram()
+        if verbose:
+            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")        
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Train-val-test split
