@@ -400,6 +400,7 @@ class DataFramePreprocessor:
         datetime_features: dict = None,
         group_field: str = None,
         columns_to_drop: set = None,
+        verbose:int=0,
     ):
 
         params = get_parent_func_args()
@@ -428,6 +429,7 @@ class DataFramePreprocessor:
     def show_processed_data(self, df: Union[pd.DataFrame, pl.DataFrame], target_by_type: dict) -> None:
         print("Processed data:")
         showcase_features_and_targets(df, target_by_type)
+        log_ram_usage()
 
     def prepare_artifacts(self, df: Union[pd.DataFrame, pl.DataFrame]):
         return {}
@@ -446,7 +448,11 @@ class DataFramePreprocessor:
             if isinstance(timestamps, pl.Series):
                 timestamps = timestamps.to_pandas()
             if self.datetime_features:
+                if self.verbose:
+                    logger.info(f"create_date_features...")
                 df = create_date_features(df, cols=[self.ts_field], delete_original_cols=True, methods=self.datetime_features)
+                if self.verbose:
+                    log_ram_usage()
         else:
             timestamps = None
 
@@ -3379,8 +3385,8 @@ def train_mlframe_models_suite(
         df=process_nulls(df,fill_value=fillna_value,verbose=verbose)
         df=process_nans(df,fill_value=fillna_value,verbose=verbose)
 
-    if fix_infinities:
-        df=process_infinities(df,fill_value=fillna_value,verbose=verbose)
+        if fix_infinities:
+            df=process_infinities(df,fill_value=fillna_value,verbose=verbose)
 
     if verbose:
         logger.info(f"Preprocessing dataframe...")
