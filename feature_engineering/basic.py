@@ -63,17 +63,20 @@ def create_date_features(
             for method, dtype in methods.items():
                 df[col + "_" + method] = getattr(obj, method).astype(dtype)
         elif is_polars:
+            exprs = []
             for method, np_dtype in methods.items():
                 pl_dtype = dtype_map.get(np_dtype)
                 if pl_dtype is None:
                     raise ValueError(f"Unsupported dtype {np_dtype} for Polars")
-
+                
                 if method == "weekday":
-                    # Adjust to match pandas weekday (0=Monday to 6=Sunday)
-                    expr = (pl.col(col).dt.weekday() - 1).cast(pl_dtype).alias(col + "_" + method)
+                    e = (pl.col(col).dt.weekday() - 1).cast(pl_dtype).alias(col + "_" + method)
                 else:
-                    expr = getattr(pl.col(col).dt, method)().cast(pl_dtype).alias(col + "_" + method)
-                df = df.with_columns(expr)
+                    e = getattr(pl.col(col).dt, method)().cast(pl_dtype).alias(col + "_" + method)
+                
+                exprs.append(e)
+
+            df = df.with_columns(exprs)  # Add all at once
 
     if delete_original_cols:
         if is_pandas:
