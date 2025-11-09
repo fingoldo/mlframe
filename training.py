@@ -3463,8 +3463,6 @@ def train_mlframe_models_suite(
             df = df.with_columns(pl.col(pl.Utf8).cast(pl.Categorical))
             cat_features = df.head(1).select(pl.col(pl.Categorical)).columns
 
-
-
         if verbose:
             log_ram_usage()
 
@@ -3501,9 +3499,16 @@ def train_mlframe_models_suite(
                 metadata['mighty_scaler_pipe']=mighty_scaler_pipe
 
                 cat_features=[]
-                
+
                 clean_ram()
                 log_ram_usage()
+
+                if fillna_value is not None:
+                    df=process_nulls(df,fill_value=fillna_value,verbose=verbose)
+                    df=process_nans(df,fill_value=fillna_value,verbose=verbose)
+
+                    if fix_infinities:
+                        df=process_infinities(df,fill_value=fillna_value,verbose=verbose)
 
         train_df = df[train_idx]
         test_df = df[test_idx] if test_idx is not None else None
