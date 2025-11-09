@@ -3026,6 +3026,172 @@ def save_series_or_df(obj: Union[pd.Series, pd.DataFrame, pl.Series, pl.DataFram
         obj.to_parquet(file, compression=compression)
     elif isinstance(obj, pl.DataFrame):
         obj.write_parquet(file, compression=compression)
+def _process_special_values(
+    df: Union[pl.DataFrame, pd.DataFrame],
+    expr_func=None,
+    fill_func_name: str = None,
+    kind: str = "",
+    fill_value: float = None,
+    verbose: int = 1,
+) -> Union[pl.DataFrame, pd.DataFrame]:
+    """
+    Generic handler for NaNs, nulls, or infinities in numeric columns
+    for Polars or pandas DataFrames.
+
+    Testing:
+    
+    # Create a test Polars DataFrame
+    df_test = pl.DataFrame(
+        {
+            "numeric_1": [1.0, 2.0, np.nan, 4.0, np.inf, -np.inf, 7.0, np.nan, 9.0, 10.0],
+            "numeric_2": [np.nan, 1.0, 2.0, 3.0, 4.0, 5.0, np.nan, np.inf, -np.inf, 10.0],
+            "numeric_3": [1.0, 2.0, 3.0, None, 5.0, 6.0, 7.0, None, 9.0, 10.0],
+            "category": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"],
+        }
+    )
+    
+    for df in [df_test, df_test.to_pandas()]:
+        for func in [process_nans, process_nulls, process_infinities]:
+            df = func(df)
+        print(df)    
+    """
+    is_polars = isinstance(df, pl.DataFrame)
+    is_pandas = isinstance(df, pd.DataFrame)
+
+    if verbose:
+        logger.info(f"Counting {kind}s...")
+
+    if is_polars:
+        # Polars: use provided expr_func
+        qos_df = df.select(expr_func())
+        errors_df = (
+            pl.DataFrame({"column": qos_df.columns, "nerrors": qos_df.row(0)})
+            .filter(pl.col("nerrors") > 0)
+            .sort("nerrors", descending=True)
+        )
+        nrows, ncols = df.shape
+        sum_errors = errors_df["nerrors"].sum()
+
+    elif is_pandas:
+        # Pandas: only check numeric columns
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        if kind == "NaN":
+            mask = df[numeric_cols].isna()
+        elif kind == "null":
+            mask = df[numeric_cols].isnull()
+        elif kind == "infinite":
+            mask = np.isinf(df[numeric_cols])
+        else:
+            raise ValueError(f"Unknown kind: {kind}")
+
+        nerrors = mask.sum()
+        errors_df = pd.DataFrame({"column": nerrors.index, "nerrors": nerrors.values})
+        errors_df = errors_df[errors_df["nerrors"] > 0].sort_values(
+            "nerrors", ascending=False
+        )
+
+        nrows, ncols = df.shape
+        sum_errors = errors_df["nerrors"].sum()
+    else:
+        raise TypeError("df must be a Polars or pandas DataFrame")
+
+    if len(errors_df) == 0:
+        return df
+
+    logger.warning(
+        f"Columns with {kind}s: {len(errors_df):_} [{len(errors_df)/ncols*100:.2f}%], "
+        f"total {kind}s: {sum_errors:_} [{sum_errors/(nrows*ncols):.3f}%]"
+    )
+
+    # Display top 10
+    display_df = (
+        errors_df.head(10).set_index("column")
+        if is_pandas
+        else errors_df.to_pandas().set_index("column").head(10)
+    )
+    caption = f"Columns with most {kind}s:"
+    if is_jupyter_notebook():
+        display(display_df.style.set_caption(caption))
+    else:
+        print(caption)
+        print(display_df)
+
+    if fill_value is not None:
+        if verbose:
+            logger.info(f"Filling {kind}s with {fill_value}...")
+
+        if is_polars:
+            if kind == "infinite":
+                df = df.with_columns(
+                    [
+                        pl.when(pl.col(c).is_infinite())
+                        .then(fill_value)
+                        .otherwise(pl.col(c))
+                        .alias(c)
+                        for c in errors_df["column"]
+                    ]
+                )
+            else:
+                df = df.with_columns(
+                    getattr(pl.col(errors_df["column"]), fill_func_name)(fill_value)
+                )
+        elif is_pandas:
+            if kind in ("NaN", "null"):
+                df[errors_df["column"]] = df[errors_df["column"]].fillna(fill_value)
+            elif kind == "infinite":
+                for c in errors_df["column"]:
+                    df[c] = df[c].replace([np.inf, -np.inf], fill_value)
+        clean_ram()
+        if verbose:
+            logger.info(f"{kind.capitalize()}s filled with {fill_value} value.")
+            log_ram_usage()
+
+    return df
+
+
+def process_nans(
+    df: Union[pl.DataFrame, pd.DataFrame], fillna_value: float = 0.0, verbose: int = 1
+):
+    return _process_special_values(
+        df=df,
+        expr_func=lambda: (
+            cs.numeric().is_nan().sum() if isinstance(df, pl.DataFrame) else None
+        ),
+        fill_func_name="fill_nan",
+        kind="NaN",
+        fill_value=fillna_value,
+        verbose=verbose,
+    )
+
+
+def process_nulls(
+    df: Union[pl.DataFrame, pd.DataFrame], fillna_value: float = 0.0, verbose: int = 1
+):
+    return _process_special_values(
+        df=df,
+        expr_func=lambda: (
+            cs.numeric().is_null().sum() if isinstance(df, pl.DataFrame) else None
+        ),
+        fill_func_name="fill_null",
+        kind="null",
+        fill_value=fillna_value,
+        verbose=verbose,
+    )
+
+
+def process_infinities(
+    df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1
+):
+    return _process_special_values(
+        df=df,
+        expr_func=lambda: (
+            cs.numeric().is_infinite().sum() if isinstance(df, pl.DataFrame) else None
+        ),
+        fill_func_name="replace",
+        kind="infinite",
+        fill_value=fill_value,
+        verbose=verbose,
+    )
 
 def log_ram_usage()->None:
     logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
@@ -3171,11 +3337,26 @@ def train_mlframe_models_suite(
         if columns:
             params["columns"] = columns
         df = pl.read_parquet(df, **params)
-
+        clean_ram()
         if verbose:
             log_ram_usage()
 
     # Now decrease "attack surface" as much as possible
+
+    if drop_columns:
+        logger.info(f"Dropping {len(drop_columns):_} columns...")
+        if isinstance(df, pd.DataFrame):
+            df_columns = set(df.columns)
+            for col in drop_columns:
+                if col in df_columns:
+                    del df[col]
+                else:
+                    df = df.drop(col)
+        elif isinstance(df, pl.DataFrame):
+            df = df.drop(drop_columns, strict=False)
+        clean_ram()
+        if verbose:
+            log_ram_usage()      
 
     if tail:
         df = df.tail(tail)
@@ -3195,23 +3376,11 @@ def train_mlframe_models_suite(
             log_ram_usage()
 
     if fillna_value is not None:
-        if verbose:
-            logger.info(f"Filling nulls/nans in the dataframe...")
-        if isinstance(df, pl.DataFrame):
-            df = df.fill_null(fillna_value).fill_nan(fillna_value)
-        elif isinstance(df, pd.DataFrame):
-            df = df.fillna(fillna_value)
-        clean_ram()
-        if verbose:
-            log_ram_usage()
+        df=process_nulls(df,fillna_value=fillna_value,verbose=verbose)
+        df=process_nans(df,fillna_value=fillna_value,verbose=verbose)
 
     if fix_infinities:
-        if verbose:
-            logger.info(f"Fixing infinities...")
-        df = ensure_no_infinity(df)
-        clean_ram()
-        if verbose:
-            log_ram_usage()
+        df=process_infinities(df,fillna_value=fillna_value,verbose=verbose)
 
     if verbose:
         logger.info(f"Preprocessing dataframe...")
@@ -3219,21 +3388,7 @@ def train_mlframe_models_suite(
     clean_ram()
     if verbose:
         log_ram_usage()
-
-    if drop_columns:
-        logger.info(f"Dropping {len(drop_columns):_} columns...")
-        if isinstance(df, pd.DataFrame):
-            df_columns = set(df.columns)
-            for col in drop_columns:
-                if col in df_columns:
-                    del df[col]
-                else:
-                    df = df.drop(col)
-        elif isinstance(df, pl.DataFrame):
-            df = df.drop(drop_columns, strict=False)
-        clean_ram()
-        if verbose:
-            log_ram_usage()        
+      
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Train-val-test split
