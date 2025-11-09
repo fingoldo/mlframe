@@ -488,13 +488,14 @@ class SimpleDataFramePreprocessor(DataFramePreprocessor):
         datetime_features: dict = None,
         group_field: str = None,
         columns_to_drop: set = None,
+        verbose:int=0,
         #
         regression_targets: Iterable = None,
         classification_targets: Iterable = None,
         classification_exact_values: dict = None,
         classification_thresholds: dict = None,
     ):
-        super().__init__(ts_field=ts_field, datetime_features=datetime_features, group_field=group_field, columns_to_drop=columns_to_drop)
+        super().__init__(ts_field=ts_field, datetime_features=datetime_features, group_field=group_field, columns_to_drop=columns_to_drop,verbose=verbose)
 
         self.regression_targets = regression_targets
         self.classification_targets = classification_targets
@@ -3493,10 +3494,7 @@ def train_mlframe_models_suite(
                 if val_idx is not None:
                     val_df = mighty_scaler_pipe.transform(val_df)                
                 if test_idx is not None:
-                    test_df = mighty_scaler_pipe.transform(test_df)
-
-                if verbose:
-                    log_ram_usage()      
+                    test_df = mighty_scaler_pipe.transform(test_df)  
                 
                 metadata['mighty_scaler_pipe']=mighty_scaler_pipe
 
@@ -3903,7 +3901,7 @@ class UniversalCallback:
         self.start_time = timer()
         if self.verbose > 0:
             self.last_reporting_ts = self.start_time
-            logger.info(f"Training started. Timer initiated. RAM usage {get_own_ram_usage():.1f}GBs.")
+            logger.info(f"Training started. Timer initiated. RAM usage {get_own_ram_usage():.1f}GB.")
 
     def update_history(self, metrics_dict: Dict[str, Dict[str, float]]) -> None:
         for dataset in metrics_dict:
@@ -3962,7 +3960,7 @@ class UniversalCallback:
             logger.info(f"Auto-selected monitor_metric: {self.monitor_metric}, mode: {self.mode}")
 
     def _get_state(self, current_value: float) -> str:
-        return f"iter={self.iter:_}, {self.monitor_dataset} {self.monitor_metric}: current={current_value:.{self.ndigits}f}, best={self.best_metric:.{self.ndigits}f} @{self.best_iter:_}"
+        return f"iter={self.iter:_}, {self.monitor_dataset} {self.monitor_metric}: current={current_value:.{self.ndigits}f}, best={self.best_metric:.{self.ndigits}f} @{self.best_iter:_}. RAM usage {get_own_ram_usage():.1f}GB."
 
     def should_stop(self) -> bool:
         cur_ts = timer()
