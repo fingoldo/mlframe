@@ -3465,6 +3465,9 @@ def train_mlframe_models_suite(
         test_df = df[test_idx] if test_idx is not None else None
         val_df = df[val_idx]  if val_idx is not None else None
 
+        if verbose:
+            log_ram_usage()
+
         if use_mighty_scaler:
             try:
                 from polars_ds.pipeline import Pipeline as PdsPipeline, Blueprint as PdsBlueprint
@@ -3496,6 +3499,8 @@ def train_mlframe_models_suite(
                     log_ram_usage()      
                 
                 metadata['mighty_scaler_pipe']=mighty_scaler_pipe
+
+                cat_features=[]
 
 
     clean_ram()
@@ -3535,7 +3540,6 @@ def train_mlframe_models_suite(
                     df=next_df,
                     cat_features=cat_features,
                 )
-        print(train_df[cat_features[0]])
         if verbose:
             log_ram_usage()
 
