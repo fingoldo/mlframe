@@ -449,7 +449,7 @@ class DataFramePreprocessor:
                 timestamps = timestamps.to_pandas()
             if self.datetime_features:
                 if self.verbose:
-                    logger.info(f"create_date_features...")
+                    logger.info(f"create_date_features {self.datetime_features} over column {self.ts_field}...")
                 df = create_date_features(df, cols=[self.ts_field], delete_original_cols=True, methods=self.datetime_features)
                 if self.verbose:
                     log_ram_usage()

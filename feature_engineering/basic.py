@@ -81,7 +81,7 @@ def create_date_features(
                     e = getattr(pl.col(col).dt, method)().cast(pl_dtype).alias(col + "_" + method)
 
                 all_exprs.append(e)
-
+        print("all_exprs",all_exprs)
         # Add all new columns at once
         df = df.with_columns(all_exprs)
 
