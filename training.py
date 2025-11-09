@@ -3306,7 +3306,7 @@ def train_mlframe_models_suite(
 
         if use_mighty_scaler:
             try:
-                from polars_ds.pipeline import Pipeline as PdsPipeline, PdsBlueprint
+                from polars_ds.pipeline import Pipeline as PdsPipeline, Blueprint as PdsBlueprint
             except Exception as e:
                 logger.warning(f"Could not use mighty_scaler from polars-ds: {e}")
             else:
