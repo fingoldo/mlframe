@@ -51,39 +51,41 @@ def create_date_features(
     if not (is_pandas or is_polars):
         raise ValueError("df must be pandas or polars DataFrame")
 
+    # Map NumPy dtypes to Polars dtypes
     dtype_map = {
         np.int8: pl.Int8,
         np.int16: pl.Int16,
-        # Add more mappings as needed for other dtypes
+        np.int32: pl.Int32,
+        np.int64: pl.Int64,
     }
 
-    for col in cols:
-        if is_pandas:
+    if is_pandas:
+        for col in cols:
             obj = df[col].dt
             for method, dtype in methods.items():
                 df[col + "_" + method] = getattr(obj, method).astype(dtype)
-        elif is_polars:
-            exprs = []
+        if delete_original_cols:
+            df = df.drop(columns=cols)
+    elif is_polars:
+        all_exprs = []
+        for col in cols:
             for method, np_dtype in methods.items():
                 pl_dtype = dtype_map.get(np_dtype)
                 if pl_dtype is None:
                     raise ValueError(f"Unsupported dtype {np_dtype} for Polars")
-                
+
                 if method == "weekday":
+                    # Adjust to match pandas weekday (0=Monday to 6=Sunday)
                     e = (pl.col(col).dt.weekday() - 1).cast(pl_dtype).alias(col + "_" + method)
                 else:
                     e = getattr(pl.col(col).dt, method)().cast(pl_dtype).alias(col + "_" + method)
-                
-                exprs.append(e)
 
-            df = df.with_columns(exprs)  # Add all at once
+                all_exprs.append(e)
 
-    if delete_original_cols:
-        if is_pandas:
-            for col in cols:
-                if col in df:
-                    del df[col]
-        elif is_polars:
+        # Add all new columns at once
+        df = df.with_columns(all_exprs)
+
+        if delete_original_cols:
             df = df.drop(cols)
 
     return df
