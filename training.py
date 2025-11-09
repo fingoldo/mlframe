@@ -773,7 +773,7 @@ def get_training_configs(
         # ----------------------------------------------------------------------------------------------------------------------
         # Flags:
         # ----------------------------------------------------------------------------------------------------------------------
-        # enable_model_summary=True,
+        enable_model_summary=False,
         gradient_clip_val=1.0,
         gradient_clip_algorithm="norm",
         accumulate_grad_batches=2,
@@ -3027,6 +3027,8 @@ def save_series_or_df(obj: Union[pd.Series, pd.DataFrame, pl.Series, pl.DataFram
     elif isinstance(obj, pl.DataFrame):
         obj.write_parquet(file, compression=compression)
 
+def log_ram_usage()->None:
+    logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
 def train_mlframe_models_suite(
     df: Union[pl.DataFrame, pd.DataFrame, str],
@@ -3073,6 +3075,7 @@ def train_mlframe_models_suite(
     fix_infinities: bool = True,
     fillna_value: float = None,
     ensure_float32_dtypes: bool = True,
+    use_mighty_scaler: bool = True,
     #
     test_size: float = 0.1,
     val_size: float = 0.1,
@@ -3110,6 +3113,7 @@ def train_mlframe_models_suite(
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
     trainset_features_stats = None
+    metadata={}
 
     # if imputer is None:
     # imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
@@ -3169,7 +3173,7 @@ def train_mlframe_models_suite(
         df = pl.read_parquet(df, **params)
 
         if verbose:
-            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+            log_ram_usage()
 
     # Now decrease "attack surface" as much as possible
 
@@ -3188,7 +3192,7 @@ def train_mlframe_models_suite(
         df = ensure_dataframe_float32_convertability(df)
         clean_ram()
         if verbose:
-            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+            log_ram_usage()
 
     if fillna_value is not None:
         if verbose:
@@ -3199,7 +3203,7 @@ def train_mlframe_models_suite(
             df = df.fillna(fillna_value)
         clean_ram()
         if verbose:
-            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+            log_ram_usage()
 
     if fix_infinities:
         if verbose:
@@ -3207,14 +3211,14 @@ def train_mlframe_models_suite(
         df = ensure_no_infinity(df)
         clean_ram()
         if verbose:
-            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+            log_ram_usage()
 
     if verbose:
         logger.info(f"Preprocessing dataframe...")
     df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts = preprocessor.process(df)
     clean_ram()
     if verbose:
-        logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+        log_ram_usage()
 
     if drop_columns:
         logger.info(f"Dropping {len(drop_columns):_} columns...")
@@ -3229,7 +3233,7 @@ def train_mlframe_models_suite(
             df = df.drop(drop_columns, strict=False)
         clean_ram()
         if verbose:
-            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")        
+            log_ram_usage()        
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Train-val-test split
@@ -3251,7 +3255,7 @@ def train_mlframe_models_suite(
         random_seed=random_seed,
     )
     if verbose:
-        logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+        log_ram_usage()
 
     # Save timestamps ,group ids & artifacts per set
 
@@ -3289,7 +3293,7 @@ def train_mlframe_models_suite(
 
         train_df = df.iloc[train_idx]
         test_df = df.iloc[test_idx] if test_idx is not None else None
-        val_df = df.iloc[val_idx]
+        val_df = df.iloc[val_idx]  if val_idx is not None else None
 
     elif isinstance(df, pl.DataFrame):
 
@@ -3298,11 +3302,44 @@ def train_mlframe_models_suite(
 
         train_df = df[train_idx]
         test_df = df[test_idx] if test_idx is not None else None
-        val_df = df[val_idx]
+        val_df = df[val_idx]  if val_idx is not None else None
+
+        if use_mighty_scaler:
+            try:
+                from polars_ds.pipeline import Pipeline as PdsPipeline, PdsBlueprint
+            except Exception as e:
+                logger.warning(f"Could not use mighty_scaler from polars-ds: {e}")
+            else:
+
+                if verbose:
+                    logger.info(f"Fitting mighty_scaler from polars-ds...")
+
+                bp = (
+                    PdsBlueprint(train_df, name="mighty_scaler",)
+                    .scale(cs.numeric(), method="standard")
+                    .one_hot_encode(cols=None,drop_first=False,drop_cols=True)
+                )
+                mighty_scaler_pipe: PdsPipeline = bp.materialize()
+
+                if verbose:
+                    log_ram_usage()
+                    logger.info(f"Applying mighty_scaler from polars-ds...")
+
+                train_df = mighty_scaler_pipe.transform(train_df)
+                if val_idx is not None:
+                    val_df = mighty_scaler_pipe.transform(val_df)                
+                if test_idx is not None:
+                    test_df = mighty_scaler_pipe.transform(test_df)
+
+                if verbose:
+                    log_ram_usage()      
+                
+                metadata['mighty_scaler_pipe']=mighty_scaler_pipe
+
 
     clean_ram()
     if verbose:
-        logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+        log_ram_usage()
 
     if use_autogluon_models or use_lama_models:
         tran_val_idx = np.array(train_idx.tolist() + val_idx.tolist())
@@ -3327,7 +3364,7 @@ def train_mlframe_models_suite(
             test_df = get_pandas_view_of_polars_df(test_df)
 
         if verbose:
-            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+            log_ram_usage()
 
     if cat_features:
         logger.info(f"Ensuring cat_features={','.join(cat_features)}")
@@ -3339,7 +3376,7 @@ def train_mlframe_models_suite(
                 )
         print(train_df[cat_features[0]])
         if verbose:
-            logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+            log_ram_usage()
 
     if len(val_df) == 0:
         val_df = None
@@ -3526,7 +3563,7 @@ def train_mlframe_models_suite(
                         group_ids=group_ids[test_idx] if group_ids is not None else None,
                     )
                 )
-    return models
+    return models,metadata
 
 
 # AUTOML

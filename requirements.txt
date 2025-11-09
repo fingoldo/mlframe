@@ -26,7 +26,7 @@ catboost
 category_encoders
 imbalanced-learn
 flaml
-lightautoml
+#lightautoml
 lightgbm
 optbinning
 properscoring
