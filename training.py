@@ -3150,7 +3150,7 @@ def _process_special_values(
 
 
 def process_nans(
-    df: Union[pl.DataFrame, pd.DataFrame], fillna_value: float = 0.0, verbose: int = 1
+    df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1
 ):
     return _process_special_values(
         df=df,
@@ -3159,13 +3159,13 @@ def process_nans(
         ),
         fill_func_name="fill_nan",
         kind="NaN",
-        fill_value=fillna_value,
+        fill_value=fill_value,
         verbose=verbose,
     )
 
 
 def process_nulls(
-    df: Union[pl.DataFrame, pd.DataFrame], fillna_value: float = 0.0, verbose: int = 1
+    df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1
 ):
     return _process_special_values(
         df=df,
@@ -3174,7 +3174,7 @@ def process_nulls(
         ),
         fill_func_name="fill_null",
         kind="null",
-        fill_value=fillna_value,
+        fill_value=fill_value,
         verbose=verbose,
     )
 
@@ -3376,11 +3376,11 @@ def train_mlframe_models_suite(
             log_ram_usage()
 
     if fillna_value is not None:
-        df=process_nulls(df,fillna_value=fillna_value,verbose=verbose)
-        df=process_nans(df,fillna_value=fillna_value,verbose=verbose)
+        df=process_nulls(df,fill_value=fillna_value,verbose=verbose)
+        df=process_nans(df,fill_value=fillna_value,verbose=verbose)
 
     if fix_infinities:
-        df=process_infinities(df,fillna_value=fillna_value,verbose=verbose)
+        df=process_infinities(df,fill_value=fillna_value,verbose=verbose)
 
     if verbose:
         logger.info(f"Preprocessing dataframe...")
