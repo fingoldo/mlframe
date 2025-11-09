@@ -3459,12 +3459,11 @@ def train_mlframe_models_suite(
 
     elif isinstance(df, pl.DataFrame):
 
-        df = df.with_columns(pl.col(pl.Utf8).cast(pl.Categorical))
-        cat_features = df.head(1).select(pl.col(pl.Categorical)).columns
+        if False:
+            df = df.with_columns(pl.col(pl.Utf8).cast(pl.Categorical))
+            cat_features = df.head(1).select(pl.col(pl.Categorical)).columns
 
-        train_df = df[train_idx]
-        test_df = df[test_idx] if test_idx is not None else None
-        val_df = df[val_idx]  if val_idx is not None else None
+
 
         if verbose:
             log_ram_usage()
@@ -3480,7 +3479,7 @@ def train_mlframe_models_suite(
                     logger.info(f"Fitting mighty_scaler from polars-ds...")
 
                 bp = (
-                    PdsBlueprint(train_df, name="mighty_scaler",)
+                    PdsBlueprint(df[train_idx], name="mighty_scaler",)
                     .scale(cs.numeric(), method="standard")
                     .one_hot_encode(cols=None,drop_first=False,drop_cols=True)
                 )
@@ -3490,15 +3489,25 @@ def train_mlframe_models_suite(
                     log_ram_usage()
                     logger.info(f"Applying mighty_scaler from polars-ds...")
 
-                train_df = mighty_scaler_pipe.transform(train_df)
-                if val_idx is not None:
-                    val_df = mighty_scaler_pipe.transform(val_df)                
-                if test_idx is not None:
-                    test_df = mighty_scaler_pipe.transform(test_df)  
+                if True:
+                    df = mighty_scaler_pipe.transform(df)
+                else:
+                    train_df = mighty_scaler_pipe.transform(train_df)
+                    if val_idx is not None:
+                        val_df = mighty_scaler_pipe.transform(val_df)                
+                    if test_idx is not None:
+                        test_df = mighty_scaler_pipe.transform(test_df)  
                 
                 metadata['mighty_scaler_pipe']=mighty_scaler_pipe
 
                 cat_features=[]
+                
+                clean_ram()
+                log_ram_usage()
+
+        train_df = df[train_idx]
+        test_df = df[test_idx] if test_idx is not None else None
+        val_df = df[val_idx]  if val_idx is not None else None                
 
 
     clean_ram()
