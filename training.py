@@ -3302,67 +3302,6 @@ def log_ram_usage() -> None:
     logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
 
-import gc
-import sys
-
-
-def get_all_polars_dataframes():
-    """Find all Polars DataFrames in memory"""
-    frames = []
-    for obj in gc.get_objects():
-        try:
-            if isinstance(obj, pl.DataFrame):
-                frames.append({"id": id(obj), "shape": obj.shape, "size_mb": obj.estimated_size("mb"), "columns": obj.columns[:5]})  # First 5 columns
-        except:
-            pass
-    return frames
-
-
-def get_referrers(obj, max_depth=2):
-    """Find what's holding references to an object"""
-    refs = gc.get_referrers(obj)
-    return len(refs)
-
-
-def find_dataframe_references(df):
-    """Find all references to a DataFrame"""
-    df_id = id(df)
-    refs = gc.get_referrers(df)
-    
-    logger.info(f"Found {len(refs)} references to df:")
-    
-    for i, ref in enumerate(refs):
-        ref_type = type(ref).__name__
-        
-        # Check if it's a frame (local variables)
-        if ref_type == 'frame':
-            # This is the current function's local variables
-            logger.info(f"  [{i}] Frame (current function locals)")
-            
-        # Check if it's a dict (might be locals() or instance.__dict__)
-        elif ref_type == 'dict':
-            # Try to identify what dict this is
-            if 'self' in ref:
-                logger.info(f"  [{i}] Dict - likely 'self' (instance variables)")
-                # Check which attributes point to df
-                for key, val in ref.items():
-                    if id(val) == df_id:
-                        logger.warning(f"      → Found in key: '{key}'")
-            elif 'df' in ref:
-                logger.info(f"  [{i}] Dict - contains 'df' key (locals or globals)")
-            else:
-                logger.info(f"  [{i}] Dict - unknown, keys: {list(ref.keys())[:10]}")
-                
-        # Check if it's a list, tuple, etc.
-        elif ref_type in ['list', 'tuple']:
-            logger.info(f"  [{i}] {ref_type} - length {len(ref)}")
-            
-        else:
-            logger.info(f"  [{i}] {ref_type}")
-    
-    return refs
-
-
 def train_mlframe_models_suite(
     df: Union[pl.DataFrame, pd.DataFrame, str],
     target_name: str,
@@ -3527,8 +3466,6 @@ def train_mlframe_models_suite(
     if group_ids_raw is not None:
         logger.info(f"group_ids_raw type: {type(group_ids_raw)}, shape: {group_ids_raw.shape if hasattr(group_ids_raw, 'shape') else 'N/A'}")
 
-    del preprocessor
-    preprocessor = None
     clean_ram()
     if verbose:
         log_ram_usage()
@@ -3539,58 +3476,8 @@ def train_mlframe_models_suite(
         else:
             drop_columns = additional_columns_to_drop
     if drop_columns:
-        clean_ram()
-        logger.info(f"Dropping {len(drop_columns):_} columns...")        
 
-        if isinstance(df, pl.DataFrame):
-            # Diagnostic 1: Check current state
-            logger.info(f"BEFORE drop - df shape: {df.shape}, estimated size: {df.estimated_size('mb'):.1f}MB")
-            logger.info(f"BEFORE drop - df id: {id(df)}")
-            logger.info(f"BEFORE drop - df refcount: {sys.getrefcount(df)}")
-
-            # Find all Polars DataFrames in memory
-            all_frames_before = get_all_polars_dataframes()
-            logger.info(f"BEFORE drop - Total Polars DataFrames in memory: {len(all_frames_before)}")
-
-            # Store original id
-            original_df_id = id(df)
-
-            # Try the drop with explicit cleanup
-            cols_to_keep = [col for col in df.columns if col not in drop_columns]
-
-            # Create completely new dataframe
-            df_new = df.select(cols_to_keep)
-
-            # Diagnostic 2: Check new df
-            logger.info(f"AFTER select - df_new shape: {df_new.shape}, estimated size: {df_new.estimated_size('mb'):.1f}MB")
-            logger.info(f"AFTER select - df_new id: {id(df_new)}")
-
-            # Diagnostic 3: Check if old df is still referenced
-            logger.info(f"AFTER select - old df refcount: {sys.getrefcount(df)}")
-
-            # Delete old reference
-            del df
-
-            # Force garbage collection
-            gc.collect()
-
-            # Check memory again
-            all_frames_after = get_all_polars_dataframes()
-            logger.info(f"AFTER delete - Total Polars DataFrames in memory: {len(all_frames_after)}")
-
-            # Check if original df is still in memory
-            original_still_exists = any(f["id"] == original_df_id for f in all_frames_after)
-            logger.info(f"AFTER delete - Original df still in memory: {original_still_exists}")
-
-            if original_still_exists:
-                logger.warning("⚠️  OLD DATAFRAME STILL IN MEMORY!")
-                logger.warning("This means something else is holding a reference to it")
-
-            # Reassign
-            df = df_new
-            del df_new
-
-            gc.collect()
+        logger.info(f"Dropping {len(drop_columns):_} columns...")
 
         if isinstance(df, pd.DataFrame):
             df_columns = set(df.columns)
@@ -3600,7 +3487,8 @@ def train_mlframe_models_suite(
                 else:
                     df = df.drop(col)
         elif isinstance(df, pl.DataFrame):
-            df = df.drop(drop_columns, strict=False).rechunk()
+            df = df.drop(drop_columns, strict=False)
+
         clean_ram()
         if verbose:
             log_ram_usage()
@@ -3713,8 +3601,6 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info(f"Ram usage before deleting main df: {get_own_ram_usage():.1f}GBs")
         del df
-        # del train_idx, val_idx, test_idx
-        df = None
         clean_ram()
         if verbose:
             logger.info(f"Ram usage after deleting main df: {get_own_ram_usage():.1f}GBs")
@@ -3749,7 +3635,7 @@ def train_mlframe_models_suite(
                     logger.info(f"Applying mighty_scaler from polars-ds...")
 
                 train_df = mighty_scaler_pipe.transform(train_df)
-                logger.info(f"train_df.dtypes={Counter(train_df.dtypes)}")
+                logger.info(f"train_df dtypes after mighty_scaler={Counter(train_df.dtypes)}")
                 clean_ram()
                 if val_idx is not None:
                     val_df = mighty_scaler_pipe.transform(val_df)
