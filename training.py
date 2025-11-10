@@ -3037,16 +3037,18 @@ def save_series_or_df(obj: Union[pd.Series, pd.DataFrame, pl.Series, pl.DataFram
         obj.to_parquet(file, compression=compression)
     elif isinstance(obj, pl.DataFrame):
         obj.write_parquet(file, compression=compression)
+
 def _process_special_values(
     df: Union[pl.DataFrame, pd.DataFrame],
     expr_func=None,
     fill_func_name: str = None,
     kind: str = "",
     fill_value: float = None,
+    drop_columns: bool = False,
     verbose: int = 1,
 ) -> Union[pl.DataFrame, pd.DataFrame]:
     """
-    Generic handler for NaNs, nulls, or infinities in numeric columns
+    Generic handler for NaNs, nulls, infinities, or constant columns in numeric columns
     for Polars or pandas DataFrames.
 
     Testing:
@@ -3070,49 +3072,89 @@ def _process_special_values(
     is_pandas = isinstance(df, pd.DataFrame)
 
     if verbose:
-        logger.info(f"Counting {kind}s...")
+        logger.info(f"{'Identifying' if drop_columns else 'Counting'} {kind}{'s' if not kind.endswith('columns') else ''}...")
 
     if is_polars:
         # Polars: use provided expr_func
         qos_df = df.select(expr_func())
-        errors_df = (
-            pl.DataFrame({"column": qos_df.columns, "nerrors": qos_df.row(0)})
-            .filter(pl.col("nerrors") > 0)
-            .sort("nerrors", descending=True)
-        )
+        
+        if drop_columns:
+            # For constant detection, we get boolean indicators
+            constant_cols = [col for col, is_const in zip(qos_df.columns, qos_df.row(0)) if is_const]
+            errors_df = pl.DataFrame({
+                "column": constant_cols,
+                "nerrors": [1] * len(constant_cols)
+            })
+        else:
+            errors_df = (
+                pl.DataFrame({"column": qos_df.columns, "nerrors": qos_df.row(0)})
+                .filter(pl.col("nerrors") > 0)
+                .sort("nerrors", descending=True)
+            )
         nrows, ncols = df.shape
-        sum_errors = errors_df["nerrors"].sum()
+        sum_errors = errors_df["nerrors"].sum() if not drop_columns else len(errors_df)
 
     elif is_pandas:
-        # Pandas: only check numeric columns
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
-        if kind == "NaN":
-            mask = df[numeric_cols].isna()
-        elif kind == "null":
-            mask = df[numeric_cols].isnull()
-        elif kind == "infinite":
-            mask = np.isinf(df[numeric_cols])
+        if drop_columns:
+            # Handle constant columns for pandas
+            if "numeric" in kind:
+                cols = df.select_dtypes(include=[np.number]).columns
+                constant_cols = []
+                for col in cols:
+                    col_data = df[col].dropna()
+                    if len(col_data) > 0 and col_data.min() == col_data.max():
+                        constant_cols.append(col)
+            elif "non-numeric" in kind:
+                cols = df.select_dtypes(exclude=[np.number]).columns
+                constant_cols = []
+                for col in cols:
+                    if df[col].nunique() == 1:
+                        constant_cols.append(col)
+            else:
+                raise ValueError(f"Unknown kind for drop_columns: {kind}")
+            
+            errors_df = pd.DataFrame({
+                "column": constant_cols,
+                "nerrors": [1] * len(constant_cols)
+            })
+            sum_errors = len(errors_df)
         else:
-            raise ValueError(f"Unknown kind: {kind}")
+            # Pandas: only check numeric columns
+            numeric_cols = df.select_dtypes(include=[np.number]).columns
+            if kind == "NaN":
+                mask = df[numeric_cols].isna()
+            elif kind == "null":
+                mask = df[numeric_cols].isnull()
+            elif kind == "infinite":
+                mask = np.isinf(df[numeric_cols])
+            else:
+                raise ValueError(f"Unknown kind: {kind}")
 
-        nerrors = mask.sum()
-        errors_df = pd.DataFrame({"column": nerrors.index, "nerrors": nerrors.values})
-        errors_df = errors_df[errors_df["nerrors"] > 0].sort_values(
-            "nerrors", ascending=False
-        )
+            nerrors = mask.sum()
+            errors_df = pd.DataFrame({"column": nerrors.index, "nerrors": nerrors.values})
+            errors_df = errors_df[errors_df["nerrors"] > 0].sort_values(
+                "nerrors", ascending=False
+            )
+            sum_errors = errors_df["nerrors"].sum()
 
         nrows, ncols = df.shape
-        sum_errors = errors_df["nerrors"].sum()
     else:
         raise TypeError("df must be a Polars or pandas DataFrame")
 
     if len(errors_df) == 0:
+        if verbose and drop_columns:
+            logger.info(f"No {kind} found.")
         return df
 
-    logger.warning(
-        f"Columns with {kind}s: {len(errors_df):_} [{len(errors_df)/ncols*100:.2f}%], "
-        f"total {kind}s: {sum_errors:_} [{sum_errors/(nrows*ncols):.3f}%]"
-    )
+    if drop_columns:
+        logger.warning(
+            f"{kind.capitalize()}: {len(errors_df):_} [{len(errors_df)/ncols*100:.2f}%]"
+        )
+    else:
+        logger.warning(
+            f"Columns with {kind}s: {len(errors_df):_} [{len(errors_df)/ncols*100:.2f}%], "
+            f"total {kind}s: {sum_errors:_} [{sum_errors/(nrows*ncols):.3f}%]"
+        )
 
     # Display top 10
     display_df = (
@@ -3120,14 +3162,32 @@ def _process_special_values(
         if is_pandas
         else errors_df.to_pandas().set_index("column").head(10)
     )
-    caption = f"Columns with most {kind}s:"
+    
+    if drop_columns:
+        caption = f"{kind.capitalize()}:"
+        display_df = display_df[[]]  # Empty df, just show column names
+    else:
+        caption = f"Columns with most {kind}s:"
+    
     if is_jupyter_notebook():
         display(display_df.style.set_caption(caption))
     else:
         print(caption)
         print(display_df)
 
-    if fill_value is not None:
+    if drop_columns:
+        # Remove columns
+        if verbose:
+            logger.info(f"Removing {len(errors_df)} {kind}...")
+        
+        df = df.drop(errors_df["column"].to_list() if is_polars else errors_df["column"].tolist())
+        
+        clean_ram()
+        if verbose:
+            logger.info(f"{kind.capitalize()} removed. New shape: {df.shape}")
+            log_ram_usage()
+            
+    elif fill_value is not None:
         if verbose:
             logger.info(f"Filling {kind}s with {fill_value}...")
 
@@ -3203,6 +3263,70 @@ def process_infinities(
         fill_value=fill_value,
         verbose=verbose,
     )
+
+
+def remove_constant_columns(
+    df: Union[pl.DataFrame, pd.DataFrame], verbose: int = 1
+) -> Union[pl.DataFrame, pd.DataFrame]:
+    """
+    Remove constant columns from DataFrame:
+    - Numeric columns: where min == max
+    - Non-numeric columns: where n_unique == 1
+    
+    Parameters
+    ----------
+    df : Union[pl.DataFrame, pd.DataFrame]
+        Input DataFrame
+    verbose : int, default=1
+        Verbosity level for logging
+        
+    Returns
+    -------
+    Union[pl.DataFrame, pd.DataFrame]
+        DataFrame with constant columns removed
+        
+    Testing
+    -------
+    # Create a test Polars DataFrame
+    df_test = pl.DataFrame(
+        {
+            "constant_num_1": [5.0] * 10,
+            "constant_num_2": [0.0] * 10,
+            "varying_num": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+            "constant_cat": ["a"] * 10,
+            "varying_cat": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"],
+        }
+    )
+    
+    for df in [df_test, df_test.to_pandas()]:
+        df_clean = remove_constant_columns(df)
+        print(df_clean)
+    """
+    is_polars = isinstance(df, pl.DataFrame)
+    
+    # Process numeric columns (min == max)
+    df = _process_special_values(
+        df=df,
+        expr_func=lambda: (
+            (cs.numeric().min() == cs.numeric().max()) if is_polars else None
+        ),
+        kind="constant numeric columns",
+        drop_columns=True,
+        verbose=verbose,
+    )
+    
+    # Process non-numeric columns (n_unique == 1)
+    df = _process_special_values(
+        df=df,
+        expr_func=lambda: (
+            (cs.by_dtype(pl.String, pl.Categorical).n_unique() == 1) if is_polars else None
+        ),
+        kind="constant non-numeric columns",
+        drop_columns=True,
+        verbose=verbose,
+    )
+    
+    return df
 
 def log_ram_usage()->None:
     logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
@@ -3374,6 +3498,8 @@ def train_mlframe_models_suite(
         clean_ram()
 
     # Now can perform costly operations
+
+    df=remove_constant_columns(df,verbose=verbose)
 
     if ensure_float32_dtypes:
         """Lightgbm uses np.result_type(*df_dtypes) to detect array dtype when converting from Pandas input,
