@@ -3471,6 +3471,8 @@ def train_mlframe_models_suite(
     if drop_columns:
 
         del target_by_type
+
+        
         clean_ram()
         logger.info(f"Dropping {len(drop_columns):_} columns...")
         if isinstance(df, pd.DataFrame):
