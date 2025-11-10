@@ -96,9 +96,7 @@ def to_tensor_any(data, dtype=torch.float32, device=None, safe=True):
         except Exception:
             if not safe:
                 raise
-            arr = data.select(
-                [c for c, dt in zip(data.columns, data.dtypes) if dt.is_numeric()]
-            ).select(pl.all().cast(target_dtype)).to_numpy()
+            arr = data.select([c for c, dt in zip(data.columns, data.dtypes) if dt.is_numeric()]).select(pl.all().cast(target_dtype)).to_numpy()
 
     # --- NumPy
     elif isinstance(data, np.ndarray):
@@ -114,6 +112,7 @@ def to_tensor_any(data, dtype=torch.float32, device=None, safe=True):
 
     t = torch.from_numpy(arr)
     return t.to(device) if device else t
+
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Sklearn compatibility
@@ -137,7 +136,7 @@ class PytorchLightningEstimator(BaseEstimator):
         tune_params: bool = False,
         tune_batch_size: bool = False,
         float32_matmul_precision: str = None,
-        early_stopping_rounds:int=100,
+        early_stopping_rounds: int = 100,
     ):
         store_params_in_object(obj=self, params=get_parent_func_args())
 
@@ -203,7 +202,7 @@ class PytorchLightningEstimator(BaseEstimator):
             callbacks = [
                 checkpointing,
                 metric_computing_callback,
-                #NetworkGraphLoggingCallback(),
+                # NetworkGraphLoggingCallback(),
                 LearningRateMonitor(logging_interval="epoch"),
                 progress_bar,
                 # PeriodicLearningRateFinder(period=10),
@@ -233,14 +232,12 @@ class PytorchLightningEstimator(BaseEstimator):
 
             with trainer.init_module():
                 self.model = self.model_class(network=self.network, **self.model_params)
-                
-                features_dtype=self.datamodule_params.get("features_dtype", torch.float32)
-                data_slice=X.iloc[0:2, :].values if isinstance(X, pd.DataFrame) else X[0:2, :]
-                
+
+                features_dtype = self.datamodule_params.get("features_dtype", torch.float32)
+                data_slice = X.iloc[0:2, :].values if isinstance(X, pd.DataFrame) else X[0:2, :]
+
                 try:
-                    self.model.example_input_array = to_tensor_any(
-                        data_slice, dtype=features_dtype, safe=True
-                    )
+                    self.model.example_input_array = to_tensor_any(data_slice, dtype=features_dtype, safe=True)
                 except Exception as e:
                     raise RuntimeError(f"Failed to prepare example_input_array: {e}")
 
@@ -302,7 +299,7 @@ class PytorchLightningEstimator(BaseEstimator):
         with torch.no_grad():
             output = self.model(X)
         if self.return_proba:
-            output = F.softmax(output, dim=1)            
+            output = F.softmax(output, dim=1)
 
         # Ensure output is on CPU and converted to numpy
         output = output.detach().cpu()
@@ -311,14 +308,12 @@ class PytorchLightningEstimator(BaseEstimator):
 
         return output.numpy()
 
-
-
     def get_params(self, deep: bool = True) -> Dict[str, Any]:
         """Returns a dictionary of all parameters for scikit-learn compatibility."""
         params = {
             "model_class": self.model_class,
             "model_params": deepcopy(self.model_params) if deep else self.model_params,
-            #"network": self.network,
+            # "network": self.network,
             "datamodule_class": self.datamodule_class,
             "datamodule_params": deepcopy(self.datamodule_params) if deep else self.datamodule_params,
             "tune_params": self.tune_params,
@@ -350,13 +345,16 @@ class PytorchLightningEstimator(BaseEstimator):
             raise ValueError("Estimator must be a RegressorMixin or ClassifierMixin")
 
 
-class PytorchLightningRegressor(RegressorMixin,PytorchLightningEstimator): # RegressorMixin must come first
+class PytorchLightningRegressor(RegressorMixin, PytorchLightningEstimator):  # RegressorMixin must come first
     _estimator_type = "regressor"
 
 
-class PytorchLightningClassifier(ClassifierMixin,PytorchLightningEstimator,): # ClassifierMixin must come first
+class PytorchLightningClassifier(
+    ClassifierMixin,
+    PytorchLightningEstimator,
+):  # ClassifierMixin must come first
     _estimator_type = "classifier"
-    
+
     def predict(self, X, device: Optional[str] = None):
         """Predict class labels for samples in X."""
         proba = super(PytorchLightningClassifier, self).predict(X, device=device)  # Get probabilities from parent
@@ -497,7 +495,7 @@ class TorchDataModule(LightningDataModule):
         assert data_placement_device in (None, "cuda")
 
         if dataloader_params is None:
-            dataloader_params={}
+            dataloader_params = {}
 
         super().__init__()
 
@@ -544,20 +542,25 @@ class TorchDataModule(LightningDataModule):
         on_gpu = self.on_gpu()
         device = self.data_placement_device if (self.data_placement_device and on_gpu) else None
 
-        batch_size=self.dataloader_params.get("batch_size",64)
+        batch_size = self.dataloader_params.get("batch_size", 64)
 
         dataloader_params = self.dataloader_params.copy()
-        dataloader_params["batch_size"] = None        
+        dataloader_params["batch_size"] = None
 
-        features=self.train_features
+        features = self.train_features
         try:
-            features=features.astype('float32')
+            features = features.astype("float32")
         except Exception as e:
             pass
 
         return DataLoader(
             TorchDataset(
-                features=features, labels=self.train_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype,batch_size=batch_size, device=device
+                features=features,
+                labels=self.train_labels,
+                features_dtype=self.features_dtype,
+                labels_dtype=self.labels_dtype,
+                batch_size=batch_size,
+                device=device,
             ),
             pin_memory=on_gpu,
             **dataloader_params,
@@ -568,20 +571,27 @@ class TorchDataModule(LightningDataModule):
         on_gpu = self.on_gpu()
         device = self.data_placement_device if (self.data_placement_device and on_gpu) else None
 
-        batch_size=self.dataloader_params.get("batch_size",64)
+        batch_size = self.dataloader_params.get("batch_size", 64)
 
         dataloader_params = self.dataloader_params.copy()
         dataloader_params["batch_size"] = None
         dataloader_params["shuffle"] = False
 
-        features=self.val_features
+        features = self.val_features
         try:
-            features=features.astype('float32')
+            features = features.astype("float32")
         except Exception as e:
             pass
 
         return DataLoader(
-            TorchDataset(features=features, labels=self.val_labels, features_dtype=self.features_dtype, labels_dtype=self.labels_dtype,batch_size=batch_size, device=device),
+            TorchDataset(
+                features=features,
+                labels=self.val_labels,
+                features_dtype=self.features_dtype,
+                labels_dtype=self.labels_dtype,
+                batch_size=batch_size,
+                device=device,
+            ),
             pin_memory=on_gpu,
             **dataloader_params,
         )
@@ -668,7 +678,6 @@ class BestEpochModelCheckpoint(ModelCheckpoint):
             logger.info(f"New best model at epoch {self.best_epoch} with {self.monitor}={self.best_score:.4f}")
 
 
-
 class PeriodicLearningRateFinder(LearningRateFinder):
     def __init__(self, period: int, *args, **kwargs):
         assert period > 0 and isinstance(period, int)
@@ -686,11 +695,13 @@ class PeriodicLearningRateFinder(LearningRateFinder):
 # Network structure
 # ----------------------------------------------------------------------------------------------------------------------------
 
+
 def get_valid_num_groups(num_channels, preferred_num_groups):
-        for g in range(preferred_num_groups, 0, -1):
-            if num_channels % g == 0:
-                return g
-        return 1  # Fallback to 1 (LayerNorm-like) if no divisor found
+    for g in range(preferred_num_groups, 0, -1):
+        if num_channels % g == 0:
+            return g
+    return 1  # Fallback to 1 (LayerNorm-like) if no divisor found
+
 
 def generate_mlp(
     num_features: int,
@@ -707,7 +718,7 @@ def generate_mlp(
     use_layernorm: bool = True,
     use_batchnorm: bool = True,
     groupnorm_num_groups: int = 0,
-    norm_kwargs:dict=None,
+    norm_kwargs: dict = None,
     verbose: int = 0,
 ):
     """Generates multilayer perceptron with specific architecture.
@@ -721,7 +732,7 @@ def generate_mlp(
     # Auto inits
 
     if norm_kwargs is None:
-        norm_kwargs=dict(eps=0.00001, momentum=0.1)
+        norm_kwargs = dict(eps=0.00001, momentum=0.1)
 
     if not first_layer_num_neurons:
         first_layer_num_neurons = num_features
@@ -742,12 +753,12 @@ def generate_mlp(
     if inputs_dropout_prob:
         layers.append(nn.Dropout(inputs_dropout_prob))
     if use_layernorm:
-        layers.append(nn.LayerNorm(num_features,**norm_kwargs))
-    
+        layers.append(nn.LayerNorm(num_features, **norm_kwargs))
+
     if groupnorm_num_groups:
         num_groups_for_input = get_valid_num_groups(num_features, groupnorm_num_groups)
-        if num_groups_for_input>1:
-            layers.append(nn.GroupNorm(num_groups=num_groups_for_input, num_channels=num_features, **norm_kwargs))  # Reuse kwargs for eps, etc.        
+        if num_groups_for_input > 1:
+            layers.append(nn.GroupNorm(num_groups=num_groups_for_input, num_channels=num_features, **norm_kwargs))  # Reuse kwargs for eps, etc.
 
     prev_layer_neurons = num_features
     cur_layer_neurons = first_layer_num_neurons
@@ -886,12 +897,12 @@ class MLPTorchModel(L.LightningModule):
         compile_network: str = None,  # New flag to toggle torch.compile
     ):
         """compile_network='max-autotune-no-cudagraphs' at least works on rtx 5060."""
-    
+
         if optimizer_kwargs is None:
-            optimizer_kwargs={}
-        
+            optimizer_kwargs = {}
+
         if lr_scheduler_kwargs is None:
-            lr_scheduler_kwargs={}
+            lr_scheduler_kwargs = {}
 
         super().__init__()
         self.save_hyperparameters()  # ignore=["network"]
@@ -922,15 +933,14 @@ class MLPTorchModel(L.LightningModule):
             self.example_input_array = network.example_input_array  # specifying allows to skip example_input_array when doing ONNX export
         except Exception:
             pass
-            
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.network(x)
 
     def training_step(self, batch, batch_idx):
         features, labels = batch
 
-        if torch.isnan(features).any() or torch.isinf(features).any():
-            print("NaN or Inf detected in input features!")
+        # if torch.isnan(features).any() or torch.isinf(features).any(): print("NaN or Inf detected in input features!")
 
         logits = self(features)  # <-- uses forward
         loss = self.loss_fn(logits, labels)
@@ -939,14 +949,14 @@ class MLPTorchModel(L.LightningModule):
         if self.l1_alpha:
             l1_norm = sum(p.abs().sum() for p in self.network.parameters())
             loss = loss + self.l1_alpha * l1_norm
-        
+
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
         return loss
-    
+
     def validation_step(self, batch, batch_idx):
         features, labels = batch
         logits = self(features)
-        
+
         probs = F.softmax(logits, dim=1)  # Compute probs for the metric callback)
 
         # return (predictions, labels) for callbacks that want to aggregate
