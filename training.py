@@ -3598,7 +3598,7 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info(f"Ram usage before deleting main df: {get_own_ram_usage():.1f}GBs")
         del df
-        del train_idx, val_idx, test_idx, train_details, val_details, test_details
+        del train_idx, val_idx, test_idx
         df = None
         clean_ram()
         if verbose:
