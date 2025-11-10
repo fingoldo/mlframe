@@ -591,15 +591,13 @@ class TestDataFramePreprocessor(DataFramePreprocessor):
 
         return target_by_type
 
-def sometests_module(fo_df):
+def sometests_module(fo_df,preprocessor):
 
     fo_df = preprocessor.process(fo_df)
-    for I in range(1000000000):
-        sleep(0.1)
 
-    return 0
+    return fo_df
     
-    
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Custom Error Metrics & training configs
 # ----------------------------------------------------------------------------------------------------------------------------
