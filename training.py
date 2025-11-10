@@ -167,6 +167,7 @@ from catboost import CatBoostRegressor, CatBoostClassifier
 from xgboost import XGBClassifier, XGBRegressor, DMatrix, QuantileDMatrix
 
 import flaml.default as flaml_zeroshot
+
 # from flaml.default import LGBMClassifier,LGBMRegressor,XGBClassifier,XGBRegressor
 # from flaml.default import ExtraTreesClassifier,ExtraTreesRegressor,RandomForestClassifier,RandomForestRegressor
 
@@ -400,7 +401,7 @@ class DataFramePreprocessor:
         datetime_features: dict = None,
         group_field: str = None,
         columns_to_drop: set = None,
-        verbose:int=0,
+        verbose: int = 0,
     ):
 
         params = get_parent_func_args()
@@ -437,13 +438,13 @@ class DataFramePreprocessor:
     def process(self, df: Union[pd.DataFrame, pl.DataFrame]) -> tuple:
         # convert_float64_to_float32(df)  # Uncomment if needed
 
-        self.show_raw_data(df)        
+        self.show_raw_data(df)
 
         if self.verbose:
             logger.info(f"build_targets...")
         target_by_type = self.build_targets(df)
         if self.verbose:
-            log_ram_usage()        
+            log_ram_usage()
 
         if self.ts_field:
             timestamps = df[self.ts_field]
@@ -464,7 +465,7 @@ class DataFramePreprocessor:
         df = self.add_features(df)
         if self.verbose:
             logger.info(f"AFter add_features")
-            log_ram_usage()        
+            log_ram_usage()
 
         if self.columns_to_drop:
             cols_to_drop = [col for col in self.columns_to_drop if col in df.columns]
@@ -478,13 +479,13 @@ class DataFramePreprocessor:
                 logger.info(f"AFter deleting columns_to_drop")
                 log_ram_usage()
 
-        self.show_processed_data(df, target_by_type)             
+        self.show_processed_data(df, target_by_type)
         if self.columns_to_drop or self.datetime_features:
-            pass #clean_ram()
+            pass  # clean_ram()
 
         if self.verbose:
             logger.info(f"AFter show_processed_data")
-            log_ram_usage()             
+            log_ram_usage()
 
         return df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts
 
@@ -496,14 +497,14 @@ class SimpleDataFramePreprocessor(DataFramePreprocessor):
         datetime_features: dict = None,
         group_field: str = None,
         columns_to_drop: set = None,
-        verbose:int=0,
+        verbose: int = 0,
         #
         regression_targets: Iterable = None,
         classification_targets: Iterable = None,
         classification_exact_values: dict = None,
         classification_thresholds: dict = None,
     ):
-        super().__init__(ts_field=ts_field, datetime_features=datetime_features, group_field=group_field, columns_to_drop=columns_to_drop,verbose=verbose)
+        super().__init__(ts_field=ts_field, datetime_features=datetime_features, group_field=group_field, columns_to_drop=columns_to_drop, verbose=verbose)
 
         self.regression_targets = regression_targets
         self.classification_targets = classification_targets
@@ -551,7 +552,7 @@ class SimpleDataFramePreprocessor(DataFramePreprocessor):
             target_by_type[TargetTypes.REGRESSION] = targets
 
         return target_by_type
-    
+
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Custom Error Metrics & training configs
@@ -1194,10 +1195,10 @@ def train_and_evaluate_model(
             train_df = pre_pipeline.fit_transform(train_df, train_target)
         if val_df is not None:
             if verbose:
-                logger.info(f"Transforming val_df via pre_pipeline...")            
+                logger.info(f"Transforming val_df via pre_pipeline...")
             val_df = pre_pipeline.transform(val_df)
             if verbose:
-                log_ram_usage()            
+                log_ram_usage()
         clean_ram()
 
     if val_df is not None:
@@ -2068,7 +2069,7 @@ def configure_training_params(
     common_params: dict = None,
     config_params: dict = None,
     metamodel_func: callable = None,
-    use_flaml_zeroshot:bool=False,
+    use_flaml_zeroshot: bool = False,
 ):
     if metamodel_func is None:
         metamodel_func = lambda x: x
@@ -2178,7 +2179,9 @@ def configure_training_params(
             model=(
                 metamodel_func((XGBRegressor if not use_flaml_zeroshot else flaml_zeroshot.XGBRegressor)(**cpu_configs.XGB_GENERAL_PARAMS))
                 if use_regression
-                else (XGBClassifier if not use_flaml_zeroshot else flaml_zeroshot.XGBClassifier)(**(cpu_configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else cpu_configs.XGB_GENERAL_CLASSIF))
+                else (XGBClassifier if not use_flaml_zeroshot else flaml_zeroshot.XGBClassifier)(
+                    **(cpu_configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else cpu_configs.XGB_GENERAL_CLASSIF)
+                )
             ),
             fit_params=dict(verbose=xgboost_verbose),
         )
@@ -2187,19 +2190,29 @@ def configure_training_params(
             model=(
                 metamodel_func((XGBRegressor if not use_flaml_zeroshot else flaml_zeroshot.XGBRegressor)(**configs.XGB_GENERAL_PARAMS))
                 if use_regression
-                else (XGBClassifier if not use_flaml_zeroshot else flaml_zeroshot.XGBClassifier)(**(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF))
+                else (XGBClassifier if not use_flaml_zeroshot else flaml_zeroshot.XGBClassifier)(
+                    **(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF)
+                )
             ),
             fit_params=dict(verbose=xgboost_verbose),
         )
 
     if prefer_cpu_for_lightgbm:
         lgb_params = dict(
-            model=metamodel_func((LGBMRegressor if not use_flaml_zeroshot else flaml_zeroshot.LGBMRegressor)(**cpu_configs.LGB_GENERAL_PARAMS)) if use_regression else (LGBMClassifier if not use_flaml_zeroshot else flaml_zeroshot.LGBMClassifier)(**cpu_configs.LGB_GENERAL_PARAMS),
+            model=(
+                metamodel_func((LGBMRegressor if not use_flaml_zeroshot else flaml_zeroshot.LGBMRegressor)(**cpu_configs.LGB_GENERAL_PARAMS))
+                if use_regression
+                else (LGBMClassifier if not use_flaml_zeroshot else flaml_zeroshot.LGBMClassifier)(**cpu_configs.LGB_GENERAL_PARAMS)
+            ),
             fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if (prefer_calibrated_classifiers and not use_regression) else {}),
         )
     else:
         lgb_params = dict(
-            model=metamodel_func((LGBMRegressor if not use_flaml_zeroshot else flaml_zeroshot.LGBMRegressor)(**configs.LGB_GENERAL_PARAMS)) if use_regression else (LGBMClassifier if not use_flaml_zeroshot else flaml_zeroshot.LGBMClassifier)(**configs.LGB_GENERAL_PARAMS),
+            model=(
+                metamodel_func((LGBMRegressor if not use_flaml_zeroshot else flaml_zeroshot.LGBMRegressor)(**configs.LGB_GENERAL_PARAMS))
+                if use_regression
+                else (LGBMClassifier if not use_flaml_zeroshot else flaml_zeroshot.LGBMClassifier)(**configs.LGB_GENERAL_PARAMS)
+            ),
             fit_params=(dict(eval_metric=configs.lgbm_integral_calibration_error) if (prefer_calibrated_classifiers and not use_regression) else {}),
         )
 
@@ -2287,7 +2300,11 @@ def configure_training_params(
         lgb_fit_params = dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}
 
     lgb_rfecv = RFECV(
-        estimator=metamodel_func((LGBMRegressor if not use_flaml_zeroshot else flaml_zeroshot.LGBMRegressor)(**configs.LGB_GENERAL_PARAMS)) if use_regression else (LGBMClassifier if not use_flaml_zeroshot else flaml_zeroshot.LGBMClassifier)(**configs.LGB_GENERAL_PARAMS),
+        estimator=(
+            metamodel_func((LGBMRegressor if not use_flaml_zeroshot else flaml_zeroshot.LGBMRegressor)(**configs.LGB_GENERAL_PARAMS))
+            if use_regression
+            else (LGBMClassifier if not use_flaml_zeroshot else flaml_zeroshot.LGBMClassifier)(**configs.LGB_GENERAL_PARAMS)
+        ),
         fit_params=lgb_fit_params,
         cat_features=cat_features,
         scoring=rfecv_scoring,
@@ -2298,7 +2315,9 @@ def configure_training_params(
         estimator=(
             metamodel_func((XGBRegressor if not use_flaml_zeroshot else flaml_zeroshot.XGBRegressor)(**configs.XGB_GENERAL_PARAMS))
             if use_regression
-            else (XGBClassifier if not use_flaml_zeroshot else flaml_zeroshot.XGBClassifier)(**(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF))
+            else (XGBClassifier if not use_flaml_zeroshot else flaml_zeroshot.XGBClassifier)(
+                **(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF)
+            )
         ),
         fit_params=dict(verbose=False),
         cat_features=cat_features,
@@ -3051,6 +3070,7 @@ def save_series_or_df(obj: Union[pd.Series, pd.DataFrame, pl.Series, pl.DataFram
     elif isinstance(obj, pl.DataFrame):
         obj.write_parquet(file, compression=compression)
 
+
 def _process_special_values(
     df: Union[pl.DataFrame, pd.DataFrame],
     expr_func=None,
@@ -3065,7 +3085,7 @@ def _process_special_values(
     for Polars or pandas DataFrames.
 
     Testing:
-    
+
     # Create a test Polars DataFrame
     df_test = pl.DataFrame(
         {
@@ -3075,11 +3095,11 @@ def _process_special_values(
             "category": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"],
         }
     )
-    
+
     for df in [df_test, df_test.to_pandas()]:
         for func in [process_nans, process_nulls, process_infinities]:
             df = func(df)
-        print(df)    
+        print(df)
     """
     is_polars = isinstance(df, pl.DataFrame)
     is_pandas = isinstance(df, pd.DataFrame)
@@ -3090,20 +3110,13 @@ def _process_special_values(
     if is_polars:
         # Polars: use provided expr_func
         qos_df = df.select(expr_func())
-        
+
         if drop_columns:
             # For constant detection, we get boolean indicators
             constant_cols = [col for col, is_const in zip(qos_df.columns, qos_df.row(0)) if is_const]
-            errors_df = pl.DataFrame({
-                "column": constant_cols,
-                "nerrors": [1] * len(constant_cols)
-            })
+            errors_df = pl.DataFrame({"column": constant_cols, "nerrors": [1] * len(constant_cols)})
         else:
-            errors_df = (
-                pl.DataFrame({"column": qos_df.columns, "nerrors": qos_df.row(0)})
-                .filter(pl.col("nerrors") > 0)
-                .sort("nerrors", descending=True)
-            )
+            errors_df = pl.DataFrame({"column": qos_df.columns, "nerrors": qos_df.row(0)}).filter(pl.col("nerrors") > 0).sort("nerrors", descending=True)
         nrows, ncols = df.shape
         sum_errors = errors_df["nerrors"].sum() if not drop_columns else len(errors_df)
 
@@ -3125,11 +3138,8 @@ def _process_special_values(
                         constant_cols.append(col)
             else:
                 raise ValueError(f"Unknown kind for drop_columns: {kind}")
-            
-            errors_df = pd.DataFrame({
-                "column": constant_cols,
-                "nerrors": [1] * len(constant_cols)
-            })
+
+            errors_df = pd.DataFrame({"column": constant_cols, "nerrors": [1] * len(constant_cols)})
             sum_errors = len(errors_df)
         else:
             # Pandas: only check numeric columns
@@ -3145,9 +3155,7 @@ def _process_special_values(
 
             nerrors = mask.sum()
             errors_df = pd.DataFrame({"column": nerrors.index, "nerrors": nerrors.values})
-            errors_df = errors_df[errors_df["nerrors"] > 0].sort_values(
-                "nerrors", ascending=False
-            )
+            errors_df = errors_df[errors_df["nerrors"] > 0].sort_values("nerrors", ascending=False)
             sum_errors = errors_df["nerrors"].sum()
 
         nrows, ncols = df.shape
@@ -3160,28 +3168,21 @@ def _process_special_values(
         return df
 
     if drop_columns:
-        logger.warning(
-            f"{kind.capitalize()}: {len(errors_df):_} [{len(errors_df)/ncols*100:.2f}%]"
-        )
+        logger.warning(f"{kind.capitalize()}: {len(errors_df):_} [{len(errors_df)/ncols*100:.2f}%]")
     else:
         logger.warning(
-            f"Columns with {kind}s: {len(errors_df):_} [{len(errors_df)/ncols*100:.2f}%], "
-            f"total {kind}s: {sum_errors:_} [{sum_errors/(nrows*ncols):.3f}%]"
+            f"Columns with {kind}s: {len(errors_df):_} [{len(errors_df)/ncols*100:.2f}%], " f"total {kind}s: {sum_errors:_} [{sum_errors/(nrows*ncols):.3f}%]"
         )
 
     # Display top 10
-    display_df = (
-        errors_df.head(10).set_index("column")
-        if is_pandas
-        else errors_df.to_pandas().set_index("column").head(10)
-    )
-    
+    display_df = errors_df.head(10).set_index("column") if is_pandas else errors_df.to_pandas().set_index("column").head(10)
+
     if drop_columns:
         caption = f"{kind.capitalize()}:"
         display_df = display_df[[]]  # Empty df, just show column names
     else:
         caption = f"Columns with most {kind}s:"
-    
+
     if is_jupyter_notebook():
         display(display_df.style.set_caption(caption))
     else:
@@ -3192,33 +3193,23 @@ def _process_special_values(
         # Remove columns
         if verbose:
             logger.info(f"Removing {len(errors_df)} {kind}...")
-        
+
         df = df.drop(errors_df["column"].to_list() if is_polars else errors_df["column"].tolist())
-        
+
         clean_ram()
         if verbose:
             logger.info(f"{kind.capitalize()} removed. New shape: {df.shape}")
             log_ram_usage()
-            
+
     elif fill_value is not None:
         if verbose:
             logger.info(f"Filling {kind}s with {fill_value}...")
 
         if is_polars:
             if kind == "infinite":
-                df = df.with_columns(
-                    [
-                        pl.when(pl.col(c).is_infinite())
-                        .then(fill_value)
-                        .otherwise(pl.col(c))
-                        .alias(c)
-                        for c in errors_df["column"]
-                    ]
-                )
+                df = df.with_columns([pl.when(pl.col(c).is_infinite()).then(fill_value).otherwise(pl.col(c)).alias(c) for c in errors_df["column"]])
             else:
-                df = df.with_columns(
-                    getattr(pl.col(errors_df["column"]), fill_func_name)(fill_value)
-                )
+                df = df.with_columns(getattr(pl.col(errors_df["column"]), fill_func_name)(fill_value))
         elif is_pandas:
             if kind in ("NaN", "null"):
                 df[errors_df["column"]] = df[errors_df["column"]].fillna(fill_value)
@@ -3233,14 +3224,10 @@ def _process_special_values(
     return df
 
 
-def process_nans(
-    df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1
-):
+def process_nans(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1):
     return _process_special_values(
         df=df,
-        expr_func=lambda: (
-            cs.numeric().is_nan().sum() if isinstance(df, pl.DataFrame) else None
-        ),
+        expr_func=lambda: (cs.numeric().is_nan().sum() if isinstance(df, pl.DataFrame) else None),
         fill_func_name="fill_nan",
         kind="NaN",
         fill_value=fill_value,
@@ -3248,14 +3235,10 @@ def process_nans(
     )
 
 
-def process_nulls(
-    df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1
-):
+def process_nulls(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1):
     return _process_special_values(
         df=df,
-        expr_func=lambda: (
-            cs.numeric().is_null().sum() if isinstance(df, pl.DataFrame) else None
-        ),
+        expr_func=lambda: (cs.numeric().is_null().sum() if isinstance(df, pl.DataFrame) else None),
         fill_func_name="fill_null",
         kind="null",
         fill_value=fill_value,
@@ -3263,14 +3246,10 @@ def process_nulls(
     )
 
 
-def process_infinities(
-    df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1
-):
+def process_infinities(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1):
     return _process_special_values(
         df=df,
-        expr_func=lambda: (
-            cs.numeric().is_infinite().sum() if isinstance(df, pl.DataFrame) else None
-        ),
+        expr_func=lambda: (cs.numeric().is_infinite().sum() if isinstance(df, pl.DataFrame) else None),
         fill_func_name="replace",
         kind="infinite",
         fill_value=fill_value,
@@ -3278,26 +3257,24 @@ def process_infinities(
     )
 
 
-def remove_constant_columns(
-    df: Union[pl.DataFrame, pd.DataFrame], verbose: int = 1
-) -> Union[pl.DataFrame, pd.DataFrame]:
+def remove_constant_columns(df: Union[pl.DataFrame, pd.DataFrame], verbose: int = 1) -> Union[pl.DataFrame, pd.DataFrame]:
     """
     Remove constant columns from DataFrame:
     - Numeric columns: where min == max
     - Non-numeric columns: where n_unique == 1
-    
+
     Parameters
     ----------
     df : Union[pl.DataFrame, pd.DataFrame]
         Input DataFrame
     verbose : int, default=1
         Verbosity level for logging
-        
+
     Returns
     -------
     Union[pl.DataFrame, pd.DataFrame]
         DataFrame with constant columns removed
-        
+
     Testing
     -------
     # Create a test Polars DataFrame
@@ -3310,39 +3287,37 @@ def remove_constant_columns(
             "varying_cat": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"],
         }
     )
-    
+
     for df in [df_test, df_test.to_pandas()]:
         df_clean = remove_constant_columns(df)
         print(df_clean)
     """
     is_polars = isinstance(df, pl.DataFrame)
-    
+
     # Process numeric columns (min == max)
     df = _process_special_values(
         df=df,
-        expr_func=lambda: (
-            (cs.numeric().min() == cs.numeric().max()) if is_polars else None
-        ),
+        expr_func=lambda: ((cs.numeric().min() == cs.numeric().max()) if is_polars else None),
         kind="constant numeric columns",
         drop_columns=True,
         verbose=verbose,
     )
-    
+
     # Process non-numeric columns (n_unique == 1)
     df = _process_special_values(
         df=df,
-        expr_func=lambda: (
-            (cs.by_dtype(pl.String, pl.Categorical).n_unique() == 1) if is_polars else None
-        ),
+        expr_func=lambda: ((cs.by_dtype(pl.String, pl.Categorical).n_unique() == 1) if is_polars else None),
         kind="constant non-numeric columns",
         drop_columns=True,
         verbose=verbose,
     )
-    
+
     return df
 
-def log_ram_usage()->None:
+
+def log_ram_usage() -> None:
     logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+
 
 def train_mlframe_models_suite(
     df: Union[pl.DataFrame, pd.DataFrame, str],
@@ -3428,7 +3403,7 @@ def train_mlframe_models_suite(
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
     trainset_features_stats = None
-    metadata={}
+    metadata = {}
 
     # if imputer is None:
     # imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
@@ -3490,7 +3465,7 @@ def train_mlframe_models_suite(
         if verbose:
             log_ram_usage()
 
-    # Now decrease "attack surface" as much as possible    
+    # Now decrease "attack surface" as much as possible
 
     if tail:
         df = df.tail(tail)
@@ -3501,7 +3476,7 @@ def train_mlframe_models_suite(
     df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts = preprocessor.process(df)
     clean_ram()
     if verbose:
-        log_ram_usage()    
+        log_ram_usage()
 
     if drop_columns:
         logger.info(f"Dropping {len(drop_columns):_} columns...")
@@ -3516,11 +3491,11 @@ def train_mlframe_models_suite(
             df = df.drop(drop_columns, strict=False)
         clean_ram()
         if verbose:
-            log_ram_usage()             
+            log_ram_usage()
 
     # Now can perform costly operations
 
-    df=remove_constant_columns(df,verbose=verbose)
+    df = remove_constant_columns(df, verbose=verbose)
 
     if ensure_float32_dtypes:
         """Lightgbm uses np.result_type(*df_dtypes) to detect array dtype when converting from Pandas input,
@@ -3534,13 +3509,12 @@ def train_mlframe_models_suite(
             log_ram_usage()
 
     if fillna_value is not None:
-        df=process_nulls(df,fill_value=fillna_value,verbose=verbose)
-        df=process_nans(df,fill_value=fillna_value,verbose=verbose)
-        imputer=None
+        df = process_nulls(df, fill_value=fillna_value, verbose=verbose)
+        df = process_nans(df, fill_value=fillna_value, verbose=verbose)
+        imputer = None
 
         if fix_infinities:
-            df=process_infinities(df,fill_value=fillna_value,verbose=verbose)
-      
+            df = process_infinities(df, fill_value=fillna_value, verbose=verbose)
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Train-val-test split
@@ -3583,8 +3557,8 @@ def train_mlframe_models_suite(
                 art_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_artifacts.parquet")
                 if not exists(art_file):
                     save_series_or_df(artifacts[idx], art_file, PARQUET_COMPRESION)
-        
-        del timestamps,group_ids_raw,artifacts
+
+        del timestamps, group_ids_raw, artifacts
 
     if verbose:
         logger.info(f"creating train_df,val_df,test_df...")
@@ -3602,21 +3576,20 @@ def train_mlframe_models_suite(
 
         train_df = df.iloc[train_idx]
         test_df = df.iloc[test_idx] if test_idx is not None else None
-        val_df = df.iloc[val_idx]  if val_idx is not None else None
+        val_df = df.iloc[val_idx] if val_idx is not None else None
 
     elif isinstance(df, pl.DataFrame):
 
         if False:
             df = df.with_columns(pl.col(pl.Utf8).cast(pl.Categorical))
             cat_features = df.head(1).select(pl.col(pl.Categorical)).columns
-        
+
         train_df = df[train_idx]
         test_df = df[test_idx] if test_idx is not None else None
-        val_df = df[val_idx]  if val_idx is not None else None
+        val_df = df[val_idx] if val_idx is not None else None
 
         if verbose:
             log_ram_usage()
-
 
     if use_autogluon_models or use_lama_models:
         tran_val_idx = np.array(train_idx.tolist() + val_idx.tolist())
@@ -3626,12 +3599,12 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info(f"Ram usage before deleting main df: {get_own_ram_usage():.1f}GBs")
         del df
-        df=None
+        df = None
         clean_ram()
         if verbose:
             logger.info(f"Ram usage after deleting main df: {get_own_ram_usage():.1f}GBs")
 
-    if isinstance(train_df,pl.DataFrame):
+    if isinstance(train_df, pl.DataFrame):
 
         if use_mighty_scaler:
             try:
@@ -3644,9 +3617,12 @@ def train_mlframe_models_suite(
                     logger.info(f"Fitting mighty_scaler from polars-ds...")
 
                 bp = (
-                    PdsBlueprint(train_df, name="mighty_scaler",)
+                    PdsBlueprint(
+                        train_df,
+                        name="mighty_scaler",
+                    )
                     .scale(cs.numeric(), method="standard")
-                    .one_hot_encode(cols=None,drop_first=False,drop_cols=True)
+                    .one_hot_encode(cols=None, drop_first=False, drop_cols=True)
                 )
                 mighty_scaler_pipe: PdsPipeline = bp.materialize()
                 clean_ram()
@@ -3655,20 +3631,29 @@ def train_mlframe_models_suite(
                     log_ram_usage()
                     logger.info(f"Applying mighty_scaler from polars-ds...")
 
-                train_df = mighty_scaler_pipe.transform(train_df)
-                logger.info("train_df.dtypes=",Counter(train_df.dtypes))
+                train_df_scaled = mighty_scaler_pipe.transform(train_df)
+                del train_df
+                train_df = train_df_scaled
+                del train_df_scaled
+                logger.info(f"train_df.dtypes={Counter(train_df.dtypes)}")
                 clean_ram()
                 if val_idx is not None:
-                    val_df = mighty_scaler_pipe.transform(val_df)                
+                    val_df_scaled = mighty_scaler_pipe.transform(val_df)
+                    del val_df
+                    val_df = val_df_scaled
+                    del val_df_scaled
                     clean_ram()
                 if test_idx is not None:
-                    test_df = mighty_scaler_pipe.transform(test_df)  
+                    test_df_scaled = mighty_scaler_pipe.transform(test_df)
+                    del test_df
+                    test_df = test_df_scaled
+                    del test_df_scaled
                     clean_ram()
-                
-                metadata['mighty_scaler_pipe']=mighty_scaler_pipe
-                scaler=None
 
-                cat_features=[]
+                metadata["mighty_scaler_pipe"] = mighty_scaler_pipe
+                scaler = None
+
+                cat_features = []
 
     clean_ram()
     if verbose:
@@ -3882,7 +3867,7 @@ def train_mlframe_models_suite(
                         group_ids=group_ids[test_idx] if group_ids is not None else None,
                     )
                 )
-    return models,metadata
+    return models, metadata
 
 
 # AUTOML
