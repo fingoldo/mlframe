@@ -462,19 +462,6 @@ class DataFramePreprocessor:
             logger.info(f"After add_features")
             log_ram_usage()
 
-        if self.columns_to_drop:
-            cols_to_drop = [col for col in self.columns_to_drop if col in df.columns]
-            logger.info(f"Deleting {cols_to_drop} columns")
-            if isinstance(df, pl.DataFrame):
-                df = df.drop(cols_to_drop)
-            else:
-                for col in cols_to_drop:
-                    del df[col]
-
-            if self.verbose:
-                logger.info(f"After deleting columns_to_drop")
-                log_ram_usage()
-
         self.show_processed_data(df, target_by_type)
         if self.columns_to_drop or self.datetime_features:
             pass  # clean_ram()
@@ -483,7 +470,7 @@ class DataFramePreprocessor:
             logger.info(f"After show_processed_data")
             log_ram_usage()
 
-        return df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts
+        return df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, self.columns_to_drop
 
 
 class SimpleDataFramePreprocessor(DataFramePreprocessor):
@@ -3469,13 +3456,18 @@ def train_mlframe_models_suite(
 
     if verbose:
         logger.info(f"Preprocessing dataframe...")
-    df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts = preprocessor.process(df)
+    df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, additional_columns_to_drop = preprocessor.process(df)
     del preprocessor
     preprocessor = None
     clean_ram()
     if verbose:
         log_ram_usage()
 
+    if additional_columns_to_drop:
+        if drop_columns:
+            drop_columns.extend(additional_columns_to_drop)
+        else:
+            drop_columns = additional_columns_to_drop
     if drop_columns:
         logger.info(f"Dropping {len(drop_columns):_} columns...")
         if isinstance(df, pd.DataFrame):
@@ -3599,7 +3591,7 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info(f"Ram usage before deleting main df: {get_own_ram_usage():.1f}GBs")
         del df
-        del train_idx, val_idx, test_idx
+        #del train_idx, val_idx, test_idx
         df = None
         clean_ram()
         if verbose:
