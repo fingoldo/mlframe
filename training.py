@@ -3438,7 +3438,7 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info(f"Loading df from file with Polars...")
 
-        params = dict(parallel ='columns')
+        params = dict(parallel="columns")
         if n_rows:
             params["n_rows"] = n_rows
         if columns:
