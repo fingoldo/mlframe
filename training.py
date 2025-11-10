@@ -3622,24 +3622,17 @@ def train_mlframe_models_suite(
                     logger.info(f"Applying mighty_scaler from polars-ds...")
 
                 train_df = mighty_scaler_pipe.transform(train_df)
+                clean_ram()
                 if val_idx is not None:
                     val_df = mighty_scaler_pipe.transform(val_df)                
+                    clean_ram()
                 if test_idx is not None:
                     test_df = mighty_scaler_pipe.transform(test_df)  
+                    clean_ram()
                 
                 metadata['mighty_scaler_pipe']=mighty_scaler_pipe
 
                 cat_features=[]
-
-                clean_ram()
-                log_ram_usage()
-
-                if fillna_value is not None:
-                    df=process_nulls(df,fill_value=fillna_value,verbose=verbose)
-                    df=process_nans(df,fill_value=fillna_value,verbose=verbose)
-
-                    if fix_infinities:
-                        df=process_infinities(df,fill_value=fillna_value,verbose=verbose)
 
     clean_ram()
     if verbose:

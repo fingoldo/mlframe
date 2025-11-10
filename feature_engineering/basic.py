@@ -45,6 +45,8 @@ def create_date_features(
 ) -> Union[pd.DataFrame, pl.DataFrame]:
     if len(cols) == 0:
         return df
+    
+    logger.info(f"In create_date_features. RAM usage: {get_own_ram_usage():.1f}GB.")
 
     is_pandas = isinstance(df, pd.DataFrame)
     is_polars = isinstance(df, pl.DataFrame)
