@@ -1185,11 +1185,19 @@ def train_and_evaluate_model(
 
     if model is not None and pre_pipeline:
         if use_cache and exists(model_file_name):
+            if verbose:
+                logger.info(f"Transforming train_df via pre_pipeline...")
             train_df = pre_pipeline.transform(train_df, train_target)
+            if verbose:
+                log_ram_usage()
         else:
             train_df = pre_pipeline.fit_transform(train_df, train_target)
         if val_df is not None:
+            if verbose:
+                logger.info(f"Transforming val_df via pre_pipeline...")            
             val_df = pre_pipeline.transform(val_df)
+            if verbose:
+                log_ram_usage()            
         clean_ram()
 
     if val_df is not None:
@@ -3528,6 +3536,7 @@ def train_mlframe_models_suite(
     if fillna_value is not None:
         df=process_nulls(df,fill_value=fillna_value,verbose=verbose)
         df=process_nans(df,fill_value=fillna_value,verbose=verbose)
+        imputer=None
 
         if fix_infinities:
             df=process_infinities(df,fill_value=fillna_value,verbose=verbose)
@@ -3653,6 +3662,7 @@ def train_mlframe_models_suite(
                     clean_ram()
                 
                 metadata['mighty_scaler_pipe']=mighty_scaler_pipe
+                scaler=None
 
                 cat_features=[]
 
