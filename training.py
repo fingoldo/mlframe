@@ -441,7 +441,11 @@ class DataFramePreprocessor:
 
         df = self.add_features(df)
 
+        if self.verbose:
+            logger.info(f"build_targets...")
         target_by_type = self.build_targets(df)
+        if self.verbose:
+            log_ram_usage()        
 
         if self.ts_field:
             timestamps = df[self.ts_field]
