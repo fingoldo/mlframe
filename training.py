@@ -2900,6 +2900,7 @@ def process_model(
             )
         model = train_and_evaluate_model(
             pre_pipeline=pre_pipeline,
+            verbose=verbose,
             **model_params,
             **common_params,
             model_name_prefix=pre_pipeline_name,
