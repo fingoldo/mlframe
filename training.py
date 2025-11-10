@@ -3605,6 +3605,21 @@ def train_mlframe_models_suite(
         if verbose:
             log_ram_usage()
 
+
+    if use_autogluon_models or use_lama_models:
+        tran_val_idx = np.array(train_idx.tolist() + val_idx.tolist())
+        if verbose:
+            logger.info(f"RSS at start: {get_own_ram_usage():.1f}GBs")
+
+        if verbose:
+            logger.info(f"Ram usage before deleting main df: {get_own_ram_usage():.1f}GBs")
+        del df
+        clean_ram()
+        if verbose:
+            logger.info(f"Ram usage after deleting main df: {get_own_ram_usage():.1f}GBs")
+
+    if isinstance(train_df,pl.DataFrame):
+
         if use_mighty_scaler:
             try:
                 from polars_ds.pipeline import Pipeline as PdsPipeline, Blueprint as PdsBlueprint
@@ -3621,6 +3636,7 @@ def train_mlframe_models_suite(
                     .one_hot_encode(cols=None,drop_first=False,drop_cols=True)
                 )
                 mighty_scaler_pipe: PdsPipeline = bp.materialize()
+                clean_ram()
 
                 if verbose:
                     log_ram_usage()
@@ -3642,19 +3658,6 @@ def train_mlframe_models_suite(
     clean_ram()
     if verbose:
         log_ram_usage()
-
-    if use_autogluon_models or use_lama_models:
-        tran_val_idx = np.array(train_idx.tolist() + val_idx.tolist())
-        if verbose:
-            logger.info(f"RSS at start: {get_own_ram_usage():.1f}GBs")
-    else:
-
-        if verbose:
-            logger.info(f"Ram usage before deleting main df: {get_own_ram_usage():.1f}GBs")
-        del df
-        clean_ram()
-        if verbose:
-            logger.info(f"Ram usage after deleting main df: {get_own_ram_usage():.1f}GBs")
 
     if False and isinstance(train_df, pl.DataFrame):
 
