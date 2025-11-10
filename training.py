@@ -410,11 +410,6 @@ class DataFramePreprocessor:
         if self.columns_to_drop is None:
             self.columns_to_drop = set()
 
-        if self.ts_field:
-            self.columns_to_drop.add(self.ts_field)
-        if self.group_field:
-            self.columns_to_drop.add(self.group_field)
-
     def add_features(self, df: Union[pd.DataFrame, pl.DataFrame]) -> Union[pd.DataFrame, pl.DataFrame]:
         return df
 
@@ -3603,7 +3598,7 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info(f"Ram usage before deleting main df: {get_own_ram_usage():.1f}GBs")
         del df
-        del train_idx, val_idx, test_idx, train_details, val_details, test_details 
+        del train_idx, val_idx, test_idx, train_details, val_details, test_details
         df = None
         clean_ram()
         if verbose:
