@@ -437,9 +437,7 @@ class DataFramePreprocessor:
     def process(self, df: Union[pd.DataFrame, pl.DataFrame]) -> tuple:
         # convert_float64_to_float32(df)  # Uncomment if needed
 
-        self.show_raw_data(df)
-
-        df = self.add_features(df)
+        self.show_raw_data(df)        
 
         if self.verbose:
             logger.info(f"build_targets...")
@@ -468,6 +466,8 @@ class DataFramePreprocessor:
             unique_vals, group_ids = np.unique(group_ids_raw_np, return_inverse=True)
 
         artifacts = self.prepare_artifacts(df)
+
+        df = self.add_features(df)
 
         if self.columns_to_drop:
             cols_to_drop = [col for col in self.columns_to_drop if col in df.columns]
