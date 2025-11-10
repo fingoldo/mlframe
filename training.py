@@ -3457,15 +3457,6 @@ def train_mlframe_models_suite(
     if verbose:
         logger.info(f"Preprocessing dataframe...")
     df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, additional_columns_to_drop = preprocessor.process(df)
-
-    # Check if these are views of df
-    if timestamps is not None:
-        logger.info(f"timestamps type: {type(timestamps)}, size: {sys.getsizeof(timestamps)} bytes")
-    if artifacts is not None:
-        logger.info(f"artifacts type: {type(artifacts)}, shape: {artifacts.shape if hasattr(artifacts, 'shape') else 'N/A'}")
-    if group_ids_raw is not None:
-        logger.info(f"group_ids_raw type: {type(group_ids_raw)}, shape: {group_ids_raw.shape if hasattr(group_ids_raw, 'shape') else 'N/A'}")
-
     clean_ram()
     if verbose:
         log_ram_usage()
