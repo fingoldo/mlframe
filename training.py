@@ -3620,7 +3620,7 @@ def train_mlframe_models_suite(
         tran_val_idx = np.array(train_idx.tolist() + val_idx.tolist())
         if verbose:
             logger.info(f"RSS at start: {get_own_ram_usage():.1f}GBs")
-
+    else:
         if verbose:
             logger.info(f"Ram usage before deleting main df: {get_own_ram_usage():.1f}GBs")
         del df
