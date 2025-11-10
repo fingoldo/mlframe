@@ -449,7 +449,6 @@ class DataFramePreprocessor:
             timestamps = df[self.ts_field]
             if isinstance(timestamps, pl.Series):
                 timestamps = timestamps.to_pandas()
-            self.columns_to_drop.add(self.ts_field)
         else:
             timestamps = None
 
@@ -552,43 +551,6 @@ class SimpleDataFramePreprocessor(DataFramePreprocessor):
             target_by_type[TargetTypes.REGRESSION] = targets
 
         return target_by_type
-
-class TestDataFramePreprocessor(DataFramePreprocessor):
-    def __init__(
-        self,
-        ts_field: str = None,
-        datetime_features: dict = None,
-        group_field: str = None,
-        columns_to_drop: set = None,
-        verbose: int = 0,
-    ):
-        super().__init__(
-            ts_field=ts_field,
-            datetime_features=datetime_features,
-            group_field=group_field,
-            columns_to_drop=columns_to_drop,
-            verbose=verbose,
-        )
-
-    def add_features(
-        self, df: Union[pd.DataFrame, pl.DataFrame]
-    ) -> Union[pd.DataFrame, pl.DataFrame]:
-        if self.verbose:
-            logging.info("inject_contracts_specs_features...")
-        if self.verbose:
-            log_ram_usage()
-        return df
-
-    def build_targets(self, df: Union[pd.DataFrame, pl.DataFrame]) -> dict:
-        target_by_type = {}
-
-        return target_by_type
-
-def sometests_module(fo_df,preprocessor):
-
-    fo_df = preprocessor.process(fo_df)
-
-    return fo_df
     
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -3428,6 +3390,7 @@ def train_mlframe_models_suite(
     test_sequential_fraction: float = None,
     trainset_aging_limit: float = None,
     wholeday_splitting: bool = True,
+    #
     use_mrmr_fs: bool = False,
     mrmr_kwargs: dict = None,
     random_seed: int = 42,
@@ -3518,7 +3481,18 @@ def train_mlframe_models_suite(
         if verbose:
             log_ram_usage()
 
-    # Now decrease "attack surface" as much as possible
+    # Now decrease "attack surface" as much as possible    
+
+    if tail:
+        df = df.tail(tail)
+        clean_ram()
+
+    if verbose:
+        logger.info(f"Preprocessing dataframe...")
+    df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts = preprocessor.process(df)
+    clean_ram()
+    if verbose:
+        log_ram_usage()    
 
     if drop_columns:
         logger.info(f"Dropping {len(drop_columns):_} columns...")
@@ -3533,18 +3507,7 @@ def train_mlframe_models_suite(
             df = df.drop(drop_columns, strict=False)
         clean_ram()
         if verbose:
-            log_ram_usage()      
-
-    if tail:
-        df = df.tail(tail)
-        clean_ram()
-
-    if verbose:
-        logger.info(f"Preprocessing dataframe...")
-    df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts = preprocessor.process(df)
-    clean_ram()
-    if verbose:
-        log_ram_usage()        
+            log_ram_usage()             
 
     # Now can perform costly operations
 
