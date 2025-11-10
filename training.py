@@ -452,7 +452,8 @@ class DataFramePreprocessor:
             if self.datetime_features:
                 if self.verbose:
                     logger.info(f"create_date_features {self.datetime_features} over column {self.ts_field}...")
-                df = create_date_features(df, cols=[self.ts_field], delete_original_cols=True, methods=self.datetime_features)
+                df = create_date_features(df, cols=[self.ts_field], delete_original_cols=False, methods=self.datetime_features)
+                self.columns_to_drop.add(self.ts_field)
                 if self.verbose:
                     log_ram_usage()
         else:
