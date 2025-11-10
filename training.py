@@ -3622,9 +3622,13 @@ def train_mlframe_models_suite(
                         name="mighty_scaler",
                     )
                     .scale(cs.numeric(), method="standard")
-                    .one_hot_encode(cols=None, drop_first=False, drop_cols=True)
+                    .ordinal_encode(
+                        cols=None,
+                    )
+                    # .one_hot_encode(cols=None, drop_first=False, drop_cols=True)
                 )
                 mighty_scaler_pipe: PdsPipeline = bp.materialize()
+                del bp
                 clean_ram()
 
                 if verbose:
