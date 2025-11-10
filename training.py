@@ -475,6 +475,10 @@ class DataFramePreprocessor:
                 for col in cols_to_drop:
                     del df[col]
 
+            if self.verbose:
+                logger.info(f"AFter deleting columns_to_drop")
+                log_ram_usage()
+
         self.show_processed_data(df, target_by_type)             
         if self.columns_to_drop or self.datetime_features:
             pass #clean_ram()
