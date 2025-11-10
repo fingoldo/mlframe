@@ -464,6 +464,7 @@ class DataFramePreprocessor:
 
         if self.columns_to_drop:
             cols_to_drop = [col for col in self.columns_to_drop if col in df.columns]
+            logger.info(f"Deleting {cols_to_drop} columns")
             if isinstance(df, pl.DataFrame):
                 df = df.drop(cols_to_drop)
             else:
