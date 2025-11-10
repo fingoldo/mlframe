@@ -3324,6 +3324,45 @@ def get_referrers(obj, max_depth=2):
     return len(refs)
 
 
+def find_dataframe_references(df):
+    """Find all references to a DataFrame"""
+    df_id = id(df)
+    refs = gc.get_referrers(df)
+    
+    logger.info(f"Found {len(refs)} references to df:")
+    
+    for i, ref in enumerate(refs):
+        ref_type = type(ref).__name__
+        
+        # Check if it's a frame (local variables)
+        if ref_type == 'frame':
+            # This is the current function's local variables
+            logger.info(f"  [{i}] Frame (current function locals)")
+            
+        # Check if it's a dict (might be locals() or instance.__dict__)
+        elif ref_type == 'dict':
+            # Try to identify what dict this is
+            if 'self' in ref:
+                logger.info(f"  [{i}] Dict - likely 'self' (instance variables)")
+                # Check which attributes point to df
+                for key, val in ref.items():
+                    if id(val) == df_id:
+                        logger.warning(f"      → Found in key: '{key}'")
+            elif 'df' in ref:
+                logger.info(f"  [{i}] Dict - contains 'df' key (locals or globals)")
+            else:
+                logger.info(f"  [{i}] Dict - unknown, keys: {list(ref.keys())[:10]}")
+                
+        # Check if it's a list, tuple, etc.
+        elif ref_type in ['list', 'tuple']:
+            logger.info(f"  [{i}] {ref_type} - length {len(ref)}")
+            
+        else:
+            logger.info(f"  [{i}] {ref_type}")
+    
+    return refs
+
+
 def train_mlframe_models_suite(
     df: Union[pl.DataFrame, pd.DataFrame, str],
     target_name: str,
@@ -3501,17 +3540,7 @@ def train_mlframe_models_suite(
             drop_columns = additional_columns_to_drop
     if drop_columns:
         clean_ram()
-        logger.info(f"Dropping {len(drop_columns):_} columns...")
-
-        # Find what's holding the reference
-        refs = gc.get_referrers(df)
-        logger.info(f"df has {len(refs)} referrers:")
-        for i, ref in enumerate(refs):
-            if isinstance(ref, dict):
-                # Check if it's locals() or some object's __dict__
-                for k, v in list(ref.items())[:5]:
-                    if id(v) == id(df):
-                        logger.warning(f"  Found df stored in dict key: '{k}'")
+        logger.info(f"Dropping {len(drop_columns):_} columns...")        
 
         if isinstance(df, pl.DataFrame):
             # Diagnostic 1: Check current state
