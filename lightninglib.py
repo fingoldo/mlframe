@@ -69,49 +69,17 @@ def to_tensor_any(data, dtype=torch.float32, device=None, safe=True):
 
     If safe=True, ignores categorical/object columns gracefully.
     """
-    if torch.is_tensor(data):
-        t = data.to(dtype=dtype)
-        return t.to(device) if device else t
 
     # --- Pandas
     if isinstance(data, (pd.DataFrame, pd.Series)):
-        try:
-            arr = data.to_numpy(
-                dtype=np.float32 if dtype == torch.float32 else np.float64,
-                copy=False,
-            )
-        except Exception:
-            if not safe:
-                raise
-            arr = data.select_dtypes(include=["number"]).to_numpy(
-                dtype=np.float32 if dtype == torch.float32 else np.float64,
-                copy=False,
-            )
-
+        data = data.to_numpy()
     # --- Polars
     elif isinstance(data, pl.DataFrame):
-        target_dtype = pl.Float32 if dtype == torch.float32 else pl.Float64
-        try:
-            arr = data.select(pl.all().cast(target_dtype)).to_numpy()
-        except Exception:
-            if not safe:
-                raise
-            arr = data.select([c for c, dt in zip(data.columns, data.dtypes) if dt.is_numeric()]).select(pl.all().cast(target_dtype)).to_numpy()
+        data = data.to_torch()
+    if isinstance(data, np.ndarray):
+        data = torch.from_numpy(data)
 
-    # --- NumPy
-    elif isinstance(data, np.ndarray):
-        arr = data
-
-    # --- Fallback
-    else:
-        raise TypeError(f"Unsupported data type: {type(data)}")
-
-    expected_np = np.float32 if dtype == torch.float32 else np.float64
-    if arr.dtype != expected_np:
-        arr = arr.astype(expected_np, copy=False)
-
-    t = torch.from_numpy(arr)
-    return t.to(device) if device else t
+    return data.to(dtype=dtype, device=device)
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -441,13 +409,13 @@ class TorchDataset(Dataset):
         elif isinstance(data, pd.DataFrame):
             subset = data.iloc[indices, :].to_numpy()
         elif isinstance(data, pl.DataFrame):
-            target = pl.Float32 if self.features_dtype == torch.float32 else pl.Float64
-            subset = data[indices].select(pl.all().cast(target)).to_numpy()
+            subset = data[indices].to_torch()
         else:
             raise TypeError(f"Unsupported data type for extraction: {type(data)}")
 
         if isinstance(subset, np.ndarray):
-            return torch.from_numpy(subset).to(dtype=self.features_dtype, device=self.device)
+            subset = torch.from_numpy(subset)
+
         return subset.to(dtype=self.features_dtype, device=self.device)
 
     def __getitem__(self, idx):
