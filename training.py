@@ -548,7 +548,58 @@ class SimpleDataFramePreprocessor(DataFramePreprocessor):
 
         return target_by_type
 
+class TestDataFramePreprocessor(DataFramePreprocessor):
+    def __init__(
+        self,
+        ts_field: str = None,
+        datetime_features: dict = None,
+        group_field: str = None,
+        columns_to_drop: set = None,
+        verbose: int = 0,
+        #
+        tf: str = "5m",
+        horizont_bars: list = [TARGET_HORIZONT_NBARS, TARGET_HORIZONT_NBARS * 24],
+        use_classification: bool = False,
+        use_regression: bool = False,
+        max_abs_return: float = None,
+    ):
+        super().__init__(
+            ts_field=ts_field,
+            datetime_features=datetime_features,
+            group_field=group_field,
+            columns_to_drop=columns_to_drop,
+            verbose=verbose,
+        )
 
+        self.tf = tf
+        self.horizont_bars = horizont_bars
+        self.use_regression = use_regression
+        self.max_abs_return = max_abs_return
+        self.use_classification = use_classification
+
+    def add_features(
+        self, df: Union[pd.DataFrame, pl.DataFrame]
+    ) -> Union[pd.DataFrame, pl.DataFrame]:
+        if self.verbose:
+            logging.info("inject_contracts_specs_features...")
+        if self.verbose:
+            log_ram_usage()
+        return df
+
+    def build_targets(self, df: Union[pd.DataFrame, pl.DataFrame]) -> dict:
+        target_by_type = {}
+
+        return target_by_type
+
+def sometests_module(fo_df):
+
+    fo_df = preprocessor.process(fo_df)
+    for I in range(1000000000):
+        sleep(0.1)
+
+    return 0
+    
+    
 # ----------------------------------------------------------------------------------------------------------------------------
 # Custom Error Metrics & training configs
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -2719,7 +2770,7 @@ def make_train_test_split(
 
         train_details, val_details, test_details = "", "", ""
 
-    print(
+    logger.info(
         f"{len(train_idx):_} train rows {train_details}, {len(val_idx):_} val rows {val_details}, {len(test_idx) if test_idx is not None else 0:_} test rows {test_details}."
     )
 
