@@ -449,13 +449,7 @@ class DataFramePreprocessor:
             timestamps = df[self.ts_field]
             if isinstance(timestamps, pl.Series):
                 timestamps = timestamps.to_pandas()
-            if self.datetime_features:
-                if self.verbose:
-                    logger.info(f"create_date_features {self.datetime_features} over column {self.ts_field}...")
-                df = create_date_features(df, cols=[self.ts_field], delete_original_cols=False, methods=self.datetime_features)
-                self.columns_to_drop.add(self.ts_field)
-                if self.verbose:
-                    log_ram_usage()
+            self.columns_to_drop.add(self.ts_field)
         else:
             timestamps = None
 
@@ -469,6 +463,9 @@ class DataFramePreprocessor:
         artifacts = self.prepare_artifacts(df)
 
         df = self.add_features(df)
+        if self.verbose:
+            logger.info(f"AFter add_features")
+            log_ram_usage()        
 
         if self.columns_to_drop:
             cols_to_drop = [col for col in self.columns_to_drop if col in df.columns]
@@ -478,10 +475,13 @@ class DataFramePreprocessor:
                 for col in cols_to_drop:
                     del df[col]
 
-        self.show_processed_data(df, target_by_type)
-
+        self.show_processed_data(df, target_by_type)             
         if self.columns_to_drop or self.datetime_features:
             clean_ram()
+
+        if self.verbose:
+            logger.info(f"AFter show_processed_data")
+            log_ram_usage()             
 
         return df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts
 
