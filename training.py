@@ -477,7 +477,7 @@ class DataFramePreprocessor:
 
         self.show_processed_data(df, target_by_type)             
         if self.columns_to_drop or self.datetime_features:
-            clean_ram()
+            pass #clean_ram()
 
         if self.verbose:
             logger.info(f"AFter show_processed_data")
