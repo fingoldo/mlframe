@@ -3474,7 +3474,7 @@ def train_mlframe_models_suite(
     if verbose:
         logger.info(f"Preprocessing dataframe...")
     df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts = preprocessor.process(df)
-    preprocessor=None
+    preprocessor = None
     clean_ram()
     if verbose:
         log_ram_usage()
@@ -3575,7 +3575,7 @@ def train_mlframe_models_suite(
                         cat_features=cat_features,
                     )
 
-        next_df=None
+        next_df = None
 
         train_df = df.iloc[train_idx]
         test_df = df.iloc[test_idx] if test_idx is not None else None
@@ -3587,9 +3587,9 @@ def train_mlframe_models_suite(
             df = df.with_columns(pl.col(pl.Utf8).cast(pl.Categorical))
             cat_features = df.head(1).select(pl.col(pl.Categorical)).columns
 
-        train_df = df[train_idx]
-        test_df = df[test_idx] if test_idx is not None else None
-        val_df = df[val_idx] if val_idx is not None else None
+        train_df = df[train_idx].clone()
+        test_df = df[test_idx].clone() if test_idx is not None else None
+        val_df = df[val_idx].clone() if val_idx is not None else None
 
         if verbose:
             log_ram_usage()
@@ -3625,9 +3625,7 @@ def train_mlframe_models_suite(
                         name="mighty_scaler",
                     )
                     .scale(cs.numeric(), method="standard")
-                    .ordinal_encode(
-                        cols=None,
-                    )
+                    .ordinal_encode(cols=None, null_value=-1, unknown_value=-2)
                     # .one_hot_encode(cols=None, drop_first=False, drop_cols=True)
                 )
                 mighty_scaler_pipe: PdsPipeline = bp.materialize()
