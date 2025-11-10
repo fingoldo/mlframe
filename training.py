@@ -3469,6 +3469,9 @@ def train_mlframe_models_suite(
         else:
             drop_columns = additional_columns_to_drop
     if drop_columns:
+
+        del target_by_type
+        clean_ram()
         logger.info(f"Dropping {len(drop_columns):_} columns...")
         if isinstance(df, pd.DataFrame):
             df_columns = set(df.columns)
@@ -3591,7 +3594,7 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info(f"Ram usage before deleting main df: {get_own_ram_usage():.1f}GBs")
         del df
-        #del train_idx, val_idx, test_idx
+        # del train_idx, val_idx, test_idx
         df = None
         clean_ram()
         if verbose:
