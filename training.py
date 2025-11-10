@@ -3479,7 +3479,7 @@ def train_mlframe_models_suite(
                 else:
                     df = df.drop(col)
         elif isinstance(df, pl.DataFrame):
-            df = df.drop(drop_columns, strict=False).clone()
+            df = df.drop(drop_columns, strict=False).rechunk()
         clean_ram()
         if verbose:
             log_ram_usage()
