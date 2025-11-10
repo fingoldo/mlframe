@@ -3615,6 +3615,7 @@ def train_mlframe_models_suite(
                     )
                     .scale(cs.numeric(), method="standard")
                     .ordinal_encode(cols=None, null_value=-1, unknown_value=-2)
+                    .int_to_float(f32=True)
                     # .one_hot_encode(cols=None, drop_first=False, drop_cols=True)
                 )
                 mighty_scaler_pipe: PdsPipeline = bp.materialize()
