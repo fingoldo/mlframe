@@ -85,8 +85,13 @@ def create_date_features(
         # Add all new columns at once
         df = df.with_columns(all_exprs)
 
+        from mlframe.helpers import get_own_ram_usage
+
+        logger.info(f"After df = df.with_columns(all_exprs). RAM usage: {get_own_ram_usage():.1f}GB.")
+
         if delete_original_cols:
             df = df.drop(cols)
+            logger.info(f"After df.drop(cols). RAM usage: {get_own_ram_usage():.1f}GB.")
 
     return df
 
