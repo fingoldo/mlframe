@@ -2735,7 +2735,7 @@ def make_train_test_split(
         f"{len(train_idx):_} train rows {train_details}, {len(val_idx):_} val rows {val_details}, {len(test_idx) if test_idx is not None else 0:_} test rows {test_details}."
     )
 
-    return train_idx, val_idx, test_idx, train_details, val_details, test_details
+    return np.sort(train_idx), np.sort(val_idx), np.sort(test_idx), train_details, val_details, test_details
 
 
 def select_target(
@@ -3583,6 +3583,8 @@ def train_mlframe_models_suite(
                 art_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_artifacts.parquet")
                 if not exists(art_file):
                     save_series_or_df(artifacts[idx], art_file, PARQUET_COMPRESION)
+        
+        del timestamps,group_ids_raw,artifacts
 
     if verbose:
         logger.info(f"creating train_df,val_df,test_df...")
@@ -3624,6 +3626,7 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info(f"Ram usage before deleting main df: {get_own_ram_usage():.1f}GBs")
         del df
+        set df=None
         clean_ram()
         if verbose:
             logger.info(f"Ram usage after deleting main df: {get_own_ram_usage():.1f}GBs")
@@ -3653,6 +3656,7 @@ def train_mlframe_models_suite(
                     logger.info(f"Applying mighty_scaler from polars-ds...")
 
                 train_df = mighty_scaler_pipe.transform(train_df)
+                logger.info("train_df.dtypes=",Counter(train_df.dtypes))
                 clean_ram()
                 if val_idx is not None:
                     val_df = mighty_scaler_pipe.transform(val_df)                
