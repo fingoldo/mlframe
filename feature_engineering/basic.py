@@ -45,7 +45,7 @@ def create_date_features(
 ) -> Union[pd.DataFrame, pl.DataFrame]:
     if len(cols) == 0:
         return df
-    
+
     logger.info(f"In create_date_features. RAM usage: {get_own_ram_usage():.1f}GB.")
 
     is_pandas = isinstance(df, pd.DataFrame)
@@ -83,15 +83,11 @@ def create_date_features(
                     e = getattr(pl.col(col).dt, method)().cast(pl_dtype).alias(col + "_" + method)
 
                 all_exprs.append(e)
-        print("all_exprs",all_exprs)
         # Add all new columns at once
-        df = df.with_columns(all_exprs)        
-
-        logger.info(f"After df = df.with_columns(all_exprs). RAM usage: {get_own_ram_usage():.1f}GB.")
+        df = df.with_columns(all_exprs)
 
         if delete_original_cols:
             df = df.drop(cols)
-            logger.info(f"After df.drop(cols). RAM usage: {get_own_ram_usage():.1f}GB.")
 
     return df
 
