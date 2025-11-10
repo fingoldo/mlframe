@@ -3474,6 +3474,7 @@ def train_mlframe_models_suite(
     if verbose:
         logger.info(f"Preprocessing dataframe...")
     df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts = preprocessor.process(df)
+    preprocessor=None
     clean_ram()
     if verbose:
         log_ram_usage()
@@ -3558,7 +3559,7 @@ def train_mlframe_models_suite(
                 if not exists(art_file):
                     save_series_or_df(artifacts[idx], art_file, PARQUET_COMPRESION)
 
-        del timestamps, group_ids_raw, artifacts
+    del timestamps, group_ids_raw, artifacts
 
     if verbose:
         logger.info(f"creating train_df,val_df,test_df...")
@@ -3573,6 +3574,8 @@ def train_mlframe_models_suite(
                         df=next_df,
                         cat_features=cat_features,
                     )
+
+        next_df=None
 
         train_df = df.iloc[train_idx]
         test_df = df.iloc[test_idx] if test_idx is not None else None
@@ -3635,23 +3638,14 @@ def train_mlframe_models_suite(
                     log_ram_usage()
                     logger.info(f"Applying mighty_scaler from polars-ds...")
 
-                train_df_scaled = mighty_scaler_pipe.transform(train_df)
-                del train_df
-                train_df = train_df_scaled
-                del train_df_scaled
+                train_df = mighty_scaler_pipe.transform(train_df)
                 logger.info(f"train_df.dtypes={Counter(train_df.dtypes)}")
                 clean_ram()
                 if val_idx is not None:
-                    val_df_scaled = mighty_scaler_pipe.transform(val_df)
-                    del val_df
-                    val_df = val_df_scaled
-                    del val_df_scaled
+                    val_df = mighty_scaler_pipe.transform(val_df)
                     clean_ram()
                 if test_idx is not None:
-                    test_df_scaled = mighty_scaler_pipe.transform(test_df)
-                    del test_df
-                    test_df = test_df_scaled
-                    del test_df_scaled
+                    test_df = mighty_scaler_pipe.transform(test_df)
                     clean_ram()
 
                 metadata["mighty_scaler_pipe"] = mighty_scaler_pipe
