@@ -3469,9 +3469,6 @@ def train_mlframe_models_suite(
         else:
             drop_columns = additional_columns_to_drop
     if drop_columns:
-
-        del target_by_type
-        del timestamps, group_ids_raw, artifacts
         clean_ram()
         logger.info(f"Dropping {len(drop_columns):_} columns...")
         if isinstance(df, pd.DataFrame):
@@ -3482,7 +3479,7 @@ def train_mlframe_models_suite(
                 else:
                     df = df.drop(col)
         elif isinstance(df, pl.DataFrame):
-            df = df.drop(drop_columns, strict=False)
+            df = df.drop(drop_columns, strict=False).clone()
         clean_ram()
         if verbose:
             log_ram_usage()
