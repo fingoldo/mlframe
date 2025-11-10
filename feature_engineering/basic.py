@@ -21,7 +21,7 @@ import numpy as np, pandas as pd
 import polars as pl, polars.selectors as cs
 
 from pyutilz.system import clean_ram
-
+from mlframe.helpers import get_own_ram_usage
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
@@ -85,9 +85,7 @@ def create_date_features(
                 all_exprs.append(e)
         print("all_exprs",all_exprs)
         # Add all new columns at once
-        df = df.with_columns(all_exprs)
-
-        from mlframe.helpers import get_own_ram_usage
+        df = df.with_columns(all_exprs)        
 
         logger.info(f"After df = df.with_columns(all_exprs). RAM usage: {get_own_ram_usage():.1f}GB.")
 
