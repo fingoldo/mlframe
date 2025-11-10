@@ -464,7 +464,7 @@ class DataFramePreprocessor:
 
         df = self.add_features(df)
         if self.verbose:
-            logger.info(f"AFter add_features")
+            logger.info(f"After add_features")
             log_ram_usage()
 
         if self.columns_to_drop:
@@ -476,7 +476,7 @@ class DataFramePreprocessor:
                     del df[col]
 
             if self.verbose:
-                logger.info(f"AFter deleting columns_to_drop")
+                logger.info(f"After deleting columns_to_drop")
                 log_ram_usage()
 
         self.show_processed_data(df, target_by_type)
@@ -484,7 +484,7 @@ class DataFramePreprocessor:
             pass  # clean_ram()
 
         if self.verbose:
-            logger.info(f"AFter show_processed_data")
+            logger.info(f"After show_processed_data")
             log_ram_usage()
 
         return df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts
@@ -3474,6 +3474,7 @@ def train_mlframe_models_suite(
     if verbose:
         logger.info(f"Preprocessing dataframe...")
     df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts = preprocessor.process(df)
+    del preprocessor
     preprocessor = None
     clean_ram()
     if verbose:
