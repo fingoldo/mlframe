@@ -556,12 +556,6 @@ class TestDataFramePreprocessor(DataFramePreprocessor):
         group_field: str = None,
         columns_to_drop: set = None,
         verbose: int = 0,
-        #
-        tf: str = "5m",
-        horizont_bars: list = [TARGET_HORIZONT_NBARS, TARGET_HORIZONT_NBARS * 24],
-        use_classification: bool = False,
-        use_regression: bool = False,
-        max_abs_return: float = None,
     ):
         super().__init__(
             ts_field=ts_field,
@@ -570,12 +564,6 @@ class TestDataFramePreprocessor(DataFramePreprocessor):
             columns_to_drop=columns_to_drop,
             verbose=verbose,
         )
-
-        self.tf = tf
-        self.horizont_bars = horizont_bars
-        self.use_regression = use_regression
-        self.max_abs_return = max_abs_return
-        self.use_classification = use_classification
 
     def add_features(
         self, df: Union[pd.DataFrame, pl.DataFrame]
