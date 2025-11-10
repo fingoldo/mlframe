@@ -3301,8 +3301,10 @@ def remove_constant_columns(df: Union[pl.DataFrame, pd.DataFrame], verbose: int 
 def log_ram_usage() -> None:
     logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
+
 import gc
 import sys
+
 
 def get_all_polars_dataframes():
     """Find all Polars DataFrames in memory"""
@@ -3310,20 +3312,17 @@ def get_all_polars_dataframes():
     for obj in gc.get_objects():
         try:
             if isinstance(obj, pl.DataFrame):
-                frames.append({
-                    'id': id(obj),
-                    'shape': obj.shape,
-                    'size_mb': obj.estimated_size('mb'),
-                    'columns': obj.columns[:5]  # First 5 columns
-                })
+                frames.append({"id": id(obj), "shape": obj.shape, "size_mb": obj.estimated_size("mb"), "columns": obj.columns[:5]})  # First 5 columns
         except:
             pass
     return frames
+
 
 def get_referrers(obj, max_depth=2):
     """Find what's holding references to an object"""
     refs = gc.get_referrers(obj)
     return len(refs)
+
 
 def train_mlframe_models_suite(
     df: Union[pl.DataFrame, pd.DataFrame, str],
@@ -3487,7 +3486,7 @@ def train_mlframe_models_suite(
     if artifacts is not None:
         logger.info(f"artifacts type: {type(artifacts)}, shape: {artifacts.shape if hasattr(artifacts, 'shape') else 'N/A'}")
     if group_ids_raw is not None:
-        logger.info(f"group_ids_raw type: {type(group_ids_raw)}, shape: {group_ids_raw.shape if hasattr(group_ids_raw, 'shape') else 'N/A'}")    
+        logger.info(f"group_ids_raw type: {type(group_ids_raw)}, shape: {group_ids_raw.shape if hasattr(group_ids_raw, 'shape') else 'N/A'}")
 
     del preprocessor
     preprocessor = None
@@ -3502,56 +3501,66 @@ def train_mlframe_models_suite(
             drop_columns = additional_columns_to_drop
     if drop_columns:
         clean_ram()
-        logger.info(f"Dropping {len(drop_columns):_} columns...")
+            logger.info(f"Dropping {len(drop_columns):_} columns...")
+
+        # Find what's holding the reference
+        refs = gc.get_referrers(df)
+        logger.info(f"df has {len(refs)} referrers:")
+        for i, ref in enumerate(refs):
+            if isinstance(ref, dict):
+                # Check if it's locals() or some object's __dict__
+                for k, v in list(ref.items())[:5]:
+                    if id(v) == id(df):
+                        logger.warning(f"  Found df stored in dict key: '{k}'")        
 
         if isinstance(df, pl.DataFrame):
             # Diagnostic 1: Check current state
             logger.info(f"BEFORE drop - df shape: {df.shape}, estimated size: {df.estimated_size('mb'):.1f}MB")
             logger.info(f"BEFORE drop - df id: {id(df)}")
             logger.info(f"BEFORE drop - df refcount: {sys.getrefcount(df)}")
-            
+
             # Find all Polars DataFrames in memory
             all_frames_before = get_all_polars_dataframes()
             logger.info(f"BEFORE drop - Total Polars DataFrames in memory: {len(all_frames_before)}")
-            
+
             # Store original id
             original_df_id = id(df)
-            
+
             # Try the drop with explicit cleanup
             cols_to_keep = [col for col in df.columns if col not in drop_columns]
-            
+
             # Create completely new dataframe
             df_new = df.select(cols_to_keep)
-            
+
             # Diagnostic 2: Check new df
             logger.info(f"AFTER select - df_new shape: {df_new.shape}, estimated size: {df_new.estimated_size('mb'):.1f}MB")
             logger.info(f"AFTER select - df_new id: {id(df_new)}")
-            
+
             # Diagnostic 3: Check if old df is still referenced
             logger.info(f"AFTER select - old df refcount: {sys.getrefcount(df)}")
-            
+
             # Delete old reference
             del df
-            
+
             # Force garbage collection
             gc.collect()
-            
+
             # Check memory again
             all_frames_after = get_all_polars_dataframes()
             logger.info(f"AFTER delete - Total Polars DataFrames in memory: {len(all_frames_after)}")
-            
+
             # Check if original df is still in memory
-            original_still_exists = any(f['id'] == original_df_id for f in all_frames_after)
+            original_still_exists = any(f["id"] == original_df_id for f in all_frames_after)
             logger.info(f"AFTER delete - Original df still in memory: {original_still_exists}")
-            
+
             if original_still_exists:
                 logger.warning("⚠️  OLD DATAFRAME STILL IN MEMORY!")
                 logger.warning("This means something else is holding a reference to it")
-            
+
             # Reassign
             df = df_new
             del df_new
-            
+
             gc.collect()
 
         if isinstance(df, pd.DataFrame):
