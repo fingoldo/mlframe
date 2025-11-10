@@ -3501,7 +3501,7 @@ def train_mlframe_models_suite(
             drop_columns = additional_columns_to_drop
     if drop_columns:
         clean_ram()
-            logger.info(f"Dropping {len(drop_columns):_} columns...")
+        logger.info(f"Dropping {len(drop_columns):_} columns...")
 
         # Find what's holding the reference
         refs = gc.get_referrers(df)
@@ -3511,7 +3511,7 @@ def train_mlframe_models_suite(
                 # Check if it's locals() or some object's __dict__
                 for k, v in list(ref.items())[:5]:
                     if id(v) == id(df):
-                        logger.warning(f"  Found df stored in dict key: '{k}'")        
+                        logger.warning(f"  Found df stored in dict key: '{k}'")
 
         if isinstance(df, pl.DataFrame):
             # Diagnostic 1: Check current state
