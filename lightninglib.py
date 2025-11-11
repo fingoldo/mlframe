@@ -157,9 +157,11 @@ class PytorchLightningEstimator(BaseEstimator):
             if num_classes > 1:
                 early_stopping_metric_name = "ICE"
                 metric_fcn = compute_probabilistic_multiclass_error
+                metrics = [MetricSpec(name=early_stopping_metric_name, fcn=metric_fcn, requires_probs=True, requires_argmax=False)]
             else:
                 early_stopping_metric_name = "MSE"
                 metric_fcn = root_mean_squared_error
+                metrics = [MetricSpec(name=early_stopping_metric_name, fcn=metric_fcn, requires_probs=False, requires_argmax=False)]
 
             checkpointing = BestEpochModelCheckpoint(
                 monitor="val_" + early_stopping_metric_name,
@@ -170,7 +172,7 @@ class PytorchLightningEstimator(BaseEstimator):
                 save_top_k=1,
                 mode="min",
             )
-            metric_computing_callback = AggregatingValidationCallback(metric_name=early_stopping_metric_name, metric_fcn=metric_fcn)
+            # metric_computing_callback = AggregatingValidationCallback(metric_name=early_stopping_metric_name, metric_fcn=metric_fcn)
 
             # tb_logger = TensorBoardLogger(save_dir=args.experiment_path, log_graph=True)  # save_dir="s3://my_bucket/logs/"
             progress_bar = TQDMProgressBar(refresh_rate=50)  # leave=True
@@ -207,7 +209,7 @@ class PytorchLightningEstimator(BaseEstimator):
             )
 
             with trainer.init_module():
-                self.model = self.model_class(network=self.network, **self.model_params)
+                self.model = self.model_class(network=self.network, metrics=metrics, **self.model_params)
 
                 features_dtype = self.datamodule_params.get("features_dtype", torch.float32)
                 data_slice = X.iloc[0:2, :].values if isinstance(X, pd.DataFrame) else X[0:2, :]
