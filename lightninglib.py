@@ -243,66 +243,6 @@ class PytorchLightningEstimator(BaseEstimator):
         eval_set = fit_params.get("eval_set", (None, None))
         return self._fit_common(X, y, eval_set=eval_set, is_partial_fit=True, classes=classes, fit_params=fit_params)
 
-    def predict(self, X, device: Optional[str] = None, precision: Optional[str] = None) -> np.ndarray:
-            """
-            Predict using the model, handling device and mixed precision safely.
-
-            Args:
-                X: Input data (numpy array, pandas DataFrame, polars DataFrame, or torch.Tensor)
-                device: Optional device string ('cpu' or 'cuda'). Defaults to model's device, or 'cpu' if unavailable.
-                precision: Optional precision mode for inference ('16-mixed', 'bf16-mixed', or None for no autocast).
-                        If not provided, falls back to the trainer's precision if available.
-
-            Returns:
-                numpy.ndarray: Model predictions (logits for regression or probabilities for classification)
-            """
-            import torch
-            from torch.amp import autocast  # Use torch.amp.autocast for PyTorch >= 2.0
-
-            # Convert to tensor if not already
-            features_dtype = self.datamodule_params.get("features_dtype", torch.float32)
-            if not torch.is_tensor(X):
-                X = to_tensor_any(X, dtype=features_dtype)
-
-            # Determine target device
-            target_device = device or getattr(self.model, "device", torch.device("cpu"))
-            if isinstance(target_device, str):
-                target_device = torch.device(target_device)
-            self.model.to(target_device)
-            X = X.to(target_device)
-
-            # Determine autocast dtype based on precision
-            autocast_dtype = None
-            if precision is None:
-                # Attempt to infer from trainer if available
-                if hasattr(self, 'trainer') and hasattr(self.trainer, 'precision'):
-                    precision = self.trainer.precision
-            if precision == "16-mixed":
-                autocast_dtype = torch.float16
-            elif precision == "bf16-mixed":
-                autocast_dtype = torch.bfloat16
-            # Else, no autocast (full float32)
-
-            self.model.eval()
-            with torch.no_grad():
-                if autocast_dtype and target_device.type == 'cuda':  # Autocast only on CUDA
-                    with autocast(device_type='cuda', dtype=autocast_dtype):
-                        output = self.model(X)
-                else:
-                    output = self.model(X)
-            
-            if self.return_proba:
-                output = torch.softmax(output, dim=1)
-            
-            return output.cpu().numpy()
-
-        # Ensure output is on CPU and converted to numpy
-        output = output.detach().cpu()
-        if output.dtype == torch.bfloat16:
-            output = output.to(torch.float32)
-
-        return output.numpy()
-
     def get_params(self, deep: bool = True) -> Dict[str, Any]:
         """Returns a dictionary of all parameters for scikit-learn compatibility."""
         params = {
@@ -327,6 +267,59 @@ class PytorchLightningEstimator(BaseEstimator):
             else:
                 logger.warning(f"Parameter {key} not found in {self.__class__.__name__}")
         return self
+
+    def predict(self, X, device: Optional[str] = None, precision: Optional[str] = None) -> np.ndarray:
+        """
+        Predict using the model, handling device and mixed precision safely.
+
+        Args:
+            X: Input data (numpy array, pandas DataFrame, polars DataFrame, or torch.Tensor)
+            device: Optional device string ('cpu' or 'cuda'). Defaults to model's device, or 'cpu' if unavailable.
+            precision: Optional precision mode for inference ('16-mixed', 'bf16-mixed', or None for no autocast).
+                    If not provided, falls back to the trainer's precision if available.
+
+        Returns:
+            numpy.ndarray: Model predictions (logits for regression or probabilities for classification)
+        """
+        import torch
+        from torch.amp import autocast  # Use torch.amp.autocast for PyTorch >= 2.0
+
+        # Convert to tensor if not already
+        features_dtype = self.datamodule_params.get("features_dtype", torch.float32)
+        if not torch.is_tensor(X):
+            X = to_tensor_any(X, dtype=features_dtype)
+
+        # Determine target device
+        target_device = device or getattr(self.model, "device", torch.device("cpu"))
+        if isinstance(target_device, str):
+            target_device = torch.device(target_device)
+        self.model.to(target_device)
+        X = X.to(target_device)
+
+        # Determine autocast dtype based on precision
+        autocast_dtype = None
+        if precision is None:
+            # Attempt to infer from trainer if available
+            if hasattr(self, "trainer") and hasattr(self.trainer, "precision"):
+                precision = self.trainer.precision
+        if precision == "16-mixed":
+            autocast_dtype = torch.float16
+        elif precision == "bf16-mixed":
+            autocast_dtype = torch.bfloat16
+        # Else, no autocast (full float32)
+
+        self.model.eval()
+        with torch.no_grad():
+            if autocast_dtype and target_device.type == "cuda":  # Autocast only on CUDA
+                with autocast(device_type="cuda", dtype=autocast_dtype):
+                    output = self.model(X)
+            else:
+                output = self.model(X)
+
+        if self.return_proba:
+            output = torch.softmax(output, dim=1)
+
+        return output.cpu().numpy()
 
     def score(self, X, y, sample_weight: Optional[np.ndarray] = None) -> float:
         """Returns the coefficient of determination R^2 for regression or accuracy for classification."""
