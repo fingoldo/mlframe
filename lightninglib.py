@@ -1222,8 +1222,6 @@ class MLPTorchModel(L.LightningModule):
         score_str = f"{best_score:.4f}" if best_score is not None else "N/A"
         logger.info(f"Loading best model from {best_model_path} (score: {score_str})")
 
-
-
         try:
             checkpoint = torch.load(best_model_path, map_location=self.device)
 
