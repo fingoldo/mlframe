@@ -917,7 +917,6 @@ def generate_mlp(
     return model
 
 
-
 class MLPTorchModel(L.LightningModule):
     def __init__(
         self,
@@ -938,7 +937,7 @@ class MLPTorchModel(L.LightningModule):
     ):
         """
         PyTorch Lightning module for MLP training.
-        
+
         Args:
             loss_fn: Loss function callable
             metrics: List of MetricSpec objects for evaluation
@@ -956,7 +955,7 @@ class MLPTorchModel(L.LightningModule):
             load_best_weights_on_train_end: Load best checkpoint weights after training
         """
         super().__init__()
-        
+
         # Validation
         if network is None:
             raise ValueError("network must be provided")
@@ -966,17 +965,15 @@ class MLPTorchModel(L.LightningModule):
             metrics = []
         if lr_scheduler_interval not in ["epoch", "step"]:
             raise ValueError(f"lr_scheduler_interval must be 'epoch' or 'step', got {lr_scheduler_interval}")
-        
+
         # Set defaults
         optimizer = optimizer or torch.optim.AdamW
         optimizer_kwargs = optimizer_kwargs or {}
         lr_scheduler_kwargs = lr_scheduler_kwargs or {}
-        
+
         # Save hyperparameters (excluding non-serializable objects)
-        self.save_hyperparameters(
-            ignore=["loss_fn", "metrics", "network", "optimizer", "lr_scheduler"]
-        )
-        
+        self.save_hyperparameters(ignore=["loss_fn", "metrics", "network", "optimizer", "lr_scheduler"])
+
         # Store components
         self.network = network
         self.loss_fn = loss_fn
@@ -984,14 +981,14 @@ class MLPTorchModel(L.LightningModule):
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
         self.best_epoch = None
-        
+
         # Initialize lists to store outputs during epoch
         self.training_step_outputs = []
         self.validation_step_outputs = []
-        
+
         # Apply torch.compile if requested
         self._apply_torch_compile()
-        
+
         # Set example input for ONNX export if available
         if hasattr(network, "example_input_array"):
             self.example_input_array = network.example_input_array
@@ -1002,11 +999,11 @@ class MLPTorchModel(L.LightningModule):
         """Apply torch.compile to the network if enabled."""
         if not self.hparams.compile_network:
             return
-            
+
         if torch.__version__ < "2.0":
             logger.warning("torch.compile requires PyTorch >= 2.0. Skipping compilation.")
             return
-        
+
         try:
             self.network = torch.compile(self.network, mode=self.hparams.compile_network)
             logger.info(f"Applied torch.compile with mode='{self.hparams.compile_network}'")
@@ -1030,70 +1027,61 @@ class MLPTorchModel(L.LightningModule):
         """Training step."""
         features, labels = self._unpack_batch(batch)
         raw_predictions = self(features)
-        
+
         # Compute loss
         loss = self.loss_fn(raw_predictions, labels)
-        
+
         # Add L1 regularization if enabled
         if self.hparams.l1_alpha > 0:
             l1_norm = sum(p.abs().sum() for p in self.network.parameters())
             loss = loss + self.hparams.l1_alpha * l1_norm
             self.log("train_l1_norm", l1_norm, on_step=False, on_epoch=True)
-        
+
         self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-        
+
         # Store predictions for metric computation if needed
         result = {"loss": loss}
         if self.hparams.compute_trainset_metrics:
             # Store outputs for epoch-end metric computation
-            output = {
-                "raw_predictions": raw_predictions.detach(),
-                "labels": labels.detach()
-            }
+            output = {"raw_predictions": raw_predictions.detach(), "labels": labels.detach()}
             self.training_step_outputs.append(output)
-        
+
         return result
 
     def on_train_epoch_end(self) -> None:
         """Called at the end of training epoch."""
         if not self.hparams.compute_trainset_metrics:
             return
-        
+
         if not self.training_step_outputs:
             logger.warning("No training outputs collected for metric computation")
             return
-        
+
         # Extract predictions and labels from collected outputs
-        preds_and_labels = [
-            (out["raw_predictions"], out["labels"]) 
-            for out in self.training_step_outputs
-        ]
-        
+        preds_and_labels = [(out["raw_predictions"], out["labels"]) for out in self.training_step_outputs]
+
         # Compute metrics
         self.compute_metrics(preds_and_labels, prefix="train")
-        
+
         # Clear outputs to free memory
         self.training_step_outputs.clear()
 
     def validation_step(self, batch, batch_idx: int) -> Dict[str, torch.Tensor]:
         """Validation step."""
         features, labels = self._unpack_batch(batch)
-        
+
         # No gradient computation needed
         raw_predictions = self(features)
-        
+
         # Compute loss without L1 regularization for fair comparison
         loss = self.loss_fn(raw_predictions, labels)
-        
+
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-        
+
         # Store outputs for epoch-end metric computation
-        output = {
-            "raw_predictions": raw_predictions.detach(),
-            "labels": labels.detach()
-        }
+        output = {"raw_predictions": raw_predictions.detach(), "labels": labels.detach()}
         self.validation_step_outputs.append(output)
-        
+
         return output
 
     def on_validation_epoch_end(self) -> None:
@@ -1101,16 +1089,13 @@ class MLPTorchModel(L.LightningModule):
         if not self.validation_step_outputs:
             logger.warning("No validation outputs collected for metric computation")
             return
-        
+
         # Extract predictions and labels from collected outputs
-        preds_and_labels = [
-            (out["raw_predictions"], out["labels"]) 
-            for out in self.validation_step_outputs
-        ]
-        
+        preds_and_labels = [(out["raw_predictions"], out["labels"]) for out in self.validation_step_outputs]
+
         # Compute metrics
         self.compute_metrics(preds_and_labels, prefix="val")
-        
+
         # Clear outputs to free memory
         self.validation_step_outputs.clear()
 
@@ -1118,7 +1103,7 @@ class MLPTorchModel(L.LightningModule):
         """
         Compute and log all metrics given raw predictions and labels.
         Optimized: compute argmax, softmax, CPU/numpy only if needed, once each.
-        
+
         Args:
             predictions_and_labels: List of (raw_predictions, labels) tuples from each batch
             prefix: Logging prefix ('train' or 'val')
@@ -1127,23 +1112,23 @@ class MLPTorchModel(L.LightningModule):
         raw_predictions, labels = zip(*predictions_and_labels)
         raw_predictions = torch.cat(raw_predictions)
         labels = torch.cat(labels)
-        
+
         # Determine which transformations are actually needed
         need_argmax = any(m.requires_argmax for m in self.metrics)
         need_softmax = any(m.requires_probs for m in self.metrics)
         need_cpu = any(m.requires_cpu for m in self.metrics)
-        
+
         # Precompute transforms
         preds_dict = {}
         if need_argmax:
             preds_dict["argmax"] = raw_predictions.argmax(dim=1)
         if need_softmax:
             preds_dict["softmax"] = F.softmax(raw_predictions, dim=1)
-        
+
         labels_cpu = None
         if need_cpu:
             labels_cpu = labels.cpu().numpy()
-        
+
         # Compute metrics
         for metric in self.metrics:
             # Select correct prediction type
@@ -1153,7 +1138,7 @@ class MLPTorchModel(L.LightningModule):
                 preds = preds_dict["softmax"]
             else:
                 preds = raw_predictions
-            
+
             # Convert to CPU/numpy if needed
             if metric.requires_cpu:
                 key = f"cpu_{id(preds)}"
@@ -1164,7 +1149,7 @@ class MLPTorchModel(L.LightningModule):
             else:
                 preds_np = preds
                 labels_np = labels
-            
+
             # Compute and log
             try:
                 value = metric.fcn(y_true=labels_np, y_score=preds_np)
@@ -1182,83 +1167,77 @@ class MLPTorchModel(L.LightningModule):
     def configure_optimizers(self):
         """Configure optimizer and optional learning rate scheduler."""
         # Create optimizer
-        optimizer_kwargs = {
-            "lr": self.hparams.learning_rate,
-            **self.hparams.optimizer_kwargs
-        }
+        optimizer_kwargs = {"lr": self.hparams.learning_rate, **self.hparams.optimizer_kwargs}
         optimizer = self.optimizer(self.parameters(), **optimizer_kwargs)
-        
+
         # Return optimizer only if no scheduler
         if self.lr_scheduler is None:
             return optimizer
-        
+
         # Create scheduler
         scheduler = self.lr_scheduler(optimizer, **self.hparams.lr_scheduler_kwargs)
-        
+
         # Configure scheduler settings
         scheduler_config = {
             "scheduler": scheduler,
             "interval": self.hparams.lr_scheduler_interval,
         }
-        
+
         # Add monitor if specified (required for ReduceLROnPlateau)
         if self.hparams.lr_scheduler_monitor:
             scheduler_config["monitor"] = self.hparams.lr_scheduler_monitor
-        
+
         return {"optimizer": optimizer, "lr_scheduler": scheduler_config}
 
     def on_train_end(self) -> None:
         """Load best model weights after training completes."""
         if not self.hparams.load_best_weights_on_train_end:
             return
-        
+
         # Only rank 0 handles checkpoint loading in distributed settings
         if not self.trainer.is_global_zero:
             return
-        
+
         # Find ModelCheckpoint callback
         checkpoint_callback = None
         for callback in self.trainer.callbacks:
             if isinstance(callback, ModelCheckpoint):
                 checkpoint_callback = callback
                 break
-        
+
         if checkpoint_callback is None:
             logger.warning("No ModelCheckpoint callback found. Cannot load best weights.")
             return
-        
+
         best_model_path = checkpoint_callback.best_model_path
-        
+
         if not best_model_path or not os.path.exists(best_model_path):
             logger.warning(f"No valid checkpoint at {best_model_path}. Using current weights.")
             return
-        
+
         # Log checkpoint info
         best_score = checkpoint_callback.best_model_score
-        logger.info(
-            f"Loading best model from {best_model_path} "
-            f"(score: {best_score:.4f if best_score else 'N/A'})"
-        )
-        
+        logger.info(f"Loading best model from {best_model_path} " f"(score: {best_score:.4f if best_score else 'N/A'})")
+
         try:
             checkpoint = torch.load(best_model_path, map_location=self.device)
-            
+
             if "state_dict" not in checkpoint:
                 logger.error("Checkpoint missing 'state_dict'. Cannot load weights.")
                 return
-            
+
             # Load state dict
             missing, unexpected = self.load_state_dict(checkpoint["state_dict"], strict=False)
-            
+
             if missing:
                 logger.warning(f"Missing keys in state_dict: {missing}")
             if unexpected:
                 logger.warning(f"Unexpected keys in state_dict: {unexpected}")
-            
+
             # Store best epoch info
             if "epoch" in checkpoint:
                 self.best_epoch = checkpoint["epoch"]
                 logger.info(f"Loaded weights from epoch {self.best_epoch}")
-                
+
         except Exception as e:
             logger.error(f"Failed to load checkpoint: {e}", exc_info=True)
