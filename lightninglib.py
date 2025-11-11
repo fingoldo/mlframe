@@ -179,7 +179,7 @@ class PytorchLightningEstimator(BaseEstimator):
 
             callbacks = [
                 checkpointing,
-                metric_computing_callback,
+                # metric_computing_callback,
                 # NetworkGraphLoggingCallback(),
                 LearningRateMonitor(logging_interval="epoch"),
                 progress_bar,
