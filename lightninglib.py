@@ -274,39 +274,45 @@ class PytorchLightningEstimator(BaseEstimator):
 
         Args:
             X: Input data (numpy array, pandas DataFrame, polars DataFrame, or torch.Tensor)
-            device: Optional device string ('cpu' or 'cuda'). Defaults to model's device, or 'cpu' if unavailable.
-            precision: Optional precision mode for inference ('16-mixed', 'bf16-mixed', or None for no autocast).
-                    If not provided, falls back to the trainer's precision if available.
+            device: Optional device string ('cpu' or 'cuda'). Defaults to 'cuda' if available, else 'cpu'.
+            precision: Optional precision mode for inference ('16-mixed', 'bf16-mixed', 'bf16-true', or None for no autocast).
+                       If not provided, falls back to the trainer's precision if available.
 
         Returns:
             numpy.ndarray: Model predictions (logits for regression or probabilities for classification)
         """
         import torch
-        from torch.amp import autocast  # Use torch.amp.autocast for PyTorch >= 2.0
+        from torch.amp import autocast  # PyTorch >= 2.0; fallback to torch.cuda.amp if needed
 
         # Convert to tensor if not already
         features_dtype = self.datamodule_params.get("features_dtype", torch.float32)
         if not torch.is_tensor(X):
             X = to_tensor_any(X, dtype=features_dtype)
 
-        # Determine target device
-        target_device = device or getattr(self.model, "device", torch.device("cpu"))
-        if isinstance(target_device, str):
-            target_device = torch.device(target_device)
+        # Determine target device (prefer CUDA if available)
+        if device is None:
+            target_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            target_device = torch.device(device)
         self.model.to(target_device)
         X = X.to(target_device)
 
+        # CPU fallback: Convert to float32 if using bfloat16/float16, as mixed precision isn't supported
+        if target_device.type == "cpu" and X.dtype in (torch.bfloat16, torch.float16):
+            X = X.to(dtype=torch.float32)
+
         # Determine autocast dtype based on precision
         autocast_dtype = None
-        if precision is None:
-            # Attempt to infer from trainer if available
-            if hasattr(self, "trainer") and hasattr(self.trainer, "precision"):
-                precision = self.trainer.precision
+        if precision is None and hasattr(self, "trainer") and hasattr(self.trainer, "precision"):
+            precision = self.trainer.precision
         if precision == "16-mixed":
             autocast_dtype = torch.float16
-        elif precision == "bf16-mixed":
+        elif precision in ("bf16-mixed", "bf16-true"):
             autocast_dtype = torch.bfloat16
-        # Else, no autocast (full float32)
+        # For "bf16-true", if model is already bfloat16, skip autocast
+        model_dtype = next(self.model.parameters()).dtype
+        if precision == "bf16-true" and model_dtype == torch.bfloat16:
+            autocast_dtype = None  # Pure bf16, no mixed needed
 
         self.model.eval()
         with torch.no_grad():
