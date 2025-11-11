@@ -283,7 +283,6 @@ class PytorchLightningEstimator(BaseEstimator):
         """
         import torch
         from torch.amp import autocast  # PyTorch >= 2.0; fallback to torch.cuda.amp if needed
-        import torch._dynamo as dynamo  # For disabling compile if needed
 
         # Determine model dtype early
         model_dtype = next(self.model.parameters()).dtype
@@ -324,31 +323,37 @@ class PytorchLightningEstimator(BaseEstimator):
             autocast_dtype = torch.bfloat16
 
         # For "-true", convert entire model to lower precision (resolves dtype issues)
+        original_model = self.model
         original_model_dtype = model_dtype
         if is_true and autocast_dtype:
             self.model = self.model.to(dtype=autocast_dtype)
             model_dtype = autocast_dtype
             autocast_dtype = None  # No need for autocast in pure mode
 
+        # Handle if model is compiled: Use original module to avoid potential dtype issues with compile
+        if hasattr(self.model, "_orig_mod"):
+            model_to_use = self.model._orig_mod
+        else:
+            model_to_use = self.model
+
         # For pure/mixed, ensure input matches
         if not is_mixed and X.dtype != model_dtype:
             X = X.to(dtype=model_dtype)
 
-        self.model.eval()
+        model_to_use.eval()
         with torch.no_grad():
-            with dynamo.disable():  # Disable torch.compile to avoid dtype issues in mixed precision
-                if autocast_dtype and target_device.type == "cuda" and is_mixed:  # Autocast only for mixed on CUDA
-                    with autocast(device_type="cuda", dtype=autocast_dtype):
-                        output = self.model(X)
-                else:
-                    output = self.model(X)
+            if autocast_dtype and target_device.type == "cuda" and is_mixed:  # Autocast only for mixed on CUDA
+                with autocast(device_type="cuda", dtype=autocast_dtype):
+                    output = model_to_use(X)
+            else:
+                output = model_to_use(X)
 
         if self.return_proba:
             output = torch.softmax(output, dim=1)
 
-        # Restore model dtype if changed (optional, for consistency)
+        # Restore model if changed
         if is_true:
-            self.model = self.model.to(dtype=original_model_dtype)
+            self.model = original_model.to(dtype=original_model_dtype)
 
         return output.cpu().numpy()
 
