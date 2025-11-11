@@ -276,7 +276,7 @@ class PytorchLightningEstimator(BaseEstimator):
             X: Input data (numpy array, pandas DataFrame, polars DataFrame, or torch.Tensor)
             device: Optional device string ('cpu' or 'cuda'). Defaults to 'cuda' if available, else 'cpu'.
             precision: Optional precision mode for inference ('16-mixed', 'bf16-mixed', 'bf16-true', or None for no autocast).
-                       If not provided, falls back to the trainer's precision if available.
+                       If not provided, falls back to the trainer's precision if available, else '32' (full precision).
 
         Returns:
             numpy.ndarray: Model predictions (logits for regression or probabilities for classification)
@@ -306,13 +306,18 @@ class PytorchLightningEstimator(BaseEstimator):
             X = X.to(dtype=torch.float32)
             model_dtype = torch.float32  # Temporarily treat as float32 for consistency
 
-        # Determine autocast dtype and handle "-true" by converting model
-        autocast_dtype = None
-        if precision is None and hasattr(self, "trainer") and hasattr(self.trainer, "precision"):
-            precision = self.trainer.precision or "32"  # Default to full if none
-        is_mixed = precision.endswith("-mixed") if precision else False
-        is_true = precision.endswith("-true") if precision else False
+        # Determine precision: Fall back to trainer's if available, else default to "32"
+        if precision is None:
+            if hasattr(self, "trainer") and hasattr(self.trainer, "precision"):
+                precision = self.trainer.precision
+            if precision is None:
+                precision = "32"  # Default to full precision if still None
 
+        # Now precision is guaranteed to be a string
+        is_mixed = precision.endswith("-mixed")
+        is_true = precision.endswith("-true")
+
+        autocast_dtype = None
         if "16" in precision:
             autocast_dtype = torch.float16
         elif "bf16" in precision:
