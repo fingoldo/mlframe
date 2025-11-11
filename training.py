@@ -401,7 +401,7 @@ class DataFramePreprocessor:
         datetime_features: dict = None,
         group_field: str = None,
         columns_to_drop: set = None,
-        allowed_targets:Iterable=None,
+        allowed_targets: Iterable = None,
         verbose: int = 0,
     ):
 
@@ -481,6 +481,7 @@ class SimpleDataFramePreprocessor(DataFramePreprocessor):
         datetime_features: dict = None,
         group_field: str = None,
         columns_to_drop: set = None,
+        allowed_targets: Iterable = None,
         verbose: int = 0,
         #
         regression_targets: Iterable = None,
