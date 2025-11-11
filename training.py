@@ -401,6 +401,7 @@ class DataFramePreprocessor:
         datetime_features: dict = None,
         group_field: str = None,
         columns_to_drop: set = None,
+        allowed_targets:Iterable=None,
         verbose: int = 0,
     ):
 
