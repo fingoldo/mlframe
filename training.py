@@ -3627,17 +3627,18 @@ def train_mlframe_models_suite(
                     logger.info(f"Applying mighty_scaler from polars-ds...")
 
                 train_df = mighty_scaler_pipe.transform(train_df)
-                logger.info(f"train_df dtypes after mighty_scaler={Counter(train_df.dtypes)}")
                 if val_idx is not None:
                     val_df = mighty_scaler_pipe.transform(val_df)
                 if test_idx is not None:
                     test_df = mighty_scaler_pipe.transform(test_df)
+
                 if ensure_float32_dtypes:
                     train_df = ensure_dataframe_float32_convertability(train_df)
                     if val_idx is not None:
                         val_df = ensure_dataframe_float32_convertability(val_df)
                     if test_idx is not None:
                         test_df = ensure_dataframe_float32_convertability(test_df)
+                logger.info(f"train_df dtypes after mighty_scaler={Counter(train_df.dtypes)}")
 
                 metadata["mighty_scaler_pipe"] = mighty_scaler_pipe
                 scaler = None

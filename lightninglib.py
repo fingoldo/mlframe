@@ -283,9 +283,13 @@ class PytorchLightningEstimator(BaseEstimator):
         """
         import torch
         from torch.amp import autocast  # PyTorch >= 2.0; fallback to torch.cuda.amp if needed
+        import torch._dynamo as dynamo  # For disabling compile if needed
+
+        # Determine model dtype early
+        model_dtype = next(self.model.parameters()).dtype
 
         # Convert to tensor if not already
-        features_dtype = self.datamodule_params.get("features_dtype", torch.float32)
+        features_dtype = self.datamodule_params.get("features_dtype", model_dtype)  # Infer from model if not set
         if not torch.is_tensor(X):
             X = to_tensor_any(X, dtype=features_dtype)
 
@@ -300,30 +304,46 @@ class PytorchLightningEstimator(BaseEstimator):
         # CPU fallback: Convert to float32 if using bfloat16/float16, as mixed precision isn't supported
         if target_device.type == "cpu" and X.dtype in (torch.bfloat16, torch.float16):
             X = X.to(dtype=torch.float32)
+            model_dtype = torch.float32  # Temporarily treat as float32 for consistency
 
-        # Determine autocast dtype based on precision
+        # Determine autocast dtype and handle "-true" by converting model
         autocast_dtype = None
         if precision is None and hasattr(self, "trainer") and hasattr(self.trainer, "precision"):
-            precision = self.trainer.precision
-        if precision == "16-mixed":
+            precision = self.trainer.precision or "32"  # Default to full if none
+        is_mixed = precision.endswith("-mixed") if precision else False
+        is_true = precision.endswith("-true") if precision else False
+
+        if "16" in precision:
             autocast_dtype = torch.float16
-        elif precision in ("bf16-mixed", "bf16-true"):
+        elif "bf16" in precision:
             autocast_dtype = torch.bfloat16
-        # For "bf16-true", if model is already bfloat16, skip autocast
-        model_dtype = next(self.model.parameters()).dtype
-        if precision == "bf16-true" and model_dtype == torch.bfloat16:
-            autocast_dtype = None  # Pure bf16, no mixed needed
+
+        # For "-true", convert entire model to lower precision (resolves dtype issues)
+        original_model_dtype = model_dtype
+        if is_true and autocast_dtype:
+            self.model = self.model.to(dtype=autocast_dtype)
+            model_dtype = autocast_dtype
+            autocast_dtype = None  # No need for autocast in pure mode
+
+        # For pure/mixed, ensure input matches
+        if not is_mixed and X.dtype != model_dtype:
+            X = X.to(dtype=model_dtype)
 
         self.model.eval()
         with torch.no_grad():
-            if autocast_dtype and target_device.type == "cuda":  # Autocast only on CUDA
-                with autocast(device_type="cuda", dtype=autocast_dtype):
+            with dynamo.disable():  # Disable torch.compile to avoid dtype issues in mixed precision
+                if autocast_dtype and target_device.type == "cuda" and is_mixed:  # Autocast only for mixed on CUDA
+                    with autocast(device_type="cuda", dtype=autocast_dtype):
+                        output = self.model(X)
+                else:
                     output = self.model(X)
-            else:
-                output = self.model(X)
 
         if self.return_proba:
             output = torch.softmax(output, dim=1)
+
+        # Restore model dtype if changed (optional, for consistency)
+        if is_true:
+            self.model = self.model.to(dtype=original_model_dtype)
 
         return output.cpu().numpy()
 
