@@ -229,7 +229,7 @@ class PytorchLightningEstimator(BaseEstimator):
             if self.tune_batch_size:
                 tuner.scale_batch_size(model=self.model, datamodule=dm, mode="binsearch", init_val=self.datamodule_params.get("batch_size", 32))
 
-            lr_finder = tuner.lr_find(self.model, datamodule=dm, num_training=1000, early_stop_threshold=200)
+            lr_finder = tuner.lr_find(self.model, datamodule=dm, num_training=2000, early_stop_threshold=400)
             new_lr = lr_finder.suggestion()
             logger.info(f"Using suggested LR={new_lr}")
             self.model.hparams.learning_rate = new_lr
