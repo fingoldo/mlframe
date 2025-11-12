@@ -229,7 +229,7 @@ class PytorchLightningEstimator(BaseEstimator):
             if self.tune_batch_size:
                 tuner.scale_batch_size(model=self.model, datamodule=dm, mode="binsearch", init_val=self.datamodule_params.get("batch_size", 32))
 
-            lr_finder = tuner.lr_find(self.model, datamodule=dm, num_training=2000, early_stop_threshold=400)
+            lr_finder = tuner.lr_find(self.model, datamodule=dm, num_training=4000)
             new_lr = lr_finder.suggestion()
             logger.info(f"Using suggested LR={new_lr}")
             self.model.hparams.learning_rate = new_lr
@@ -1054,6 +1054,10 @@ class MLPTorchModel(L.LightningModule):
 
     def on_train_epoch_end(self) -> None:
         """Called at the end of training epoch."""
+        
+        current_lr = self.trainer.optimizers[0].param_groups[0]['lr']
+        logger.info(f"Epoch {self.current_epoch}, Step {self.global_step}: LR = {current_lr:.2e}")
+
         if not self.hparams.compute_trainset_metrics:
             return
 
@@ -1179,7 +1183,10 @@ class MLPTorchModel(L.LightningModule):
             return optimizer
 
         # Special handling for OneCycleLR
-        if self.lr_scheduler == OneCycleLR:
+        if self.lr_scheduler.__name__ == "OneCycleLR":
+
+            logger.info("Configuring OneCycleLR scheduler")
+
             # Calculate total steps
             steps_per_epoch = (
                 len(self.trainer.datamodule.train_dataloader())
@@ -1188,6 +1195,12 @@ class MLPTorchModel(L.LightningModule):
             )
 
             total_steps = self.trainer.max_epochs * steps_per_epoch
+
+            logger.info(f"OneCycleLR config:")
+            logger.info(f"  - Steps per epoch: {steps_per_epoch}")
+            logger.info(f"  - Max epochs: {self.trainer.max_epochs}")
+            logger.info(f"  - Total steps: {total_steps}")
+            logger.info(f"  - Interval: {self.hparams.lr_scheduler_interval}")
 
             # Update kwargs with calculated values
             scheduler_kwargs = {
@@ -1214,6 +1227,7 @@ class MLPTorchModel(L.LightningModule):
         if self.hparams.lr_scheduler_monitor:
             scheduler_config["monitor"] = self.hparams.lr_scheduler_monitor
 
+        logger.info(f"LR scheduler config: {scheduler_config}")
         return {"optimizer": optimizer, "lr_scheduler": scheduler_config}
 
     def on_train_end(self) -> None:
