@@ -576,7 +576,7 @@ class TorchDataset(Dataset):
 
     def __len__(self):
         return self.num_batches if self.batch_size > 0 else self.dataset_length
-    
+
     def _extract(self, data, indices):
         """Extract and convert subset to tensor."""
         if isinstance(data, torch.Tensor):
@@ -594,7 +594,7 @@ class TorchDataset(Dataset):
             subset = torch.from_numpy(subset)
 
         return subset.to(dtype=self.features_dtype, device=self.device)
-    
+
     def __getitem__(self, idx):
         if self.batch_size > 0:
             # batched mode
