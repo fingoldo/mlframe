@@ -29,7 +29,7 @@ from pydantic import BaseModel
 from lightning import LightningDataModule
 from lightning.pytorch.tuner import Tuner
 
-from torch.optim.lr_scheduler import OneCycleLR,CosineAnnealingLR,ReduceLROnPlateau,LambdaLR
+from torch.optim.lr_scheduler import OneCycleLR, CosineAnnealingLR, ReduceLROnPlateau, LambdaLR
 
 from lightning.pytorch.callbacks import Callback, LearningRateFinder
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping as EarlyStoppingCallback
@@ -188,7 +188,7 @@ class PytorchLightningEstimator(BaseEstimator):
                 # PeriodicLearningRateFinder(period=10),
             ]
             if self.use_swa:
-                callbacks.append(StochasticWeightAveraging(swa_epoch_start=5, swa_lrs=1e-3))
+                callbacks.append(StochasticWeightAveraging(swa_epoch_start=0.75, swa_lrs=1e-4, annealing_epochs=5))
 
             if eval_set is not None and (eval_set[0] is not None):
 
@@ -229,7 +229,7 @@ class PytorchLightningEstimator(BaseEstimator):
             if self.tune_batch_size:
                 tuner.scale_batch_size(model=self.model, datamodule=dm, mode="binsearch", init_val=self.datamodule_params.get("batch_size", 32))
 
-            lr_finder = tuner.lr_find(self.model, datamodule=dm)
+            lr_finder = tuner.lr_find(self.model, datamodule=dm, num_training=1000)
             new_lr = lr_finder.suggestion()
             logger.info(f"Using suggested LR={new_lr}")
             self.model.hparams.learning_rate = new_lr
@@ -1248,7 +1248,7 @@ class MLPTorchModel(L.LightningModule):
         logger.info(f"Loading best model from {best_model_path} (score: {score_str})")
 
         try:
-            checkpoint = torch.load(best_model_path, map_location=self.device)
+            checkpoint = torch.load(best_model_path, map_location=self.device, weights_only=False)
 
             if "state_dict" not in checkpoint:
                 logger.error("Checkpoint missing 'state_dict'. Cannot load weights.")
