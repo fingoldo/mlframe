@@ -576,7 +576,25 @@ class TorchDataset(Dataset):
 
     def __len__(self):
         return self.num_batches if self.batch_size > 0 else self.dataset_length
+    
+    def _extract(self, data, indices):
+        """Extract and convert subset to tensor."""
+        if isinstance(data, torch.Tensor):
+            subset = data[indices]
+        elif isinstance(data, np.ndarray):
+            subset = data[indices]
+        elif isinstance(data, pd.DataFrame):
+            subset = data.iloc[indices, :].to_numpy()
+        elif isinstance(data, pl.DataFrame):
+            subset = data[indices].to_torch()
+        else:
+            raise TypeError(f"Unsupported data type for extraction: {type(data)}")
 
+        if isinstance(subset, np.ndarray):
+            subset = torch.from_numpy(subset)
+
+        return subset.to(dtype=self.features_dtype, device=self.device)
+    
     def __getitem__(self, idx):
         if self.batch_size > 0:
             # batched mode
