@@ -1054,8 +1054,8 @@ class MLPTorchModel(L.LightningModule):
 
     def on_train_epoch_end(self) -> None:
         """Called at the end of training epoch."""
-        
-        current_lr = self.trainer.optimizers[0].param_groups[0]['lr']
+
+        current_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
         logger.info(f"Epoch {self.current_epoch}, Step {self.global_step}: LR = {current_lr:.2e}")
 
         if not self.hparams.compute_trainset_metrics:
