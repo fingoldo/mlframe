@@ -817,7 +817,7 @@ def get_training_configs(
         batch_sampler=None,
         num_workers=0,  # min(8, psutil.cpu_count(logical=False)),
         # collate_fn=custom_collate_fn,  # required for __getitems__ to work in TorchDataset down the road
-        drop_last=False,
+        drop_last=True,  # drop_last=True to avoid recompilations
         timeout=0,
         worker_init_fn=None,
         prefetch_factor=None,

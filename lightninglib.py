@@ -1009,7 +1009,7 @@ class MLPTorchModel(L.LightningModule):
             return
 
         try:
-            self.network = torch.compile(self.network, mode=self.hparams.compile_network)
+            self.network = torch.compile(self.network, mode=self.hparams.compile_network) # options={"shape_padding": True}
             logger.info(f"Applied torch.compile with mode='{self.hparams.compile_network}'")
         except Exception as e:
             logger.warning(f"Failed to apply torch.compile: {e}. Using uncompiled network.")
