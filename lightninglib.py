@@ -29,6 +29,8 @@ from pydantic import BaseModel
 from lightning import LightningDataModule
 from lightning.pytorch.tuner import Tuner
 
+from torch.optim.lr_scheduler import OneCycleLR,CosineAnnealingLR,ReduceLROnPlateau,LambdaLR
+
 from lightning.pytorch.callbacks import Callback, LearningRateFinder
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping as EarlyStoppingCallback
 from lightning.pytorch.callbacks import RichProgressBar, TQDMProgressBar, ModelPruning, LearningRateMonitor, LearningRateFinder
@@ -1169,50 +1171,49 @@ class MLPTorchModel(L.LightningModule):
     def configure_optimizers(self):
         """Configure optimizer and optional learning rate scheduler."""
         # Create optimizer
-        optimizer_kwargs = {
-            "lr": self.hparams.learning_rate,
-            **self.hparams.optimizer_kwargs
-        }
+        optimizer_kwargs = {"lr": self.hparams.learning_rate, **self.hparams.optimizer_kwargs}
         optimizer = self.optimizer(self.parameters(), **optimizer_kwargs)
-        
+
         # Return optimizer only if no scheduler
         if self.lr_scheduler is None:
             return optimizer
-        
+
         # Special handling for OneCycleLR
         if self.lr_scheduler == OneCycleLR:
             # Calculate total steps
-            steps_per_epoch = len(self.trainer.datamodule.train_dataloader()) \
-                if hasattr(self.trainer, 'datamodule') and self.trainer.datamodule \
+            steps_per_epoch = (
+                len(self.trainer.datamodule.train_dataloader())
+                if hasattr(self.trainer, "datamodule") and self.trainer.datamodule
                 else len(self.trainer.train_dataloader)
-            
+            )
+
             total_steps = self.trainer.max_epochs * steps_per_epoch
-            
+
             # Update kwargs with calculated values
             scheduler_kwargs = {
                 **self.hparams.lr_scheduler_kwargs,
                 "total_steps": total_steps,
             }
-            
+
             # Remove epochs/steps_per_epoch if present (use total_steps instead)
             scheduler_kwargs.pop("epochs", None)
             scheduler_kwargs.pop("steps_per_epoch", None)
-            
+
             scheduler = self.lr_scheduler(optimizer, **scheduler_kwargs)
         else:
             # Normal scheduler creation
             scheduler = self.lr_scheduler(optimizer, **self.hparams.lr_scheduler_kwargs)
-        
+
         # Configure scheduler settings
         scheduler_config = {
             "scheduler": scheduler,
             "interval": self.hparams.lr_scheduler_interval,
         }
-        
+
         # Add monitor if specified (required for ReduceLROnPlateau)
         if self.hparams.lr_scheduler_monitor:
             scheduler_config["monitor"] = self.hparams.lr_scheduler_monitor
-        
+
         return {"optimizer": optimizer, "lr_scheduler": scheduler_config}
 
     def on_train_end(self) -> None:
