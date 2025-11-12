@@ -1137,7 +1137,7 @@ class MLPTorchModel(L.LightningModule):
 
         labels_cpu = None
         if need_cpu:
-            labels_cpu = labels.cpu().numpy()
+            labels_cpu = to_numpy_safe(labels, cpu=True)
 
         # Compute metrics
         for metric in self.metrics:
@@ -1153,7 +1153,9 @@ class MLPTorchModel(L.LightningModule):
             if metric.requires_cpu:
                 key = f"cpu_{id(preds)}"
                 if key not in preds_dict:
-                    preds_dict[key] = preds.cpu().numpy()
+                    preds_dict[key] = to_numpy_safe(
+                        preds, cpu=True
+                    )  # instead of preds.cpu().numpy() that can cause TypeError: Got unsupported ScalarType BFloat16
                 preds_np = preds_dict[key]
                 labels_np = labels_cpu
             else:
@@ -1285,3 +1287,28 @@ class MLPTorchModel(L.LightningModule):
 
         except Exception as e:
             logger.error(f"Failed to load checkpoint: {e}", exc_info=True)
+
+
+def to_numpy_safe(tensor: torch.Tensor, cpu: bool = False) -> np.ndarray:
+    """Convert a torch.Tensor to a NumPy array safely and efficiently.
+
+    - Moves tensor to CPU if needed.
+    - Converts unsupported dtypes (bfloat16, float16) to float32.
+    - Keeps dtype otherwise unchanged (no accidental downcast).
+    """
+    if not isinstance(tensor, torch.Tensor):
+        raise TypeError(f"Expected torch.Tensor, got {type(tensor)}")
+
+    # Ensure tensor is detached and on CPU
+    t = tensor.detach()
+    if cpu and t.device.type != "cpu":
+        t = t.cpu()
+
+    # Handle NumPy-incompatible dtypes
+    if t.dtype in (torch.bfloat16, torch.float16):
+        t = t.to(torch.float32)
+    elif t.dtype == torch.complex32:
+        t = t.to(torch.complex64)
+
+    # Direct conversion is now safe
+    return t.numpy()
