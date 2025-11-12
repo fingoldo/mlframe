@@ -93,6 +93,31 @@ def to_tensor_any(data, dtype=torch.float32, device=None, safe=True):
     return data.to(dtype=dtype, device=device)
 
 
+def to_numpy_safe(tensor: torch.Tensor, cpu: bool = False) -> np.ndarray:
+    """Convert a torch.Tensor to a NumPy array safely and efficiently.
+
+    - Moves tensor to CPU if needed.
+    - Converts unsupported dtypes (bfloat16, float16) to float32.
+    - Keeps dtype otherwise unchanged (no accidental downcast).
+    """
+    if not isinstance(tensor, torch.Tensor):
+        raise TypeError(f"Expected torch.Tensor, got {type(tensor)}")
+
+    # Ensure tensor is detached and on CPU
+    t = tensor.detach()
+    if cpu and t.device.type != "cpu":
+        t = t.cpu()
+
+    # Handle NumPy-incompatible dtypes
+    if t.dtype in (torch.bfloat16, torch.float16):
+        t = t.to(torch.float32)
+    elif t.dtype == torch.complex32:
+        t = t.to(torch.complex64)
+
+    # Direct conversion is now safe
+    return t.numpy()
+
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Sklearn compatibility
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -142,6 +167,9 @@ class PytorchLightningEstimator(BaseEstimator):
             val_labels=eval_set[1],
             **self.datamodule_params,
         )
+
+        # Store datamodule for later use in predict
+        self.datamodule = dm
 
         # Set classifier-specific attributes
         if isinstance(self, ClassifierMixin):
@@ -223,6 +251,9 @@ class PytorchLightningEstimator(BaseEstimator):
                 except Exception as e:
                     raise RuntimeError(f"Failed to prepare example_input_array: {e}")
 
+            # Store trainer for later use in predict
+            self.trainer = trainer
+
         # Tune parameters if requested and not already tuned (for partial_fit)
         if self.tune_params and not (is_partial_fit and hasattr(self, "_tuned")):
 
@@ -242,7 +273,10 @@ class PytorchLightningEstimator(BaseEstimator):
         # Train the model
         trainer.fit(model=self.model, datamodule=dm)
 
-        # Store best epoch from checkpoint callback
+        # NOTE: best_epoch is stored in BestEpochModelCheckpoint callback and copied here
+        # for convenience. This duplication is intentional to provide easy access via the
+        # estimator without needing to search through callbacks. The callback remains the
+        # source of truth during training, while this copy is for post-training access.
         for callback in trainer.callbacks:
             if isinstance(callback, BestEpochModelCheckpoint):
                 self.best_epoch = callback.best_epoch
@@ -286,94 +320,149 @@ class PytorchLightningEstimator(BaseEstimator):
                 logger.warning(f"Parameter {key} not found in {self.__class__.__name__}")
         return self
 
-    def predict(self, X, device: Optional[str] = None, precision: Optional[str] = None) -> np.ndarray:
+    def _predict_raw(self, X, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
         """
-        Predict using the model, handling device and mixed precision safely.
+        Internal method for memory-efficient batched prediction using Lightning's trainer.predict().
+
+        This method processes data in batches to avoid OOM errors, leveraging the existing
+        DataModule prediction infrastructure.
 
         Args:
             X: Input data (numpy array, pandas DataFrame, polars DataFrame, or torch.Tensor)
-            device: Optional device string ('cpu' or 'cuda'). Defaults to 'cuda' if available, else 'cpu'.
-            precision: Optional precision mode for inference ('16-mixed', 'bf16-mixed', 'bf16-true', or None for no autocast).
-                       If not provided, falls back to the trainer's precision if available, else '32' (full precision).
+            device: Optional device string ('cpu' or 'cuda'). If None, uses trainer's device.
+            precision: Optional precision mode for inference ('16-mixed', 'bf16-mixed', 'bf16-true', or None).
+                       If not provided, falls back to the trainer's precision.
+            batch_size: Optional batch size for prediction. If None, uses datamodule's batch_size.
+                        Larger batch sizes can speed up prediction but use more memory.
 
         Returns:
-            numpy.ndarray: Model predictions (logits for regression or probabilities for classification)
+            numpy.ndarray: Model predictions (probabilities for classification, values for regression)
         """
-        import torch
-        from torch.amp import autocast  # PyTorch >= 2.0; fallback to torch.cuda.amp if needed
 
-        # Determine model dtype early
-        model_dtype = next(self.model.parameters()).dtype
+        # Validate that model has been fitted
+        if not hasattr(self, "model") or self.model is None:
+            raise RuntimeError("Model has not been fitted yet. Call fit() before predict().")
 
-        # Convert to tensor if not already
-        features_dtype = self.datamodule_params.get("features_dtype", model_dtype)  # Infer from model if not set
-        if not torch.is_tensor(X):
-            X = to_tensor_any(X, dtype=features_dtype)
+        # Setup prediction data in the datamodule
+        if not hasattr(self, "datamodule") or self.datamodule is None:
+            # Create a minimal datamodule for prediction if not available
+            logger.warning("No datamodule found from training. Creating temporary datamodule for prediction.")
+            self.datamodule = self.datamodule_class(
+                train_features=X[:1],  # Dummy data
+                train_labels=np.zeros(1),
+                val_features=None,
+                val_labels=None,
+                **self.datamodule_params,
+            )
 
-        # Determine target device (prefer CUDA if available)
-        if device is None:
-            target_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Determine batch size for prediction (allow override for larger batches)
+        pred_batch_size = batch_size if batch_size is not None else self.datamodule_params.get("batch_size", 64)
+        logger.info(f"Using batch_size={pred_batch_size} for prediction")
+
+        # Setup prediction dataset
+        self.datamodule.setup_predict(X, batch_size=pred_batch_size)
+
+        # Create prediction trainer with appropriate settings
+        if not hasattr(self, "trainer") or self.trainer is None:
+            logger.warning("No trainer found from training. Creating temporary trainer for prediction.")
+            # Create minimal trainer for prediction
+            trainer_params = {
+                "accelerator": "auto",
+                "devices": 1,
+                "logger": False,
+                "enable_checkpointing": False,
+                "enable_progress_bar": False,
+            }
+            prediction_trainer = L.Trainer(**trainer_params)
         else:
-            target_device = torch.device(device)
-        self.model.to(target_device)
-        X = X.to(target_device)
+            # Use existing trainer but create a new one to avoid state issues
+            trainer_params = {
+                "accelerator": (
+                    self.trainer.accelerator.__class__.__name__.replace("Accelerator", "").lower() if hasattr(self.trainer, "accelerator") else "auto"
+                ),
+                "devices": 1,  # Use single device for prediction
+                "logger": False,
+                "enable_checkpointing": False,
+                "enable_progress_bar": False,
+            }
 
-        # CPU fallback: Convert to float32 if using bfloat16/float16, as mixed precision isn't supported
-        if target_device.type == "cpu" and X.dtype in (torch.bfloat16, torch.float16):
-            X = X.to(dtype=torch.float32)
-            model_dtype = torch.float32  # Temporarily treat as float32 for consistency
+            # Override device if specified
+            if device is not None:
+                if device.startswith("cuda"):
+                    trainer_params["accelerator"] = "cuda"
+                elif device == "cpu":
+                    trainer_params["accelerator"] = "cpu"
 
-        # Determine precision: Fall back to trainer's if available, else default to "32"
-        if precision is None:
-            if hasattr(self, "trainer") and hasattr(self.trainer, "precision"):
-                precision = self.trainer.precision
-            if precision is None:
-                precision = "32"  # Default to full precision if still None
+            # Override precision if specified
+            if precision is not None:
+                trainer_params["precision"] = precision
+            elif hasattr(self.trainer, "precision"):
+                trainer_params["precision"] = self.trainer.precision
 
-        # Now precision is guaranteed to be a string
-        is_mixed = precision.endswith("-mixed")
-        is_true = precision.endswith("-true")
+            prediction_trainer = L.Trainer(**trainer_params)
 
-        autocast_dtype = None
-        if "16" in precision:
-            autocast_dtype = torch.float16
-        elif "bf16" in precision:
-            autocast_dtype = torch.bfloat16
+        # Ensure model is in eval mode and warn if not
+        if self.model.training:
+            logger.warning("Model was in training mode during prediction. Switching to eval mode.")
+            self.model.eval()
 
-        # For "-true", convert entire model to lower precision (resolves dtype issues)
-        original_model = self.model
-        original_model_dtype = model_dtype
-        if is_true and autocast_dtype:
-            self.model = self.model.to(dtype=autocast_dtype)
-            model_dtype = autocast_dtype
-            autocast_dtype = None  # No need for autocast in pure mode
-
-        # Handle if model is compiled: Use original module to avoid potential dtype issues with compile
+        # Additional check for compiled models
         if hasattr(self.model, "_orig_mod"):
-            model_to_use = self.model._orig_mod
+            if self.model._orig_mod.training:
+                logger.warning("Compiled model's original module was in training mode. Switching to eval mode.")
+                self.model._orig_mod.eval()
+
+        # Run prediction using Lightning's batched prediction
+        try:
+            predictions = prediction_trainer.predict(
+                model=self.model,
+                datamodule=self.datamodule,
+            )
+        except Exception as e:
+            logger.error(f"Prediction failed: {e}")
+            raise
+
+        # Concatenate batch predictions into single array
+        if len(predictions) == 0:
+            raise RuntimeError("No predictions were generated. Check your data and model.")
+
+        # Handle different return types from predict_step
+        if isinstance(predictions[0], torch.Tensor):
+            # Direct tensor outputs
+            predictions = torch.cat(predictions, dim=0)
+            predictions = to_numpy_safe(predictions, cpu=True)
+        elif isinstance(predictions[0], np.ndarray):
+            # Already numpy arrays
+            predictions = np.concatenate(predictions, axis=0)
         else:
-            model_to_use = self.model
+            raise TypeError(f"Unexpected prediction type: {type(predictions[0])}")
 
-        # For pure/mixed, ensure input matches
-        if not is_mixed and X.dtype != model_dtype:
-            X = X.to(dtype=model_dtype)
+        logger.info(f"Generated predictions with shape {predictions.shape}")
 
-        model_to_use.eval()
-        with torch.no_grad():
-            if autocast_dtype and target_device.type == "cuda" and is_mixed:  # Autocast only for mixed on CUDA
-                with autocast(device_type="cuda", dtype=autocast_dtype):
-                    output = model_to_use(X)
-            else:
-                output = model_to_use(X)
+        return predictions
 
-        if isinstance(self, ClassifierMixin):
-            output = torch.softmax(output, dim=1)
+    def predict(self, X, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
+        """
+        Predict using the model with memory-efficient batched processing.
 
-        # Restore model if changed
-        if is_true:
-            self.model = original_model.to(dtype=original_model_dtype)
+        Args:
+            X: Input data (numpy array, pandas DataFrame, polars DataFrame, or torch.Tensor)
+            device: Optional device string ('cpu' or 'cuda'). If None, uses trainer's device.
+            precision: Optional precision mode for inference ('16-mixed', 'bf16-mixed', etc.)
+            batch_size: Optional batch size for prediction. Larger values speed up prediction but use more memory.
 
-        return output.cpu().numpy()
+        Returns:
+            numpy.ndarray: Model predictions (class labels for classification, values for regression)
+        """
+        predictions = self._predict_raw(X, device=device, precision=precision, batch_size=batch_size)
+
+        # For regression, return raw predictions
+        if isinstance(self, RegressorMixin):
+            return predictions
+
+        # For classification in the base class, return probabilities
+        # (PytorchLightningClassifier will override to return labels)
+        return predictions
 
     def score(self, X, y, sample_weight: Optional[np.ndarray] = None) -> float:
         """Returns the coefficient of determination R^2 for regression or accuracy for classification."""
@@ -381,7 +470,7 @@ class PytorchLightningEstimator(BaseEstimator):
         if isinstance(self, RegressorMixin):
             return r2_score(y, y_pred, sample_weight=sample_weight)
         elif isinstance(self, ClassifierMixin):
-            y_pred = np.argmax(y_pred, axis=1)  # Convert probabilities to class labels
+            # y_pred is already class labels from PytorchLightningClassifier.predict()
             return accuracy_score(y, y_pred, sample_weight=sample_weight)
         else:
             raise ValueError("Estimator must be a RegressorMixin or ClassifierMixin")
@@ -397,14 +486,36 @@ class PytorchLightningClassifier(
 ):  # ClassifierMixin must come first
     _estimator_type = "classifier"
 
-    def predict(self, X, device: Optional[str] = None):
-        """Predict class labels for samples in X."""
-        proba = super(PytorchLightningClassifier, self).predict(X, device=device)  # Get probabilities from parent
-        return np.argmax(proba, axis=1)  # Convert to class labels
+    def predict(self, X, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
+        """
+        Predict class labels for samples in X.
 
-    def predict_proba(self, X, device: Optional[str] = None):
-        """Predict class probabilities for samples in X."""
-        return super(PytorchLightningClassifier, self).predict(X, device=device)  # Relay to parent's predict
+        Args:
+            X: Input data
+            device: Optional device string ('cpu' or 'cuda')
+            precision: Optional precision mode for inference
+            batch_size: Optional batch size for prediction
+
+        Returns:
+            numpy.ndarray: Predicted class labels
+        """
+        proba = self._predict_raw(X, device=device, precision=precision, batch_size=batch_size)
+        return np.argmax(proba, axis=1)
+
+    def predict_proba(self, X, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
+        """
+        Predict class probabilities for samples in X.
+
+        Args:
+            X: Input data
+            device: Optional device string ('cpu' or 'cuda')
+            precision: Optional precision mode for inference
+            batch_size: Optional batch size for prediction
+
+        Returns:
+            numpy.ndarray: Predicted class probabilities
+        """
+        return self._predict_raw(X, device=device, precision=precision, batch_size=batch_size)
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -413,33 +524,10 @@ class PytorchLightningClassifier(
 
 
 class TorchDataset(Dataset):
-    """
-    Wrapper around pandas, polars, numpy or tensor datasets.
-
-    - If batch_size == 0: behaves like a normal Dataset (returns one sample per __getitem__)
-    - If batch_size > 0: returns whole batches directly (vectorized extraction)
-      and should be used with DataLoader(batch_size=None)
-
-    Parameters
-    ----------
-    features : Union[pd.DataFrame, np.ndarray, pl.DataFrame, torch.Tensor]
-        Feature matrix.
-    labels : Union[pd.DataFrame, np.ndarray, pl.DataFrame, torch.Tensor]
-        Target vector.
-    features_dtype : torch.dtype
-        Desired dtype for features.
-    labels_dtype : torch.dtype
-        Desired dtype for labels.
-    device : Optional[str]
-        Device where tensors should live ("cpu" or "cuda").
-    batch_size : int
-        If >0, enables batched fetching mode.
-    """
-
     def __init__(
         self,
         features,
-        labels,
+        labels=None,  # Make optional
         features_dtype: torch.dtype = torch.float32,
         labels_dtype: torch.dtype = torch.float32,
         device: Optional[str] = None,
@@ -456,53 +544,55 @@ class TorchDataset(Dataset):
         else:
             self.features = features
 
-        # Always store labels as tensor
-        if isinstance(labels, (pd.DataFrame, pd.Series)):
-            labels = labels.to_numpy()
-        elif isinstance(labels, pl.DataFrame):
-            labels = labels.to_numpy()
-        elif not isinstance(labels, (np.ndarray, torch.Tensor)):
-            labels = np.asarray(labels)
+        # Handle labels (optional for prediction)
+        if labels is not None:
+            if isinstance(labels, (pd.DataFrame, pd.Series)):
+                labels = labels.to_numpy()
+            elif isinstance(labels, pl.DataFrame):
+                labels = labels.to_numpy()
+            elif not isinstance(labels, (np.ndarray, torch.Tensor)):
+                labels = np.asarray(labels)
 
-        labels = np.asarray(labels).reshape(-1)
-        self.labels = torch.tensor(labels, dtype=labels_dtype, device=device)
+            labels = np.asarray(labels).reshape(-1)
+            self.labels = torch.tensor(labels, dtype=labels_dtype, device=device)
+            dataset_length = len(self.labels)
+        else:
+            self.labels = None
+            # Determine length from features
+            if torch.is_tensor(self.features):
+                dataset_length = len(self.features)
+            elif isinstance(self.features, (np.ndarray, pd.DataFrame)):
+                dataset_length = len(self.features)
+            elif isinstance(self.features, pl.DataFrame):
+                dataset_length = self.features.height
+            else:
+                raise TypeError(f"Cannot determine length from features type: {type(self.features)}")
 
         # Determine # of batches if in batch mode
         if batch_size > 0:
-            self.num_batches = int(np.ceil(len(self.labels) / batch_size))
+            self.num_batches = int(np.ceil(dataset_length / batch_size))
+
+        self.dataset_length = dataset_length
 
     def __len__(self):
-        return self.num_batches if self.batch_size > 0 else len(self.labels)
-
-    def _extract(self, data, indices):
-        """Extract and convert subset to tensor."""
-        if isinstance(data, torch.Tensor):
-            subset = data[indices]
-        elif isinstance(data, np.ndarray):
-            subset = data[indices]
-        elif isinstance(data, pd.DataFrame):
-            subset = data.iloc[indices, :].to_numpy()
-        elif isinstance(data, pl.DataFrame):
-            subset = data[indices].to_torch()
-        else:
-            raise TypeError(f"Unsupported data type for extraction: {type(data)}")
-
-        if isinstance(subset, np.ndarray):
-            subset = torch.from_numpy(subset)
-
-        return subset.to(dtype=self.features_dtype, device=self.device)
+        return self.num_batches if self.batch_size > 0 else self.dataset_length
 
     def __getitem__(self, idx):
         if self.batch_size > 0:
             # batched mode
             start = idx * self.batch_size
-            end = min((idx + 1) * self.batch_size, len(self.labels))
+            end = min((idx + 1) * self.batch_size, self.dataset_length)
             indices = slice(start, end)
         else:
             # sample mode
             indices = idx
 
         x = self._extract(self.features, indices)
+
+        # Return only features if no labels
+        if self.labels is None:
+            return x
+
         y = self.labels[indices]
 
         # Squeeze single-sample dimension only in sample mode
@@ -513,9 +603,28 @@ class TorchDataset(Dataset):
 
 
 class TorchDataModule(LightningDataModule):
-    """Template of a reasonable Lightning datamodule.
-    Supports reading from file for multi-gpu workloads.
-    Supports placing entire dataset on GPU.
+    """
+    Improved Lightning DataModule with support for train/val/test/predict dataloaders.
+
+    Features:
+    - Supports reading from file for multi-GPU workloads
+    - Supports placing entire dataset on GPU
+    - Handles all stages: fit, test, predict
+    - Reduces code duplication
+    - Flexible batch size and dataloader configuration
+
+    Args:
+        train_features: Training features (DataFrame, array, or file path)
+        train_labels: Training labels (DataFrame, array, or file path)
+        val_features: Validation features (DataFrame, array, or file path)
+        val_labels: Validation labels (DataFrame, array, or file path)
+        test_features: Optional test features (DataFrame, array, or file path)
+        test_labels: Optional test labels (DataFrame, array, or file path)
+        read_fcn: Optional function to read data from file paths
+        data_placement_device: Device to place data on ('cuda', 'cuda:0', etc.)
+        features_dtype: Dtype for features (default: torch.float32)
+        labels_dtype: Dtype for labels (default: torch.int64)
+        dataloader_params: Dict of DataLoader parameters (batch_size, num_workers, etc.)
     """
 
     def __init__(
@@ -524,119 +633,288 @@ class TorchDataModule(LightningDataModule):
         train_labels: Union[pd.DataFrame, np.ndarray, str],
         val_features: Union[pd.DataFrame, np.ndarray, str],
         val_labels: Union[pd.DataFrame, np.ndarray, str],
-        read_fcn: object = None,
-        data_placement_device: str = None,
-        features_dtype: object = torch.float32,
-        labels_dtype: object = torch.int64,
-        dataloader_params: dict = None,
+        test_features: Optional[Union[pd.DataFrame, np.ndarray, str]] = None,
+        test_labels: Optional[Union[pd.DataFrame, np.ndarray, str]] = None,
+        read_fcn: Optional[Callable] = None,
+        data_placement_device: Optional[str] = None,
+        features_dtype: torch.dtype = torch.float32,
+        labels_dtype: torch.dtype = torch.int64,
+        dataloader_params: Optional[dict] = None,
     ):
-        # A simple way to prevent redundant dataset replicas is to rely on torch.multiprocessing to share the data automatically between spawned processes via shared memory.
-        # For this, all data pre-loading should be done on the main process inside DataModule.__init__(). As a result, all tensor-data will get automatically shared when using
-        # the 'ddp_spawn' strategy.
-
-        assert data_placement_device in (None, "cuda")
-
-        if dataloader_params is None:
-            dataloader_params = {}
-
+        """
+        Initialize DataModule. Data pre-loading here allows automatic sharing
+        between spawned processes via shared memory when using 'ddp_spawn'.
+        """
         super().__init__()
 
-        params = get_parent_func_args()
-        store_params_in_object(obj=self, params=params)
+        # Validate data_placement_device
+        if data_placement_device is not None:
+            if not data_placement_device.startswith("cuda"):
+                raise ValueError(f"data_placement_device must be None or 'cuda'/'cuda:X', got: {data_placement_device}")
 
-        # If main data is passed via init parameters, it's serialized for every worker. For bigger datasets,
-        # it will be faster to dump to files outside of the Datamodule (especially memory-mapped files), and then read
-        # separately from file in each of the worker processes.
+        # Store all parameters
+        self.train_features = train_features
+        self.train_labels = train_labels
+        self.val_features = val_features
+        self.val_labels = val_labels
+        self.test_features = test_features
+        self.test_labels = test_labels
+        self.read_fcn = read_fcn
+        self.data_placement_device = data_placement_device
+        self.features_dtype = features_dtype
+        self.labels_dtype = labels_dtype
+        self.dataloader_params = dataloader_params or {}
+
+        # For dynamic prediction data
+        self.predict_features = None
+
+        # Extract batch_size for easy access
+        self.batch_size = self.dataloader_params.get("batch_size", 64)
 
     def prepare_data(self):
-        # code to be executed only once (e.g. downloading dataset from db or internet)
-        # prepare_data is called from the main process. It is not recommended to assign state here (e.g. self.x = y) since it is called on a single process and if you assign
-        # states here then they won’t be available for other processes.
+        """
+        Called once on main process for data download/preprocessing.
+        Do not assign state here (self.x = y) as it won't be available to other processes.
+        """
         pass
 
-    def setup(self, stage: str = None):
-        # This can be executed multiple times (say, once per each GPU)
-        # Setup is called from every process across all the nodes. Setting state here is recommended.
+    def setup(self, stage: Optional[str] = None):
+        """
+        Called on every process/GPU. Load and setup datasets here.
 
-        if stage == "fit" or stage is None:
-            # if dataset is provided as string, along with function to read actual data - do it.
-            if self.read_fcn:
-                for var in "train_features train_labels val_features val_labels".split():
-                    var_content = getattr(self, var)
-                    if isinstance(var_content, str):
-                        setattr(self, var, self.read_fcn(var_content))
+        Args:
+            stage: Current stage ('fit', 'test', 'predict', or None for all)
+        """
+        if stage in ("fit", None):
+            self._load_data_from_files(["train_features", "train_labels", "val_features", "val_labels"])
+            self._convert_features_dtype(["train_features", "val_features"])
 
-    def teardown(self, stage: str = None):
-        # Place to remove temp files etc.
+        if stage in ("test", None) and self.test_features is not None:
+            self._load_data_from_files(["test_features", "test_labels"])
+            self._convert_features_dtype(["test_features"])
+
+        if stage == "predict" and self.predict_features is not None:
+            self._load_data_from_files(["predict_features"])
+            self._convert_features_dtype(["predict_features"])
+
+    def _load_data_from_files(self, var_names: list):
+        """
+        Load data from file paths if read_fcn is provided.
+
+        Args:
+            var_names: List of attribute names to check and load
+        """
+        if not self.read_fcn:
+            return
+
+        for var_name in var_names:
+            var_content = getattr(self, var_name, None)
+            if var_content is not None and isinstance(var_content, str):
+                setattr(self, var_name, self.read_fcn(var_content))
+
+    def _convert_features_dtype(self, feature_names: list):
+        """
+        Convert features to float32 for compatibility.
+
+        Args:
+            feature_names: List of feature attribute names to convert
+        """
+        for feature_name in feature_names:
+            features = getattr(self, feature_name, None)
+            if features is None:
+                continue
+
+            # Convert pandas/numpy to float32 if possible
+            if hasattr(features, "astype"):
+                try:
+                    setattr(self, feature_name, features.astype("float32"))
+                except (ValueError, TypeError):
+                    # Not convertible, keep original dtype
+                    pass
+
+    def teardown(self, stage: Optional[str] = None):
+        """Clean up resources (temp files, etc.)."""
         pass
 
     def on_gpu(self) -> bool:
-        "Checks if current DM's model runs on GPU"
+        """Check if current model runs on GPU."""
         try:
-            on_gpu = type(self.trainer.accelerator).__name__ == "CUDAAccelerator"
-        except Exception as e:
-            on_gpu = False
+            return type(self.trainer.accelerator).__name__ == "CUDAAccelerator"
+        except (AttributeError, Exception):
+            return False
 
-        return on_gpu
+    def _get_device(self) -> Optional[str]:
+        """
+        Determine device for data placement.
 
-    def train_dataloader(self):
+        Returns:
+            Device string ('cuda', 'cuda:0', etc.) or None
+        """
+        if self.data_placement_device and self.on_gpu():
+            return self.data_placement_device
+        return None
 
+    def _create_dataloader(
+        self,
+        features,
+        labels=None,
+        shuffle: bool = False,
+        drop_last: bool = False,
+    ) -> DataLoader:
+        """
+        Create a DataLoader with consistent configuration.
+
+        Args:
+            features: Feature data
+            labels: Label data (optional, None for prediction)
+            shuffle: Whether to shuffle data
+            drop_last: Whether to drop last incomplete batch
+
+        Returns:
+            Configured DataLoader
+
+        Note:
+            TorchDataset handles batching internally when batch_size > 0,
+            so DataLoader is created with batch_size=None to iterate over
+            pre-batched data. This enables vectorized extraction and GPU preloading.
+        """
+        device = self._get_device()
         on_gpu = self.on_gpu()
-        device = self.data_placement_device if (self.data_placement_device and on_gpu) else None
 
-        batch_size = self.dataloader_params.get("batch_size", 64)
+        # Prepare dataloader params (extract batch_size for TorchDataset)
+        dl_params = self.dataloader_params.copy()
+        batch_size = dl_params.pop("batch_size", self.batch_size)
 
-        dataloader_params = self.dataloader_params.copy()
-        dataloader_params["batch_size"] = None
+        # Override shuffle and drop_last
+        dl_params["shuffle"] = shuffle
+        dl_params["drop_last"] = drop_last
+        dl_params["pin_memory"] = on_gpu
 
+        # IMPORTANT: Set batch_size=None since TorchDataset handles batching internally
+        # when its own batch_size parameter > 0
+        dl_params["batch_size"] = None
+
+        # Create dataset with internal batching
+        dataset = TorchDataset(
+            features=features,
+            labels=labels,
+            features_dtype=self.features_dtype,
+            labels_dtype=self.labels_dtype if labels is not None else None,
+            batch_size=batch_size,  # TorchDataset will handle batching
+            device=device,
+        )
+
+        return DataLoader(dataset, **dl_params)
+
+    def train_dataloader(self) -> DataLoader:
+        """Return training DataLoader."""
+        return self._create_dataloader(
+            features=self.train_features,
+            labels=self.train_labels,
+            shuffle=True,
+            drop_last=False,
+        )
+
+    def val_dataloader(self) -> DataLoader:
+        """Return validation DataLoader."""
+        return self._create_dataloader(
+            features=self.val_features,
+            labels=self.val_labels,
+            shuffle=False,
+            drop_last=False,
+        )
+
+    def test_dataloader(self) -> DataLoader:
+        """Return test DataLoader."""
+        if self.test_features is None:
+            raise RuntimeError("test_features not provided during initialization")
+
+        return self._create_dataloader(
+            features=self.test_features,
+            labels=self.test_labels,
+            shuffle=False,
+            drop_last=False,
+        )
+
+    def predict_dataloader(self) -> DataLoader:
+        """
+        Return prediction DataLoader.
+
+        Call setup_predict() first to set prediction data.
+        """
+        if self.predict_features is None:
+            raise RuntimeError("predict_features not set. Call setup_predict(X) before using predict_dataloader()")
+
+        return self._create_dataloader(
+            features=self.predict_features,
+            labels=None,  # No labels for prediction
+            shuffle=False,
+            drop_last=False,
+        )
+
+    def setup_predict(
+        self,
+        X: Union[pd.DataFrame, np.ndarray, torch.Tensor],
+        batch_size: Optional[int] = None,
+    ):
+        """
+        Setup prediction data dynamically for sklearn-style predict(X) API.
+
+        Args:
+            X: Features to predict on
+            batch_size: Optional batch size override
+
+        Example:
+            >>> datamodule.setup_predict(X, batch_size=2048)
+            >>> predictions = trainer.predict(model, datamodule=datamodule)
+        """
+        self.predict_features = X
+
+        # Update batch size if provided
+        if batch_size is not None:
+            self.batch_size = batch_size
+
+        # Trigger setup for predict stage
+        self.setup(stage="predict")
+
+    def has_test_data(self) -> bool:
+        """Check if test data is available."""
+        return self.test_features is not None
+
+    def get_feature_dim(self) -> int:
+        """Get the feature dimension from training data."""
         features = self.train_features
+
+        if isinstance(features, (pd.DataFrame, np.ndarray)):
+            return features.shape[1]
+        elif torch.is_tensor(features):
+            return features.shape[1]
+        else:
+            raise TypeError(f"Cannot determine feature dimension from type: {type(features)}")
+
+    def get_num_classes(self) -> Optional[int]:
+        """
+        Get number of classes from training labels (for classification tasks).
+
+        Returns:
+            Number of unique classes, or None if not applicable
+        """
+        labels = self.train_labels
+
+        if labels is None:
+            return None
+
         try:
-            features = features.astype("float32")
-        except Exception as e:
-            pass
+            if isinstance(labels, pd.DataFrame):
+                return len(labels.iloc[:, 0].unique())
+            elif isinstance(labels, np.ndarray):
+                return len(np.unique(labels))
+            elif torch.is_tensor(labels):
+                return len(torch.unique(labels))
+        except Exception:
+            return None
 
-        return DataLoader(
-            TorchDataset(
-                features=features,
-                labels=self.train_labels,
-                features_dtype=self.features_dtype,
-                labels_dtype=self.labels_dtype,
-                batch_size=batch_size,
-                device=device,
-            ),
-            pin_memory=on_gpu,
-            **dataloader_params,
-        )
-
-    def val_dataloader(self):
-
-        on_gpu = self.on_gpu()
-        device = self.data_placement_device if (self.data_placement_device and on_gpu) else None
-
-        batch_size = self.dataloader_params.get("batch_size", 64)
-
-        dataloader_params = self.dataloader_params.copy()
-        dataloader_params["batch_size"] = None
-        dataloader_params["shuffle"] = False
-
-        features = self.val_features
-        try:
-            features = features.astype("float32")
-        except Exception as e:
-            pass
-
-        return DataLoader(
-            TorchDataset(
-                features=features,
-                labels=self.val_labels,
-                features_dtype=self.features_dtype,
-                labels_dtype=self.labels_dtype,
-                batch_size=batch_size,
-                device=device,
-            ),
-            pin_memory=on_gpu,
-            **dataloader_params,
-        )
+        return None
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -1011,7 +1289,7 @@ class MLPTorchModel(L.LightningModule):
             return
 
         try:
-            self.network = torch.compile(self.network, mode=self.hparams.compile_network)  # options={"shape_padding": True}
+            self.network = torch.compile(self.network, mode=self.hparams.compile_network)
             logger.info(f"Applied torch.compile with mode='{self.hparams.compile_network}'")
         except Exception as e:
             logger.warning(f"Failed to apply torch.compile: {e}. Using uncompiled network.")
@@ -1048,8 +1326,9 @@ class MLPTorchModel(L.LightningModule):
         # Store predictions for metric computation if needed
         result = {"loss": loss}
         if self.hparams.compute_trainset_metrics:
-            # Store outputs for epoch-end metric computation
-            output = {"raw_predictions": raw_predictions.detach(), "labels": labels.detach()}
+            # MEMORY OPTIMIZATION: Store outputs on CPU immediately to free GPU memory
+            # This prevents GPU memory accumulation throughout the epoch
+            output = {"raw_predictions": raw_predictions.detach().cpu(), "labels": labels.detach().cpu()}
             self.training_step_outputs.append(output)
 
         return result
@@ -1067,7 +1346,7 @@ class MLPTorchModel(L.LightningModule):
             logger.warning("No training outputs collected for metric computation")
             return
 
-        # Extract predictions and labels from collected outputs
+        # Extract predictions and labels from collected outputs (already on CPU)
         preds_and_labels = [(out["raw_predictions"], out["labels"]) for out in self.training_step_outputs]
 
         # Compute metrics
@@ -1088,8 +1367,8 @@ class MLPTorchModel(L.LightningModule):
 
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
 
-        # Store outputs for epoch-end metric computation
-        output = {"raw_predictions": raw_predictions.detach(), "labels": labels.detach()}
+        # MEMORY OPTIMIZATION: Store outputs on CPU immediately to free GPU memory
+        output = {"raw_predictions": raw_predictions.detach().cpu(), "labels": labels.detach().cpu()}
         self.validation_step_outputs.append(output)
 
         return output
@@ -1100,7 +1379,7 @@ class MLPTorchModel(L.LightningModule):
             logger.warning("No validation outputs collected for metric computation")
             return
 
-        # Extract predictions and labels from collected outputs
+        # Extract predictions and labels from collected outputs (already on CPU)
         preds_and_labels = [(out["raw_predictions"], out["labels"]) for out in self.validation_step_outputs]
 
         # Compute metrics
@@ -1115,7 +1394,7 @@ class MLPTorchModel(L.LightningModule):
         Optimized: compute argmax, softmax, CPU/numpy only if needed, once each.
 
         Args:
-            predictions_and_labels: List of (raw_predictions, labels) tuples from each batch
+            predictions_and_labels: List of (raw_predictions, labels) tuples from each batch (on CPU)
             prefix: Logging prefix ('train' or 'val')
         """
         # Concatenate all predictions and labels
@@ -1137,7 +1416,8 @@ class MLPTorchModel(L.LightningModule):
 
         labels_cpu = None
         if need_cpu:
-            labels_cpu = to_numpy_safe(labels, cpu=True)
+            # Already on CPU from storage optimization
+            labels_cpu = to_numpy_safe(labels, cpu=False)
 
         # Compute metrics
         for metric in self.metrics:
@@ -1153,9 +1433,8 @@ class MLPTorchModel(L.LightningModule):
             if metric.requires_cpu:
                 key = f"cpu_{id(preds)}"
                 if key not in preds_dict:
-                    preds_dict[key] = to_numpy_safe(
-                        preds, cpu=True
-                    )  # instead of preds.cpu().numpy() that can cause TypeError: Got unsupported ScalarType BFloat16
+                    # Already on CPU from storage optimization
+                    preds_dict[key] = to_numpy_safe(preds, cpu=False)
                 preds_np = preds_dict[key]
                 labels_np = labels_cpu
             else:
@@ -1288,27 +1567,33 @@ class MLPTorchModel(L.LightningModule):
         except Exception as e:
             logger.error(f"Failed to load checkpoint: {e}", exc_info=True)
 
+    def predict_step(self, batch, batch_idx: int) -> torch.Tensor:
+        """
+        Handle prediction for both (x, y) and x-only batches.
 
-def to_numpy_safe(tensor: torch.Tensor, cpu: bool = False) -> np.ndarray:
-    """Convert a torch.Tensor to a NumPy array safely and efficiently.
+        Returns raw model output (logits for classification, values for regression).
+        Softmax/argmax conversion is handled in the estimator's predict methods.
+        """
+        # Ensure model is in eval mode
+        if self.training:
+            logger.warning(f"Model was in training mode during predict_step at batch {batch_idx}. Switching to eval mode.")
+            self.eval()
 
-    - Moves tensor to CPU if needed.
-    - Converts unsupported dtypes (bfloat16, float16) to float32.
-    - Keeps dtype otherwise unchanged (no accidental downcast).
-    """
-    if not isinstance(tensor, torch.Tensor):
-        raise TypeError(f"Expected torch.Tensor, got {type(tensor)}")
+        # Handle both training/testing format (x, y) and prediction format (x only)
+        if isinstance(batch, (tuple, list)):
+            x = batch[0]
+        else:
+            x = batch
 
-    # Ensure tensor is detached and on CPU
-    t = tensor.detach()
-    if cpu and t.device.type != "cpu":
-        t = t.cpu()
+        # Forward pass - return raw logits/values
+        with torch.no_grad():
+            logits = self(x)
 
-    # Handle NumPy-incompatible dtypes
-    if t.dtype in (torch.bfloat16, torch.float16):
-        t = t.to(torch.float32)
-    elif t.dtype == torch.complex32:
-        t = t.to(torch.complex64)
-
-    # Direct conversion is now safe
-    return t.numpy()
+        # For classification, apply softmax to get probabilities
+        # (MLPTorchModel doesn't have is_classification attribute, so check network output)
+        if logits.dim() == 2 and logits.shape[1] > 1:
+            # Multi-class classification - return probabilities
+            return torch.softmax(logits, dim=1)
+        else:
+            # Regression or binary classification - return raw values
+            return logits
