@@ -841,6 +841,7 @@ def get_training_configs(
         datamodule_params=mlp_datamodule_params,  # includes dataloader_params
         trainer_params=mlp_trainer_params,
         use_swa=mlp_kwargs.get("use_swa", False),
+        swa_params=mlp_kwargs.get("swa_params", dict(swa_epoch_start=5, annealing_epochs=5, swa_lrs=1e-4)),
         tune_params=mlp_kwargs.get("tune_params", False),
         float32_matmul_precision=mlp_kwargs.get("float32_matmul_precision", None),
         early_stopping_rounds=early_stopping_rounds,
