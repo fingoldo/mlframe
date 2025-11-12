@@ -112,11 +112,13 @@ class PytorchLightningEstimator(BaseEstimator):
         datamodule_params: dict,
         trainer_params: object,
         use_swa: bool = False,
+        swa_params: dict = None,
         tune_params: bool = False,
         tune_batch_size: bool = False,
         float32_matmul_precision: str = None,
         early_stopping_rounds: int = 100,
     ):
+        swa_params = swa_params or {}
         store_params_in_object(obj=self, params=get_parent_func_args())
 
     def _fit_common(self, X, y, eval_set: tuple = (None, None), is_partial_fit: bool = False, classes: Optional[np.ndarray] = None, fit_params: dict = None):
@@ -188,7 +190,7 @@ class PytorchLightningEstimator(BaseEstimator):
                 # PeriodicLearningRateFinder(period=10),
             ]
             if self.use_swa:
-                callbacks.append(StochasticWeightAveraging(swa_epoch_start=0.75, swa_lrs=1e-4, annealing_epochs=5))
+                callbacks.append(StochasticWeightAveraging(**self.swa_params))
 
             if eval_set is not None and (eval_set[0] is not None):
 
