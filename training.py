@@ -3530,15 +3530,15 @@ def train_mlframe_models_suite(
         for idx, idx_name in zip([train_idx, val_idx, test_idx], "train val test".split()):
             if idx is None:
                 continue
-            if timestamps is not None and len(timestamps)>0:
+            if timestamps is not None and len(timestamps) > 0:
                 ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_timestamps.parquet")
                 if not exists(ts_file):
                     save_series_or_df(timestamps[idx], ts_file, PARQUET_COMPRESION, name="ts")
-            if group_ids_raw is not None  and len(group_ids_raw)>0:
+            if group_ids_raw is not None and len(group_ids_raw) > 0:
                 gid_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_group_ids_raw.parquet")
                 if not exists(gid_file):
                     save_series_or_df(group_ids_raw[idx], gid_file, PARQUET_COMPRESION)
-            if artifacts is not None and len(artifacts)>0:
+            if artifacts is not None and len(artifacts) > 0:
                 art_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_artifacts.parquet")
                 if not exists(art_file):
                     save_series_or_df(artifacts[idx], art_file, PARQUET_COMPRESION)
