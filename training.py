@@ -2477,7 +2477,7 @@ def save_mlframe_model(model: object, file: str, zstd_kwargs: dict = None, verbo
         with open(file, "wb") as f:
             compressor = zstd.ZstdCompressor(**zstd_kwargs)
             with compressor.stream_writer(f) as zf:
-                dill.dump(model, zf)
+                dill.dump(model, zf)  # Only dill is able to serialize some of the funcs I use.
         if verbose > 0:
             size_mb = os.path.getsize(file) / (1024 * 1024)
             logger.info(f"Model saved successfully to {file}. Size: {size_mb:.2f} Mb")

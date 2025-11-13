@@ -204,7 +204,8 @@ class PytorchLightningEstimator(BaseEstimator):
             # metric_computing_callback = AggregatingValidationCallback(metric_name=early_stopping_metric_name, metric_fcn=metric_fcn)
 
             # tb_logger = TensorBoardLogger(save_dir=args.experiment_path, log_graph=True)  # save_dir="s3://my_bucket/logs/"
-            progress_bar = TQDMProgressBar(refresh_rate=50)  # leave=True
+            refresh_rate = 10
+            progress_bar = TQDMProgressBar(refresh_rate=refresh_rate) if False else RichProgressBar(refresh_rate=refresh_rate)
 
             callbacks = [
                 checkpointing,
@@ -279,6 +280,8 @@ class PytorchLightningEstimator(BaseEstimator):
                 self.best_epoch = callback.best_epoch
                 logger.info(f"Best epoch recorded: {self.best_epoch}")
                 break
+
+        self.trainer = None
 
         return self
 
@@ -355,7 +358,7 @@ class PytorchLightningEstimator(BaseEstimator):
 
         # Create prediction trainer with appropriate settings
         if not hasattr(self, "trainer") or self.trainer is None:
-            logger.warning("No trainer found from training. Creating temporary trainer for prediction.")
+            # logger.warning("No trainer found from training. Creating temporary trainer for prediction.")
             # Create minimal trainer for prediction
             trainer_params = {
                 "accelerator": "auto",
@@ -412,6 +415,8 @@ class PytorchLightningEstimator(BaseEstimator):
         except Exception as e:
             logger.error(f"Prediction failed: {e}")
             raise
+
+        self.trainer = None
 
         # Concatenate batch predictions into single array
         if len(predictions) == 0:
