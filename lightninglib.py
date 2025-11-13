@@ -168,9 +168,6 @@ class PytorchLightningEstimator(BaseEstimator):
             **self.datamodule_params,
         )
 
-        # Store datamodule for later use in predict
-        self.datamodule = dm
-
         # Set classifier-specific attributes
         if isinstance(self, ClassifierMixin):
             if is_partial_fit and classes is not None:
@@ -344,23 +341,17 @@ class PytorchLightningEstimator(BaseEstimator):
             raise RuntimeError("Model has not been fitted yet. Call fit() before predict().")
 
         # Setup prediction data in the datamodule
-        if not hasattr(self, "datamodule") or self.datamodule is None:
+        if not hasattr(self, "prediction_datamodule") or self.prediction_datamodule is None:
             # Create a minimal datamodule for prediction if not available
             logger.warning("No datamodule found from training. Creating temporary datamodule for prediction.")
-            self.datamodule = self.datamodule_class(
-                train_features=X[:1],  # Dummy data
-                train_labels=np.zeros(1),
-                val_features=None,
-                val_labels=None,
-                **self.datamodule_params,
-            )
+            datamodule = self.datamodule_class(**self.datamodule_params)
 
         # Determine batch size for prediction (allow override for larger batches)
         pred_batch_size = batch_size if batch_size is not None else self.datamodule_params.get("batch_size", 64)
         logger.info(f"Using batch_size={pred_batch_size} for prediction")
 
         # Setup prediction dataset
-        self.datamodule.setup_predict(X, batch_size=pred_batch_size)
+        datamodule.setup_predict(X, batch_size=pred_batch_size)
 
         # Create prediction trainer with appropriate settings
         if not hasattr(self, "trainer") or self.trainer is None:
@@ -416,7 +407,7 @@ class PytorchLightningEstimator(BaseEstimator):
         try:
             predictions = prediction_trainer.predict(
                 model=self.model,
-                datamodule=self.datamodule,
+                datamodule=datamodule,
             )
         except Exception as e:
             logger.error(f"Prediction failed: {e}")
