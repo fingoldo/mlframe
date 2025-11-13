@@ -4097,7 +4097,7 @@ class UniversalCallback:
                     logger.info(f"Stopping early due to time budget exceeded ({elapsed:.2f} sec).")
                 return True
 
-        if self.iter > 0 and self.stop_flag():  # self.iter > 0 needed to avoid xgboost error when no best_iter exists
+        if self.stop_flag():
             if self.verbose > 0:
                 logger.info("Stopping early due to external stop flag.")
             return True
@@ -4157,7 +4157,11 @@ class LightGBMCallback(UniversalCallback):
         if self.monitor_metric is None:
             self.set_default_monitor_metric(metrics_dict)
         if self.should_stop():
-            raise lgb.callback.EarlyStopException(self.best_iter, [(dataset, metric, self.best_metric, False)])
+            if hasattr(self,'best_iter'):
+                best_iter=self.best_iter
+            else:
+                self.best_iter=-1
+            raise lgb.callback.EarlyStopException(, [(dataset, metric, self.best_metric, False)])
             return True
 
 
