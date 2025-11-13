@@ -4157,11 +4157,11 @@ class LightGBMCallback(UniversalCallback):
         if self.monitor_metric is None:
             self.set_default_monitor_metric(metrics_dict)
         if self.should_stop():
-            if hasattr(self,'best_iter'):
-                best_iter=self.best_iter
+            if hasattr(self, "best_iter"):
+                best_iter = self.best_iter
             else:
-                self.best_iter=-1
-            raise lgb.callback.EarlyStopException(, [(dataset, metric, self.best_metric, False)])
+                self.best_iter = -1
+            raise lgb.callback.EarlyStopException(best_iter, [(dataset, metric, self.best_metric, False)])
             return True
 
 
