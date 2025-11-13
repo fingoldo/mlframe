@@ -1361,7 +1361,7 @@ def train_and_evaluate_model(
                             try_again = True
                             del fit_params["callbacks"]
                     elif "CUDA Tree Learner" in str(e):
-                        print("⚠️ CUDA is not enabled in this LightGBM build. Falling back to CPU.")
+                        print("CUDA is not enabled in this LightGBM build. Falling back to CPU.")
                         # Option 1: fallback to CPU by forcing device_type=cpu
                         model.set_params(device_type="cpu")
                         try_again = True
@@ -2310,14 +2310,11 @@ def configure_training_params(
         **rfecv_params,
     )
 
+    models_params = dict(cb=cb_params, lgb=lgb_params, xgb=xgb_params, hgb=hgb_params, mlp=mlp_params, ngb=ngb_params)
+
     return (
         common_params,
-        cb_params,
-        hgb_params,
-        lgb_params,
-        xgb_params,
-        mlp_params,
-        ngb_params,
+        models_params,
         cb_rfecv,
         lgb_rfecv,
         xgb_rfecv,
@@ -2825,12 +2822,7 @@ def select_target(
 
     (
         common_params,
-        cb_params,
-        hgb_params,
-        lgb_params,
-        xgb_params,
-        mlp_params,
-        ngb_params,
+        models_params,
         cb_rfecv,
         lgb_rfecv,
         xgb_rfecv,
@@ -2858,7 +2850,6 @@ def select_target(
         **effective_control_params,
     )
 
-    models_params = dict(cb=cb_params, lgb=lgb_params, xgb=xgb_params, hgb=hgb_params, mlp=mlp_params, ngb=ngb_params)
     rfecv_models_params = dict(
         cb_rfecv=cb_rfecv,
         lgb_rfecv=lgb_rfecv,
