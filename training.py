@@ -4106,7 +4106,7 @@ class UniversalCallback:
                     logger.info(f"Stopping early due to time budget exceeded ({elapsed:.2f} sec).")
                 return True
 
-        if self.stop_flag():
+        if self.iter > 0 and self.stop_flag():
             if self.verbose > 0:
                 logger.info("Stopping early due to external stop flag.")
             return True

@@ -218,7 +218,8 @@ class PytorchLightningEstimator(BaseEstimator):
                 # PeriodicLearningRateFinder(period=10),
             ]
             if self.use_swa:
-                callbacks.append(StochasticWeightAveraging(**self.swa_params))
+                callbacks.append(
+                    (**self.swa_params))
 
             if eval_set is not None and (eval_set[0] is not None):
 
