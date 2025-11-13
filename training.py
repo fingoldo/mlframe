@@ -4160,7 +4160,7 @@ class LightGBMCallback(UniversalCallback):
             if hasattr(self, "best_iter"):
                 best_iter = self.best_iter
             else:
-                self.best_iter = -1
+                best_iter = 0
             raise lgb.callback.EarlyStopException(best_iter, [(dataset, metric, self.best_metric, False)])
             return True
 
