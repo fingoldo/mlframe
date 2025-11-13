@@ -4180,7 +4180,11 @@ class XGBoostCallback(UniversalCallback, TrainingCallback):
             self.set_default_monitor_metric(metrics_dict)
 
         if self.should_stop():
-            model.set_attr(best_score=self.best_metric, best_iteration=self.best_iter)
+            if hasattr(self, "best_iter"):
+                best_iter = self.best_iter
+            else:
+                best_iter = 0            
+            model.set_attr(best_score=self.best_metric, best_iteration=best_iter)
             return True
 
 
