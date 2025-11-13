@@ -638,10 +638,10 @@ class TorchDataModule(LightningDataModule):
 
     def __init__(
         self,
-        train_features: Union[pd.DataFrame, np.ndarray, str],
-        train_labels: Union[pd.DataFrame, np.ndarray, str],
-        val_features: Union[pd.DataFrame, np.ndarray, str],
-        val_labels: Union[pd.DataFrame, np.ndarray, str],
+        train_features: Optional[Union[pd.DataFrame, np.ndarray, str]] = None,
+        train_labels: Optional[Union[pd.DataFrame, np.ndarray, str]] = None,
+        val_features: Optional[Union[pd.DataFrame, np.ndarray, str]] = None,
+        val_labels: Optional[Union[pd.DataFrame, np.ndarray, str]] = None,
         test_features: Optional[Union[pd.DataFrame, np.ndarray, str]] = None,
         test_labels: Optional[Union[pd.DataFrame, np.ndarray, str]] = None,
         read_fcn: Optional[Callable] = None,
@@ -1330,7 +1330,7 @@ class MLPTorchModel(L.LightningModule):
             loss = loss + self.hparams.l1_alpha * l1_norm
             self.log("train_l1_norm", l1_norm, on_step=False, on_epoch=True)
 
-        self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
 
         # Store predictions for metric computation if needed
         result = {"loss": loss}
@@ -1374,7 +1374,7 @@ class MLPTorchModel(L.LightningModule):
         # Compute loss without L1 regularization for fair comparison
         loss = self.loss_fn(raw_predictions, labels)
 
-        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
 
         # MEMORY OPTIMIZATION: Store outputs on CPU immediately to free GPU memory
         output = {"raw_predictions": raw_predictions.detach().cpu(), "labels": labels.detach().cpu()}
