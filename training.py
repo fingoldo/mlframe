@@ -4183,7 +4183,7 @@ class XGBoostCallback(UniversalCallback, TrainingCallback):
             if hasattr(self, "best_iter"):
                 best_iter = self.best_iter
             else:
-                best_iter = 0            
+                best_iter = 0
             model.set_attr(best_score=self.best_metric, best_iteration=best_iter)
             return True
 
