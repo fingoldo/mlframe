@@ -2470,7 +2470,7 @@ def create_ts_train_val_test_split(
     return train_idx, val_idx, test_idx
 
 
-def save_mlframe_model(model: object, file: str, zstd_kwargs: dict = None) -> bool:
+def save_mlframe_model(model: object, file: str, zstd_kwargs: dict = None, verbose: int = 1) -> bool:
     if zstd_kwargs is None:
         zstd_kwargs = dict(level=4, write_checksum=True, write_content_size=True, threads=-1)
     try:
@@ -2478,9 +2478,13 @@ def save_mlframe_model(model: object, file: str, zstd_kwargs: dict = None) -> bo
             compressor = zstd.ZstdCompressor(**zstd_kwargs)
             with compressor.stream_writer(f) as zf:
                 dill.dump(model, zf)
+        if verbose > 0:
+            size_mb = os.path.getsize(file) / (1024 * 1024)
+            logger.info(f"Model saved successfully to {file}. Size: {size_mb:.2f} Mb")
         return True
     except Exception as e:
         logger.error(f"Could not save model to file {file}: {e}")
+        return False
 
 
 def load_mlframe_model(file: str) -> object:
