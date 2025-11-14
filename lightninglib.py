@@ -831,7 +831,7 @@ class TorchDataModule(LightningDataModule):
 
     def val_dataloader(self) -> DataLoader:
         """Return validation DataLoader."""
-        if self.val_features is None or len(self.val_features)==0:
+        if self.val_features is None or len(self.val_features) == 0:
             return
         return self._create_dataloader(
             features=self.val_features,
