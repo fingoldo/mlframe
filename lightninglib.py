@@ -209,7 +209,7 @@ class PytorchLightningEstimator(BaseEstimator):
         callbacks = [
             checkpointing,
             LearningRateMonitor(logging_interval="epoch"),
-            RichProgressBar(refresh_rate=10),
+            TQDMProgressBar(refresh_rate=10),
         ]
 
         if self.use_swa:
