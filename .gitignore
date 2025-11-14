@@ -37,7 +37,7 @@ MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 
-# Unit extract_message_update_filters_callback_ngrams_only / coverage reports
+# Unit test / coverage reports
 htmlcov/
 .tox/
 .nox/
@@ -50,6 +50,12 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+
+# Mutation testing
+.mutmut-cache
+mutatest_results/
+test-session.toml
+.cosmic-ray/
 
 # Translations
 *.mo

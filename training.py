@@ -2213,7 +2213,7 @@ def configure_training_params(
         min_layer_neurons=1,
         neurons_by_layer_arch=MLPNeuronsByLayerArchitecture.Declining,
         consec_layers_neurons_ratio=1.5,
-        activation_function=torch.nn.LeakyReLU(),
+        activation_function=torch.nn.LeakyReLU,
         weights_init_fcn=partial(nn.init.kaiming_normal_, nonlinearity="leaky_relu", a=0.01),
         dropout_prob=0.15,
         inputs_dropout_prob=0.002,

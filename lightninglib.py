@@ -1039,83 +1039,135 @@ def generate_mlp(
     activation_function: Callable = torch.nn.ReLU,
     weights_init_fcn: Callable = None,
     dropout_prob: float = 0.15,
-    inputs_dropout_prob: float = 0.002,
+    inputs_dropout_prob: float = 0.01,
     use_layernorm: bool = True,
-    use_batchnorm: bool = True,
+    use_batchnorm: bool = False,
+    use_layernorm_per_layer: bool = False,
     groupnorm_num_groups: int = 0,
-    norm_kwargs: dict = None,
-    verbose: int = 0,
+    layer_norm_kwargs: dict = None,
+    batch_norm_kwargs: dict = None,
+    group_norm_kwargs: dict = None,
+    verbose: int = 1,
 ):
     """Generates multilayer perceptron with specific architecture.
     If first_layer_num_neurons is not specified, uses num_features.
     Suitable in NAS and HPT/HPO procedures for generating ANN candidates.
 
     Args:
-        verbose (int): If 1, logs the network architecture (e.g., 10-2-5-1).
+        num_features: Number of input features
+        num_classes: Number of output classes (None/0 = feature extractor, 1 = regression, >1 = classification)
+        nlayers: Number of hidden layers
+        first_layer_num_neurons: Neurons in first layer (defaults to num_features)
+        min_layer_neurons: Minimum neurons per layer
+        neurons_by_layer_arch: Architecture pattern for neuron counts
+        consec_layers_neurons_ratio: Ratio between consecutive layers
+        activation_function: Activation function class (will be instantiated)
+        weights_init_fcn: Weight initialization function
+        dropout_prob: Dropout probability after each layer
+        inputs_dropout_prob: Dropout probability for input features
+        use_layernorm: Apply LayerNorm to inputs
+        use_batchnorm: Apply BatchNorm after each layer
+        use_layernorm_per_layer: Apply LayerNorm after each layer (in addition to input LayerNorm)
+        groupnorm_num_groups: Number of groups for GroupNorm (0 = disabled)
+        layer_norm_kwargs: Kwargs for LayerNorm
+        batch_norm_kwargs: Kwargs for BatchNorm
+        group_norm_kwargs: Kwargs for GroupNorm
+        verbose: If 1, logs the network architecture (e.g., 100->50->25->1 [R, n=176, w=7.6k])
     """
 
-    # Auto inits
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Auto inits and parameter setup
+    # ----------------------------------------------------------------------------------------------------------------------------
 
-    if norm_kwargs is None:
-        norm_kwargs = dict(eps=0.00001, momentum=0.1)
+    if layer_norm_kwargs is None:
+        layer_norm_kwargs = dict(eps=1e-5)
+    if batch_norm_kwargs is None:
+        batch_norm_kwargs = dict(eps=1e-5, momentum=0.1)
+    if group_norm_kwargs is None:
+        group_norm_kwargs = dict(eps=1e-5)
 
     if not first_layer_num_neurons:
         first_layer_num_neurons = num_features
-    if num_classes:
-        if min_layer_neurons < num_classes:
-            min_layer_neurons = num_classes
 
+    # Don't modify min_layer_neurons directly - use effective_min_neurons instead
+    effective_min_neurons = max(min_layer_neurons, num_classes) if num_classes and num_classes > 1 else min_layer_neurons
+
+    # ----------------------------------------------------------------------------------------------------------------------------
     # Sanity checks
+    # ----------------------------------------------------------------------------------------------------------------------------
+
     assert dropout_prob >= 0.0
-    assert consec_layers_neurons_ratio >= 1.0
-    assert (num_classes >= 0 and isinstance(num_classes, int)) or num_classes is None
+    assert inputs_dropout_prob >= 0.0
+    assert consec_layers_neurons_ratio >= 1.0    
     assert nlayers >= 1 and isinstance(nlayers, int)
     assert min_layer_neurons >= 1 and isinstance(min_layer_neurons, int)
+    assert num_classes is None or (num_classes >= 0 and isinstance(num_classes, int))
     assert first_layer_num_neurons >= min_layer_neurons and isinstance(first_layer_num_neurons, int)
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Build network layers
+    # ----------------------------------------------------------------------------------------------------------------------------
 
     layers = []
     layer_sizes = [num_features]  # Track layer sizes for verbose logging
-    if inputs_dropout_prob:
+
+    # Input normalization and dropout
+    if inputs_dropout_prob > 0:
         layers.append(nn.Dropout(inputs_dropout_prob))
     if use_layernorm:
-        layers.append(nn.LayerNorm(num_features, **norm_kwargs))
+        layers.append(nn.LayerNorm(num_features, **layer_norm_kwargs))
 
-    if groupnorm_num_groups:
+    if groupnorm_num_groups > 0:
         num_groups_for_input = get_valid_num_groups(num_features, groupnorm_num_groups)
         if num_groups_for_input > 1:
-            layers.append(nn.GroupNorm(num_groups=num_groups_for_input, num_channels=num_features, **norm_kwargs))  # Reuse kwargs for eps, etc.
+            layers.append(nn.GroupNorm(num_groups=num_groups_for_input, num_channels=num_features, **group_norm_kwargs))
+
+    # Cache mid_layer for architectures that need it
+    mid_layer = nlayers // 2
 
     prev_layer_neurons = num_features
     cur_layer_neurons = first_layer_num_neurons
     cur_layer_virt_neurons = first_layer_num_neurons
+
     for layer in range(nlayers):
 
         # ----------------------------------------------------------------------------------------------------------------------------
-        # Compute # of neurons in current layer
+        # Compute # of neurons in current layer using match statement (Python 3.10+)
         # ----------------------------------------------------------------------------------------------------------------------------
 
         if layer > 0:
-            if neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Declining:
-                cur_layer_virt_neurons = prev_layer_virt_neurons / consec_layers_neurons_ratio
-            elif neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Expanding:
-                cur_layer_virt_neurons = prev_layer_virt_neurons * consec_layers_neurons_ratio
-            elif neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.ExpandingThenDeclining:
-                if layer <= nlayers // 2:
-                    cur_layer_virt_neurons = prev_layer_virt_neurons * consec_layers_neurons_ratio
-                else:
+            match neurons_by_layer_arch:
+                case MLPNeuronsByLayerArchitecture.Constant:
+                    cur_layer_virt_neurons = prev_layer_virt_neurons
+                case MLPNeuronsByLayerArchitecture.Declining:
                     cur_layer_virt_neurons = prev_layer_virt_neurons / consec_layers_neurons_ratio
-            elif neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Autoencoder:
-                if layer <= nlayers // 2:
-                    cur_layer_virt_neurons = prev_layer_virt_neurons / consec_layers_neurons_ratio
-                else:
+                case MLPNeuronsByLayerArchitecture.Expanding:
                     cur_layer_virt_neurons = prev_layer_virt_neurons * consec_layers_neurons_ratio
+                case MLPNeuronsByLayerArchitecture.ExpandingThenDeclining:
+                    if layer <= mid_layer:
+                        cur_layer_virt_neurons = prev_layer_virt_neurons * consec_layers_neurons_ratio
+                    else:
+                        cur_layer_virt_neurons = prev_layer_virt_neurons / consec_layers_neurons_ratio
+                case MLPNeuronsByLayerArchitecture.Autoencoder:
+                    if layer <= mid_layer:
+                        cur_layer_virt_neurons = prev_layer_virt_neurons / consec_layers_neurons_ratio
+                    else:
+                        cur_layer_virt_neurons = prev_layer_virt_neurons * consec_layers_neurons_ratio
 
             cur_layer_neurons = int(cur_layer_virt_neurons)
-        if cur_layer_neurons < min_layer_neurons:
-            if layer > 0 and not (neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Autoencoder):
+
+        # Check minimum neurons constraint
+        if cur_layer_neurons < effective_min_neurons:
+            if neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Autoencoder:
+                # For autoencoder, allow smaller layers for symmetry, but enforce absolute minimum
+                if cur_layer_neurons < 1:
+                    cur_layer_neurons = 1
+            elif layer > 0:
+                # For other architectures, stop adding layers
                 break
-            else:  # no prev layers exist, need to create at least one
-                cur_layer_neurons = min_layer_neurons
+            else:
+                # First layer must meet minimum
+                cur_layer_neurons = effective_min_neurons
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Add linear layer with that many neurons
@@ -1125,26 +1177,36 @@ def generate_mlp(
         layer_sizes.append(cur_layer_neurons)
 
         # ----------------------------------------------------------------------------------------------------------------------------
-        # Add optional bells & whistles - batchnorm, activation, dropout
+        # Add optional bells & whistles - batchnorm, layernorm, activation, dropout
         # ----------------------------------------------------------------------------------------------------------------------------
 
         if use_batchnorm:
-            layers.append(nn.BatchNorm1d(cur_layer_neurons, **norm_kwargs))
+            layers.append(nn.BatchNorm1d(cur_layer_neurons, **batch_norm_kwargs))
+        if use_layernorm_per_layer:
+            layers.append(nn.LayerNorm(cur_layer_neurons, **layer_norm_kwargs))
         if activation_function:
-            layers.append(activation_function)
-        if dropout_prob:
+            layers.append(activation_function())  # Instantiate activation function
+        if dropout_prob > 0:
             layers.append(nn.Dropout(dropout_prob))
 
         prev_layer_neurons = cur_layer_neurons
         prev_layer_virt_neurons = cur_layer_virt_neurons
 
     # ----------------------------------------------------------------------------------------------------------------------------
-    # For classification, just add final linear layer with num_classes neurons, to get logits
+    # Add final layer based on num_classes (Classification / Regression / Feature Extractor)
     # ----------------------------------------------------------------------------------------------------------------------------
 
-    if num_classes:
+    if num_classes is None or num_classes == 0:
+        logger.warning("num_classes is None or 0 - creating feature extractor (no final layer)")
+        model_type = "FE"
+    elif num_classes == 1:
+        layers.append(nn.Linear(prev_layer_neurons, 1))
+        layer_sizes.append(1)
+        model_type = "R"
+    else:  # num_classes > 1
         layers.append(nn.Linear(prev_layer_neurons, num_classes))
         layer_sizes.append(num_classes)
+        model_type = "C"
 
     model = nn.Sequential(*layers)
 
@@ -1153,14 +1215,39 @@ def generate_mlp(
     # ----------------------------------------------------------------------------------------------------------------------------
 
     if verbose == 1:
-        architecture = "-".join(str(size) for size in layer_sizes)
-        logger.info(f"Network architecture: {architecture}")
+        # Calculate total neurons and weights
+        total_neurons = sum(layer_sizes)
+        total_weights = 0
+
+        # Count parameters in all layers
+        for module in model.modules():
+            if isinstance(module, nn.Linear):
+                # Linear layer: in_features * out_features + out_features (bias)
+                total_weights += module.weight.numel()
+                if module.bias is not None:
+                    total_weights += module.bias.numel()
+            elif isinstance(module, (nn.BatchNorm1d, nn.LayerNorm)):
+                # Norm layers have weight and bias
+                if hasattr(module, 'weight') and module.weight is not None:
+                    total_weights += module.weight.numel()
+                if hasattr(module, 'bias') and module.bias is not None:
+                    total_weights += module.bias.numel()
+
+        # Format numbers with 'k' suffix if >= 1000
+        def format_num(n):
+            if n >= 1000:
+                return f"{n/1000:.1f}k"
+            return str(n)
+
+        architecture = "->".join(str(size) for size in layer_sizes)
+        logger.info(
+            f"Network architecture: {architecture} [{model_type}, n={format_num(total_neurons)}, w={format_num(total_weights)}]"
+        )
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # Init weights explicitly if weights_init_fcn is set
     # ----------------------------------------------------------------------------------------------------------------------------
 
-    # Weights initialization
     if weights_init_fcn:
 
         def init_weights(m):
