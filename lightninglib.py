@@ -155,9 +155,12 @@ class PytorchLightningEstimator(BaseEstimator):
         # Enable TF32 for float32 matrix multiplication if on GPU
         if self.float32_matmul_precision and torch.cuda.is_available():
             assert self.float32_matmul_precision in "highest high medium".split()
-            if self.float32_matmul_precision and hasattr(torch, "set_float32_matmul_precision"):
+            if hasattr(torch, "set_float32_matmul_precision"):
                 torch.set_float32_matmul_precision(self.float32_matmul_precision)
-                logger.info(f"Enabled float32_matmul_precision={self.float32_matmul_precision} for float32 matrix multiplication to improve performance on GPU")
+                logger.info(f"Enabled float32_matmul_precision={self.float32_matmul_precision}")
+
+        # Check validation availability once
+        has_validation = eval_set[0] is not None
 
         # Create datamodule
         dm = self.datamodule_class(
@@ -174,87 +177,78 @@ class PytorchLightningEstimator(BaseEstimator):
                 self.classes_ = np.array(classes)
             elif not hasattr(self, "classes_"):
                 self.classes_ = sorted(np.unique(y) if not isinstance(y, pd.Series) else y.unique())
-
             num_classes = len(self.classes_)
         else:
             num_classes = 1
 
-        # Initialize model if not partial_fit or model doesn't exist
+        # Initialize model if not partial_fit
         if not is_partial_fit:
-            self.network = generate_mlp(num_features=X.shape[1], num_classes=num_classes, **self.network_params)  # init here to allow feature selectors
+            self.network = generate_mlp(num_features=X.shape[1], num_classes=num_classes, **self.network_params)
 
-            if num_classes > 1:
-                early_stopping_metric_name = "ICE"
-                metric_fcn = compute_probabilistic_multiclass_error
-                metrics = [MetricSpec(name=early_stopping_metric_name, fcn=metric_fcn, requires_probs=True, requires_argmax=False)]
-            else:
-                early_stopping_metric_name = "MSE"
-                metric_fcn = root_mean_squared_error
-                metrics = [MetricSpec(name=early_stopping_metric_name, fcn=metric_fcn, requires_probs=False, requires_argmax=False)]
+        # Configure metrics and monitoring
+        if num_classes > 1:
+            metric_name = "ICE"
+            metrics = [MetricSpec(name=metric_name, fcn=compute_probabilistic_multiclass_error, requires_probs=True)]
+        else:
+            metric_name = "MSE"
+            metrics = [MetricSpec(name=metric_name, fcn=root_mean_squared_error)]
 
-            checkpointing = BestEpochModelCheckpoint(
-                monitor="val_" + early_stopping_metric_name,
-                dirpath=self.trainer_params["default_root_dir"],
-                filename="model-{" + "val_" + early_stopping_metric_name + ":.4f}",
-                enable_version_counter=True,
-                save_last=False,
-                save_top_k=1,
-                mode="min",
-            )
-            # metric_computing_callback = AggregatingValidationCallback(metric_name=early_stopping_metric_name, metric_fcn=metric_fcn)
+        # Setup checkpointing with appropriate monitor
+        monitor_metric = f"{'val' if has_validation else 'train'}_{metric_name}"
+        checkpointing = BestEpochModelCheckpoint(
+            monitor=monitor_metric,
+            dirpath=self.trainer_params["default_root_dir"],
+            filename=f"model-{{{monitor_metric}:.4f}}",
+            enable_version_counter=True,
+            save_last=False,
+            save_top_k=1,
+            mode="min",
+        )
 
-            # tb_logger = TensorBoardLogger(save_dir=args.experiment_path, log_graph=True)  # save_dir="s3://my_bucket/logs/"
-            refresh_rate = 10
-            progress_bar = TQDMProgressBar(refresh_rate=refresh_rate) if False else RichProgressBar(refresh_rate=refresh_rate)
+        # Build callbacks list
+        callbacks = [
+            checkpointing,
+            LearningRateMonitor(logging_interval="epoch"),
+            RichProgressBar(refresh_rate=10),
+        ]
 
-            callbacks = [
-                checkpointing,
-                # metric_computing_callback,
-                # NetworkGraphLoggingCallback(),
-                LearningRateMonitor(logging_interval="epoch"),
-                progress_bar,
-                # PeriodicLearningRateFinder(period=10),
-            ]
-            if self.use_swa:
-                callbacks.append(StochasticWeightAveraging(**self.swa_params))
+        if self.use_swa:
+            callbacks.append(StochasticWeightAveraging(**self.swa_params))
 
-            if eval_set is not None and (eval_set[0] is not None):
-
-                early_stopping_rounds = self.early_stopping_rounds
-                logger.info(f"Using early_stopping_rounds={early_stopping_rounds:_}")
-
-                early_stopping = EarlyStoppingCallback(
-                    monitor="val_" + early_stopping_metric_name, min_delta=0.001, patience=early_stopping_rounds, mode="min", verbose=True
-                )  # stopping_threshold: Stops training immediately once the monitored quantity reaches this threshold.
-                callbacks.append(early_stopping)
-
-            trainer = L.Trainer(
-                **self.trainer_params,
-                # ----------------------------------------------------------------------------------------------------------------------
-                # Callbacks:
-                # ----------------------------------------------------------------------------------------------------------------------
-                callbacks=callbacks,
-                # DeviceStatsMonitor(),
-                # ModelPruning("l1_unstructured", amount=0.5)
+        if has_validation:
+            logger.info(f"Using early_stopping_rounds={self.early_stopping_rounds:_}")
+            callbacks.append(
+                EarlyStoppingCallback(
+                    monitor=f"val_{metric_name}",
+                    min_delta=0.001,
+                    patience=self.early_stopping_rounds,
+                    mode="min",
+                    verbose=True,
+                )
             )
 
-            with trainer.init_module():
-                self.model = self.model_class(network=self.network, metrics=metrics, **self.model_params)
+        # Configure trainer params - only modify if needed
+        trainer_params = self.trainer_params
+        if not has_validation:
+            logger.info("No validation data - training without validation")
+            trainer_params = {**self.trainer_params, "num_sanity_val_steps": 0, "limit_val_batches": 0}
 
-                features_dtype = self.datamodule_params.get("features_dtype", torch.float32)
-                data_slice = X.iloc[0:2, :].values if isinstance(X, pd.DataFrame) else X[0:2, :]
+        trainer = L.Trainer(**trainer_params, callbacks=callbacks)
 
-                try:
-                    self.model.example_input_array = to_tensor_any(data_slice, dtype=features_dtype, safe=True)
-                except Exception as e:
-                    raise RuntimeError(f"Failed to prepare example_input_array: {e}")
+        # Initialize model
+        with trainer.init_module():
+            self.model = self.model_class(network=self.network, metrics=metrics, **self.model_params)
 
-            # Store trainer for later use in predict
-            self.trainer = trainer
+            features_dtype = self.datamodule_params.get("features_dtype", torch.float32)
+            data_slice = X.iloc[0:2, :].values if isinstance(X, pd.DataFrame) else X[0:2, :]
 
-        # Tune parameters if requested and not already tuned (for partial_fit)
+            try:
+                self.model.example_input_array = to_tensor_any(data_slice, dtype=features_dtype, safe=True)
+            except Exception as e:
+                raise RuntimeError(f"Failed to prepare example_input_array: {e}")
+
+        # Tune parameters if requested
         if self.tune_params and not (is_partial_fit and hasattr(self, "_tuned")):
-
             tuner = Tuner(trainer)
 
             if self.tune_batch_size:
@@ -266,21 +260,19 @@ class PytorchLightningEstimator(BaseEstimator):
             self.model.hparams.learning_rate = new_lr
 
             if is_partial_fit:
-                self._tuned = True  # Mark as tuned for subsequent partial_fit calls
+                self._tuned = True
 
-        # Train the model
+        # Train
         trainer.fit(model=self.model, datamodule=dm)
 
-        # NOTE: best_epoch is stored in BestEpochModelCheckpoint callback and copied here
-        # for convenience. This duplication is intentional to provide easy access via the
-        # estimator without needing to search through callbacks. The callback remains the
-        # source of truth during training, while this copy is for post-training access.
+        # Extract best epoch from checkpoint callback
         for callback in trainer.callbacks:
             if isinstance(callback, BestEpochModelCheckpoint):
                 self.best_epoch = callback.best_epoch
                 logger.info(f"Best epoch recorded: {self.best_epoch}")
                 break
 
+        # Clean up to avoid pickle issues and free memory
         self.trainer = None
 
         return self
@@ -831,8 +823,6 @@ class TorchDataModule(LightningDataModule):
 
     def val_dataloader(self) -> DataLoader:
         """Return validation DataLoader."""
-        if self.val_features is None or len(self.val_features) == 0:
-            return
         return self._create_dataloader(
             features=self.val_features,
             labels=self.val_labels,
