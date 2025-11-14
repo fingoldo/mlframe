@@ -1286,7 +1286,12 @@ class MLPTorchModel(L.LightningModule):
             logger.debug("Network lacks 'example_input_array'; ONNX export may require manual input")
 
     def _apply_torch_compile(self) -> None:
-        """Apply torch.compile to the network if enabled."""
+        """Apply torch.compile to the network if enabled.
+
+        Compiled modles have problems with saving, at least in pytorch 2.8:
+        cannot pickle 'ConfigModuleInstance' object
+        https://github.com/pytorch/pytorch/issues/126154
+        """
         if not self.hparams.compile_network:
             return
 
