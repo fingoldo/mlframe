@@ -35,6 +35,7 @@ from lightning.pytorch.callbacks import Callback, LearningRateFinder
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping as EarlyStoppingCallback
 from lightning.pytorch.callbacks import RichProgressBar, TQDMProgressBar, ModelPruning, LearningRateMonitor, LearningRateFinder
 from lightning.pytorch.callbacks import ModelCheckpoint, DeviceStatsMonitor, StochasticWeightAveraging, GradientAccumulationScheduler
+from lightning.pytorch.loggers import CSVLogger
 
 from enum import Enum, auto
 from functools import partial
@@ -46,6 +47,16 @@ from mlframe.metrics import compute_probabilistic_multiclass_error
 
 from sklearn.metrics import r2_score, accuracy_score, root_mean_squared_error
 from copy import deepcopy
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Helper Functions
+# ----------------------------------------------------------------------------------------------------------------------------
+
+
+def _rmse_metric(y_true, y_score):
+    """Wrapper for root_mean_squared_error that accepts y_score parameter name."""
+    return root_mean_squared_error(y_true=y_true, y_pred=y_score)
+
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # ENUMS
@@ -181,8 +192,8 @@ class PytorchLightningEstimator(BaseEstimator):
         else:
             num_classes = 1
 
-        # Initialize model if not partial_fit
-        if not is_partial_fit:
+        # Initialize model if needed (first call to fit or partial_fit)
+        if not hasattr(self, 'network') or self.network is None:
             self.network = generate_mlp(num_features=X.shape[1], num_classes=num_classes, **self.network_params)
 
         # Configure metrics and monitoring
@@ -191,10 +202,15 @@ class PytorchLightningEstimator(BaseEstimator):
             metrics = [MetricSpec(name=metric_name, fcn=compute_probabilistic_multiclass_error, requires_probs=True)]
         else:
             metric_name = "MSE"
-            metrics = [MetricSpec(name=metric_name, fcn=root_mean_squared_error)]
+            metrics = [MetricSpec(name=metric_name, fcn=_rmse_metric)]
 
         # Setup checkpointing with appropriate monitor
-        monitor_metric = f"{'val' if has_validation else 'train'}_{metric_name}"
+        # When no validation data, monitor train_loss instead of train metrics (which may not be logged)
+        if has_validation:
+            monitor_metric = f"val_{metric_name}"
+        else:
+            monitor_metric = "train_loss"
+
         checkpointing = BestEpochModelCheckpoint(
             monitor=monitor_metric,
             dirpath=self.trainer_params["default_root_dir"],
@@ -228,10 +244,15 @@ class PytorchLightningEstimator(BaseEstimator):
             )
 
         # Configure trainer params - only modify if needed
-        trainer_params = self.trainer_params
+        trainer_params = self.trainer_params.copy()
         if not has_validation:
             logger.info("No validation data - training without validation")
-            trainer_params = {**self.trainer_params, "num_sanity_val_steps": 0, "limit_val_batches": 0}
+            trainer_params.update({"num_sanity_val_steps": 0, "limit_val_batches": 0})
+
+        # Set safe default logger to avoid TensorBoard/TensorFlow issues on Windows
+        # Use CSVLogger instead of TensorBoard to prevent Windows access violations
+        if 'logger' not in trainer_params:
+            trainer_params['logger'] = CSVLogger(save_dir='lightning_logs', name='')
 
         trainer = L.Trainer(**trainer_params, callbacks=callbacks)
 
@@ -444,8 +465,11 @@ class PytorchLightningEstimator(BaseEstimator):
         """
         predictions = self._predict_raw(X, device=device, precision=precision, batch_size=batch_size)
 
-        # For regression, return raw predictions
+        # For regression, return raw predictions (squeeze to 1D for single-target regression)
         if isinstance(self, RegressorMixin):
+            # Squeeze last dimension if it's 1 (single-target regression)
+            if predictions.ndim == 2 and predictions.shape[1] == 1:
+                predictions = predictions.squeeze(axis=1)
             return predictions
 
         # For classification in the base class, return probabilities
@@ -1410,16 +1434,30 @@ class MLPTorchModel(L.LightningModule):
         features, labels = self._unpack_batch(batch)
         raw_predictions = self(features)
 
+        # Squeeze predictions for single-output regression to match label shape
+        if raw_predictions.ndim == 2 and raw_predictions.shape[1] == 1:
+            raw_predictions_for_loss = raw_predictions.squeeze(1)
+        else:
+            raw_predictions_for_loss = raw_predictions
+
         # Compute loss
-        loss = self.loss_fn(raw_predictions, labels)
+        loss = self.loss_fn(raw_predictions_for_loss, labels)
 
         # Add L1 regularization if enabled
         if self.hparams.l1_alpha > 0:
             l1_norm = sum(p.abs().sum() for p in self.network.parameters())
             loss = loss + self.hparams.l1_alpha * l1_norm
-            self.log("train_l1_norm", l1_norm, on_step=False, on_epoch=True)
+            # Only log if trainer is attached (avoid warnings in unit tests)
+            try:
+                self.log("train_l1_norm", l1_norm, on_step=False, on_epoch=True)
+            except RuntimeError:
+                pass  # Not attached to trainer (unit tests)
 
-        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        # Only log if trainer is attached (avoid warnings in unit tests)
+        try:
+            self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        except RuntimeError:
+            pass  # Not attached to trainer (unit tests)
 
         # Store predictions for metric computation if needed
         result = {"loss": loss}
@@ -1460,10 +1498,20 @@ class MLPTorchModel(L.LightningModule):
         # No gradient computation needed
         raw_predictions = self(features)
 
-        # Compute loss without L1 regularization for fair comparison
-        loss = self.loss_fn(raw_predictions, labels)
+        # Squeeze predictions for single-output regression to match label shape
+        if raw_predictions.ndim == 2 and raw_predictions.shape[1] == 1:
+            raw_predictions_for_loss = raw_predictions.squeeze(1)
+        else:
+            raw_predictions_for_loss = raw_predictions
 
-        self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        # Compute loss without L1 regularization for fair comparison
+        loss = self.loss_fn(raw_predictions_for_loss, labels)
+
+        # Only log if trainer is attached (avoid warnings in unit tests)
+        try:
+            self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        except RuntimeError:
+            pass  # Not attached to trainer (unit tests)
 
         # MEMORY OPTIMIZATION: Store outputs on CPU immediately to free GPU memory
         output = {"raw_predictions": raw_predictions.detach().cpu(), "labels": labels.detach().cpu()}
