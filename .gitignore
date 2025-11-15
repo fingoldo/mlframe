@@ -50,6 +50,8 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+lightning_logs/
+NUL
 
 # Mutation testing
 .mutmut-cache
