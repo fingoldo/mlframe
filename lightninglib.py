@@ -36,6 +36,7 @@ from lightning.pytorch.callbacks.early_stopping import EarlyStopping as EarlySto
 from lightning.pytorch.callbacks import RichProgressBar, TQDMProgressBar, ModelPruning, LearningRateMonitor, LearningRateFinder
 from lightning.pytorch.callbacks import ModelCheckpoint, DeviceStatsMonitor, StochasticWeightAveraging, GradientAccumulationScheduler
 from lightning.pytorch.loggers import CSVLogger
+from lightning.pytorch.utilities import rank_zero_only
 
 from enum import Enum, auto
 from functools import partial
@@ -286,12 +287,19 @@ class PytorchLightningEstimator(BaseEstimator):
         # Train
         trainer.fit(model=self.model, datamodule=dm)
 
-        # Extract best epoch from checkpoint callback
-        for callback in trainer.callbacks:
-            if isinstance(callback, BestEpochModelCheckpoint):
-                self.best_epoch = callback.best_epoch
-                logger.info(f"Best epoch recorded: {self.best_epoch}")
-                break
+        # Extract best epoch from model (set by checkpoint callback, DDP-safe)
+        # Prefer model.best_epoch over callback.best_epoch for distributed training compatibility
+        if hasattr(self.model, 'best_epoch') and self.model.best_epoch is not None:
+            self.best_epoch = self.model.best_epoch
+            logger.info(f"Best epoch recorded: {self.best_epoch}")
+        else:
+            # Fallback to callback for backward compatibility
+            for callback in trainer.callbacks:
+                if isinstance(callback, BestEpochModelCheckpoint):
+                    self.best_epoch = callback.best_epoch
+                    if self.best_epoch is not None:
+                        logger.info(f"Best epoch recorded from callback: {self.best_epoch}")
+                    break
 
         # Clean up to avoid pickle issues and free memory
         self.trainer = None
@@ -1024,6 +1032,8 @@ class BestEpochModelCheckpoint(ModelCheckpoint):
         if self.monitor_op(current_score, self.best_score):
             self.best_score = current_score
             self.best_epoch = trainer.current_epoch
+            # Also set on pl_module for DDP synchronization
+            pl_module.best_epoch = self.best_epoch
             logger.info(f"New best model at epoch {self.best_epoch} with {self.monitor}={self.best_score:.4f}")
 
 
