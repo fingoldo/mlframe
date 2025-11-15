@@ -119,7 +119,8 @@ def integration_estimator_params_classifier():
         'max_epochs': 10,
         'enable_model_summary': False,
         'default_root_dir': None,
-        'log_every_n_steps': 1
+        'log_every_n_steps': 1,
+        'devices': 1  # Prevent multi-GPU training in tests
     }
 
     return {
@@ -159,7 +160,8 @@ def integration_estimator_params_regressor():
         'max_epochs': 10,
         'enable_model_summary': False,
         'default_root_dir': None,
-        'log_every_n_steps': 1
+        'log_every_n_steps': 1,
+        'devices': 1  # Prevent multi-GPU training in tests
     }
 
     return {
@@ -613,7 +615,8 @@ class TestRealWorldScenarios:
             'max_epochs': 10,
             'enable_model_summary': False,
             'default_root_dir': None,
-            'log_every_n_steps': 1
+            'log_every_n_steps': 1,
+            'devices': 1
         }
 
         clf = PytorchLightningClassifier(
@@ -670,7 +673,8 @@ class TestRealWorldScenarios:
             'max_epochs': 15,
             'enable_model_summary': False,
             'default_root_dir': None,
-            'log_every_n_steps': 1
+            'log_every_n_steps': 1,
+            'devices': 1
         }
 
         clf = PytorchLightningClassifier(
@@ -727,7 +731,8 @@ class TestRealWorldScenarios:
             'max_epochs': 15,
             'enable_model_summary': False,
             'default_root_dir': None,
-            'log_every_n_steps': 1
+            'log_every_n_steps': 1,
+            'devices': 1
         }
 
         reg = PytorchLightningRegressor(

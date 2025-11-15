@@ -101,7 +101,8 @@ def estimator_params_classifier():
         'max_epochs': 1,
         'enable_model_summary': False,
         'default_root_dir': None,
-        'log_every_n_steps': 1
+        'log_every_n_steps': 1,
+        'devices': 1  # Prevent multi-GPU training in tests
     }
 
     return {
@@ -141,7 +142,8 @@ def estimator_params_regressor():
         'max_epochs': 1,
         'enable_model_summary': False,
         'default_root_dir': None,
-        'log_every_n_steps': 1
+        'log_every_n_steps': 1,
+        'devices': 1  # Prevent multi-GPU training in tests
     }
 
     return {
@@ -592,7 +594,7 @@ class TestEstimatorsEdgeCases:
                 'labels_dtype': torch.int64,
                 'dataloader_params': {'batch_size': 2, 'num_workers': 0}
             },
-            trainer_params={'max_epochs': 1, 'default_root_dir': None, 'log_every_n_steps': 1}
+            trainer_params={'max_epochs': 1, 'default_root_dir': None, 'log_every_n_steps': 1, 'devices': 1}
         )
 
         clf.fit(X, y)
@@ -616,7 +618,7 @@ class TestEstimatorsEdgeCases:
                 'labels_dtype': torch.int64,
                 'dataloader_params': {'batch_size': 32, 'num_workers': 0}
             },
-            trainer_params={'max_epochs': 2, 'default_root_dir': None, 'log_every_n_steps': 1}
+            trainer_params={'max_epochs': 2, 'default_root_dir': None, 'log_every_n_steps': 1, 'devices': 1}
         )
 
         clf.fit(X.astype(np.float32), y)
@@ -640,7 +642,7 @@ class TestEstimatorsEdgeCases:
                 'labels_dtype': torch.float32,
                 'dataloader_params': {'batch_size': 32, 'num_workers': 0}
             },
-            trainer_params={'max_epochs': 2, 'default_root_dir': None, 'log_every_n_steps': 1}
+            trainer_params={'max_epochs': 2, 'default_root_dir': None, 'log_every_n_steps': 1, 'devices': 1}
         )
 
         reg.fit(regression_data['X_train'], regression_data['y_train'])

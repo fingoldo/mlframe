@@ -3,10 +3,10 @@ Tests for generate_mlp function using pytest and hypothesis.
 
 Run tests:
     # Run all tests
-    pytest tests/lightninglib/test_generate_mlp.py -v
+    pytest tests/lightninglib/ -v
 
     # Run with coverage
-    pytest tests/lightninglib/test_generate_mlp.py --cov=mlframe.lightninglib --cov-report=html
+    pytest tests/lightninglib/ --cov=mlframe.lightninglib --cov-report=html
 
     # Run specific test
     pytest tests/lightninglib/test_generate_mlp.py::test_basic_regression_network -v
