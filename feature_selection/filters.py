@@ -3277,7 +3277,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                         fit_params=dict(plot=False),
                         cat_features=categorical_vars_names,
                         scoring=make_scorer(
-                            score_func=compute_probabilistic_multiclass_error, needs_proba=True, needs_threshold=False, greater_is_better=False
+                            score_func=compute_probabilistic_multiclass_error, response_method='predict_proba', greater_is_better=False
                         ),
                         **params,
                     )

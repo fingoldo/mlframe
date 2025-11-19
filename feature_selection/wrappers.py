@@ -201,6 +201,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         leave_progressbars: bool = True,
         verbose: Union[bool, int] = 1,
         show_plot: bool = False,
+        optimizer_plotting: Union[str, None] = None,  # Controls Optimizer plotting: 'No', 'Final', 'OnScoreImprovement', 'Regular'
         cat_features: Union[Sequence, None] = None,
         keep_estimators: bool = False,
         estimators_save_path: str = None,  # fitted estimators get saved into join(estimators_save_path,estimator_type_name,nestimator_nfeatures_nfold.dump)
@@ -335,10 +336,14 @@ class RFECV(BaseEstimator, TransformerMixin):
         if scoring is None:
             if is_classifier(estimator):
                 logger.info(f"Scoring omited, using probabilistic_multiclass_error by default.")
-                scoring = make_scorer(score_func=compute_probabilistic_multiclass_error, needs_proba=True, needs_threshold=False, greater_is_better=False)
+                # Use response_method='predict_proba' for sklearn 1.4+
+                # (needs_proba is deprecated)
+                scoring = make_scorer(score_func=compute_probabilistic_multiclass_error,
+                                      response_method='predict_proba',
+                                      greater_is_better=False)
             elif is_regressor(estimator):
                 logger.info(f"Scoring omited, using mean_squared_error by default.")
-                scoring = make_scorer(score_func=mean_squared_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
+                scoring = make_scorer(score_func=mean_squared_error, greater_is_better=False)
             else:
                 raise ValueError(f"Appropriate scoring not known for estimator type: {estimator}")
             self.scoring = scoring
@@ -371,6 +376,21 @@ class RFECV(BaseEstimator, TransformerMixin):
         selected_features_per_nfeatures = {}
 
         if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
+            # Determine plotting mode
+            if self.optimizer_plotting is not None:
+                if self.optimizer_plotting == 'No':
+                    plotting_mode = OptimizationProgressPlotting.No
+                elif self.optimizer_plotting == 'Final':
+                    plotting_mode = OptimizationProgressPlotting.Final
+                elif self.optimizer_plotting == 'OnScoreImprovement':
+                    plotting_mode = OptimizationProgressPlotting.OnScoreImprovement
+                elif self.optimizer_plotting == 'Regular':
+                    plotting_mode = OptimizationProgressPlotting.Regular
+                else:
+                    plotting_mode = OptimizationProgressPlotting.OnScoreImprovement
+            else:
+                plotting_mode = OptimizationProgressPlotting.OnScoreImprovement
+
             Optimizer = MBHOptimizer(
                 search_space=(
                     np.array(np.arange(min(self.max_nfeatures, len(original_features)) + 1).tolist() + [len(original_features)])
@@ -381,7 +401,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 init_sampling_method=CandidateSamplingMethod.Equidistant,
                 init_evaluate_ascending=False,
                 init_evaluate_descending=True,
-                plotting=OptimizationProgressPlotting.OnScoreImprovement,
+                plotting=plotting_mode,
                 seeded_inputs=[min(2, len(original_features))],
             )
         else:

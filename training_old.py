@@ -378,7 +378,6 @@ sklearn.set_config(transform_output="pandas")  # need this for val_df = pre_pipe
 CUDA_IS_AVAILABLE = is_cuda_available()
 MODELS_SUBDIR = "models"
 PARQUET_COMPRESION: str = "zstd"
-all_results = {}
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Constants
@@ -392,7 +391,7 @@ GPU_VRAM_SAFE_FREE_LIMIT_GB: float = 0.1
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-class DataFramePreprocessor:
+class FeaturesAndTargetsExtractor:
     """Class that prepares a dataframe before actual ML starts."""
 
     def __init__(
@@ -431,7 +430,7 @@ class DataFramePreprocessor:
     def prepare_artifacts(self, df: Union[pd.DataFrame, pl.DataFrame]):
         return {}
 
-    def process(self, df: Union[pd.DataFrame, pl.DataFrame]) -> tuple:
+    def transform(self, df: Union[pd.DataFrame, pl.DataFrame]) -> tuple:
         # convert_float64_to_float32(df)  # Uncomment if needed
 
         self.show_raw_data(df)
@@ -474,7 +473,7 @@ class DataFramePreprocessor:
         return df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, self.columns_to_drop
 
 
-class SimpleDataFramePreprocessor(DataFramePreprocessor):
+class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
     def __init__(
         self,
         ts_field: str = None,
@@ -620,7 +619,7 @@ def get_training_configs(
         has_time=has_time,
         learning_rate=learning_rate,
         eval_fraction=(0.0 if use_explicit_early_stopping else validation_fraction),
-        task_type=("GPU" if has_gpu else "CPU"),
+        task_type=cb_kwargs.pop('task_type', "GPU" if has_gpu else "CPU"),  # Pop from kwargs if present
         early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
         **cb_kwargs,
@@ -650,7 +649,7 @@ def get_training_configs(
         max_cat_to_onehot=1,
         max_cat_threshold=100,  # affects model size heavily when high cardinality cat features r present!
         tree_method="hist",
-        device=("cuda" if has_gpu else "cpu"),
+        device=xgb_kwargs.pop('device', "cuda" if has_gpu else "cpu"),  # Pop from kwargs if present
         n_jobs=psutil.cpu_count(logical=False),
         early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
@@ -731,7 +730,7 @@ def get_training_configs(
     LGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
         early_stopping_rounds=early_stopping_rounds,
-        device_type=("cuda" if has_gpu else "cpu"),
+        device_type=lgb_kwargs.pop('device_type', "cuda" if has_gpu else "cpu"),  # Pop from kwargs if present
         random_state=random_seed,
         # histogram_pool_size=16384,
         **lgb_kwargs,
@@ -797,6 +796,8 @@ def get_training_configs(
     if mlp_kwargs:
         mlp_trainer_params.update(mlp_kwargs.get("trainer_params", {}))
 
+    # Default loss function and dtype (classification)
+    # Note: Actual loss function should be set by PytorchLightningRegressor/Classifier wrappers
     loss_fn = F.cross_entropy
     labels_dtype = torch.int64
 
@@ -1808,7 +1809,26 @@ def report_probabilistic_model_perf(
     """Detailed performance report (usually on a test set)."""
 
     if probs is None:
-        probs = model.predict_proba(df)
+        try:
+            probs = model.predict_proba(df)
+        except (AttributeError, Exception) as e:
+            # Model doesn't have predict_proba (e.g., RidgeClassifier), fallback to predict
+            logger.warning(f"predict_proba not available for {type(model).__name__}, using predict() instead: {e}")
+            preds_fallback = model.predict(df)
+
+            # Convert predictions to probability-like format
+            # Get unique classes from training (stored in model.classes_ for sklearn)
+            if hasattr(model, 'classes_'):
+                n_classes = len(model.classes_)
+                # Map predictions to class indices using searchsorted (efficient!)
+                class_indices = np.searchsorted(model.classes_, preds_fallback)
+            else:
+                n_classes = len(np.unique(preds_fallback))
+                class_indices = preds_fallback.astype(int)
+
+            # Create one-hot encoded probabilities (vectorized, no loop!)
+            probs = np.zeros((len(preds_fallback), n_classes))
+            probs[np.arange(len(preds_fallback)), class_indices] = 1.0
 
     if preds is None:
         preds = np.argmax(probs, axis=1)  # need this for ensembling to work. preds = model.predict(df) will do the same but more labour.
@@ -1830,7 +1850,13 @@ def report_probabilistic_model_perf(
 
     if not classes:
         if model is not None:
-            classes = model.classes_
+            # Try to get classes from model (sklearn convention)
+            # Some models (e.g., NGBClassifier) don't follow this convention
+            if hasattr(model, 'classes_'):
+                classes = model.classes_
+            else:
+                # Fallback: extract unique classes from targets
+                classes = np.unique(targets)
         elif target_label_encoder:
             classes = np.arange(len(target_label_encoder.classes_)).tolist()
         else:
@@ -2060,10 +2086,10 @@ def configure_training_params(
         metamodel_func = lambda x: x
 
     if default_regression_scoring is None:
-        default_regression_scoring = dict(score_func=mean_absolute_error, needs_proba=False, needs_threshold=False, greater_is_better=False)
+        default_regression_scoring = dict(score_func=mean_absolute_error, response_method='predict', greater_is_better=False)
 
     if default_classification_scoring is None:
-        default_classification_scoring = dict(score_func=fast_roc_auc, needs_proba=True, needs_threshold=False, greater_is_better=True)
+        default_classification_scoring = dict(score_func=fast_roc_auc, response_method='predict_proba', greater_is_better=True)
 
     if common_params is None:
         common_params = {}
@@ -2222,16 +2248,21 @@ def configure_training_params(
     if mlp_kwargs:
         mlp_network_params.update(mlp_kwargs.get("network_params", {}))
 
+    # Create MLP with appropriate loss function for task type
+    mlp_general_params = configs.MLP_GENERAL_PARAMS.copy()
+    if use_regression:
+        # Override loss function for regression
+        mlp_general_params['model_params'] = mlp_general_params.get('model_params', {}).copy()
+        mlp_general_params['model_params']['loss_fn'] = F.mse_loss
+        mlp_general_params['datamodule_params'] = mlp_general_params.get('datamodule_params', {}).copy()
+        mlp_general_params['datamodule_params']['labels_dtype'] = torch.float32
+        mlp_model = PytorchLightningRegressor(network_params=mlp_network_params, **mlp_general_params)
+    else:
+        # Use default classification loss function
+        mlp_model = PytorchLightningClassifier(network_params=mlp_network_params, **mlp_general_params)
+
     mlp_params = dict(
-        model=(
-            metamodel_func(
-                (
-                    PytorchLightningRegressor(network_params=mlp_network_params, **configs.MLP_GENERAL_PARAMS)
-                    if use_regression
-                    else PytorchLightningClassifier(network_params=mlp_network_params, **configs.MLP_GENERAL_PARAMS)
-                ),
-            )
-        ),
+        model=metamodel_func(mlp_model),
     )
 
     ngb_params = dict(
@@ -2242,12 +2273,61 @@ def configure_training_params(
         ),
         fit_params=dict(early_stopping_rounds=config_params.get("early_stopping_rounds")),
     )
+
+    # ----------------------------------------------------------------------------------------------------------------------------------------------------
+    # LINEAR MODELS
+    # ----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    from mlframe.training.models import create_linear_model
+    from mlframe.training.configs import LinearModelConfig
+
+    linear_params = dict(
+        model=metamodel_func(create_linear_model('linear', LinearModelConfig(model_type='linear'), use_regression=use_regression))
+    )
+
+    ridge_params = dict(
+        model=metamodel_func(create_linear_model('ridge', LinearModelConfig(model_type='ridge'), use_regression=use_regression))
+    )
+
+    lasso_params = dict(
+        model=metamodel_func(create_linear_model('lasso', LinearModelConfig(model_type='lasso'), use_regression=use_regression))
+    )
+
+    elasticnet_params = dict(
+        model=metamodel_func(create_linear_model('elasticnet', LinearModelConfig(model_type='elasticnet'), use_regression=use_regression))
+    )
+
+    huber_params = dict(
+        model=metamodel_func(create_linear_model('huber', LinearModelConfig(model_type='huber'), use_regression=use_regression))
+    )
+
+    ransac_params = dict(
+        model=metamodel_func(create_linear_model('ransac', LinearModelConfig(model_type='ransac'), use_regression=use_regression))
+    )
+
+    sgd_params = dict(
+        model=metamodel_func(create_linear_model('sgd', LinearModelConfig(model_type='sgd'), use_regression=use_regression))
+    )
+
     # ----------------------------------------------------------------------------------------------------------------------------------------------------
     # Setting up RFECV
     # ----------------------------------------------------------------------------------------------------------------------------------------------------
 
-    rfecv_params = configs.COMMON_RFECV_PARAMS
-    cb_rfecv_params = cb_configs.COMMON_RFECV_PARAMS
+    rfecv_params = configs.COMMON_RFECV_PARAMS.copy()
+    cb_rfecv_params = cb_configs.COMMON_RFECV_PARAMS.copy()
+
+    # When show_perf_chart is False (e.g., during testing), disable Optimizer plots
+    # Note: max_runtime_mins should be set explicitly via common_params['rfecv_params'] if needed
+    if not common_params.get('show_perf_chart', True):
+        rfecv_params['optimizer_plotting'] = 'No'
+        cb_rfecv_params['optimizer_plotting'] = 'No'
+
+    # Allow custom rfecv_params override from common_params
+    # Extract and remove from common_params to avoid passing to train_and_evaluate_model
+    if 'rfecv_params' in common_params:
+        custom_rfecv_params = common_params.pop('rfecv_params')
+        rfecv_params.update(custom_rfecv_params)
+        cb_rfecv_params.update(custom_rfecv_params)
 
     if use_regression:
         rfecv_scoring = make_scorer(**default_regression_scoring)
@@ -2259,8 +2339,7 @@ def configure_training_params(
 
             rfecv_scoring = make_scorer(
                 score_func=fs_and_hpt_integral_calibration_error,
-                needs_proba=True,
-                needs_threshold=False,
+                response_method='predict_proba',
                 greater_is_better=False,
             )
         else:
@@ -2310,7 +2389,21 @@ def configure_training_params(
         **rfecv_params,
     )
 
-    models_params = dict(cb=cb_params, lgb=lgb_params, xgb=xgb_params, hgb=hgb_params, mlp=mlp_params, ngb=ngb_params)
+    models_params = dict(
+        cb=cb_params,
+        lgb=lgb_params,
+        xgb=xgb_params,
+        hgb=hgb_params,
+        mlp=mlp_params,
+        ngb=ngb_params,
+        linear=linear_params,
+        ridge=ridge_params,
+        lasso=lasso_params,
+        elasticnet=elasticnet_params,
+        huber=huber_params,
+        ransac=ransac_params,
+        sgd=sgd_params,
+    )
 
     return (
         common_params,
@@ -2820,7 +2913,8 @@ def select_target(
         ),
     )
     if config_params:
-        effective_config_params = config_params
+        # Use copy to avoid modifying the original dict
+        effective_config_params = config_params.copy()
     if config_params_override:
         effective_config_params.update(config_params_override)
 
@@ -3303,7 +3397,7 @@ def train_mlframe_models_suite(
     df: Union[pl.DataFrame, pd.DataFrame, str],
     target_name: str,
     model_name: str,
-    preprocessor: DataFramePreprocessor,
+    features_and_targets_extractor: FeaturesAndTargetsExtractor,
     #
     n_rows: int = None,
     tail: int = None,
@@ -3344,7 +3438,7 @@ def train_mlframe_models_suite(
     fix_infinities: bool = True,
     fillna_value: float = None,
     ensure_float32_dtypes: bool = True,
-    use_mighty_scaler: bool = True,
+    use_polarsds_pipeline: bool = True,
     #
     test_size: float = 0.1,
     val_size: float = 0.1,
@@ -3453,7 +3547,7 @@ def train_mlframe_models_suite(
 
     if verbose:
         logger.info(f"Preprocessing dataframe...")
-    df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, additional_columns_to_drop = preprocessor.process(df)
+    df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, additional_columns_to_drop = features_and_targets_extractor.transform(df)
     clean_ram()
     if verbose:
         log_ram_usage()
@@ -3475,8 +3569,7 @@ def train_mlframe_models_suite(
                 else:
                     df = df.drop(col)
         elif isinstance(df, pl.DataFrame):
-            # df = df.drop(drop_columns, strict=False)
-            df = df.select(pl.all().exclude(drop_columns))
+            df = df.drop(drop_columns, strict=False)
 
         clean_ram()
         if verbose:
@@ -3571,10 +3664,6 @@ def train_mlframe_models_suite(
 
     elif isinstance(df, pl.DataFrame):
 
-        if False:
-            df = df.with_columns(pl.col(pl.Utf8).cast(pl.Categorical))
-            cat_features = df.head(1).select(pl.col(pl.Categorical)).columns
-
         train_df = df[train_idx].clone()
         test_df = df[test_idx].clone() if test_idx is not None else None
         val_df = df[val_idx].clone() if val_idx is not None else None
@@ -3583,7 +3672,7 @@ def train_mlframe_models_suite(
             log_ram_usage()
 
     if use_autogluon_models or use_lama_models:
-        tran_val_idx = np.array(train_idx.tolist() + val_idx.tolist())
+        tran_val_idx = np.concatenate([train_idx, val_idx])
         if verbose:
             logger.info(f"RSS at start: {get_own_ram_usage():.1f}GBs")
     else:
@@ -3596,7 +3685,7 @@ def train_mlframe_models_suite(
 
     if isinstance(train_df, pl.DataFrame):
 
-        if use_mighty_scaler:
+        if use_polarsds_pipeline:
             try:
                 from polars_ds.pipeline import Pipeline as PdsPipeline, Blueprint as PdsBlueprint
             except Exception as e:
@@ -3646,18 +3735,6 @@ def train_mlframe_models_suite(
     clean_ram()
     if verbose:
         log_ram_usage()
-
-    if False and isinstance(train_df, pl.DataFrame):
-
-        logger.info(f"Getting pandas view of polars dataframes...")
-
-        train_df = get_pandas_view_of_polars_df(train_df)
-        val_df = get_pandas_view_of_polars_df(val_df)
-        if test_df is not None:
-            test_df = get_pandas_view_of_polars_df(test_df)
-
-        if verbose:
-            log_ram_usage()
 
     if cat_features:
         logger.info(f"Ensuring cat_features={','.join(cat_features)}")
