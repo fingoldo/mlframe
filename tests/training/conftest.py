@@ -14,8 +14,16 @@ from pathlib import Path
 @pytest.fixture(autouse=True)
 def cleanup_memory():
     """Clean up memory after each test to prevent OOM issues."""
+    import psutil
+    process = psutil.Process()
+    mem_before = process.memory_info().rss / 1024 / 1024  # MB
+    print(f"\n[MEM] Before: {mem_before:.0f} MB")
+
     yield
+
     gc.collect()
+    mem_after = process.memory_info().rss / 1024 / 1024
+    print(f"[MEM] After: {mem_after:.0f} MB (delta: {mem_after - mem_before:+.0f} MB)")
 
 
 @pytest.fixture
