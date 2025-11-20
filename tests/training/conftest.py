@@ -2,12 +2,20 @@
 Shared pytest fixtures for training module tests.
 """
 
+import gc
 import pytest
 import numpy as np
 import pandas as pd
 import polars as pl
 import warnings
 from pathlib import Path
+
+
+@pytest.fixture(autouse=True)
+def cleanup_memory():
+    """Clean up memory after each test to prevent OOM issues."""
+    yield
+    gc.collect()
 
 
 @pytest.fixture
