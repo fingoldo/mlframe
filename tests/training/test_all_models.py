@@ -608,7 +608,7 @@ class TestFeatureSelection:
     """Test RFECV feature selection with different estimators."""
 
     @pytest.mark.parametrize("estimator", ["cb_rfecv", "lgb_rfecv", "xgb_rfecv"])
-    def test_rfecv_with_estimator(self, estimator, sample_regression_data, temp_data_dir, check_lgb_gpu_available):
+    def test_rfecv_with_estimator(self, estimator, sample_regression_data, temp_data_dir, check_lgb_gpu_available, common_init_params):
         """Test RFECV with each supported estimator, using cb as final model."""
         # Skip LightGBM RFECV if GPU build not available
         if estimator == "lgb_rfecv" and not check_lgb_gpu_available:

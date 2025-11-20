@@ -87,7 +87,7 @@ class TestFitAndTransformPipeline:
         train_df = df.iloc[:train_size]
         val_df = df.iloc[train_size:]
 
-        config = PolarsPipelineConfig(use_polarsds_pipeline=False)
+        config = PolarsPipelineConfig(use_polarsds_pipeline=False, categorical_encoding=None)
 
         # Fit and transform
         train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
@@ -99,7 +99,7 @@ class TestFitAndTransformPipeline:
             verbose=0,
         )
 
-        # Verify cat_features list
+        # Verify cat_features list (preserved when categorical_encoding=None for CatBoost)
         assert 'cat_feature' in cat_features
         assert len(cat_features) == 1
 
