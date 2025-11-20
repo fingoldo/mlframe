@@ -439,7 +439,7 @@ def train_mlframe_models_suite(
                                 )
                                 use_cache = cached_hgb_dfs
                                 cache_key = "hgb"
-                            elif mlframe_model_name in ("mlp", "ngb"):
+                            elif mlframe_model_name in ("mlp", "ngb") or is_linear_model(mlframe_model_name):
                                 pre_pipeline = Pipeline(
                                     steps=[
                                         *([("pre", orig_pre_pipeline)] if orig_pre_pipeline else []),
@@ -451,6 +451,8 @@ def train_mlframe_models_suite(
                                 use_cache = cached_mlp_ngb_dfs
                                 cache_key = "mlp_ngb"
                             else:
+                                # For tree models (cb, lgb, xgb) that handle NaN natively
+                                pre_pipeline = orig_pre_pipeline
                                 use_cache = cached_original_dfs
                                 cache_key = "original"
 
