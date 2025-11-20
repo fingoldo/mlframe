@@ -244,7 +244,7 @@ def is_neural_model(model_name: str) -> bool:
 # ==================================================================================
 
 try:
-    from ..training import (
+    from ..training_old import (
         train_and_evaluate_model,
         process_model,
         configure_training_params,

@@ -8,6 +8,7 @@ import logging
 import os
 from typing import Union, Optional
 import dill
+import numpy as np
 import zstandard as zstd
 import pandas as pd
 import polars as pl
@@ -371,9 +372,17 @@ def remove_constant_columns(df: Union[pl.DataFrame, pd.DataFrame], verbose: int 
             verbose=verbose,
         )
     else:
-        # Pandas: handle both numeric and categorical at once
-        constant_num_cols = [col for col in df.select_dtypes(include='number').columns if df[col].min() == df[col].max()]
-        constant_cat_cols = [col for col in df.select_dtypes(exclude='number').columns if df[col].nunique() == 1]
+        # Pandas: faster constant column detection
+        first = df.iloc[0]
+        mask_equal = df.eq(first).all()
+        mask_all_nan = df.isna().all()
+        all_constant_cols = df.columns[mask_equal | mask_all_nan].tolist()
+
+        # Separate numeric and non-numeric constant columns
+        constant_num_cols = [col for col in all_constant_cols
+                            if np.issubdtype(df[col].dtype, np.number)]
+        constant_cat_cols = [col for col in all_constant_cols
+                            if not np.issubdtype(df[col].dtype, np.number)]
         constant_cols = constant_num_cols + constant_cat_cols
 
         if constant_cols and verbose:

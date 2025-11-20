@@ -98,7 +98,7 @@ class TestAllModelsRegression:
     """Test all 13 models on regression tasks."""
 
     @pytest.mark.parametrize("model_name", ALL_MODELS)
-    def test_basic_regression(self, model_name, sample_regression_data, sample_large_regression_data, temp_data_dir):
+    def test_basic_regression(self, model_name, sample_regression_data, sample_large_regression_data, temp_data_dir, common_init_params):
         """Test basic regression for all models."""
         pytest_module = __import__('pytest')
 
@@ -129,7 +129,7 @@ class TestAllModelsRegression:
             model_name=f"{model_name}_regression",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -143,7 +143,7 @@ class TestAllModelsRegression:
         assert len(models["target"]["REGRESSION"]) > 0
 
     @pytest.mark.parametrize("model_name", ALL_MODELS)
-    def test_regression_with_polars(self, model_name, sample_polars_data, temp_data_dir):
+    def test_regression_with_polars(self, model_name, sample_polars_data, temp_data_dir, common_init_params):
         """Test regression with Polars DataFrame."""
         pytest_module = __import__('pytest')
 
@@ -173,7 +173,7 @@ class TestAllModelsRegression:
             model_name=f"{model_name}_polars_regression",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -195,7 +195,7 @@ class TestAllModelsClassification:
     """Test all models on classification tasks (excluding RANSAC)."""
 
     @pytest.mark.parametrize("model_name", CLASSIFICATION_MODELS)
-    def test_basic_classification(self, model_name, sample_classification_data, temp_data_dir):
+    def test_basic_classification(self, model_name, sample_classification_data, temp_data_dir, common_init_params):
         """Test basic classification."""
         pytest_module = __import__('pytest')
 
@@ -221,7 +221,7 @@ class TestAllModelsClassification:
             model_name=f"{model_name}_classification",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -235,7 +235,7 @@ class TestAllModelsClassification:
         assert len(models["target"]["CLASSIFICATION"]) > 0
 
     @pytest.mark.parametrize("model_name", CLASSIFICATION_MODELS)
-    def test_classification_with_polars(self, model_name, sample_classification_data, temp_data_dir):
+    def test_classification_with_polars(self, model_name, sample_classification_data, temp_data_dir, common_init_params):
         """Test classification with Polars DataFrame."""
         pytest_module = __import__('pytest')
 
@@ -263,7 +263,7 @@ class TestAllModelsClassification:
             model_name=f"{model_name}_polars_classification",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -286,7 +286,7 @@ class TestCategoricalFeatures:
 
     @pytest.mark.parametrize("model_name", CATEGORICAL_NATIVE_MODELS)
     @pytest.mark.parametrize("encoding", ["ordinal", "onehot"])
-    def test_native_categorical_support(self, model_name, encoding, sample_categorical_data, temp_data_dir):
+    def test_native_categorical_support(self, model_name, encoding, sample_categorical_data, temp_data_dir, common_init_params):
         """Test models with native categorical support (cb, lgb, xgb)."""
         df, feature_names, cat_features, y = sample_categorical_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
@@ -304,7 +304,7 @@ class TestCategoricalFeatures:
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
             pipeline_config=pipeline_config,
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -319,7 +319,7 @@ class TestCategoricalFeatures:
 
     @pytest.mark.parametrize("model_name", CATEGORICAL_ENCODING_MODELS)
     @pytest.mark.parametrize("encoding", ["ordinal", "onehot"])
-    def test_categorical_with_encoding(self, model_name, encoding, sample_categorical_data, temp_data_dir):
+    def test_categorical_with_encoding(self, model_name, encoding, sample_categorical_data, temp_data_dir, common_init_params):
         """Test models that need category encoding in pipeline (linear, neural, hgb)."""
         pytest_module = __import__('pytest')
 
@@ -355,7 +355,7 @@ class TestCategoricalFeatures:
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
             pipeline_config=pipeline_config,
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -377,7 +377,7 @@ class TestGPUSupport:
     """Test GPU configuration for supported models."""
 
     @pytest.mark.parametrize("model_name", ["cb", "xgb"])
-    def test_cpu_configuration(self, model_name, sample_regression_data, temp_data_dir):
+    def test_cpu_configuration(self, model_name, sample_regression_data, temp_data_dir, common_init_params):
         """Test forced CPU configuration for cb and xgb."""
         df, feature_names, y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
@@ -396,7 +396,7 @@ class TestGPUSupport:
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
             config_params_override=config_override,
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -410,7 +410,7 @@ class TestGPUSupport:
         assert len(models["target"]["REGRESSION"]) > 0
 
     @pytest.mark.parametrize("model_name", ["cb", "xgb"])
-    def test_gpu_configuration(self, model_name, sample_regression_data, temp_data_dir, check_gpu_available):
+    def test_gpu_configuration(self, model_name, sample_regression_data, temp_data_dir, check_gpu_available, common_init_params):
         """Test GPU configuration for cb and xgb (if GPU available)."""
         if not check_gpu_available:
             pytest.skip("GPU not available")
@@ -432,7 +432,7 @@ class TestGPUSupport:
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
             config_params_override=config_override,
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -445,7 +445,7 @@ class TestGPUSupport:
         assert "REGRESSION" in models["target"]
         assert len(models["target"]["REGRESSION"]) > 0
 
-    def test_lgb_cpu_configuration(self, sample_regression_data, temp_data_dir):
+    def test_lgb_cpu_configuration(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test LightGBM CPU configuration."""
         df, feature_names, y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
@@ -461,7 +461,7 @@ class TestGPUSupport:
             features_and_targets_extractor=fte,
             mlframe_models=["lgb"],
             config_params_override=config_override,
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -474,7 +474,7 @@ class TestGPUSupport:
         assert "REGRESSION" in models["target"]
         assert len(models["target"]["REGRESSION"]) > 0
 
-    def test_lgb_gpu_configuration(self, sample_regression_data, temp_data_dir, check_lgb_gpu_available, check_gpu_available):
+    def test_lgb_gpu_configuration(self, sample_regression_data, temp_data_dir, check_lgb_gpu_available, check_gpu_available, common_init_params):
         """Test LightGBM GPU configuration (with CUDA Tree Learner check)."""
         if not check_gpu_available:
             pytest.skip("GPU not available")
@@ -496,7 +496,7 @@ class TestGPUSupport:
             features_and_targets_extractor=fte,
             mlframe_models=["lgb"],
             config_params_override=config_override,
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -509,7 +509,7 @@ class TestGPUSupport:
         assert "REGRESSION" in models["target"]
         assert len(models["target"]["REGRESSION"]) > 0
 
-    def test_mlp_cpu_configuration(self, sample_regression_data, temp_data_dir):
+    def test_mlp_cpu_configuration(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test MLP CPU configuration (with trainer params)."""
         pytest_module = __import__('pytest')
 
@@ -539,7 +539,7 @@ class TestGPUSupport:
             features_and_targets_extractor=fte,
             mlframe_models=["mlp"],
             config_params_override=config_override,
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -552,7 +552,7 @@ class TestGPUSupport:
         assert "REGRESSION" in models["target"]
         assert len(models["target"]["REGRESSION"]) > 0
 
-    def test_mlp_gpu_configuration(self, sample_regression_data, temp_data_dir, check_gpu_available):
+    def test_mlp_gpu_configuration(self, sample_regression_data, temp_data_dir, check_gpu_available, common_init_params):
         """Test MLP GPU configuration (if GPU available)."""
         pytest_module = __import__('pytest')
 
@@ -586,7 +586,7 @@ class TestGPUSupport:
             features_and_targets_extractor=fte,
             mlframe_models=["mlp"],
             config_params_override=config_override,
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -626,7 +626,7 @@ class TestFeatureSelection:
             mlframe_models=["cb"],  # Use cb as final model
             rfecv_models=[estimator],  # Vary the RFECV estimator
             init_common_params={
-                'show_perf_chart': False,
+                **common_init_params,
                 'rfecv_params': {'max_runtime_mins': 2},  # Limit RFECV runtime for tests
             },
             use_ordinary_models=True,
@@ -649,7 +649,7 @@ class TestFeatureSelection:
 class TestSpecialCases:
     """Test special cases and edge conditions."""
 
-    def test_ransac_regression_only(self, sample_outlier_data, temp_data_dir):
+    def test_ransac_regression_only(self, sample_outlier_data, temp_data_dir, common_init_params):
         """Test that RANSAC works for regression (not classification)."""
         df, feature_names, y = sample_outlier_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
@@ -661,7 +661,7 @@ class TestSpecialCases:
             model_name="ransac_outliers",
             features_and_targets_extractor=fte,
             mlframe_models=["ransac"],
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -674,7 +674,7 @@ class TestSpecialCases:
         assert "REGRESSION" in models["target"]
         assert len(models["target"]["REGRESSION"]) > 0
 
-    def test_ridge_classifier_without_predict_proba(self, sample_classification_data, temp_data_dir):
+    def test_ridge_classifier_without_predict_proba(self, sample_classification_data, temp_data_dir, common_init_params):
         """Test RidgeClassifier uses predict() fallback (no predict_proba)."""
         df, feature_names, y = sample_classification_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
@@ -686,7 +686,7 @@ class TestSpecialCases:
             model_name="ridge_classifier_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -699,7 +699,7 @@ class TestSpecialCases:
         assert "CLASSIFICATION" in models["target"]
         assert len(models["target"]["CLASSIFICATION"]) > 0
 
-    def test_sgd_convergence(self, sample_large_regression_data, temp_data_dir):
+    def test_sgd_convergence(self, sample_large_regression_data, temp_data_dir, common_init_params):
         """Test SGD with larger dataset for better convergence."""
         df, feature_names, y = sample_large_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
@@ -711,7 +711,7 @@ class TestSpecialCases:
             model_name="sgd_large_data",
             features_and_targets_extractor=fte,
             mlframe_models=["sgd"],
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -724,7 +724,7 @@ class TestSpecialCases:
         assert "REGRESSION" in models["target"]
         assert len(models["target"]["REGRESSION"]) > 0
 
-    def test_huber_with_outliers(self, sample_outlier_data, temp_data_dir):
+    def test_huber_with_outliers(self, sample_outlier_data, temp_data_dir, common_init_params):
         """Test Huber regressor on data with outliers."""
         df, feature_names, y = sample_outlier_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
@@ -736,7 +736,7 @@ class TestSpecialCases:
             model_name="huber_outliers",
             features_and_targets_extractor=fte,
             mlframe_models=["huber"],
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,

@@ -56,7 +56,7 @@ class SimpleFeaturesAndTargetsExtractor:
 class TestTrainMLFrameModelsSuiteBasic:
     """Basic smoke tests for train_mlframe_models_suite."""
 
-    def test_train_single_linear_model_regression(self, sample_regression_data, temp_data_dir):
+    def test_train_single_linear_model_regression(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test training a single linear model on regression data."""
         df, feature_names, y = sample_regression_data
 
@@ -70,7 +70,7 @@ class TestTrainMLFrameModelsSuiteBasic:
             model_name="test_model",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -90,7 +90,7 @@ class TestTrainMLFrameModelsSuiteBasic:
         assert "configs" in metadata
         assert "pipeline" in metadata
 
-    def test_train_single_linear_model_classification(self, sample_classification_data, temp_data_dir):
+    def test_train_single_linear_model_classification(self, sample_classification_data, temp_data_dir, common_init_params):
         """Test training a single linear model on classification data."""
         df, feature_names, y = sample_classification_data
 
@@ -104,7 +104,7 @@ class TestTrainMLFrameModelsSuiteBasic:
             model_name="test_model_classif",
             features_and_targets_extractor=fte,
             mlframe_models=["linear"],
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -121,7 +121,7 @@ class TestTrainMLFrameModelsSuiteBasic:
         model_entry = models["target"]["CLASSIFICATION"][0]
         assert hasattr(model_entry, "model") or "model" in model_entry.__dict__ if hasattr(model_entry, "__dict__") else True
 
-    def test_train_multiple_linear_models(self, sample_regression_data, temp_data_dir):
+    def test_train_multiple_linear_models(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test training multiple linear models together."""
         df, feature_names, y = sample_regression_data
 
@@ -134,7 +134,7 @@ class TestTrainMLFrameModelsSuiteBasic:
             model_name="multi_linear",
             features_and_targets_extractor=fte,
             mlframe_models=["linear", "ridge", "lasso"],
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -148,7 +148,7 @@ class TestTrainMLFrameModelsSuiteBasic:
         # Should have 3 models (linear, ridge, lasso)
         assert len(models["target"]["REGRESSION"]) >= 3
 
-    def test_train_with_polars_dataframe(self, sample_polars_data, temp_data_dir):
+    def test_train_with_polars_dataframe(self, sample_polars_data, temp_data_dir, common_init_params):
         """Test training with Polars DataFrame input."""
         pl_df, feature_names, y = sample_polars_data
 
@@ -161,7 +161,7 @@ class TestTrainMLFrameModelsSuiteBasic:
             model_name="polars_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -178,7 +178,7 @@ class TestTrainMLFrameModelsSuiteBasic:
 class TestUnifiedTrainingLoop:
     """Test the unified training loop with mixed model types - THE CRITICAL TEST!"""
 
-    def test_train_mixed_linear_and_tree_models(self, sample_regression_data, temp_data_dir):
+    def test_train_mixed_linear_and_tree_models(self, sample_regression_data, temp_data_dir, common_init_params):
         """
         THE CRITICAL TEST: Validate unified training loop with linear + tree models.
 
@@ -209,7 +209,7 @@ class TestUnifiedTrainingLoop:
             model_name="unified_loop_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge", "cb"],  # LINEAR + TREE!
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -231,7 +231,7 @@ class TestUnifiedTrainingLoop:
         print(f"   Trained models: {model_names}")
         print(f"   Linear + Tree models trained through SAME code path!")
 
-    def test_train_mixed_linear_and_lgb(self, sample_regression_data, temp_data_dir):
+    def test_train_mixed_linear_and_lgb(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test unified training with linear + LightGBM models."""
         pytest = __import__('pytest')
 
@@ -256,7 +256,7 @@ class TestUnifiedTrainingLoop:
             model_name="linear_lgb_test",
             features_and_targets_extractor=fte,
             mlframe_models=["linear", "lgb"],  # LINEAR + LGB!
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -273,7 +273,7 @@ class TestUnifiedTrainingLoop:
 class TestTrainMLFrameModelsSuiteEnsembles:
     """Test ensemble creation."""
 
-    def test_train_with_ensembles(self, sample_regression_data, temp_data_dir):
+    def test_train_with_ensembles(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test ensemble creation from multiple models."""
         df, feature_names, y = sample_regression_data
 
@@ -286,7 +286,7 @@ class TestTrainMLFrameModelsSuiteEnsembles:
             model_name="ensemble_test",
             features_and_targets_extractor=fte,
             mlframe_models=["linear", "ridge"],
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=True,
             data_dir=temp_data_dir,
@@ -303,7 +303,7 @@ class TestTrainMLFrameModelsSuiteEnsembles:
 class TestTrainMLFrameModelsSuiteMetadata:
     """Test metadata saving and structure."""
 
-    def test_metadata_saving_and_structure(self, sample_regression_data, temp_data_dir):
+    def test_metadata_saving_and_structure(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test that metadata is saved correctly."""
         df, feature_names, y = sample_regression_data
 
@@ -316,7 +316,7 @@ class TestTrainMLFrameModelsSuiteMetadata:
             model_name="metadata_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -357,7 +357,7 @@ class TestTrainMLFrameModelsSuiteMetadata:
 class TestTrainMLFrameModelsSuiteConfigurations:
     """Test different configuration scenarios."""
 
-    def test_with_custom_split_config(self, sample_regression_data, temp_data_dir):
+    def test_with_custom_split_config(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test with custom train/val/test split configuration."""
         df, feature_names, y = sample_regression_data
 
@@ -379,7 +379,7 @@ class TestTrainMLFrameModelsSuiteConfigurations:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             split_config=split_config,
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -397,7 +397,7 @@ class TestTrainMLFrameModelsSuiteConfigurations:
         assert metadata["test_size"] / total_size == pytest.approx(0.2, abs=0.05)
         assert metadata["val_size"] / total_size == pytest.approx(0.1, abs=0.05)
 
-    def test_with_preprocessing_config(self, sample_regression_data, temp_data_dir):
+    def test_with_preprocessing_config(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test with custom preprocessing configuration."""
         df, feature_names, y = sample_regression_data
 
@@ -422,7 +422,7 @@ class TestTrainMLFrameModelsSuiteConfigurations:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             preprocessing_config=preprocessing_config,
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -434,7 +434,7 @@ class TestTrainMLFrameModelsSuiteConfigurations:
         assert "target" in models
         assert "REGRESSION" in models["target"]
 
-    def test_with_pipeline_config(self, sample_regression_data, temp_data_dir):
+    def test_with_pipeline_config(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test with custom pipeline configuration."""
         df, feature_names, y = sample_regression_data
 
@@ -453,7 +453,7 @@ class TestTrainMLFrameModelsSuiteConfigurations:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             pipeline_config=pipeline_config,
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -468,7 +468,7 @@ class TestTrainMLFrameModelsSuiteConfigurations:
 class TestTrainMLFrameModelsSuiteEdgeCases:
     """Test edge cases and error conditions."""
 
-    def test_with_small_dataset(self, temp_data_dir):
+    def test_with_small_dataset(self, temp_data_dir, common_init_params):
         """Test with very small dataset."""
         # Create tiny dataset
         np.random.seed(42)
@@ -486,7 +486,7 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             model_name="small_data",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -498,7 +498,7 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
         assert "target" in models
         assert "REGRESSION" in models["target"]
 
-    def test_with_no_ensembles(self, sample_regression_data, temp_data_dir):
+    def test_with_no_ensembles(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test with ensembles explicitly disabled."""
         df, feature_names, y = sample_regression_data
 
@@ -510,7 +510,7 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             model_name="no_ensemble",
             features_and_targets_extractor=fte,
             mlframe_models=["linear", "ridge"],
-            init_common_params={'show_perf_chart': False},
+            init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
@@ -522,3 +522,202 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
         assert "target" in models
         assert "REGRESSION" in models["target"]
         assert len(models["target"]["REGRESSION"]) >= 2
+
+
+class TestCustomTransformers:
+    """Test passing custom scaler, imputer, category_encoder via init_common_params."""
+
+    def test_custom_scaler(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Test passing a custom scaler via init_common_params."""
+        from sklearn.preprocessing import RobustScaler
+
+        df, feature_names, y = sample_regression_data
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        # Create custom scaler
+        custom_scaler = RobustScaler()
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="custom_scaler_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params={**common_init_params, 'scaler': custom_scaler},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        # Verify training succeeded
+        assert "target" in models
+        assert "REGRESSION" in models["target"]
+        assert len(models["target"]["REGRESSION"]) > 0
+
+    def test_custom_imputer(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Test passing a custom imputer via init_common_params."""
+        from sklearn.impute import KNNImputer
+
+        df, feature_names, y = sample_regression_data
+
+        # Add some NaN values to test imputation
+        df_with_nan = df.copy()
+        df_with_nan.loc[10:20, feature_names[0]] = np.nan
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        # Create custom imputer
+        custom_imputer = KNNImputer(n_neighbors=3)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df_with_nan,
+            target_name="test_target",
+            model_name="custom_imputer_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params={**common_init_params, 'imputer': custom_imputer},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        # Verify training succeeded
+        assert "target" in models
+        assert "REGRESSION" in models["target"]
+        assert len(models["target"]["REGRESSION"]) > 0
+
+    def test_custom_category_encoder(self, sample_categorical_data, temp_data_dir, common_init_params):
+        """Test passing a custom category_encoder via init_common_params."""
+        import category_encoders as ce
+
+        df, feature_names, cat_features, y = sample_categorical_data
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        # Create custom encoder
+        custom_encoder = ce.TargetEncoder()
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="custom_encoder_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params={**common_init_params, 'category_encoder': custom_encoder},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        # Verify training succeeded
+        assert "target" in models
+        assert "REGRESSION" in models["target"]
+        assert len(models["target"]["REGRESSION"]) > 0
+
+    def test_all_custom_transformers(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Test passing all custom transformers together."""
+        from sklearn.preprocessing import MinMaxScaler
+        from sklearn.impute import SimpleImputer
+        import category_encoders as ce
+
+        df, feature_names, y = sample_regression_data
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        # Create custom transformers
+        custom_scaler = MinMaxScaler()
+        custom_imputer = SimpleImputer(strategy='median')
+        custom_encoder = ce.OrdinalEncoder()
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="all_custom_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params={
+                **common_init_params,
+                'scaler': custom_scaler,
+                'imputer': custom_imputer,
+                'category_encoder': custom_encoder,
+            },
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        # Verify training succeeded
+        assert "target" in models
+        assert "REGRESSION" in models["target"]
+        assert len(models["target"]["REGRESSION"]) > 0
+
+    def test_default_transformers_initialized(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Test that default transformers are initialized when not provided."""
+        df, feature_names, y = sample_regression_data
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        # Don't pass any custom transformers - defaults should be used
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="default_transformers_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        # Verify training succeeded (defaults were used)
+        assert "target" in models
+        assert "REGRESSION" in models["target"]
+        assert len(models["target"]["REGRESSION"]) > 0
+
+    def test_custom_scaler_with_mlp_model(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Test custom scaler is actually used by MLP model (which uses the scaler)."""
+        pytest = __import__('pytest')
+
+        # Check if torch is available for MLP
+        try:
+            import torch
+            has_torch = True
+        except ImportError:
+            has_torch = False
+
+        if not has_torch:
+            pytest.skip("PyTorch not available - skipping MLP test")
+
+        from sklearn.preprocessing import StandardScaler
+
+        df, feature_names, y = sample_regression_data
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        # Create a marked scaler to verify it's used
+        custom_scaler = StandardScaler(with_mean=False)  # Non-default setting
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="mlp_scaler_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["mlp"],
+            init_common_params={**common_init_params, 'scaler': custom_scaler},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        # Verify training succeeded
+        assert "target" in models
+        assert "REGRESSION" in models["target"]

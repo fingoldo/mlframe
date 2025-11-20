@@ -969,6 +969,7 @@ def train_and_evaluate_model(
     model_name: str = "",
     model_name_prefix: str = "",
     pre_pipeline: TransformerMixin = None,
+    skip_pre_pipeline_transform: bool = False,
     fit_params: Optional[dict] = None,
     drop_columns: list = [],
     default_drop_columns: list = [],
@@ -1041,6 +1042,11 @@ def train_and_evaluate_model(
     clean_ram()
     columns = []
     best_iter = None
+
+    # Preserve original DataFrame references for return (in case no transformation happens)
+    _orig_train_df = train_df
+    _orig_val_df = val_df
+    _orig_test_df = test_df
 
     if not skip_infinity_checks:
         if df is not None:
@@ -1171,18 +1177,25 @@ def train_and_evaluate_model(
                 clean_ram()
 
     if model is not None and pre_pipeline:
-        if use_cache and exists(model_file_name):
+        if skip_pre_pipeline_transform:
+            # DataFrames already transformed externally, skip fit/transform
+            if verbose:
+                logger.info(f"Skipping pre_pipeline fit/transform (already transformed)")
+        elif use_cache and exists(model_file_name):
             if verbose:
                 logger.info(f"Transforming train_df via pre_pipeline...")
             train_df = pre_pipeline.transform(train_df, train_target)
+            _orig_train_df = train_df  # Update for return
             if verbose:
                 log_ram_usage()
         else:
             train_df = pre_pipeline.fit_transform(train_df, train_target)
-        if val_df is not None:
+            _orig_train_df = train_df  # Update for return
+        if not skip_pre_pipeline_transform and val_df is not None:
             if verbose:
                 logger.info(f"Transforming val_df via pre_pipeline...")
             val_df = pre_pipeline.transform(val_df)
+            _orig_val_df = val_df  # Update for return
             if verbose:
                 log_ram_usage()
         clean_ram()
@@ -1474,8 +1487,9 @@ def train_and_evaluate_model(
                 if test_target is None:
                     test_target = target.iloc[test_idx] if isinstance(target, pd.Series) else target.gather(test_idx)
 
-                if model is not None and pre_pipeline:
+                if model is not None and pre_pipeline and not skip_pre_pipeline_transform:
                     test_df = pre_pipeline.transform(test_df)
+                    _orig_test_df = test_df  # Update for return
                 if model_type_name in TABNET_MODEL_TYPES:
                     test_df = test_df.values
                 columns = test_df.columns
@@ -1581,7 +1595,7 @@ def train_and_evaluate_model(
         train_od_idx=train_od_idx,
         val_od_idx=val_od_idx,
         trainset_features_stats=trainset_features_stats,
-    )
+    ), _orig_train_df, _orig_val_df, _orig_test_df
 
 
 def report_model_perf(
@@ -2969,6 +2983,10 @@ def process_model(
     common_params: dict,
     ens_models: list,
     verbose: int,
+    skip_pre_pipeline_transform: bool = False,
+    cached_train_df: pd.DataFrame = None,
+    cached_val_df: pd.DataFrame = None,
+    cached_test_df: pd.DataFrame = None,
 ) -> dict:
 
     fname = f"{model_name}.dump"
@@ -2980,17 +2998,33 @@ def process_model(
     else:
         fpath = None
 
+    train_df_transformed, val_df_transformed, test_df_transformed = None, None, None
+
+    # Prepare common_params with cached DataFrames if provided
+    effective_common_params = common_params.copy()
+    if cached_train_df is not None:
+        effective_common_params["train_df"] = cached_train_df
+    if cached_val_df is not None:
+        effective_common_params["val_df"] = cached_val_df
+    if cached_test_df is not None:
+        effective_common_params["test_df"] = cached_test_df
+
+    # Remove parameters that are handled by pre_pipeline and not accepted by train_and_evaluate_model
+    for key in ['scaler', 'imputer', 'category_encoder', 'rfecv_params']:
+        effective_common_params.pop(key, None)
+
     if fpath and exists(fpath):
         model = load_mlframe_model(fpath)
         pre_pipeline = model.pre_pipeline
 
         temp_model_params = model_params.copy()
         temp_model_params["model"] = model.model
-        train_and_evaluate_model(
+        model, train_df_transformed, val_df_transformed, test_df_transformed = train_and_evaluate_model(
             just_evaluate=True,
             pre_pipeline=pre_pipeline,
+            skip_pre_pipeline_transform=skip_pre_pipeline_transform,
             **temp_model_params,
-            **common_params,
+            **effective_common_params,
             model_name_prefix=pre_pipeline_name,
         )
     else:
@@ -2999,11 +3033,12 @@ def process_model(
             logger.info(
                 f"Starting train_and_evaluate {target_type} {pre_pipeline_name.strip() if pre_pipeline_name else ''} {model_name.strip()} {cur_target_name}, RAM usage {get_own_ram_usage():.1f}GBs..."
             )
-        model = train_and_evaluate_model(
+        model, train_df_transformed, val_df_transformed, test_df_transformed = train_and_evaluate_model(
             pre_pipeline=pre_pipeline,
+            skip_pre_pipeline_transform=skip_pre_pipeline_transform,
             verbose=verbose,
             **model_params,
-            **common_params,
+            **effective_common_params,
             model_name_prefix=pre_pipeline_name,
         )
         end = timer()
@@ -3024,7 +3059,7 @@ def process_model(
 
     clean_ram()
 
-    return trainset_features_stats, pre_pipeline
+    return trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed
 
 
 def showcase_features_and_targets(df: Union[pd.DataFrame, pl.DataFrame], target_by_type: dict) -> None:

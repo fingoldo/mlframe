@@ -263,3 +263,9 @@ def check_gpu_available():
         return is_cuda_available()
     except:
         return False
+
+
+@pytest.fixture
+def common_init_params():
+    """Common init_common_params to suppress matplotlib figures in tests."""
+    return {'show_perf_chart': False, 'show_fi': False}

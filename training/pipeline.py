@@ -139,7 +139,9 @@ def fit_and_transform_pipeline(
                 logger.info(f"train_df dtypes after pipeline: {Counter(train_df.dtypes)}")
 
             # Polars-ds handles categorical encoding, so no separate cat_features needed
-            cat_features = cs.expand_selector(train_df.head(),cs.categorical | cs.string)
+            # Use schema instead of .head() for efficiency (no data scanning)
+            cat_features = [name for name, dtype in train_df.schema.items()
+                           if dtype in (pl.Categorical, pl.Utf8, pl.String)]
 
     # Handle pandas DataFrames with sklearn-style pipeline
     elif isinstance(train_df, pd.DataFrame):
