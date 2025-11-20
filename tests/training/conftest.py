@@ -22,6 +22,16 @@ def cleanup_memory():
     yield
 
     gc.collect()
+
+    # Clear GPU memory to prevent CUDA OOM
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+    except ImportError:
+        pass
+
     mem_after = process.memory_info().rss / 1024 / 1024
     print(f"[MEM] After: {mem_after:.0f} MB (delta: {mem_after - mem_before:+.0f} MB)")
 

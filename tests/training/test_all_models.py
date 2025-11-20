@@ -122,6 +122,15 @@ class TestAllModelsRegression:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
 
+        # Force CPU for GPU-capable models (GPU tests are separate)
+        config_override = {}
+        if model_name == "cb":
+            config_override = {'cb_kwargs': {'task_type': 'CPU'}}
+        elif model_name == "xgb":
+            config_override = {'xgb_kwargs': {'device': 'cpu'}}
+        elif model_name == "lgb":
+            config_override = {'lgb_kwargs': {'device_type': 'cpu'}}
+
         # Train
         models, metadata = train_mlframe_models_suite(
             df=df,
@@ -129,6 +138,7 @@ class TestAllModelsRegression:
             model_name=f"{model_name}_regression",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
+            config_params_override=config_override if config_override else None,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -166,6 +176,15 @@ class TestAllModelsRegression:
         pl_df, feature_names, y = sample_polars_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
 
+        # Force CPU for GPU-capable models (GPU tests are separate)
+        config_override = {}
+        if model_name == "cb":
+            config_override = {'cb_kwargs': {'task_type': 'CPU'}}
+        elif model_name == "xgb":
+            config_override = {'xgb_kwargs': {'device': 'cpu'}}
+        elif model_name == "lgb":
+            config_override = {'lgb_kwargs': {'device_type': 'cpu'}}
+
         # Train
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -173,6 +192,7 @@ class TestAllModelsRegression:
             model_name=f"{model_name}_polars_regression",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
+            config_params_override=config_override if config_override else None,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -214,6 +234,15 @@ class TestAllModelsClassification:
         df, feature_names, y = sample_classification_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
 
+        # Force CPU for GPU-capable models (GPU tests are separate)
+        config_override = {}
+        if model_name == "cb":
+            config_override = {'cb_kwargs': {'task_type': 'CPU'}}
+        elif model_name == "xgb":
+            config_override = {'xgb_kwargs': {'device': 'cpu'}}
+        elif model_name == "lgb":
+            config_override = {'lgb_kwargs': {'device_type': 'cpu'}}
+
         # Train
         models, metadata = train_mlframe_models_suite(
             df=df,
@@ -221,6 +250,7 @@ class TestAllModelsClassification:
             model_name=f"{model_name}_classification",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
+            config_params_override=config_override if config_override else None,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -256,6 +286,15 @@ class TestAllModelsClassification:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
 
+        # Force CPU for GPU-capable models (GPU tests are separate)
+        config_override = {}
+        if model_name == "cb":
+            config_override = {'cb_kwargs': {'task_type': 'CPU'}}
+        elif model_name == "xgb":
+            config_override = {'xgb_kwargs': {'device': 'cpu'}}
+        elif model_name == "lgb":
+            config_override = {'lgb_kwargs': {'device_type': 'cpu'}}
+
         # Train
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -263,6 +302,7 @@ class TestAllModelsClassification:
             model_name=f"{model_name}_polars_classification",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
+            config_params_override=config_override if config_override else None,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -296,6 +336,15 @@ class TestCategoricalFeatures:
             categorical_encoding=encoding,
         )
 
+        # Force CPU for GPU-capable models (GPU tests are separate)
+        config_override = {}
+        if model_name == "cb":
+            config_override = {'cb_kwargs': {'task_type': 'CPU'}}
+        elif model_name == "xgb":
+            config_override = {'xgb_kwargs': {'device': 'cpu'}}
+        elif model_name == "lgb":
+            config_override = {'lgb_kwargs': {'device_type': 'cpu'}}
+
         # Train
         models, metadata = train_mlframe_models_suite(
             df=df,
@@ -304,6 +353,7 @@ class TestCategoricalFeatures:
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
             pipeline_config=pipeline_config,
+            config_params_override=config_override if config_override else None,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
