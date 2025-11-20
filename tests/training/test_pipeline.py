@@ -87,7 +87,7 @@ class TestFitAndTransformPipeline:
         train_df = df.iloc[:train_size]
         val_df = df.iloc[train_size:]
 
-        config = PolarsPipelineConfig(use_polarsds_pipeline=False, categorical_encoding=None)
+        config = PolarsPipelineConfig(use_polarsds_pipeline=False, categorical_encoding="none")
 
         # Fit and transform
         train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
