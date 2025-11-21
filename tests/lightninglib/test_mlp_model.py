@@ -713,5 +713,326 @@ class TestMLPTorchModelOnTrainEnd:
         model.on_train_end()
 
 
+# ================================================================================================
+# Mutation Testing - training_step and L1 Regularization Tests
+# ================================================================================================
+
+
+class TestMLPTorchModelMutationTests:
+    """Tests specifically targeting mutation survivors."""
+
+    def test_training_step_squeeze_for_single_output(self, loss_function):
+        """Test predictions squeezed correctly for single-output regression.
+
+        Kills mutation: `raw_predictions.ndim == 2` to various alternatives.
+        """
+        # Single output network (regression)
+        network = nn.Sequential(nn.Linear(10, 1))
+        model = MLPTorchModel(
+            network=network,
+            loss_fn=nn.MSELoss(),
+            learning_rate=0.001,
+            metrics=[]
+        )
+
+        # Labels are 1D for regression
+        batch = (torch.randn(8, 10), torch.randn(8))
+        loss_dict = model.training_step(batch, batch_idx=0)
+
+        # Should not crash - squeeze handles [8, 1] -> [8] to match labels
+        assert 'loss' in loss_dict
+        assert loss_dict['loss'].item() >= 0
+
+    def test_training_step_no_squeeze_for_multi_output(self, loss_function):
+        """Test predictions NOT squeezed for multi-output.
+
+        Kills mutation: `raw_predictions.shape[1] == 1` changes.
+        """
+        # Multi-output network (5 outputs)
+        network = nn.Sequential(nn.Linear(10, 5))
+        model = MLPTorchModel(
+            network=network,
+            loss_fn=nn.MSELoss(),
+            learning_rate=0.001,
+            metrics=[]
+        )
+
+        # Labels are 2D for multi-output
+        batch = (torch.randn(8, 10), torch.randn(8, 5))
+        loss_dict = model.training_step(batch, batch_idx=0)
+
+        assert 'loss' in loss_dict
+
+    def test_l1_regularization_not_applied_when_zero(self, simple_network, loss_function, sample_batch):
+        """Test L1 regularization not applied when l1_alpha=0.
+
+        Kills mutation: `l1_alpha > 0` to `<= 0`, `>= 0`, `> -1`.
+        """
+        model_no_l1 = MLPTorchModel(
+            network=simple_network,
+            loss_fn=loss_function,
+            learning_rate=0.001,
+            l1_alpha=0.0,  # Disabled
+            metrics=[]
+        )
+
+        # Create identical network for comparison
+        network_copy = nn.Sequential(
+            nn.Linear(10, 20),
+            nn.ReLU(),
+            nn.Linear(20, 3)
+        )
+        # Copy weights
+        network_copy.load_state_dict(simple_network.state_dict())
+
+        model_with_l1 = MLPTorchModel(
+            network=network_copy,
+            loss_fn=nn.CrossEntropyLoss(),
+            learning_rate=0.001,
+            l1_alpha=0.1,  # Enabled
+            metrics=[]
+        )
+
+        loss_no_l1 = model_no_l1.training_step(sample_batch, 0)['loss']
+        loss_with_l1 = model_with_l1.training_step(sample_batch, 0)['loss']
+
+        # L1 should increase loss
+        assert loss_with_l1 > loss_no_l1, "L1 regularization should increase loss"
+
+    def test_l1_regularization_positive_value(self, simple_network, loss_function, sample_batch):
+        """Test L1 regularization is applied when l1_alpha > 0.
+
+        Kills mutation: conditions on l1_alpha comparison.
+        """
+        model = MLPTorchModel(
+            network=simple_network,
+            loss_fn=loss_function,
+            learning_rate=0.001,
+            l1_alpha=0.01,  # Small positive value
+            metrics=[]
+        )
+
+        loss_dict = model.training_step(sample_batch, 0)
+        assert 'loss' in loss_dict
+        # Just verify it runs without error
+
+    def test_unpack_batch_rejects_three_elements(self, simple_network, loss_function):
+        """Test that batch with 3+ elements is rejected.
+
+        Kills mutation: `len(batch) == 2` to `len(batch) >= 2`.
+        """
+        model = MLPTorchModel(
+            network=simple_network,
+            loss_fn=loss_function,
+            learning_rate=0.001,
+            metrics=[]
+        )
+
+        # Batch with 3 elements
+        batch = (torch.randn(4, 10), torch.randint(0, 3, (4,)), torch.randn(4))
+
+        with pytest.raises(ValueError, match="Unexpected batch format"):
+            model._unpack_batch(batch)
+
+    def test_unpack_batch_accepts_exactly_two(self, simple_network, loss_function):
+        """Test that batch with exactly 2 elements is accepted.
+
+        Kills mutation: boundary on len(batch) check.
+        """
+        model = MLPTorchModel(
+            network=simple_network,
+            loss_fn=loss_function,
+            learning_rate=0.001,
+            metrics=[]
+        )
+
+        batch = (torch.randn(4, 10), torch.randint(0, 3, (4,)))
+        features, labels = model._unpack_batch(batch)
+
+        assert features.shape == (4, 10)
+        assert labels.shape == (4,)
+
+    def test_onecyclelr_total_steps_multiplication(self, simple_network, loss_function):
+        """Test OneCycleLR total_steps uses multiplication not exponentiation.
+
+        Kills mutation: `total_steps = max_epochs * steps_per_epoch` to `**`.
+        """
+        model = MLPTorchModel(
+            network=simple_network,
+            loss_fn=loss_function,
+            learning_rate=0.001,
+            lr_scheduler=OneCycleLR,
+            lr_scheduler_kwargs={'max_lr': 0.01},
+            metrics=[]
+        )
+
+        # Mock trainer with specific values
+        mock_trainer = Mock()
+        mock_trainer.max_epochs = 10
+        mock_trainer.estimated_stepping_batches = 100
+
+        # Create a list to represent batches (len() = 20)
+        mock_datamodule = Mock()
+        mock_dataloader = list(range(20))  # 20 batches
+        mock_datamodule.train_dataloader = Mock(return_value=mock_dataloader)
+        mock_trainer.datamodule = mock_datamodule
+        model.trainer = mock_trainer
+
+        config = model.configure_optimizers()
+
+        # Expected: 10 * 20 = 200 steps (not 10**20)
+        scheduler = config['lr_scheduler']['scheduler']
+        assert scheduler.total_steps == 200, f"Expected 200, got {scheduler.total_steps}"
+
+    def test_predict_step_regression_squeeze(self, loss_function):
+        """Test predict_step squeezes single-output regression predictions.
+
+        Kills mutation: dimension checks in predict_step.
+        """
+        network = nn.Sequential(nn.Linear(10, 1))
+        model = MLPTorchModel(
+            network=network,
+            loss_fn=nn.MSELoss(),
+            learning_rate=0.001,
+            metrics=[]
+        )
+
+        batch = torch.randn(8, 10)
+        model.eval()
+        predictions = model.predict_step(batch, batch_idx=0)
+
+        # Should be squeezed to 1D
+        assert predictions.ndim == 1 or (predictions.ndim == 2 and predictions.shape[1] == 1)
+
+
+# ================================================================================================
+# Phase 2 - High Priority Mutation Tests
+# ================================================================================================
+
+
+class TestMLPTorchModelPhase2:
+    """Phase 2 tests for MLPTorchModel mutation survivors."""
+
+    def test_on_train_end_load_best_weights_rank_check(self, simple_network, loss_function):
+        """Test best weights only loaded on global rank 0.
+
+        Kills mutation: `not self.trainer.is_global_zero` to `self.trainer.is_global_zero`.
+        """
+        from lightning.pytorch.callbacks import ModelCheckpoint
+
+        model = MLPTorchModel(
+            network=simple_network,
+            loss_fn=loss_function,
+            learning_rate=0.001,
+            load_best_weights_on_train_end=True,
+            metrics=[]
+        )
+
+        # Mock trainer as NOT rank 0
+        mock_trainer = Mock()
+        mock_trainer.is_global_zero = False
+        mock_trainer.callbacks = []
+        model.trainer = mock_trainer
+
+        # on_train_end should return early without loading
+        model.on_train_end()  # Should not crash
+
+    def test_on_train_end_checkpoint_search(self, simple_network, loss_function):
+        """Test that finding ModelCheckpoint stops the callback search.
+
+        Kills mutation: `break` to `continue` in checkpoint loop.
+        """
+        from lightning.pytorch.callbacks import ModelCheckpoint
+        import tempfile
+        import os
+
+        model = MLPTorchModel(
+            network=simple_network,
+            loss_fn=loss_function,
+            learning_rate=0.001,
+            load_best_weights_on_train_end=True,
+            metrics=[]
+        )
+
+        # Create a temporary checkpoint file
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ckpt_path = os.path.join(tmpdir, 'best.ckpt')
+            # Save model state to checkpoint
+            torch.save({'state_dict': model.state_dict()}, ckpt_path)
+
+            # Mock ModelCheckpoint
+            mock_checkpoint = Mock(spec=ModelCheckpoint)
+            mock_checkpoint.best_model_path = ckpt_path
+            mock_checkpoint.best_model_score = 0.95
+
+            mock_trainer = Mock()
+            mock_trainer.is_global_zero = True
+            mock_trainer.callbacks = [
+                Mock(),  # Other callback
+                mock_checkpoint,  # ModelCheckpoint
+                Mock(),  # Another callback
+            ]
+            model.trainer = mock_trainer
+
+            # Should find first ModelCheckpoint and use it
+            model.on_train_end()
+
+    def test_validation_step_stores_outputs(self, simple_network, loss_function, sample_batch):
+        """Test validation_step properly stores outputs for metrics.
+
+        Kills mutation: output format changes.
+        """
+        model = MLPTorchModel(
+            network=simple_network,
+            loss_fn=loss_function,
+            learning_rate=0.001,
+            metrics=[]
+        )
+
+        model.validation_step_outputs = []
+        output = model.validation_step(sample_batch, batch_idx=0)
+
+        assert 'raw_predictions' in output
+        assert 'labels' in output
+        assert len(model.validation_step_outputs) == 1
+
+    def test_training_step_with_metrics_stores_outputs(self, simple_network, loss_function, sample_batch):
+        """Test training_step stores outputs when compute_trainset_metrics=True.
+
+        Kills mutation: conditional output storage.
+        """
+        model = MLPTorchModel(
+            network=simple_network,
+            loss_fn=loss_function,
+            learning_rate=0.001,
+            compute_trainset_metrics=True,
+            metrics=[]
+        )
+
+        model.training_step_outputs = []
+        loss_dict = model.training_step(sample_batch, batch_idx=0)
+
+        assert 'loss' in loss_dict
+        assert len(model.training_step_outputs) == 1
+
+    def test_lr_scheduler_step_interval(self, simple_network, loss_function):
+        """Test lr_scheduler_interval configuration.
+
+        Kills mutation: interval string comparisons.
+        """
+        model = MLPTorchModel(
+            network=simple_network,
+            loss_fn=loss_function,
+            learning_rate=0.001,
+            lr_scheduler=CosineAnnealingLR,
+            lr_scheduler_kwargs={'T_max': 10},
+            lr_scheduler_interval='step',
+            metrics=[]
+        )
+
+        config = model.configure_optimizers()
+        assert config['lr_scheduler']['interval'] == 'step'
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

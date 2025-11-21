@@ -302,3 +302,19 @@ def check_gpu_available():
 def common_init_params():
     """Common init_common_params to suppress matplotlib figures in tests."""
     return {'show_perf_chart': False, 'show_fi': False}
+
+
+@pytest.fixture
+def fast_iterations():
+    """Low iteration count for fast test execution.
+
+    Use this to override the default 5000 iterations in TreeModelConfig.
+    With 10 iterations, early_stopping_rounds will be ~3 instead of ~1666.
+    """
+    return 10
+
+
+@pytest.fixture
+def fast_config_override(fast_iterations):
+    """Config params override for fast test execution."""
+    return {'iterations': fast_iterations}

@@ -627,5 +627,151 @@ class TestTorchDatasetProperties:
         assert len(dataset) == expected_batches
 
 
+# ================================================================================================
+# Mutation Testing - TorchDataset Tests
+# ================================================================================================
+
+
+class TestTorchDatasetMutationTests:
+    """Tests specifically targeting mutation survivors in TorchDataset."""
+
+    def test_len_sample_mode_batch_size_zero(self):
+        """Test __len__ correctly returns dataset_length when batch_size=0.
+
+        Kills mutation: `batch_size == 0` to `< 0`, `<= 0`, `== -1`.
+        """
+        features = np.random.randn(100, 10).astype(np.float32)
+        labels = np.random.randint(0, 2, 100).astype(np.int64)
+
+        dataset = TorchDataset(features, labels, batch_size=0)
+
+        # Should return dataset_length, not num_batches
+        assert len(dataset) == 100
+
+    def test_getitem_squeeze_only_in_sample_mode(self):
+        """Test squeeze only happens when batch_size == 0.
+
+        Kills mutation: `batch_size == 0` boundary conditions.
+        """
+        features = np.random.randn(10, 5).astype(np.float32)
+        labels = np.random.randint(0, 2, 10).astype(np.int64)
+
+        # Sample mode (batch_size=0) - should access single samples
+        dataset_sample = TorchDataset(features, labels, batch_size=0)
+        x, y = dataset_sample[0]
+        assert x.shape == (5,), f"Sample mode should squeeze, got {x.shape}"
+
+        # Batch mode (batch_size>0) - should not squeeze
+        dataset_batch = TorchDataset(features, labels, batch_size=5)
+        x, y = dataset_batch[0]
+        assert x.shape == (5, 5), f"Batch mode should not squeeze, got {x.shape}"
+
+    def test_squeeze_only_when_first_dim_is_one(self):
+        """Test squeeze only when shape[0] is exactly 1.
+
+        Kills mutation: `x.shape[0] == 1` to `x.shape[1] == 1`, `x.shape[0] >= 1`.
+        """
+        # 2D features where extracted sample will be (1, 5) before squeeze
+        features = np.random.randn(10, 5).astype(np.float32)
+        labels = np.random.randint(0, 2, 10).astype(np.int64)
+
+        dataset = TorchDataset(features, labels, batch_size=0)
+
+        # Single sample access - x will be squeezed from (1, 5) -> (5,)
+        x, y = dataset[0]
+        # The squeeze targets (1, N) -> (N,) for sample mode
+        assert x.ndim == 1, f"Expected 1D after squeeze, got {x.ndim}D"
+
+    def test_batch_mode_preserves_dimensions(self):
+        """Test batch mode preserves 2D output.
+
+        Kills mutation: dimension checks in __getitem__.
+        """
+        features = np.random.randn(50, 8).astype(np.float32)
+        labels = np.random.randint(0, 3, 50).astype(np.int64)
+
+        dataset = TorchDataset(features, labels, batch_size=10)
+
+        for i in range(len(dataset)):
+            x, y = dataset[i]
+            assert x.ndim == 2, f"Batch {i}: expected 2D, got {x.ndim}D"
+
+
+# ================================================================================================
+# Phase 3 - Medium Priority Mutation Tests
+# ================================================================================================
+
+
+class TestTorchDatasetPhase3:
+    """Phase 3 tests for TorchDataset mutation survivors."""
+
+    def test_batch_boundary_calculation(self):
+        """Test batch start/end boundary calculations.
+
+        Kills mutation: boundary index calculations.
+        """
+        features = np.random.randn(25, 5).astype(np.float32)
+        labels = np.random.randint(0, 2, 25).astype(np.int64)
+
+        dataset = TorchDataset(features, labels, batch_size=10)
+
+        # Check each batch has correct number of samples
+        x0, _ = dataset[0]
+        assert x0.shape[0] == 10, "Batch 0 should have 10 samples"
+
+        x1, _ = dataset[1]
+        assert x1.shape[0] == 10, "Batch 1 should have 10 samples"
+
+        x2, _ = dataset[2]
+        assert x2.shape[0] == 5, "Batch 2 (last) should have 5 samples"
+
+    def test_labels_none_returns_only_features(self):
+        """Test that dataset without labels returns only features.
+
+        Kills mutation: labels None check.
+        """
+        features = np.random.randn(10, 5).astype(np.float32)
+        dataset = TorchDataset(features, labels=None, batch_size=0)
+
+        result = dataset[0]
+        # Should return just features, not tuple
+        assert isinstance(result, torch.Tensor)
+        assert result.shape == (5,)
+
+    def test_dtype_conversion_preserves_precision(self):
+        """Test dtype conversion works correctly.
+
+        Kills mutation: dtype conversion logic.
+        """
+        features = np.random.randn(10, 5).astype(np.float64)
+        labels = np.random.randint(0, 2, 10).astype(np.int32)
+
+        dataset = TorchDataset(
+            features, labels,
+            features_dtype=torch.float32,
+            labels_dtype=torch.int64,
+            batch_size=0
+        )
+
+        x, y = dataset[0]
+        assert x.dtype == torch.float32
+        assert y.dtype == torch.int64
+
+    def test_empty_batch_handling(self):
+        """Test handling of edge cases with small datasets.
+
+        Kills mutation: edge case handling.
+        """
+        features = np.random.randn(3, 5).astype(np.float32)
+        labels = np.random.randint(0, 2, 3).astype(np.int64)
+
+        # Batch size larger than dataset
+        dataset = TorchDataset(features, labels, batch_size=10)
+
+        assert len(dataset) == 1
+        x, y = dataset[0]
+        assert x.shape[0] == 3
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

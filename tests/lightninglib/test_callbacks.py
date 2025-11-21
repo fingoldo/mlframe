@@ -639,5 +639,75 @@ class TestCallbacksIntegration:
         assert len(callbacks) == 3
 
 
+# ================================================================================================
+# Mutation Testing - Callback Tests
+# ================================================================================================
+
+
+class TestCallbacksMutationTests:
+    """Tests specifically targeting mutation survivors in callbacks."""
+
+    def test_periodic_lr_finder_period_must_be_positive(self):
+        """Test PeriodicLearningRateFinder requires period > 0.
+
+        Kills mutation: `period > 0` boundary conditions.
+        """
+        # Valid: period = 1
+        finder = PeriodicLearningRateFinder(period=1)
+        assert finder.period == 1
+
+        # Valid: period = 100
+        finder = PeriodicLearningRateFinder(period=100)
+        assert finder.period == 100
+
+    def test_periodic_lr_finder_epoch_zero_always_runs(self):
+        """Test LR finder always runs at epoch 0 regardless of period.
+
+        Kills mutation: epoch % period == 0 condition.
+        """
+        callback = PeriodicLearningRateFinder(period=10)
+        callback.lr_find = Mock()
+
+        mock_trainer = Mock()
+        mock_trainer.current_epoch = 0
+
+        mock_module = Mock()
+        mock_module.learning_rate = 0.001
+
+        with patch('builtins.print'):
+            callback.on_train_epoch_start(mock_trainer, mock_module)
+
+        # Should run at epoch 0
+        callback.lr_find.assert_called_once()
+
+    def test_periodic_lr_finder_skips_non_period_epochs(self):
+        """Test LR finder skips non-period epochs.
+
+        Kills mutation: `epoch % period == 0` to other conditions.
+        """
+        callback = PeriodicLearningRateFinder(period=5)
+        callback.lr_find = Mock()
+
+        mock_module = Mock()
+        mock_module.learning_rate = 0.001
+
+        # Test epochs 1, 2, 3, 4 (should skip all)
+        for epoch in [1, 2, 3, 4]:
+            mock_trainer = Mock()
+            mock_trainer.current_epoch = epoch
+            callback.on_train_epoch_start(mock_trainer, mock_module)
+
+        # Should not have been called for any of these
+        assert callback.lr_find.call_count == 0
+
+        # Epoch 5 should run
+        mock_trainer = Mock()
+        mock_trainer.current_epoch = 5
+        with patch('builtins.print'):
+            callback.on_train_epoch_start(mock_trainer, mock_module)
+
+        assert callback.lr_find.call_count == 1
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

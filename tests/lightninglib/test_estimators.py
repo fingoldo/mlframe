@@ -652,5 +652,99 @@ class TestEstimatorsEdgeCases:
         assert predictions.ndim == 1
 
 
+# ================================================================================================
+# Mutation Testing - Estimator Tests
+# ================================================================================================
+
+
+class TestEstimatorsMutationTests:
+    """Tests specifically targeting mutation survivors in estimators."""
+
+    def test_predict_raises_when_model_not_fitted(self, estimator_params_classifier, classification_data):
+        """Test predict raises error when model attribute missing.
+
+        Kills mutation: `not hasattr(self, "model") or self.model is None`.
+        """
+        clf = PytorchLightningClassifier(**estimator_params_classifier)
+
+        with pytest.raises((AttributeError, ValueError, RuntimeError)):
+            clf.predict(classification_data['X_test'])
+
+    def test_predict_raises_when_model_is_none(self, estimator_params_classifier, classification_data):
+        """Test predict raises error when model is None.
+
+        Kills mutation: `self.model is None` check.
+        """
+        clf = PytorchLightningClassifier(**estimator_params_classifier)
+        clf.model = None  # Artificially set
+
+        with pytest.raises((AttributeError, ValueError, RuntimeError)):
+            clf.predict(classification_data['X_test'])
+
+    def test_regression_prediction_shape_1d(self, estimator_params_regressor, regression_data):
+        """Test regression predictions are properly squeezed to 1D.
+
+        Kills mutation: `predictions.ndim == 2 and predictions.shape[1] == 1`.
+        """
+        params = estimator_params_regressor.copy()
+        params['trainer_params']['max_epochs'] = 2
+        reg = PytorchLightningRegressor(**params)
+
+        reg.fit(regression_data['X_train'], regression_data['y_train'])
+        predictions = reg.predict(regression_data['X_test'])
+
+        # Should be squeezed to 1D
+        assert predictions.ndim == 1, f"Expected 1D, got {predictions.ndim}D"
+        assert len(predictions) == len(regression_data['X_test'])
+
+    def test_predict_device_cpu_string_comparison(self, estimator_params_classifier, classification_data):
+        """Test device parameter string comparison works correctly.
+
+        Kills mutation: `device == "cpu"` to `device > "cpu"`, `device is "cpu"`.
+        """
+        params = estimator_params_classifier.copy()
+        params['trainer_params']['max_epochs'] = 2
+        clf = PytorchLightningClassifier(**params)
+
+        clf.fit(classification_data['X_train'], classification_data['y_train'])
+
+        # Explicit cpu device string
+        predictions = clf.predict(classification_data['X_test'], device='cpu')
+        assert predictions is not None
+        assert len(predictions) == len(classification_data['X_test'])
+
+    def test_classifier_binary_boundary(self):
+        """Test binary classification at num_classes=2 boundary.
+
+        Kills mutation: boundary conditions on num_classes checks.
+        """
+        from sklearn.datasets import make_classification
+        X, y = make_classification(n_samples=100, n_features=5, n_classes=2, random_state=42)
+
+        clf = PytorchLightningClassifier(
+            model_class=MLPTorchModel,
+            model_params={'loss_fn': torch.nn.CrossEntropyLoss(), 'learning_rate': 1e-3},
+            network_params={'nlayers': 2},
+            datamodule_class=TorchDataModule,
+            datamodule_params={
+                'read_fcn': None,
+                'data_placement_device': None,
+                'features_dtype': torch.float32,
+                'labels_dtype': torch.int64,
+                'dataloader_params': {'batch_size': 32, 'num_workers': 0}
+            },
+            trainer_params={'max_epochs': 2, 'default_root_dir': None, 'log_every_n_steps': 1, 'devices': 1}
+        )
+
+        clf.fit(X.astype(np.float32), y)
+        predictions = clf.predict(X.astype(np.float32))
+        probas = clf.predict_proba(X.astype(np.float32))
+
+        # Should have exactly 2 classes
+        assert len(clf.classes_) == 2
+        assert probas.shape[1] == 2
+        assert all(p in [0, 1] for p in predictions)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
