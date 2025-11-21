@@ -223,12 +223,25 @@ class PytorchLightningEstimator(BaseEstimator):
             mode="min",
         )
 
+        # Configure trainer params - only modify if needed
+        trainer_params = self.trainer_params.copy()
+        if not has_validation:
+            logger.info("No validation data - training without validation")
+            trainer_params.update({"num_sanity_val_steps": 0, "limit_val_batches": 0})
+
+        # Set default logger for LearningRateMonitor compatibility
+        if 'logger' not in trainer_params:
+            trainer_params['logger'] = TensorBoardLogger(save_dir='lightning_logs', name='')
+
         # Build callbacks list
         callbacks = [
             checkpointing,
-            LearningRateMonitor(logging_interval="epoch"),
             TQDMProgressBar(refresh_rate=10),
         ]
+
+        # Only add LearningRateMonitor if logger is enabled
+        if trainer_params.get('logger') is not False:
+            callbacks.append(LearningRateMonitor(logging_interval="epoch"))
 
         if self.use_swa:
             callbacks.append(StochasticWeightAveraging(**self.swa_params))
@@ -244,16 +257,6 @@ class PytorchLightningEstimator(BaseEstimator):
                     verbose=True,
                 )
             )
-
-        # Configure trainer params - only modify if needed
-        trainer_params = self.trainer_params.copy()
-        if not has_validation:
-            logger.info("No validation data - training without validation")
-            trainer_params.update({"num_sanity_val_steps": 0, "limit_val_batches": 0})
-
-        # Set default logger for LearningRateMonitor compatibility
-        if 'logger' not in trainer_params:
-            trainer_params['logger'] = TensorBoardLogger(save_dir='lightning_logs', name='')
 
         trainer = L.Trainer(**trainer_params, callbacks=callbacks)
 

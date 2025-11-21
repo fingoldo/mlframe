@@ -39,6 +39,8 @@ pip-delete-this-directory.txt
 
 # Unit test / coverage reports
 logs/
+checkpoints/
+*.ckpt
 catboost_info/
 htmlcov/
 .tox/
