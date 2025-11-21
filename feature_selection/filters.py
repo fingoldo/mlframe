@@ -2424,7 +2424,9 @@ def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: float = None, ma
     if min_value is None or max_value is None:
         min_value, max_value = arrayMinMax(arr)
     rev_bin_width = n_bins / (max_value - min_value + min_value / 2)
-    return ((arr - min_value) * rev_bin_width).astype(dtype)
+    result = ((arr - min_value) * rev_bin_width).astype(dtype)
+    # Clip to ensure values are in valid range [0, n_bins-1] to prevent array bounds errors
+    return np.clip(result, 0, n_bins - 1)
 
 
 def discretize_array(
