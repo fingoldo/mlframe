@@ -999,12 +999,12 @@ class BestEpochModelCheckpoint(ModelCheckpoint):
         self.best_epoch: Optional[int] = None
         self.best_score: Optional[float] = None
 
-        # Determine comparison operator
+        # Determine comparison operator (using operator module for pickling support)
         if mode == "min":
-            self.monitor_op = lambda a, b: a < b
+            self.monitor_op = operator.lt
             self.best_score = float("inf")
         elif mode == "max":
-            self.monitor_op = lambda a, b: a > b
+            self.monitor_op = operator.gt
             self.best_score = float("-inf")
         else:
             raise ValueError(f"Unsupported mode: {mode}")
