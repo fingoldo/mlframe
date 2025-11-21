@@ -2501,7 +2501,7 @@ def discretize_2d_array(
 
     # for col in tqdmu(range(arr.shape[1]), desc="col", leave=False):
     for col in prange(arr.shape[1]):
-        res[:, col] = discretize_array(
+        res[:, col] = _discretize_array_impl(
             arr=arr[:, col],
             n_bins=n_bins,
             method=method,
