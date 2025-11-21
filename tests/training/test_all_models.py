@@ -642,6 +642,91 @@ class TestGPUSupport:
         assert "REGRESSION" in models["target"]
         assert len(models["target"]["REGRESSION"]) > 0
 
+    def test_mlp_multi_gpu_configuration(self, sample_regression_data, temp_data_dir, check_gpu_available, common_init_params):
+        """Test MLP multi-GPU configuration (if multiple GPUs available)."""
+        pytest_module = __import__("pytest")
+
+        try:
+            import pytorch_lightning
+            import torch
+        except ImportError:
+            pytest_module.skip("PyTorch Lightning not available")
+
+        if not check_gpu_available:
+            pytest_module.skip("GPU not available")
+
+        num_gpus = torch.cuda.device_count()
+        if num_gpus < 2:
+            pytest_module.skip(f"Multi-GPU test requires at least 2 GPUs, found {num_gpus}")
+
+        df, feature_names, y = sample_regression_data
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
+
+        # Configure for multi-GPU via config_params_override
+        config_override = {"mlp_kwargs": {"trainer_params": {"accelerator": "cuda", "devices": num_gpus}}}
+
+        # Train
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="mlp_multi_gpu",
+            features_and_targets_extractor=fte,
+            mlframe_models=["mlp"],
+            config_params_override=config_override,
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        # Verify
+        assert "target" in models
+        assert "REGRESSION" in models["target"]
+        assert len(models["target"]["REGRESSION"]) > 0
+
+    def test_catboost_multi_gpu_configuration(self, sample_regression_data, temp_data_dir, check_gpu_available, common_init_params):
+        """Test CatBoost multi-GPU configuration (if multiple GPUs available)."""
+        try:
+            import torch
+        except ImportError:
+            pytest.skip("PyTorch not available for GPU count check")
+
+        if not check_gpu_available:
+            pytest.skip("GPU not available")
+
+        num_gpus = torch.cuda.device_count()
+        if num_gpus < 2:
+            pytest.skip(f"Multi-GPU test requires at least 2 GPUs, found {num_gpus}")
+
+        df, feature_names, y = sample_regression_data
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
+
+        # Configure for multi-GPU via config_params_override
+        config_override = {"cb_kwargs": {"task_type": "GPU", "devices": f"0-{num_gpus-1}", "verbose": 0}}
+
+        # Train
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="cb_multi_gpu",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            config_params_override=config_override,
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        # Verify
+        assert "target" in models
+        assert "REGRESSION" in models["target"]
+        assert len(models["target"]["REGRESSION"]) > 0
+
 
 # ================================================================================================
 # Test Class 5: Feature Selection
