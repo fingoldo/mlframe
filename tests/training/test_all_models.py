@@ -124,8 +124,9 @@ class TestAllModelsRegression:
             config_override = {"xgb_kwargs": {"device": "cpu"}}
         elif model_name == "lgb":
             config_override = {"lgb_kwargs": {"device_type": "cpu"}}
+        elif model_name == "mlp":
+            config_override = {"mlp_kwargs": {"trainer_params": {"devices": 1}}}
 
-        print("test_basic_regression", model_name)
         # Train
         models, metadata = train_mlframe_models_suite(
             df=df,
@@ -179,8 +180,9 @@ class TestAllModelsRegression:
             config_override = {"xgb_kwargs": {"device": "cpu"}}
         elif model_name == "lgb":
             config_override = {"lgb_kwargs": {"device_type": "cpu"}}
+        elif model_name == "mlp":
+            config_override = {"mlp_kwargs": {"trainer_params": {"devices": 1}}}
 
-        print("test_regression_with_polars", model_name)
         # Train
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -239,6 +241,8 @@ class TestAllModelsClassification:
             config_override = {"xgb_kwargs": {"device": "cpu"}}
         elif model_name == "lgb":
             config_override = {"lgb_kwargs": {"device_type": "cpu"}}
+        elif model_name == "mlp":
+            config_override = {"mlp_kwargs": {"trainer_params": {"devices": 1}}}
 
         # Train
         models, metadata = train_mlframe_models_suite(
@@ -291,6 +295,8 @@ class TestAllModelsClassification:
             config_override = {"xgb_kwargs": {"device": "cpu"}}
         elif model_name == "lgb":
             config_override = {"lgb_kwargs": {"device_type": "cpu"}}
+        elif model_name == "mlp":
+            config_override = {"mlp_kwargs": {"trainer_params": {"devices": 1}}}
 
         # Train
         models, metadata = train_mlframe_models_suite(
@@ -342,6 +348,8 @@ class TestCategoricalFeatures:
             config_override = {"xgb_kwargs": {"device": "cpu"}}
         elif model_name == "lgb":
             config_override = {"lgb_kwargs": {"device_type": "cpu"}}
+        elif model_name == "mlp":
+            config_override = {"mlp_kwargs": {"trainer_params": {"devices": 1}}}
 
         # Train
         models, metadata = train_mlframe_models_suite(

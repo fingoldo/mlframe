@@ -756,7 +756,7 @@ def get_training_configs(
     )
 
     mlp_trainer_params: dict = dict(
-        devices=1 if is_jupyter_notebook() else torch.cuda.device_count(),
+        devices=1,  # Always use single device by default to avoid multi-GPU complexity
         # ----------------------------------------------------------------------------------------------------------------------
         # Runtime:
         # ----------------------------------------------------------------------------------------------------------------------
