@@ -36,7 +36,7 @@ from lightning.pytorch.callbacks import Callback, LearningRateFinder
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping as EarlyStoppingCallback
 from lightning.pytorch.callbacks import RichProgressBar, TQDMProgressBar, ModelPruning, LearningRateMonitor, LearningRateFinder
 from lightning.pytorch.callbacks import ModelCheckpoint, DeviceStatsMonitor, StochasticWeightAveraging, GradientAccumulationScheduler
-from lightning.pytorch.loggers import CSVLogger
+from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
 from lightning.pytorch.utilities import rank_zero_only
 
 from enum import Enum, auto
@@ -251,10 +251,9 @@ class PytorchLightningEstimator(BaseEstimator):
             logger.info("No validation data - training without validation")
             trainer_params.update({"num_sanity_val_steps": 0, "limit_val_batches": 0})
 
-        # Set safe default logger to avoid TensorBoard/TensorFlow issues on Windows
-        # Use CSVLogger instead of TensorBoard to prevent Windows access violations
+        # Set default logger for LearningRateMonitor compatibility
         if 'logger' not in trainer_params:
-            trainer_params['logger'] = CSVLogger(save_dir='lightning_logs', name='')
+            trainer_params['logger'] = TensorBoardLogger(save_dir='lightning_logs', name='')
 
         trainer = L.Trainer(**trainer_params, callbacks=callbacks)
 

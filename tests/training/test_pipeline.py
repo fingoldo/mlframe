@@ -170,7 +170,7 @@ class TestPrepareDfForCatboost:
         prepare_df_for_catboost(df=df, cat_features=cat_features)
 
         # Verify cat_feature is now categorical
-        assert pd.api.types.is_categorical_dtype(df['cat_feature'])
+        assert isinstance(df['cat_feature'].dtype, pd.CategoricalDtype)
 
     def test_prepare_df_for_catboost_no_cat_features(self):
         """Test preparing DataFrame with no categorical features."""

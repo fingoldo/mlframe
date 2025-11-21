@@ -2811,7 +2811,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             print("Converted targets from int64 to int16.")
             vals = vals.astype(np.int16)
 
-        X[target_names] = vals.reshape(-1, 1)
+        X.loc[:, target_names] = vals.reshape(-1, 1)
 
         # ---------------------------------------------------------------------------------------------------------------
         # Discretize continuous data
@@ -3265,7 +3265,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Drop Temporarily targets
         # ---------------------------------------------------------------------------------------------------------------
 
-        X.drop(columns=target_names, inplace=True)
+        X = X.drop(columns=target_names)
 
         # ---------------------------------------------------------------------------------------------------------------
         # selected_vars needs to be transformed to names using the cols variable and then back to indices using original Df columns names.
