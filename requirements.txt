@@ -107,6 +107,7 @@ hypothesis
 cosmic-ray
 pytest
 pytest-cov
+pytest-xdist
 pytest-timeout
 pytest-benchmark
 coverage>=7.2.0  # Explicit version for compatibility

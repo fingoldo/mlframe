@@ -102,7 +102,8 @@ def estimator_params_classifier():
         'enable_model_summary': False,
         'default_root_dir': None,
         'log_every_n_steps': 1,
-        'devices': 1  # Prevent multi-GPU training in tests
+        'devices': 1,  # Prevent multi-GPU training in tests
+        'logger': False  # Disable CSVLogger to avoid fieldnames issues in tests
     }
 
     return {
@@ -143,7 +144,8 @@ def estimator_params_regressor():
         'enable_model_summary': False,
         'default_root_dir': None,
         'log_every_n_steps': 1,
-        'devices': 1  # Prevent multi-GPU training in tests
+        'devices': 1,  # Prevent multi-GPU training in tests
+        'logger': False  # Disable CSVLogger to avoid fieldnames issues in tests
     }
 
     return {

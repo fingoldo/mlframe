@@ -121,7 +121,7 @@ class TestLinearModelTraining:
     @pytest.mark.parametrize("model_type", ["linear", "ridge", "sgd"])
     def test_train_classification_model(self, sample_classification_data, model_type):
         """Test training classification models."""
-        df, feature_names, y = sample_classification_data
+        df, feature_names, _, y = sample_classification_data
 
         train_size = int(0.7 * len(df))
         train_df = df[feature_names].iloc[:train_size]
@@ -273,7 +273,7 @@ class TestLinearModelConfigurations:
 
     def test_calibrated_classifier(self, sample_classification_data):
         """Test calibrated classifier wrapper."""
-        df, feature_names, y = sample_classification_data
+        df, feature_names, _, y = sample_classification_data
 
         train_df = df[feature_names].iloc[:700]
         train_target = df['target'].iloc[:700]

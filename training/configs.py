@@ -57,9 +57,11 @@ class PolarsPipelineConfig(BaseConfig):
     """Configuration for Polars-ds pipeline."""
 
     use_polarsds_pipeline: bool = True
-    scaler_name: Optional[str] = "standard"  # standard, min_max, robust, or None for no scaling
+    scaler_name: Optional[str] = "standard"  # standard, min_max, abs_max, robust, or None for no scaling
     imputer_strategy: str = "mean"
     categorical_encoding: str = "ordinal"  # ordinal, onehot, target, etc.
+    robust_q_low: float = 0.01  # Lower quantile for robust scaling
+    robust_q_high: float = 0.99  # Upper quantile for robust scaling
 
 
 class FeatureSelectionConfig(BaseConfig):

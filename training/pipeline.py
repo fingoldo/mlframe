@@ -78,7 +78,10 @@ def create_polarsds_pipeline(
 
     # Add scaling
     if config.scaler_name:
-        bp = bp.scale(cs.numeric(), method=config.scaler_name)
+        if config.scaler_name == "robust":
+            bp = bp.robust_scale(cs.numeric(), q_low=config.robust_q_low, q_high=config.robust_q_high)
+        else:
+            bp = bp.scale(cs.numeric(), method=config.scaler_name)
 
     # Add categorical encoding
     if config.categorical_encoding == "ordinal":

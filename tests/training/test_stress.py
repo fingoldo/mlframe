@@ -582,7 +582,7 @@ class TestFileIOStress:
 
             for compression in [1, 5, 10]:
                 file_path = os.path.join(tmpdir, f"model_comp{compression}.zst")
-                result = save_mlframe_model(data, file_path, compression=compression, verbose=0)
+                result = save_mlframe_model(data, file_path, zstd_kwargs={'level': compression}, verbose=0)
                 assert result is True
 
                 loaded = load_mlframe_model(file_path)

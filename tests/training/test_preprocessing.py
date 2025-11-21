@@ -17,6 +17,7 @@ import os
 from mlframe.training_old import make_train_test_split
 from mlframe.training.configs import PreprocessingConfig, TrainingSplitConfig
 from mlframe.training.utils import process_nans, process_nulls, remove_constant_columns
+from pyutilz.strings import slugify
 
 
 class TestDataLoading:
@@ -507,7 +508,7 @@ class TestSaveSplitArtifacts:
         )
 
         # Check slugified path exists
-        base_path = os.path.join(data_dir, models_dir, "my-target-name", "model-with-spaces")
+        base_path = os.path.join(data_dir, models_dir, slugify("My Target Name"), slugify("Model With Spaces"))
         assert os.path.exists(os.path.join(base_path, "train_timestamps.parquet"))
 
     def test_handles_polars_series(self, tmp_path):

@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import numpy as np
-import pandas as pd
+import pandas as pd, polars as pl
 from typing import Optional, Dict, Any, Union
 from types import SimpleNamespace
 from pyutilz.system import clean_ram
@@ -222,8 +222,8 @@ def train_lama_model(
 
 
 def train_automl_models_suite(
-    train_df: Union[pd.DataFrame, "pl.DataFrame"],
-    test_df: Optional[Union[pd.DataFrame, "pl.DataFrame"]] = None,
+    train_df: Union[pd.DataFrame, pl.DataFrame],
+    test_df: Optional[Union[pd.DataFrame, pl.DataFrame]] = None,
     target_name: str = "target",
     config: Optional[AutoMLConfig] = None,
     verbose: int = 1,
@@ -263,7 +263,6 @@ def train_automl_models_suite(
         )
         ```
     """
-    import polars as pl
 
     if config is None:
         config = AutoMLConfig()
