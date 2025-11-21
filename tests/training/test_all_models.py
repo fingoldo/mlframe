@@ -24,10 +24,11 @@ from mlframe.training.configs import PolarsPipelineConfig
 # Mock FeaturesAndTargetsExtractor
 # ================================================================================================
 
+
 class SimpleFeaturesAndTargetsExtractor:
     """Mock FeaturesAndTargetsExtractor for testing."""
 
-    def __init__(self, target_column='target', regression=True):
+    def __init__(self, target_column="target", regression=True):
         self.target_column = target_column
         self.regression = regression
 
@@ -45,11 +46,7 @@ class SimpleFeaturesAndTargetsExtractor:
 
         # Create target_by_type dict
         target_type = "REGRESSION" if self.regression else "CLASSIFICATION"
-        target_by_type = {
-            target_type: {
-                self.target_column: target_values
-            }
-        }
+        target_by_type = {target_type: {self.target_column: target_values}}
 
         # Return all expected values
         return (
@@ -74,11 +71,7 @@ NEURAL_MODELS = ["mlp", "ngb"]
 ALL_MODELS = LINEAR_MODELS + TREE_MODELS + NEURAL_MODELS
 
 # Models that support classification (exclude RANSAC)
-CLASSIFICATION_MODELS = [
-    "linear", "ridge", "lasso", "elasticnet", "huber", "sgd",  # Linear
-    "cb", "lgb", "xgb", "hgb",  # Tree
-    "mlp", "ngb"  # Neural
-]
+CLASSIFICATION_MODELS = ["linear", "ridge", "lasso", "elasticnet", "huber", "sgd", "cb", "lgb", "xgb", "hgb", "mlp", "ngb"]  # Linear  # Tree  # Neural
 
 # Models that support categorical features natively (HGB excluded per user request)
 CATEGORICAL_NATIVE_MODELS = ["cb", "lgb", "xgb"]
@@ -94,13 +87,14 @@ GPU_MODELS = ["cb", "xgb", "lgb", "mlp"]
 # Test Class 1: All Models Regression
 # ================================================================================================
 
+
 class TestAllModelsRegression:
     """Test all 13 models on regression tasks."""
 
     @pytest.mark.parametrize("model_name", ALL_MODELS)
     def test_basic_regression(self, model_name, sample_regression_data, sample_large_regression_data, temp_data_dir, common_init_params):
         """Test basic regression for all models."""
-        pytest_module = __import__('pytest')
+        pytest_module = __import__("pytest")
 
         # Import checks for optional dependencies
         if model_name == "ngb":
@@ -120,17 +114,18 @@ class TestAllModelsRegression:
         else:
             df, feature_names, y = sample_regression_data
 
-        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Force CPU for GPU-capable models (GPU tests are separate)
         config_override = {}
         if model_name == "cb":
-            config_override = {'cb_kwargs': {'task_type': 'CPU'}}
+            config_override = {"cb_kwargs": {"task_type": "CPU"}}
         elif model_name == "xgb":
-            config_override = {'xgb_kwargs': {'device': 'cpu'}}
+            config_override = {"xgb_kwargs": {"device": "cpu"}}
         elif model_name == "lgb":
-            config_override = {'lgb_kwargs': {'device_type': 'cpu'}}
+            config_override = {"lgb_kwargs": {"device_type": "cpu"}}
 
+        print("test_basic_regression", model_name)
         # Train
         models, metadata = train_mlframe_models_suite(
             df=df,
@@ -155,7 +150,7 @@ class TestAllModelsRegression:
     @pytest.mark.parametrize("model_name", ALL_MODELS)
     def test_regression_with_polars(self, model_name, sample_polars_data, temp_data_dir, common_init_params):
         """Test regression with Polars DataFrame."""
-        pytest_module = __import__('pytest')
+        pytest_module = __import__("pytest")
 
         # Import checks
         if model_name == "ngb":
@@ -174,17 +169,18 @@ class TestAllModelsRegression:
             pytest_module.skip("SGD needs larger dataset")
 
         pl_df, feature_names, y = sample_polars_data
-        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Force CPU for GPU-capable models (GPU tests are separate)
         config_override = {}
         if model_name == "cb":
-            config_override = {'cb_kwargs': {'task_type': 'CPU'}}
+            config_override = {"cb_kwargs": {"task_type": "CPU"}}
         elif model_name == "xgb":
-            config_override = {'xgb_kwargs': {'device': 'cpu'}}
+            config_override = {"xgb_kwargs": {"device": "cpu"}}
         elif model_name == "lgb":
-            config_override = {'lgb_kwargs': {'device_type': 'cpu'}}
+            config_override = {"lgb_kwargs": {"device_type": "cpu"}}
 
+        print("test_regression_with_polars", model_name)
         # Train
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -211,13 +207,14 @@ class TestAllModelsRegression:
 # Test Class 2: All Models Classification
 # ================================================================================================
 
+
 class TestAllModelsClassification:
     """Test all models on classification tasks (excluding RANSAC)."""
 
     @pytest.mark.parametrize("model_name", CLASSIFICATION_MODELS)
     def test_basic_classification(self, model_name, sample_classification_data, temp_data_dir, common_init_params):
         """Test basic classification."""
-        pytest_module = __import__('pytest')
+        pytest_module = __import__("pytest")
 
         # Import checks
         if model_name == "ngb":
@@ -232,16 +229,16 @@ class TestAllModelsClassification:
                 pytest_module.skip("PyTorch Lightning not available")
 
         df, feature_names, y = sample_classification_data
-        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
         # Force CPU for GPU-capable models (GPU tests are separate)
         config_override = {}
         if model_name == "cb":
-            config_override = {'cb_kwargs': {'task_type': 'CPU'}}
+            config_override = {"cb_kwargs": {"task_type": "CPU"}}
         elif model_name == "xgb":
-            config_override = {'xgb_kwargs': {'device': 'cpu'}}
+            config_override = {"xgb_kwargs": {"device": "cpu"}}
         elif model_name == "lgb":
-            config_override = {'lgb_kwargs': {'device_type': 'cpu'}}
+            config_override = {"lgb_kwargs": {"device_type": "cpu"}}
 
         # Train
         models, metadata = train_mlframe_models_suite(
@@ -267,7 +264,7 @@ class TestAllModelsClassification:
     @pytest.mark.parametrize("model_name", CLASSIFICATION_MODELS)
     def test_classification_with_polars(self, model_name, sample_classification_data, temp_data_dir, common_init_params):
         """Test classification with Polars DataFrame."""
-        pytest_module = __import__('pytest')
+        pytest_module = __import__("pytest")
 
         # Import checks
         if model_name == "ngb":
@@ -284,16 +281,16 @@ class TestAllModelsClassification:
         df, feature_names, y = sample_classification_data
         pl_df = pl.from_pandas(df)
 
-        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
         # Force CPU for GPU-capable models (GPU tests are separate)
         config_override = {}
         if model_name == "cb":
-            config_override = {'cb_kwargs': {'task_type': 'CPU'}}
+            config_override = {"cb_kwargs": {"task_type": "CPU"}}
         elif model_name == "xgb":
-            config_override = {'xgb_kwargs': {'device': 'cpu'}}
+            config_override = {"xgb_kwargs": {"device": "cpu"}}
         elif model_name == "lgb":
-            config_override = {'lgb_kwargs': {'device_type': 'cpu'}}
+            config_override = {"lgb_kwargs": {"device_type": "cpu"}}
 
         # Train
         models, metadata = train_mlframe_models_suite(
@@ -321,6 +318,7 @@ class TestAllModelsClassification:
 # Test Class 3: Categorical Features
 # ================================================================================================
 
+
 class TestCategoricalFeatures:
     """Test categorical feature support."""
 
@@ -329,7 +327,7 @@ class TestCategoricalFeatures:
     def test_native_categorical_support(self, model_name, encoding, sample_categorical_data, temp_data_dir, common_init_params):
         """Test models with native categorical support (cb, lgb, xgb)."""
         df, feature_names, cat_features, y = sample_categorical_data
-        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Configure pipeline with categorical encoding
         pipeline_config = PolarsPipelineConfig(
@@ -339,11 +337,11 @@ class TestCategoricalFeatures:
         # Force CPU for GPU-capable models (GPU tests are separate)
         config_override = {}
         if model_name == "cb":
-            config_override = {'cb_kwargs': {'task_type': 'CPU'}}
+            config_override = {"cb_kwargs": {"task_type": "CPU"}}
         elif model_name == "xgb":
-            config_override = {'xgb_kwargs': {'device': 'cpu'}}
+            config_override = {"xgb_kwargs": {"device": "cpu"}}
         elif model_name == "lgb":
-            config_override = {'lgb_kwargs': {'device_type': 'cpu'}}
+            config_override = {"lgb_kwargs": {"device_type": "cpu"}}
 
         # Train
         models, metadata = train_mlframe_models_suite(
@@ -371,7 +369,7 @@ class TestCategoricalFeatures:
     @pytest.mark.parametrize("encoding", ["ordinal", "onehot"])
     def test_categorical_with_encoding(self, model_name, encoding, sample_categorical_data, temp_data_dir, common_init_params):
         """Test models that need category encoding in pipeline (linear, neural, hgb)."""
-        pytest_module = __import__('pytest')
+        pytest_module = __import__("pytest")
 
         # Import checks
         if model_name == "ngb":
@@ -390,7 +388,7 @@ class TestCategoricalFeatures:
             pytest_module.skip("RANSAC not tested with categorical features")
 
         df, feature_names, cat_features, y = sample_categorical_data
-        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Configure pipeline with categorical encoding
         pipeline_config = PolarsPipelineConfig(
@@ -423,6 +421,7 @@ class TestCategoricalFeatures:
 # Test Class 4: GPU Support
 # ================================================================================================
 
+
 class TestGPUSupport:
     """Test GPU configuration for supported models."""
 
@@ -430,13 +429,13 @@ class TestGPUSupport:
     def test_cpu_configuration(self, model_name, sample_regression_data, temp_data_dir, common_init_params):
         """Test forced CPU configuration for cb and xgb."""
         df, feature_names, y = sample_regression_data
-        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Force CPU via config_params_override
         if model_name == "cb":
-            config_override = {'cb_kwargs': {'task_type': 'CPU'}}
+            config_override = {"cb_kwargs": {"task_type": "CPU"}}
         elif model_name == "xgb":
-            config_override = {'xgb_kwargs': {'device': 'cpu'}}
+            config_override = {"xgb_kwargs": {"device": "cpu"}}
 
         # Train
         models, metadata = train_mlframe_models_suite(
@@ -466,13 +465,13 @@ class TestGPUSupport:
             pytest.skip("GPU not available")
 
         df, feature_names, y = sample_regression_data
-        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Configure for GPU via config_params_override
         if model_name == "cb":
-            config_override = {'cb_kwargs': {'task_type': 'GPU'}}
+            config_override = {"cb_kwargs": {"task_type": "GPU"}}
         elif model_name == "xgb":
-            config_override = {'xgb_kwargs': {'device': 'cuda'}}
+            config_override = {"xgb_kwargs": {"device": "cuda"}}
 
         # Train
         models, metadata = train_mlframe_models_suite(
@@ -498,10 +497,10 @@ class TestGPUSupport:
     def test_lgb_cpu_configuration(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test LightGBM CPU configuration."""
         df, feature_names, y = sample_regression_data
-        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Force CPU via config_params_override
-        config_override = {'lgb_kwargs': {'device_type': 'cpu'}}
+        config_override = {"lgb_kwargs": {"device_type": "cpu"}}
 
         # Train
         models, metadata = train_mlframe_models_suite(
@@ -533,10 +532,10 @@ class TestGPUSupport:
             pytest.skip("LightGBM CUDA not available (missing GPU-enabled build)")
 
         df, feature_names, y = sample_regression_data
-        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Configure for GPU via config_params_override
-        config_override = {'lgb_kwargs': {'device_type': 'cuda'}}
+        config_override = {"lgb_kwargs": {"device_type": "cuda"}}
 
         # Train
         models, metadata = train_mlframe_models_suite(
@@ -561,7 +560,7 @@ class TestGPUSupport:
 
     def test_mlp_cpu_configuration(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test MLP CPU configuration (with trainer params)."""
-        pytest_module = __import__('pytest')
+        pytest_module = __import__("pytest")
 
         try:
             import pytorch_lightning
@@ -569,17 +568,10 @@ class TestGPUSupport:
             pytest_module.skip("PyTorch Lightning not available")
 
         df, feature_names, y = sample_regression_data
-        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Force CPU with trainer params via config_params_override
-        config_override = {
-            'mlp_kwargs': {
-                'trainer_params': {
-                    'accelerator': 'cpu',
-                    'devices': 1
-                }
-            }
-        }
+        config_override = {"mlp_kwargs": {"trainer_params": {"accelerator": "cpu", "devices": 1}}}
 
         # Train
         models, metadata = train_mlframe_models_suite(
@@ -604,7 +596,7 @@ class TestGPUSupport:
 
     def test_mlp_gpu_configuration(self, sample_regression_data, temp_data_dir, check_gpu_available, common_init_params):
         """Test MLP GPU configuration (if GPU available)."""
-        pytest_module = __import__('pytest')
+        pytest_module = __import__("pytest")
 
         try:
             import pytorch_lightning
@@ -616,17 +608,10 @@ class TestGPUSupport:
             pytest_module.skip("GPU not available")
 
         df, feature_names, y = sample_regression_data
-        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Configure for GPU via config_params_override
-        config_override = {
-            'mlp_kwargs': {
-                'trainer_params': {
-                    'accelerator': 'cuda',
-                    'devices': 1
-                }
-            }
-        }
+        config_override = {"mlp_kwargs": {"trainer_params": {"accelerator": "cuda", "devices": 1}}}
 
         # Train
         models, metadata = train_mlframe_models_suite(
@@ -654,6 +639,7 @@ class TestGPUSupport:
 # Test Class 5: Feature Selection
 # ================================================================================================
 
+
 class TestFeatureSelection:
     """Test RFECV feature selection with different estimators."""
 
@@ -665,7 +651,7 @@ class TestFeatureSelection:
             pytest.skip("LightGBM CUDA not available (missing GPU-enabled build)")
 
         df, feature_names, y = sample_regression_data
-        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Train with RFECV
         models, metadata = train_mlframe_models_suite(
@@ -677,7 +663,7 @@ class TestFeatureSelection:
             rfecv_models=[estimator],  # Vary the RFECV estimator
             init_common_params={
                 **common_init_params,
-                'rfecv_params': {'max_runtime_mins': 2},  # Limit RFECV runtime for tests
+                "rfecv_params": {"max_runtime_mins": 2},  # Limit RFECV runtime for tests
             },
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -696,13 +682,14 @@ class TestFeatureSelection:
 # Test Class 6: Special Cases
 # ================================================================================================
 
+
 class TestSpecialCases:
     """Test special cases and edge conditions."""
 
     def test_ransac_regression_only(self, sample_outlier_data, temp_data_dir, common_init_params):
         """Test that RANSAC works for regression (not classification)."""
         df, feature_names, y = sample_outlier_data
-        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Train RANSAC on regression with outliers
         models, metadata = train_mlframe_models_suite(
@@ -727,7 +714,7 @@ class TestSpecialCases:
     def test_ridge_classifier_without_predict_proba(self, sample_classification_data, temp_data_dir, common_init_params):
         """Test RidgeClassifier uses predict() fallback (no predict_proba)."""
         df, feature_names, y = sample_classification_data
-        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
         # Train RidgeClassifier
         models, metadata = train_mlframe_models_suite(
@@ -752,7 +739,7 @@ class TestSpecialCases:
     def test_sgd_convergence(self, sample_large_regression_data, temp_data_dir, common_init_params):
         """Test SGD with larger dataset for better convergence."""
         df, feature_names, y = sample_large_regression_data
-        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Train SGD with larger dataset
         models, metadata = train_mlframe_models_suite(
@@ -777,7 +764,7 @@ class TestSpecialCases:
     def test_huber_with_outliers(self, sample_outlier_data, temp_data_dir, common_init_params):
         """Test Huber regressor on data with outliers."""
         df, feature_names, y = sample_outlier_data
-        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Train Huber with outliers
         models, metadata = train_mlframe_models_suite(
