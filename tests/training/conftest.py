@@ -29,13 +29,20 @@ def cleanup_memory():
 
     gc.collect()
 
-    # Clear GPU memory to prevent CUDA OOM
+    # Clear GPU memory and destroy distributed process groups to prevent CUDA OOM and TCPStore errors
     try:
         import torch
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
+
+        # Destroy distributed process groups to prevent TCPStore broken pipe errors
+        if torch.distributed.is_initialized():
+            torch.distributed.destroy_process_group()
     except ImportError:
+        pass
+    except Exception:
+        # Ignore errors during cleanup (process group may already be destroyed)
         pass
 
     mem_after = process.memory_info().rss / 1024 / 1024

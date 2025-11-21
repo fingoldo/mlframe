@@ -11,7 +11,9 @@ from mlframe.training.preprocessing import (
     load_and_prepare_dataframe,
     preprocess_dataframe,
     create_split_dataframes,
+    save_split_artifacts,
 )
+import os
 from mlframe.training_old import make_train_test_split
 from mlframe.training.configs import PreprocessingConfig, TrainingSplitConfig
 from mlframe.training.utils import process_nans, process_nulls, remove_constant_columns
@@ -288,3 +290,275 @@ class TestSplitDataframes:
         assert len(val_df) == 150
         assert len(test_df) == 150
         assert isinstance(train_df, pl.DataFrame)
+
+
+class TestSaveSplitArtifacts:
+    """Test saving split artifacts to disk."""
+
+    def test_saves_timestamps_for_all_splits(self, tmp_path):
+        """Test that timestamps are saved for train/val/test splits."""
+        train_idx = np.arange(0, 70)
+        val_idx = np.arange(70, 85)
+        test_idx = np.arange(85, 100)
+        timestamps = pd.Series(pd.date_range("2020-01-01", periods=100, freq="h"))
+
+        data_dir = str(tmp_path)
+        models_dir = "models"
+
+        save_split_artifacts(
+            train_idx=train_idx,
+            val_idx=val_idx,
+            test_idx=test_idx,
+            timestamps=timestamps,
+            group_ids_raw=None,
+            artifacts=None,
+            data_dir=data_dir,
+            models_dir=models_dir,
+            target_name="target",
+            model_name="test_model",
+        )
+
+        # Check files were created
+        base_path = os.path.join(data_dir, models_dir, "target", "test_model")
+        assert os.path.exists(os.path.join(base_path, "train_timestamps.parquet"))
+        assert os.path.exists(os.path.join(base_path, "val_timestamps.parquet"))
+        assert os.path.exists(os.path.join(base_path, "test_timestamps.parquet"))
+
+    def test_saves_group_ids(self, tmp_path):
+        """Test that group IDs are saved for all splits."""
+        train_idx = np.arange(0, 70)
+        val_idx = np.arange(70, 85)
+        test_idx = np.arange(85, 100)
+        # Use pandas Series for proper indexing
+        group_ids = pd.Series(np.random.randint(0, 10, 100))
+
+        data_dir = str(tmp_path)
+        models_dir = "models"
+
+        save_split_artifacts(
+            train_idx=train_idx,
+            val_idx=val_idx,
+            test_idx=test_idx,
+            timestamps=None,
+            group_ids_raw=group_ids,
+            artifacts=None,
+            data_dir=data_dir,
+            models_dir=models_dir,
+            target_name="target",
+            model_name="test_model",
+        )
+
+        base_path = os.path.join(data_dir, models_dir, "target", "test_model")
+        assert os.path.exists(os.path.join(base_path, "train_group_ids_raw.parquet"))
+        assert os.path.exists(os.path.join(base_path, "val_group_ids_raw.parquet"))
+        assert os.path.exists(os.path.join(base_path, "test_group_ids_raw.parquet"))
+
+    def test_saves_artifacts(self, tmp_path):
+        """Test that artifacts are saved for all splits."""
+        train_idx = np.arange(0, 70)
+        val_idx = np.arange(70, 85)
+        test_idx = np.arange(85, 100)
+        # Use pandas Series for proper indexing
+        artifacts = pd.Series(range(100), name="artifact_col")
+
+        data_dir = str(tmp_path)
+        models_dir = "models"
+
+        save_split_artifacts(
+            train_idx=train_idx,
+            val_idx=val_idx,
+            test_idx=test_idx,
+            timestamps=None,
+            group_ids_raw=None,
+            artifacts=artifacts,
+            data_dir=data_dir,
+            models_dir=models_dir,
+            target_name="target",
+            model_name="test_model",
+        )
+
+        base_path = os.path.join(data_dir, models_dir, "target", "test_model")
+        assert os.path.exists(os.path.join(base_path, "train_artifacts.parquet"))
+        assert os.path.exists(os.path.join(base_path, "val_artifacts.parquet"))
+        assert os.path.exists(os.path.join(base_path, "test_artifacts.parquet"))
+
+    def test_skips_none_indices(self, tmp_path):
+        """Test that None indices are skipped."""
+        train_idx = np.arange(0, 70)
+        val_idx = None  # No validation set
+        test_idx = np.arange(70, 100)
+        timestamps = pd.Series(pd.date_range("2020-01-01", periods=100, freq="h"))
+
+        data_dir = str(tmp_path)
+        models_dir = "models"
+
+        save_split_artifacts(
+            train_idx=train_idx,
+            val_idx=val_idx,
+            test_idx=test_idx,
+            timestamps=timestamps,
+            group_ids_raw=None,
+            artifacts=None,
+            data_dir=data_dir,
+            models_dir=models_dir,
+            target_name="target",
+            model_name="test_model",
+        )
+
+        base_path = os.path.join(data_dir, models_dir, "target", "test_model")
+        assert os.path.exists(os.path.join(base_path, "train_timestamps.parquet"))
+        assert not os.path.exists(os.path.join(base_path, "val_timestamps.parquet"))
+        assert os.path.exists(os.path.join(base_path, "test_timestamps.parquet"))
+
+    def test_does_nothing_when_data_dir_is_none(self, tmp_path):
+        """Test that nothing is saved when data_dir is None."""
+        train_idx = np.arange(0, 70)
+        val_idx = np.arange(70, 85)
+        test_idx = np.arange(85, 100)
+        timestamps = pd.Series(pd.date_range("2020-01-01", periods=100, freq="h"))
+
+        save_split_artifacts(
+            train_idx=train_idx,
+            val_idx=val_idx,
+            test_idx=test_idx,
+            timestamps=timestamps,
+            group_ids_raw=None,
+            artifacts=None,
+            data_dir=None,  # No data dir
+            models_dir="models",
+            target_name="target",
+            model_name="test_model",
+        )
+
+        # No files should be created anywhere
+        assert not os.path.exists(os.path.join(str(tmp_path), "models"))
+
+    def test_does_not_overwrite_existing_files(self, tmp_path):
+        """Test that existing files are not overwritten."""
+        train_idx = np.arange(0, 70)
+        val_idx = np.arange(70, 85)
+        test_idx = np.arange(85, 100)
+        timestamps = pd.Series(pd.date_range("2020-01-01", periods=100, freq="h"))
+
+        data_dir = str(tmp_path)
+        models_dir = "models"
+
+        # First save
+        save_split_artifacts(
+            train_idx=train_idx,
+            val_idx=val_idx,
+            test_idx=test_idx,
+            timestamps=timestamps,
+            group_ids_raw=None,
+            artifacts=None,
+            data_dir=data_dir,
+            models_dir=models_dir,
+            target_name="target",
+            model_name="test_model",
+        )
+
+        base_path = os.path.join(data_dir, models_dir, "target", "test_model")
+        file_path = os.path.join(base_path, "train_timestamps.parquet")
+        mtime_before = os.path.getmtime(file_path)
+
+        # Wait a tiny bit to ensure mtime would change
+        import time
+        time.sleep(0.01)
+
+        # Second save with different data
+        new_timestamps = pd.Series(pd.date_range("2021-01-01", periods=100, freq="h"))
+        save_split_artifacts(
+            train_idx=train_idx,
+            val_idx=val_idx,
+            test_idx=test_idx,
+            timestamps=new_timestamps,
+            group_ids_raw=None,
+            artifacts=None,
+            data_dir=data_dir,
+            models_dir=models_dir,
+            target_name="target",
+            model_name="test_model",
+        )
+
+        mtime_after = os.path.getmtime(file_path)
+        assert mtime_before == mtime_after  # File should not be modified
+
+    def test_slugifies_target_and_model_names(self, tmp_path):
+        """Test that target and model names are slugified."""
+        train_idx = np.arange(0, 70)
+        val_idx = np.arange(70, 85)
+        test_idx = np.arange(85, 100)
+        timestamps = pd.Series(pd.date_range("2020-01-01", periods=100, freq="h"))
+
+        data_dir = str(tmp_path)
+        models_dir = "models"
+
+        save_split_artifacts(
+            train_idx=train_idx,
+            val_idx=val_idx,
+            test_idx=test_idx,
+            timestamps=timestamps,
+            group_ids_raw=None,
+            artifacts=None,
+            data_dir=data_dir,
+            models_dir=models_dir,
+            target_name="My Target Name",  # Needs slugification
+            model_name="Model With Spaces",  # Needs slugification
+        )
+
+        # Check slugified path exists
+        base_path = os.path.join(data_dir, models_dir, "my-target-name", "model-with-spaces")
+        assert os.path.exists(os.path.join(base_path, "train_timestamps.parquet"))
+
+    def test_handles_polars_series(self, tmp_path):
+        """Test that Polars Series are handled correctly."""
+        train_idx = np.arange(0, 70)
+        val_idx = np.arange(70, 85)
+        test_idx = np.arange(85, 100)
+        timestamps = pl.Series("ts", pd.date_range("2020-01-01", periods=100, freq="h").tolist())
+
+        data_dir = str(tmp_path)
+        models_dir = "models"
+
+        save_split_artifacts(
+            train_idx=train_idx,
+            val_idx=val_idx,
+            test_idx=test_idx,
+            timestamps=timestamps,
+            group_ids_raw=None,
+            artifacts=None,
+            data_dir=data_dir,
+            models_dir=models_dir,
+            target_name="target",
+            model_name="test_model",
+        )
+
+        base_path = os.path.join(data_dir, models_dir, "target", "test_model")
+        assert os.path.exists(os.path.join(base_path, "train_timestamps.parquet"))
+
+    def test_custom_compression(self, tmp_path):
+        """Test saving with custom compression."""
+        train_idx = np.arange(0, 70)
+        val_idx = np.arange(70, 85)
+        test_idx = np.arange(85, 100)
+        timestamps = pd.Series(pd.date_range("2020-01-01", periods=100, freq="h"))
+
+        data_dir = str(tmp_path)
+        models_dir = "models"
+
+        save_split_artifacts(
+            train_idx=train_idx,
+            val_idx=val_idx,
+            test_idx=test_idx,
+            timestamps=timestamps,
+            group_ids_raw=None,
+            artifacts=None,
+            data_dir=data_dir,
+            models_dir=models_dir,
+            target_name="target",
+            model_name="test_model",
+            compression="snappy",
+        )
+
+        base_path = os.path.join(data_dir, models_dir, "target", "test_model")
+        assert os.path.exists(os.path.join(base_path, "train_timestamps.parquet"))

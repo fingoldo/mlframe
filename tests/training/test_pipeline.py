@@ -9,8 +9,9 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from mlframe.training.pipeline import fit_and_transform_pipeline, prepare_df_for_catboost
+from mlframe.training.pipeline import fit_and_transform_pipeline, prepare_df_for_catboost, create_polarsds_pipeline
 from mlframe.training.configs import PolarsPipelineConfig
+from unittest.mock import patch
 
 
 class TestFitAndTransformPipeline:
