@@ -17,6 +17,7 @@ from typing import *
 # from pyutilz.pythonlib import ensure_installed;ensure_installed("torch torchvision torchaudio lightning pandas scikit-learn")
 
 import os
+import operator  # for picklable comparison functions (needed by ddp_spawn strategy)
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
