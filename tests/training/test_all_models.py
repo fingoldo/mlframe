@@ -823,7 +823,7 @@ class TestSpecialCases:
 
     def test_ridge_classifier_without_predict_proba(self, sample_classification_data, temp_data_dir, common_init_params, fast_iterations):
         """Test RidgeClassifier uses predict() fallback (no predict_proba)."""
-        df, feature_names, y = sample_classification_data
+        df, feature_names, _, y = sample_classification_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
         # Train RidgeClassifier
