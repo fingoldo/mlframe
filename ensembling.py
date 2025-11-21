@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 
 from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
 
-# from pyutilz.pythonlib import ensure_installed;ensure_installed("numpy pandas joblib")
-
 import copy
 import joblib
 from joblib import delayed
@@ -42,7 +40,6 @@ def batch_numaggs(predictions: np.ndarray, get_numaggs_names_len: int, numaggs_k
     row_features = np.empty(shape=(len(predictions), get_numaggs_names_len), dtype=np.float32)
     for i in range(len(predictions)):
         arr = predictions[i, :]
-        numerical_features = compute_numaggs(arr=arr, **numaggs_kwds)
         if means_only:
             numerical_features = compute_numerical_aggregates_numba(arr, geomean_log_mode=False, directional_only=False)
         else:
@@ -53,14 +50,19 @@ def batch_numaggs(predictions: np.ndarray, get_numaggs_names_len: int, numaggs_k
 
 def enrich_ensemble_preds_with_numaggs(
     predictions: np.ndarray,
-    models_names: Sequence = [],
+    models_names: Sequence = None,
     means_only: bool = False,
     keep_probs: bool = True,
-    numaggs_kwds: dict = {"whiten_means": False},
+    numaggs_kwds: dict = None,
     n_jobs: int = 1,
     only_physical_cores: bool = True,
 ) -> pd.DataFrame:
     """Probs are non-negative that allows more averages to be applied"""
+
+    if models_names is None:
+        models_names = []
+    if numaggs_kwds is None:
+        numaggs_kwds = {"whiten_means": False}
 
     if predictions.shape[1] >= 10:
         numaggs_kwds.update(dict(directional_only=False, return_hurst=True, return_entropy=True))
@@ -155,15 +157,15 @@ def ensemble_probabilistic_predictions(
         for i, pred in enumerate(preds):
             tot_mae = 0.0
             tot_std = 0.0
-            l = pred.shape[1]
-            for j in range(l):
+            n_features = pred.shape[1]
+            for j in range(n_features):
                 diffs = np.abs((pred[:, j] - median_preds[:, j]))
                 mae = np.mean(diffs)
                 std = np.sqrt(np.mean(((diffs - mae) ** 2)))
                 tot_mae += mae
                 tot_std += std
-            tot_mae /= l
-            tot_std /= l
+            tot_mae /= n_features
+            tot_std /= n_features
             if (max_mae > 0 and tot_mae > max_mae) or (max_std > 0 and tot_std > max_std):
                 if verbose:
                     print(f"ens member {i} excluded due to high distance from the median, mae={tot_mae:4f}, std={tot_std:4f}")
@@ -175,7 +177,7 @@ def ensemble_probabilistic_predictions(
                     print(f"Using {len(preds)} members of ensemble")
             else:
                 if verbose:
-                    print(f"ensemble_probabilistic_predictions filters too restrictive ({len(skipped_preds_indices)} vs {l}), skipping them")
+                    print(f"ensemble_probabilistic_predictions filters too restrictive ({len(skipped_preds_indices)} vs {len(preds)}), skipping them")
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Actual ensembling
@@ -363,6 +365,8 @@ def score_ensemble(
             elif level_models_and_predictions[0].train_preds is not None:
                 predictions = (el.train_preds for el in level_models_and_predictions)
                 predictions = (el.reshape(-1, 1) if (el is not None) else el for el in predictions)
+            else:
+                predictions = ()
 
             train_ensembled_predictions, _, train_confident_indices = ensemble_probabilistic_predictions(
                 *predictions,

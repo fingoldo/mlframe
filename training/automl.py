@@ -269,9 +269,9 @@ def train_automl_models_suite(
 
     # Convert Polars to Pandas (AutoML libraries require pandas)
     if isinstance(train_df, pl.DataFrame):
-        train_df = get_pandas_view_of_polars_df(train_df).to_pandas()
+        train_df = get_pandas_view_of_polars_df(train_df)
     if test_df is not None and isinstance(test_df, pl.DataFrame):
-        test_df = get_pandas_view_of_polars_df(test_df).to_pandas()
+        test_df = get_pandas_view_of_polars_df(test_df)
 
     # Validate target column
     if target_name not in train_df.columns:

@@ -306,7 +306,6 @@ class TestTrainAutomlModelsSuite:
                 verbose=0,
             )
 
-    @pytest.mark.xfail(reason="Bug: to_pandas() called on already-converted DataFrame in automl.py:267")
     def test_converts_polars_to_pandas(self, sample_polars_df):
         """Test that Polars DataFrames are converted to pandas."""
         config = AutoMLConfig(use_autogluon=False, use_lama=False)
