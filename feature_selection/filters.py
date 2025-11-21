@@ -216,9 +216,9 @@ def find_impactful_features(
 @njit()
 def merge_vars(
     factors_data: np.ndarray,
-    vars_indices: np.ndarray,
-    var_is_nominal,  # Optional, typically None
-    factors_nbins: np.ndarray,
+    vars_indices: Sequence,
+    var_is_nominal: Sequence,
+    factors_nbins: Sequence,
     dtype=np.int32,
     min_occupancy: int = None,
     current_nclasses: int = 1,
@@ -307,10 +307,8 @@ def mi(factors_data, x: np.ndarray, y: np.ndarray, factors_nbins: np.ndarray, ve
     if verbose:
         print(f"entropy_y={entropy_y}, nclasses_y={len(freqs_y)}")
 
-    xy_combined = np.concatenate((x, y))
-    xy_unique = np.unique(xy_combined)
     classes_xy, freqs_xy, _ = merge_vars(
-        factors_data=factors_data, vars_indices=xy_unique, var_is_nominal=None, factors_nbins=factors_nbins, verbose=verbose, dtype=dtype
+        factors_data=factors_data, vars_indices=set(x) | set(y), var_is_nominal=None, factors_nbins=factors_nbins, verbose=verbose, dtype=dtype
     )
     entropy_xy = entropy(freqs=freqs_xy)
     if verbose:
