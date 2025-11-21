@@ -13,22 +13,14 @@ from sklearn.base import ClassifierMixin, RegressorMixin
 
 logger = logging.getLogger(__name__)
 
-# Import existing evaluation functions from main training module
-# This allows us to refactor incrementally without breaking functionality
-try:
-    from ..training import (
-        report_model_perf,
-        report_regression_model_perf,
-        report_probabilistic_model_perf,
-        get_model_feature_importances,
-        plot_model_feature_importances,
-        post_calibrate_model,
-    )
-
-    _IMPORTED_FROM_MAIN = True
-except ImportError:
-    _IMPORTED_FROM_MAIN = False
-    logger.warning("Could not import evaluation functions from main training module")
+from ..training_old import (
+    report_model_perf,
+    report_regression_model_perf,
+    report_probabilistic_model_perf,
+    get_model_feature_importances,
+    plot_model_feature_importances,
+    post_calibrate_model,
+)
 
 
 def evaluate_model(
@@ -61,54 +53,26 @@ def evaluate_model(
     Returns:
         Tuple of (preds, probs) or (preds, None) for regression
     """
-    if _IMPORTED_FROM_MAIN:
-        return report_model_perf(
-            targets=targets,
-            columns=columns,
-            model_name=model_name,
-            model=model,
-            preds=preds,
-            probs=probs,
-            df=df,
-            show_fi=show_fi,
-            **kwargs,
-        )
-    else:
-        # Fallback: minimal evaluation
-        if preds is None and model is not None:
-            if df is not None:
-                preds = model.predict(df)
-            else:
-                raise ValueError("Either preds or df must be provided")
-
-        if probs is None and hasattr(model, 'predict_proba'):
-            if df is not None:
-                probs = model.predict_proba(df)
-
-        if verbose:
-            from sklearn.metrics import accuracy_score, mean_squared_error
-            if probs is not None:
-                acc = accuracy_score(targets, preds)
-                logger.info(f"{model_name}: Accuracy = {acc:.4f}")
-            else:
-                mse = mean_squared_error(targets, preds)
-                logger.info(f"{model_name}: MSE = {mse:.4f}")
-
-        return preds, probs
+    return report_model_perf(
+        targets=targets,
+        columns=columns,
+        model_name=model_name,
+        model=model,
+        preds=preds,
+        probs=probs,
+        df=df,
+        show_fi=show_fi,
+        **kwargs,
+    )
 
 
 # Re-export for convenience
 __all__ = [
     'evaluate_model',
+    'report_model_perf',
+    'report_regression_model_perf',
+    'report_probabilistic_model_perf',
+    'get_model_feature_importances',
+    'plot_model_feature_importances',
+    'post_calibrate_model',
 ]
-
-# Add conditional exports if imported successfully
-if _IMPORTED_FROM_MAIN:
-    __all__.extend([
-        'report_model_perf',
-        'report_regression_model_perf',
-        'report_probabilistic_model_perf',
-        'get_model_feature_importances',
-        'plot_model_feature_importances',
-        'post_calibrate_model',
-    ])

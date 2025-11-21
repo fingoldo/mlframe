@@ -667,7 +667,18 @@ class TestGPUSupport:
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Configure for multi-GPU via config_params_override
-        config_override = {"iterations": fast_iterations, "mlp_kwargs": {"trainer_params": {"accelerator": "cuda", "devices": num_gpus}}}
+        # Use max 2 GPUs and ddp_spawn strategy to avoid NCCL hangs in pytest
+        test_gpus = min(num_gpus, 2)
+        config_override = {
+            "iterations": fast_iterations,
+            "mlp_kwargs": {
+                "trainer_params": {
+                    "accelerator": "cuda",
+                    "devices": test_gpus,
+                    "strategy": "ddp_spawn",
+                }
+            }
+        }
 
         # Train
         models, metadata = train_mlframe_models_suite(

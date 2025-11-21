@@ -56,11 +56,7 @@ def train_autogluon_model(
         logger.info(f"Training AutoGluon model on {len(train_df)} rows...")
 
     # Create predictor
-    predictor = TabularPredictor(
-        label=target_name,
-        verbosity=verbose,
-        **init_params
-    )
+    predictor = TabularPredictor(label=target_name, verbosity=verbose, **init_params)
 
     # Fit model
     train_data = TabularDataset(train_df)
@@ -88,10 +84,11 @@ def train_autogluon_model(
 
         if test_target is not None and verbose:
             from sklearn.metrics import roc_auc_score
+
             try:
                 auc = roc_auc_score(test_target, test_probs[:, 1])
                 logger.info(f"AutoGluon test AUC: {auc:.4f}")
-                metrics['test_auc'] = auc
+                metrics["test_auc"] = auc
             except Exception as e:
                 logger.warning(f"Could not compute AUC: {e}")
 
@@ -149,7 +146,7 @@ def train_lama_model(
 
     if init_params is None:
         # Default to binary classification
-        init_params = {'task': Task('binary')}
+        init_params = {"task": Task("binary")}
     if fit_params is None:
         fit_params = {}
 
@@ -160,12 +157,7 @@ def train_lama_model(
     automl = TabularAutoML(**init_params)
 
     # Fit model
-    out_of_fold_predictions = automl.fit_predict(
-        train_df,
-        roles={'target': target_name},
-        verbose=verbose,
-        **fit_params
-    )
+    out_of_fold_predictions = automl.fit_predict(train_df, roles={"target": target_name}, verbose=verbose, **fit_params)
 
     clean_ram()
     if verbose:
@@ -186,10 +178,11 @@ def train_lama_model(
 
         if test_target is not None and verbose:
             from sklearn.metrics import roc_auc_score
+
             try:
                 auc = roc_auc_score(test_target, test_probs[:, 1])
                 logger.info(f"LAMA test AUC: {auc:.4f}")
-                metrics['test_auc'] = auc
+                metrics["test_auc"] = auc
             except Exception as e:
                 logger.warning(f"Could not compute AUC: {e}")
 
@@ -216,8 +209,8 @@ def train_lama_model(
 
 
 def train_automl_models_suite(
-    train_df: Union[pd.DataFrame, 'pl.DataFrame'],
-    test_df: Optional[Union[pd.DataFrame, 'pl.DataFrame']] = None,
+    train_df: Union[pd.DataFrame, "pl.DataFrame"],
+    test_df: Optional[Union[pd.DataFrame, "pl.DataFrame"]] = None,
     target_name: str = "target",
     config: Optional[AutoMLConfig] = None,
     verbose: int = 1,
@@ -279,9 +272,9 @@ def train_automl_models_suite(
     # Train AutoGluon
     if config.use_autogluon:
         if verbose:
-            logger.info("="*80)
+            logger.info("=" * 80)
             logger.info("Training AutoGluon model...")
-            logger.info("="*80)
+            logger.info("=" * 80)
 
         ag_result = train_autogluon_model(
             train_df=train_df,
@@ -293,14 +286,14 @@ def train_automl_models_suite(
         )
 
         if ag_result is not None:
-            models['autogluon'] = ag_result
+            models["autogluon"] = ag_result
 
     # Train LAMA
     if config.use_lama:
         if verbose:
-            logger.info("="*80)
+            logger.info("=" * 80)
             logger.info("Training LightAutoML (LAMA) model...")
-            logger.info("="*80)
+            logger.info("=" * 80)
 
         lama_result = train_lama_model(
             train_df=train_df,
@@ -312,7 +305,7 @@ def train_automl_models_suite(
         )
 
         if lama_result is not None:
-            models['lama'] = lama_result
+            models["lama"] = lama_result
 
     if verbose:
         logger.info(f"AutoML training suite completed. Trained {len(models)} model(s).")
@@ -321,7 +314,7 @@ def train_automl_models_suite(
 
 
 __all__ = [
-    'train_autogluon_model',
-    'train_lama_model',
-    'train_automl_models_suite',
+    "train_autogluon_model",
+    "train_lama_model",
+    "train_automl_models_suite",
 ]
