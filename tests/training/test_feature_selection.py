@@ -133,7 +133,8 @@ class TestMRMRFeatureSelection:
         X = df[feature_names].iloc[:200]  # Small subset for speed
         y_subset = y[:200]
 
-        for method in ['quantile', 'uniform', 'kmeans']:
+        # Only 'quantile' and 'uniform' are supported by discretize_array
+        for method in ['quantile', 'uniform']:
             selector = MRMR(
                 verbose=0,
                 max_runtime_mins=0.5,

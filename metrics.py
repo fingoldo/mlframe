@@ -42,13 +42,16 @@ NUMBA_NJIT_PARAMS = dict(fastmath=False)
 
 
 def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
+    """Compute ROC AUC efficiently using numba.
+
+    Note: np.argsort needs to stay out of njitted func.
+    """
     # **kwargs needed for sklearn not to break it by passing unexpected params
 
     if isinstance(y_true, (pd.Series, pl.Series)):
         y_true = y_true.to_numpy()
     if isinstance(y_score, (pd.Series, pl.Series)):
         y_score = y_score.to_numpy()
-    """np.argsort needs to stay out of njitted func."""
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
     desc_score_indices = np.argsort(y_score)[::-1]
@@ -259,7 +262,6 @@ def show_calibration_plot(
             }
         )
         hover_data = {label_prob: ":.2%", label_freq: ":.2%", "NCases": True}
-        print(hover_data)
 
         if use_size:
             df["size"] = 5000 * hits / hits.sum()
@@ -267,16 +269,17 @@ def show_calibration_plot(
 
         fig = go.Figure()
         # fig = px.scatter(data_frame=df ,x=label_prob,y=label_freq,size="size" if use_size else None, color="NCases", labels={'x':label_prob, 'y':label_freq},hover_data=hover_data)
+        marker_dict = {"color": df["NCases"], "colorscale": "RdYlBu", "showscale": True}
+        if use_size:
+            marker_dict["size"] = df["size"]
         fig.add_trace(
             go.Scatter(
-                data_frame=df,
-                x=label_prob,
-                y=label_freq,
-                size="size" if use_size else None,
-                color="NCases",
-                labels={"x": label_prob, "y": label_freq},
-                hover_data=hover_data,
+                x=df[label_prob],
+                y=df[label_freq],
+                mode="markers",
+                marker=marker_dict,
                 name=label_real,
+                hovertemplate=f"{label_prob}: %{{x:.2%}}<br>{label_freq}: %{{y:.2%}}<br>NCases: %{{marker.color}}<extra></extra>",
             )
         )
         fig.add_trace(go.Scatter(x=[x_min, x_max], y=[x_min, x_max], line={"color": "green", "dash": "dash"}, name=label_perfect, mode="lines"))
@@ -305,25 +308,32 @@ def maximum_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) ->
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def calibration_metrics_from_freqs(
-    freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray, nbins: int, array_size: int, use_weights: bool = True
+    freqs_predicted: np.ndarray,
+    freqs_true: np.ndarray,
+    hits: np.ndarray,
+    nbins: int,
+    array_size: int,
+    use_weights: bool = True,
+    use_log_weighting: bool = False,
+    use_sqrt_weighting: bool = False,
+    use_power_weighting: bool = True,
 ):
     calibration_coverage = len(set(np.round(freqs_predicted, int(np.log10(nbins))))) / nbins
     if len(hits) > 0:
         diffs = np.abs((freqs_predicted - freqs_true))
         if use_weights:
 
-            if False:
+            if use_log_weighting:
                 weights = np.log1p(hits)
-            elif False:
+            elif use_sqrt_weighting:
                 weights = np.sqrt(hits)
-            else:
+            elif use_power_weighting:
                 alpha = 0.8  # adjust between (0, 1)
                 weights = hits**alpha
-
-                # weights = hits.astype(np.float64)
+            else:
+                weights = hits.astype(np.float64)
 
             weights /= weights.sum() + 1e-6
-            # weights = hits / array_size
 
             calibration_mae = np.sum(diffs * weights)
             calibration_std = np.sqrt(np.sum(((diffs - calibration_mae) ** 2) * weights))
@@ -348,6 +358,10 @@ def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
 
 def fast_aucs(y_true: np.ndarray, y_score: np.ndarray) -> tuple[float, float]:
     """Compute both ROC AUC and PR AUC efficiently."""
+    if isinstance(y_true, (pd.Series, pl.Series)):
+        y_true = y_true.to_numpy()
+    if isinstance(y_score, (pd.Series, pl.Series)):
+        y_score = y_score.to_numpy()
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
     desc_score_indices = np.argsort(y_score)[::-1]
@@ -637,7 +651,7 @@ def fast_calibration_report(
             1.0,
             0.0,
         )
-        roc_auc, pr_auc, ice, ll, precision, recall, f1 = 0.5, 0.0, 1.0, 1.0, 0.0, 0.0
+        roc_auc, pr_auc, ice, ll, precision, recall, f1 = 0.5, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0
         metrics_string, fig = "", None
         return brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, precision, recall, f1, metrics_string, fig
 
@@ -797,7 +811,7 @@ def compute_probabilistic_multiclass_error(
 
         # Compute detailed classification metrics
 
-        if (method == "multicrit") or verbose:
+        if (method in ("multicrit", "brier_score")) or verbose:
             brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, *_, metrics_string, fig = fast_calibration_report(
                 y_true=correct_class,
                 y_pred=y_pred,
@@ -952,18 +966,13 @@ def probability_separation_score(y_true: np.ndarray, y_prob: np.ndarray, class_l
     idx = y_true == class_label
     if idx.sum() == 0:
         return np.nan
+    res = np.mean(y_prob[idx])
+    if std_weight != 0.0:
+        addend = np.std(y_prob[idx]) * std_weight
         if class_label == 1:
-            res = 0.0
+            res = res - addend
         else:
-            res = 1.0
-    else:
-        res = np.mean(y_prob[idx])
-        if std_weight != 0.0:
-            addend = np.std(y_prob[idx]) * std_weight
-            if class_label == 1:
-                res = res - addend
-            else:
-                res = res + addend
+            res = res + addend
     return res
 
 

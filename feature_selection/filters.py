@@ -2427,7 +2427,6 @@ def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: float = None, ma
     return ((arr - min_value) * rev_bin_width).astype(dtype)
 
 
-@njit()
 def discretize_array(
     arr: np.ndarray, n_bins: int = 10, method: str = "quantile", min_value: float = None, max_value: float = None, dtype: object = np.int8
 ) -> np.ndarray:
@@ -2435,6 +2434,30 @@ def discretize_array(
 
     Optimized version with mix of pure numpy and njitting.
 
+    Args:
+        arr: Input array to discretize
+        n_bins: Number of bins
+        method: Discretization method ('uniform' or 'quantile')
+        min_value: Minimum value for binning
+        max_value: Maximum value for binning
+        dtype: Output dtype
+
+    Returns:
+        Discretized array
+
+    Raises:
+        ValueError: If method is not 'uniform' or 'quantile'
+    """
+    if method not in ("uniform", "quantile"):
+        raise ValueError(f"Unsupported discretization method: '{method}'. Supported methods: 'uniform', 'quantile'")
+    return _discretize_array_impl(arr=arr, n_bins=n_bins, method=method, min_value=min_value, max_value=max_value, dtype=dtype)
+
+
+@njit()
+def _discretize_array_impl(
+    arr: np.ndarray, n_bins: int = 10, method: str = "quantile", min_value: float = None, max_value: float = None, dtype: object = np.int8
+) -> np.ndarray:
+    """Internal implementation of discretize_array with numba optimization.
 
     %timeit quantize_search(df['a'].values,bins) #njitted
     24.6 ms ± 191 µs per loop (mean ± std. dev. of 7 runs, 10 loops each)
