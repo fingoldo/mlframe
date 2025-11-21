@@ -190,7 +190,7 @@ def ensemble_probabilistic_predictions(
     elif ensemble_method == "quad":
         ensembled_predictions = np.sqrt(np.mean(np.array([pred**2 for pred in preds]), axis=0))
     elif ensemble_method == "qube":
-        ensembled_predictions = np.power(np.mean(np.array([pred**3 for pred in preds]), axis=0), 1 / 3)
+        ensembled_predictions = np.cbrt(np.mean(np.array([pred**3 for pred in preds]), axis=0))
     elif ensemble_method == "geo":
         ensembled_predictions = np.power(np.prod(preds, axis=0), 1 / len(preds))
 

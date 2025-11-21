@@ -43,7 +43,7 @@ def prepare_df_for_catboost(df: pd.DataFrame, cat_features: List[str]):
     for col in cat_features:
         if col in df.columns:
             if df[col].dtype.name not in ["category"]:
-                df[col] = df[col].astype("category")
+                df.loc[:, col] = df[col].astype("category")
 
 
 def create_polarsds_pipeline(
