@@ -18,46 +18,7 @@ from pathlib import Path
 
 from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.configs import PolarsPipelineConfig
-
-
-# ================================================================================================
-# Mock FeaturesAndTargetsExtractor
-# ================================================================================================
-
-
-class SimpleFeaturesAndTargetsExtractor:
-    """Mock FeaturesAndTargetsExtractor for testing."""
-
-    def __init__(self, target_column="target", regression=True):
-        self.target_column = target_column
-        self.regression = regression
-
-    def transform(self, df):
-        """
-        Transform method that returns the expected tuple.
-
-        Returns: (df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, columns_to_drop)
-        """
-        # Extract target
-        if isinstance(df, pd.DataFrame):
-            target_values = df[self.target_column].values
-        else:  # Polars
-            target_values = df[self.target_column].to_numpy()
-
-        # Create target_by_type dict
-        target_type = "REGRESSION" if self.regression else "CLASSIFICATION"
-        target_by_type = {target_type: {self.target_column: target_values}}
-
-        # Return all expected values
-        return (
-            df,  # df
-            target_by_type,  # target_by_type
-            None,  # group_ids_raw
-            None,  # group_ids
-            None,  # timestamps
-            None,  # artifacts
-            [self.target_column],  # columns_to_drop
-        )
+from .shared import SimpleFeaturesAndTargetsExtractor, get_cpu_config, skip_if_dependency_missing
 
 
 # ================================================================================================
@@ -94,19 +55,7 @@ class TestAllModelsRegression:
     @pytest.mark.parametrize("model_name", ALL_MODELS)
     def test_basic_regression(self, model_name, sample_regression_data, sample_large_regression_data, temp_data_dir, common_init_params, fast_iterations):
         """Test basic regression for all models."""
-        pytest_module = __import__("pytest")
-
-        # Import checks for optional dependencies
-        if model_name == "ngb":
-            try:
-                import ngboost
-            except ImportError:
-                pytest_module.skip("NGBoost not available")
-        elif model_name == "mlp":
-            try:
-                import pytorch_lightning
-            except ImportError:
-                pytest_module.skip("PyTorch Lightning not available")
+        skip_if_dependency_missing(model_name)
 
         # Use larger dataset for SGD for better convergence
         if model_name == "sgd":
@@ -115,18 +64,7 @@ class TestAllModelsRegression:
             df, feature_names, y = sample_regression_data
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
-
-        # Force CPU for GPU-capable models (GPU tests are separate)
-        # Also set low iterations for fast tests
-        config_override = {"iterations": fast_iterations}
-        if model_name == "cb":
-            config_override.update({"cb_kwargs": {"task_type": "CPU"}})
-        elif model_name == "xgb":
-            config_override.update({"xgb_kwargs": {"device": "cpu"}})
-        elif model_name == "lgb":
-            config_override.update({"lgb_kwargs": {"device_type": "cpu"}})
-        elif model_name == "mlp":
-            config_override.update({"mlp_kwargs": {"trainer_params": {"devices": 1}}})
+        config_override = get_cpu_config(model_name, fast_iterations)
 
         # Train
         models, metadata = train_mlframe_models_suite(
@@ -152,37 +90,15 @@ class TestAllModelsRegression:
     @pytest.mark.parametrize("model_name", ALL_MODELS)
     def test_regression_with_polars(self, model_name, sample_polars_data, temp_data_dir, common_init_params, fast_iterations):
         """Test regression with Polars DataFrame."""
-        pytest_module = __import__("pytest")
-
-        # Import checks
-        if model_name == "ngb":
-            try:
-                import ngboost
-            except ImportError:
-                pytest_module.skip("NGBoost not available")
-        elif model_name == "mlp":
-            try:
-                import pytorch_lightning
-            except ImportError:
-                pytest_module.skip("PyTorch Lightning not available")
+        skip_if_dependency_missing(model_name)
 
         # Skip SGD with small Polars data (convergence issues)
         if model_name == "sgd":
-            pytest_module.skip("SGD needs larger dataset")
+            pytest.skip("SGD needs larger dataset")
 
         pl_df, feature_names, y = sample_polars_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
-
-        # Force CPU for GPU-capable models (GPU tests are separate)
-        config_override = {"iterations": fast_iterations}
-        if model_name == "cb":
-            config_override.update({"cb_kwargs": {"task_type": "CPU"}})
-        elif model_name == "xgb":
-            config_override.update({"xgb_kwargs": {"device": "cpu"}})
-        elif model_name == "lgb":
-            config_override.update({"lgb_kwargs": {"device_type": "cpu"}})
-        elif model_name == "mlp":
-            config_override.update({"mlp_kwargs": {"trainer_params": {"devices": 1}}})
+        config_override = get_cpu_config(model_name, fast_iterations)
 
         # Train
         models, metadata = train_mlframe_models_suite(
@@ -217,33 +133,11 @@ class TestAllModelsClassification:
     @pytest.mark.parametrize("model_name", CLASSIFICATION_MODELS)
     def test_basic_classification(self, model_name, sample_classification_data, temp_data_dir, common_init_params, fast_iterations):
         """Test basic classification."""
-        pytest_module = __import__("pytest")
-
-        # Import checks
-        if model_name == "ngb":
-            try:
-                import ngboost
-            except ImportError:
-                pytest_module.skip("NGBoost not available")
-        elif model_name == "mlp":
-            try:
-                import pytorch_lightning
-            except ImportError:
-                pytest_module.skip("PyTorch Lightning not available")
+        skip_if_dependency_missing(model_name)
 
         df, feature_names, _, y = sample_classification_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-
-        # Force CPU for GPU-capable models (GPU tests are separate)
-        config_override = {"iterations": fast_iterations}
-        if model_name == "cb":
-            config_override.update({"cb_kwargs": {"task_type": "CPU"}})
-        elif model_name == "xgb":
-            config_override.update({"xgb_kwargs": {"device": "cpu"}})
-        elif model_name == "lgb":
-            config_override.update({"lgb_kwargs": {"device_type": "cpu"}})
-        elif model_name == "mlp":
-            config_override.update({"mlp_kwargs": {"trainer_params": {"devices": 1}}})
+        config_override = get_cpu_config(model_name, fast_iterations)
 
         # Train
         models, metadata = train_mlframe_models_suite(
@@ -269,35 +163,13 @@ class TestAllModelsClassification:
     @pytest.mark.parametrize("model_name", CLASSIFICATION_MODELS)
     def test_classification_with_polars(self, model_name, sample_classification_data, temp_data_dir, common_init_params, fast_iterations):
         """Test classification with Polars DataFrame."""
-        pytest_module = __import__("pytest")
-
-        # Import checks
-        if model_name == "ngb":
-            try:
-                import ngboost
-            except ImportError:
-                pytest_module.skip("NGBoost not available")
-        elif model_name == "mlp":
-            try:
-                import pytorch_lightning
-            except ImportError:
-                pytest_module.skip("PyTorch Lightning not available")
+        skip_if_dependency_missing(model_name)
 
         df, feature_names, _, y = sample_classification_data
         pl_df = pl.from_pandas(df)
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-
-        # Force CPU for GPU-capable models (GPU tests are separate)
-        config_override = {"iterations": fast_iterations}
-        if model_name == "cb":
-            config_override.update({"cb_kwargs": {"task_type": "CPU"}})
-        elif model_name == "xgb":
-            config_override.update({"xgb_kwargs": {"device": "cpu"}})
-        elif model_name == "lgb":
-            config_override.update({"lgb_kwargs": {"device_type": "cpu"}})
-        elif model_name == "mlp":
-            config_override.update({"mlp_kwargs": {"trainer_params": {"devices": 1}}})
+        config_override = get_cpu_config(model_name, fast_iterations)
 
         # Train
         models, metadata = train_mlframe_models_suite(

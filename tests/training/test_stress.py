@@ -18,33 +18,7 @@ from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.utils import save_mlframe_model, load_mlframe_model
 from mlframe.training.pipeline import fit_and_transform_pipeline
 from mlframe.training.configs import PolarsPipelineConfig
-
-
-class SimpleFeaturesAndTargetsExtractor:
-    """Mock FeaturesAndTargetsExtractor for testing."""
-
-    def __init__(self, target_column="target", regression=True):
-        self.target_column = target_column
-        self.regression = regression
-
-    def transform(self, df):
-        if isinstance(df, pd.DataFrame):
-            target_values = df[self.target_column].values
-        else:
-            target_values = df[self.target_column].to_numpy()
-
-        target_type = "REGRESSION" if self.regression else "CLASSIFICATION"
-        target_by_type = {target_type: {self.target_column: target_values}}
-
-        return (
-            df,
-            target_by_type,
-            None,
-            None,
-            None,
-            None,
-            [self.target_column],
-        )
+from .shared import SimpleFeaturesAndTargetsExtractor
 
 
 # ================================================================================================

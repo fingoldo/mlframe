@@ -12,45 +12,7 @@ from pathlib import Path
 import joblib
 
 from mlframe.training.core import train_mlframe_models_suite
-
-
-class SimpleFeaturesAndTargetsExtractor:
-    """Mock FeaturesAndTargetsExtractor for testing."""
-
-    def __init__(self, target_column='target', regression=True):
-        self.target_column = target_column
-        self.regression = regression
-
-    def transform(self, df):
-        """
-        Transform method that returns the expected tuple.
-
-        Returns: (df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, columns_to_drop)
-        """
-        # Extract target
-        if isinstance(df, pd.DataFrame):
-            target_values = df[self.target_column].values
-        else:  # Polars
-            target_values = df[self.target_column].to_numpy()
-
-        # Create target_by_type dict
-        target_type = "REGRESSION" if self.regression else "CLASSIFICATION"
-        target_by_type = {
-            target_type: {
-                self.target_column: target_values
-            }
-        }
-
-        # Return all expected values
-        return (
-            df,  # df
-            target_by_type,  # target_by_type
-            None,  # group_ids_raw
-            None,  # group_ids
-            None,  # timestamps
-            None,  # artifacts
-            [self.target_column],  # columns_to_drop
-        )
+from .shared import SimpleFeaturesAndTargetsExtractor
 
 
 class TestTrainMLFrameModelsSuiteBasic:
@@ -461,8 +423,8 @@ class TestTrainMLFrameModelsSuiteConfigurations:
             verbose=0,
         )
 
-        # Verify pipeline was created
-        assert metadata["pipeline"] is not None or metadata["pipeline"] is None
+        # Verify pipeline config was applied
+        assert "pipeline" in metadata
 
 
 class TestTrainMLFrameModelsSuiteEdgeCases:
@@ -619,7 +581,7 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             assert "target" in models or models is not None
         except (ValueError, Exception) as e:
             # Expected - no features remaining after preprocessing
-            assert "feature" in str(e).lower() or "constant" in str(e).lower() or True
+            assert "feature" in str(e).lower() or "constant" in str(e).lower() or "empty" in str(e).lower()
 
     def test_with_high_nan_ratio(self, temp_data_dir, common_init_params):
         """Test with high ratio of NaN values."""

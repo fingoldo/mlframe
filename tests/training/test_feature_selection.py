@@ -15,41 +15,7 @@ from mlframe.feature_selection.filters import MRMR
 from mlframe.feature_selection.wrappers import RFECV
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from catboost import CatBoostClassifier, CatBoostRegressor
-
-
-class SimpleFeaturesAndTargetsExtractor:
-    """Mock FeaturesAndTargetsExtractor for testing."""
-
-    def __init__(self, target_column="target", regression=True):
-        self.target_column = target_column
-        self.regression = regression
-
-    def transform(self, df):
-        """
-        Transform method that returns the expected tuple.
-
-        Returns: (df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, columns_to_drop)
-        """
-        # Extract target
-        if isinstance(df, pd.DataFrame):
-            target_values = df[self.target_column].values
-        else:  # Polars
-            target_values = df[self.target_column].to_numpy()
-
-        # Create target_by_type dict
-        target_type = "REGRESSION" if self.regression else "CLASSIFICATION"
-        target_by_type = {target_type: {self.target_column: target_values}}
-
-        # Return all expected values
-        return (
-            df,  # df
-            target_by_type,  # target_by_type
-            None,  # group_ids_raw
-            None,  # group_ids
-            None,  # timestamps
-            None,  # artifacts
-            [self.target_column],  # columns_to_drop
-        )
+from .shared import SimpleFeaturesAndTargetsExtractor
 
 
 # ================================================================================================

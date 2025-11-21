@@ -26,7 +26,7 @@ from mlframe.training.configs import AutoMLConfig
 
 @pytest.fixture
 def sample_train_df():
-    """Generate sample training DataFrame."""
+    """Generate sample training DataFrame for automl tests."""
     np.random.seed(42)
     n = 100
     return pd.DataFrame({
@@ -39,7 +39,7 @@ def sample_train_df():
 
 @pytest.fixture
 def sample_test_df():
-    """Generate sample test DataFrame."""
+    """Generate sample test DataFrame for automl tests."""
     np.random.seed(43)
     n = 50
     return pd.DataFrame({
@@ -51,16 +51,9 @@ def sample_test_df():
 
 
 @pytest.fixture
-def sample_polars_df():
-    """Generate sample Polars training DataFrame."""
-    np.random.seed(42)
-    n = 100
-    return pl.DataFrame({
-        "feature1": np.random.randn(n),
-        "feature2": np.random.randn(n),
-        "feature3": np.random.randn(n),
-        "target": np.random.randint(0, 2, n).tolist(),
-    })
+def sample_polars_df(sample_train_df):
+    """Convert sample training DataFrame to Polars."""
+    return pl.from_pandas(sample_train_df)
 
 
 # ================================================================================================
