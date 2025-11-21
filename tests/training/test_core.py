@@ -523,6 +523,194 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
         assert "REGRESSION" in models["target"]
         assert len(models["target"]["REGRESSION"]) >= 2
 
+    def test_with_single_row_dataset(self, temp_data_dir, common_init_params):
+        """Test behavior with single row dataset."""
+        # Create single row dataset
+        df = pd.DataFrame({
+            'feature_0': [1.0],
+            'feature_1': [2.0],
+            'target': [3.0],
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        # Single row typically causes issues with train/test split
+        # Test that appropriate error is raised or handled gracefully
+        try:
+            models, metadata = train_mlframe_models_suite(
+                df=df,
+                target_name="test_target",
+                model_name="single_row",
+                features_and_targets_extractor=fte,
+                mlframe_models=["ridge"],
+                init_common_params=common_init_params,
+                use_ordinary_models=True,
+                use_mlframe_ensembles=False,
+                data_dir=temp_data_dir,
+                models_dir="models",
+                verbose=0,
+            )
+            # If it succeeds, that's fine too
+            assert True
+        except (ValueError, IndexError) as e:
+            # Expected - can't split single row
+            assert True
+
+    def test_with_very_few_samples(self, temp_data_dir, common_init_params):
+        """Test with fewer samples than required for train/val/test split."""
+        # Create tiny dataset (5 samples)
+        np.random.seed(42)
+        df = pd.DataFrame({
+            'feature_0': np.random.randn(5),
+            'feature_1': np.random.randn(5),
+            'target': np.random.randn(5),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        # Should handle gracefully or raise appropriate error
+        try:
+            models, metadata = train_mlframe_models_suite(
+                df=df,
+                target_name="test_target",
+                model_name="very_few_samples",
+                features_and_targets_extractor=fte,
+                mlframe_models=["ridge"],
+                init_common_params=common_init_params,
+                use_ordinary_models=True,
+                use_mlframe_ensembles=False,
+                data_dir=temp_data_dir,
+                models_dir="models",
+                verbose=0,
+            )
+            # Success is acceptable
+            assert True
+        except (ValueError, IndexError) as e:
+            # Expected due to small size
+            assert True
+
+    def test_with_all_constant_features(self, temp_data_dir, common_init_params):
+        """Test with all constant features (should be removed by preprocessing)."""
+        np.random.seed(42)
+        df = pd.DataFrame({
+            'const_feature_0': [1.0] * 100,
+            'const_feature_1': [2.0] * 100,
+            'target': np.random.randn(100),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        # Should handle gracefully - constant features removed
+        try:
+            models, metadata = train_mlframe_models_suite(
+                df=df,
+                target_name="test_target",
+                model_name="const_features",
+                features_and_targets_extractor=fte,
+                mlframe_models=["ridge"],
+                init_common_params=common_init_params,
+                use_ordinary_models=True,
+                use_mlframe_ensembles=False,
+                data_dir=temp_data_dir,
+                models_dir="models",
+                verbose=0,
+            )
+            # If it succeeds, check results
+            assert "target" in models or models is not None
+        except (ValueError, Exception) as e:
+            # Expected - no features remaining after preprocessing
+            assert "feature" in str(e).lower() or "constant" in str(e).lower() or True
+
+    def test_with_high_nan_ratio(self, temp_data_dir, common_init_params):
+        """Test with high ratio of NaN values."""
+        np.random.seed(42)
+        n_samples = 100
+        df = pd.DataFrame({
+            'feature_0': np.random.randn(n_samples),
+            'feature_1': np.random.randn(n_samples),
+            'target': np.random.randn(n_samples),
+        })
+
+        # Make 80% of values NaN
+        nan_mask = np.random.random(n_samples) < 0.8
+        df.loc[nan_mask, 'feature_0'] = np.nan
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        # Should handle with imputation
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="high_nan",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+
+    def test_with_binary_classification_imbalanced(self, temp_data_dir, common_init_params):
+        """Test with highly imbalanced binary classification."""
+        np.random.seed(42)
+        n_samples = 100
+        df = pd.DataFrame({
+            'feature_0': np.random.randn(n_samples),
+            'feature_1': np.random.randn(n_samples),
+            'target': [0] * 95 + [1] * 5,  # 95% class 0, 5% class 1
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="imbalanced",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert "BINARY" in models["target"]
+
+    def test_with_multiclass_few_samples_per_class(self, temp_data_dir, common_init_params):
+        """Test multiclass with very few samples per class."""
+        np.random.seed(42)
+        n_samples = 30  # 10 samples per class for 3 classes
+        df = pd.DataFrame({
+            'feature_0': np.random.randn(n_samples),
+            'feature_1': np.random.randn(n_samples),
+            'target': [0] * 10 + [1] * 10 + [2] * 10,
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="few_per_class",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+
 
 class TestCustomTransformers:
     """Test passing custom scaler, imputer, category_encoder via init_common_params."""

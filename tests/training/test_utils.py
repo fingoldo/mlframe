@@ -12,6 +12,7 @@ import polars as pl
 import tempfile
 import os
 from pathlib import Path
+from hypothesis import given, strategies as st, settings, assume
 
 from mlframe.training.utils import (
     save_mlframe_model,
@@ -598,3 +599,181 @@ class TestRemoveConstantColumns:
         assert "varying_str" in result.columns
         assert "const_num" not in result.columns
         assert "const_str" not in result.columns
+
+
+# ================================================================================================
+# Hypothesis Property-Based Tests
+# ================================================================================================
+
+class TestHypothesisSaveLoad:
+    """Hypothesis-based property tests for save/load functions."""
+
+    @given(st.dictionaries(
+        keys=st.text(min_size=1, max_size=10, alphabet=st.characters(whitelist_categories=('L', 'N'))),
+        values=st.one_of(
+            st.integers(min_value=-1000000, max_value=1000000),
+            st.floats(allow_nan=False, allow_infinity=False, min_value=-1e6, max_value=1e6),
+            st.text(max_size=50, alphabet=st.characters(whitelist_categories=('L', 'N', 'P', 'S'))),
+            st.lists(st.integers(min_value=-1000, max_value=1000), max_size=10),
+        ),
+        min_size=1,
+        max_size=5,
+    ))
+    @settings(max_examples=20)
+    def test_roundtrip_preserves_dict(self, model_data):
+        """Property: save then load should return identical dict."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, "model.zst")
+
+            result = save_mlframe_model(model_data, file_path, verbose=0)
+            assert result is True
+
+            loaded = load_mlframe_model(file_path)
+            assert loaded == model_data
+
+    @given(st.lists(
+        st.floats(allow_nan=False, allow_infinity=False, min_value=-1e6, max_value=1e6),
+        min_size=1,
+        max_size=100,
+    ))
+    @settings(max_examples=20)
+    def test_roundtrip_preserves_numpy_array(self, float_list):
+        """Property: numpy arrays should be preserved after save/load."""
+        import tempfile
+        arr = np.array(float_list)
+        model = {"array": arr}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, "numpy_model.zst")
+
+            save_mlframe_model(model, file_path, verbose=0)
+            loaded = load_mlframe_model(file_path)
+
+            np.testing.assert_array_almost_equal(loaded["array"], arr)
+
+
+class TestHypothesisDataFrameConversion:
+    """Hypothesis-based property tests for DataFrame conversions."""
+
+    @given(st.integers(min_value=1, max_value=50), st.integers(min_value=1, max_value=5))
+    @settings(max_examples=15)
+    def test_polars_to_pandas_preserves_shape(self, n_rows, n_cols):
+        """Property: Polars to pandas conversion should preserve shape."""
+        # Generate random data
+        columns = {f"col_{i}": np.random.randn(n_rows).tolist() for i in range(n_cols)}
+        pl_df = pl.DataFrame(columns)
+
+        pd_df = get_pandas_view_of_polars_df(pl_df)
+
+        assert pd_df.shape == (n_rows, n_cols)
+        assert list(pd_df.columns) == list(pl_df.columns)
+
+    @given(st.lists(
+        st.floats(allow_nan=False, allow_infinity=False, min_value=-1e6, max_value=1e6),
+        min_size=1,
+        max_size=50,
+    ))
+    @settings(max_examples=15)
+    def test_polars_to_pandas_preserves_values(self, values):
+        """Property: Values should be approximately preserved after conversion."""
+        pl_df = pl.DataFrame({"values": values})
+
+        pd_df = get_pandas_view_of_polars_df(pl_df)
+
+        # Convert to Python floats for comparison
+        pd_values = pd_df["values"].to_list()
+        for orig, converted in zip(values, pd_values):
+            assert abs(orig - converted) < 1e-9
+
+
+class TestHypothesisDropColumns:
+    """Hypothesis-based property tests for drop_columns_from_dataframe."""
+
+    @given(st.integers(min_value=2, max_value=5))
+    @settings(max_examples=15)
+    def test_drop_columns_removes_specified(self, n_cols):
+        """Property: Specified columns should be removed."""
+        col_names = [f"col_{i}" for i in range(n_cols)]
+
+        df = pd.DataFrame({name: [1, 2, 3] for name in col_names})
+
+        # Select subset of columns to drop (at least 1, leaving at least 1)
+        n_to_drop = np.random.randint(1, n_cols)
+        cols_to_drop = col_names[:n_to_drop]
+
+        result = drop_columns_from_dataframe(
+            df, additional_columns_to_drop=cols_to_drop, verbose=0
+        )
+
+        # Verify dropped columns are gone
+        for col in cols_to_drop:
+            assert col not in result.columns
+
+        # Verify remaining columns exist
+        for col in col_names[n_to_drop:]:
+            assert col in result.columns
+
+
+class TestHypothesisProcessNans:
+    """Hypothesis-based property tests for process_nans."""
+
+    @given(
+        st.floats(allow_nan=False, allow_infinity=False, min_value=-1e6, max_value=1e6),
+        st.integers(min_value=5, max_value=50),
+        st.integers(min_value=1, max_value=10),
+    )
+    @settings(max_examples=15)
+    def test_process_nans_fills_all_with_value(self, fill_value, n_rows, n_nans):
+        """Property: All NaNs should be filled with the specified value."""
+        assume(n_nans < n_rows)
+
+        # Create DataFrame with some NaNs
+        values = np.random.randn(n_rows)
+        nan_indices = np.random.choice(n_rows, n_nans, replace=False)
+        values[nan_indices] = np.nan
+
+        df = pd.DataFrame({"col": values})
+
+        result = process_nans(df, fill_value=fill_value, verbose=0)
+
+        # Verify no NaNs remain
+        assert not result["col"].isna().any()
+
+        # Verify fill value was used
+        for idx in nan_indices:
+            assert result["col"].iloc[idx] == fill_value
+
+
+class TestHypothesisRemoveConstant:
+    """Hypothesis-based property tests for remove_constant_columns."""
+
+    @given(st.integers(min_value=3, max_value=20))
+    @settings(max_examples=15)
+    def test_constant_columns_removed(self, n_rows):
+        """Property: Constant columns should be removed, varying preserved."""
+        # Create mixed DataFrame
+        df = pd.DataFrame({
+            "varying": np.random.randn(n_rows),
+            "constant": [5.0] * n_rows,
+        })
+
+        result = remove_constant_columns(df, verbose=0)
+
+        assert "varying" in result.columns
+        assert "constant" not in result.columns
+
+    @given(st.integers(min_value=3, max_value=50))
+    @settings(max_examples=10)
+    def test_all_varying_columns_preserved(self, n_rows):
+        """Property: All varying columns should be preserved."""
+        df = pd.DataFrame({
+            "a": np.random.randn(n_rows),
+            "b": np.random.randn(n_rows),
+            "c": np.random.randn(n_rows),
+        })
+
+        result = remove_constant_columns(df, verbose=0)
+
+        # All columns should be preserved since they all vary
+        assert set(result.columns) == {"a", "b", "c"}

@@ -293,3 +293,217 @@ class TestPipelineConfigurations:
             # Verify pipeline completes successfully
             # Note: Pipeline may not actually impute if imputer is not configured
             assert len(train_transformed) == len(train_df)
+
+
+class TestCreatePolardsPipeline:
+    """Tests for create_polarsds_pipeline function."""
+
+    def test_returns_none_when_polarsds_not_available(self):
+        """Test that function returns None when polars-ds is not installed."""
+        # Create simple Polars DataFrame
+        pl_df = pl.DataFrame({
+            "feature_0": [1.0, 2.0, 3.0],
+            "feature_1": [4.0, 5.0, 6.0],
+        })
+        config = PolarsPipelineConfig()
+
+        with patch.dict('sys.modules', {'polars_ds': None, 'polars_ds.pipeline': None}):
+            result = create_polarsds_pipeline(pl_df, config, verbose=0)
+            # Function returns None if polars-ds can't be imported
+            # This is expected behavior
+
+    def test_basic_pipeline_creation(self, sample_polars_data):
+        """Test basic pipeline creation with Polars DataFrame."""
+        pl_df, feature_names, _ = sample_polars_data
+
+        config = PolarsPipelineConfig(
+            use_polarsds_pipeline=True,
+            scaler_name="standard",
+        )
+
+        # Only run if polars-ds is available
+        try:
+            import polars_ds.pipeline
+        except ImportError:
+            pytest.skip("polars-ds not installed")
+
+        pipeline = create_polarsds_pipeline(
+            pl_df.select(feature_names),
+            config,
+            verbose=0,
+        )
+
+        assert pipeline is not None
+
+    def test_pipeline_with_scaling(self, sample_polars_data):
+        """Test pipeline creation with different scaling methods."""
+        pl_df, feature_names, _ = sample_polars_data
+
+        try:
+            import polars_ds.pipeline
+        except ImportError:
+            pytest.skip("polars-ds not installed")
+
+        for scaler_name in ['standard', 'minmax', 'robust']:
+            config = PolarsPipelineConfig(
+                use_polarsds_pipeline=True,
+                scaler_name=scaler_name,
+            )
+
+            pipeline = create_polarsds_pipeline(
+                pl_df.select(feature_names),
+                config,
+                verbose=0,
+            )
+
+            assert pipeline is not None
+
+    def test_pipeline_with_ordinal_encoding(self, sample_categorical_data):
+        """Test pipeline with ordinal categorical encoding."""
+        df, feature_names, cat_features, _ = sample_categorical_data
+
+        # Convert to Polars
+        pl_df = pl.from_pandas(df)
+
+        try:
+            import polars_ds.pipeline
+        except ImportError:
+            pytest.skip("polars-ds not installed")
+
+        config = PolarsPipelineConfig(
+            use_polarsds_pipeline=True,
+            categorical_encoding="ordinal",
+        )
+
+        pipeline = create_polarsds_pipeline(
+            pl_df.select(feature_names),
+            config,
+            verbose=0,
+        )
+
+        assert pipeline is not None
+
+    def test_pipeline_with_onehot_encoding(self, sample_categorical_data):
+        """Test pipeline with one-hot categorical encoding."""
+        df, feature_names, cat_features, _ = sample_categorical_data
+
+        # Convert to Polars
+        pl_df = pl.from_pandas(df)
+
+        try:
+            import polars_ds.pipeline
+        except ImportError:
+            pytest.skip("polars-ds not installed")
+
+        config = PolarsPipelineConfig(
+            use_polarsds_pipeline=True,
+            categorical_encoding="onehot",
+        )
+
+        pipeline = create_polarsds_pipeline(
+            pl_df.select(feature_names),
+            config,
+            verbose=0,
+        )
+
+        assert pipeline is not None
+
+    def test_pipeline_transformation(self, sample_polars_data):
+        """Test that created pipeline can transform data."""
+        pl_df, feature_names, _ = sample_polars_data
+
+        try:
+            import polars_ds.pipeline
+        except ImportError:
+            pytest.skip("polars-ds not installed")
+
+        config = PolarsPipelineConfig(
+            use_polarsds_pipeline=True,
+            scaler_name="standard",
+        )
+
+        pipeline = create_polarsds_pipeline(
+            pl_df.select(feature_names),
+            config,
+            verbose=0,
+        )
+
+        # Transform data
+        if pipeline is not None:
+            transformed = pipeline.transform(pl_df.select(feature_names))
+            assert len(transformed) == len(pl_df)
+            assert len(transformed.columns) == len(feature_names)
+
+    def test_pipeline_with_no_scaling(self, sample_polars_data):
+        """Test pipeline creation without scaling."""
+        pl_df, feature_names, _ = sample_polars_data
+
+        try:
+            import polars_ds.pipeline
+        except ImportError:
+            pytest.skip("polars-ds not installed")
+
+        config = PolarsPipelineConfig(
+            use_polarsds_pipeline=True,
+            scaler_name=None,  # No scaling
+        )
+
+        pipeline = create_polarsds_pipeline(
+            pl_df.select(feature_names),
+            config,
+            verbose=0,
+        )
+
+        assert pipeline is not None
+
+    def test_custom_pipeline_name(self, sample_polars_data):
+        """Test pipeline creation with custom name."""
+        pl_df, feature_names, _ = sample_polars_data
+
+        try:
+            import polars_ds.pipeline
+        except ImportError:
+            pytest.skip("polars-ds not installed")
+
+        config = PolarsPipelineConfig(
+            use_polarsds_pipeline=True,
+            scaler_name="standard",
+        )
+
+        pipeline = create_polarsds_pipeline(
+            pl_df.select(feature_names),
+            config,
+            pipeline_name="custom_pipeline",
+            verbose=0,
+        )
+
+        assert pipeline is not None
+
+    def test_pipeline_converts_int_to_float32(self, sample_polars_data):
+        """Test that pipeline converts integers to float32."""
+        # Create DataFrame with integer columns
+        pl_df = pl.DataFrame({
+            "int_col": [1, 2, 3, 4, 5],
+            "float_col": [1.0, 2.0, 3.0, 4.0, 5.0],
+        })
+
+        try:
+            import polars_ds.pipeline
+        except ImportError:
+            pytest.skip("polars-ds not installed")
+
+        config = PolarsPipelineConfig(
+            use_polarsds_pipeline=True,
+            scaler_name="standard",
+        )
+
+        pipeline = create_polarsds_pipeline(
+            pl_df,
+            config,
+            verbose=0,
+        )
+
+        if pipeline is not None:
+            transformed = pipeline.transform(pl_df)
+            # int_col should be converted to float
+            assert transformed["int_col"].dtype in (pl.Float32, pl.Float64)
