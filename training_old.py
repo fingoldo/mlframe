@@ -619,7 +619,7 @@ def get_training_configs(
         has_time=has_time,
         learning_rate=learning_rate,
         eval_fraction=(0.0 if use_explicit_early_stopping else validation_fraction),
-        task_type=cb_kwargs.pop('task_type', "GPU" if has_gpu else "CPU"),  # Pop from kwargs if present
+        task_type=cb_kwargs.pop("task_type", "GPU" if has_gpu else "CPU"),  # Pop from kwargs if present
         early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
         **cb_kwargs,
@@ -649,7 +649,7 @@ def get_training_configs(
         max_cat_to_onehot=1,
         max_cat_threshold=100,  # affects model size heavily when high cardinality cat features r present!
         tree_method="hist",
-        device=xgb_kwargs.pop('device', "cuda" if has_gpu else "cpu"),  # Pop from kwargs if present
+        device=xgb_kwargs.pop("device", "cuda" if has_gpu else "cpu"),  # Pop from kwargs if present
         n_jobs=psutil.cpu_count(logical=False),
         early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
@@ -730,7 +730,7 @@ def get_training_configs(
     LGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
         early_stopping_rounds=early_stopping_rounds,
-        device_type=lgb_kwargs.pop('device_type', "cuda" if has_gpu else "cpu"),  # Pop from kwargs if present
+        device_type=lgb_kwargs.pop("device_type", "cuda" if has_gpu else "cpu"),  # Pop from kwargs if present
         random_state=random_seed,
         # histogram_pool_size=16384,
         **lgb_kwargs,
@@ -784,7 +784,7 @@ def get_training_configs(
         # test "16-true" and "bf16-true"? # With true 16-bit precision you can additionally lower your memory consumption by up to half so that you can train and deploy larger models. However, this setting can sometimes lead to unstable training.
         # BFloat16 Mixed precision is similar to FP16 mixed precision, however, it maintains more of the “dynamic range” that FP32 offers. This means it is able to improve numerical stability than FP16 mixed precision.
         # accelerator="cuda",  # devices=find_usable_cuda_devices(2)
-        # accelerator="ddp",plugins=DDPPlugin(find_unused_parameters=False),
+        # accelerator="ddp_spawn",plugins=DDPPlugin(find_unused_parameters=False),
         num_nodes=1,
         # ----------------------------------------------------------------------------------------------------------------------
         # Logging:
@@ -1576,26 +1576,31 @@ def train_and_evaluate_model(
 
     clean_ram()
 
-    return SimpleNamespace(
-        model=model,
-        test_preds=test_preds,
-        test_probs=test_probs,
-        test_target=test_target,
-        test_is_inlier=test_is_inlier,
-        val_preds=val_preds,
-        val_probs=val_probs,
-        val_target=val_target,
-        train_preds=train_preds,
-        train_probs=train_probs,
-        train_target=train_target,
-        metrics=metrics,
-        columns=columns,
-        pre_pipeline=pre_pipeline,
-        outlier_detector=outlier_detector,
-        train_od_idx=train_od_idx,
-        val_od_idx=val_od_idx,
-        trainset_features_stats=trainset_features_stats,
-    ), _orig_train_df, _orig_val_df, _orig_test_df
+    return (
+        SimpleNamespace(
+            model=model,
+            test_preds=test_preds,
+            test_probs=test_probs,
+            test_target=test_target,
+            test_is_inlier=test_is_inlier,
+            val_preds=val_preds,
+            val_probs=val_probs,
+            val_target=val_target,
+            train_preds=train_preds,
+            train_probs=train_probs,
+            train_target=train_target,
+            metrics=metrics,
+            columns=columns,
+            pre_pipeline=pre_pipeline,
+            outlier_detector=outlier_detector,
+            train_od_idx=train_od_idx,
+            val_od_idx=val_od_idx,
+            trainset_features_stats=trainset_features_stats,
+        ),
+        _orig_train_df,
+        _orig_val_df,
+        _orig_test_df,
+    )
 
 
 def report_model_perf(
@@ -1832,7 +1837,7 @@ def report_probabilistic_model_perf(
 
             # Convert predictions to probability-like format
             # Get unique classes from training (stored in model.classes_ for sklearn)
-            if hasattr(model, 'classes_'):
+            if hasattr(model, "classes_"):
                 n_classes = len(model.classes_)
                 # Map predictions to class indices using searchsorted (efficient!)
                 class_indices = np.searchsorted(model.classes_, preds_fallback)
@@ -1866,7 +1871,7 @@ def report_probabilistic_model_perf(
         if model is not None:
             # Try to get classes from model (sklearn convention)
             # Some models (e.g., NGBClassifier) don't follow this convention
-            if hasattr(model, 'classes_'):
+            if hasattr(model, "classes_"):
                 classes = model.classes_
             else:
                 # Fallback: extract unique classes from targets
@@ -2100,10 +2105,10 @@ def configure_training_params(
         metamodel_func = lambda x: x
 
     if default_regression_scoring is None:
-        default_regression_scoring = dict(score_func=mean_absolute_error, response_method='predict', greater_is_better=False)
+        default_regression_scoring = dict(score_func=mean_absolute_error, response_method="predict", greater_is_better=False)
 
     if default_classification_scoring is None:
-        default_classification_scoring = dict(score_func=fast_roc_auc, response_method='predict_proba', greater_is_better=True)
+        default_classification_scoring = dict(score_func=fast_roc_auc, response_method="predict_proba", greater_is_better=True)
 
     if common_params is None:
         common_params = {}
@@ -2266,10 +2271,10 @@ def configure_training_params(
     mlp_general_params = configs.MLP_GENERAL_PARAMS.copy()
     if use_regression:
         # Override loss function for regression
-        mlp_general_params['model_params'] = mlp_general_params.get('model_params', {}).copy()
-        mlp_general_params['model_params']['loss_fn'] = F.mse_loss
-        mlp_general_params['datamodule_params'] = mlp_general_params.get('datamodule_params', {}).copy()
-        mlp_general_params['datamodule_params']['labels_dtype'] = torch.float32
+        mlp_general_params["model_params"] = mlp_general_params.get("model_params", {}).copy()
+        mlp_general_params["model_params"]["loss_fn"] = F.mse_loss
+        mlp_general_params["datamodule_params"] = mlp_general_params.get("datamodule_params", {}).copy()
+        mlp_general_params["datamodule_params"]["labels_dtype"] = torch.float32
         mlp_model = PytorchLightningRegressor(network_params=mlp_network_params, **mlp_general_params)
     else:
         # Use default classification loss function
@@ -2295,33 +2300,19 @@ def configure_training_params(
     from mlframe.training.models import create_linear_model
     from mlframe.training.configs import LinearModelConfig
 
-    linear_params = dict(
-        model=metamodel_func(create_linear_model('linear', LinearModelConfig(model_type='linear'), use_regression=use_regression))
-    )
+    linear_params = dict(model=metamodel_func(create_linear_model("linear", LinearModelConfig(model_type="linear"), use_regression=use_regression)))
 
-    ridge_params = dict(
-        model=metamodel_func(create_linear_model('ridge', LinearModelConfig(model_type='ridge'), use_regression=use_regression))
-    )
+    ridge_params = dict(model=metamodel_func(create_linear_model("ridge", LinearModelConfig(model_type="ridge"), use_regression=use_regression)))
 
-    lasso_params = dict(
-        model=metamodel_func(create_linear_model('lasso', LinearModelConfig(model_type='lasso'), use_regression=use_regression))
-    )
+    lasso_params = dict(model=metamodel_func(create_linear_model("lasso", LinearModelConfig(model_type="lasso"), use_regression=use_regression)))
 
-    elasticnet_params = dict(
-        model=metamodel_func(create_linear_model('elasticnet', LinearModelConfig(model_type='elasticnet'), use_regression=use_regression))
-    )
+    elasticnet_params = dict(model=metamodel_func(create_linear_model("elasticnet", LinearModelConfig(model_type="elasticnet"), use_regression=use_regression)))
 
-    huber_params = dict(
-        model=metamodel_func(create_linear_model('huber', LinearModelConfig(model_type='huber'), use_regression=use_regression))
-    )
+    huber_params = dict(model=metamodel_func(create_linear_model("huber", LinearModelConfig(model_type="huber"), use_regression=use_regression)))
 
-    ransac_params = dict(
-        model=metamodel_func(create_linear_model('ransac', LinearModelConfig(model_type='ransac'), use_regression=use_regression))
-    )
+    ransac_params = dict(model=metamodel_func(create_linear_model("ransac", LinearModelConfig(model_type="ransac"), use_regression=use_regression)))
 
-    sgd_params = dict(
-        model=metamodel_func(create_linear_model('sgd', LinearModelConfig(model_type='sgd'), use_regression=use_regression))
-    )
+    sgd_params = dict(model=metamodel_func(create_linear_model("sgd", LinearModelConfig(model_type="sgd"), use_regression=use_regression)))
 
     # ----------------------------------------------------------------------------------------------------------------------------------------------------
     # Setting up RFECV
@@ -2332,14 +2323,14 @@ def configure_training_params(
 
     # When show_perf_chart is False (e.g., during testing), disable Optimizer plots
     # Note: max_runtime_mins should be set explicitly via common_params['rfecv_params'] if needed
-    if not common_params.get('show_perf_chart', True):
-        rfecv_params['optimizer_plotting'] = 'No'
-        cb_rfecv_params['optimizer_plotting'] = 'No'
+    if not common_params.get("show_perf_chart", True):
+        rfecv_params["optimizer_plotting"] = "No"
+        cb_rfecv_params["optimizer_plotting"] = "No"
 
     # Allow custom rfecv_params override from common_params
     # Extract and remove from common_params to avoid passing to train_and_evaluate_model
-    if 'rfecv_params' in common_params:
-        custom_rfecv_params = common_params.pop('rfecv_params')
+    if "rfecv_params" in common_params:
+        custom_rfecv_params = common_params.pop("rfecv_params")
         rfecv_params.update(custom_rfecv_params)
         cb_rfecv_params.update(custom_rfecv_params)
 
@@ -2353,7 +2344,7 @@ def configure_training_params(
 
             rfecv_scoring = make_scorer(
                 score_func=fs_and_hpt_integral_calibration_error,
-                response_method='predict_proba',
+                response_method="predict_proba",
                 greater_is_better=False,
             )
         else:
@@ -3010,7 +3001,7 @@ def process_model(
         effective_common_params["test_df"] = cached_test_df
 
     # Remove parameters that are handled by pre_pipeline and not accepted by train_and_evaluate_model
-    for key in ['scaler', 'imputer', 'category_encoder', 'rfecv_params']:
+    for key in ["scaler", "imputer", "category_encoder", "rfecv_params"]:
         effective_common_params.pop(key, None)
 
     if fpath and exists(fpath):

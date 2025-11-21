@@ -33,6 +33,8 @@ from .pipeline import fit_and_transform_pipeline
 from .utils import log_ram_usage, log_phase, drop_columns_from_dataframe
 from .models import is_linear_model, train_linear_model, LINEAR_MODEL_TYPES
 
+from ..training_old import process_model, select_target, score_ensemble, make_train_test_split, FeaturesAndTargetsExtractor
+
 logger = logging.getLogger(__name__)
 
 
@@ -54,16 +56,6 @@ def _ensure_config(config, config_class, kwargs):
         # Extract only fields that belong to this config class
         return config_class(**{k: v for k, v in kwargs.items() if k in config_class.model_fields})
     return config
-
-
-# Import from original training module for compatibility
-try:
-    from ..training_old import process_model, select_target, score_ensemble, make_train_test_split, FeaturesAndTargetsExtractor
-
-    _HAS_ORIGINAL_FUNCS = True
-except ImportError:
-    _HAS_ORIGINAL_FUNCS = False
-    logger.warning("Could not import functions from original training module")
 
 
 def train_mlframe_models_suite(
@@ -299,9 +291,9 @@ def train_mlframe_models_suite(
     trainset_features_stats = None
 
     # Extract from init_common_params or use defaults
-    category_encoder = init_common_params.get('category_encoder', None)
-    imputer = init_common_params.get('imputer', None)
-    scaler = init_common_params.get('scaler', None)
+    category_encoder = init_common_params.get("category_encoder", None)
+    imputer = init_common_params.get("imputer", None)
+    scaler = init_common_params.get("scaler", None)
 
     # Initialize defaults if not provided
     if category_encoder is None and cat_features:
@@ -309,10 +301,12 @@ def train_mlframe_models_suite(
 
     if imputer is None:
         from sklearn.impute import SimpleImputer
+
         imputer = SimpleImputer()
 
     if scaler is None:
         from sklearn.preprocessing import StandardScaler
+
         scaler = StandardScaler()
 
     # Default rfecv_models if not provided
@@ -420,8 +414,8 @@ def train_mlframe_models_suite(
 
                     # Initialize caches for transformed DataFrames (reset for each pre_pipeline_name)
                     cached_original_dfs = None  # For cb, lgb, xgb, etc.
-                    cached_hgb_dfs = None       # For hgb
-                    cached_mlp_ngb_dfs = None   # For mlp, ngb
+                    cached_hgb_dfs = None  # For hgb
+                    cached_mlp_ngb_dfs = None  # For mlp, ngb
 
                     for mlframe_model_name in mlframe_models:
                         if mlframe_model_name == "cb" and target_type == "REGRESSION" and control_params_override.get("metamodel_func") is not None:
