@@ -231,7 +231,7 @@ class TestAllModelsClassification:
             except ImportError:
                 pytest_module.skip("PyTorch Lightning not available")
 
-        df, feature_names, y = sample_classification_data
+        df, feature_names, _, y = sample_classification_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
         # Force CPU for GPU-capable models (GPU tests are separate)
@@ -283,7 +283,7 @@ class TestAllModelsClassification:
             except ImportError:
                 pytest_module.skip("PyTorch Lightning not available")
 
-        df, feature_names, y = sample_classification_data
+        df, feature_names, _, y = sample_classification_data
         pl_df = pl.from_pandas(df)
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)

@@ -57,7 +57,7 @@ class PolarsPipelineConfig(BaseConfig):
     """Configuration for Polars-ds pipeline."""
 
     use_polarsds_pipeline: bool = True
-    scaler_name: str = "standard"  # standard, minmax, robust, etc.
+    scaler_name: Optional[str] = "standard"  # standard, min_max, robust, or None for no scaling
     imputer_strategy: str = "mean"
     categorical_encoding: str = "ordinal"  # ordinal, onehot, target, etc.
 

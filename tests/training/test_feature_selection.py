@@ -104,7 +104,7 @@ class TestMRMRFeatureSelection:
 
     def test_mrmr_with_classification(self, sample_classification_data):
         """Test MRMR on classification data."""
-        df, feature_names, y = sample_classification_data
+        df, feature_names, _, y = sample_classification_data
         X = df[feature_names]
 
         selector = MRMR(
@@ -215,7 +215,7 @@ class TestRFECVFeatureSelection:
 
     def test_rfecv_basic_classification(self, sample_classification_data):
         """Test basic RFECV with classification estimator."""
-        df, feature_names, y = sample_classification_data
+        df, feature_names, _, y = sample_classification_data
         X = df[feature_names].iloc[:200]
         y_subset = y[:200]
 
@@ -259,7 +259,7 @@ class TestRFECVFeatureSelection:
 
     def test_rfecv_with_catboost_classifier(self, sample_classification_data):
         """Test RFECV with CatBoost classifier."""
-        df, feature_names, y = sample_classification_data
+        df, feature_names, _, y = sample_classification_data
         X = df[feature_names].iloc[:200]
         y_subset = y[:200]
 

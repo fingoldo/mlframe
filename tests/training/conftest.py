@@ -84,8 +84,9 @@ def sample_classification_data():
     feature_names = [f"feature_{i}" for i in range(n_features)]
     df = pd.DataFrame(X, columns=feature_names)
     df['target'] = y
+    cat_features = []  # No categorical features in this synthetic dataset
 
-    return df, feature_names, y
+    return df, feature_names, cat_features, y
 
 
 @pytest.fixture

@@ -246,7 +246,7 @@ class TestPipelineConfigurations:
         train_df = df[feature_names].iloc[:700]
 
         # Test with different scalers
-        for scaler_name in ['standard', 'minmax', 'robust']:
+        for scaler_name in ['standard', 'min_max', 'robust']:
             config = PolarsPipelineConfig(
                 use_polarsds_pipeline=False,
                 scaler_name=scaler_name,
@@ -344,7 +344,7 @@ class TestCreatePolardsPipeline:
         except ImportError:
             pytest.skip("polars-ds not installed")
 
-        for scaler_name in ['standard', 'minmax', 'robust']:
+        for scaler_name in ['standard', 'min_max', 'robust']:
             config = PolarsPipelineConfig(
                 use_polarsds_pipeline=True,
                 scaler_name=scaler_name,

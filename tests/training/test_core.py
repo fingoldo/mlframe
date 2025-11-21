@@ -92,7 +92,7 @@ class TestTrainMLFrameModelsSuiteBasic:
 
     def test_train_single_linear_model_classification(self, sample_classification_data, temp_data_dir, common_init_params):
         """Test training a single linear model on classification data."""
-        df, feature_names, y = sample_classification_data
+        df, feature_names, _, y = sample_classification_data
 
         # Create FTE
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
@@ -681,7 +681,7 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
         )
 
         assert "target" in models
-        assert "BINARY" in models["target"]
+        assert "CLASSIFICATION" in models["target"]
 
     def test_with_multiclass_few_samples_per_class(self, temp_data_dir, common_init_params):
         """Test multiclass with very few samples per class."""

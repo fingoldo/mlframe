@@ -4,7 +4,23 @@ Core training functions for mlframe.
 Contains the refactored train_mlframe_models_suite function.
 """
 
+# *****************************************************************************************************************************************************
+# IMPORTS
+# *****************************************************************************************************************************************************
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# LOGGING
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
 import logging
+
+logger = logging.getLogger(__name__)
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Normal Imports
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
 import os
 import joblib
 import pandas as pd
@@ -30,12 +46,10 @@ from .preprocessing import (
     create_split_dataframes,
 )
 from .pipeline import fit_and_transform_pipeline
+from mlframe.feature_selection.filters import MRMR
 from .utils import log_ram_usage, log_phase, drop_columns_from_dataframe
 from .models import is_linear_model, train_linear_model, LINEAR_MODEL_TYPES
-
 from ..training_old import process_model, select_target, score_ensemble, make_train_test_split, FeaturesAndTargetsExtractor
-
-logger = logging.getLogger(__name__)
 
 
 def _ensure_config(config, config_class, kwargs):
@@ -399,7 +413,6 @@ def train_mlframe_models_suite(
                         pre_pipeline_names.append(f"{rfecv_model_name} ")
 
                 if use_mrmr_fs:
-                    from pyutilz.mrmr import MRMR
 
                     pre_pipelines.append(MRMR(**mrmr_kwargs))
                     pre_pipeline_names.append("MRMR ")

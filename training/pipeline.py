@@ -4,7 +4,22 @@ Pipeline functions for mlframe training.
 Handles Polars-ds and sklearn pipeline creation, fitting, and transformation.
 """
 
+# *****************************************************************************************************************************************************
+# IMPORTS
+# *****************************************************************************************************************************************************
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# LOGGING
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
 import logging
+
+logger = logging.getLogger(__name__)
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Normal Imports
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
 import pandas as pd
 import polars as pl
 import polars.selectors as cs
@@ -15,8 +30,6 @@ from pyutilz.pandaslib import ensure_dataframe_float32_convertability
 
 from .utils import log_ram_usage
 from .configs import PolarsPipelineConfig
-
-logger = logging.getLogger(__name__)
 
 
 def prepare_df_for_catboost(df: pd.DataFrame, cat_features: List[str]):
@@ -140,8 +153,7 @@ def fit_and_transform_pipeline(
 
             # Polars-ds handles categorical encoding, so no separate cat_features needed
             # Use schema instead of .head() for efficiency (no data scanning)
-            cat_features = [name for name, dtype in train_df.schema.items()
-                           if dtype in (pl.Categorical, pl.Utf8, pl.String)]
+            cat_features = [name for name, dtype in train_df.schema.items() if dtype in (pl.Categorical, pl.Utf8, pl.String)]
 
     # Handle pandas DataFrames with sklearn-style pipeline
     elif isinstance(train_df, pd.DataFrame):
@@ -157,7 +169,7 @@ def fit_and_transform_pipeline(
 
             # Create appropriate encoder
             if config.categorical_encoding == "ordinal":
-                encoder = OrdinalEncoder(cols=cat_features, handle_unknown='value', handle_missing='value')
+                encoder = OrdinalEncoder(cols=cat_features, handle_unknown="value", handle_missing="value")
             else:  # onehot
                 encoder = OneHotEncoder(cols=cat_features, use_cat_names=True, drop_invariant=False)
 
@@ -185,7 +197,7 @@ def fit_and_transform_pipeline(
     # Clean up empty validation/test sets
     if val_df is not None and len(val_df) == 0:
         val_df = None
-    
+
     if test_df is not None and len(test_df) == 0:
         test_df = None
 
