@@ -196,9 +196,14 @@ def ensemble_probabilistic_predictions(
     elif ensemble_method == "geo":
         ensembled_predictions = np.power(np.prod(preds, axis=0), 1 / len(preds))
 
-    if np.isnan(ensembled_predictions).any():  # replace possible nans with values from a safe fallback array
+    # Replace non-finite values (NaN, inf) with arithmetic mean fallback
+    non_finite_mask = ~np.isfinite(ensembled_predictions)
+    if non_finite_mask.any():
         arith_mean = np.mean(np.array(preds), axis=0)
-        ensembled_predictions = np.where(np.isnan(ensembled_predictions), arith_mean, ensembled_predictions)
+        n_replaced = np.sum(non_finite_mask)
+        if verbose:
+            logger.info(f"{n_replaced} non-finite values replaced with arithmetic mean")
+        ensembled_predictions = np.where(non_finite_mask, arith_mean, ensembled_predictions)
 
     if ensure_prob_limits:
         ensembled_predictions = np.clip(ensembled_predictions, 0.0, 1.0)
