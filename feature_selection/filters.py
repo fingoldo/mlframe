@@ -216,9 +216,9 @@ def find_impactful_features(
 @njit()
 def merge_vars(
     factors_data: np.ndarray,
-    vars_indices: Sequence,
-    var_is_nominal: Sequence,
-    factors_nbins: Sequence,
+    vars_indices,
+    var_is_nominal,
+    factors_nbins,
     dtype=np.int32,
     min_occupancy: int = None,
     current_nclasses: int = 1,
@@ -295,6 +295,11 @@ def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
 def mi(factors_data, x: np.ndarray, y: np.ndarray, factors_nbins: np.ndarray, verbose: bool = False, dtype=np.int32) -> float:
     """Computes Mutual Information of X, Y via entropy calculations."""
 
+    # Ensure inputs are numpy arrays
+    x = np.asarray(x, dtype=np.int64)
+    y = np.asarray(y, dtype=np.int64)
+    factors_nbins = np.asarray(factors_nbins, dtype=np.int64)
+
     classes_x, freqs_x, _ = merge_vars(
         factors_data=factors_data, vars_indices=x, var_is_nominal=None, factors_nbins=factors_nbins, verbose=verbose, dtype=dtype
     )
@@ -307,8 +312,11 @@ def mi(factors_data, x: np.ndarray, y: np.ndarray, factors_nbins: np.ndarray, ve
     if verbose:
         print(f"entropy_y={entropy_y}, nclasses_y={len(freqs_y)}")
 
+    # Combine x and y indices using numpy unique
+    vars_xy = np.unique(np.concatenate((x, y)))
+
     classes_xy, freqs_xy, _ = merge_vars(
-        factors_data=factors_data, vars_indices=set(x) | set(y), var_is_nominal=None, factors_nbins=factors_nbins, verbose=verbose, dtype=dtype
+        factors_data=factors_data, vars_indices=vars_xy, var_is_nominal=None, factors_nbins=factors_nbins, verbose=verbose, dtype=dtype
     )
     entropy_xy = entropy(freqs=freqs_xy)
     if verbose:
@@ -319,22 +327,25 @@ def mi(factors_data, x: np.ndarray, y: np.ndarray, factors_nbins: np.ndarray, ve
 
 @njit()
 def unpack_and_sort(x, z):
-    res = []
+    res = np.empty(len(x) + len(z), dtype=np.int64)
+    idx = 0
     for el in x:
-        res.append(el)
+        res[idx] = el
+        idx += 1
     for el in z:
-        res.append(el)
-    return sorted(res)
+        res[idx] = el
+        idx += 1
+    return np.sort(res)
 
 
 @njit()
 def conditional_mi(
     factors_data: np.ndarray,
-    x: tuple,
-    y: tuple,
-    z: tuple,
-    var_is_nominal: Sequence,
-    factors_nbins: Sequence,
+    x: np.ndarray,
+    y: np.ndarray,
+    z: np.ndarray,
+    var_is_nominal: np.ndarray,
+    factors_nbins: np.ndarray,
     entropy_z: float = -1.0,
     entropy_xz: float = -1.0,
     entropy_yz: float = -1.0,
@@ -1099,13 +1110,13 @@ def evaluate_gain(
     current_gain: float,
     last_checked_k: int,
     direct_gain: float,
-    X: Sequence[int],
-    y: Sequence[int],
+    X: np.ndarray,
+    y: np.ndarray,
     nexisting: int,
     best_gain: float,
     factors_data: np.ndarray,
     factors_nbins: np.ndarray,
-    selected_vars: list,
+    selected_vars: np.ndarray,
     mrmr_relevance_algo: str = "fleuret",
     mrmr_redundancy_algo: str = "fleuret",
     max_veteranes_interactions_order: int = 2,
@@ -2147,7 +2158,7 @@ def postprocess_candidates(
         for X in tqdmu(selected_vars, desc="Ensuring target influence", leave=False):
             bootstrapped_mi, confidence = mi_direct(
                 factors_data,
-                x=[X],
+                x=np.array([X], dtype=np.int64),
                 y=y,
                 factors_nbins=factors_nbins,
                 classes_y=classes_y,
@@ -2186,15 +2197,15 @@ def postprocess_candidates(
     mutualinfos = {}
 
     for X in tqdmu(selected_vars, desc="Marginal stats", leave=False):
-        _, freqs, _ = merge_vars(factors_data=factors_data, vars_indices=[X], factors_nbins=factors_nbins, var_is_nominal=None, dtype=dtype)
+        _, freqs, _ = merge_vars(factors_data=factors_data, vars_indices=np.array([X], dtype=np.int64), factors_nbins=factors_nbins, var_is_nominal=None, dtype=dtype)
         factor_entropy = entropy(freqs=freqs)
         entropies[X] = factor_entropy
 
     for a, b in tqdmu(combinations(selected_vars, 2), desc="1-way interactions", leave=False):
         bootstrapped_mi, confidence = mi_direct(
             factors_data,
-            x=[a],
-            y=[b],
+            x=np.array([a], dtype=np.int64),
+            y=np.array([b], dtype=np.int64),
             factors_nbins=factors_nbins,
             classes_y=classes_y,
             freqs_y=freqs_y,
@@ -2209,8 +2220,8 @@ def postprocess_candidates(
         for pair in combinations(set(selected_vars) - set([y]), 2):
             bootstrapped_mi, confidence = mi_direct(
                 factors_data,
-                x=pair,
-                y=[y],
+                x=np.array(pair, dtype=np.int64),
+                y=np.array([y], dtype=np.int64),
                 factors_nbins=factors_nbins,
                 classes_y=classes_y,
                 freqs_y=freqs_y,
@@ -2591,9 +2602,9 @@ def categorize_dataset(
         else:
             data = np.append(data, new_vals, axis=1)
 
-    nbins = data.max(axis=0).astype(np.int32) + 1  # -data.min(axis=0).astype(np.int32)
+    nbins = data.max(axis=0).astype(np.int64) + 1  # -data.min(axis=0).astype(np.int64)
 
-    return data, numerical_cols + categorical_cols, nbins.tolist()
+    return data, numerical_cols + categorical_cols, nbins
 
 
 class MRMR(BaseEstimator, TransformerMixin):
@@ -2826,7 +2837,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         )
         logger.info("categorized.")
 
-        target_indices = [cols.index(col) for col in target_names]
+        target_indices = np.array([cols.index(col) for col in target_names], dtype=np.int64)
 
         # ---------------------------------------------------------------------------------------------------------------
         # Core
@@ -2850,7 +2861,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         for nfold, (train_index, test_index) in enumerate(splitter):
             subsets_selections.append(fnc(
                             factors_data=data,
-                            y=[target_idx],
+                            y=np.array([target_idx], dtype=np.int64),
                             factors_nbins=n_bins,
                             factors_names=cols,
                             interactions_max_order=1,
@@ -3082,9 +3093,9 @@ class MRMR(BaseEstimator, TransformerMixin):
                         )
                         fe_mi, fe_conf = mi_direct(
                             discretized_transformed_values.reshape(-1, 1),
-                            x=[0],
+                            x=np.array([0], dtype=np.int64),
                             y=None,
-                            factors_nbins=[self.quantization_nbins],
+                            factors_nbins=np.array([self.quantization_nbins], dtype=np.int64),
                             classes_y=classes_y,
                             classes_y_safe=classes_y_safe,
                             freqs_y=freqs_y,
@@ -3480,9 +3491,9 @@ def check_prospective_fe_pairs(
                     )
                     fe_mi, fe_conf = mi_direct(
                         discretized_transformed_values.reshape(-1, 1),
-                        x=[0],
+                        x=np.array([0], dtype=np.int64),
                         y=None,
-                        factors_nbins=[quantization_nbins],
+                        factors_nbins=np.array([quantization_nbins], dtype=np.int64),
                         classes_y=classes_y,
                         classes_y_safe=classes_y_safe,
                         freqs_y=freqs_y,
@@ -3552,9 +3563,9 @@ def check_prospective_fe_pairs(
                                 )
                                 fe_mi, fe_conf = mi_direct(
                                     discretized_transformed_values.reshape(-1, 1),
-                                    x=[0],
+                                    x=np.array([0], dtype=np.int64),
                                     y=None,
-                                    factors_nbins=[quantization_nbins],
+                                    factors_nbins=np.array([quantization_nbins], dtype=np.int64),
                                     classes_y=classes_y,
                                     classes_y_safe=classes_y_safe,
                                     freqs_y=freqs_y,
