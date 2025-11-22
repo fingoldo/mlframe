@@ -53,7 +53,6 @@ from sklearn.preprocessing import KBinsDiscretizer, OrdinalEncoder
 from sklearn.model_selection import KFold
 from sklearn.base import is_classifier, is_regressor, BaseEstimator, TransformerMixin
 from sklearn.impute import SimpleImputer
-from itertools import combinations
 
 from numba.core import types
 from numba import njit, jit
@@ -1414,7 +1413,7 @@ def screen_predictors(
     # verbosity and formatting
     verbose: int = 1,
     ndigits: int = 5,
-    parallel_kwargs=dict(max_nbytes=MAX_JOBLIB_NBYTES),
+    parallel_kwargs: dict = None,
     stop_file: str = None,
     use_simple_mode: bool = True,
 ) -> float:
@@ -1442,6 +1441,9 @@ def screen_predictors(
     # Input checks
     # ---------------------------------------------------------------------------------------------------------------
 
+    if parallel_kwargs is None:
+        parallel_kwargs = dict(max_nbytes=MAX_JOBLIB_NBYTES)
+
     assert mrmr_relevance_algo in ("fleuret", "pld")
     assert mrmr_redundancy_algo in ("fleuret", "pld_max", "pld_mean")
 
@@ -1462,6 +1464,14 @@ def screen_predictors(
     else:
         assert factors_data.shape[1] == len(factors_names)
 
+    # Initialize x (factor indices to consider) with appropriate defaults
+    if factors_to_use is not None:
+        x = set(factors_to_use)
+    elif factors_names_to_use is not None:
+        x = [i for i, col_name in enumerate(factors_names) if col_name in factors_names_to_use]
+    else:
+        x = set(range(factors_data.shape[1]))
+
     # warn if inputs are identical to targets
     if factors_data.shape == targets_data.shape:
         if np.shares_memory(factors_data, targets_data):
@@ -1477,7 +1487,7 @@ def screen_predictors(
                     if verbose > 2:
                         logger.info(f"Using only {len(factors_to_use):_} predefined factors: {factors_to_use}")
                 else:
-                    x = [i for i, col_name in enumerate(factors_names) if col_name in factors_names_to_use and i != y]
+                    x = [i for i, col_name in enumerate(factors_names) if col_name in factors_names_to_use and i not in y]
                     if verbose > 2:
                         logger.info(f"Using only {len(factors_names_to_use):_} predefined factors: {factors_names_to_use}")
         else:
@@ -1496,8 +1506,8 @@ def screen_predictors(
         set_numba_random_seed(random_seed)
         try:
             cp.random.seed(random_seed)
-        except Exception as e:
-            pass
+        except NameError:
+            pass  # CuPy not imported
 
     max_failed = int(full_npermutations * (1 - min_nonzero_confidence))
     if max_failed <= 1:
@@ -1699,7 +1709,7 @@ def screen_predictors(
                     if max_runtime_mins and not run_out_of_time:
                         run_out_of_time = (timer() - start_time) > max_runtime_mins * 60
                         if run_out_of_time:
-                            logging.info(f"Time limit exhausted. Finalizing the search...")
+                            logger.info(f"Time limit exhausted. Finalizing the search...")
                             break
 
                 else:
@@ -1765,7 +1775,7 @@ def screen_predictors(
 
                             if run_out_of_time:
                                 if verbose:
-                                    logging.info(f"Time limit exhausted. Finalizing the search...")
+                                    logger.info(f"Time limit exhausted. Finalizing the search...")
                                 break
 
                 if verbose > 2 and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
@@ -2700,7 +2710,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # verbosity and formatting
         verbose: Union[bool, int] = 0,
         ndigits: int = 5,
-        parallel_kwargs=dict(max_nbytes=MAX_JOBLIB_NBYTES),
+        parallel_kwargs: dict = None,
         # CV
         cv: Union[object, int, None] = 3,
         cv_shuffle: bool = False,
@@ -2718,6 +2728,9 @@ class MRMR(BaseEstimator, TransformerMixin):
         # checks
         if n_jobs == -1:
             n_jobs = psutil.cpu_count(logical=False)
+
+        if parallel_kwargs is None:
+            parallel_kwargs = dict(max_nbytes=MAX_JOBLIB_NBYTES)
 
         # assert isinstance(estimator, (BaseEstimator,))
 
@@ -2797,6 +2810,10 @@ class MRMR(BaseEstimator, TransformerMixin):
             if verbose:
                 logger.info(f"Using cv={cv}")
         """
+
+        # Convert numpy array to DataFrame if needed
+        if isinstance(X, np.ndarray):
+            X = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
 
         self.feature_names_in_ = X.columns.tolist()
         self.n_features_in_ = len(self.feature_names_in_)
@@ -2974,8 +2991,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 logger.info(f"MRMR+ selected {len(selected_vars):_} out of {self.n_features_in_:_} features before the Feature Engineering step.")
 
             if len(selected_vars)==0:
-                logging.info("Proceeding with all features though.")
-                self.feature_names_in_
+                logger.info("Proceeding with all features though.")
                 selected_vars=np.array([cols.index(col) for col in cols if col not in target_names])
 
             if verbose >= 2:
@@ -3141,7 +3157,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             else:
                 original_cols = {i: self.feature_names_in_.index(col) for i, col in enumerate(cols) if col in self.feature_names_in_}
                 if verbose >= 1:
-                    logging.info(f"Checking {len(prospective_pairs):_} most prospective_pairs for feature engineering...")
+                    logger.info(f"Checking {len(prospective_pairs):_} most prospective_pairs for feature engineering...")
                 if len(X) < 50_000 or len(prospective_pairs) < 2:
                     prospective_additions = check_prospective_fe_pairs(
                         prospective_pairs,
@@ -3402,7 +3418,7 @@ def check_prospective_fe_pairs(
     res = {}
 
     if verbose >= 2:
-        logging.info(f"Creating a pool of {len(prospective_pairs) * len(unary_transformations) * 2:_} unary transformations for feature engineering.")
+        logger.info(f"Creating a pool of {len(prospective_pairs) * len(unary_transformations) * 2:_} unary transformations for feature engineering.")
 
     transformed_vars = np.empty(shape=(len(X), len(prospective_pairs) * len(unary_transformations) * 2), dtype=np.float32)
 
@@ -3428,7 +3444,7 @@ def check_prospective_fe_pairs(
                         i += 1
 
     if verbose >= 2:
-        logging.info(f"Created. For every pair from the pool, trying all known functions...")
+        logger.info(f"Created. For every pair from the pool, trying all known functions...")
 
     # ---------------------------------------------------------------------------------------------------------------
     # Then, for every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM).
