@@ -25,13 +25,13 @@ from unittest.mock import MagicMock
 prob_arrays = arrays(
     dtype=np.float32,
     shape=st.tuples(st.integers(1, 50), st.integers(2, 10)),
-    elements=st.floats(0.01, 0.99, allow_nan=False, allow_infinity=False)
+    elements=st.floats(float(np.float32(0.01)), float(np.float32(0.99)), allow_nan=False, allow_infinity=False, width=32)
 )
 
 small_prob_arrays = arrays(
     dtype=np.float32,
     shape=st.tuples(st.integers(1, 20), st.integers(2, 5)),
-    elements=st.floats(0.01, 0.99, allow_nan=False, allow_infinity=False)
+    elements=st.floats(float(np.float32(0.01)), float(np.float32(0.99)), allow_nan=False, allow_infinity=False, width=32)
 )
 
 

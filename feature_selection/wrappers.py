@@ -79,7 +79,7 @@ class VotesAggregation(str, Enum):
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-def supress_irritating_3rdparty_warnings() -> None:
+def suppress_irritating_3rdparty_warnings() -> None:
 
     for message in [r"Can't optimze method \"evaluate\" because self argument is used"]:
         # Filter out the specific warning message using a substring or regex pattern.
@@ -170,7 +170,7 @@ class RFECV(BaseEstimator, TransformerMixin):
     def __init__(
         self,
         estimator: BaseEstimator,
-        fit_params: dict = {},
+        fit_params: dict = None,
         max_nfeatures: int = None,
         mean_perf_weight: float = 1.0,
         std_perf_weight: float = 0.1,
@@ -212,11 +212,13 @@ class RFECV(BaseEstimator, TransformerMixin):
         report_ndigits: int = 4,
         #
         special_feature_indices: list = None,
+        conduct_final_voting: bool = False,
     ):
 
         # checks
         if frac is not None:
-            assert frac > 0.0 and frac < 1.0
+            if not (frac > 0.0 and frac < 1.0):
+                raise ValueError(f"frac must be between 0 and 1, got {frac}")
             if verbose:
                 logging.info(f"Using {frac} fraction of the training dataset.")
 
@@ -246,7 +248,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         # ---------------------------------------------------------------------------------------------------------------
 
         estimator = self.estimator
-        fit_params = copy.copy(self.fit_params)
+        fit_params = copy.copy(self.fit_params) if self.fit_params else {}
         max_runtime_mins = self.max_runtime_mins
         max_refits = self.max_refits
         cv = self.cv
@@ -301,14 +303,20 @@ class RFECV(BaseEstimator, TransformerMixin):
                 cv = 3
             if is_classifier(estimator):
                 if groups is not None:
-                    cv = StratifiedGroupKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
+                    cv = StratifiedGroupKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state if cv_shuffle else None)
                 else:
-                    cv = StratifiedKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
+                    if cv_shuffle:
+                        cv = StratifiedKFold(n_splits=cv, shuffle=True, random_state=random_state)
+                    else:
+                        cv = StratifiedKFold(n_splits=cv, shuffle=False)
             else:
                 if groups is not None:
-                    cv = GroupKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
+                    cv = GroupKFold(n_splits=cv)  # GroupKFold doesn't support shuffle/random_state
                 else:
-                    cv = KFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
+                    if cv_shuffle:
+                        cv = KFold(n_splits=cv, shuffle=True, random_state=random_state)
+                    else:
+                        cv = KFold(n_splits=cv, shuffle=False)
             if verbose:
                 logger.info(f"Using cv={cv}")
 
@@ -327,7 +335,7 @@ class RFECV(BaseEstimator, TransformerMixin):
             total=min(len(original_features) + 1, max_refits) if max_refits else len(original_features) + 1,
         )
 
-        supress_irritating_3rdparty_warnings()
+        suppress_irritating_3rdparty_warnings()
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Init scoring
@@ -338,9 +346,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 logger.info(f"Scoring omited, using probabilistic_multiclass_error by default.")
                 # Use response_method='predict_proba' for sklearn 1.4+
                 # (needs_proba is deprecated)
-                scoring = make_scorer(score_func=compute_probabilistic_multiclass_error,
-                                      response_method='predict_proba',
-                                      greater_is_better=False)
+                scoring = make_scorer(score_func=compute_probabilistic_multiclass_error, response_method="predict_proba", greater_is_better=False)
             elif is_regressor(estimator):
                 logger.info(f"Scoring omited, using mean_squared_error by default.")
                 scoring = make_scorer(score_func=mean_squared_error, greater_is_better=False)
@@ -378,13 +384,13 @@ class RFECV(BaseEstimator, TransformerMixin):
         if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
             # Determine plotting mode
             if self.optimizer_plotting is not None:
-                if self.optimizer_plotting == 'No':
+                if self.optimizer_plotting == "No":
                     plotting_mode = OptimizationProgressPlotting.No
-                elif self.optimizer_plotting == 'Final':
+                elif self.optimizer_plotting == "Final":
                     plotting_mode = OptimizationProgressPlotting.Final
-                elif self.optimizer_plotting == 'OnScoreImprovement':
+                elif self.optimizer_plotting == "OnScoreImprovement":
                     plotting_mode = OptimizationProgressPlotting.OnScoreImprovement
-                elif self.optimizer_plotting == 'Regular':
+                elif self.optimizer_plotting == "Regular":
                     plotting_mode = OptimizationProgressPlotting.Regular
                 else:
                     plotting_mode = OptimizationProgressPlotting.OnScoreImprovement
@@ -478,7 +484,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 if frac:
                     size = int(len(train_index) * frac)
                     if size > 10:
-                        train_index = np.random.choice(train_index, size=size)
+                        train_index = np.random.choice(train_index, size=size, replace=False)
 
                 X_train, y_train, X_test, y_test = split_into_train_test(
                     X=X, y=y, train_index=train_index, test_index=test_index, features_indices=current_features
@@ -500,8 +506,8 @@ class RFECV(BaseEstimator, TransformerMixin):
                     else:
                         train_groups = None
 
-                    for true_train_index, val_index in val_cv.split(X=X_train, y=y_train, groups=train_groups):
-                        pass  # need only 1 last iteration of 2nd split
+                    splits = list(val_cv.split(X=X_train, y=y_train, groups=train_groups))
+                    true_train_index, val_index = splits[-1]
 
                     X_train, y_train, X_val, y_val = split_into_train_test(X=X_train, y=y_train, train_index=true_train_index, test_index=val_index)
                     if verbose > 2:
@@ -536,7 +542,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 if keep_estimators:
                     fitted_estimator = copy.copy(estimator)
                 else:
-                    fitted_estimator = copy.copy(estimator)
+                    fitted_estimator = estimator
 
                 model_type_name = type(fitted_estimator).__name__ if fitted_estimator is not None else ""
                 ctx = suppress_stdout_stderr() if model_type_name in CATBOOST_MODEL_TYPES else nullcontext()
@@ -599,7 +605,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
                 if verbose:
                     logger.info(
-                        f"Tried {len(current_features):_} features ({textwrap.shorten (', '.join(current_features[:40]),150)}), score={scores_mean:.{ndigits}f} ± {scores_std:.{ndigits}f} ~ {final_score:.{ndigits}f}"
+                        f"Tried {len(current_features):_} features ({textwrap.shorten(', '.join(map(str, current_features[:40])), 150)}), score={scores_mean:.{ndigits}f} ± {scores_std:.{ndigits}f} ~ {final_score:.{ndigits}f}"
                     )
 
             prev_nfeatures, prev_score = len(current_features), final_score
@@ -757,10 +763,15 @@ class RFECV(BaseEstimator, TransformerMixin):
             self.support_ = np.array([])
         else:
 
-            if True:
+            if not self.conduct_final_voting:
 
                 # An obvious solution is to return exact features that we used when measuring scores.
-                self.support_ = np.array([self.feature_names_in_.index(feature_name) for feature_name in self.selected_features_[best_top_n]])
+                # Convert feature_name to string if feature_names_in_ contains strings (ndarray case)
+                selected = self.selected_features_[best_top_n]
+                if self.feature_names_in_ and isinstance(self.feature_names_in_[0], str):
+                    self.support_ = np.array([self.feature_names_in_.index(str(feature_name)) for feature_name in selected])
+                else:
+                    self.support_ = np.array([self.feature_names_in_.index(feature_name) for feature_name in selected])
 
             else:
 
@@ -851,7 +862,8 @@ def get_feature_importances(
     else:
         res = importance_getter(model=model, data=data, reference_data=reference_data)
 
-    assert len(res) == len(current_features)
+    if len(res) != len(current_features):
+        raise ValueError(f"Feature importances length {len(res)} doesn't match current_features length {len(current_features)}")
     return {feature_index: feature_importance for feature_index, feature_importance in zip(current_features, res)}
 
 

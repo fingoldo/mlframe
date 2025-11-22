@@ -92,10 +92,6 @@ class TestAllModelsRegression:
         """Test regression with Polars DataFrame."""
         skip_if_dependency_missing(model_name)
 
-        # Skip SGD with small Polars data (convergence issues)
-        if model_name == "sgd":
-            pytest.skip("SGD needs larger dataset")
-
         pl_df, feature_names, y = sample_polars_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
         config_override = get_cpu_config(model_name, fast_iterations)
@@ -263,10 +259,6 @@ class TestCategoricalFeatures:
                 import pytorch_lightning
             except ImportError:
                 pytest_module.skip("PyTorch Lightning not available")
-
-        # Skip RANSAC with categorical (not well-suited)
-        if model_name == "ransac":
-            pytest_module.skip("RANSAC not tested with categorical features")
 
         df, feature_names, cat_features, y = sample_categorical_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
