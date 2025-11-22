@@ -41,8 +41,10 @@ def create_date_features(
     df: Union[pd.DataFrame, pl.DataFrame],
     cols: List[str],
     delete_original_cols: bool = True,
-    methods: Dict[str, np.dtype] = {"day": np.int8, "weekday": np.int8, "month": np.int8},
+    methods: Dict[str, np.dtype] = None,
 ) -> Union[pd.DataFrame, pl.DataFrame]:
+    if methods is None:
+        methods = {"day": np.int8, "weekday": np.int8, "month": np.int8}
     if len(cols) == 0:
         return df
 

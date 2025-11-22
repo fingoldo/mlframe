@@ -92,6 +92,8 @@ def run_pysr_feature_engineering(
 
     target = tmp_df[target_col].copy()
 
+    if drop_columns is None:
+        drop_columns = []
     if target_col not in drop_columns:
         drop_columns.append(target_col)
 
@@ -150,7 +152,7 @@ def run_pysr_feature_engineering(
         bumper=True,
     )
 
-    final_params = pysr_params.copy() if pysr_params else default_params
+    final_params = {**default_params, **(pysr_params or {})}
     if pysr_params_override:
         final_params.update(pysr_params_override)
 

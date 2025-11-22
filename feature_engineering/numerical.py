@@ -88,6 +88,7 @@ default_quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]  # list vs ndarray gives a
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def compute_simple_stats_numba(arr: np.ndarray) -> tuple:
+    minval, maxval, argmin, argmax = 0.0, 0.0, 0, 0
     for i, next_value in enumerate(arr):
         if np.isfinite(next_value):
             minval, maxval, argmin, argmax = arr[i], arr[i], i, i
@@ -575,7 +576,7 @@ def compute_ncrossings(arr: np.ndarray, marks: np.ndarray, dtype=np.int32) -> np
     for next_value in arr:
         for i, mark in enumerate(marks):
             d = next_value - mark
-            if prev_ds[i] is not None:
+            if not np.isnan(prev_ds[i]):
                 if d * prev_ds[i] < 0:
                     n_crossings[i] += 1
             prev_ds[i] = d
@@ -613,8 +614,8 @@ def compute_nunique_mode_quantiles_numba(arr: np.ndarray, q: list = default_quan
 
     factor = len(arr)
     quantiles = []
-    for q in q:
-        quantiles.append(xsorted[int(np.ceil(q * factor)) - 1])
+    for quantile in q:
+        quantiles.append(xsorted[int(np.ceil(quantile * factor)) - 1])
 
     # if size % 2 == 0:
     #    sent = int(size / 2)

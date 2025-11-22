@@ -1,4 +1,4 @@
-"""Compute the Hurst Exponent of an 1D array by the means of R/S analisys:
+"""Compute the Hurst Exponent of an 1D array by the means of R/S analysis:
     
     https://en.wikipedia.org/wiki/Hurst_exponent
 """
@@ -85,7 +85,7 @@ def precompute_hurst_exponent(
         for start in range(0, L, w):
             if (start + w) >= L:
                 break
-            partial_rs = compute_hurst_rs(arr[start : start + w])  # , agg_func=agg_func)
+            partial_rs = compute_hurst_rs(arr[start : start + w], agg_func=agg_func)
             if partial_rs:
                 rs.append(partial_rs)
         if rs:
@@ -96,7 +96,7 @@ def precompute_hurst_exponent(
 
 
 def compute_hurst_exponent(arr: np.ndarray, min_window: int = 5, max_window: int = None, windows_log_step: float = 0.25, take_diffs: bool = False)->tuple:
-    """Main enrtypoint to compute a Hurst Exponent (and the constant) of a numerical array."""
+    """Main entrypoint to compute a Hurst Exponent (and the constant) of a numerical array."""
     if len(arr) < min_window:
         return np.nan, np.nan
     window_sizes, rs = precompute_hurst_exponent(

@@ -75,11 +75,10 @@ default_numaggs_names, default_q1_idx, default_q3_idx = get_numaggs_metadata()
 def find_next_cumsum_left_index(window_var_values: np.ndarray, amount: float, right_index: int = None, min_samples: int = 1, use_abs: bool = False) -> tuple:
     """Calculating windows having required turnovers."""
     total = 0.0
-    if right_index <= 0:
-        return 0, total
-
     if right_index is None:
         right_index = len(window_var_values)
+    if right_index <= 0:
+        return 0, total
     for i in range(1, right_index):
         if not np.isnan(window_var_values[right_index - i]):
             total += window_var_values[right_index - i]
@@ -98,11 +97,10 @@ def find_next_cumsum_right_index(window_var_values: np.ndarray, amount: float, l
     """Calculating windows having required turnovers."""
     total = 0.0
     l = len(window_var_values)
-    if left_index >= l - 1:
-        return l - 1, total
-
     if left_index is None:
         left_index = 0
+    if left_index >= l - 1:
+        return l - 1, total
     for i in range(1, (l - left_index)):
         if not np.isnan(window_var_values[left_index + i]):
             total += window_var_values[left_index + i]
@@ -568,7 +566,7 @@ def create_windowed_features(
     if not end_index:
         end_index = len(df)
 
-    past_nwindows_expected = get_nwindows_expected(future_windows)
+    past_nwindows_expected = get_nwindows_expected(past_windows)
     future_nwindows_expected = get_nwindows_expected(future_windows)
 
     for index in tqdmu(range(start_index, end_index, step_size), desc="dataset range", leave=False):
@@ -702,7 +700,7 @@ def create_and_process_windows(
                     windows_r, accumulated_amount = find_next_cumsum_right_index(window_var_values=window_var_values, amount=window_size, left_index=windows_l)
                 else:
                     windows_l, accumulated_amount = find_next_cumsum_left_index(window_var_values=window_var_values, amount=window_size, right_index=windows_r)
-                if accumulated_amount > 0 and accumulated_amount * 2 < window_size:
+            if window_var and accumulated_amount > 0 and accumulated_amount * 2 < window_size:
                     logger.warning("Insufficient data for window %s of size %s: real size=%s", window_var, window_size, accumulated_amount)
                     continue
 
@@ -715,7 +713,7 @@ def create_and_process_windows(
                     logger.info(
                         "%s, acc.size %s, l=%s, r=%s (%s to %s)",
                         dataset_name + " " + ("future" if forward_direction else "past"),
-                        accumulated_amount if window_var else "",
+                        accumulated_amount if window_var else "",  # type: ignore
                         windows_l,
                         windows_r,
                         window_df.index[0],

@@ -537,6 +537,9 @@ def show_mps_regions(
 ) -> dict:
 
     profits = None
+    profit_quantile_value = None
+    max_profit = None
+    res = {}
     if positions is None:
         # Get optimal positions
         res = find_maximum_profit_system(prices=prices, raw_prices=raw_prices, tc=tc, tc_mode=tc_mode, shift=shift)
