@@ -462,13 +462,15 @@ class FeaturesAndTargetsExtractor:
             logger.info(f"After add_features")
             log_ram_usage()
 
-        self.show_processed_data(df, target_by_type)
-        if self.columns_to_drop or self.datetime_features:
-            pass  # clean_ram()
+        # Only show visualizations for verbose >= 2 (histograms are slow)
+        if self.verbose >= 2:
+            self.show_processed_data(df, target_by_type)
+            if self.columns_to_drop or self.datetime_features:
+                pass  # clean_ram()
 
-        if self.verbose:
-            logger.info(f"After show_processed_data")
-            log_ram_usage()
+            if self.verbose:
+                logger.info(f"After show_processed_data")
+                log_ram_usage()
 
         return df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, self.columns_to_drop
 
@@ -919,6 +921,71 @@ def get_trainset_features_stats(train_df: pd.DataFrame, max_ncats_to_track: int 
     return res
 
 
+def get_trainset_features_stats_polars(train_df: pl.DataFrame, max_ncats_to_track: int = 1000) -> dict:
+    """Computes ranges of numerical and categorical variables using Polars.
+
+    Uses lazy mode and selectors for parallel computation.
+
+    Args:
+        train_df: Polars DataFrame
+        max_ncats_to_track: Max unique values to track for categorical columns
+
+    Returns:
+        dict with "min", "max" (as pd.Series) and "cat_vals" (dict of arrays)
+    """
+    import polars.selectors as cs
+
+    res = {}
+    lf = train_df.lazy()
+
+    # Compute numeric min/max and categorical n_unique in a single parallel select
+    stats = lf.select(
+        # Numeric: min and max
+        cs.numeric().min().name.suffix("__min"),
+        cs.numeric().max().name.suffix("__max"),
+        # Categorical: n_unique to filter before getting unique values
+        cs.by_dtype(pl.String, pl.Categorical).n_unique().name.suffix("__n_unique"),
+    ).collect()
+
+    # Extract numeric stats
+    if len(stats.columns) > 0:
+        mins = {}
+        maxs = {}
+        for col in stats.columns:
+            if col.endswith("__min"):
+                orig_col = col[:-5]
+                mins[orig_col] = stats[col][0]
+            elif col.endswith("__max"):
+                orig_col = col[:-5]
+                maxs[orig_col] = stats[col][0]
+
+        if mins:
+            res["min"] = pd.Series(mins)
+        if maxs:
+            res["max"] = pd.Series(maxs)
+
+    # Extract categorical columns that are under the threshold
+    cat_cols_to_fetch = []
+    for col in stats.columns:
+        if col.endswith("__n_unique"):
+            orig_col = col[:-10]
+            n_unique = stats[col][0]
+            if not max_ncats_to_track or n_unique <= max_ncats_to_track:
+                cat_cols_to_fetch.append(orig_col)
+
+    # Get unique values for qualifying categorical columns
+    if cat_cols_to_fetch:
+        cat_vals = {}
+        # Compute unique values in parallel using lazy mode
+        unique_exprs = [pl.col(c).unique().alias(c) for c in cat_cols_to_fetch]
+        unique_results = lf.select(unique_exprs).collect()
+        for col in cat_cols_to_fetch:
+            cat_vals[col] = unique_results[col].to_numpy()
+        res["cat_vals"] = cat_vals
+
+    return res
+
+
 def compute_outlier_detector_score(df: pd.DataFrame, outlier_detector: object, columns: Sequence = None) -> np.ndarray:
     is_inlier = outlier_detector.predict(
         df.loc[:, columns]
@@ -1129,10 +1196,13 @@ def train_and_evaluate_model(
             if val_df is None and val_idx is not None:
                 val_df = df[val_idx].drop(real_drop_columns)
 
-        if not trainset_features_stats and isinstance(train_df, pd.DataFrame):
+        if not trainset_features_stats:
             if verbose:
                 logger.info("Computing trainset_features_stats...")
-            trainset_features_stats = get_trainset_features_stats(train_df)
+            if isinstance(train_df, pl.DataFrame):
+                trainset_features_stats = get_trainset_features_stats_polars(train_df)
+            elif isinstance(train_df, pd.DataFrame):
+                trainset_features_stats = get_trainset_features_stats(train_df)
 
         # -----------------------------------------------------------------------------------------------------------------------------------------------------
         # Place to inject Outlier Detector [OD] here!
@@ -1201,6 +1271,13 @@ def train_and_evaluate_model(
         clean_ram()
 
     if val_df is not None:
+        # Convert Polars validation data to pandas/numpy for model compatibility
+        if isinstance(val_df, pl.DataFrame):
+            from mlframe.training.utils import get_pandas_view_of_polars_df
+            val_df = get_pandas_view_of_polars_df(val_df)
+        if isinstance(val_target, pl.Series):
+            val_target = val_target.to_numpy()
+
         # insert eval_set where needed
         if callback_params:
             if "callbacks" not in fit_params:
@@ -1348,6 +1425,13 @@ def train_and_evaluate_model(
             clean_ram()
             if verbose:
                 logger.info("Training the model...")
+
+            # Convert Polars to pandas using zero-copy if needed
+            if isinstance(train_df, pl.DataFrame):
+                from mlframe.training.utils import get_pandas_view_of_polars_df
+                train_df = get_pandas_view_of_polars_df(train_df)
+            if isinstance(train_target, pl.Series):
+                train_target = train_target.to_numpy()
 
             if not just_evaluate:
                 try:
@@ -3053,8 +3137,14 @@ def process_model(
     return trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed
 
 
-def showcase_features_and_targets(df: Union[pd.DataFrame, pl.DataFrame], target_by_type: dict) -> None:
-    """Show distribution of targets"""
+def showcase_features_and_targets(df: Union[pd.DataFrame, pl.DataFrame], target_by_type: dict, max_hist_samples: int = 100_000) -> None:
+    """Show distribution of targets
+
+    Args:
+        df: DataFrame with features
+        target_by_type: Dictionary of targets by type
+        max_hist_samples: Maximum samples to use for histogram (for performance)
+    """
 
     print(get_dataframe_info(df))
 
@@ -3081,7 +3171,25 @@ def showcase_features_and_targets(df: Union[pd.DataFrame, pl.DataFrame], target_
             else:
                 print(line)
             if target_type == TargetTypes.REGRESSION:
-                plt.hist(target, bins=30, color="skyblue", edgecolor="black")
+                # Subsample if target is large to speed up histogram
+                if len(target) > max_hist_samples:
+                    if isinstance(target, (pl.Series, pd.Series)):
+                        sample_idx = np.random.choice(len(target), max_hist_samples, replace=False)
+                        sample = target.iloc[sample_idx].values if isinstance(target, pd.Series) else target[sample_idx].to_numpy()
+                    else:
+                        sample_idx = np.random.choice(len(target), max_hist_samples, replace=False)
+                        sample = target[sample_idx]
+                    # Add min and max to preserve full range (if not already in sample)
+                    min_val, max_val = np.min(target), np.max(target)
+                    extras = []
+                    if min_val not in sample:
+                        extras.append(min_val)
+                    if max_val not in sample:
+                        extras.append(max_val)
+                    plot_data = np.concatenate([sample, extras]) if extras else sample
+                else:
+                    plot_data = target
+                plt.hist(plot_data, bins=30, color="skyblue", edgecolor="black")
 
                 # Add titles and labels
                 plt.title(f"{target_name} Histogram")

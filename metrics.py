@@ -36,6 +36,44 @@ from mlframe.stats import get_tukey_fences_multiplier_for_quantile
 
 NUMBA_NJIT_PARAMS = dict(fastmath=False)
 
+
+def prewarm_numba_cache():
+    """Pre-warm Numba JIT cache to avoid compilation overhead during profiling.
+
+    Calls all @njit functions with small dummy data to trigger JIT compilation
+    before timing-sensitive operations. Warms up both float32 and float64 paths.
+    """
+    # Warm up with both float32 and float64 (Numba compiles for each type separately)
+    for dtype in [np.float32, np.float64]:
+        y_true = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=dtype)
+        y_pred = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6, 0.5, 0.5], dtype=dtype)
+
+        # Core AUC functions
+        _ = fast_roc_auc(y_true, y_pred)
+        _ = fast_aucs(y_true, y_pred)
+
+        # Calibration functions
+        _ = fast_calibration_binning(y_true, y_pred, nbins=10)
+        _ = fast_calibration_metrics(y_true, y_pred, nbins=10)
+
+        # Scoring functions
+        _ = brier_score_loss(y_true, y_pred)
+        _ = fast_log_loss(y_true, y_pred)
+        _ = maximum_absolute_percentage_error(y_true, y_pred)
+        _ = probability_separation_score(y_true, y_pred)
+
+    # Classification functions need integer class labels
+    for dtype in [np.int32, np.int64]:
+        y_true_int = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=dtype)
+        y_pred_int = np.array([0, 1, 0, 1, 0, 1, 0, 1, 1, 0], dtype=dtype)
+        _ = fast_classification_report(y_true_int, y_pred_int, nclasses=2)
+        _ = fast_precision(y_true_int, y_pred_int, nclasses=2)
+        _ = compute_pr_recall_f1_metrics(y_true_int, y_pred_int)
+
+    # ICE metric (float parameters)
+    _ = integral_calibration_error_from_metrics(0.01, 0.01, 0.9, 0.25, 0.7, 0.7)
+
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Core
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -681,10 +719,9 @@ def fast_calibration_report(
         **ice_kwargs,
     )
 
-    try:
-        ll = log_loss(y_true=y_true, y_pred=y_pred)
-    except ValueError as e:
-        # prevents ValueError: y_true contains only one label (True). Please provide the list of all expected class labels explicitly through the labels argument.
+    # Use fast numba version (returns nan for single-class data)
+    ll = fast_log_loss(y_true, y_pred)
+    if np.isnan(ll):
         ll = None
 
     precision, recall, f1 = compute_pr_recall_f1_metrics(y_true=y_true, y_pred=y_pred >= binary_threshold)
@@ -959,6 +996,70 @@ def integral_calibration_error_from_metrics(
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def brier_score_loss(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     return np.mean((y_true - y_prob) ** 2)
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def fast_log_loss_binary(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e-15) -> float:
+    """Numba-accelerated binary log loss (cross-entropy).
+
+    Equivalent to sklearn.metrics.log_loss for binary classification.
+    Faster due to no input validation overhead.
+
+    Returns np.nan if only one class is present in y_true.
+    """
+    n = len(y_true)
+    if n == 0:
+        return 0.0
+
+    loss_sum = 0.0
+    has_class_0 = False
+    has_class_1 = False
+
+    for i in range(n):
+        p = y_pred[i]
+        # Clip to prevent log(0)
+        p = max(eps, min(1 - eps, p))
+        if y_true[i] == 1:
+            loss_sum -= np.log(p)
+            has_class_1 = True
+        else:
+            loss_sum -= np.log(1 - p)
+            has_class_0 = True
+
+    # Return nan if only one class present (mimics sklearn behavior)
+    if not (has_class_0 and has_class_1):
+        return np.nan
+
+    return loss_sum / n
+
+
+def fast_log_loss(y_true: np.ndarray, y_pred: np.ndarray, eps: float = None) -> float:
+    """Fast log loss using numba. Drop-in replacement for sklearn.metrics.log_loss.
+
+    Args:
+        y_true: Ground truth labels (0 or 1).
+        y_pred: Predicted probabilities for class 1.
+        eps: Small value for clipping to prevent log(0). Default uses dtype's eps (sklearn-compatible).
+
+    Returns:
+        Binary cross-entropy loss.
+    """
+    if isinstance(y_true, (pd.Series, pl.Series)):
+        y_true = y_true.to_numpy()
+    if isinstance(y_pred, (pd.Series, pl.Series)):
+        y_pred = y_pred.to_numpy()
+
+    # Ensure float type for numba
+    if y_true.dtype not in (np.float32, np.float64):
+        y_true = y_true.astype(np.float64)
+    if y_pred.dtype not in (np.float32, np.float64):
+        y_pred = y_pred.astype(np.float64)
+
+    # Use dtype's epsilon for sklearn compatibility (eps="auto" behavior)
+    if eps is None:
+        eps = np.finfo(y_pred.dtype).eps
+
+    return fast_log_loss_binary(y_true, y_pred, eps)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)

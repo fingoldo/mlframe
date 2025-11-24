@@ -17,6 +17,7 @@ from sklearn.metrics import (
     roc_auc_score,
     average_precision_score,
     brier_score_loss as sklearn_brier_score,
+    log_loss as sklearn_log_loss,
     precision_score,
     recall_score,
     f1_score,
@@ -27,6 +28,7 @@ from mlframe.metrics import (
     fast_aucs,
     fast_numba_aucs,
     brier_score_loss,
+    fast_log_loss,
     compute_pr_recall_f1_metrics,
     fast_calibration_binning,
     fast_calibration_metrics,
@@ -272,6 +274,108 @@ class TestBrierScore:
 
             brier = brier_score_loss(y_true, y_prob)
             assert 0 <= brier <= 1
+
+
+# =============================================================================
+# Log Loss Tests
+# =============================================================================
+
+class TestLogLoss:
+    """Tests for fast_log_loss implementation."""
+
+    @given(binary_classification_data())
+    @settings(max_examples=100, deadline=None)
+    def test_log_loss_matches_sklearn(self, data):
+        """Assert custom log_loss matches sklearn for random data."""
+        y_true, y_score = data
+
+        custom_ll = fast_log_loss(y_true.astype(np.float64), y_score)
+        sklearn_ll = sklearn_log_loss(y_true, y_score)
+
+        np.testing.assert_allclose(custom_ll, sklearn_ll, rtol=1e-6, atol=1e-6)
+
+    def test_log_loss_known_value(self):
+        """Test with known input/output."""
+        y_true = np.array([0, 0, 1, 1], dtype=np.float64)
+        y_pred = np.array([0.1, 0.4, 0.35, 0.8])
+
+        custom_ll = fast_log_loss(y_true, y_pred)
+        sklearn_ll = sklearn_log_loss(y_true, y_pred)
+
+        np.testing.assert_allclose(custom_ll, sklearn_ll, rtol=1e-10)
+
+    def test_log_loss_edge_cases(self):
+        """Test edge cases: perfect predictions, worst predictions."""
+        # Near-perfect predictions (can't use 0/1 exactly due to clipping)
+        y_true = np.array([0, 1, 0, 1], dtype=np.float64)
+        y_pred = np.array([0.001, 0.999, 0.001, 0.999])
+        ll = fast_log_loss(y_true, y_pred)
+        assert ll < 0.01  # Should be very small
+
+        # Near-worst predictions
+        y_pred_bad = np.array([0.999, 0.001, 0.999, 0.001])
+        ll_bad = fast_log_loss(y_true, y_pred_bad)
+        assert ll_bad > 5.0  # Should be very large
+
+    def test_log_loss_single_class_returns_nan(self):
+        """Log loss with single class should return nan."""
+        y_true = np.array([1, 1, 1, 1], dtype=np.float64)
+        y_pred = np.array([0.5, 0.6, 0.7, 0.8])
+
+        ll = fast_log_loss(y_true, y_pred)
+        assert np.isnan(ll)
+
+    def test_log_loss_dtype_handling(self):
+        """Test different input dtypes are handled correctly."""
+        y_true_int = np.array([0, 1, 0, 1])
+        y_pred = np.array([0.2, 0.8, 0.3, 0.7])
+
+        # Should work with integer y_true
+        ll = fast_log_loss(y_true_int, y_pred)
+        sklearn_ll = sklearn_log_loss(y_true_int, y_pred)
+
+        np.testing.assert_allclose(ll, sklearn_ll, rtol=1e-6)
+
+
+class TestLogLossPerformance:
+    """Performance tests for fast_log_loss."""
+
+    @pytest.fixture
+    def large_data(self):
+        np.random.seed(42)
+        n = 100000
+        y_true = np.random.randint(0, 2, n).astype(np.float64)
+        y_score = np.random.random(n)
+        return y_true, y_score
+
+    def test_faster_than_sklearn(self, large_data):
+        """Assert fast_log_loss is faster than sklearn."""
+        import time
+        y_true, y_score = large_data
+
+        # Warm up numba
+        _ = fast_log_loss(y_true[:1000], y_score[:1000])
+
+        # Time custom (10 iterations)
+        start = time.perf_counter()
+        for _ in range(10):
+            custom_result = fast_log_loss(y_true, y_score)
+        custom_time = time.perf_counter() - start
+
+        # Time sklearn (10 iterations)
+        start = time.perf_counter()
+        for _ in range(10):
+            sklearn_result = sklearn_log_loss(y_true, y_score)
+        sklearn_time = time.perf_counter() - start
+
+        print(f"\nCustom log_loss: {custom_time:.4f}s, sklearn: {sklearn_time:.4f}s")
+        print(f"Speedup: {sklearn_time/custom_time:.1f}x")
+
+        # Verify correctness
+        np.testing.assert_allclose(custom_result, sklearn_result, rtol=1e-6)
+
+        # Should be significantly faster
+        assert custom_time < sklearn_time
 
 
 # =============================================================================

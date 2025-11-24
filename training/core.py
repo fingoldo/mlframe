@@ -305,6 +305,8 @@ def train_mlframe_models_suite(
     trainset_features_stats = None
 
     # Extract from init_common_params or use defaults
+    if init_common_params is None:
+        init_common_params = {}
     category_encoder = init_common_params.get("category_encoder", None)
     imputer = init_common_params.get("imputer", None)
     scaler = init_common_params.get("scaler", None)

@@ -265,18 +265,20 @@ def _process_special_values(
                 constant_cols = [col for col in df.select_dtypes(exclude='number').columns if df[col].nunique() == 1]
             errors_df = pd.DataFrame({"column": constant_cols, "nerrors": [1] * len(constant_cols)})
         else:
-            # For NaN/null/inf detection
-            numeric_cols = df.select_dtypes(include='number').columns
+            # For NaN/null/inf detection - use vectorized operations
+            numeric_df = df.select_dtypes(include='number')
             if "NaN" in kind:
-                nerrors = {col: df[col].isna().sum() for col in numeric_cols}
+                nerrors_series = numeric_df.isna().sum()
             elif "null" in kind:
-                nerrors = {col: df[col].isnull().sum() for col in numeric_cols}
+                nerrors_series = numeric_df.isnull().sum()
             elif "infinite" in kind:
-                nerrors = {col: (~df[col].replace([float('inf'), float('-inf')], None).isnull()).sum() - (~df[col].isnull()).sum() for col in numeric_cols}
+                nerrors_series = np.isinf(numeric_df).sum()
             else:
-                nerrors = {}
-            errors_df = pd.DataFrame({"column": list(nerrors.keys()), "nerrors": list(nerrors.values())})
-            errors_df = errors_df[errors_df["nerrors"] > 0].sort_values("nerrors", ascending=False)
+                nerrors_series = pd.Series(dtype=int)
+
+            # Filter to non-zero and convert to DataFrame
+            nerrors_series = nerrors_series[nerrors_series > 0].sort_values(ascending=False)
+            errors_df = pd.DataFrame({"column": nerrors_series.index.tolist(), "nerrors": nerrors_series.values})
         nrows, ncols = df.shape
 
     # Log and handle errors
