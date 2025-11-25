@@ -1,7 +1,7 @@
 """
 Tests for linear models.
 
-Tests all 7 new linear model types:
+Tests all 7 linear model types:
 - linear
 - ridge
 - lasso
@@ -17,7 +17,6 @@ from sklearn.base import is_classifier, is_regressor
 
 from mlframe.training.models import (
     create_linear_model,
-    train_linear_model,
     is_linear_model,
     LINEAR_MODEL_TYPES,
 )
@@ -96,27 +95,18 @@ class TestLinearModelTraining:
         test_target = df['target'].iloc[train_size:]
 
         config = LinearModelConfig(model_type=model_type, max_iter=1000)
+        model = create_linear_model(model_type, config, use_regression=True)
 
-        result = train_linear_model(
-            model_type=model_type,
-            train_df=train_df,
-            train_target=train_target,
-            test_df=test_df,
-            test_target=test_target,
-            config=config,
-            use_regression=True,
-            verbose=0,
-        )
+        model.fit(train_df, train_target)
+        train_preds = model.predict(train_df)
+        test_preds = model.predict(test_df)
 
-        assert 'model' in result
-        assert 'train_preds' in result
-        assert 'test_preds' in result
-        assert len(result['train_preds']) == len(train_target)
-        assert len(result['test_preds']) == len(test_target)
+        assert len(train_preds) == len(train_target)
+        assert len(test_preds) == len(test_target)
 
         # Check predictions are reasonable (not all zeros, not NaN)
-        assert not np.all(result['train_preds'] == 0)
-        assert not np.any(np.isnan(result['train_preds']))
+        assert not np.all(train_preds == 0)
+        assert not np.any(np.isnan(train_preds))
 
     @pytest.mark.parametrize("model_type", ["linear", "ridge", "sgd"])
     def test_train_classification_model(self, sample_classification_data, model_type):
@@ -130,28 +120,22 @@ class TestLinearModelTraining:
         test_target = df['target'].iloc[train_size:]
 
         config = LinearModelConfig(model_type=model_type, max_iter=1000)
+        model = create_linear_model(model_type, config, use_regression=False)
 
-        result = train_linear_model(
-            model_type=model_type,
-            train_df=train_df,
-            train_target=train_target,
-            test_df=test_df,
-            test_target=test_target,
-            config=config,
-            use_regression=False,
-            verbose=0,
-        )
+        model.fit(train_df, train_target)
+        train_preds = model.predict(train_df)
+        test_preds = model.predict(test_df)
 
-        assert 'model' in result
-        assert 'train_preds' in result
-        assert 'test_preds' in result
+        assert len(train_preds) == len(train_target)
+        assert len(test_preds) == len(test_target)
 
-        # For classification, should also have probabilities
-        if model_type != 'ridge':  # RidgeClassifier doesn't have predict_proba
-            assert 'train_probs' in result or hasattr(result['model'], 'predict_proba')
+        # For classification with predict_proba, check probabilities
+        if model_type != 'ridge' and hasattr(model, 'predict_proba'):
+            train_probs = model.predict_proba(train_df)
+            assert train_probs.shape[0] == len(train_target)
 
         # Check predictions are binary
-        assert set(result['train_preds']).issubset({0, 1})
+        assert set(train_preds).issubset({0, 1})
 
     def test_elasticnet_with_custom_l1_ratio(self, sample_regression_data):
         """Test ElasticNet with custom L1 ratio."""
@@ -167,17 +151,10 @@ class TestLinearModelTraining:
             max_iter=2000,
         )
 
-        result = train_linear_model(
-            model_type='elasticnet',
-            train_df=train_df,
-            train_target=train_target,
-            config=config,
-            use_regression=True,
-            verbose=0,
-        )
+        model = create_linear_model('elasticnet', config, use_regression=True)
+        model.fit(train_df, train_target)
 
         # ElasticNet should create sparse solutions
-        model = result['model']
         if hasattr(model, 'coef_'):
             # Check that some coefficients are zero (L1 effect)
             assert np.sum(np.abs(model.coef_) < 0.01) > 0
@@ -199,17 +176,13 @@ class TestLinearModelTraining:
             max_iter=1000,
         )
 
-        result = train_linear_model(
-            model_type='huber',
-            train_df=train_df,
-            train_target=train_target,
-            config=config,
-            use_regression=True,
-            verbose=0,
-        )
+        model = create_linear_model('huber', config, use_regression=True)
+        model.fit(train_df, train_target)
 
-        assert 'model' in result
         # Huber should be more robust to outliers than regular linear regression
+        assert hasattr(model, 'coef_')
+        train_preds = model.predict(train_df)
+        assert not np.any(np.isnan(train_preds))
 
     def test_sgd_large_dataset_simulation(self, sample_regression_data):
         """Test SGD on simulated large dataset."""
@@ -228,17 +201,11 @@ class TestLinearModelTraining:
             learning_rate='optimal',
         )
 
-        result = train_linear_model(
-            model_type='sgd',
-            train_df=train_df,
-            train_target=train_target,
-            config=config,
-            use_regression=True,
-            verbose=0,
-        )
+        model = create_linear_model('sgd', config, use_regression=True)
+        model.fit(train_df, train_target)
 
-        assert 'model' in result
-        assert 'train_preds' in result
+        train_preds = model.predict(train_df)
+        assert len(train_preds) == len(train_target)
 
 
 class TestLinearModelConfigurations:
@@ -256,15 +223,9 @@ class TestLinearModelConfigurations:
 
         for alpha in alphas:
             config = LinearModelConfig(model_type='ridge', alpha=alpha)
-            result = train_linear_model(
-                model_type='ridge',
-                train_df=train_df,
-                train_target=train_target,
-                config=config,
-                use_regression=True,
-                verbose=0,
-            )
-            models.append(result['model'])
+            model = create_linear_model('ridge', config, use_regression=True)
+            model.fit(train_df, train_target)
+            models.append(model)
 
         # Higher alpha should lead to smaller coefficients (more regularization)
         if all(hasattr(m, 'coef_') for m in models):
@@ -283,16 +244,10 @@ class TestLinearModelConfigurations:
             use_calibrated_classifier=True,
         )
 
-        result = train_linear_model(
-            model_type='linear',
-            train_df=train_df,
-            train_target=train_target,
-            config=config,
-            use_regression=False,
-            verbose=0,
-        )
+        model = create_linear_model('linear', config, use_regression=False)
+        model.fit(train_df, train_target)
 
-        model = result['model']
         # Should be wrapped in CalibratedClassifierCV
         assert hasattr(model, 'predict_proba')
-        assert 'train_probs' in result
+        train_probs = model.predict_proba(train_df)
+        assert train_probs.shape[0] == len(train_target)

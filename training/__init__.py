@@ -108,7 +108,6 @@ from .configs import (
 # Model utilities
 from .models import (
     create_linear_model,
-    train_linear_model,
     is_linear_model,
     is_tree_model,
     is_neural_model,
@@ -171,7 +170,6 @@ __all__ = [
 
     # Models
     'create_linear_model',
-    'train_linear_model',
     'is_linear_model',
     'is_tree_model',
     'is_neural_model',

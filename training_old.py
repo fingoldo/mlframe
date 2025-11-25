@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
+from typing import List, Dict, Iterable, Sequence, Union, Callable, Any, Optional  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
 from .config import *
 
 # from pyutilz.pythonlib import ensure_installed;ensure_installed("pandas numpy numba scikit-learn lightgbm catboost xgboost shap")
@@ -22,6 +22,7 @@ from .config import *
 import re
 import copy
 import inspect
+from collections import Counter
 
 import io
 import os
@@ -33,7 +34,6 @@ from collections import defaultdict
 
 from timeit import default_timer as timer
 from pyutilz.system import ensure_dir_exists, tqdmu
-from pyutilz.pandaslib import get_df_memory_consumption
 from pyutilz.system import compute_total_gpus_ram, get_gpuinfo_gpu_info
 from pyutilz.pythonlib import prefix_dict_elems, get_human_readable_set_size, is_jupyter_notebook
 
@@ -68,7 +68,6 @@ import glob
 from os.path import basename
 from os.path import join, exists
 from pyutilz.strings import slugify
-from pyutilz.system import ensure_dir_exists
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Dimreducers
@@ -103,7 +102,8 @@ from mlframe.feature_engineering.numerical import (
     compute_numaggs_parallel,
 )
 
-# from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering # requires local import, causes problems in parallel runs (joblib, processpool, etc)
+# from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
+# # requires local import, causes problems in parallel runs (joblib, processpool, etc)
 from mlframe.feature_engineering.categorical import compute_countaggs, get_countaggs_names
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -133,7 +133,7 @@ import pandas as pd, numpy as np, polars as pl, pyarrow as pa
 
 from pyutilz.polarslib import polars_df_info, cast_f64_to_f32
 from pyutilz.pandaslib import get_df_memory_consumption, showcase_df_columns
-from pyutilz.pandaslib import ensure_dataframe_float32_convertability, optimize_dtypes, remove_constant_columns, convert_float64_to_float32
+from pyutilz.pandaslib import ensure_dataframe_float32_convertability, optimize_dtypes, convert_float64_to_float32
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Hi perf & parallel
@@ -156,8 +156,6 @@ from pyutilz.parallel import distribute_work, parallel_run
 # Curated models
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-import lightgbm as lgb
-
 from ngboost.scores import LogScore, CRPScore
 from ngboost import NGBClassifier, NGBRegressor
 from ngboost.distns import k_categorical, Bernoulli
@@ -171,7 +169,6 @@ import flaml.default as flaml_zeroshot
 # from flaml.default import LGBMClassifier,LGBMRegressor,XGBClassifier,XGBRegressor
 # from flaml.default import ExtraTreesClassifier,ExtraTreesRegressor,RandomForestClassifier,RandomForestRegressor
 
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.dummy import DummyClassifier, DummyRegressor
 
 from sklearn.linear_model import LogisticRegression
@@ -192,7 +189,7 @@ from mlframe.feature_selection.filters import MRMR
 
 try:
     from optbinning import BinningProcess
-except Exception as e:
+except Exception:
     pass
 
 from mlframe.custom_estimators import log_plus_c, inv_log_plus_c, box_cox_plus_c, inv_box_cox_plus_c
@@ -218,11 +215,7 @@ from sklearn.pipeline import Pipeline, make_pipeline
 
 from sklearn.compose import ColumnTransformer
 
-
-from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import FunctionTransformer
-from sklearn.compose import TransformedTargetRegressor
-
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Pre- & postprocessing
@@ -241,7 +234,7 @@ from mlframe.preprocessing import prepare_df_for_catboost
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import shap
-from mlframe.feature_importance import *
+from mlframe.feature_importance import plot_feature_importance
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -249,8 +242,6 @@ from mlframe.feature_importance import *
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 from sklearn.metrics import make_scorer
-from sklearn.metrics import roc_auc_score
-from mlframe.metrics import create_robustness_subgroups
 from mlframe.metrics import fast_roc_auc, fast_calibration_report, compute_probabilistic_multiclass_error, ICE
 from mlframe.metrics import create_robustness_subgroups, create_robustness_subgroups_indices, compute_robustness_metrics, robust_mlperf_metric
 
@@ -259,7 +250,7 @@ from sklearn.metrics import mean_absolute_error, max_error, mean_absolute_percen
 
 try:
     from sklearn.metrics import root_mean_squared_error
-except Exception as e:
+except Exception:
 
     def root_mean_squared_error(y_true, y_pred, *, sample_weight=None, multioutput="uniform_average"):
 
@@ -279,8 +270,6 @@ except Exception as e:
 # Early stopping
 # ----------------------------------------------------------------------------------------------------------------------------
 
-import os
-from timeit import default_timer as timer
 from xgboost.callback import TrainingCallback
 
 import catboost as cb
@@ -2847,7 +2836,7 @@ def load_production_models(
             try:
                 explainer = shap.TreeExplainer(model.model)
                 explainers[direction][model_name] = explainer
-            except Exception as e:
+            except Exception:
                 pass
 
         # ens calibrators
@@ -4675,7 +4664,7 @@ def compute_models_perf(
                     .drop(columns=["feature_importances", "class_integral_error"])
                     .sort_values("ice")
                 )
-            except Exception as e:
+            except Exception:
                 return None
             metrics["flipped"] = label != 1
             break

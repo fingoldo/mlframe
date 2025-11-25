@@ -55,7 +55,7 @@ from .preprocessing import (
 from .pipeline import fit_and_transform_pipeline
 from mlframe.feature_selection.filters import MRMR
 from .utils import log_ram_usage, log_phase, drop_columns_from_dataframe
-from .models import is_linear_model, train_linear_model, LINEAR_MODEL_TYPES
+from .models import is_linear_model, LINEAR_MODEL_TYPES
 from ..training_old import process_model, select_target, score_ensemble, make_train_test_split, FeaturesAndTargetsExtractor, TargetTypes
 
 
