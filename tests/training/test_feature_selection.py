@@ -510,6 +510,7 @@ class TestCombinedPipelines:
             init_common_params=common_init_params,
             control_params_override={
                 'robustness_features': ['group_feature'],
+                'robustness_min_pop_cat_thresh': 10,  # Small threshold for test data
             },
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
