@@ -66,7 +66,7 @@ def run_profiling():
     print("Numba cache warmed.\n")
 
     # Create synthetic data (500k rows)
-    df = create_synthetic_data(n_rows=5_000_000, n_cols=50)
+    df = create_synthetic_data(n_rows=2_000_000, n_cols=50)
 
     # Create features and targets extractor (with two targets)
     ft_extractor = SimpleFeaturesAndTargetsExtractor(regression_targets=["target", "target2"], columns_to_drop={"timestamp"}, verbose=1)

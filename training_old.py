@@ -1413,11 +1413,7 @@ def train_and_evaluate_model(
         clean_ram()
 
     if val_df is not None:
-        # Convert Polars validation data to pandas/numpy for model compatibility
-        if isinstance(val_df, pl.DataFrame):
-            if verbose:
-                logger.info("Converting validation Polars DataFrame to pandas (zero-copy)...")
-            val_df = get_pandas_view_of_polars_df(val_df)
+        # Convert target to numpy if needed
         if isinstance(val_target, pl.Series):
             val_target = val_target.to_numpy()
 
@@ -1577,11 +1573,7 @@ def train_and_evaluate_model(
             if verbose:
                 logger.info("Training the model...")
 
-            # Convert Polars to pandas using zero-copy if needed
-            if isinstance(train_df, pl.DataFrame):
-                if verbose:
-                    logger.info("Converting training Polars DataFrame to pandas (zero-copy)...")
-                train_df = get_pandas_view_of_polars_df(train_df)
+            # Convert target to numpy if needed
             if isinstance(train_target, pl.Series):
                 train_target = train_target.to_numpy()
 

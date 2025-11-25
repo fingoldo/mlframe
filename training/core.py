@@ -53,7 +53,7 @@ from .preprocessing import (
 )
 from .pipeline import fit_and_transform_pipeline
 from mlframe.feature_selection.filters import MRMR
-from .utils import log_ram_usage, log_phase, drop_columns_from_dataframe
+from .utils import log_ram_usage, log_phase, drop_columns_from_dataframe, get_pandas_view_of_polars_df
 from .models import is_linear_model, LINEAR_MODEL_TYPES
 from ..training_old import process_model, select_target, score_ensemble, make_train_test_split, FeaturesAndTargetsExtractor, TargetTypes
 
@@ -366,10 +366,10 @@ def train_mlframe_models_suite(
     # Actual training
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-    # Cache pandas versions for select_target (avoid repeated conversion in loop)
-    train_df_pd = train_df if isinstance(train_df, pd.DataFrame) else train_df.to_pandas()
-    val_df_pd = val_df if val_df is None or isinstance(val_df, pd.DataFrame) else val_df.to_pandas()
-    test_df_pd = test_df if test_df is None or isinstance(test_df, pd.DataFrame) else test_df.to_pandas()
+    # Cache pandas versions for select_target (zero-copy Arrow-backed view for Polars)
+    train_df_pd = train_df if isinstance(train_df, pd.DataFrame) else get_pandas_view_of_polars_df(train_df)
+    val_df_pd = val_df if val_df is None or isinstance(val_df, pd.DataFrame) else get_pandas_view_of_polars_df(val_df)
+    test_df_pd = test_df if test_df is None or isinstance(test_df, pd.DataFrame) else get_pandas_view_of_polars_df(test_df)
 
     models = defaultdict(lambda: defaultdict(list))
     for target_type, targets in tqdmu(target_by_type.items(), desc="target type"):
