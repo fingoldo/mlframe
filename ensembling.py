@@ -478,7 +478,7 @@ def compare_ensembles(
         perf = copy.deepcopy(ens_perf.metrics)
         for set_name, set_perf in perf.items():
             if set_perf:
-                for col in "feature_importances robustness_report".split():
+                for col in "feature_importances fairness_report robustness_report".split():
                     if col in set_perf:
                         del set_perf[col]
         ser = pd.json_normalize(perf).iloc[0, :]

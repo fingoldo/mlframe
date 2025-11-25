@@ -254,7 +254,7 @@ from mlframe.feature_importance import plot_feature_importance
 
 from sklearn.metrics import make_scorer
 from mlframe.metrics import fast_roc_auc, fast_calibration_report, compute_probabilistic_multiclass_error, ICE
-from mlframe.metrics import create_robustness_subgroups, create_robustness_subgroups_indices, compute_robustness_metrics, robust_mlperf_metric
+from mlframe.metrics import create_fairness_subgroups, create_fairness_subgroups_indices, compute_fairness_metrics, robust_mlperf_metric
 
 from sklearn.metrics import classification_report, roc_auc_score, average_precision_score
 from sklearn.metrics import mean_absolute_error, max_error, mean_absolute_percentage_error, mean_squared_error, r2_score
@@ -1403,6 +1403,7 @@ def train_and_evaluate_model(
         else:
             train_df = pre_pipeline.fit_transform(train_df, train_target)
             _orig_train_df = train_df  # Update for return
+
         if not skip_pre_pipeline_transform and val_df is not None:
             if verbose:
                 logger.info(f"Transforming val_df via pre_pipeline...")
@@ -2009,7 +2010,7 @@ def report_regression_model_perf(
         print(f"R2: {R2:.{report_ndigits}f}")
 
     if subgroups:
-        robustness_report = compute_robustness_metrics(
+        fairness_report = compute_fairness_metrics(
             subgroups=subgroups,
             subset_index=subset_index,
             y_true=targets,
@@ -2017,11 +2018,11 @@ def report_regression_model_perf(
             metrics={"MAE": mean_absolute_error, "RMSE": root_mean_squared_error},
             metrics_higher_is_better={"MAE": False, "RMSE": False},
         )
-        if robustness_report is not None:
+        if fairness_report is not None:
             if print_report:
-                display(robustness_report)
+                display(fairness_report)
             if metrics is not None:
-                metrics.update(dict(robustness_report=robustness_report))
+                metrics.update(dict(fairness_report=fairness_report))
 
     return preds, None
 
@@ -2207,7 +2208,7 @@ def report_probabilistic_model_perf(
             subgroups_metrics["ROC AUC"] = fast_roc_auc
             metrics_higher_is_better["ROC AUC"] = True
 
-        robustness_report = compute_robustness_metrics(
+        fairness_report = compute_fairness_metrics(
             subgroups=subgroups,
             subset_index=subset_index,
             y_true=targets,
@@ -2215,11 +2216,11 @@ def report_probabilistic_model_perf(
             metrics=subgroups_metrics,
             metrics_higher_is_better=metrics_higher_is_better,
         )
-        if robustness_report is not None:
+        if fairness_report is not None:
             if print_report:
-                display(robustness_report.style.set_caption("ML perf robustness by group"))
+                display(fairness_report.style.set_caption("ML perf fairness by group"))
             if metrics is not None:
-                metrics.update(dict(robustness_report=robustness_report))
+                metrics.update(dict(fairness_report=fairness_report))
 
     return preds, probs
 
@@ -2302,9 +2303,9 @@ def configure_training_params(
     #
     cat_features: list = None,
     #
-    robustness_features: Sequence = None,
+    fairness_features: Sequence = None,
     cont_nbins: int = 6,
-    robustness_min_pop_cat_thresh: Union[float, int] = 1000,
+    fairness_min_pop_cat_thresh: Union[float, int] = 1000,
     use_robust_eval_metric: bool = False,
     #
     sample_weight: np.ndarray = None,
@@ -2329,7 +2330,7 @@ def configure_training_params(
     config_params: dict = None,
     metamodel_func: callable = None,
     use_flaml_zeroshot: bool = False,
-    _precomputed_robustness_subgroups: dict = None,
+    _precomputed_fairness_subgroups: dict = None,
 ):
     if metamodel_func is None:
         metamodel_func = lambda x: x
@@ -2344,8 +2345,8 @@ def configure_training_params(
         common_params = {}
     if config_params is None:
         config_params = {}
-    if robustness_features is None:
-        robustness_features = []
+    if fairness_features is None:
+        fairness_features = []
     if cb_fit_params is None:
         cb_fit_params = {}
 
@@ -2359,20 +2360,20 @@ def configure_training_params(
             config_params["catboost_custom_classif_metrics"] = catboost_custom_classif_metrics
 
     # Use pre-computed subgroups if available, otherwise compute from available df
-    subgroups = _precomputed_robustness_subgroups
-    if subgroups is None and robustness_features:
+    subgroups = _precomputed_fairness_subgroups
+    if subgroups is None and fairness_features:
         for next_df in (df, train_df):
             if next_df is not None:
-                subgroups = create_robustness_subgroups(
+                subgroups = create_fairness_subgroups(
                     next_df,
-                    features=robustness_features,
+                    features=fairness_features,
                     cont_nbins=cont_nbins,
-                    min_pop_cat_thresh=robustness_min_pop_cat_thresh,
+                    min_pop_cat_thresh=fairness_min_pop_cat_thresh,
                 )
                 break
 
     if use_robust_eval_metric and subgroups is not None:
-        indexed_subgroups = create_robustness_subgroups_indices(
+        indexed_subgroups = create_fairness_subgroups_indices(
             subgroups=subgroups, train_idx=train_idx, val_idx=val_idx, test_idx=test_idx, group_weights={}, cont_nbins=cont_nbins
         )
     else:
@@ -3133,8 +3134,8 @@ def select_target(
     else:
         effective_control_params = dict(
             prefer_gpu_configs=True,
-            robustness_features=None,
-            robustness_min_pop_cat_thresh=1000,
+            fairness_features=None,
+            fairness_min_pop_cat_thresh=1000,
             use_robust_eval_metric=True,
             nbins=10,
             xgboost_verbose=0,

@@ -479,8 +479,8 @@ class TestCombinedPipelines:
         # Should have models from both regular training and RFECV
         assert len(models["target"][TargetTypes.REGRESSION]) >= 1
 
-    def test_feature_selection_with_robustness(self, temp_data_dir, common_init_params, fast_iterations):
-        """Test feature selection combined with robustness_features parameter."""
+    def test_feature_selection_with_fairness(self, temp_data_dir, common_init_params, fast_iterations):
+        """Test feature selection combined with fairness_features parameter."""
         np.random.seed(42)
         n_samples = 200
 
@@ -497,7 +497,7 @@ class TestCombinedPipelines:
         models, metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
-            model_name="fs_with_robustness",
+            model_name="fs_with_fairness",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             use_mrmr_fs=True,
@@ -509,8 +509,8 @@ class TestCombinedPipelines:
             config_params_override={"iterations": fast_iterations},
             init_common_params=common_init_params,
             control_params_override={
-                'robustness_features': ['group_feature'],
-                'robustness_min_pop_cat_thresh': 10,  # Small threshold for test data
+                'fairness_features': ['group_feature'],
+                'fairness_min_pop_cat_thresh': 10,  # Small threshold for test data
             },
             use_ordinary_models=True,
             use_mlframe_ensembles=False,

@@ -200,7 +200,9 @@ def train_mlframe_models_suite(
     if verbose:
         logger.info("Create additional features & extracting targets...")
 
-    df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, additional_columns_to_drop, sample_weights = features_and_targets_extractor.transform(df)
+    df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, additional_columns_to_drop, sample_weights = features_and_targets_extractor.transform(
+        df
+    )
 
     clean_ram()
     if verbose:
@@ -260,18 +262,19 @@ def train_mlframe_models_suite(
         }
     )
 
-    # Pre-compute robustness subgroups from full df BEFORE splitting
+    # Pre-compute fairness subgroups from full df BEFORE splitting
     # (bins must cover all rows for train/val/test evaluation)
-    robustness_subgroups = None
-    robustness_features = (control_params_override or {}).get('robustness_features', [])
-    if robustness_features:
-        from mlframe.metrics import create_robustness_subgroups
+    fairness_subgroups = None
+    fairness_features = (control_params_override or {}).get("fairness_features", [])
+    if fairness_features:
+        from mlframe.metrics import create_fairness_subgroups
+
         df_pd = df if isinstance(df, pd.DataFrame) else df.to_pandas()
-        robustness_subgroups = create_robustness_subgroups(
+        fairness_subgroups = create_fairness_subgroups(
             df_pd,
-            features=robustness_features,
-            cont_nbins=control_params_override.get('cont_nbins', 6),
-            min_pop_cat_thresh=control_params_override.get('robustness_min_pop_cat_thresh', 1000),
+            features=fairness_features,
+            cont_nbins=control_params_override.get("cont_nbins", 6),
+            min_pop_cat_thresh=control_params_override.get("fairness_min_pop_cat_thresh", 1000),
         )
 
     # Create split dataframes
@@ -366,10 +369,16 @@ def train_mlframe_models_suite(
     # Actual training
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
+    if verbose:
+        logger.info("Zero-copy convesrtion to pandas...")
+
     # Cache pandas versions for select_target (zero-copy Arrow-backed view for Polars)
     train_df_pd = train_df if isinstance(train_df, pd.DataFrame) else get_pandas_view_of_polars_df(train_df)
     val_df_pd = val_df if val_df is None or isinstance(val_df, pd.DataFrame) else get_pandas_view_of_polars_df(val_df)
     test_df_pd = test_df if test_df is None or isinstance(test_df, pd.DataFrame) else get_pandas_view_of_polars_df(test_df)
+
+    if verbose:
+        log_ram_usage()
 
     models = defaultdict(lambda: defaultdict(list))
     for target_type, targets in tqdmu(target_by_type.items(), desc="target type"):
@@ -391,10 +400,10 @@ def train_mlframe_models_suite(
                 if verbose:
                     logger.info(f"select_target...")
 
-                # Add pre-computed robustness subgroups to control_params_override
+                # Add pre-computed fairness subgroups to control_params_override
                 current_control_override = control_params_override.copy() if control_params_override else {}
-                if robustness_subgroups is not None:
-                    current_control_override['_precomputed_robustness_subgroups'] = robustness_subgroups
+                if fairness_subgroups is not None:
+                    current_control_override["_precomputed_fairness_subgroups"] = fairness_subgroups
 
                 common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs = select_target(
                     model_name=f"{target_name} {model_name} {cur_target_name}",

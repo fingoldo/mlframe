@@ -875,11 +875,11 @@ class TestCustomTransformers:
         assert TargetTypes.REGRESSION in models["target"]
 
 
-class TestRobustnessFeatures:
-    """Tests for robustness_features parameter in configure_training_params."""
+class TestFairnessFeatures:
+    """Tests for fairness_features parameter in configure_training_params."""
 
-    def test_robustness_features_empty_list(self, temp_data_dir, common_init_params):
-        """Test that empty robustness_features list works (no subgroups)."""
+    def test_fairness_features_empty_list(self, temp_data_dir, common_init_params):
+        """Test that empty fairness_features list works (no subgroups)."""
         np.random.seed(42)
         n_samples = 100
 
@@ -894,12 +894,12 @@ class TestRobustnessFeatures:
         models, metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
-            model_name="no_robustness_test",
+            model_name="no_fairness_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             init_common_params=common_init_params,
             control_params_override={
-                'robustness_features': [],  # explicitly empty
+                'fairness_features': [],  # explicitly empty
             },
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -1274,13 +1274,15 @@ class TestGroupIds:
         assert TargetTypes.REGRESSION in models["target"]
 
 
-class TestRobustnessFeaturesExtended:
-    """Extended tests for robustness subgroup evaluation with min_pop_cat_thresh.
+class TestFairnessFeaturesExtended:
+    """Extended tests for fairness subgroup evaluation with min_pop_cat_thresh.
 
+    Fairness analysis evaluates model performance consistency across different
+    demographic groups (e.g., age, gender, region) or categorical segments.
     """
 
-    def test_robustness_categorical_features(self, temp_data_dir, common_init_params):
-        """Test robustness evaluation with categorical features using small threshold."""
+    def test_fairness_categorical_features(self, temp_data_dir, common_init_params):
+        """Test fairness evaluation with categorical features using small threshold."""
         np.random.seed(42)
         n_samples = 200
 
@@ -1296,13 +1298,13 @@ class TestRobustnessFeaturesExtended:
         models, metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
-            model_name="robustness_cat_test",
+            model_name="fairness_cat_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             init_common_params=common_init_params,
             control_params_override={
-                'robustness_features': ['category'],
-                'robustness_min_pop_cat_thresh': 10,  # Small threshold for test data
+                'fairness_features': ['category'],
+                'fairness_min_pop_cat_thresh': 10,  # Small threshold for test data
             },
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -1314,8 +1316,8 @@ class TestRobustnessFeaturesExtended:
         assert "target" in models
         assert TargetTypes.REGRESSION in models["target"]
 
-    def test_robustness_continuous_features(self, temp_data_dir, common_init_params):
-        """Test robustness evaluation with continuous features binned into subgroups."""
+    def test_fairness_continuous_features(self, temp_data_dir, common_init_params):
+        """Test fairness evaluation with continuous features binned into subgroups."""
         np.random.seed(42)
         n_samples = 200
 
@@ -1330,13 +1332,13 @@ class TestRobustnessFeaturesExtended:
         models, metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
-            model_name="robustness_cont_test",
+            model_name="fairness_cont_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             init_common_params=common_init_params,
             control_params_override={
-                'robustness_features': ['feature_0'],  # Continuous feature will be binned
-                'robustness_min_pop_cat_thresh': 10,  # Small threshold for test data
+                'fairness_features': ['feature_0'],  # Continuous feature will be binned
+                'fairness_min_pop_cat_thresh': 10,  # Small threshold for test data
             },
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -1348,11 +1350,10 @@ class TestRobustnessFeaturesExtended:
         assert "target" in models
         assert TargetTypes.REGRESSION in models["target"]
 
-    def test_robustness_min_pop_cat_thresh_parameter_passthrough(self, temp_data_dir, common_init_params):
-        """Test that robustness_min_pop_cat_thresh parameter is passed through the API.
+    def test_fairness_min_pop_cat_thresh_parameter_passthrough(self, temp_data_dir, common_init_params):
+        """Test that fairness_min_pop_cat_thresh parameter is passed through the API.
 
         This test verifies that the parameter is accepted without error.
-        Full robustness testing is blocked by the index alignment bug above.
         """
         np.random.seed(42)
         n_samples = 100
@@ -1365,17 +1366,17 @@ class TestRobustnessFeaturesExtended:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
 
-        # Test that parameter is accepted (empty features = no subgroups = no bug triggered)
+        # Test that parameter is accepted (empty features = no subgroups)
         models, metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
-            model_name="robustness_param_test",
+            model_name="fairness_param_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             init_common_params=common_init_params,
             control_params_override={
-                'robustness_features': [],
-                'robustness_min_pop_cat_thresh': 10,  # Verify this parameter is accepted
+                'fairness_features': [],
+                'fairness_min_pop_cat_thresh': 10,  # Verify this parameter is accepted
             },
             use_ordinary_models=True,
             use_mlframe_ensembles=False,

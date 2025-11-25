@@ -1142,7 +1142,7 @@ def probability_separation_score(y_true: np.ndarray, y_prob: np.ndarray, class_l
     return res
 
 
-def create_robustness_subgroups(
+def create_fairness_subgroups(
     df: pd.DataFrame,
     features: Sequence[Union[str, pd.Series]],
     cont_nbins: int = 3,
@@ -1151,20 +1151,24 @@ def create_robustness_subgroups(
     exclude_terminal_lowpop_cats: bool = True,
     rare_group_name: str = "*RARE*",
 ) -> dict:
-    """Subrouping defines a way of splitting an ndarray into subgroups, for which ML metrics should be calculated separately.
-    When we care about not just overall performance on the entire dataset, but also want it to be consistent & fair across subgroups of our observations.
-    Subgroups can mean different geograpgical regions, types of clients, types of situations etc, among which we want our performance to be smooth & equal.
-    They can simply mean time (say, we want our model to perform equally well on the entire timespan, not just on previous year).
+    """Create subgroups for fairness evaluation across demographic/categorical features.
 
-    For categorical variables, natural bin is each category's name.
-    If some bins are low-populated (<min_pop_cat_thresh of entire dataset or abs), it's better to join them into a single 'rarevals' bin.
+    Fairness analysis evaluates model performance consistency across different
+    demographic groups (e.g., age, gender, region) or categorical segments to
+    ensure the model doesn't discriminate against specific subpopulations.
+
+    Subgrouping splits observations into bins for which ML metrics are calculated separately.
+    Use this when you need consistent & fair performance across subgroups - different geographical
+    regions, client types, demographic segments, etc.
+
+    For categorical variables, each category forms a natural bin.
+    Low-populated categories (<min_pop_cat_thresh) are merged into a single 'rarevals' bin or excluded.
     Subgroups can have different weights (by default equal).
 
-    How is ML metric altered when subgroups are taken into account? From/to the original ML metric on entire dataset, weighted sum of its stdevs over
-    subgroups is deducted/added, depending on greater_is_better flag of the metric. Ideally fair model will have zero stdevs & therefore will be unaffected.
+    How metrics are adjusted: From/to the original metric on entire dataset, weighted sum of stdevs over
+    subgroups is deducted/added (depending on greater_is_better). An ideally fair model has zero stdevs.
 
-    Final ML report:
-    subgroup name, nbins, metric stdev, nbad outliers, ngood outliers, best/worst bins names & perf."""
+    Final ML report includes: subgroup name, nbins, metric stdev, outliers, best/worst bins & performance."""
 
     if isinstance(min_pop_cat_thresh, float):
         assert min_pop_cat_thresh > 0 and min_pop_cat_thresh < 1.0
@@ -1219,15 +1223,20 @@ def create_robustness_subgroups(
     return subgroups
 
 
-def create_robustness_subgroups_indices(
+def create_fairness_subgroups_indices(
     subgroups: dict, train_idx: np.ndarray, val_idx: np.ndarray, test_idx: np.ndarray, group_weights: dict = {}, cont_nbins: int = 3
 ) -> dict:
+    """Create index mappings for fairness subgroups across train/val/test splits.
+
+    Converts fairness subgroups (demographic/categorical bins) into index arrays
+    for each data split, enabling per-subgroup metric computation.
+    """
     res = {}
     if len(val_idx) == len(test_idx):
-        logger.warning(f"Validation and test sets have the same size. Robustness subgroups estimation will be incorrect.")
+        logger.warning(f"Validation and test sets have the same size. Fairness subgroups estimation will be incorrect.")
     for arr in (train_idx, test_idx, val_idx):
         npoints = len(arr)
-        robustness_subgroups_indices = {}
+        fairness_subgroups_indices = {}
         for group_name, group_params in subgroups.items():
             group_indices = {}
             if group_name in ("**ORDER**", "**RANDOM**"):
@@ -1248,9 +1257,9 @@ def create_robustness_subgroups_indices(
                 idx = bins == bin_name
                 group_indices[bin_name] = np.where(idx)[0]
 
-            robustness_subgroups_indices[group_name] = dict(bins=group_indices, weight=group_weights.get(group_name, 1.0))
+            fairness_subgroups_indices[group_name] = dict(bins=group_indices, weight=group_weights.get(group_name, 1.0))
 
-        res[npoints] = robustness_subgroups_indices
+        res[npoints] = fairness_subgroups_indices
 
     return res
 
@@ -1270,7 +1279,7 @@ def create_robustness_standard_bins(group_name: str, npoints: int, cont_nbins: i
     return bins, unique_bins
 
 
-def compute_robustness_metrics(
+def compute_fairness_metrics(
     metrics: dict,
     metrics_higher_is_better: dict,
     subgroups: dict,
@@ -1280,7 +1289,11 @@ def compute_robustness_metrics(
     cont_nbins: int = 3,
     top_n: int = 5,
 ) -> pd.DataFrame:
-    """* is added to the bin name if bin's metric is an outlier (compted using Tukey's fence & IQR)."""
+    """Compute fairness metrics across demographic/categorical subgroups.
+
+    Evaluates model performance consistency across different subpopulations
+    to identify potential bias or discrimination. * is added to the bin name
+    if bin's metric is an outlier (computed using Tukey's fence & IQR)."""
 
     if subgroups:
 
@@ -1377,6 +1390,12 @@ def compute_robustness_metrics(
         if res:
             res = pd.DataFrame(res).set_index(["factor", "nbins", "npoints_from", "npoints_median", "npoints_to", "metric"])
             return res.reindex(sorted(res.columns), axis=1)
+
+
+# Backward-compatible aliases for renamed fairness functions
+create_robustness_subgroups = create_fairness_subgroups
+create_robustness_subgroups_indices = create_fairness_subgroups_indices
+compute_robustness_metrics = compute_fairness_metrics
 
 
 def robust_mlperf_metric(
