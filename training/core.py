@@ -425,108 +425,108 @@ def train_mlframe_models_suite(
                 pre_pipeline_names.append("MRMR ")
 
             for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
-                    if pre_pipeline_name == "cb_rfecv" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
-                        # File /venv/main/lib/python3.12/site-packages/sklearn/base.py:142, in _clone_parametrized(estimator, safe)
-                        # RuntimeError: Cannot clone object <catboost.core.CatBoostRegressor object at 0x713048b0e840>, as the constructor either does not set or modifies parameter custom_metric
+                if pre_pipeline_name == "cb_rfecv" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
+                    # File /venv/main/lib/python3.12/site-packages/sklearn/base.py:142, in _clone_parametrized(estimator, safe)
+                    # RuntimeError: Cannot clone object <catboost.core.CatBoostRegressor object at 0x713048b0e840>, as the constructor either does not set or modifies parameter custom_metric
+                    continue
+                ens_models = [] if use_mlframe_ensembles else None
+                orig_pre_pipeline = pre_pipeline
+
+                # Initialize caches for transformed DataFrames (reset for each pre_pipeline_name)
+
+                cached_hgb_dfs = None  # For hgb
+                cached_mlp_ngb_dfs = None  # For mlp, ngb
+                cached_original_dfs = None  # For cb, lgb, xgb, etc.
+
+                for mlframe_model_name in mlframe_models:
+                    if mlframe_model_name == "cb" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
                         continue
-                    ens_models = [] if use_mlframe_ensembles else None
-                    orig_pre_pipeline = pre_pipeline
-
-                    # Initialize caches for transformed DataFrames (reset for each pre_pipeline_name)
-
-                    cached_hgb_dfs = None  # For hgb
-                    cached_mlp_ngb_dfs = None  # For mlp, ngb
-                    cached_original_dfs = None  # For cb, lgb, xgb, etc.
-
-                    for mlframe_model_name in mlframe_models:
-                        if mlframe_model_name == "cb" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
-                            continue
-                        if mlframe_model_name not in models_params:
-                            logger.warning(f"mlframe model {mlframe_model_name} not known, skipping...")
+                    if mlframe_model_name not in models_params:
+                        logger.warning(f"mlframe model {mlframe_model_name} not known, skipping...")
+                    else:
+                        # Determine pipeline type and caching strategy
+                        if mlframe_model_name == "hgb" and cat_features:
+                            pre_pipeline = Pipeline(
+                                steps=[
+                                    *([("pre", orig_pre_pipeline)] if orig_pre_pipeline else []),
+                                    ("ce", category_encoder),
+                                ]
+                            )
+                            use_cache = cached_hgb_dfs
+                            cache_key = "hgb"
+                        elif mlframe_model_name in ("mlp", "ngb") or is_linear_model(mlframe_model_name):
+                            pre_pipeline = Pipeline(
+                                steps=[
+                                    *([("pre", orig_pre_pipeline)] if orig_pre_pipeline else []),
+                                    *([("ce", category_encoder)] if cat_features else []),
+                                    *([("imp", imputer)] if imputer else []),
+                                    *([("scaler", scaler)] if scaler else []),
+                                ]
+                            )
+                            use_cache = cached_mlp_ngb_dfs
+                            cache_key = "mlp_ngb"
                         else:
-                            # Determine pipeline type and caching strategy
-                            if mlframe_model_name == "hgb" and cat_features:
-                                pre_pipeline = Pipeline(
-                                    steps=[
-                                        *([("pre", orig_pre_pipeline)] if orig_pre_pipeline else []),
-                                        ("ce", category_encoder),
-                                    ]
-                                )
-                                use_cache = cached_hgb_dfs
-                                cache_key = "hgb"
-                            elif mlframe_model_name in ("mlp", "ngb") or is_linear_model(mlframe_model_name):
-                                pre_pipeline = Pipeline(
-                                    steps=[
-                                        *([("pre", orig_pre_pipeline)] if orig_pre_pipeline else []),
-                                        *([("ce", category_encoder)] if cat_features else []),
-                                        *([("imp", imputer)] if imputer else []),
-                                        *([("scaler", scaler)] if scaler else []),
-                                    ]
-                                )
-                                use_cache = cached_mlp_ngb_dfs
-                                cache_key = "mlp_ngb"
+                            # For tree models (cb, lgb, xgb) that handle NaN natively
+                            pre_pipeline = orig_pre_pipeline
+                            use_cache = cached_original_dfs
+                            cache_key = "original"
+
+                        # Call process_model with caching
+                        if use_cache is not None:
+                            # Use cached DataFrames
+                            trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed = process_model(
+                                model_file=model_file,
+                                model_name=mlframe_model_name,
+                                target_type=target_type,
+                                pre_pipeline=pre_pipeline,
+                                pre_pipeline_name=pre_pipeline_name,
+                                cur_target_name=cur_target_name,
+                                models=models,
+                                model_params=models_params[mlframe_model_name],
+                                common_params=common_params,
+                                ens_models=ens_models,
+                                trainset_features_stats=trainset_features_stats,
+                                verbose=verbose,
+                                skip_pre_pipeline_transform=True,
+                                cached_train_df=use_cache[0],
+                                cached_val_df=use_cache[1],
+                                cached_test_df=use_cache[2],
+                            )
+                        else:
+                            # First model of this type - fit and cache
+                            trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed = process_model(
+                                model_file=model_file,
+                                model_name=mlframe_model_name,
+                                target_type=target_type,
+                                pre_pipeline=pre_pipeline,
+                                pre_pipeline_name=pre_pipeline_name,
+                                cur_target_name=cur_target_name,
+                                models=models,
+                                model_params=models_params[mlframe_model_name],
+                                common_params=common_params,
+                                ens_models=ens_models,
+                                trainset_features_stats=trainset_features_stats,
+                                verbose=verbose,
+                            )
+                            # Cache the transformed DataFrames
+                            if cache_key == "hgb":
+                                cached_hgb_dfs = (train_df_transformed, val_df_transformed, test_df_transformed)
+                            elif cache_key == "mlp_ngb":
+                                cached_mlp_ngb_dfs = (train_df_transformed, val_df_transformed, test_df_transformed)
                             else:
-                                # For tree models (cb, lgb, xgb) that handle NaN natively
-                                pre_pipeline = orig_pre_pipeline
-                                use_cache = cached_original_dfs
-                                cache_key = "original"
+                                cached_original_dfs = (train_df_transformed, val_df_transformed, test_df_transformed)
 
-                            # Call process_model with caching
-                            if use_cache is not None:
-                                # Use cached DataFrames
-                                trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed = process_model(
-                                    model_file=model_file,
-                                    model_name=mlframe_model_name,
-                                    target_type=target_type,
-                                    pre_pipeline=pre_pipeline,
-                                    pre_pipeline_name=pre_pipeline_name,
-                                    cur_target_name=cur_target_name,
-                                    models=models,
-                                    model_params=models_params[mlframe_model_name],
-                                    common_params=common_params,
-                                    ens_models=ens_models,
-                                    trainset_features_stats=trainset_features_stats,
-                                    verbose=verbose,
-                                    skip_pre_pipeline_transform=True,
-                                    cached_train_df=use_cache[0],
-                                    cached_val_df=use_cache[1],
-                                    cached_test_df=use_cache[2],
-                                )
-                            else:
-                                # First model of this type - fit and cache
-                                trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed = process_model(
-                                    model_file=model_file,
-                                    model_name=mlframe_model_name,
-                                    target_type=target_type,
-                                    pre_pipeline=pre_pipeline,
-                                    pre_pipeline_name=pre_pipeline_name,
-                                    cur_target_name=cur_target_name,
-                                    models=models,
-                                    model_params=models_params[mlframe_model_name],
-                                    common_params=common_params,
-                                    ens_models=ens_models,
-                                    trainset_features_stats=trainset_features_stats,
-                                    verbose=verbose,
-                                )
-                                # Cache the transformed DataFrames
-                                if cache_key == "hgb":
-                                    cached_hgb_dfs = (train_df_transformed, val_df_transformed, test_df_transformed)
-                                elif cache_key == "mlp_ngb":
-                                    cached_mlp_ngb_dfs = (train_df_transformed, val_df_transformed, test_df_transformed)
-                                else:
-                                    cached_original_dfs = (train_df_transformed, val_df_transformed, test_df_transformed)
+                        if mlframe_model_name not in ("hgb", "mlp", "ngb"):
+                            orig_pre_pipeline = pre_pipeline
 
-                            if mlframe_model_name not in ("hgb", "mlp", "ngb"):
-                                orig_pre_pipeline = pre_pipeline
-
-                    if ens_models and len(ens_models) > 1:
-                        if verbose:
-                            logger.info(f"evaluating simple ensembles...")
-                        ensembles = score_ensemble(
-                            models_and_predictions=ens_models,
-                            ensemble_name=pre_pipeline_name + f"{len(ens_models)}models ",
-                            **common_params,
-                        )
+                if ens_models and len(ens_models) > 1:
+                    if verbose:
+                        logger.info(f"evaluating simple ensembles...")
+                    ensembles = score_ensemble(
+                        models_and_predictions=ens_models,
+                        ensemble_name=pre_pipeline_name + f"{len(ens_models)}models ",
+                        **common_params,
+                    )
 
     # ==================================================================================
     # 6. FINALIZATION
