@@ -406,25 +406,25 @@ def train_mlframe_models_suite(
             if verbose:
                 log_ram_usage()
 
-                pre_pipelines = []
-                pre_pipeline_names = []
+            pre_pipelines = []
+            pre_pipeline_names = []
 
-                if use_ordinary_models:
-                    pre_pipelines.append(None)
-                    pre_pipeline_names.append("")
+            if use_ordinary_models:
+                pre_pipelines.append(None)
+                pre_pipeline_names.append("")
 
-                for rfecv_model_name in rfecv_models:
-                    if rfecv_model_name not in rfecv_models_params:
-                        logger.warning(f"RFECV model {rfecv_model_name} not known, skipping...")
-                    else:
-                        pre_pipelines.append(rfecv_models_params[rfecv_model_name])
-                        pre_pipeline_names.append(f"{rfecv_model_name} ")
+            for rfecv_model_name in rfecv_models:
+                if rfecv_model_name not in rfecv_models_params:
+                    logger.warning(f"RFECV model {rfecv_model_name} not known, skipping...")
+                else:
+                    pre_pipelines.append(rfecv_models_params[rfecv_model_name])
+                    pre_pipeline_names.append(f"{rfecv_model_name} ")
 
-                if use_mrmr_fs:
-                    pre_pipelines.append(MRMR(**mrmr_kwargs))
-                    pre_pipeline_names.append("MRMR ")
+            if use_mrmr_fs:
+                pre_pipelines.append(MRMR(**mrmr_kwargs))
+                pre_pipeline_names.append("MRMR ")
 
-                for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
+            for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
                     if pre_pipeline_name == "cb_rfecv" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
                         # File /venv/main/lib/python3.12/site-packages/sklearn/base.py:142, in _clone_parametrized(estimator, safe)
                         # RuntimeError: Cannot clone object <catboost.core.CatBoostRegressor object at 0x713048b0e840>, as the constructor either does not set or modifies parameter custom_metric
