@@ -575,6 +575,12 @@ def get_training_configs(
     weight_by_class_npositives: bool = False,
     nbins: int = 10,
     # ----------------------------------------------------------------------------------------------------------------------------
+    # robustness parameters for early stopping metric
+    # ----------------------------------------------------------------------------------------------------------------------------
+    robustness_num_ts_splits: int = 0,  # 0 = disabled, >0 = number of consecutive time splits
+    robustness_std_coeff: float = 0.1,  # multiplier for std penalty
+    robustness_greater_is_better: bool = False,  # False for ICE (lower is better)
+    # ----------------------------------------------------------------------------------------------------------------------------
     # model-specific params
     # ----------------------------------------------------------------------------------------------------------------------------
     cb_kwargs: dict = None,
@@ -683,6 +689,95 @@ def get_training_configs(
             print(len(y_true), "integral_calibration_error=", err)
         return err
 
+    def make_robust_ts_metric(
+        metric_fn,
+        num_splits: int,
+        std_coeff: float,
+        greater_is_better: bool,
+        min_samples_per_split: int = 100,
+        ensure_enough_classes: bool = False,
+        verbose: int = 0,
+    ):
+        """Wrap a metric to evaluate across consecutive time splits.
+
+        Returns mean(metric_values) ± std(metric_values) * std_coeff
+        where ± is + if greater_is_better=False (penalize variance for minimization)
+              and - if greater_is_better=True (penalize variance for maximization)
+        """
+
+        def robust_metric(y_true: np.ndarray, y_score: np.ndarray, *args, **kwargs):
+            n = len(y_true)
+
+            # Fallback 1: Not enough data for any splits
+            if n < min_samples_per_split:
+                if verbose:
+                    logger.info(f"make_robust_ts_metric: n={n} < min_samples_per_split={min_samples_per_split}, using full data")
+                return metric_fn(y_true, y_score, *args, **kwargs)
+
+            # Compute actual number of splits we can do
+            actual_splits = min(num_splits, n // min_samples_per_split)
+
+            # Fallback 2: Can only do 1 split
+            if actual_splits <= 1:
+                if verbose:
+                    logger.info(f"make_robust_ts_metric: actual_splits={actual_splits} <= 1, using full data")
+                return metric_fn(y_true, y_score, *args, **kwargs)
+
+            # Split into consecutive intervals
+            split_size = n // actual_splits
+            values = []
+
+            for i in range(actual_splits):
+                start_idx = i * split_size
+                end_idx = (i + 1) * split_size if i < actual_splits - 1 else n
+
+                y_true_split = y_true[start_idx:end_idx]
+                y_score_split = y_score[start_idx:end_idx]
+
+                # Skip split if not enough samples
+                if len(y_true_split) < min_samples_per_split:
+                    if verbose:
+                        logger.info(f"make_robust_ts_metric: split {i} skipped, len={len(y_true_split)} < {min_samples_per_split}")
+                    continue
+
+                # Skip split if single class (classification only)
+                if ensure_enough_classes and len(np.unique(y_true_split)) < 2:
+                    if verbose:
+                        logger.info(f"make_robust_ts_metric: split {i} skipped, single class in y_true")
+                    continue
+
+                val = metric_fn(y_true_split, y_score_split, *args, **kwargs)
+                if not np.isnan(val):
+                    values.append(val)
+
+            # Fallback 3: No valid splits computed
+            if len(values) == 0:
+                if verbose:
+                    logger.info("make_robust_ts_metric: no valid splits, using full data")
+                return metric_fn(y_true, y_score, *args, **kwargs)
+
+            # Fallback 4: Only one valid split
+            if len(values) == 1:
+                if verbose:
+                    logger.info(f"make_robust_ts_metric: only 1 valid split, returning {values[0]:.6f}")
+                return values[0]
+
+            mean_val = np.mean(values)
+            std_val = np.std(values)
+
+            if verbose:
+                logger.info(f"make_robust_ts_metric: {len(values)} splits, mean={mean_val:.6f}, std={std_val:.6f}")
+
+            # Penalize high variance
+            if greater_is_better:
+                # For maximization: subtract std penalty (lower result = worse)
+                return mean_val - std_val * std_coeff
+            else:
+                # For minimization: add std penalty (higher result = worse)
+                return mean_val + std_val * std_coeff
+
+        return robust_metric
+
     if subgroups:
 
         def final_integral_calibration_error(y_true: np.ndarray, y_score: np.ndarray, *args, **kwargs):  # partial won't work with xgboost
@@ -698,6 +793,17 @@ def get_training_configs(
 
     else:
         final_integral_calibration_error = integral_calibration_error
+
+    # Apply robustness wrapper if enabled
+    if robustness_num_ts_splits > 0:
+        final_integral_calibration_error = make_robust_ts_metric(
+            final_integral_calibration_error,
+            num_splits=robustness_num_ts_splits,
+            std_coeff=robustness_std_coeff,
+            greater_is_better=robustness_greater_is_better,
+            ensure_enough_classes=True,  # ICE is for classification
+            verbose=verbose,
+        )
 
     def fs_and_hpt_integral_calibration_error(*args, verbose: bool = True, **kwargs):
         err = compute_probabilistic_multiclass_error(
@@ -1274,6 +1380,7 @@ def train_and_evaluate_model(
         # Convert Polars validation data to pandas/numpy for model compatibility
         if isinstance(val_df, pl.DataFrame):
             from mlframe.training.utils import get_pandas_view_of_polars_df
+
             val_df = get_pandas_view_of_polars_df(val_df)
         if isinstance(val_target, pl.Series):
             val_target = val_target.to_numpy()
@@ -1429,6 +1536,7 @@ def train_and_evaluate_model(
             # Convert Polars to pandas using zero-copy if needed
             if isinstance(train_df, pl.DataFrame):
                 from mlframe.training.utils import get_pandas_view_of_polars_df
+
                 train_df = get_pandas_view_of_polars_df(train_df)
             if isinstance(train_target, pl.Series):
                 train_target = train_target.to_numpy()

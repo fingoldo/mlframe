@@ -73,6 +73,71 @@ def prewarm_numba_cache():
     # ICE metric (float parameters)
     _ = integral_calibration_error_from_metrics(0.01, 0.01, 0.9, 0.25, 0.7, 0.7)
 
+    # CatBoost logits to probs conversion
+    logits_binary = np.array([-1.0, 0.0, 1.0, 2.0, -0.5, 0.5, 1.5, -1.5, 0.25, -0.25], dtype=np.float64)
+    _ = cb_logits_to_probs_binary(logits_binary)
+
+    logits_multi = np.array([[-1.0, 0.0, 1.0], [0.5, -0.5, 0.0], [0.0, 1.0, -1.0]], dtype=np.float64)
+    _ = cb_logits_to_probs_multiclass(logits_multi)
+
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# CatBoost logits to probabilities conversion
+# ----------------------------------------------------------------------------------------------------------------------------
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def cb_logits_to_probs_binary(logits: np.ndarray) -> np.ndarray:
+    """Convert CatBoost binary logits to probabilities.
+
+    Args:
+        logits: 1D array of logits from CatBoost (single class output)
+
+    Returns:
+        2D array of shape (n_samples, 2) with probabilities for [class_0, class_1]
+    """
+    n = len(logits)
+    probs = np.empty((n, 2), dtype=np.float64)
+
+    for i in range(n):
+        # Sigmoid/expit: 1 / (1 + exp(-x))
+        p1 = 1.0 / (1.0 + np.exp(-logits[i]))
+        probs[i, 0] = 1.0 - p1
+        probs[i, 1] = p1
+
+    return probs
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def cb_logits_to_probs_multiclass(logits_list: np.ndarray) -> np.ndarray:
+    """Convert CatBoost multiclass logits to probabilities (softmax).
+
+    Args:
+        logits_list: 2D array of shape (n_classes, n_samples) with logits
+
+    Returns:
+        2D array of shape (n_samples, n_classes) with probabilities
+    """
+    n_classes, n_samples = logits_list.shape
+    probs = np.empty((n_samples, n_classes), dtype=np.float64)
+
+    for i in range(n_samples):
+        # Softmax: exp(x_i) / sum(exp(x_j))
+        max_logit = logits_list[0, i]
+        for c in range(1, n_classes):
+            if logits_list[c, i] > max_logit:
+                max_logit = logits_list[c, i]
+
+        exp_sum = 0.0
+        for c in range(n_classes):
+            probs[i, c] = np.exp(logits_list[c, i] - max_logit)  # Subtract max for numerical stability
+            exp_sum += probs[i, c]
+
+        for c in range(n_classes):
+            probs[i, c] /= exp_sum
+
+    return probs
+
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Core
@@ -704,8 +769,6 @@ def fast_calibration_report(
         freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, array_size=len(y_true), use_weights=use_weights
     )
 
-    fig = None
-
     roc_auc, pr_auc, group_aucs = fast_aucs_per_group_optimized(y_true=y_true, y_score=y_pred, group_ids=group_ids)
     mean_group_roc_auc, mean_group_pr_auc = compute_mean_aucs_per_group(group_aucs) if group_aucs else (None, None)
 
@@ -749,6 +812,8 @@ def fast_calibration_report(
             metrics_string += f"[{mean_group_pr_auc:.{ndigits}f}]"
 
         metrics_string += f", PR={precision*100:.{ndigits}f}%,RE={recall*100:.{ndigits}f}%,F1={f1:.{ndigits}f}"
+
+    fig = None
 
     if plot_file or show_plots:
 
@@ -923,21 +988,20 @@ class ICE:
         if self.max_arr_size and len(approxes[0]) > self.max_arr_size:
             return 0, output_weight
 
-        # For catboost, approxes are logits and need to be converted to true probs first (softmax-ed).
+        # Convert CatBoost logits to probabilities using numba-optimized functions
         if len(approxes) == 1:
-            y_pred = expit(approxes[0])
-            probs = [1 - y_pred, y_pred]
+            # Binary classification
+            probs_2d = cb_logits_to_probs_binary(approxes[0])
+            probs = probs_2d  # Shape: (n_samples, 2)
             class_id = 1
+            y_pred = probs_2d[:, 1]  # For plotting
         else:
-            # For num_classes>1, it requires per-class exponentiation & normalizing by the sum of exp values.
-            probs = []
-            tot_sum = np.zeros_like(approxes[0])
-            for class_id in range(len(approxes)):
-                y_pred = np.exp(approxes[class_id])
-                probs.append(y_pred)
-                tot_sum += y_pred
-            for class_id in range(len(approxes)):
-                probs[class_id] /= tot_sum
+            # Multiclass: stack approxes into 2D array (n_classes, n_samples)
+            logits_2d = np.vstack(approxes)
+            probs_2d = cb_logits_to_probs_multiclass(logits_2d)
+            probs = probs_2d  # Shape: (n_samples, n_classes)
+            class_id = len(approxes) - 1
+            y_pred = probs_2d[:, class_id]  # For plotting
 
         total_error = self.metric(y_true=target, y_score=probs)
 
@@ -945,7 +1009,7 @@ class ICE:
 
         # Additional visualization of training process (for the last class_id) is possible.
 
-        if self.calibration_plot_period and (self.nruns % self.calibration_plot_period == 0):
+        if self.calibration_plot_period and (self.calibration_plot_period > 0 and (self.nruns % self.calibration_plot_period == 0)):
             y_true = (target == class_id).astype(np.int8)
             brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, *_, metrics_string, fig = fast_calibration_report(
                 y_true=y_true,
@@ -954,6 +1018,7 @@ class ICE:
                 use_weights=True,
                 verbose=False,
             )
+            logger.info(metrics_string)
 
         return total_error, output_weight
 
