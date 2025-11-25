@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 
 # Setup logging
 import logging
+
 logging.basicConfig(level=logging.INFO)
 
 from mlframe.training.core import train_mlframe_models_suite
@@ -35,19 +36,19 @@ def create_synthetic_data(n_rows: int = 1_000_000, n_cols: int = 50) -> pl.DataF
 
     # Numeric features (40 columns)
     for i in range(40):
-        data[f'num_{i}'] = np.random.randn(n_rows).astype(np.float32)
+        data[f"num_{i}"] = np.random.randn(n_rows).astype(np.float32)
 
     # Categorical features (8 columns)
     for i in range(8):
-        data[f'cat_{i}'] = np.random.choice(['A', 'B', 'C', 'D', 'E'], n_rows)
+        data[f"cat_{i}"] = np.random.choice(["A", "B", "C", "D", "E"], n_rows)
 
     # Target columns (binary classification)
-    data['target'] = np.random.randint(0, 2, n_rows).astype(np.float32)
-    data['target2'] = np.random.randint(0, 2, n_rows).astype(np.float32)
+    data["target"] = np.random.randint(0, 2, n_rows).astype(np.float32)
+    data["target2"] = np.random.randint(0, 2, n_rows).astype(np.float32)
 
     # Timestamp column
     start = datetime(2020, 1, 1)
-    data['timestamp'] = [start + timedelta(seconds=i) for i in range(n_rows)]
+    data["timestamp"] = [start + timedelta(seconds=i) for i in range(n_rows)]
 
     df = pl.DataFrame(data)
     memory_gb = df.estimated_size() / 1e9
@@ -65,14 +66,10 @@ def run_profiling():
     print("Numba cache warmed.\n")
 
     # Create synthetic data (500k rows)
-    df = create_synthetic_data(n_rows=500_000, n_cols=50)
+    df = create_synthetic_data(n_rows=5_000_000, n_cols=50)
 
     # Create features and targets extractor (with two targets)
-    ft_extractor = SimpleFeaturesAndTargetsExtractor(
-        regression_targets=['target', 'target2'],
-        columns_to_drop={'timestamp'},
-        verbose=1
-    )
+    ft_extractor = SimpleFeaturesAndTargetsExtractor(regression_targets=["target", "target2"], columns_to_drop={"timestamp"}, verbose=1)
 
     # Create temp directory for outputs
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -94,9 +91,9 @@ def run_profiling():
             )
 
         # Profile the function
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("STARTING PROFILING")
-        print("="*80 + "\n")
+        print("=" * 80 + "\n")
 
         profiler = cProfile.Profile()
         start_time = time.time()
@@ -105,16 +102,16 @@ def run_profiling():
         profiler.disable()
         elapsed = time.time() - start_time
 
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print(f"TOTAL TIME: {elapsed:.2f} seconds")
-        print("="*80)
+        print("=" * 80)
 
         # Print top 40 by cumulative time
         print("\nTOP 40 HOTSPOTS (by cumulative time):")
-        print("="*80)
+        print("=" * 80)
         stream = io.StringIO()
         stats = pstats.Stats(profiler, stream=stream)
-        stats.sort_stats('cumulative')
+        stats.sort_stats("cumulative")
         stats.print_stats(40)
         print(stream.getvalue())
 
