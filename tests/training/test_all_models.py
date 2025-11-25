@@ -18,6 +18,7 @@ from pathlib import Path
 
 from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.configs import PolarsPipelineConfig
+from mlframe.training_old import TargetTypes
 from .shared import SimpleFeaturesAndTargetsExtractor, get_cpu_config, skip_if_dependency_missing
 
 
@@ -84,8 +85,8 @@ class TestAllModelsRegression:
 
         # Verify
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     @pytest.mark.parametrize("model_name", ALL_MODELS)
     def test_regression_with_polars(self, model_name, sample_polars_data, temp_data_dir, common_init_params, fast_iterations):
@@ -114,8 +115,8 @@ class TestAllModelsRegression:
 
         # Verify
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
 
 # ================================================================================================
@@ -153,8 +154,8 @@ class TestAllModelsClassification:
 
         # Verify
         assert "target" in models
-        assert "CLASSIFICATION" in models["target"]
-        assert len(models["target"]["CLASSIFICATION"]) > 0
+        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
+        assert len(models["target"][TargetTypes.BINARY_CLASSIFICATION]) > 0
 
     @pytest.mark.parametrize("model_name", CLASSIFICATION_MODELS)
     def test_classification_with_polars(self, model_name, sample_classification_data, temp_data_dir, common_init_params, fast_iterations):
@@ -185,8 +186,8 @@ class TestAllModelsClassification:
 
         # Verify
         assert "target" in models
-        assert "CLASSIFICATION" in models["target"]
-        assert len(models["target"]["CLASSIFICATION"]) > 0
+        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
+        assert len(models["target"][TargetTypes.BINARY_CLASSIFICATION]) > 0
 
 
 # ================================================================================================
@@ -239,8 +240,8 @@ class TestCategoricalFeatures:
 
         # Verify
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     @pytest.mark.parametrize("model_name", CATEGORICAL_ENCODING_MODELS)
     @pytest.mark.parametrize("encoding", ["ordinal", "onehot"])
@@ -287,8 +288,8 @@ class TestCategoricalFeatures:
 
         # Verify
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
 
 # ================================================================================================
@@ -330,8 +331,8 @@ class TestGPUSupport:
 
         # Verify
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     @pytest.mark.parametrize("model_name", ["cb", "xgb"])
     def test_gpu_configuration(self, model_name, sample_regression_data, temp_data_dir, check_gpu_available, common_init_params, fast_iterations):
@@ -367,8 +368,8 @@ class TestGPUSupport:
 
         # Verify
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     def test_lgb_cpu_configuration(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations):
         """Test LightGBM CPU configuration."""
@@ -396,8 +397,8 @@ class TestGPUSupport:
 
         # Verify
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     def test_lgb_gpu_configuration(self, sample_regression_data, temp_data_dir, check_lgb_gpu_available, check_gpu_available, common_init_params, fast_iterations):
         """Test LightGBM GPU configuration (with CUDA Tree Learner check)."""
@@ -431,8 +432,8 @@ class TestGPUSupport:
 
         # Verify
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     def test_mlp_cpu_configuration(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations):
         """Test MLP CPU configuration (with trainer params)."""
@@ -467,8 +468,8 @@ class TestGPUSupport:
 
         # Verify
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     def test_mlp_gpu_configuration(self, sample_regression_data, temp_data_dir, check_gpu_available, common_init_params, fast_iterations):
         """Test MLP GPU configuration (if GPU available)."""
@@ -507,8 +508,8 @@ class TestGPUSupport:
 
         # Verify
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     def test_mlp_multi_gpu_configuration(self, sample_regression_data, temp_data_dir, check_gpu_available, common_init_params, fast_iterations):
         """Test MLP multi-GPU configuration (if multiple GPUs available)."""
@@ -562,8 +563,8 @@ class TestGPUSupport:
 
         # Verify
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     def test_catboost_multi_gpu_configuration(self, sample_regression_data, temp_data_dir, check_gpu_available, common_init_params, fast_iterations):
         """Test CatBoost multi-GPU configuration (if multiple GPUs available)."""
@@ -603,8 +604,8 @@ class TestGPUSupport:
 
         # Verify
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
 
 # ================================================================================================
@@ -647,8 +648,8 @@ class TestFeatureSelection:
 
         # Verify
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
 
 # ================================================================================================
@@ -682,8 +683,8 @@ class TestSpecialCases:
 
         # Verify
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     def test_ridge_classifier_without_predict_proba(self, sample_classification_data, temp_data_dir, common_init_params, fast_iterations):
         """Test RidgeClassifier uses predict() fallback (no predict_proba)."""
@@ -708,8 +709,8 @@ class TestSpecialCases:
 
         # Verify it worked (should use predict() fallback)
         assert "target" in models
-        assert "CLASSIFICATION" in models["target"]
-        assert len(models["target"]["CLASSIFICATION"]) > 0
+        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
+        assert len(models["target"][TargetTypes.BINARY_CLASSIFICATION]) > 0
 
     def test_sgd_convergence(self, sample_large_regression_data, temp_data_dir, common_init_params, fast_iterations):
         """Test SGD with larger dataset for better convergence."""
@@ -734,8 +735,8 @@ class TestSpecialCases:
 
         # Verify
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     def test_huber_with_outliers(self, sample_outlier_data, temp_data_dir, common_init_params, fast_iterations):
         """Test Huber regressor on data with outliers."""
@@ -760,5 +761,5 @@ class TestSpecialCases:
 
         # Verify
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
