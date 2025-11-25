@@ -11,6 +11,7 @@ import polars as pl
 import warnings
 
 from mlframe.training.core import train_mlframe_models_suite
+from mlframe.training_old import TargetTypes
 from mlframe.feature_selection.filters import MRMR
 from mlframe.feature_selection.wrappers import RFECV
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
@@ -333,7 +334,7 @@ class TestFeatureSelectionIntegration:
         )
 
         assert "target" in models
-        assert "CLASSIFICATION" in models["target"]
+        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
 
     def test_multiple_rfecv_models(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations, check_lgb_gpu_available):
         """Test training with multiple RFECV estimators."""
@@ -365,7 +366,7 @@ class TestFeatureSelectionIntegration:
         )
 
         assert "target" in models
-        assert "REGRESSION" in models["target"]
+        assert TargetTypes.REGRESSION in models["target"]
 
     def test_use_mrmr_fs_true(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations):
         """Test training with MRMR feature selection enabled."""
@@ -396,7 +397,7 @@ class TestFeatureSelectionIntegration:
         )
 
         assert "target" in models
-        assert "REGRESSION" in models["target"]
+        assert TargetTypes.REGRESSION in models["target"]
 
     def test_mrmr_with_classification(self, sample_classification_data, temp_data_dir, common_init_params, fast_iterations):
         """Test MRMR feature selection with classification task."""
@@ -429,7 +430,7 @@ class TestFeatureSelectionIntegration:
         )
 
         assert "target" in models
-        assert "CLASSIFICATION" in models["target"]
+        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
 
 
 # ================================================================================================
