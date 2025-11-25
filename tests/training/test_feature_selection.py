@@ -507,8 +507,8 @@ class TestCombinedPipelines:
                 "n_workers": 1,
             },
             config_params_override={"iterations": fast_iterations},
-            init_common_params={
-                **common_init_params,
+            init_common_params=common_init_params,
+            control_params_override={
                 'robustness_features': ['group_feature'],
             },
             use_ordinary_models=True,

@@ -430,6 +430,18 @@ class FeaturesAndTargetsExtractor:
     def prepare_artifacts(self, df: Union[pd.DataFrame, pl.DataFrame]):
         return {}
 
+    def get_sample_weights(self, df: Union[pd.DataFrame, pl.DataFrame], timestamps: pd.Series = None) -> dict:
+        """Return dict of {weight_name: np.ndarray}. Override in subclasses for custom weights.
+
+        Args:
+            df: The dataframe
+            timestamps: Timestamp series if available (from ts_field)
+
+        Returns:
+            Dict mapping weight schema names to weight arrays. Empty dict = uniform weights only.
+        """
+        return {}
+
     def transform(self, df: Union[pd.DataFrame, pl.DataFrame]) -> tuple:
         # convert_float64_to_float32(df)  # Uncomment if needed
 
@@ -472,7 +484,10 @@ class FeaturesAndTargetsExtractor:
                 logger.info(f"After show_processed_data")
                 log_ram_usage()
 
-        return df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, self.columns_to_drop
+        # Build sample_weights dict - subclasses can override get_sample_weights()
+        sample_weights = self.get_sample_weights(df, timestamps)
+
+        return df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, self.columns_to_drop, sample_weights
 
 
 class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
@@ -538,6 +553,16 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
             target_by_type[TargetTypes.REGRESSION] = targets
 
         return target_by_type
+
+    def get_sample_weights(self, df: Union[pd.DataFrame, pl.DataFrame], timestamps: pd.Series = None) -> dict:
+        """Return recency-based sample weights if timestamps are available."""
+        if timestamps is None:
+            return {}
+
+        weights = {}
+        # Add recency-based weights if timestamps available
+        weights["recency"] = get_sample_weights_by_recency(timestamps)
+        return weights
 
 
 # --------- -------------------------------------------------------------------------------------------------------------------
@@ -1451,10 +1476,18 @@ def train_and_evaluate_model(
         if (not use_cache) or (not exists(model_file_name)):
             if sample_weight is not None:
                 if "sample_weight" in get_function_param_names(model_obj.fit):
-                    if train_idx is not None:
-                        fit_params["sample_weight"] = sample_weight.iloc[train_idx].values
+                    # Handle both numpy arrays and pandas Series
+                    if isinstance(sample_weight, (pd.Series, pd.DataFrame)):
+                        if train_idx is not None:
+                            fit_params["sample_weight"] = sample_weight.iloc[train_idx].values
+                        else:
+                            fit_params["sample_weight"] = sample_weight.values
                     else:
-                        fit_params["sample_weight"] = sample_weight.values
+                        # Assume numpy array or similar
+                        if train_idx is not None:
+                            fit_params["sample_weight"] = sample_weight[train_idx]
+                        else:
+                            fit_params["sample_weight"] = sample_weight
             if verbose:
                 logger.info(f"{model_name} training dataset shape: {train_df.shape}")
 
@@ -2279,6 +2312,7 @@ def configure_training_params(
     #
     robustness_features: Sequence = None,
     cont_nbins: int = 6,
+    robustness_min_pop_cat_thresh: Union[float, int] = 1000,
     use_robust_eval_metric: bool = False,
     #
     sample_weight: np.ndarray = None,
@@ -2334,7 +2368,12 @@ def configure_training_params(
     if robustness_features:
         for next_df in (df, train_df):
             if next_df is not None:
-                subgroups = create_robustness_subgroups(next_df, features=robustness_features, cont_nbins=cont_nbins)
+                subgroups = create_robustness_subgroups(
+                    next_df,
+                    features=robustness_features,
+                    cont_nbins=cont_nbins,
+                    min_pop_cat_thresh=robustness_min_pop_cat_thresh,
+                )
                 break
     else:
         subgroups = None
@@ -3102,6 +3141,7 @@ def select_target(
         effective_control_params = dict(
             prefer_gpu_configs=True,
             robustness_features=None,
+            robustness_min_pop_cat_thresh=1000,
             use_robust_eval_metric=True,
             nbins=10,
             xgboost_verbose=0,
