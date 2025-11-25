@@ -161,7 +161,8 @@ def fit_and_transform_pipeline(
     # Handle pandas DataFrames with sklearn-style pipeline
     elif isinstance(train_df, pd.DataFrame):
         # Identify categorical features
-        cat_features = train_df.head().select_dtypes(["object", "category", "string[pyarrow]", "large_string[pyarrow]"]).columns.tolist()
+        cat_features = [col for col in train_df.columns
+                        if train_df[col].dtype.name in ("object", "category", "string", "string[pyarrow]", "large_string[pyarrow]")]
 
         # Apply categorical encoding if specified (for models that don't support categorical natively)
         if cat_features and config.categorical_encoding in ["ordinal", "onehot"]:

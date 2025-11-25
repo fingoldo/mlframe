@@ -6,7 +6,6 @@ Uses Pydantic for validation while supporting dict-like instantiation for backwa
 
 from typing import Optional, Dict, Any, List, Callable, Union
 from pydantic import BaseModel, Field, ConfigDict
-import numpy as np
 
 
 class BaseConfig(BaseModel):

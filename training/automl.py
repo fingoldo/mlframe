@@ -27,6 +27,7 @@ import pandas as pd, polars as pl
 from typing import Optional, Dict, Any, Union
 from types import SimpleNamespace
 from pyutilz.system import clean_ram
+from sklearn.metrics import roc_auc_score
 
 from .configs import AutoMLConfig
 from .utils import log_ram_usage, get_pandas_view_of_polars_df
@@ -96,8 +97,6 @@ def train_autogluon_model(
             test_probs = test_probs.to_numpy()
 
         if test_target is not None and verbose:
-            from sklearn.metrics import roc_auc_score
-
             try:
                 auc = roc_auc_score(test_target, test_probs[:, 1])
                 logger.info(f"AutoGluon test AUC: {auc:.4f}")
@@ -170,7 +169,7 @@ def train_lama_model(
     automl = TabularAutoML(**init_params)
 
     # Fit model
-    out_of_fold_predictions = automl.fit_predict(train_df, roles={"target": target_name}, verbose=verbose, **fit_params)
+    automl.fit_predict(train_df, roles={"target": target_name}, verbose=verbose, **fit_params)
 
     clean_ram()
     if verbose:
@@ -190,8 +189,6 @@ def train_lama_model(
         test_probs = np.vstack([1 - test_predictions.data[:, 0], test_predictions.data[:, 0]]).T
 
         if test_target is not None and verbose:
-            from sklearn.metrics import roc_auc_score
-
             try:
                 auc = roc_auc_score(test_target, test_probs[:, 1])
                 logger.info(f"LAMA test AUC: {auc:.4f}")

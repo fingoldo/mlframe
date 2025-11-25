@@ -38,7 +38,6 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 
 from pyutilz.system import ensure_dir_exists
-from pyutilz.system import ensure_dir_exists
 
 from .configs import (
     PreprocessingConfig,
@@ -348,8 +347,6 @@ def train_mlframe_models_suite(
         control_params_override = {}
     if config_params_override is None:
         config_params_override = {}
-    if init_common_params is None:
-        init_common_params = {}
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Actual training

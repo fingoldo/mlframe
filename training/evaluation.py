@@ -5,13 +5,10 @@ For now, this module re-exports functions from the main training module.
 In the future, these can be fully refactored into this module.
 """
 
-import logging
+from typing import Optional, Sequence, Union
 import numpy as np
 import pandas as pd
-from typing import Optional, Sequence, Callable, Union
 from sklearn.base import ClassifierMixin, RegressorMixin
-
-logger = logging.getLogger(__name__)
 
 from ..training_old import (
     report_model_perf,

@@ -25,7 +25,6 @@ import pandas as pd
 import polars as pl
 from typing import Union, Optional, Tuple, Any
 from os.path import join, exists
-from sklearn.model_selection import train_test_split
 from pyutilz.pandaslib import ensure_dataframe_float32_convertability
 from pyutilz.system import ensure_dir_exists
 from pyutilz.strings import slugify
