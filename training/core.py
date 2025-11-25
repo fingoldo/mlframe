@@ -97,6 +97,8 @@ def train_mlframe_models_suite(
     mrmr_kwargs: Optional[Dict] = None,
     rfecv_models: Optional[List[str]] = None,
     # Override parameters (for backward compatibility)
+    config_params: Optional[Dict] = None,
+    control_params: Optional[Dict] = None,
     config_params_override: Optional[Dict] = None,
     control_params_override: Optional[Dict] = None,
     init_common_params: Optional[Dict] = None,
@@ -338,6 +340,10 @@ def train_mlframe_models_suite(
         mrmr_kwargs = dict(n_workers=max(1, psutil.cpu_count(logical=False)), verbose=2, fe_max_steps=0)
 
     # Initialize control_params and config_params if not provided
+    if control_params is None:
+        control_params = {}
+    if config_params is None:
+        config_params = {}
     if control_params_override is None:
         control_params_override = {}
     if config_params_override is None:
@@ -373,8 +379,6 @@ def train_mlframe_models_suite(
 
                 if verbose:
                     logger.info(f"select_target...")
-                cur_control_params_override = control_params_override.copy()
-                cur_control_params_override["use_regression"] = target_type == TargetTypes.REGRESSION
 
                 common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs = select_target(
                     model_name=f"{target_name} {model_name} {cur_target_name}",
@@ -392,12 +396,15 @@ def train_mlframe_models_suite(
                     test_details=test_details,
                     group_ids=group_ids,
                     cat_features=cat_features,
-                    config_params=config_params_override,
+                    config_params=config_params,
                     config_params_override=config_params_override,
-                    control_params=control_params_override,
-                    control_params_override=cur_control_params_override,
+                    control_params=control_params,
+                    control_params_override=control_params_override,
                     common_params=dict(trainset_features_stats=trainset_features_stats, plot_file=plot_file, **init_common_params),
                 )
+
+            if verbose:
+                log_ram_usage()
 
                 pre_pipelines = []
                 pre_pipeline_names = []

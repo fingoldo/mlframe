@@ -3085,7 +3085,6 @@ def select_target(
         effective_control_params = control_params
     else:
         effective_control_params = dict(
-            use_regression=False,
             prefer_gpu_configs=True,
             robustness_features=None,
             use_robust_eval_metric=True,
@@ -3143,6 +3142,7 @@ def select_target(
         model_name=model_name,
         common_params=common_params,
         config_params=effective_config_params,
+        use_regression=target_type == TargetTypes.REGRESSION,
         **effective_control_params,
     )
 
