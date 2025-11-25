@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 import os
+import psutil
 import joblib
 import pandas as pd
 import polars as pl
@@ -32,6 +33,12 @@ from pyutilz.system import clean_ram, tqdmu
 from pyutilz.strings import slugify
 from sklearn.pipeline import Pipeline
 import category_encoders as ce
+
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler
+
+from pyutilz.system import ensure_dir_exists
+from pyutilz.system import ensure_dir_exists
 
 from .configs import (
     PreprocessingConfig,
@@ -49,7 +56,7 @@ from .pipeline import fit_and_transform_pipeline
 from mlframe.feature_selection.filters import MRMR
 from .utils import log_ram_usage, log_phase, drop_columns_from_dataframe
 from .models import is_linear_model, train_linear_model, LINEAR_MODEL_TYPES
-from ..training_old import process_model, select_target, score_ensemble, make_train_test_split, FeaturesAndTargetsExtractor
+from ..training_old import process_model, select_target, score_ensemble, make_train_test_split, FeaturesAndTargetsExtractor, TargetTypes
 
 
 def _ensure_config(config, config_class, kwargs):
@@ -164,7 +171,7 @@ def train_mlframe_models_suite(
 
     # Default models
     if mlframe_models is None:
-        mlframe_models = ["cb", "lgb", "xgb", "mlp"]
+        mlframe_models = ["cb", "lgb", "xgb", "mlp", "linear"]
 
     # Metadata for tracking
     metadata = {
@@ -278,9 +285,9 @@ def train_mlframe_models_suite(
         log_phase("PHASE 3: Pipeline Fitting & Transformation")
 
     train_df, val_df, test_df, pipeline, cat_features = fit_and_transform_pipeline(
-        train_df,
-        val_df,
-        test_df,
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
         config=pipeline_config,
         ensure_float32=preprocessing_config.ensure_float32_dtypes,
         verbose=verbose,
@@ -307,6 +314,7 @@ def train_mlframe_models_suite(
     # Extract from init_common_params or use defaults
     if init_common_params is None:
         init_common_params = {}
+
     category_encoder = init_common_params.get("category_encoder", None)
     imputer = init_common_params.get("imputer", None)
     scaler = init_common_params.get("scaler", None)
@@ -316,13 +324,9 @@ def train_mlframe_models_suite(
         category_encoder = ce.CatBoostEncoder()
 
     if imputer is None:
-        from sklearn.impute import SimpleImputer
-
         imputer = SimpleImputer()
 
     if scaler is None:
-        from sklearn.preprocessing import StandardScaler
-
         scaler = StandardScaler()
 
     # Default rfecv_models if not provided
@@ -331,8 +335,6 @@ def train_mlframe_models_suite(
 
     # Default mrmr_kwargs if not provided
     if mrmr_kwargs is None:
-        import psutil
-
         mrmr_kwargs = dict(n_workers=max(1, psutil.cpu_count(logical=False)), verbose=2, fe_max_steps=0)
 
     # Initialize control_params and config_params if not provided
@@ -359,15 +361,11 @@ def train_mlframe_models_suite(
             if mlframe_models:
                 parts = slugify(target_name), slugify(model_name), slugify(target_type.lower()), slugify(cur_target_name)
                 if data_dir is not None:
-                    from pyutilz.system import ensure_dir_exists
-
                     plot_file = join(data_dir, "charts", *parts) + os.path.sep
                     ensure_dir_exists(plot_file)
                 else:
                     plot_file = None
                 if models_dir is not None:
-                    from pyutilz.system import ensure_dir_exists
-
                     model_file = join(data_dir, models_dir, *parts) + os.path.sep
                     ensure_dir_exists(model_file)
                 else:
@@ -376,11 +374,12 @@ def train_mlframe_models_suite(
                 if verbose:
                     logger.info(f"select_target...")
                 cur_control_params_override = control_params_override.copy()
-                cur_control_params_override["use_regression"] = target_type == "REGRESSION"
+                cur_control_params_override["use_regression"] = target_type == TargetTypes.REGRESSION
 
                 common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs = select_target(
                     model_name=f"{target_name} {model_name} {cur_target_name}",
                     target=cur_target_values,
+                    target_type=target_type,
                     df=None,
                     train_df=train_df_pd,
                     val_df=val_df_pd,
@@ -415,12 +414,11 @@ def train_mlframe_models_suite(
                         pre_pipeline_names.append(f"{rfecv_model_name} ")
 
                 if use_mrmr_fs:
-
                     pre_pipelines.append(MRMR(**mrmr_kwargs))
                     pre_pipeline_names.append("MRMR ")
 
                 for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
-                    if pre_pipeline_name == "cb_rfecv" and target_type == "REGRESSION" and control_params_override.get("metamodel_func") is not None:
+                    if pre_pipeline_name == "cb_rfecv" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
                         # File /venv/main/lib/python3.12/site-packages/sklearn/base.py:142, in _clone_parametrized(estimator, safe)
                         # RuntimeError: Cannot clone object <catboost.core.CatBoostRegressor object at 0x713048b0e840>, as the constructor either does not set or modifies parameter custom_metric
                         continue
@@ -428,12 +426,13 @@ def train_mlframe_models_suite(
                     orig_pre_pipeline = pre_pipeline
 
                     # Initialize caches for transformed DataFrames (reset for each pre_pipeline_name)
-                    cached_original_dfs = None  # For cb, lgb, xgb, etc.
+
                     cached_hgb_dfs = None  # For hgb
                     cached_mlp_ngb_dfs = None  # For mlp, ngb
+                    cached_original_dfs = None  # For cb, lgb, xgb, etc.
 
                     for mlframe_model_name in mlframe_models:
-                        if mlframe_model_name == "cb" and target_type == "REGRESSION" and control_params_override.get("metamodel_func") is not None:
+                        if mlframe_model_name == "cb" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
                             continue
                         if mlframe_model_name not in models_params:
                             logger.warning(f"mlframe model {mlframe_model_name} not known, skipping...")

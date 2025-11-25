@@ -3036,6 +3036,7 @@ def make_train_test_split(
 def select_target(
     model_name: str,
     target: np.ndarray,
+    target_type: TargetTypes,
     df: pd.DataFrame,
     train_df: pd.DataFrame = None,
     test_df: pd.DataFrame = None,
@@ -3058,7 +3059,7 @@ def select_target(
     sample_weight: np.ndarray = None,
 ):
     """From multiple possible targets in a dataframe, selects required one and adjusts params of respective level 0 models."""
-    if target.dtype in (np.float64, np.float32, np.float16):
+    if target_type == TargetTypes.REGRESSION:
         model_name += f" MT={target.mean():.4f}"
     else:
         if isinstance(target, (pl.Series, pd.Series)):

@@ -107,7 +107,7 @@ def create_linear_model(
                 loss=config.loss,
                 penalty=config.penalty,
                 alpha=config.alpha,
-                l1_ratio=config.l1_ratio if config.penalty == 'elasticnet' else 0.15,
+                l1_ratio=config.l1_ratio if config.penalty == "elasticnet" else 0.15,
                 max_iter=config.max_iter,
                 tol=config.tol,
                 learning_rate=config.learning_rate,
@@ -142,8 +142,8 @@ def create_linear_model(
 
         elif model_type == "lasso" or model_type == "elasticnet":
             # Lasso and ElasticNet for classification use LogisticRegression with penalty
-            penalty = 'l1' if model_type == "lasso" else 'elasticnet'
-            solver = 'saga'  # saga supports both l1 and elasticnet
+            penalty = "l1" if model_type == "lasso" else "elasticnet"
+            solver = "saga"  # saga supports both l1 and elasticnet
 
             model = LogisticRegression(
                 penalty=penalty,
@@ -160,7 +160,7 @@ def create_linear_model(
         elif model_type == "huber":
             # Huber loss for classification - use SGD with modified_huber loss
             model = SGDClassifier(
-                loss='modified_huber',
+                loss="modified_huber",
                 penalty=config.penalty,
                 alpha=config.alpha,
                 max_iter=config.max_iter,
@@ -181,10 +181,10 @@ def create_linear_model(
 
         elif model_type == "sgd":
             model = SGDClassifier(
-                loss=config.loss if config.loss in ['hinge', 'log_loss', 'modified_huber', 'squared_hinge', 'perceptron'] else 'log_loss',
+                loss=config.loss if config.loss in ["hinge", "log_loss", "modified_huber", "squared_hinge", "perceptron"] else "log_loss",
                 penalty=config.penalty,
                 alpha=config.alpha,
-                l1_ratio=config.l1_ratio if config.penalty == 'elasticnet' else 0.15,
+                l1_ratio=config.l1_ratio if config.penalty == "elasticnet" else 0.15,
                 max_iter=config.max_iter,
                 tol=config.tol,
                 learning_rate=config.learning_rate,
@@ -198,10 +198,10 @@ def create_linear_model(
             raise ValueError(f"Unknown classification model type: {model_type}")
 
         # Apply calibration if requested
-        if config.use_calibrated_classifier and hasattr(model, 'predict_proba'):
+        if config.use_calibrated_classifier and hasattr(model, "predict_proba"):
             if config.verbose:
                 logger.info(f"Wrapping {model_type} with CalibratedClassifierCV")
-            model = CalibratedClassifierCV(model, cv=3, method='sigmoid')
+            model = CalibratedClassifierCV(model, cv=3, method="isotonic")
 
     return model
 
@@ -212,13 +212,13 @@ def create_linear_model(
 
 
 LINEAR_MODEL_TYPES = {
-    'linear',
-    'ridge',
-    'lasso',
-    'elasticnet',
-    'huber',
-    'ransac',
-    'sgd',
+    "linear",
+    "ridge",
+    "lasso",
+    "elasticnet",
+    "huber",
+    "ransac",
+    "sgd",
 }
 
 
@@ -229,13 +229,13 @@ def is_linear_model(model_name: str) -> bool:
 
 def is_tree_model(model_name: str) -> bool:
     """Check if a model name corresponds to a tree-based model."""
-    tree_models = {'cb', 'lgb', 'xgb', 'hgb', 'rf', 'et', 'gb'}
+    tree_models = {"cb", "lgb", "xgb", "hgb", "rf", "et", "gb"}
     return model_name.lower() in tree_models
 
 
 def is_neural_model(model_name: str) -> bool:
     """Check if a model name corresponds to a neural network model."""
-    neural_models = {'mlp', 'nn'}
+    neural_models = {"mlp", "nn"}
     return model_name.lower() in neural_models
 
 
@@ -313,23 +313,23 @@ def train_linear_model(
 
     # Generate predictions
     result = {
-        'model': model,
-        'model_type': model_type,
-        'train_preds': model.predict(train_df),
+        "model": model,
+        "model_type": model_type,
+        "train_preds": model.predict(train_df),
     }
 
-    if hasattr(model, 'predict_proba') and not use_regression:
-        result['train_probs'] = model.predict_proba(train_df)
+    if hasattr(model, "predict_proba") and not use_regression:
+        result["train_probs"] = model.predict_proba(train_df)
 
     if val_df is not None and val_target is not None:
-        result['val_preds'] = model.predict(val_df)
-        if hasattr(model, 'predict_proba') and not use_regression:
-            result['val_probs'] = model.predict_proba(val_df)
+        result["val_preds"] = model.predict(val_df)
+        if hasattr(model, "predict_proba") and not use_regression:
+            result["val_probs"] = model.predict_proba(val_df)
 
     if test_df is not None and test_target is not None:
-        result['test_preds'] = model.predict(test_df)
-        if hasattr(model, 'predict_proba') and not use_regression:
-            result['test_probs'] = model.predict_proba(test_df)
+        result["test_preds"] = model.predict(test_df)
+        if hasattr(model, "predict_proba") and not use_regression:
+            result["test_probs"] = model.predict_proba(test_df)
 
     if verbose:
         logger.info(f"{model_type} model training completed")
@@ -343,22 +343,23 @@ def train_linear_model(
 
 __all__ = [
     # Model creation
-    'create_linear_model',
-    'train_linear_model',
-
+    "create_linear_model",
+    "train_linear_model",
     # Model type detection
-    'is_linear_model',
-    'is_tree_model',
-    'is_neural_model',
-    'LINEAR_MODEL_TYPES',
+    "is_linear_model",
+    "is_tree_model",
+    "is_neural_model",
+    "LINEAR_MODEL_TYPES",
 ]
 
 # Conditional exports
 if _IMPORTED_TRAINING_FUNCS:
-    __all__.extend([
-        'train_and_evaluate_model',
-        'process_model',
-        'configure_training_params',
-        'get_training_configs',
-        'select_target',
-    ])
+    __all__.extend(
+        [
+            "train_and_evaluate_model",
+            "process_model",
+            "configure_training_params",
+            "get_training_configs",
+            "select_target",
+        ]
+    )
