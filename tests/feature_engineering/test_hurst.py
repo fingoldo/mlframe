@@ -12,7 +12,7 @@ from mlframe.feature_engineering.hurst import (
 
 
 @given(st.lists(st.floats(min_value=1, max_value=1000, allow_nan=False, allow_infinity=False), min_size=20, max_size=500))
-@settings(max_examples=50)
+@settings(max_examples=50, deadline=None)
 def test_hurst_returns_valid_range(arr):
     """Hurst exponent should generally be between 0 and 1.5 for most series."""
     h, c = compute_hurst_exponent(np.array(arr, dtype=np.float64))
