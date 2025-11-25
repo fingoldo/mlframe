@@ -8,6 +8,8 @@ import pytest
 import numpy as np
 import pandas as pd
 
+from mlframe.training_old import TargetTypes
+
 
 class SimpleFeaturesAndTargetsExtractor:
     """Mock FeaturesAndTargetsExtractor for testing."""
@@ -29,7 +31,7 @@ class SimpleFeaturesAndTargetsExtractor:
             target_values = df[self.target_column].to_numpy()
 
         # Create target_by_type dict
-        target_type = "REGRESSION" if self.regression else "CLASSIFICATION"
+        target_type = TargetTypes.REGRESSION if self.regression else TargetTypes.BINARY_CLASSIFICATION
         target_by_type = {
             target_type: {
                 self.target_column: target_values
