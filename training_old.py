@@ -38,6 +38,17 @@ from pyutilz.system import compute_total_gpus_ram, get_gpuinfo_gpu_info
 from pyutilz.pythonlib import prefix_dict_elems, get_human_readable_set_size, is_jupyter_notebook
 
 from mlframe.helpers import get_model_best_iter, ensure_no_infinity, get_own_ram_usage
+from mlframe.training.utils import (
+    log_ram_usage,
+    get_pandas_view_of_polars_df,
+    _process_special_values,
+    process_nans,
+    process_nulls,
+    process_infinities,
+    get_numeric_columns,
+    get_categorical_columns,
+    remove_constant_columns,
+)
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # ANNS
@@ -995,7 +1006,7 @@ def get_training_configs(
 def get_trainset_features_stats(train_df: pd.DataFrame, max_ncats_to_track: int = 1000) -> dict:
     """Computes ranges of numerical and categorical variables"""
     res = {}
-    num_cols = train_df.head().select_dtypes("number").columns.tolist()
+    num_cols = get_numeric_columns(train_df)
     if num_cols:
         if len(num_cols) == train_df.shape[1]:
             res["min"] = train_df.min(axis=0)
@@ -1005,7 +1016,7 @@ def get_trainset_features_stats(train_df: pd.DataFrame, max_ncats_to_track: int 
             res["min"] = pd.Series({col: train_df[col].min() for col in num_cols})
             res["max"] = pd.Series({col: train_df[col].max() for col in num_cols})
 
-    cat_cols = train_df.head().select_dtypes("category").columns.tolist()
+    cat_cols = get_categorical_columns(train_df, include_string=False)
     if cat_cols:
         cat_vals = {}
         for col in tqdmu(cat_cols, desc="cat vars stats", leave=False):
@@ -1102,7 +1113,7 @@ def compute_naive_outlier_score(df: pd.DataFrame, trainset_features_stats: dict,
     if "min" in trainset_features_stats:
         if columns is None:
             columns = df.columns
-        num_cols = df.head().select_dtypes("number").columns.tolist()
+        num_cols = get_numeric_columns(df)
         columns = [col for col in columns if col in num_cols]
         if columns:
             tmp = df.loc[:, columns].values
@@ -1133,8 +1144,8 @@ def train_and_evaluate_model(
     pre_pipeline: TransformerMixin = None,
     skip_pre_pipeline_transform: bool = False,
     fit_params: Optional[dict] = None,
-    drop_columns: list = [],
-    default_drop_columns: list = [],
+    drop_columns: list = None,
+    default_drop_columns: list = None,
     target_label_encoder: Optional[LabelEncoder] = None,
     train_df: pd.DataFrame = None,
     test_df: pd.DataFrame = None,
@@ -1159,7 +1170,7 @@ def train_and_evaluate_model(
     plot_file: str = "",
     show_perf_chart: bool = True,
     show_fi: bool = True,
-    fi_kwargs: dict = {},
+    fi_kwargs: dict = None,
     use_cache: bool = False,
     nbins: int = 10,
     compute_trainset_metrics: bool = False,
@@ -1180,7 +1191,7 @@ def train_and_evaluate_model(
     confidence_analysis_alpha: float = 0.9,
     confidence_analysis_ylabel: str = "Feature value",
     confidence_analysis_title: str = "Confidence of correct Test set predictions",
-    confidence_model_kwargs: dict = {},
+    confidence_model_kwargs: dict = None,
     #
     train_details: str = "",
     val_details: str = "",
@@ -1202,6 +1213,17 @@ def train_and_evaluate_model(
     """
 
     clean_ram()
+
+    # Initialize mutable default arguments
+    if drop_columns is None:
+        drop_columns = []
+    if default_drop_columns is None:
+        default_drop_columns = []
+    if fi_kwargs is None:
+        fi_kwargs = {}
+    if confidence_model_kwargs is None:
+        confidence_model_kwargs = {}
+
     columns = []
     best_iter = None
 
@@ -1368,8 +1390,8 @@ def train_and_evaluate_model(
     if val_df is not None:
         # Convert Polars validation data to pandas/numpy for model compatibility
         if isinstance(val_df, pl.DataFrame):
-            from mlframe.training.utils import get_pandas_view_of_polars_df
-
+            if verbose:
+                logger.info("Converting validation Polars DataFrame to pandas (zero-copy)...")
             val_df = get_pandas_view_of_polars_df(val_df)
         if isinstance(val_target, pl.Series):
             val_target = val_target.to_numpy()
@@ -1524,8 +1546,8 @@ def train_and_evaluate_model(
 
             # Convert Polars to pandas using zero-copy if needed
             if isinstance(train_df, pl.DataFrame):
-                from mlframe.training.utils import get_pandas_view_of_polars_df
-
+                if verbose:
+                    logger.info("Converting training Polars DataFrame to pandas (zero-copy)...")
                 train_df = get_pandas_view_of_polars_df(train_df)
             if isinstance(train_target, pl.Series):
                 train_target = train_target.to_numpy()
@@ -1712,7 +1734,7 @@ def train_and_evaluate_model(
                 # for (any, even multiclass) classification, targets are probs of ground truth classes
                 if test_df is not None:
                     if verbose:
-                        logger.info("Runnig confidence analysis on teh test set...")
+                        logger.info("Running confidence analysis on the test set...")
                     confidence_model = CatBoostRegressor(
                         verbose=0, eval_fraction=0.1, task_type=("GPU" if CUDA_IS_AVAILABLE else "CPU"), **confidence_model_kwargs
                     )
@@ -1725,7 +1747,7 @@ def train_and_evaluate_model(
                         fit_params_copy = {}
 
                     if "cat_features" not in fit_params_copy:
-                        fit_params_copy["cat_features"] = test_df.head().select_dtypes("category").columns.tolist()
+                        fit_params_copy["cat_features"] = get_categorical_columns(test_df, include_string=False)
 
                     fit_params_copy["plot"] = False
 
@@ -1806,7 +1828,7 @@ def report_model_perf(
     print_report: bool = True,
     show_perf_chart: bool = True,
     show_fi: bool = True,
-    fi_kwargs: dict = {},
+    fi_kwargs: dict = None,
     plot_file: str = "",
     custom_ice_metric: Callable = None,
     custom_rice_metric: Callable = None,
@@ -2255,7 +2277,7 @@ def configure_training_params(
     #
     cat_features: list = None,
     #
-    robustness_features: Sequence = [],
+    robustness_features: Sequence = None,
     cont_nbins: int = 6,
     use_robust_eval_metric: bool = False,
     #
@@ -2268,7 +2290,7 @@ def configure_training_params(
     prefer_cpu_for_lightgbm: bool = True,
     prefer_cpu_for_xgboost: bool = False,
     xgboost_verbose: Union[int, bool] = False,
-    cb_fit_params: dict = {},  # cb_fit_params=dict(embedding_features=['embeddings'])
+    cb_fit_params: dict = None,  # cb_fit_params=dict(embedding_features=['embeddings'])
     prefer_calibrated_classifiers: bool = True,
     default_regression_scoring: dict = None,
     default_classification_scoring: dict = None,
@@ -2295,6 +2317,10 @@ def configure_training_params(
         common_params = {}
     if config_params is None:
         config_params = {}
+    if robustness_features is None:
+        robustness_features = []
+    if cb_fit_params is None:
+        cb_fit_params = {}
 
     if not use_regression:
         if "catboost_custom_classif_metrics" not in config_params:
@@ -3337,295 +3363,7 @@ def intize_targets(targets: dict) -> None:
         targets[target_name] = target
 
 
-# Define the zero-copy conversion function
-def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
-    """
-    Return a zero-copy (Arrow-backed) pandas DataFrame view of a Polars DataFrame.
-    - Numeric, boolean, string columns: zero-copy Arrow view
-    - Categorical (dictionary) columns: converted to string
-    """
-    assert isinstance(df, (pl.DataFrame, pl.Series)), "Input must be a Polars DataFrame or Series"
-
-    tbl = df.to_arrow()
-
-    fixed_cols = []
-    for col in tbl.columns:
-        if pa.types.is_dictionary(col.type):
-            # Convert dictionary array to its string representation
-            col = pa.compute.cast(col, pa.string())
-        fixed_cols.append(col)
-
-    tbl_fixed = pa.table(fixed_cols, names=tbl.column_names)
-
-    pandas_df = tbl_fixed.to_pandas(
-        types_mapper=pd.ArrowDtype,  # keep Arrow-backed columns for zero-copy
-    )
-
-    return pandas_df
-
-
-# Helper function to save series or dataframe to parquet
-def save_series_or_df(obj: Union[pd.Series, pd.DataFrame, pl.Series, pl.DataFrame], file: str, compression: str, name: str = None):
-    if isinstance(obj, (pd.Series, pl.Series)):
-        if name:
-            obj = obj.to_frame(name=name)
-        else:
-            obj = obj.to_frame()
-    if isinstance(obj, pd.DataFrame):
-        obj.to_parquet(file, compression=compression)
-    elif isinstance(obj, pl.DataFrame):
-        obj.write_parquet(file, compression=compression)
-
-
-def _process_special_values(
-    df: Union[pl.DataFrame, pd.DataFrame],
-    expr_func=None,
-    fill_func_name: str = None,
-    kind: str = "",
-    fill_value: float = None,
-    drop_columns: bool = False,
-    verbose: int = 1,
-) -> Union[pl.DataFrame, pd.DataFrame]:
-    """
-    Generic handler for NaNs, nulls, infinities, or constant columns in numeric columns
-    for Polars or pandas DataFrames.
-
-    Testing:
-
-    # Create a test Polars DataFrame
-    df_test = pl.DataFrame(
-        {
-            "numeric_1": [1.0, 2.0, np.nan, 4.0, np.inf, -np.inf, 7.0, np.nan, 9.0, 10.0],
-            "numeric_2": [np.nan, 1.0, 2.0, 3.0, 4.0, 5.0, np.nan, np.inf, -np.inf, 10.0],
-            "numeric_3": [1.0, 2.0, 3.0, None, 5.0, 6.0, 7.0, None, 9.0, 10.0],
-            "category": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"],
-        }
-    )
-
-    for df in [df_test, df_test.to_pandas()]:
-        for func in [process_nans, process_nulls, process_infinities]:
-            df = func(df)
-        print(df)
-    """
-    is_polars = isinstance(df, pl.DataFrame)
-    is_pandas = isinstance(df, pd.DataFrame)
-
-    if verbose:
-        logger.info(f"{'Identifying' if drop_columns else 'Counting'} {kind}{'s' if not kind.endswith('columns') else ''}...")
-
-    if is_polars:
-        # Polars: use provided expr_func
-        qos_df = df.select(expr_func())
-
-        if drop_columns:
-            # For constant detection, we get boolean indicators
-            constant_cols = [col for col, is_const in zip(qos_df.columns, qos_df.row(0)) if is_const]
-            errors_df = pl.DataFrame({"column": constant_cols, "nerrors": [1] * len(constant_cols)})
-        else:
-            errors_df = pl.DataFrame({"column": qos_df.columns, "nerrors": qos_df.row(0)}).filter(pl.col("nerrors") > 0).sort("nerrors", descending=True)
-        nrows, ncols = df.shape
-        sum_errors = errors_df["nerrors"].sum() if not drop_columns else len(errors_df)
-
-    elif is_pandas:
-        if drop_columns:
-            # Handle constant columns for pandas
-            if "numeric" in kind:
-                cols = df.select_dtypes(include=[np.number]).columns
-                constant_cols = []
-                for col in cols:
-                    col_data = df[col].dropna()
-                    if len(col_data) > 0 and col_data.min() == col_data.max():
-                        constant_cols.append(col)
-            elif "non-numeric" in kind:
-                cols = df.select_dtypes(exclude=[np.number]).columns
-                constant_cols = []
-                for col in cols:
-                    if df[col].nunique() == 1:
-                        constant_cols.append(col)
-            else:
-                raise ValueError(f"Unknown kind for drop_columns: {kind}")
-
-            errors_df = pd.DataFrame({"column": constant_cols, "nerrors": [1] * len(constant_cols)})
-            sum_errors = len(errors_df)
-        else:
-            # Pandas: only check numeric columns
-            numeric_cols = df.select_dtypes(include=[np.number]).columns
-            if kind == "NaN":
-                mask = df[numeric_cols].isna()
-            elif kind == "null":
-                mask = df[numeric_cols].isnull()
-            elif kind == "infinite":
-                mask = np.isinf(df[numeric_cols])
-            else:
-                raise ValueError(f"Unknown kind: {kind}")
-
-            nerrors = mask.sum()
-            errors_df = pd.DataFrame({"column": nerrors.index, "nerrors": nerrors.values})
-            errors_df = errors_df[errors_df["nerrors"] > 0].sort_values("nerrors", ascending=False)
-            sum_errors = errors_df["nerrors"].sum()
-
-        nrows, ncols = df.shape
-    else:
-        raise TypeError("df must be a Polars or pandas DataFrame")
-
-    if len(errors_df) == 0:
-        if verbose and drop_columns:
-            logger.info(f"No {kind} found.")
-        return df
-
-    if drop_columns:
-        logger.warning(f"{kind.capitalize()}: {len(errors_df):_} [{len(errors_df)/ncols*100:.2f}%]")
-    else:
-        logger.warning(
-            f"Columns with {kind}s: {len(errors_df):_} [{len(errors_df)/ncols*100:.2f}%], " f"total {kind}s: {sum_errors:_} [{sum_errors/(nrows*ncols):.3f}%]"
-        )
-
-    # Display top 10
-    display_df = errors_df.head(10).set_index("column") if is_pandas else errors_df.to_pandas().set_index("column").head(10)
-
-    if drop_columns:
-        caption = f"{kind.capitalize()}:"
-        display_df = display_df[[]]  # Empty df, just show column names
-    else:
-        caption = f"Columns with most {kind}s:"
-
-    if is_jupyter_notebook():
-        display(display_df.style.set_caption(caption))
-    else:
-        print(caption)
-        print(display_df)
-
-    if drop_columns:
-        # Remove columns
-        if verbose:
-            logger.info(f"Removing {len(errors_df)} {kind}...")
-
-        df = df.drop(errors_df["column"].to_list() if is_polars else errors_df["column"].tolist())
-
-        clean_ram()
-        if verbose:
-            logger.info(f"{kind.capitalize()} removed. New shape: {df.shape}")
-            log_ram_usage()
-
-    elif fill_value is not None:
-        if verbose:
-            logger.info(f"Filling {kind}s with {fill_value}...")
-
-        if is_polars:
-            if kind == "infinite":
-                df = df.with_columns([pl.when(pl.col(c).is_infinite()).then(fill_value).otherwise(pl.col(c)).alias(c) for c in errors_df["column"]])
-            else:
-                df = df.with_columns(getattr(pl.col(errors_df["column"]), fill_func_name)(fill_value))
-        elif is_pandas:
-            if kind in ("NaN", "null"):
-                df[errors_df["column"]] = df[errors_df["column"]].fillna(fill_value)
-            elif kind == "infinite":
-                for c in errors_df["column"]:
-                    df[c] = df[c].replace([np.inf, -np.inf], fill_value)
-        clean_ram()
-        if verbose:
-            logger.info(f"{kind.capitalize()}s filled with {fill_value} value.")
-            log_ram_usage()
-
-    return df
-
-
-def process_nans(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1):
-    return _process_special_values(
-        df=df,
-        expr_func=lambda: (cs.numeric().is_nan().sum() if isinstance(df, pl.DataFrame) else None),
-        fill_func_name="fill_nan",
-        kind="NaN",
-        fill_value=fill_value,
-        verbose=verbose,
-    )
-
-
-def process_nulls(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1):
-    return _process_special_values(
-        df=df,
-        expr_func=lambda: (cs.numeric().is_null().sum() if isinstance(df, pl.DataFrame) else None),
-        fill_func_name="fill_null",
-        kind="null",
-        fill_value=fill_value,
-        verbose=verbose,
-    )
-
-
-def process_infinities(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1):
-    return _process_special_values(
-        df=df,
-        expr_func=lambda: (cs.numeric().is_infinite().sum() if isinstance(df, pl.DataFrame) else None),
-        fill_func_name="replace",
-        kind="infinite",
-        fill_value=fill_value,
-        verbose=verbose,
-    )
-
-
-def remove_constant_columns(df: Union[pl.DataFrame, pd.DataFrame], verbose: int = 1) -> Union[pl.DataFrame, pd.DataFrame]:
-    """
-    Remove constant columns from DataFrame:
-    - Numeric columns: where min == max
-    - Non-numeric columns: where n_unique == 1
-
-    Parameters
-    ----------
-    df : Union[pl.DataFrame, pd.DataFrame]
-        Input DataFrame
-    verbose : int, default=1
-        Verbosity level for logging
-
-    Returns
-    -------
-    Union[pl.DataFrame, pd.DataFrame]
-        DataFrame with constant columns removed
-
-    Testing
-    -------
-    # Create a test Polars DataFrame
-    df_test = pl.DataFrame(
-        {
-            "constant_num_1": [5.0] * 10,
-            "constant_num_2": [0.0] * 10,
-            "varying_num": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
-            "constant_cat": ["a"] * 10,
-            "varying_cat": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"],
-        }
-    )
-
-    for df in [df_test, df_test.to_pandas()]:
-        df_clean = remove_constant_columns(df)
-        print(df_clean)
-    """
-    is_polars = isinstance(df, pl.DataFrame)
-
-    # Process numeric columns (min == max)
-    df = _process_special_values(
-        df=df,
-        expr_func=lambda: ((cs.numeric().min() == cs.numeric().max()) if is_polars else None),
-        kind="constant numeric columns",
-        drop_columns=True,
-        verbose=verbose,
-    )
-
-    # Process non-numeric columns (n_unique == 1)
-    df = _process_special_values(
-        df=df,
-        expr_func=lambda: ((cs.by_dtype(pl.String, pl.Categorical).n_unique() == 1) if is_polars else None),
-        kind="constant non-numeric columns",
-        drop_columns=True,
-        verbose=verbose,
-    )
-
-    return df
-
-
-def log_ram_usage() -> None:
-    logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
-
-
-def train_mlframe_models_suite(
+def train_mlframe_models_suite_old(
     df: Union[pl.DataFrame, pd.DataFrame, str],
     target_name: str,
     model_name: str,
@@ -3881,7 +3619,7 @@ def train_mlframe_models_suite(
 
         for next_df in (df,):
             if next_df is not None:
-                cat_features = next_df.head().select_dtypes(["object", "category", "string[pyarrow]", "large_string[pyarrow]"]).columns.tolist()
+                cat_features = get_categorical_columns(next_df, include_string=True)
                 if cat_features:
                     prepare_df_for_catboost(
                         df=next_df,

@@ -352,6 +352,45 @@ def process_infinities(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float 
     )
 
 
+def get_numeric_columns(df: Union[pl.DataFrame, pd.DataFrame]) -> list:
+    """
+    Get list of numeric column names from DataFrame schema without scanning data.
+
+    Args:
+        df: Polars or pandas DataFrame
+
+    Returns:
+        List of numeric column names
+    """
+    if isinstance(df, pl.DataFrame):
+        return [name for name, dtype in df.schema.items() if dtype.is_numeric()]
+    else:
+        return df.select_dtypes(include='number').columns.tolist()
+
+
+def get_categorical_columns(df: Union[pl.DataFrame, pd.DataFrame], include_string: bool = True) -> list:
+    """
+    Get list of categorical column names from DataFrame schema without scanning data.
+
+    Args:
+        df: Polars or pandas DataFrame
+        include_string: Whether to include string columns (default True)
+
+    Returns:
+        List of categorical column names
+    """
+    if isinstance(df, pl.DataFrame):
+        cat_dtypes = [pl.Categorical]
+        if include_string:
+            cat_dtypes.extend([pl.Utf8, pl.String])
+        return [name for name, dtype in df.schema.items() if dtype in cat_dtypes]
+    else:
+        include_types = ['category']
+        if include_string:
+            include_types.extend(['object', 'string', 'string[pyarrow]', 'large_string[pyarrow]'])
+        return df.select_dtypes(include=include_types).columns.tolist()
+
+
 def remove_constant_columns(df: Union[pl.DataFrame, pd.DataFrame], verbose: int = 1) -> Union[pl.DataFrame, pd.DataFrame]:
     """
     Remove constant columns from DataFrame.
@@ -421,5 +460,7 @@ __all__ = [
     'process_nans',
     'process_nulls',
     'process_infinities',
+    'get_numeric_columns',
+    'get_categorical_columns',
     'remove_constant_columns',
 ]
