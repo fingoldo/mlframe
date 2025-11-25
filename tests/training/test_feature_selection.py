@@ -441,6 +441,86 @@ class TestFeatureSelectionIntegration:
 class TestCombinedPipelines:
     """Test combined feature selection and pipeline scenarios."""
 
+    def test_mrmr_combined_with_rfecv(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations):
+        """Test using MRMR + RFECV together in the same training run."""
+        df, feature_names, y = sample_regression_data
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
+
+        # Train with both MRMR (filter) and RFECV (wrapper) feature selection
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="mrmr_plus_rfecv",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            rfecv_models=["cb_rfecv"],  # RFECV wrapper
+            use_mrmr_fs=True,  # MRMR filter
+            mrmr_kwargs={
+                "verbose": 0,
+                "max_runtime_mins": 1,
+                "n_workers": 1,
+                "quantization_nbins": 5,
+                "use_simple_mode": True,
+            },
+            config_params_override={"iterations": fast_iterations},
+            init_common_params={
+                **common_init_params,
+                "rfecv_params": {"max_runtime_mins": 1, "max_refits": 3},
+            },
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+        # Should have models from both regular training and RFECV
+        assert len(models["target"][TargetTypes.REGRESSION]) >= 1
+
+    def test_feature_selection_with_robustness(self, temp_data_dir, common_init_params, fast_iterations):
+        """Test feature selection combined with robustness_features parameter."""
+        np.random.seed(42)
+        n_samples = 200
+
+        df = pd.DataFrame({
+            'feature_0': np.random.randn(n_samples),
+            'feature_1': np.random.randn(n_samples),
+            'feature_2': np.random.randn(n_samples),
+            'group_feature': np.random.choice(['A', 'B', 'C'], n_samples),
+            'target': np.random.randn(n_samples),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="fs_with_robustness",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            use_mrmr_fs=True,
+            mrmr_kwargs={
+                "verbose": 0,
+                "max_runtime_mins": 1,
+                "n_workers": 1,
+            },
+            config_params_override={"iterations": fast_iterations},
+            init_common_params={
+                **common_init_params,
+                'robustness_features': ['group_feature'],
+            },
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+
     def test_rfecv_with_polars(self, sample_polars_data, temp_data_dir, common_init_params, fast_iterations):
         """Test RFECV with Polars DataFrame input."""
         pl_df, feature_names, y = sample_polars_data

@@ -44,8 +44,8 @@ class TestTrainMLFrameModelsSuiteBasic:
         # Verify structure (models[target_name][target_type])
         assert isinstance(models, dict)
         assert "target" in models
-        assert TargetTypes.TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
         # Verify metadata
         assert metadata["model_name"] == "test_model"
@@ -705,8 +705,8 @@ class TestCustomTransformers:
 
         # Verify training succeeded
         assert "target" in models
-        assert TargetTypes.TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     def test_custom_imputer(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test passing a custom imputer via init_common_params."""
@@ -739,8 +739,8 @@ class TestCustomTransformers:
 
         # Verify training succeeded
         assert "target" in models
-        assert TargetTypes.TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     def test_custom_category_encoder(self, sample_categorical_data, temp_data_dir, common_init_params):
         """Test passing a custom category_encoder via init_common_params."""
@@ -768,8 +768,8 @@ class TestCustomTransformers:
 
         # Verify training succeeded
         assert "target" in models
-        assert TargetTypes.TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     def test_all_custom_transformers(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test passing all custom transformers together."""
@@ -806,8 +806,8 @@ class TestCustomTransformers:
 
         # Verify training succeeded
         assert "target" in models
-        assert TargetTypes.TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     def test_default_transformers_initialized(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test that default transformers are initialized when not provided."""
@@ -831,8 +831,8 @@ class TestCustomTransformers:
 
         # Verify training succeeded (defaults were used)
         assert "target" in models
-        assert TargetTypes.TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     def test_custom_scaler_with_mlp_model(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test custom scaler is actually used by MLP model (which uses the scaler)."""
@@ -873,3 +873,480 @@ class TestCustomTransformers:
         # Verify training succeeded
         assert "target" in models
         assert TargetTypes.REGRESSION in models["target"]
+
+
+class TestRobustnessFeatures:
+    """Tests for robustness_features parameter in configure_training_params."""
+
+    def test_robustness_features_basic(self, temp_data_dir, common_init_params):
+        """Test that robustness_features parameter works without errors."""
+        np.random.seed(42)
+        n_samples = 200
+
+        # Create dataset with a feature we'll use for robustness analysis
+        df = pd.DataFrame({
+            'feature_0': np.random.randn(n_samples),
+            'feature_1': np.random.randn(n_samples),
+            'group_feature': np.random.choice(['A', 'B', 'C'], n_samples),  # categorical for subgroups
+            'target': np.random.randn(n_samples),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        # Train with robustness_features
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="robustness_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params={
+                **common_init_params,
+                'robustness_features': ['group_feature'],
+            },
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        # Verify training succeeded
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+
+    def test_robustness_features_with_continuous(self, temp_data_dir, common_init_params):
+        """Test robustness_features with continuous features (will be binned)."""
+        np.random.seed(42)
+        n_samples = 200
+
+        df = pd.DataFrame({
+            'feature_0': np.random.randn(n_samples),
+            'feature_1': np.random.randn(n_samples),
+            'continuous_group': np.random.uniform(0, 100, n_samples),  # continuous for binning
+            'target': np.random.randn(n_samples),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="robustness_cont_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params={
+                **common_init_params,
+                'robustness_features': ['continuous_group'],
+                'cont_nbins': 4,  # bin continuous into 4 groups
+            },
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+
+    def test_robustness_features_empty_list(self, temp_data_dir, common_init_params):
+        """Test that empty robustness_features list works (no subgroups)."""
+        np.random.seed(42)
+        n_samples = 100
+
+        df = pd.DataFrame({
+            'feature_0': np.random.randn(n_samples),
+            'feature_1': np.random.randn(n_samples),
+            'target': np.random.randn(n_samples),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="no_robustness_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params={
+                **common_init_params,
+                'robustness_features': [],  # explicitly empty
+            },
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+
+
+class TestCalibration:
+    """Tests for prefer_calibrated_classifiers parameter."""
+
+    def test_calibrated_classifier_basic(self, sample_classification_data, temp_data_dir, common_init_params):
+        """Test that prefer_calibrated_classifiers produces calibrated model."""
+        df, feature_names, _, y = sample_classification_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="calibrated_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params={
+                **common_init_params,
+                'prefer_calibrated_classifiers': True,
+            },
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
+        assert len(models["target"][TargetTypes.BINARY_CLASSIFICATION]) > 0
+
+    def test_calibrated_classifier_with_cb(self, sample_classification_data, temp_data_dir, common_init_params):
+        """Test calibration with CatBoost classifier."""
+        pytest = __import__('pytest')
+
+        try:
+            import catboost
+            has_catboost = True
+        except ImportError:
+            has_catboost = False
+
+        if not has_catboost:
+            pytest.skip("CatBoost not available")
+
+        df, feature_names, _, y = sample_classification_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="calibrated_cb_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            config_params_override={"iterations": 10},
+            init_common_params={
+                **common_init_params,
+                'prefer_calibrated_classifiers': True,
+            },
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
+
+    def test_uncalibrated_vs_calibrated(self, sample_classification_data, temp_data_dir, common_init_params):
+        """Test that we can train both calibrated and uncalibrated classifiers."""
+        df, feature_names, _, y = sample_classification_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
+
+        # Train uncalibrated
+        models_uncal, _ = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="uncalibrated",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params={
+                **common_init_params,
+                'prefer_calibrated_classifiers': False,
+            },
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        # Train calibrated
+        models_cal, _ = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="calibrated",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params={
+                **common_init_params,
+                'prefer_calibrated_classifiers': True,
+            },
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        # Both should produce valid models
+        assert "target" in models_uncal
+        assert "target" in models_cal
+        assert TargetTypes.BINARY_CLASSIFICATION in models_uncal["target"]
+        assert TargetTypes.BINARY_CLASSIFICATION in models_cal["target"]
+
+
+class TestSampleWeights:
+    """Tests for sample_weight parameter in training."""
+
+    def test_sample_weight_basic_regression(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Test training with sample weights on regression task."""
+        df, feature_names, y = sample_regression_data
+        n_samples = len(df)
+
+        # Create sample weights (uniform for simplicity)
+        np.random.seed(42)
+        sample_weights = np.random.uniform(0.5, 1.5, n_samples)
+
+        # Add weights to dataframe
+        df_with_weights = df.copy()
+        df_with_weights['sample_weight'] = sample_weights
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df_with_weights,
+            target_name="test_target",
+            model_name="weighted_regression",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params={
+                **common_init_params,
+                'sample_weight_col': 'sample_weight',
+            },
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+
+    def test_sample_weight_classification(self, sample_classification_data, temp_data_dir, common_init_params):
+        """Test training with sample weights on classification task."""
+        df, feature_names, _, y = sample_classification_data
+        n_samples = len(df)
+
+        # Create sample weights
+        np.random.seed(42)
+        sample_weights = np.random.uniform(0.5, 1.5, n_samples)
+
+        df_with_weights = df.copy()
+        df_with_weights['sample_weight'] = sample_weights
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df_with_weights,
+            target_name="test_target",
+            model_name="weighted_classification",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params={
+                **common_init_params,
+                'sample_weight_col': 'sample_weight',
+            },
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
+
+    def test_sample_weight_imbalanced_correction(self, temp_data_dir, common_init_params):
+        """Test sample weights for class imbalance correction."""
+        np.random.seed(42)
+        n_samples = 200
+
+        # Create imbalanced dataset
+        df = pd.DataFrame({
+            'feature_0': np.random.randn(n_samples),
+            'feature_1': np.random.randn(n_samples),
+            'target': [0] * 180 + [1] * 20,  # 90% class 0, 10% class 1
+        })
+
+        # Create weights that up-weight minority class
+        weights = np.where(df['target'] == 1, 9.0, 1.0)  # Weight minority 9x
+        df['sample_weight'] = weights
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="imbalance_weighted",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params={
+                **common_init_params,
+                'sample_weight_col': 'sample_weight',
+            },
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
+
+
+class TestConfidenceAnalysis:
+    """Tests for include_confidence_analysis parameter."""
+
+    def test_confidence_analysis_basic(self, sample_classification_data, temp_data_dir, common_init_params):
+        """Test that confidence analysis runs without errors."""
+        pytest = __import__('pytest')
+
+        try:
+            import catboost
+            has_catboost = True
+        except ImportError:
+            has_catboost = False
+
+        if not has_catboost:
+            pytest.skip("CatBoost not available")
+
+        df, feature_names, _, y = sample_classification_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
+
+        # Confidence analysis requires test_df to be present
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="confidence_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            config_params_override={"iterations": 10},
+            init_common_params={
+                **common_init_params,
+                'include_confidence_analysis': True,
+            },
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
+
+
+class TestGroupIds:
+    """Tests for group_ids parameter."""
+
+    def test_group_ids_basic(self, temp_data_dir, common_init_params):
+        """Test group_ids parameter for grouped evaluation."""
+        np.random.seed(42)
+        n_samples = 200
+
+        # Create dataset with groups
+        groups = np.repeat(np.arange(20), 10)  # 20 groups, 10 samples each
+        df = pd.DataFrame({
+            'feature_0': np.random.randn(n_samples),
+            'feature_1': np.random.randn(n_samples),
+            'group_id': groups,
+            'target': np.random.randn(n_samples),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="grouped_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params={
+                **common_init_params,
+                'group_ids': 'group_id',
+            },
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+
+
+class TestCustomMetrics:
+    """Tests for custom scoring metrics."""
+
+    def test_custom_regression_scoring(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Test custom default_regression_scoring parameter."""
+        df, feature_names, y = sample_regression_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="custom_scoring_reg",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params={
+                **common_init_params,
+                'default_regression_scoring': 'neg_mean_absolute_error',
+            },
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+
+    def test_custom_classification_scoring(self, sample_classification_data, temp_data_dir, common_init_params):
+        """Test custom default_classification_scoring parameter."""
+        df, feature_names, _, y = sample_classification_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="custom_scoring_clf",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params={
+                **common_init_params,
+                'default_classification_scoring': 'f1',
+            },
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
