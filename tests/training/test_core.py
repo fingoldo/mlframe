@@ -12,6 +12,7 @@ from pathlib import Path
 import joblib
 
 from mlframe.training.core import train_mlframe_models_suite
+from mlframe.training_old import TargetTypes
 from .shared import SimpleFeaturesAndTargetsExtractor
 
 
@@ -43,8 +44,8 @@ class TestTrainMLFrameModelsSuiteBasic:
         # Verify structure (models[target_name][target_type])
         assert isinstance(models, dict)
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
         # Verify metadata
         assert metadata["model_name"] == "test_model"
@@ -77,10 +78,10 @@ class TestTrainMLFrameModelsSuiteBasic:
         # Verify structure (models[target_name][target_type])
         assert isinstance(models, dict)
         assert "target" in models
-        assert "CLASSIFICATION" in models["target"]
+        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
 
         # Check that model has predictions
-        model_entry = models["target"]["CLASSIFICATION"][0]
+        model_entry = models["target"][TargetTypes.BINARY_CLASSIFICATION][0]
         assert hasattr(model_entry, "model") or "model" in model_entry.__dict__ if hasattr(model_entry, "__dict__") else True
 
     def test_train_multiple_linear_models(self, sample_regression_data, temp_data_dir, common_init_params):
@@ -644,7 +645,7 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
         )
 
         assert "target" in models
-        assert "CLASSIFICATION" in models["target"]
+        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
 
     def test_with_multiclass_few_samples_per_class(self, temp_data_dir, common_init_params):
         """Test multiclass with very few samples per class."""
@@ -704,8 +705,8 @@ class TestCustomTransformers:
 
         # Verify training succeeded
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     def test_custom_imputer(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test passing a custom imputer via init_common_params."""
@@ -738,8 +739,8 @@ class TestCustomTransformers:
 
         # Verify training succeeded
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     def test_custom_category_encoder(self, sample_categorical_data, temp_data_dir, common_init_params):
         """Test passing a custom category_encoder via init_common_params."""
@@ -767,8 +768,8 @@ class TestCustomTransformers:
 
         # Verify training succeeded
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     def test_all_custom_transformers(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test passing all custom transformers together."""
@@ -805,8 +806,8 @@ class TestCustomTransformers:
 
         # Verify training succeeded
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     def test_default_transformers_initialized(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test that default transformers are initialized when not provided."""
@@ -830,8 +831,8 @@ class TestCustomTransformers:
 
         # Verify training succeeded (defaults were used)
         assert "target" in models
-        assert "REGRESSION" in models["target"]
-        assert len(models["target"]["REGRESSION"]) > 0
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
 
     def test_custom_scaler_with_mlp_model(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test custom scaler is actually used by MLP model (which uses the scaler)."""
