@@ -1277,12 +1277,8 @@ class TestGroupIds:
 class TestRobustnessFeaturesExtended:
     """Extended tests for robustness subgroup evaluation with min_pop_cat_thresh.
 
-    Note: Some tests are skipped due to a pre-existing index alignment bug in
-    compute_robustness_metrics (metrics.py:1299) where bins.loc[subset_index]
-    fails when the DataFrame indices don't match after train/test splitting.
     """
 
-    @pytest.mark.skip(reason="Pre-existing bug in compute_robustness_metrics: index alignment issue with bins.loc[subset_index]")
     def test_robustness_categorical_features(self, temp_data_dir, common_init_params):
         """Test robustness evaluation with categorical features using small threshold."""
         np.random.seed(42)
@@ -1318,7 +1314,6 @@ class TestRobustnessFeaturesExtended:
         assert "target" in models
         assert TargetTypes.REGRESSION in models["target"]
 
-    @pytest.mark.skip(reason="Pre-existing bug in compute_robustness_metrics: index alignment issue with bins.loc[subset_index]")
     def test_robustness_continuous_features(self, temp_data_dir, common_init_params):
         """Test robustness evaluation with continuous features binned into subgroups."""
         np.random.seed(42)

@@ -2337,6 +2337,7 @@ def configure_training_params(
     config_params: dict = None,
     metamodel_func: callable = None,
     use_flaml_zeroshot: bool = False,
+    _precomputed_robustness_subgroups: dict = None,
 ):
     if metamodel_func is None:
         metamodel_func = lambda x: x
@@ -2365,7 +2366,9 @@ def configure_training_params(
                 catboost_custom_classif_metrics = ["AUC", "PRAUC", "BrierScore"]
             config_params["catboost_custom_classif_metrics"] = catboost_custom_classif_metrics
 
-    if robustness_features:
+    # Use pre-computed subgroups if available, otherwise compute from available df
+    subgroups = _precomputed_robustness_subgroups
+    if subgroups is None and robustness_features:
         for next_df in (df, train_df):
             if next_df is not None:
                 subgroups = create_robustness_subgroups(
@@ -2375,8 +2378,6 @@ def configure_training_params(
                     min_pop_cat_thresh=robustness_min_pop_cat_thresh,
                 )
                 break
-    else:
-        subgroups = None
 
     if use_robust_eval_metric and subgroups is not None:
         indexed_subgroups = create_robustness_subgroups_indices(

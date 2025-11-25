@@ -260,6 +260,20 @@ def train_mlframe_models_suite(
         }
     )
 
+    # Pre-compute robustness subgroups from full df BEFORE splitting
+    # (bins must cover all rows for train/val/test evaluation)
+    robustness_subgroups = None
+    robustness_features = (control_params_override or {}).get('robustness_features', [])
+    if robustness_features:
+        from mlframe.metrics import create_robustness_subgroups
+        df_pd = df if isinstance(df, pd.DataFrame) else df.to_pandas()
+        robustness_subgroups = create_robustness_subgroups(
+            df_pd,
+            features=robustness_features,
+            cont_nbins=control_params_override.get('cont_nbins', 6),
+            min_pop_cat_thresh=control_params_override.get('robustness_min_pop_cat_thresh', 1000),
+        )
+
     # Create split dataframes
     train_df, val_df, test_df = create_split_dataframes(
         df=df,
@@ -377,6 +391,11 @@ def train_mlframe_models_suite(
                 if verbose:
                     logger.info(f"select_target...")
 
+                # Add pre-computed robustness subgroups to control_params_override
+                current_control_override = control_params_override.copy() if control_params_override else {}
+                if robustness_subgroups is not None:
+                    current_control_override['_precomputed_robustness_subgroups'] = robustness_subgroups
+
                 common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs = select_target(
                     model_name=f"{target_name} {model_name} {cur_target_name}",
                     target=cur_target_values,
@@ -396,7 +415,7 @@ def train_mlframe_models_suite(
                     config_params=config_params,
                     config_params_override=config_params_override,
                     control_params=control_params,
-                    control_params_override=control_params_override,
+                    control_params_override=current_control_override,
                     common_params=dict(trainset_features_stats=trainset_features_stats, plot_file=plot_file, **init_common_params),
                 )
 
