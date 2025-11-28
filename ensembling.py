@@ -396,6 +396,11 @@ def score_ensemble(
             else:
                 target_kwargs = dict(train_target=train_target, test_target=test_target, val_target=val_target)
 
+            # Pop params not accepted by _build_configs_from_params (they come from common_params in core.py)
+            kwargs.pop("trainset_features_stats", None)
+            kwargs.pop("train_od_idx", None)
+            kwargs.pop("val_od_idx", None)
+
             # Build config objects from flat params
             flat_params = dict(
                 df=None,
