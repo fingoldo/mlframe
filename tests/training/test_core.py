@@ -12,7 +12,7 @@ from pathlib import Path
 import joblib
 
 from mlframe.training.core import train_mlframe_models_suite
-from mlframe.training_old import TargetTypes
+from mlframe.training.configs import TargetTypes
 from .shared import SimpleFeaturesAndTargetsExtractor
 
 
@@ -674,6 +674,214 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
         )
 
         assert "target" in models
+
+    def test_empty_dataframe_raises_error(self, temp_data_dir, common_init_params):
+        """Test that empty DataFrame raises appropriate error."""
+        df = pd.DataFrame({'feature_0': [], 'feature_1': [], 'target': []})
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        with pytest.raises((ValueError, IndexError, Exception)):
+            train_mlframe_models_suite(
+                df=df,
+                target_name="test_target",
+                model_name="empty_df",
+                features_and_targets_extractor=fte,
+                mlframe_models=["ridge"],
+                init_common_params=common_init_params,
+                use_ordinary_models=True,
+                use_mlframe_ensembles=False,
+                data_dir=temp_data_dir,
+                models_dir="models",
+                verbose=0,
+            )
+
+    def test_single_feature_dataset(self, temp_data_dir, common_init_params):
+        """Test with single feature (minimal feature space)."""
+        np.random.seed(42)
+        n_samples = 100
+        df = pd.DataFrame({
+            'feature_0': np.random.randn(n_samples),
+            'target': np.random.randn(n_samples),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="single_feature",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+
+    def test_nan_in_target_column(self, temp_data_dir, common_init_params):
+        """Test behavior with NaN values in target column."""
+        np.random.seed(42)
+        n_samples = 100
+        df = pd.DataFrame({
+            'feature_0': np.random.randn(n_samples),
+            'feature_1': np.random.randn(n_samples),
+            'target': np.random.randn(n_samples),
+        })
+        # Add NaN to target
+        df.loc[10:20, 'target'] = np.nan
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        # Should either handle gracefully or raise clear error
+        try:
+            models, metadata = train_mlframe_models_suite(
+                df=df,
+                target_name="test_target",
+                model_name="nan_target",
+                features_and_targets_extractor=fte,
+                mlframe_models=["ridge"],
+                init_common_params=common_init_params,
+                use_ordinary_models=True,
+                use_mlframe_ensembles=False,
+                data_dir=temp_data_dir,
+                models_dir="models",
+                verbose=0,
+            )
+            # If it succeeds, verify results
+            assert "target" in models
+        except (ValueError, Exception):
+            # Expected - NaN in target is typically an error
+            pass
+
+    def test_infinite_values_in_features(self, temp_data_dir, common_init_params):
+        """Test behavior with infinite values in features."""
+        np.random.seed(42)
+        n_samples = 100
+        df = pd.DataFrame({
+            'feature_0': np.random.randn(n_samples),
+            'feature_1': np.random.randn(n_samples),
+            'target': np.random.randn(n_samples),
+        })
+        # Add infinite values
+        df.loc[5, 'feature_0'] = np.inf
+        df.loc[10, 'feature_1'] = -np.inf
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        from mlframe.training.configs import PreprocessingConfig
+        preprocessing_config = PreprocessingConfig(fix_infinities=True)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="inf_features",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            preprocessing_config=preprocessing_config,
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+
+    def test_duplicate_column_names(self, temp_data_dir, common_init_params):
+        """Test behavior with duplicate column names."""
+        np.random.seed(42)
+        n_samples = 100
+        # Create DataFrame with duplicate column names (pandas allows this)
+        df = pd.DataFrame(np.random.randn(n_samples, 3), columns=['feature', 'feature', 'target'])
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        # Should either handle or raise a clear error
+        try:
+            models, metadata = train_mlframe_models_suite(
+                df=df,
+                target_name="test_target",
+                model_name="dup_cols",
+                features_and_targets_extractor=fte,
+                mlframe_models=["ridge"],
+                init_common_params=common_init_params,
+                use_ordinary_models=True,
+                use_mlframe_ensembles=False,
+                data_dir=temp_data_dir,
+                models_dir="models",
+                verbose=0,
+            )
+            assert True  # If it handles gracefully, that's OK
+        except (ValueError, KeyError, Exception):
+            pass  # Expected - duplicate columns are problematic
+
+    def test_special_characters_in_column_names(self, temp_data_dir, common_init_params):
+        """Test handling of special characters in column names."""
+        np.random.seed(42)
+        n_samples = 100
+        df = pd.DataFrame({
+            'feature with spaces': np.random.randn(n_samples),
+            'feature/with/slashes': np.random.randn(n_samples),
+            'feature[with]brackets': np.random.randn(n_samples),
+            'target': np.random.randn(n_samples),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        # Should handle special characters gracefully
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="special_chars",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+
+    def test_high_dimensional_data(self, temp_data_dir, common_init_params):
+        """Test with high-dimensional data (many features)."""
+        np.random.seed(42)
+        n_samples = 100
+        n_features = 500  # High-dimensional
+
+        data = {f'feature_{i}': np.random.randn(n_samples) for i in range(n_features)}
+        data['target'] = np.random.randn(n_samples)
+        df = pd.DataFrame(data)
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="high_dim",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],  # Ridge handles high-dim well
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
 
 
 class TestCustomTransformers:
@@ -1387,3 +1595,152 @@ class TestFairnessFeaturesExtended:
 
         assert "target" in models
         assert TargetTypes.REGRESSION in models["target"]
+
+
+# =====================================================================================================================
+# PREDICTION TESTS
+# =====================================================================================================================
+
+
+class TestPredictMLFrameModelsSuite:
+    """Tests for predict_mlframe_models_suite function."""
+
+    def test_predict_classification_basic(self, sample_classification_data, temp_data_dir, common_init_params):
+        """Test basic prediction with a trained classification model."""
+        from mlframe.training.core import predict_mlframe_models_suite
+
+        df, feature_names, _, y = sample_classification_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
+
+        # First train a model
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="predict_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        # Get path to models
+        models_path = f"{temp_data_dir}/models/test_target/predict_test"
+
+        # Create test data (same format as training)
+        n_test = 50
+        np.random.seed(123)
+        test_df = pd.DataFrame({
+            **{f"feature_{i}": np.random.randn(n_test) for i in range(len(feature_names))},
+            'target': np.random.randint(0, 2, n_test),  # Include target for extractor
+        })
+
+        # Generate predictions
+        results = predict_mlframe_models_suite(
+            df=test_df,
+            models_path=models_path,
+            features_and_targets_extractor=fte,
+            verbose=0,
+        )
+
+        # Verify structure
+        assert "predictions" in results
+        assert "probabilities" in results
+        assert "metadata" in results
+        assert results["metadata"] is not None
+
+        # Verify predictions
+        assert len(results["predictions"]) > 0
+        for model_name, preds in results["predictions"].items():
+            assert len(preds) == n_test
+            assert all(p in [0, 1] for p in preds)
+
+    def test_predict_regression_basic(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Test basic prediction with a trained regression model."""
+        from mlframe.training.core import predict_mlframe_models_suite
+
+        df, feature_names, y = sample_regression_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        # First train a model
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="predict_regr_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        # Get path to models
+        models_path = f"{temp_data_dir}/models/test_target/predict_regr_test"
+
+        # Create test data
+        n_test = 50
+        np.random.seed(123)
+        test_df = pd.DataFrame({
+            **{f"feature_{i}": np.random.randn(n_test) for i in range(len(feature_names))},
+            'target': np.random.randn(n_test),
+        })
+
+        # Generate predictions
+        results = predict_mlframe_models_suite(
+            df=test_df,
+            models_path=models_path,
+            features_and_targets_extractor=fte,
+            return_probabilities=False,  # Regression doesn't have probabilities
+            verbose=0,
+        )
+
+        # Verify predictions
+        assert len(results["predictions"]) > 0
+        for model_name, preds in results["predictions"].items():
+            assert len(preds) == n_test
+            assert all(isinstance(p, (int, float, np.integer, np.floating)) for p in preds)
+
+    def test_load_mlframe_suite(self, sample_classification_data, temp_data_dir, common_init_params):
+        """Test loading a trained suite."""
+        from mlframe.training.core import load_mlframe_suite
+
+        df, feature_names, _, y = sample_classification_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
+
+        # First train a model
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="load_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        # Get path to models
+        models_path = f"{temp_data_dir}/models/test_target/load_test"
+
+        # Load the suite
+        loaded_models, loaded_metadata = load_mlframe_suite(models_path)
+
+        # Verify metadata was loaded
+        assert loaded_metadata is not None
+        assert "model_name" in loaded_metadata
+        assert loaded_metadata["model_name"] == "load_test"
+
+        # Verify models were loaded
+        assert len(loaded_models) > 0

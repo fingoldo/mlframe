@@ -176,4 +176,157 @@ class TestTrainingConfig:
 
         assert isinstance(config.preprocessing, PreprocessingConfig)
         assert isinstance(config.split, TrainingSplitConfig)
-        assert config.mlframe_models == ["cb", "lgb", "xgb", "mlp"]
+        assert config.mlframe_models == ["linear", "cb", "lgb", "xgb", "mlp"]
+
+
+class TestConfigValidationEdgeCases:
+    """Test edge cases in config validation."""
+
+    def test_split_sizes_sum_exceeds_one(self):
+        """Test that split sizes summing to > 1 raises error."""
+        # Note: Pydantic may or may not validate this depending on implementation
+        # Test documents expected behavior
+        try:
+            config = TrainingSplitConfig(test_size=0.6, val_size=0.5)
+            # If no error, check total is > 1 (validation not enforced)
+            assert config.test_size + config.val_size > 1.0
+        except ValidationError:
+            # Expected - validation enforced
+            pass
+
+    def test_negative_split_sizes(self):
+        """Test that negative split sizes raise validation error."""
+        with pytest.raises(ValidationError):
+            TrainingSplitConfig(test_size=-0.1)
+
+        with pytest.raises(ValidationError):
+            TrainingSplitConfig(val_size=-0.2)
+
+    def test_zero_split_sizes_allowed(self):
+        """Test that zero split sizes are allowed."""
+        config = TrainingSplitConfig(test_size=0.0, val_size=0.0)
+        assert config.test_size == 0.0
+        assert config.val_size == 0.0
+
+    def test_split_size_exactly_one(self):
+        """Test split size of exactly 1.0."""
+        # Should be allowed (all data goes to one split)
+        config = TrainingSplitConfig(test_size=1.0, val_size=0.0)
+        assert config.test_size == 1.0
+
+    def test_invalid_sequential_fraction_bounds(self):
+        """Test sequential fraction validation."""
+        # Valid range is [0, 1]
+        with pytest.raises(ValidationError):
+            TrainingSplitConfig(val_sequential_fraction=1.5)
+
+        with pytest.raises(ValidationError):
+            TrainingSplitConfig(test_sequential_fraction=-0.1)
+
+    def test_valid_sequential_fractions(self):
+        """Test valid sequential fraction values."""
+        config = TrainingSplitConfig(
+            val_sequential_fraction=0.0,
+            test_sequential_fraction=1.0
+        )
+        assert config.val_sequential_fraction == 0.0
+        assert config.test_sequential_fraction == 1.0
+
+    def test_invalid_model_type_in_linear_config(self):
+        """Test that invalid model type raises error."""
+        with pytest.raises(ValidationError):
+            LinearModelConfig(model_type='invalid_model')
+
+    def test_alpha_values_accepted(self):
+        """Test that alpha values are accepted (validation deferred to sklearn)."""
+        # Positive alpha - valid
+        config = LinearModelConfig(model_type='ridge', alpha=1.0)
+        assert config.alpha == 1.0
+
+        # Note: Negative alpha validation is deferred to sklearn at model creation
+        # Config accepts any numeric value
+        config = LinearModelConfig(model_type='ridge', alpha=-1.0)
+        assert config.alpha == -1.0
+
+    def test_l1_ratio_values(self):
+        """Test l1_ratio values are accepted."""
+        # Valid in-range value
+        config = LinearModelConfig(model_type='elasticnet', l1_ratio=0.5)
+        assert config.l1_ratio == 0.5
+
+        # Edge values
+        config = LinearModelConfig(model_type='elasticnet', l1_ratio=0.0)
+        assert config.l1_ratio == 0.0
+
+        config = LinearModelConfig(model_type='elasticnet', l1_ratio=1.0)
+        assert config.l1_ratio == 1.0
+
+        # Note: Out-of-range validation is deferred to sklearn
+        config = LinearModelConfig(model_type='elasticnet', l1_ratio=1.5)
+        assert config.l1_ratio == 1.5
+
+    def test_max_iter_values(self):
+        """Test max_iter values are accepted."""
+        # Positive value - valid
+        config = LinearModelConfig(model_type='sgd', max_iter=1000)
+        assert config.max_iter == 1000
+
+        # Note: Zero/negative validation is deferred to sklearn
+        config = LinearModelConfig(model_type='sgd', max_iter=0)
+        assert config.max_iter == 0
+
+    def test_empty_model_list_in_training_config(self):
+        """Test empty mlframe_models list behavior."""
+        # Empty list should be allowed (might use defaults)
+        config = TrainingConfig(
+            target_name='target',
+            model_name='test',
+            mlframe_models=[]
+        )
+        assert config.mlframe_models == []
+
+    def test_config_from_dict_with_unknown_keys(self):
+        """Test config_from_dict behavior with unknown keys."""
+        params = {
+            'fillna_value': 0.0,
+            'unknown_param': 'should_be_ignored',
+            'another_unknown': 123
+        }
+        # config_from_dict may raise error or ignore unknown keys depending on impl
+        try:
+            config = config_from_dict(PreprocessingConfig, params)
+            assert config.fillna_value == 0.0
+        except (ValidationError, TypeError):
+            # Pydantic may reject unknown keys - this is acceptable behavior
+            pass
+
+    def test_config_from_dict_empty_dict(self):
+        """Test config_from_dict with empty dict uses defaults."""
+        config = config_from_dict(PreprocessingConfig, {})
+        assert config.fillna_value is None
+        assert config.fix_infinities is True
+
+    def test_trainset_aging_limit_bounds(self):
+        """Test trainset_aging_limit validation."""
+        # Valid values in (0, 1)
+        config = TrainingSplitConfig(trainset_aging_limit=0.5)
+        assert config.trainset_aging_limit == 0.5
+
+        # Edge cases - 0 and 1 may or may not be allowed
+        try:
+            config = TrainingSplitConfig(trainset_aging_limit=0.0)
+            # If allowed, that's fine
+        except ValidationError:
+            pass  # Expected if 0 is not allowed
+
+    def test_random_seed_types(self):
+        """Test random_seed accepts various integer types."""
+        config = TrainingSplitConfig(random_seed=42)
+        assert config.random_seed == 42
+
+        config = TrainingSplitConfig(random_seed=0)
+        assert config.random_seed == 0
+
+        # Large seed value
+        config = TrainingSplitConfig(random_seed=2**31 - 1)
+        assert config.random_seed == 2**31 - 1

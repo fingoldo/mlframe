@@ -32,7 +32,7 @@ from .utils import log_ram_usage
 from .configs import PolarsPipelineConfig
 
 
-def prepare_df_for_catboost(df: pd.DataFrame, cat_features: List[str]):
+def prepare_df_for_catboost(df: pd.DataFrame, cat_features: List[str]) -> None:
     """
     Prepare categorical features for CatBoost.
 
@@ -136,19 +136,19 @@ def fit_and_transform_pipeline(
             if verbose:
                 logger.info(f"Applying Polars-ds pipeline...")
 
-            # Transform all splits
+            # Transform all splits and ensure float32 dtypes
             train_df = pipeline.transform(train_df)
-            if val_df is not None and len(val_df) > 0:
-                val_df = pipeline.transform(val_df)
-            if test_df is not None and len(test_df) > 0:
-                test_df = pipeline.transform(test_df)
-
-            # Ensure float32 dtypes
             if ensure_float32:
                 train_df = ensure_dataframe_float32_convertability(train_df)
-                if val_df is not None and len(val_df) > 0:
+
+            if val_df is not None and len(val_df) > 0:
+                val_df = pipeline.transform(val_df)
+                if ensure_float32:
                     val_df = ensure_dataframe_float32_convertability(val_df)
-                if test_df is not None and len(test_df) > 0:
+
+            if test_df is not None and len(test_df) > 0:
+                test_df = pipeline.transform(test_df)
+                if ensure_float32:
                     test_df = ensure_dataframe_float32_convertability(test_df)
 
             if verbose:

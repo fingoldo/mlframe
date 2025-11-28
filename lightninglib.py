@@ -230,8 +230,9 @@ class PytorchLightningEstimator(BaseEstimator):
             trainer_params.update({"num_sanity_val_steps": 0, "limit_val_batches": 0})
 
         # Set default logger for LearningRateMonitor compatibility
+        # Use CSVLogger instead of TensorBoardLogger to avoid TensorFlow dependency
         if 'logger' not in trainer_params:
-            trainer_params['logger'] = TensorBoardLogger(save_dir='lightning_logs', name='')
+            trainer_params['logger'] = CSVLogger(save_dir='lightning_logs', name='')
 
         # Build callbacks list
         callbacks = [

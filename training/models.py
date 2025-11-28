@@ -35,9 +35,19 @@ logger = logging.getLogger(__name__)
 # ==================================================================================
 
 LINEAR_MODEL_TYPES = {"linear", "ridge", "lasso", "elasticnet", "huber", "ransac", "sgd"}
+"""Valid linear model type identifiers for create_linear_model()."""
+
 TREE_MODEL_TYPES = {"cb", "lgb", "xgb", "hgb", "rf", "et", "gb"}
+"""Valid tree-based model type identifiers (CatBoost, LightGBM, XGBoost, etc.)."""
+
 NEURAL_MODEL_TYPES = {"mlp", "nn"}
+"""Valid neural network model type identifiers."""
+
 VALID_SGD_CLASSIFICATION_LOSSES = {"hinge", "log_loss", "modified_huber", "squared_hinge", "perceptron"}
+"""Valid loss functions for SGDClassifier."""
+
+DEFAULT_CALIBRATION_CV_FOLDS = 3
+"""Default number of cross-validation folds for CalibratedClassifierCV."""
 
 
 # ==================================================================================
@@ -61,10 +71,12 @@ def _get_l1_ratio(config: LinearModelConfig) -> float:
 
 
 def _build_linear_regressor(config: LinearModelConfig) -> BaseEstimator:
+    """Build a LinearRegression model with parallelization support."""
     return LinearRegression(n_jobs=config.n_jobs)
 
 
 def _build_ridge_regressor(config: LinearModelConfig) -> BaseEstimator:
+    """Build a Ridge regression model with L2 regularization."""
     return Ridge(
         alpha=config.alpha,
         random_state=config.random_state,
@@ -73,6 +85,7 @@ def _build_ridge_regressor(config: LinearModelConfig) -> BaseEstimator:
 
 
 def _build_lasso_regressor(config: LinearModelConfig) -> BaseEstimator:
+    """Build a Lasso regression model with L1 regularization."""
     return Lasso(
         alpha=config.alpha,
         random_state=config.random_state,
@@ -82,6 +95,7 @@ def _build_lasso_regressor(config: LinearModelConfig) -> BaseEstimator:
 
 
 def _build_elasticnet_regressor(config: LinearModelConfig) -> BaseEstimator:
+    """Build an ElasticNet regression model with combined L1/L2 regularization."""
     return ElasticNet(
         alpha=config.alpha,
         l1_ratio=config.l1_ratio,
@@ -92,6 +106,7 @@ def _build_elasticnet_regressor(config: LinearModelConfig) -> BaseEstimator:
 
 
 def _build_huber_regressor(config: LinearModelConfig) -> BaseEstimator:
+    """Build a HuberRegressor model robust to outliers."""
     return HuberRegressor(
         epsilon=config.epsilon,
         alpha=config.alpha,
@@ -101,6 +116,7 @@ def _build_huber_regressor(config: LinearModelConfig) -> BaseEstimator:
 
 
 def _build_ransac_regressor(config: LinearModelConfig) -> BaseEstimator:
+    """Build a RANSACRegressor model for robust regression with outliers."""
     return RANSACRegressor(
         estimator=LinearRegression(),
         max_trials=config.max_trials,
@@ -110,6 +126,7 @@ def _build_ransac_regressor(config: LinearModelConfig) -> BaseEstimator:
 
 
 def _build_sgd_regressor(config: LinearModelConfig) -> BaseEstimator:
+    """Build an SGDRegressor model using stochastic gradient descent."""
     return SGDRegressor(
         loss=config.loss,
         penalty=config.penalty,
@@ -141,6 +158,7 @@ _REGRESSION_BUILDERS: Dict[str, Callable[[LinearModelConfig], BaseEstimator]] = 
 
 
 def _build_linear_classifier(config: LinearModelConfig) -> BaseEstimator:
+    """Build a LogisticRegression classifier with configurable solver."""
     return LogisticRegression(
         C=config.C,
         solver=config.solver,
@@ -153,6 +171,7 @@ def _build_linear_classifier(config: LinearModelConfig) -> BaseEstimator:
 
 
 def _build_ridge_classifier(config: LinearModelConfig) -> BaseEstimator:
+    """Build a RidgeClassifier with L2 regularization."""
     return RidgeClassifier(
         alpha=config.alpha,
         random_state=config.random_state,
@@ -162,7 +181,7 @@ def _build_ridge_classifier(config: LinearModelConfig) -> BaseEstimator:
 
 
 def _build_lasso_classifier(config: LinearModelConfig) -> BaseEstimator:
-    """Lasso classification via LogisticRegression with L1 penalty."""
+    """Build a Lasso classifier via LogisticRegression with L1 penalty."""
     return LogisticRegression(
         penalty="l1",
         C=1.0 / config.alpha if config.alpha > 0 else 1.0,
@@ -176,7 +195,7 @@ def _build_lasso_classifier(config: LinearModelConfig) -> BaseEstimator:
 
 
 def _build_elasticnet_classifier(config: LinearModelConfig) -> BaseEstimator:
-    """ElasticNet classification via LogisticRegression with elasticnet penalty."""
+    """Build an ElasticNet classifier via LogisticRegression with combined L1/L2 penalty."""
     return LogisticRegression(
         penalty="elasticnet",
         C=1.0 / config.alpha if config.alpha > 0 else 1.0,
@@ -191,7 +210,7 @@ def _build_elasticnet_classifier(config: LinearModelConfig) -> BaseEstimator:
 
 
 def _build_huber_classifier(config: LinearModelConfig) -> BaseEstimator:
-    """Huber loss classification via SGDClassifier with modified_huber loss."""
+    """Build a Huber classifier via SGDClassifier with modified_huber loss."""
     return SGDClassifier(
         loss="modified_huber",
         penalty=config.penalty,
@@ -206,7 +225,7 @@ def _build_huber_classifier(config: LinearModelConfig) -> BaseEstimator:
 
 
 def _build_ransac_classifier(config: LinearModelConfig) -> BaseEstimator:
-    """RANSAC for classification falls back to LogisticRegression."""
+    """Build a RANSAC-style classifier (falls back to LogisticRegression)."""
     logger.warning("RANSAC is primarily for regression. Using LogisticRegression for classification.")
     return LogisticRegression(
         max_iter=config.max_iter,
@@ -215,6 +234,7 @@ def _build_ransac_classifier(config: LinearModelConfig) -> BaseEstimator:
 
 
 def _build_sgd_classifier(config: LinearModelConfig) -> BaseEstimator:
+    """Build an SGDClassifier using stochastic gradient descent."""
     loss = config.loss if config.loss in VALID_SGD_CLASSIFICATION_LOSSES else "log_loss"
     return SGDClassifier(
         loss=loss,
@@ -255,20 +275,40 @@ def create_linear_model(
     """
     Create a linear model based on configuration.
 
-    Args:
-        model_type: Model type codename (linear, ridge, lasso, elasticnet, huber, ransac, sgd)
-        config: Linear model configuration
-        use_regression: Whether to use regression (True) or classification (False)
+    Parameters
+    ----------
+    model_type : str
+        Model type codename. Valid values: "linear", "ridge", "lasso",
+        "elasticnet", "huber", "ransac", "sgd". Case-insensitive.
+    config : LinearModelConfig
+        Linear model configuration with hyperparameters.
+    use_regression : bool, default=True
+        If True, creates a regression model. If False, creates a classifier.
 
-    Returns:
-        Configured sklearn estimator
+    Returns
+    -------
+    BaseEstimator
+        Configured sklearn estimator. For classifiers with
+        `config.use_calibrated_classifier=True`, returns a
+        CalibratedClassifierCV wrapper.
+
+    Raises
+    ------
+    ValueError
+        If model_type is not a valid linear model type.
+
+    Examples
+    --------
+    >>> from mlframe.training.configs import LinearModelConfig
+    >>> config = LinearModelConfig(alpha=0.1, max_iter=1000)
+    >>> model = create_linear_model("ridge", config, use_regression=True)
     """
     model_type = model_type.lower()
     builders = _REGRESSION_BUILDERS if use_regression else _CLASSIFICATION_BUILDERS
 
     if model_type not in builders:
         task = "regression" if use_regression else "classification"
-        raise ValueError(f"Unknown {task} model type: {model_type}")
+        raise ValueError(f"Unknown {task} model type: {model_type}. Valid types: {LINEAR_MODEL_TYPES}")
 
     model = builders[model_type](config)
 
@@ -276,7 +316,7 @@ def create_linear_model(
     if not use_regression and config.use_calibrated_classifier and hasattr(model, "predict_proba"):
         if config.verbose:
             logger.info(f"Wrapping {model_type} with CalibratedClassifierCV")
-        model = CalibratedClassifierCV(model, cv=3, method="isotonic")
+        model = CalibratedClassifierCV(model, cv=DEFAULT_CALIBRATION_CV_FOLDS, method="isotonic")
 
     return model
 
@@ -306,14 +346,15 @@ def is_neural_model(model_name: str) -> bool:
 # ==================================================================================
 
 __all__ = [
+    # Constants
+    "LINEAR_MODEL_TYPES",
+    "TREE_MODEL_TYPES",
+    "NEURAL_MODEL_TYPES",
+    "DEFAULT_CALIBRATION_CV_FOLDS",
     # Model creation
     "create_linear_model",
     # Model type detection
     "is_linear_model",
     "is_tree_model",
     "is_neural_model",
-    # Constants
-    "LINEAR_MODEL_TYPES",
-    "TREE_MODEL_TYPES",
-    "NEURAL_MODEL_TYPES",
 ]

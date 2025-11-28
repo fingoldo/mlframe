@@ -52,11 +52,11 @@ class TestLinearModelCreation:
         assert is_classifier(model) or hasattr(model, 'predict_proba') or hasattr(model, 'fit')
 
     def test_invalid_model_type(self):
-        """Test creation with invalid model type."""
-        config = LinearModelConfig(model_type="invalid_model")
+        """Test creation with invalid model type raises ValidationError."""
+        from pydantic import ValidationError
 
-        with pytest.raises(ValueError):
-            create_linear_model("invalid_model", config, use_regression=True)
+        with pytest.raises(ValidationError):
+            LinearModelConfig(model_type="invalid_model")
 
 
 class TestLinearModelTypes:
@@ -251,3 +251,209 @@ class TestLinearModelConfigurations:
         assert hasattr(model, 'predict_proba')
         train_probs = model.predict_proba(train_df)
         assert train_probs.shape[0] == len(train_target)
+
+
+class TestLinearModelConvergence:
+    """Test convergence behavior of iterative linear models."""
+
+    def test_sgd_convergence_n_iter(self, sample_regression_data):
+        """Test SGD records number of iterations."""
+        df, feature_names, y = sample_regression_data
+
+        train_df = df[feature_names].iloc[:800]
+        train_target = df['target'].iloc[:800]
+
+        config = LinearModelConfig(
+            model_type='sgd',
+            loss='squared_error',
+            penalty='l2',
+            alpha=0.0001,
+            max_iter=2000,
+            tol=1e-4,
+        )
+
+        model = create_linear_model('sgd', config, use_regression=True)
+        model.fit(train_df, train_target)
+
+        # SGD should have n_iter_ attribute
+        if hasattr(model, 'n_iter_'):
+            # Should have completed some iterations
+            assert model.n_iter_ > 0
+            # Should have converged before max_iter (for this simple data)
+            # Note: may or may not converge early depending on data
+
+    def test_lasso_convergence(self, sample_regression_data):
+        """Test LASSO convergence behavior."""
+        import warnings
+
+        df, feature_names, y = sample_regression_data
+
+        train_df = df[feature_names].iloc[:800]
+        train_target = df['target'].iloc[:800]
+
+        config = LinearModelConfig(
+            model_type='lasso',
+            alpha=0.1,
+            max_iter=5000,
+            tol=1e-4,
+        )
+
+        model = create_linear_model('lasso', config, use_regression=True)
+
+        # Capture convergence warnings
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            model.fit(train_df, train_target)
+
+            # Check if convergence warning was raised
+            convergence_warnings = [warning for warning in w
+                                    if 'converge' in str(warning.message).lower()]
+
+            # For simple test data, should converge without warnings
+            # But if there's a warning, verify model still produces predictions
+            if convergence_warnings:
+                # Model should still work despite warning
+                preds = model.predict(train_df)
+                assert len(preds) == len(train_target)
+
+        # Verify model has n_iter_ if available
+        if hasattr(model, 'n_iter_'):
+            assert model.n_iter_ > 0
+
+    def test_elasticnet_convergence(self, sample_regression_data):
+        """Test ElasticNet convergence behavior."""
+        import warnings
+
+        df, feature_names, y = sample_regression_data
+
+        train_df = df[feature_names].iloc[:800]
+        train_target = df['target'].iloc[:800]
+
+        config = LinearModelConfig(
+            model_type='elasticnet',
+            alpha=0.1,
+            l1_ratio=0.5,
+            max_iter=5000,
+            tol=1e-4,
+        )
+
+        model = create_linear_model('elasticnet', config, use_regression=True)
+
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            model.fit(train_df, train_target)
+
+        # Verify iteration count
+        if hasattr(model, 'n_iter_'):
+            assert model.n_iter_ > 0
+
+        # Verify predictions work
+        preds = model.predict(train_df)
+        assert len(preds) == len(train_target)
+
+    def test_sgd_classifier_convergence(self, sample_classification_data):
+        """Test SGD classifier convergence."""
+        df, feature_names, _, y = sample_classification_data
+
+        train_df = df[feature_names].iloc[:800]
+        train_target = df['target'].iloc[:800]
+
+        config = LinearModelConfig(
+            model_type='sgd',
+            loss='log_loss',
+            penalty='l2',
+            alpha=0.0001,
+            max_iter=2000,
+            tol=1e-4,
+        )
+
+        model = create_linear_model('sgd', config, use_regression=False)
+        model.fit(train_df, train_target)
+
+        if hasattr(model, 'n_iter_'):
+            assert model.n_iter_ > 0
+
+        # Should produce valid predictions
+        preds = model.predict(train_df)
+        assert set(preds).issubset({0, 1})
+
+    def test_model_improves_with_more_iterations(self, sample_regression_data):
+        """Test that models improve or stay same with more iterations."""
+        from sklearn.metrics import mean_squared_error
+
+        df, feature_names, y = sample_regression_data
+
+        train_df = df[feature_names].iloc[:600]
+        train_target = df['target'].iloc[:600]
+        val_df = df[feature_names].iloc[600:800]
+        val_target = df['target'].iloc[600:800]
+
+        # Train with few iterations
+        config_low = LinearModelConfig(
+            model_type='sgd',
+            loss='squared_error',
+            max_iter=10,
+            tol=0,  # Don't stop early
+            early_stopping=False,
+            random_state=42,
+        )
+
+        # Train with more iterations
+        config_high = LinearModelConfig(
+            model_type='sgd',
+            loss='squared_error',
+            max_iter=1000,
+            tol=1e-4,
+            early_stopping=False,
+            random_state=42,
+        )
+
+        model_low = create_linear_model('sgd', config_low, use_regression=True)
+        model_high = create_linear_model('sgd', config_high, use_regression=True)
+
+        model_low.fit(train_df, train_target)
+        model_high.fit(train_df, train_target)
+
+        # Get validation predictions
+        preds_low = model_low.predict(val_df)
+        preds_high = model_high.predict(val_df)
+
+        mse_low = mean_squared_error(val_target, preds_low)
+        mse_high = mean_squared_error(val_target, preds_high)
+
+        # More iterations should give same or better results
+        # (allowing some tolerance due to randomness)
+        assert mse_high <= mse_low * 2, \
+            f"More iterations should not significantly worsen: {mse_high} vs {mse_low}"
+
+    def test_early_stopping_sgd(self, sample_regression_data):
+        """Test SGD early stopping behavior."""
+        df, feature_names, y = sample_regression_data
+
+        # Split for early stopping validation
+        train_df = df[feature_names].iloc[:600]
+        train_target = df['target'].iloc[:600]
+
+        config = LinearModelConfig(
+            model_type='sgd',
+            loss='squared_error',
+            max_iter=10000,  # High max_iter
+            tol=1e-3,
+            early_stopping=True,
+            validation_fraction=0.2,
+            n_iter_no_change=5,
+            random_state=42,
+        )
+
+        model = create_linear_model('sgd', config, use_regression=True)
+        model.fit(train_df, train_target)
+
+        # With early stopping, should stop before max_iter
+        if hasattr(model, 'n_iter_'):
+            # Early stopping should kick in for well-behaved data
+            # (but this depends on the data, so we just verify it ran)
+            assert model.n_iter_ > 0
+
+        # Model should still produce valid predictions
+        preds = model.predict(train_df)
+        assert not np.any(np.isnan(preds))

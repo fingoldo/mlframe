@@ -2,6 +2,10 @@
 Shared pytest fixtures for training module tests.
 """
 
+# Set matplotlib backend to 'Agg' BEFORE any matplotlib import to prevent plt.show() from blocking
+import matplotlib
+matplotlib.use('Agg')
+
 import gc
 import pytest
 import numpy as np

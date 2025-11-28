@@ -11,7 +11,7 @@ import polars as pl
 import warnings
 
 from mlframe.training.core import train_mlframe_models_suite
-from mlframe.training_old import TargetTypes
+from mlframe.training.configs import TargetTypes
 from mlframe.feature_selection.filters import MRMR
 from mlframe.feature_selection.wrappers import RFECV
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor

@@ -15,7 +15,7 @@ import os
 import tempfile
 
 from mlframe.training.core import train_mlframe_models_suite
-from mlframe.training.utils import save_mlframe_model, load_mlframe_model
+from mlframe.training.io import save_mlframe_model, load_mlframe_model
 from mlframe.training.pipeline import fit_and_transform_pipeline
 from mlframe.training.configs import PolarsPipelineConfig
 from .shared import SimpleFeaturesAndTargetsExtractor
@@ -289,7 +289,7 @@ class TestConcurrency:
 
         configs = [
             {"scaler_name": "standard"},
-            {"scaler_name": "minmax"},
+            {"scaler_name": "min_max"},
             {"scaler_name": "robust"},
         ]
 

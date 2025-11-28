@@ -61,91 +61,111 @@ automl_models = train_automl_models_suite(
 ```
 """
 
-# Core training functions
-from .core import train_mlframe_models_suite
-from .automl import train_automl_models_suite
+# Lazy imports using __getattr__ to avoid circular dependencies with training_old.py
+# All imports are deferred until actually accessed
 
-# Lazy import from original training_old.py module (not this package)
-def _get_training_old_module():
-    """Lazy-load training_old.py module to avoid slow startup."""
-    import os
-    import importlib.util
-    # Load training_old.py file directly (not the training/ package)
-    training_old_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'training_old.py')
-    spec = importlib.util.spec_from_file_location("mlframe.training_old_module", training_old_path)
-    training_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(training_module)
-    return training_module
+_LAZY_IMPORTS = {
+    # Core functions
+    'train_mlframe_models_suite': ('.core', 'train_mlframe_models_suite'),
+    'train_automl_models_suite': ('.automl', 'train_automl_models_suite'),
 
-# Create wrapper function for lazy loading
-def make_train_test_split(*args, **kwargs):
-    """Train/val/test split function from original training_old.py (lazy-loaded)."""
-    # Remove verbose parameter if present (not supported by original function)
-    kwargs = {k: v for k, v in kwargs.items() if k != 'verbose'}
-    training_module = _get_training_old_module()
-    return training_module.make_train_test_split(*args, **kwargs)
+    # Configuration classes
+    'PreprocessingConfig': ('.configs', 'PreprocessingConfig'),
+    'TrainingSplitConfig': ('.configs', 'TrainingSplitConfig'),
+    'PolarsPipelineConfig': ('.configs', 'PolarsPipelineConfig'),
+    'FeatureSelectionConfig': ('.configs', 'FeatureSelectionConfig'),
+    'LinearModelConfig': ('.configs', 'LinearModelConfig'),
+    'TreeModelConfig': ('.configs', 'TreeModelConfig'),
+    'MLPConfig': ('.configs', 'MLPConfig'),
+    'NGBConfig': ('.configs', 'NGBConfig'),
+    'AutoMLConfig': ('.configs', 'AutoMLConfig'),
+    'TrainingConfig': ('.configs', 'TrainingConfig'),
+    'config_from_dict': ('.configs', 'config_from_dict'),
+    'TargetTypes': ('.configs', 'TargetTypes'),
 
-def train_and_evaluate_model(*args, **kwargs):
-    """Train and evaluate model function from original training_old.py (lazy-loaded)."""
-    training_module = _get_training_old_module()
-    return training_module.train_and_evaluate_model(*args, **kwargs)
+    # Model utilities
+    'create_linear_model': ('.models', 'create_linear_model'),
+    'is_linear_model': ('.models', 'is_linear_model'),
+    'is_tree_model': ('.models', 'is_tree_model'),
+    'is_neural_model': ('.models', 'is_neural_model'),
+    'LINEAR_MODEL_TYPES': ('.models', 'LINEAR_MODEL_TYPES'),
 
-# Configuration classes
-from .configs import (
-    PreprocessingConfig,
-    TrainingSplitConfig,
-    PolarsPipelineConfig,
-    FeatureSelectionConfig,
-    LinearModelConfig,
-    TreeModelConfig,
-    MLPConfig,
-    NGBConfig,
-    AutoMLConfig,
-    TrainingConfig,
-    config_from_dict,
-)
+    # Preprocessing utilities
+    'load_and_prepare_dataframe': ('.preprocessing', 'load_and_prepare_dataframe'),
+    'preprocess_dataframe': ('.preprocessing', 'preprocess_dataframe'),
+    'save_split_artifacts': ('.preprocessing', 'save_split_artifacts'),
+    'create_split_dataframes': ('.preprocessing', 'create_split_dataframes'),
 
-# Model utilities
-from .models import (
-    create_linear_model,
-    is_linear_model,
-    is_tree_model,
-    is_neural_model,
-    LINEAR_MODEL_TYPES,
-)
+    # Pipeline utilities
+    'create_polarsds_pipeline': ('.pipeline', 'create_polarsds_pipeline'),
+    'fit_and_transform_pipeline': ('.pipeline', 'fit_and_transform_pipeline'),
+    'prepare_df_for_catboost': ('.pipeline', 'prepare_df_for_catboost'),
 
-# Preprocessing utilities
-from .preprocessing import (
-    load_and_prepare_dataframe,
-    preprocess_dataframe,
-    save_split_artifacts,
-    create_split_dataframes,
-)
+    # Utility functions
+    'log_ram_usage': ('.utils', 'log_ram_usage'),
+    'log_phase': ('.utils', 'log_phase'),
+    'drop_columns_from_dataframe': ('.utils', 'drop_columns_from_dataframe'),
+    'get_pandas_view_of_polars_df': ('.utils', 'get_pandas_view_of_polars_df'),
+    'save_series_or_df': ('.utils', 'save_series_or_df'),
+    'process_nans': ('.utils', 'process_nans'),
+    'process_nulls': ('.utils', 'process_nulls'),
+    'process_infinities': ('.utils', 'process_infinities'),
+    'remove_constant_columns': ('.utils', 'remove_constant_columns'),
 
-# Pipeline utilities
-from .pipeline import (
-    create_polarsds_pipeline,
-    fit_and_transform_pipeline,
-    prepare_df_for_catboost,
-)
+    # IO utilities
+    'save_mlframe_model': ('.io', 'save_mlframe_model'),
+    'load_mlframe_model': ('.io', 'load_mlframe_model'),
 
-# Utility functions
-from .utils import (
-    log_ram_usage,
-    log_phase,
-    drop_columns_from_dataframe,
-    save_mlframe_model,
-    load_mlframe_model,
-    get_pandas_view_of_polars_df,
-    save_series_or_df,
-    process_nans,
-    process_nulls,
-    process_infinities,
-    remove_constant_columns,
-)
+    # Splitting utilities
+    'make_train_test_split': ('.splitting', 'make_train_test_split'),
 
-# Evaluation utilities
-from .evaluation import evaluate_model
+    # Evaluation utilities
+    'evaluate_model': ('.evaluation', 'evaluate_model'),
+
+    # Training execution functions
+    'select_target': ('.train_eval', 'select_target'),
+    'process_model': ('.train_eval', 'process_model'),
+
+    # Core trainer functions (migrated from training_old.py)
+    'train_and_evaluate_model': ('.trainer', 'train_and_evaluate_model'),
+    'configure_training_params': ('.trainer', 'configure_training_params'),
+    'DataConfig': ('.configs', 'DataConfig'),
+    'TrainingControlConfig': ('.configs', 'TrainingControlConfig'),
+    'MetricsConfig': ('.configs', 'MetricsConfig'),
+    'DisplayConfig': ('.configs', 'DisplayConfig'),
+    'NamingConfig': ('.configs', 'NamingConfig'),
+    'ConfidenceAnalysisConfig': ('.configs', 'ConfidenceAnalysisConfig'),
+    'PredictionsContainer': ('.configs', 'PredictionsContainer'),
+    'FairnessConfig': ('.configs', 'FairnessConfig'),
+
+    # Helper functions (migrated from training_old.py)
+    'get_trainset_features_stats': ('.helpers', 'get_trainset_features_stats'),
+    'get_trainset_features_stats_polars': ('.helpers', 'get_trainset_features_stats_polars'),
+    'get_training_configs': ('.helpers', 'get_training_configs'),
+    'parse_catboost_devices': ('.helpers', 'parse_catboost_devices'),
+    'LightGBMCallback': ('.helpers', 'LightGBMCallback'),
+    'CatBoostCallback': ('.helpers', 'CatBoostCallback'),
+    'XGBoostCallback': ('.helpers', 'XGBoostCallback'),
+}
+
+_cache = {}
+
+
+def __getattr__(name):
+    """Lazy import handler for module attributes."""
+    if name in _LAZY_IMPORTS:
+        if name not in _cache:
+            module_name, attr_name = _LAZY_IMPORTS[name]
+            import importlib
+            # Import the submodule directly, not through the package
+            full_module = f"mlframe.training.{module_name[1:]}"  # Remove leading dot and add separator
+            module = importlib.import_module(full_module)
+            _cache[name] = getattr(module, attr_name)
+        return _cache[name]
+    raise AttributeError(f"module 'mlframe.training' has no attribute {name!r}")
+
+
+# train_and_evaluate_model is now in trainer.py and loaded via _LAZY_IMPORTS
 
 
 __all__ = [
@@ -154,6 +174,7 @@ __all__ = [
     'train_automl_models_suite',
     'make_train_test_split',
     'train_and_evaluate_model',
+    'configure_training_params',
 
     # Configuration
     'PreprocessingConfig',
@@ -167,6 +188,15 @@ __all__ = [
     'AutoMLConfig',
     'TrainingConfig',
     'config_from_dict',
+    'TargetTypes',
+    'DataConfig',
+    'TrainingControlConfig',
+    'MetricsConfig',
+    'DisplayConfig',
+    'NamingConfig',
+    'ConfidenceAnalysisConfig',
+    'PredictionsContainer',
+    'FairnessConfig',
 
     # Models
     'create_linear_model',
@@ -201,6 +231,19 @@ __all__ = [
 
     # Evaluation
     'evaluate_model',
+
+    # Training execution
+    'select_target',
+    'process_model',
+
+    # Helper functions (from helpers.py)
+    'get_trainset_features_stats',
+    'get_trainset_features_stats_polars',
+    'get_training_configs',
+    'parse_catboost_devices',
+    'LightGBMCallback',
+    'CatBoostCallback',
+    'XGBoostCallback',
 ]
 
 

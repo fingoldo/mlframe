@@ -22,10 +22,8 @@ logger = logging.getLogger(__name__)
 
 
 import os
-from typing import Union, Optional
-import dill
+from typing import Union, Optional, Callable
 import numpy as np
-import zstandard as zstd
 import pandas as pd
 import polars as pl
 import pyarrow as pa
@@ -39,7 +37,7 @@ def log_ram_usage() -> None:
     logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
 
-def log_phase(msg: str, n: int = 80) -> None:
+def log_phase(msg: str, n: int = 160) -> None:
     """Log a phase separator with message."""
     logger.info("-" * n)
     logger.info(msg)
@@ -96,54 +94,8 @@ def drop_columns_from_dataframe(
     return df
 
 
-def save_mlframe_model(model: object, file: str, zstd_kwargs: dict = None, verbose: int = 1) -> bool:
-    """
-    Save a model to disk with zstd compression.
-
-    Args:
-        model: Model object to save
-        file: Output file path
-        zstd_kwargs: Compression settings (default: level=4, threads=-1)
-        verbose: Verbosity level
-
-    Returns:
-        True if successful, False otherwise
-    """
-    if zstd_kwargs is None:
-        zstd_kwargs = dict(level=4, write_checksum=True, write_content_size=True, threads=-1)
-    try:
-        with open(file, "wb") as f:
-            compressor = zstd.ZstdCompressor(**zstd_kwargs)
-            with compressor.stream_writer(f) as zf:
-                dill.dump(model, zf)
-        if verbose > 0:
-            size_mb = os.path.getsize(file) / (1024 * 1024)
-            logger.info(f"Model saved successfully to {file}. Size: {size_mb:.2f} Mb")
-        return True
-    except Exception as e:
-        logger.error(f"Could not save model to file {file}: {e}")
-        return False
-
-
-def load_mlframe_model(file: str) -> object:
-    """
-    Load a model from disk with zstd decompression.
-
-    Args:
-        file: Input file path
-
-    Returns:
-        Model object or None if loading fails
-    """
-    try:
-        with open(file, "rb") as f:
-            decompressor = zstd.ZstdDecompressor()
-            with decompressor.stream_reader(f) as zf:
-                model = dill.load(zf)
-        return model
-    except Exception as e:
-        logger.error(f"Could not load model from file {file}: {e}")
-        return None
+# NOTE: save_mlframe_model and load_mlframe_model are in io.py
+# Use: from .io import save_mlframe_model, load_mlframe_model
 
 
 def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
@@ -160,7 +112,8 @@ def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
         - Numeric, boolean, string columns: zero-copy Arrow view
         - Categorical (dictionary) columns: converted to string
     """
-    assert isinstance(df, (pl.DataFrame, pl.Series)), "Input must be a Polars DataFrame or Series"
+    if not isinstance(df, (pl.DataFrame, pl.Series)):
+        raise TypeError(f"Input must be a Polars DataFrame or Series, got {type(df).__name__}")
 
     tbl = df.to_arrow()
 
@@ -185,7 +138,7 @@ def save_series_or_df(
     file: str,
     compression: str = "zstd",
     name: Optional[str] = None,
-):
+) -> None:
     """
     Save a pandas/polars Series or DataFrame to parquet.
 
@@ -194,7 +147,14 @@ def save_series_or_df(
         file: Output file path
         compression: Compression algorithm (default: zstd)
         name: Name for Series (if converting to DataFrame)
+
+    Raises:
+        FileNotFoundError: If the parent directory does not exist.
     """
+    parent_dir = os.path.dirname(file)
+    if parent_dir and not os.path.exists(parent_dir):
+        raise FileNotFoundError(f"Parent directory does not exist: {parent_dir}")
+
     if isinstance(obj, (pd.Series, pl.Series)):
         if name:
             obj = obj.to_frame(name=name)
@@ -208,7 +168,7 @@ def save_series_or_df(
 
 def _process_special_values(
     df: Union[pl.DataFrame, pd.DataFrame],
-    expr_func=None,
+    expr_func: Optional[Callable[[], pl.Expr]] = None,
     fill_func_name: Optional[str] = None,
     kind: str = "",
     fill_value: Optional[float] = None,
@@ -231,7 +191,6 @@ def _process_special_values(
         Cleaned DataFrame
     """
     is_polars = isinstance(df, pl.DataFrame)
-    is_pandas = isinstance(df, pd.DataFrame)
 
     if verbose:
         logger.info(f"{'Identifying' if drop_columns else 'Counting'} {kind}{'s' if not kind.endswith('columns') else ''}...")
@@ -259,14 +218,14 @@ def _process_special_values(
             # For constant column detection
             if "numeric" in kind:
                 # Numeric constants: min == max
-                constant_cols = [col for col in df.select_dtypes(include='number').columns if df[col].min() == df[col].max()]
+                constant_cols = [col for col in df.select_dtypes(include="number").columns if df[col].min() == df[col].max()]
             else:
                 # Categorical constants: n_unique == 1
-                constant_cols = [col for col in df.select_dtypes(exclude='number').columns if df[col].nunique() == 1]
+                constant_cols = [col for col in df.select_dtypes(exclude="number").columns if df[col].nunique() == 1]
             errors_df = pd.DataFrame({"column": constant_cols, "nerrors": [1] * len(constant_cols)})
         else:
             # For NaN/null/inf detection - use vectorized operations
-            numeric_df = df.select_dtypes(include='number')
+            numeric_df = df.select_dtypes(include="number")
             if "NaN" in kind:
                 nerrors_series = numeric_df.isna().sum()
             elif "null" in kind:
@@ -303,12 +262,14 @@ def _process_special_values(
                 logger.info(f"Dropped {len(cols_to_drop)} {kind}.")
         elif fill_value is not None:
             if is_polars:
+                if fill_func_name is None:
+                    raise ValueError("fill_func_name is required for Polars DataFrames when fill_value is provided")
                 df = df.with_columns(getattr(cs.numeric(), fill_func_name)(fill_value))
             else:
                 if "NaN" in kind or "null" in kind:
                     df = df.fillna(fill_value)
                 elif "infinite" in kind:
-                    df = df.replace([float('inf'), float('-inf')], fill_value)
+                    df = df.replace([float("inf"), float("-inf")], fill_value)
             if verbose:
                 logger.info(f"{kind.capitalize()}s filled with {fill_value} value.")
                 log_ram_usage()
@@ -316,8 +277,18 @@ def _process_special_values(
     return df
 
 
-def process_nans(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1):
-    """Process NaN values in numeric columns."""
+def process_nans(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1) -> Union[pl.DataFrame, pd.DataFrame]:
+    """
+    Process NaN values in numeric columns by filling them with a specified value.
+
+    Args:
+        df: Polars or pandas DataFrame to process
+        fill_value: Value to replace NaNs with (default: 0.0)
+        verbose: Verbosity level (default: 1)
+
+    Returns:
+        DataFrame with NaN values filled
+    """
     return _process_special_values(
         df=df,
         expr_func=lambda: (cs.numeric().is_nan().sum() if isinstance(df, pl.DataFrame) else None),
@@ -328,8 +299,18 @@ def process_nans(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0,
     )
 
 
-def process_nulls(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1):
-    """Process NULL values in numeric columns."""
+def process_nulls(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1) -> Union[pl.DataFrame, pd.DataFrame]:
+    """
+    Process NULL values in numeric columns by filling them with a specified value.
+
+    Args:
+        df: Polars or pandas DataFrame to process
+        fill_value: Value to replace NULLs with (default: 0.0)
+        verbose: Verbosity level (default: 1)
+
+    Returns:
+        DataFrame with NULL values filled
+    """
     return _process_special_values(
         df=df,
         expr_func=lambda: (cs.numeric().is_null().sum() if isinstance(df, pl.DataFrame) else None),
@@ -340,8 +321,18 @@ def process_nulls(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0
     )
 
 
-def process_infinities(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1):
-    """Process infinite values in numeric columns."""
+def process_infinities(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1) -> Union[pl.DataFrame, pd.DataFrame]:
+    """
+    Process infinite values in numeric columns by replacing them with a specified value.
+
+    Args:
+        df: Polars or pandas DataFrame to process
+        fill_value: Value to replace infinities with (default: 0.0)
+        verbose: Verbosity level (default: 1)
+
+    Returns:
+        DataFrame with infinite values replaced
+    """
     return _process_special_values(
         df=df,
         expr_func=lambda: (cs.numeric().is_infinite().sum() if isinstance(df, pl.DataFrame) else None),
@@ -365,7 +356,7 @@ def get_numeric_columns(df: Union[pl.DataFrame, pd.DataFrame]) -> list:
     if isinstance(df, pl.DataFrame):
         return [name for name, dtype in df.schema.items() if dtype.is_numeric()]
     else:
-        return df.select_dtypes(include='number').columns.tolist()
+        return df.select_dtypes(include="number").columns.tolist()
 
 
 def get_categorical_columns(df: Union[pl.DataFrame, pd.DataFrame], include_string: bool = True) -> list:
@@ -385,9 +376,9 @@ def get_categorical_columns(df: Union[pl.DataFrame, pd.DataFrame], include_strin
             cat_dtypes.extend([pl.Utf8, pl.String])
         return [name for name, dtype in df.schema.items() if dtype in cat_dtypes]
     else:
-        include_types = ['category']
+        include_types = ["category"]
         if include_string:
-            include_types.extend(['object', 'string', 'string[pyarrow]', 'large_string[pyarrow]'])
+            include_types.extend(["object", "string", "string[pyarrow]", "large_string[pyarrow]"])
         return df.select_dtypes(include=include_types).columns.tolist()
 
 
@@ -434,10 +425,8 @@ def remove_constant_columns(df: Union[pl.DataFrame, pd.DataFrame], verbose: int 
         all_constant_cols = df.columns[mask_equal | mask_all_nan].tolist()
 
         # Separate numeric and non-numeric constant columns
-        constant_num_cols = [col for col in all_constant_cols
-                            if np.issubdtype(df[col].dtype, np.number)]
-        constant_cat_cols = [col for col in all_constant_cols
-                            if not np.issubdtype(df[col].dtype, np.number)]
+        constant_num_cols = [col for col in all_constant_cols if np.issubdtype(df[col].dtype, np.number)]
+        constant_cat_cols = [col for col in all_constant_cols if not np.issubdtype(df[col].dtype, np.number)]
         constant_cols = constant_num_cols + constant_cat_cols
 
         if constant_cols and verbose:
@@ -450,17 +439,15 @@ def remove_constant_columns(df: Union[pl.DataFrame, pd.DataFrame], verbose: int 
 
 
 __all__ = [
-    'log_ram_usage',
-    'log_phase',
-    'drop_columns_from_dataframe',
-    'save_mlframe_model',
-    'load_mlframe_model',
-    'get_pandas_view_of_polars_df',
-    'save_series_or_df',
-    'process_nans',
-    'process_nulls',
-    'process_infinities',
-    'get_numeric_columns',
-    'get_categorical_columns',
-    'remove_constant_columns',
+    "log_ram_usage",
+    "log_phase",
+    "drop_columns_from_dataframe",
+    "get_pandas_view_of_polars_df",
+    "save_series_or_df",
+    "process_nans",
+    "process_nulls",
+    "process_infinities",
+    "get_numeric_columns",
+    "get_categorical_columns",
+    "remove_constant_columns",
 ]

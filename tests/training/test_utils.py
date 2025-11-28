@@ -12,11 +12,9 @@ import polars as pl
 import tempfile
 import os
 from pathlib import Path
-from hypothesis import given, strategies as st, settings, assume
+from hypothesis import given, strategies as st, settings, assume, HealthCheck
 
 from mlframe.training.utils import (
-    save_mlframe_model,
-    load_mlframe_model,
     get_pandas_view_of_polars_df,
     drop_columns_from_dataframe,
     save_series_or_df,
@@ -24,6 +22,10 @@ from mlframe.training.utils import (
     process_nulls,
     process_infinities,
     remove_constant_columns,
+)
+from mlframe.training.io import (
+    save_mlframe_model,
+    load_mlframe_model,
 )
 
 
@@ -209,7 +211,7 @@ class TestGetPandasViewOfPolarsDF:
         """Test that assertion error is raised for non-Polars input."""
         pd_df = pd.DataFrame({"col": [1, 2, 3]})
 
-        with pytest.raises(AssertionError):
+        with pytest.raises(TypeError):
             get_pandas_view_of_polars_df(pd_df)
 
     def test_polars_series_input(self):
@@ -619,7 +621,7 @@ class TestHypothesisSaveLoad:
         min_size=1,
         max_size=5,
     ))
-    @settings(max_examples=20)
+    @settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
     def test_roundtrip_preserves_dict(self, model_data):
         """Property: save then load should return identical dict."""
         import tempfile

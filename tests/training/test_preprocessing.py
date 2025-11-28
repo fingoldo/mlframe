@@ -14,7 +14,7 @@ from mlframe.training.preprocessing import (
     save_split_artifacts,
 )
 import os
-from mlframe.training_old import make_train_test_split
+from mlframe.training.splitting import make_train_test_split
 from mlframe.training.configs import PreprocessingConfig, TrainingSplitConfig
 from mlframe.training.utils import process_nans, process_nulls, remove_constant_columns
 from pyutilz.strings import slugify

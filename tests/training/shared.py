@@ -8,7 +8,7 @@ import pytest
 import numpy as np
 import pandas as pd
 
-from mlframe.training_old import TargetTypes
+from mlframe.training.configs import TargetTypes
 
 
 class SimpleFeaturesAndTargetsExtractor:

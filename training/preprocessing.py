@@ -60,6 +60,8 @@ def load_and_prepare_dataframe(
         - Only supports Polars (for efficiency)
         - Column dropping happens AFTER features_and_targets_extractor.transform() in core.py
           (columns might be needed by features_and_targets_extractor or created by it)
+        - If both n_rows and tail are set, tail is applied AFTER n_rows. So n_rows=1000
+          with tail=100 gives the last 100 of the first 1000 rows, not the last 100 of the file.
     """
     # Load from file if path provided
     if isinstance(df, str):
@@ -126,11 +128,9 @@ def preprocess_dataframe(
     # Remove constant columns
     df = remove_constant_columns(df, verbose=verbose)
 
-    # Ensure float32 dtypes if requested
+    # Ensure float32 dtypes if requested (works for both pandas and Polars)
     if config.ensure_float32_dtypes:
-        if isinstance(df, pd.DataFrame):
-            df = ensure_dataframe_float32_convertability(df)
-        # Polars already uses efficient dtypes
+        df = ensure_dataframe_float32_convertability(df)
 
     # Process nulls
     if config.fillna_value is not None:
@@ -176,7 +176,6 @@ def save_split_artifacts(
         target_name: Target name (for directory structure)
         model_name: Model name (for directory structure)
         compression: Compression algorithm
-        verbose: Verbosity level
     """
     if data_dir is not None and models_dir:
         ensure_dir_exists(join(data_dir, models_dir, slugify(target_name), slugify(model_name)))

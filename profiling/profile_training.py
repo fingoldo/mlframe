@@ -21,7 +21,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 from mlframe.training.core import train_mlframe_models_suite
-from mlframe.training_old import SimpleFeaturesAndTargetsExtractor
+from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 from mlframe.metrics import prewarm_numba_cache
 
 

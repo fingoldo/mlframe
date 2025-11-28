@@ -313,6 +313,7 @@ def score_ensemble(
     """Compares different ensembling methods for a list of models."""
 
     from mlframe.training import train_and_evaluate_model
+    from mlframe.training.trainer import _build_configs_from_params
 
     res = {}
     level_models_and_predictions = models_and_predictions
@@ -395,10 +396,10 @@ def score_ensemble(
             else:
                 target_kwargs = dict(train_target=train_target, test_target=test_target, val_target=val_target)
 
-            next_ens_results = train_and_evaluate_model(
-                model=None,
+            # Build config objects from flat params
+            flat_params = dict(
                 df=None,
-                default_drop_columns=[],
+                drop_columns=[],
                 model_name_prefix=f"Ens{internal_ensemble_method.upper()} {ensemble_name}",
                 train_idx=train_idx,
                 test_idx=test_idx,
@@ -412,6 +413,17 @@ def score_ensemble(
                 **target_kwargs,
                 **predictive_kwargs,
                 **kwargs,
+            )
+            data, control, metrics_cfg, display, naming, confidence, predictions = _build_configs_from_params(**flat_params)
+            next_ens_results = train_and_evaluate_model(
+                model=None,
+                data=data,
+                control=control,
+                metrics=metrics_cfg,
+                display=display,
+                naming=naming,
+                confidence=confidence,
+                predictions=predictions,
             )
             next_level_models_and_predictions.append(next_ens_results)
             res[internal_ensemble_method] = next_ens_results
@@ -445,11 +457,10 @@ def score_ensemble(
                     is_regression=is_regression,
                 )
 
-                res[internal_ensemble_method + " conf"] = train_and_evaluate_model(
-                    model=None,
-                    **predictive_kwargs,
+                # Build config objects from flat params for confidence ensemble
+                conf_flat_params = dict(
                     df=None,
-                    default_drop_columns=[],
+                    drop_columns=[],
                     model_name_prefix=f"Conf Ensemble {internal_ensemble_method} {ensemble_name}",
                     train_idx=train_idx[train_confident_indices] if (train_idx is not None and train_confident_indices is not None) else None,
                     test_idx=test_idx[test_confident_indices] if (test_idx is not None and test_confident_indices is not None) else None,
@@ -460,8 +471,20 @@ def score_ensemble(
                     custom_ice_metric=custom_ice_metric,
                     custom_rice_metric=custom_rice_metric,
                     subgroups=subgroups,
+                    **predictive_kwargs,
                     **target_kwargs,
                     **kwargs,
+                )
+                conf_data, conf_control, conf_metrics, conf_display, conf_naming, conf_confidence, conf_predictions = _build_configs_from_params(**conf_flat_params)
+                res[internal_ensemble_method + " conf"] = train_and_evaluate_model(
+                    model=None,
+                    data=conf_data,
+                    control=conf_control,
+                    metrics=conf_metrics,
+                    display=conf_display,
+                    naming=conf_naming,
+                    confidence=conf_confidence,
+                    predictions=conf_predictions,
                 )
         level_models_and_predictions = next_level_models_and_predictions
     return res

@@ -1,0 +1,4724 @@
+# *****************************************************************************************************************************************************
+# IMPORTS
+# *****************************************************************************************************************************************************
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# LOGGING
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Normal Imports
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from typing import List, Dict, Iterable, Sequence, Union, Callable, Any, Optional, Tuple  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
+from .config import *
+
+# from pyutilz.pythonlib import ensure_installed;ensure_installed("pandas numpy numba scikit-learn lightgbm catboost xgboost shap")
+
+import re
+import copy
+import inspect
+from collections import Counter
+
+import io
+import os
+import zstandard as zstd
+from functools import partial
+from types import SimpleNamespace
+from collections import defaultdict
+
+
+from timeit import default_timer as timer
+from pyutilz.system import ensure_dir_exists, tqdmu
+from pyutilz.system import compute_total_gpus_ram, get_gpuinfo_gpu_info
+from pyutilz.pythonlib import prefix_dict_elems, get_human_readable_set_size, is_jupyter_notebook
+
+from mlframe.helpers import get_model_best_iter, ensure_no_infinity, get_own_ram_usage
+from mlframe.training.utils import (
+    log_ram_usage,
+    get_pandas_view_of_polars_df,
+    _process_special_values,
+    process_nans,
+    process_nulls,
+    process_infinities,
+    get_numeric_columns,
+    get_categorical_columns,
+    remove_constant_columns,
+)
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# ANNS
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from lightning.pytorch.utilities.warnings import PossibleUserWarning
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+from mlframe.lightninglib import MLPNeuronsByLayerArchitecture, MLPTorchModel, custom_collate_fn
+from mlframe.lightninglib import (
+    PytorchLightningRegressor,
+    PytorchLightningClassifier,
+    TorchDataModule,
+)
+
+
+import argparse, warnings
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Filesystem
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+import glob
+from os.path import basename
+from os.path import join, exists
+from pyutilz.strings import slugify
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Dimreducers
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+# import umap
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# OD
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from sklearn.ensemble import IsolationForest
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Ensembling
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from mlframe.ensembling import ensemble_probabilistic_predictions, score_ensemble, compare_ensembles, SIMPLE_ENSEMBLING_METHODS
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# FE
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+from mlframe.feature_engineering.basic import create_date_features
+from mlframe.feature_engineering.timeseries import create_aggregated_features
+from mlframe.feature_engineering.numerical import (
+    compute_simple_stats_numba,
+    get_simple_stats_names,
+    compute_numaggs,
+    get_numaggs_names,
+    compute_numaggs_parallel,
+)
+
+# from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
+# # requires local import, causes problems in parallel runs (joblib, processpool, etc)
+from mlframe.feature_engineering.categorical import compute_countaggs, get_countaggs_names
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Base classes
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from abc import ABC
+from sklearn.base import ClassifierMixin, RegressorMixin, TransformerMixin, is_classifier
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Plotting
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as go
+
+import matplotlib.pyplot as plt
+from IPython.display import display
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Pandas
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+import polars.selectors as cs
+import pandas as pd, numpy as np, polars as pl, pyarrow as pa
+
+from pyutilz.polarslib import polars_df_info, cast_f64_to_f32
+from pyutilz.pandaslib import get_df_memory_consumption, showcase_df_columns
+from pyutilz.pandaslib import ensure_dataframe_float32_convertability, optimize_dtypes, convert_float64_to_float32
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Hi perf & parallel
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from pyutilz.system import clean_ram
+
+import numba
+from numba import njit, prange
+from numba.cuda import is_available as is_cuda_available
+
+import psutil
+
+import dill
+import joblib
+from joblib import delayed, Parallel
+from pyutilz.parallel import distribute_work, parallel_run
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Curated models
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from ngboost.scores import LogScore, CRPScore
+from ngboost import NGBClassifier, NGBRegressor
+from ngboost.distns import k_categorical, Bernoulli
+
+from lightgbm import LGBMClassifier, LGBMRegressor
+from catboost import CatBoostRegressor, CatBoostClassifier
+from xgboost import XGBClassifier, XGBRegressor, DMatrix, QuantileDMatrix
+
+import flaml.default as flaml_zeroshot
+
+# from flaml.default import LGBMClassifier,LGBMRegressor,XGBClassifier,XGBRegressor
+# from flaml.default import ExtraTreesClassifier,ExtraTreesRegressor,RandomForestClassifier,RandomForestRegressor
+
+from sklearn.dummy import DummyClassifier, DummyRegressor
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPRegressor, MLPClassifier
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.neighbors import KNeighborsRegressor, KNeighborsClassifier
+from sklearn.linear_model import LinearRegression, RANSACRegressor, HuberRegressor
+
+from sklearn.ensemble import HistGradientBoostingRegressor, GradientBoostingRegressor, RandomForestRegressor, ExtraTreesRegressor
+from sklearn.ensemble import HistGradientBoostingClassifier, GradientBoostingClassifier, RandomForestClassifier, ExtraTreesClassifier
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# FS
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from mlframe.feature_selection.wrappers import RFECV, VotesAggregation, OptimumSearch
+from mlframe.feature_selection.filters import MRMR
+
+try:
+    from optbinning import BinningProcess
+except Exception:
+    pass
+
+from mlframe.custom_estimators import log_plus_c, inv_log_plus_c, box_cox_plus_c, inv_box_cox_plus_c
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Cats
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+import category_encoders as ce
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Splitters
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit
+from sklearn.model_selection import train_test_split
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Pipelines
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from sklearn.pipeline import Pipeline, make_pipeline
+
+from sklearn.compose import ColumnTransformer
+
+from sklearn.preprocessing import FunctionTransformer
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Pre- & postprocessing
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import PowerTransformer
+from sklearn.compose import TransformedTargetRegressor
+from sklearn.preprocessing import StandardScaler, RobustScaler
+
+from mlframe.preprocessing import prepare_df_for_catboost
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# FIs
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+import shap
+from mlframe.feature_importance import plot_feature_importance
+
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Metrics
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+from sklearn.metrics import make_scorer
+from mlframe.metrics import fast_roc_auc, fast_calibration_report, compute_probabilistic_multiclass_error, ICE
+from mlframe.metrics import create_fairness_subgroups, create_fairness_subgroups_indices, compute_fairness_metrics, robust_mlperf_metric
+
+from sklearn.metrics import classification_report, roc_auc_score, average_precision_score
+from sklearn.metrics import mean_absolute_error, max_error, mean_absolute_percentage_error, mean_squared_error, r2_score
+
+try:
+    from sklearn.metrics import root_mean_squared_error
+except Exception:
+
+    def root_mean_squared_error(y_true, y_pred, *, sample_weight=None, multioutput="uniform_average"):
+
+        output_errors = np.sqrt(mean_squared_error(y_true, y_pred, sample_weight=sample_weight, multioutput="raw_values"))
+
+        if isinstance(multioutput, str):
+            if multioutput == "raw_values":
+                return output_errors
+            elif multioutput == "uniform_average":
+                # pass None as weights to np.average: uniform mean
+                multioutput = None
+
+        return np.average(output_errors, weights=multioutput)
+
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Early stopping
+# ----------------------------------------------------------------------------------------------------------------------------
+
+from xgboost.callback import TrainingCallback
+
+import catboost as cb
+import xgboost as xgb
+import lightgbm as lgb
+
+from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------------------------------------------------------------
+
+
+def get_function_param_names(func):
+    signature = inspect.signature(func)
+    return list(signature.parameters.keys())
+
+
+def get_dataframe_info(df: Union[pd.DataFrame, pl.DataFrame]) -> str:
+    if isinstance(df, pd.DataFrame):
+        buf = io.StringIO()
+        df.info(buf=buf, verbose=False)
+        info = buf.getvalue()
+    elif isinstance(df, pl.DataFrame):
+        info = polars_df_info(df)
+    return info
+
+
+def parse_catboost_devices(devices: str, all_gpus: list = None) -> List[Dict]:
+    """
+    Parses a GPU devices string and returns a list of GPU info dicts
+    corresponding to the specified device indices.
+
+    Parameters
+    ----------
+    devices : str
+        A string specifying device indices. Formats supported:
+          - "0"             (single GPU)
+          - "0:1:3"         (multiple GPUs)
+          - "0-3"           (range of GPUs, inclusive)
+
+    Returns
+    -------
+    list[dict]
+        Filtered list of GPU info dictionaries.
+    """
+
+    if not all_gpus:
+        all_gpus = get_gpuinfo_gpu_info()
+
+    if not devices:
+        return all_gpus
+
+    # Parse the devices string
+    device_indices = []
+    if "-" in devices:  # range format
+        start, end = devices.split("-")
+        device_indices = list(range(int(start), int(end) + 1))
+    elif ":" in devices:  # multiple specific GPUs
+        device_indices = [int(x) for x in devices.split(":")]
+    else:  # single GPU
+        device_indices = [int(devices)]
+
+    # Validate indices
+    max_index = len(all_gpus) - 1
+    invalid = [i for i in device_indices if i < 0 or i > max_index]
+    if invalid:
+        raise ValueError(f"Invalid GPU indices {invalid}. Available range: 0-{max_index}")
+
+    # Filter GPU list
+    filtered_gpus = [gpu for gpu in all_gpus if gpu["index"] in device_indices]
+    return filtered_gpus
+
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Enums
+# ----------------------------------------------------------------------------------------------------------------------------
+
+from enum import StrEnum, auto
+
+
+class TargetTypes(StrEnum):
+    REGRESSION = auto()
+    BINARY_CLASSIFICATION = auto()
+
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Inits
+# ----------------------------------------------------------------------------------------------------------------------------
+
+import sklearn
+
+sklearn.set_config(transform_output="pandas")  # need this for val_df = pre_pipeline.transform(val_df) to work for SimpleImputer
+
+CUDA_IS_AVAILABLE = is_cuda_available()
+MODELS_SUBDIR = "models"
+PARQUET_COMPRESION: str = "zstd"
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Constants
+# ----------------------------------------------------------------------------------------------------------------------------
+
+GPU_VRAM_SAFE_SATURATION_LIMIT: float = 0.9
+GPU_VRAM_SAFE_FREE_LIMIT_GB: float = 0.1
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Classes
+# ----------------------------------------------------------------------------------------------------------------------------
+
+
+class FeaturesAndTargetsExtractor:
+    """Class that prepares a dataframe before actual ML starts."""
+
+    def __init__(
+        self,
+        ts_field: str = None,
+        datetime_features: dict = None,
+        group_field: str = None,
+        columns_to_drop: set = None,
+        allowed_targets: Iterable = None,
+        verbose: int = 0,
+    ):
+
+        params = get_parent_func_args()
+        store_params_in_object(obj=self, params=params)
+
+        if self.columns_to_drop is None:
+            self.columns_to_drop = set()
+
+    def add_features(self, df: Union[pd.DataFrame, pl.DataFrame]) -> Union[pd.DataFrame, pl.DataFrame]:
+        return df
+
+    def build_targets(self, df: Union[pd.DataFrame, pl.DataFrame]) -> dict:
+        return {}
+
+    def show_raw_data(self, df: Union[pd.DataFrame, pl.DataFrame]) -> None:
+
+        info = get_dataframe_info(df)
+        print("Raw data:")
+        print(info)
+
+    def show_processed_data(self, df: Union[pd.DataFrame, pl.DataFrame], target_by_type: dict) -> None:
+        print("Processed data:")
+        showcase_features_and_targets(df, target_by_type)
+        log_ram_usage()
+
+    def prepare_artifacts(self, df: Union[pd.DataFrame, pl.DataFrame]):
+        return {}
+
+    def get_sample_weights(self, df: Union[pd.DataFrame, pl.DataFrame], timestamps: pd.Series = None) -> dict:
+        """Return dict of {weight_name: np.ndarray}. Override in subclasses for custom weights.
+
+        Args:
+            df: The dataframe
+            timestamps: Timestamp series if available (from ts_field)
+
+        Returns:
+            Dict mapping weight schema names to weight arrays. Empty dict = uniform weights only.
+        """
+        return {}
+
+    def transform(self, df: Union[pd.DataFrame, pl.DataFrame]) -> tuple:
+        # convert_float64_to_float32(df)  # Uncomment if needed
+
+        self.show_raw_data(df)
+
+        if self.verbose:
+            logger.info(f"build_targets...")
+        target_by_type = self.build_targets(df)
+        if self.verbose:
+            log_ram_usage()
+
+        if self.ts_field:
+            timestamps = df[self.ts_field]
+            if isinstance(timestamps, pl.Series):
+                timestamps = timestamps.to_pandas()
+        else:
+            timestamps = None
+
+        group_ids_raw = None
+        group_ids = None
+        if self.group_field and self.group_field in df:
+            group_ids_raw = df[self.group_field]
+            group_ids_raw_np = group_ids_raw.to_numpy() if isinstance(group_ids_raw, pl.Series) else group_ids_raw.values
+            unique_vals, group_ids = np.unique(group_ids_raw_np, return_inverse=True)
+
+        artifacts = self.prepare_artifacts(df)
+
+        df = self.add_features(df)
+        if self.verbose:
+            logger.info(f"After add_features")
+            log_ram_usage()
+
+        # Only show visualizations for verbose >= 2 (histograms are slow)
+        if self.verbose >= 2:
+            self.show_processed_data(df, target_by_type)
+            if self.columns_to_drop or self.datetime_features:
+                pass  # clean_ram()
+
+            if self.verbose:
+                logger.info(f"After show_processed_data")
+                log_ram_usage()
+
+        # Build sample_weights dict - subclasses can override get_sample_weights()
+        sample_weights = self.get_sample_weights(df, timestamps)
+
+        return df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, self.columns_to_drop, sample_weights
+
+
+class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
+    def __init__(
+        self,
+        ts_field: str = None,
+        datetime_features: dict = None,
+        group_field: str = None,
+        columns_to_drop: set = None,
+        allowed_targets: Iterable = None,
+        verbose: int = 0,
+        #
+        regression_targets: Iterable = None,
+        classification_targets: Iterable = None,
+        classification_exact_values: dict = None,
+        classification_thresholds: dict = None,
+    ):
+        super().__init__(ts_field=ts_field, datetime_features=datetime_features, group_field=group_field, columns_to_drop=columns_to_drop, verbose=verbose)
+
+        self.regression_targets = regression_targets
+        self.classification_targets = classification_targets
+        self.classification_thresholds = classification_thresholds
+        self.classification_exact_values = classification_exact_values
+
+    def build_targets(self, df: Union[pd.DataFrame, pl.DataFrame]) -> dict:
+        target_by_type = {}
+        is_pandas = isinstance(df, pd.DataFrame)
+        is_polars = isinstance(df, pl.DataFrame)
+
+        if self.classification_targets:
+            targets = {}
+            for col in self.classification_targets:
+                if self.classification_thresholds and col in self.classification_thresholds:
+                    thresh_val = self.classification_thresholds[col]
+                    target_name = f"{col}_above_{thresh_val}"
+                    if is_pandas:
+                        targets[target_name] = (df[col] >= thresh_val).astype(np.int8)
+                    elif is_polars:
+                        targets[target_name] = (df[col] >= thresh_val).cast(pl.Int8)
+                elif self.classification_exact_values and col in self.classification_exact_values:
+                    exact_val = self.classification_exact_values[col]
+                    target_name = f"{col}_eq_{exact_val}"
+                    if is_pandas:
+                        targets[target_name] = (df[col] == exact_val).astype(np.int8)
+                    elif is_polars:
+                        targets[target_name] = (df[col] == exact_val).cast(pl.Int8)
+                else:
+                    target_name = col
+                    if is_pandas:
+                        targets[target_name] = df[col].astype(np.int8)
+                    elif is_polars:
+                        targets[target_name] = df[col].cast(pl.Int8)
+                self.columns_to_drop.add(col)
+
+            intize_targets(targets)
+            target_by_type[TargetTypes.BINARY_CLASSIFICATION] = targets
+
+        if self.regression_targets:
+            targets = {}
+            for col in self.regression_targets:
+                targets[col] = df[col]
+                self.columns_to_drop.add(col)
+            target_by_type[TargetTypes.REGRESSION] = targets
+
+        return target_by_type
+
+    def get_sample_weights(self, df: Union[pd.DataFrame, pl.DataFrame], timestamps: pd.Series = None) -> dict:
+        """Return recency-based sample weights if timestamps are available."""
+        if timestamps is None:
+            return {}
+
+        weights = {}
+        # Add recency-based weights if timestamps available
+        weights["recency"] = get_sample_weights_by_recency(timestamps)
+        return weights
+
+
+# --------- -------------------------------------------------------------------------------------------------------------------
+# Custom Error Metrics & training configs
+# ----------------------------------------------------------------------------------------------------------------------------
+
+
+def get_training_configs(
+    iterations: int = 5000,
+    early_stopping_rounds: int = 0,
+    validation_fraction: float = 0.1,
+    use_explicit_early_stopping: bool = True,
+    has_time: bool = True,
+    has_gpu: bool = None,
+    subgroups: dict = None,
+    learning_rate: float = 0.1,
+    def_regr_metric: str = "MAE",
+    def_classif_metric: str = "AUC",
+    catboost_custom_classif_metrics: Sequence = ["AUC", "BrierScore", "PRAUC"],
+    catboost_custom_regr_metrics: Sequence = ["RMSE", "MAPE"],
+    random_seed=None,
+    verbose: int = 0,
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # probabilistic errors
+    # ----------------------------------------------------------------------------------------------------------------------------
+    method: str = "multicrit",
+    mae_weight: float = 3,
+    std_weight: float = 2,
+    roc_auc_weight: float = 1.5,
+    pr_auc_weight: float = 0.1,
+    brier_loss_weight: float = 0.4,
+    min_roc_auc: float = 0.54,
+    roc_auc_penalty: float = 0.00,
+    use_weighted_calibration: bool = True,
+    weight_by_class_npositives: bool = False,
+    nbins: int = 10,
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # robustness parameters for early stopping metric
+    # ----------------------------------------------------------------------------------------------------------------------------
+    robustness_num_ts_splits: int = 0,  # 0 = disabled, >0 = number of consecutive time splits
+    robustness_std_coeff: float = 0.1,  # multiplier for std penalty
+    robustness_greater_is_better: bool = False,  # False for ICE (lower is better)
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # model-specific params
+    # ----------------------------------------------------------------------------------------------------------------------------
+    cb_kwargs: dict = None,
+    hgb_kwargs: dict = None,
+    lgb_kwargs: dict = None,
+    xgb_kwargs: dict = None,
+    mlp_kwargs: dict = None,
+    ngb_kwargs: dict = None,
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # featureselectors
+    # ----------------------------------------------------------------------------------------------------------------------------
+    rfecv_kwargs: dict = None,
+) -> tuple:
+    """Returns comparable training configs for different types of models,
+    based on general params supplied like learning rate, task type, time budget.
+    Useful for more or less fair comparison between different models on the same data/task, and their upcoming ensembling.
+    This procedure is good for getting the feeling of what ML models are capable of for a particular task.
+    """
+
+    if has_gpu is None:
+        has_gpu = CUDA_IS_AVAILABLE
+
+    if cb_kwargs is None:
+        cb_kwargs = dict(verbose=0)
+    if lgb_kwargs is None:
+        lgb_kwargs = dict(verbose=-1)
+    if xgb_kwargs is None:
+        xgb_kwargs = dict(verbosity=0)
+    if hgb_kwargs is None:
+        hgb_kwargs = dict(verbose=0)
+    if mlp_kwargs is None:
+        mlp_kwargs = dict()
+    if ngb_kwargs is None:
+        ngb_kwargs = dict(verbose=True)
+
+    if not early_stopping_rounds:
+        early_stopping_rounds = max(2, iterations // 3)
+
+    def neg_ovr_roc_auc_score(*args, **kwargs):
+        return -roc_auc_score(*args, **kwargs, multi_class="ovr")
+
+    CB_GENERAL_PARAMS = dict(
+        iterations=iterations,
+        has_time=has_time,
+        learning_rate=learning_rate,
+        eval_fraction=(0.0 if use_explicit_early_stopping else validation_fraction),
+        task_type=cb_kwargs.pop("task_type", "GPU" if has_gpu else "CPU"),  # Pop from kwargs if present
+        early_stopping_rounds=early_stopping_rounds,
+        random_seed=random_seed,
+        **cb_kwargs,
+    )
+
+    CB_CLASSIF = CB_GENERAL_PARAMS.copy()
+    CB_CLASSIF.update({"eval_metric": def_classif_metric, "custom_metric": catboost_custom_classif_metrics})
+
+    CB_REGR = CB_GENERAL_PARAMS.copy()
+    CB_REGR.update({"eval_metric": def_regr_metric, "custom_metric": catboost_custom_regr_metrics})
+
+    HGB_GENERAL_PARAMS = dict(
+        max_iter=iterations,
+        learning_rate=learning_rate,
+        early_stopping=True,
+        validation_fraction=(None if use_explicit_early_stopping else validation_fraction),
+        n_iter_no_change=early_stopping_rounds,
+        categorical_features="from_dtype",
+        random_state=random_seed,
+        **hgb_kwargs,
+    )
+
+    XGB_GENERAL_PARAMS = dict(
+        n_estimators=iterations,
+        learning_rate=learning_rate,
+        enable_categorical=True,
+        max_cat_to_onehot=1,
+        max_cat_threshold=100,  # affects model size heavily when high cardinality cat features r present!
+        tree_method="hist",
+        device=xgb_kwargs.pop("device", "cuda" if has_gpu else "cpu"),  # Pop from kwargs if present
+        n_jobs=psutil.cpu_count(logical=False),
+        early_stopping_rounds=early_stopping_rounds,
+        random_seed=random_seed,
+        **xgb_kwargs,
+    )
+
+    XGB_GENERAL_CLASSIF = XGB_GENERAL_PARAMS.copy()
+    XGB_GENERAL_CLASSIF.update({"objective": "binary:logistic", "eval_metric": neg_ovr_roc_auc_score})
+
+    def integral_calibration_error(y_true, y_score, verbose: bool = False):
+
+        err = compute_probabilistic_multiclass_error(
+            y_true=y_true,
+            y_score=y_score,
+            method=method,
+            mae_weight=mae_weight,
+            std_weight=std_weight,
+            brier_loss_weight=brier_loss_weight,
+            roc_auc_weight=roc_auc_weight,
+            pr_auc_weight=pr_auc_weight,
+            min_roc_auc=min_roc_auc,
+            roc_auc_penalty=roc_auc_penalty,
+            use_weighted_calibration=use_weighted_calibration,
+            weight_by_class_npositives=weight_by_class_npositives,
+            nbins=nbins,
+            verbose=verbose,
+        )
+        if verbose:
+            print(len(y_true), "integral_calibration_error=", err)
+        return err
+
+    def make_robust_ts_metric(
+        metric_fn,
+        num_splits: int,
+        std_coeff: float,
+        greater_is_better: bool,
+        min_samples_per_split: int = 100,
+        ensure_enough_classes: bool = False,
+        verbose: int = 0,
+    ):
+        """Wrap a metric to evaluate across consecutive time splits.
+
+        Returns mean(metric_values) ± std(metric_values) * std_coeff
+        where ± is + if greater_is_better=False (penalize variance for minimization)
+              and - if greater_is_better=True (penalize variance for maximization)
+        """
+
+        def robust_metric(y_true: np.ndarray, y_score: np.ndarray, *args, **kwargs):
+            n = len(y_true)
+
+            # Fallback 1: Not enough data for any splits
+            if n < min_samples_per_split:
+                if verbose:
+                    logger.info(f"make_robust_ts_metric: n={n} < min_samples_per_split={min_samples_per_split}, using full data")
+                return metric_fn(y_true, y_score, *args, **kwargs)
+
+            # Compute actual number of splits we can do
+            actual_splits = min(num_splits, n // min_samples_per_split)
+
+            # Fallback 2: Can only do 1 split
+            if actual_splits <= 1:
+                if verbose:
+                    logger.info(f"make_robust_ts_metric: actual_splits={actual_splits} <= 1, using full data")
+                return metric_fn(y_true, y_score, *args, **kwargs)
+
+            # Split into consecutive intervals
+            split_size = n // actual_splits
+            values = []
+
+            for i in range(actual_splits):
+                start_idx = i * split_size
+                end_idx = (i + 1) * split_size if i < actual_splits - 1 else n
+
+                y_true_split = y_true[start_idx:end_idx]
+                y_score_split = y_score[start_idx:end_idx]
+
+                # Skip split if not enough samples
+                if len(y_true_split) < min_samples_per_split:
+                    if verbose:
+                        logger.info(f"make_robust_ts_metric: split {i} skipped, len={len(y_true_split)} < {min_samples_per_split}")
+                    continue
+
+                # Skip split if single class (classification only)
+                if ensure_enough_classes and len(np.unique(y_true_split)) < 2:
+                    if verbose:
+                        logger.info(f"make_robust_ts_metric: split {i} skipped, single class in y_true")
+                    continue
+
+                val = metric_fn(y_true_split, y_score_split, *args, **kwargs)
+                if not np.isnan(val):
+                    values.append(val)
+
+            # Fallback 3: No valid splits computed
+            if len(values) == 0:
+                if verbose:
+                    logger.info("make_robust_ts_metric: no valid splits, using full data")
+                return metric_fn(y_true, y_score, *args, **kwargs)
+
+            # Fallback 4: Only one valid split
+            if len(values) == 1:
+                if verbose:
+                    logger.info(f"make_robust_ts_metric: only 1 valid split, returning {values[0]:.6f}")
+                return values[0]
+
+            mean_val = np.mean(values)
+            std_val = np.std(values)
+
+            if verbose:
+                logger.info(f"make_robust_ts_metric: {len(values)} splits, mean={mean_val:.6f}, std={std_val:.6f}")
+
+            # Penalize high variance
+            if greater_is_better:
+                # For maximization: subtract std penalty (lower result = worse)
+                return mean_val - std_val * std_coeff
+            else:
+                # For minimization: add std penalty (higher result = worse)
+                return mean_val + std_val * std_coeff
+
+        return robust_metric
+
+    if subgroups:
+
+        def final_integral_calibration_error(y_true: np.ndarray, y_score: np.ndarray, *args, **kwargs):  # partial won't work with xgboost
+            return robust_mlperf_metric(
+                y_true,
+                y_score,
+                *args,
+                metric=integral_calibration_error,
+                higher_is_better=False,
+                subgroups=subgroups,
+                **kwargs,
+            )
+
+    else:
+        final_integral_calibration_error = integral_calibration_error
+
+    # Apply robustness wrapper if enabled
+    if robustness_num_ts_splits > 0:
+        final_integral_calibration_error = make_robust_ts_metric(
+            final_integral_calibration_error,
+            num_splits=robustness_num_ts_splits,
+            std_coeff=robustness_std_coeff,
+            greater_is_better=robustness_greater_is_better,
+            ensure_enough_classes=True,  # ICE is for classification
+            verbose=verbose,
+        )
+
+    def fs_and_hpt_integral_calibration_error(*args, verbose: bool = True, **kwargs):
+        err = compute_probabilistic_multiclass_error(
+            *args,
+            **kwargs,
+            mae_weight=mae_weight,
+            std_weight=std_weight,
+            brier_loss_weight=brier_loss_weight,
+            roc_auc_weight=roc_auc_weight,
+            pr_auc_weight=pr_auc_weight,
+            min_roc_auc=min_roc_auc,
+            roc_auc_penalty=roc_auc_penalty,
+            use_weighted_calibration=use_weighted_calibration,
+            weight_by_class_npositives=weight_by_class_npositives,
+            nbins=nbins,
+            verbose=verbose,
+        )
+        return err
+
+    XGB_CALIB_CLASSIF = XGB_GENERAL_CLASSIF.copy()
+    XGB_CALIB_CLASSIF.update({"eval_metric": final_integral_calibration_error})
+
+    def lgbm_integral_calibration_error(y_true, y_score):
+        metric_name = "integral_calibration_error"
+        value = final_integral_calibration_error(y_true, y_score)
+        higher_is_better = False
+        return metric_name, value, higher_is_better
+
+    CB_CALIB_CLASSIF = CB_CLASSIF.copy()
+    CB_CALIB_CLASSIF.update({"eval_metric": ICE(metric=final_integral_calibration_error, higher_is_better=False, max_arr_size=0)})
+
+    LGB_GENERAL_PARAMS = dict(
+        n_estimators=iterations,
+        early_stopping_rounds=early_stopping_rounds,
+        device_type=lgb_kwargs.pop("device_type", "cuda" if has_gpu else "cpu"),  # Pop from kwargs if present
+        random_state=random_seed,
+        # histogram_pool_size=16384,
+        **lgb_kwargs,
+    )
+    """device_type 🔗︎, default = cpu, type = enum, options: cpu, gpu, cuda, aliases: device
+
+    device for the tree learning
+
+    cpu supports all LightGBM functionality and is portable across the widest range of operating systems and hardware
+
+    cuda offers faster training than gpu or cpu, but only works on GPUs supporting CUDA
+
+    gpu can be faster than cpu and works on a wider range of GPUs than CUDA
+
+    Note: it is recommended to use the smaller max_bin (e.g. 63) to get the better speed up"""
+
+    # XGB_CALIB_CLASSIF_CPU.update({"device": "cpu","n_jobs":psutil.cpu_count(logical=False)})
+
+    NGB_GENERAL_PARAMS = dict(
+        n_estimators=iterations,
+        learning_rate=learning_rate,
+        **ngb_kwargs,
+    )
+
+    mlp_trainer_params: dict = dict(
+        devices=1,  # Always use single device by default to avoid multi-GPU complexity
+        # ----------------------------------------------------------------------------------------------------------------------
+        # Runtime:
+        # ----------------------------------------------------------------------------------------------------------------------
+        min_epochs=1,
+        max_epochs=iterations,
+        max_time={"days": 0, "hours": 0, "minutes": 30},
+        # max_steps=1,
+        # ----------------------------------------------------------------------------------------------------------------------
+        # Intervals:
+        # ----------------------------------------------------------------------------------------------------------------------
+        check_val_every_n_epoch=1,
+        # val_check_interval=val_check_interval,
+        # log_every_n_steps=log_every_n_steps,
+        # ----------------------------------------------------------------------------------------------------------------------
+        # Flags:
+        # ----------------------------------------------------------------------------------------------------------------------
+        enable_model_summary=False,
+        gradient_clip_val=1.0,
+        gradient_clip_algorithm="norm",
+        accumulate_grad_batches=2,
+        # ----------------------------------------------------------------------------------------------------------------------
+        # Precision & accelerators:
+        # ----------------------------------------------------------------------------------------------------------------------
+        precision="32-true",
+        # test "16-true" and "bf16-true"? # With true 16-bit precision you can additionally lower your memory consumption by up to half so that you can train and deploy larger models. However, this setting can sometimes lead to unstable training.
+        # BFloat16 Mixed precision is similar to FP16 mixed precision, however, it maintains more of the “dynamic range” that FP32 offers. This means it is able to improve numerical stability than FP16 mixed precision.
+        # accelerator="cuda",  # devices=find_usable_cuda_devices(2)
+        # accelerator="ddp_spawn",plugins=DDPPlugin(find_unused_parameters=False),
+        num_nodes=1,
+        # ----------------------------------------------------------------------------------------------------------------------
+        # Logging:
+        # ----------------------------------------------------------------------------------------------------------------------
+        default_root_dir="logs",
+        # logger=tb_logger,
+    )
+
+    if mlp_kwargs:
+        mlp_trainer_params.update(mlp_kwargs.get("trainer_params", {}))
+
+    # Default loss function and dtype (classification)
+    # Note: Actual loss function should be set by PytorchLightningRegressor/Classifier wrappers
+    loss_fn = F.cross_entropy
+    labels_dtype = torch.int64
+
+    mlp_model_params = dict(
+        loss_fn=loss_fn,
+        learning_rate=1e-3,
+        l1_alpha=0.0,
+        optimizer=torch.optim.AdamW,
+        optimizer_kwargs={},
+        lr_scheduler=None,
+        lr_scheduler_kwargs={},
+    )
+    if mlp_kwargs:
+        mlp_model_params.update(mlp_kwargs.get("model_params", {}))
+
+    mlp_dataloader_params = dict(
+        sampler=None,
+        batch_sampler=None,
+        num_workers=0,  # min(8, psutil.cpu_count(logical=False)),
+        # collate_fn=custom_collate_fn,  # required for __getitems__ to work in TorchDataset down the road
+        drop_last=False,  # drop_last=True to avoid recompilations . BUT: ValueError: batch_size=None option disables auto-batching and is mutually exclusive with drop_last
+        timeout=0,
+        worker_init_fn=None,
+        prefetch_factor=None,
+        persistent_workers=False,  # ValueError: persistent_workers option needs num_workers > 0
+        batch_size=1024,
+        shuffle=False,
+    )
+    if mlp_kwargs:
+        mlp_dataloader_params.update(mlp_kwargs.get("dataloader_params", {}))
+
+    mlp_datamodule_params = dict(
+        read_fcn=None, data_placement_device=None, features_dtype=torch.float32, labels_dtype=labels_dtype, dataloader_params=mlp_dataloader_params
+    )
+    if mlp_kwargs:
+        mlp_datamodule_params.update(mlp_kwargs.get("datamodule_params", {}))
+
+    MLP_GENERAL_PARAMS = dict(
+        model_class=MLPTorchModel,
+        model_params=mlp_model_params,
+        datamodule_class=TorchDataModule,
+        datamodule_params=mlp_datamodule_params,  # includes dataloader_params
+        trainer_params=mlp_trainer_params,
+        use_swa=mlp_kwargs.get("use_swa", False),
+        swa_params=mlp_kwargs.get("swa_params", dict(swa_epoch_start=5, annealing_epochs=5, swa_lrs=1e-4)),
+        tune_params=mlp_kwargs.get("tune_params", False),
+        float32_matmul_precision=mlp_kwargs.get("float32_matmul_precision", None),
+        early_stopping_rounds=early_stopping_rounds,
+    )
+
+    if rfecv_kwargs is None:
+        rfecv_kwargs = {}
+
+    cv = rfecv_kwargs.get("cv")
+    if not cv:
+        if has_time:
+            cv = TimeSeriesSplit(n_splits=rfecv_kwargs.get("cv_n_splits", 3))
+            logger.info(f"Using TimeSeriesSplit for RFECV...")
+        else:
+            cv = None
+        rfecv_kwargs["cv"] = cv
+
+    if "cv_n_splits" in rfecv_kwargs:
+        del rfecv_kwargs["cv_n_splits"]
+
+    COMMON_RFECV_PARAMS = dict(
+        early_stopping_rounds=early_stopping_rounds,
+        cv=cv,
+        cv_shuffle=not has_time,
+    )
+    COMMON_RFECV_PARAMS.update(rfecv_kwargs)
+
+    return SimpleNamespace(
+        integral_calibration_error=integral_calibration_error,
+        final_integral_calibration_error=final_integral_calibration_error,
+        lgbm_integral_calibration_error=lgbm_integral_calibration_error,
+        fs_and_hpt_integral_calibration_error=fs_and_hpt_integral_calibration_error,
+        CB_GENERAL_PARAMS=CB_GENERAL_PARAMS,
+        CB_REGR=CB_REGR,
+        CB_CLASSIF=CB_CLASSIF,
+        CB_CALIB_CLASSIF=CB_CALIB_CLASSIF,
+        HGB_GENERAL_PARAMS=HGB_GENERAL_PARAMS,
+        LGB_GENERAL_PARAMS=LGB_GENERAL_PARAMS,
+        XGB_GENERAL_PARAMS=XGB_GENERAL_PARAMS,
+        XGB_GENERAL_CLASSIF=XGB_GENERAL_CLASSIF,
+        XGB_CALIB_CLASSIF=XGB_CALIB_CLASSIF,
+        COMMON_RFECV_PARAMS=COMMON_RFECV_PARAMS,
+        MLP_GENERAL_PARAMS=MLP_GENERAL_PARAMS,
+        NGB_GENERAL_PARAMS=NGB_GENERAL_PARAMS,
+    )
+
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Outliers detection
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+def get_trainset_features_stats(train_df: pd.DataFrame, max_ncats_to_track: int = 1000) -> dict:
+    """Computes ranges of numerical and categorical variables"""
+    res = {}
+    num_cols = get_numeric_columns(train_df)
+    if num_cols:
+        if len(num_cols) == train_df.shape[1]:
+            res["min"] = train_df.min(axis=0)
+            res["max"] = train_df.max(axis=0)
+        else:
+            # TypeError: Categorical is not ordered for operation min. you can use .as_ordered() to change the Categorical to an ordered one.
+            res["min"] = pd.Series({col: train_df[col].min() for col in num_cols})
+            res["max"] = pd.Series({col: train_df[col].max() for col in num_cols})
+
+    cat_cols = get_categorical_columns(train_df, include_string=False)
+    if cat_cols:
+        cat_vals = {}
+        for col in tqdmu(cat_cols, desc="cat vars stats", leave=False):
+            unique_vals = train_df[col].unique()
+            if not max_ncats_to_track or (len(unique_vals) <= max_ncats_to_track):
+                cat_vals[col] = unique_vals
+        res["cat_vals"] = cat_vals
+    return res
+
+
+def get_trainset_features_stats_polars(train_df: pl.DataFrame, max_ncats_to_track: int = 1000) -> dict:
+    """Computes ranges of numerical and categorical variables using Polars.
+
+    Uses lazy mode and selectors for parallel computation.
+
+    Args:
+        train_df: Polars DataFrame
+        max_ncats_to_track: Max unique values to track for categorical columns
+
+    Returns:
+        dict with "min", "max" (as pd.Series) and "cat_vals" (dict of arrays)
+    """
+    import polars.selectors as cs
+
+    res = {}
+    lf = train_df.lazy()
+
+    # Compute numeric min/max and categorical n_unique in a single parallel select
+    stats = lf.select(
+        # Numeric: min and max
+        cs.numeric().min().name.suffix("__min"),
+        cs.numeric().max().name.suffix("__max"),
+        # Categorical: n_unique to filter before getting unique values
+        cs.by_dtype(pl.String, pl.Categorical).n_unique().name.suffix("__n_unique"),
+    ).collect()
+
+    # Extract numeric stats
+    if len(stats.columns) > 0:
+        mins = {}
+        maxs = {}
+        for col in stats.columns:
+            if col.endswith("__min"):
+                orig_col = col[:-5]
+                mins[orig_col] = stats[col][0]
+            elif col.endswith("__max"):
+                orig_col = col[:-5]
+                maxs[orig_col] = stats[col][0]
+
+        if mins:
+            res["min"] = pd.Series(mins)
+        if maxs:
+            res["max"] = pd.Series(maxs)
+
+    # Extract categorical columns that are under the threshold
+    cat_cols_to_fetch = []
+    for col in stats.columns:
+        if col.endswith("__n_unique"):
+            orig_col = col[:-10]
+            n_unique = stats[col][0]
+            if not max_ncats_to_track or n_unique <= max_ncats_to_track:
+                cat_cols_to_fetch.append(orig_col)
+
+    # Get unique values for qualifying categorical columns
+    if cat_cols_to_fetch:
+        cat_vals = {}
+        # Compute unique values in parallel using lazy mode
+        unique_exprs = [pl.col(c).unique().alias(c) for c in cat_cols_to_fetch]
+        unique_results = lf.select(unique_exprs).collect()
+        for col in cat_cols_to_fetch:
+            cat_vals[col] = unique_results[col].to_numpy()
+        res["cat_vals"] = cat_vals
+
+    return res
+
+
+# =====================================================================================================================
+# HELPER FUNCTIONS FOR train_and_evaluate_model
+# =====================================================================================================================
+
+
+def _setup_eval_set(
+    model_type_name: str,
+    fit_params: dict,
+    val_df: pd.DataFrame,
+    val_target: np.ndarray,
+    callback_params: dict = None,
+    model_obj: object = None,
+) -> None:
+    """
+    Configure eval_set/validation data for different model types.
+
+    Uses dispatch dict instead of if/elif chain for cleaner code.
+
+    Args:
+        model_type_name: Name of the model type (e.g., 'LGBMClassifier')
+        fit_params: Fit parameters dict to update in-place
+        val_df: Validation DataFrame
+        val_target: Validation target array
+        callback_params: Optional callback parameters for early stopping
+        model_obj: Model object (needed for XGBoost callback setup)
+    """
+    # Dispatch dict for eval_set parameter names and values
+    eval_set_configs = {
+        # (param_name, value_format): "tuple" or "list_of_tuples"
+        "lgbm": ("eval_set", "tuple"),
+        "hgboost": ("X_val", "separate"),  # Separate X_val and y_val
+        "ngboost": ("X_val", "separate_Y"),  # Separate X_val and Y_val (capital Y)
+        "catboost": ("eval_set", "list_of_tuples"),
+        "xgboost": ("eval_set", "list_of_tuples"),
+        "tabnet": ("eval_set", "list_of_tuples_values"),  # Need .values
+        "pytorch": ("eval_set", "tuple"),
+    }
+
+    # Determine model category
+    model_category = None
+    model_type_lower = model_type_name.lower()
+    for key in eval_set_configs:
+        if key in model_type_lower:
+            model_category = key
+            break
+
+    if model_category is None:
+        return  # Unknown model type, don't set eval_set
+
+    param_name, value_format = eval_set_configs[model_category]
+
+    # Set eval_set based on format
+    if value_format == "tuple":
+        fit_params[param_name] = (val_df, val_target)
+    elif value_format == "list_of_tuples":
+        fit_params[param_name] = [(val_df, val_target)]
+    elif value_format == "list_of_tuples_values":
+        fit_params[param_name] = [(val_df.values, val_target.values if hasattr(val_target, 'values') else val_target)]
+    elif value_format == "separate":
+        fit_params["X_val"] = val_df
+        fit_params["y_val"] = val_target
+    elif value_format == "separate_Y":
+        fit_params["X_val"] = val_df
+        fit_params["Y_val"] = val_target
+
+    # Handle callbacks for early stopping
+    if callback_params:
+        _setup_early_stopping_callback(model_category, fit_params, callback_params, model_obj)
+
+
+def _setup_early_stopping_callback(
+    model_category: str,
+    fit_params: dict,
+    callback_params: dict,
+    model_obj: object = None,
+) -> None:
+    """
+    Set up early stopping callback for the given model category.
+
+    Args:
+        model_category: Model category (lgbm, catboost, xgboost, etc.)
+        fit_params: Fit parameters dict to update
+        callback_params: Callback parameters
+        model_obj: Model object (needed for XGBoost)
+    """
+    # Models that don't use callbacks list
+    no_callback_list_models = {"xgboost", "hgboost", "ngboost"}
+
+    if model_category not in no_callback_list_models:
+        if "callbacks" not in fit_params:
+            fit_params["callbacks"] = []
+
+    if model_category == "lgbm":
+        es_callback = LightGBMCallback(**callback_params)
+        fit_params["callbacks"].append(es_callback)
+    elif model_category == "catboost":
+        es_callback = CatBoostCallback(**callback_params)
+        fit_params["callbacks"].append(es_callback)
+    elif model_category == "xgboost" and model_obj is not None:
+        es_callback = XGBoostCallback(**callback_params)
+        callbacks = model_obj.get_params().get("callbacks", [])
+        if callbacks is None:
+            callbacks = []
+        if es_callback not in callbacks:
+            callbacks.append(es_callback)
+        model_obj.set_params(callbacks=callbacks)
+    # hgboost and ngboost don't use custom callbacks
+
+
+def _train_model_with_fallback(
+    model: object,
+    model_obj: object,
+    model_type_name: str,
+    train_df: pd.DataFrame,
+    train_target: np.ndarray,
+    fit_params: dict,
+    verbose: bool = False,
+) -> Tuple[object, Optional[int]]:
+    """
+    Train model with automatic GPU->CPU fallback on OOM errors.
+
+    Handles common GPU out-of-memory scenarios by switching to CPU and retrying.
+
+    Args:
+        model: Model wrapper object
+        model_obj: Underlying model object (e.g., the actual CatBoostClassifier)
+        model_type_name: Name of the model type (e.g., 'CatBoostClassifier')
+        train_df: Training DataFrame
+        train_target: Training target array
+        fit_params: Fit parameters dict
+        verbose: Whether to log progress
+
+    Returns:
+        Tuple of (trained model, best_iteration or None)
+    """
+    try:
+        model.fit(train_df, train_target, **fit_params)
+    except Exception as e:
+        try_again = False
+        error_str = str(e)
+
+        # Handle CUDA out of memory errors
+        if "out of memory" in error_str:
+            try_again = _handle_oom_error(model_obj, model_type_name)
+
+        # Handle unsupported GPU callbacks
+        elif "User defined callbacks are not supported for GPU" in error_str:
+            if "callbacks" in fit_params:
+                logger.warning(e)
+                try_again = True
+                del fit_params["callbacks"]
+
+        # Handle LightGBM CUDA not enabled
+        elif "CUDA Tree Learner" in error_str:
+            logger.warning("CUDA is not enabled in this LightGBM build. Falling back to CPU.")
+            model.set_params(device_type="cpu")
+            try_again = True
+
+        if try_again:
+            clean_ram()
+            model.fit(train_df, train_target, **fit_params)
+        else:
+            raise e
+
+    clean_ram()
+
+    # Get best iteration if available
+    best_iter = None
+    if model is not None:
+        try:
+            best_iter = get_model_best_iter(model_obj)
+            if best_iter and verbose:
+                logger.info(f"es_best_iter: {best_iter:_}")
+        except Exception as e:
+            logger.warning(f"Could not get best iteration: {e}")
+
+    return model, best_iter
+
+
+def _handle_oom_error(model_obj: object, model_type_name: str) -> bool:
+    """
+    Handle GPU out-of-memory error by switching model to CPU.
+
+    Args:
+        model_obj: Underlying model object
+        model_type_name: Name of the model type
+
+    Returns:
+        True if model was switched to CPU and should retry, False otherwise
+    """
+    if model_type_name in XGBOOST_MODEL_TYPES:
+        if model_obj.get_params().get("device") in ("gpu", "cuda"):
+            model_obj.set_params(device="cpu")
+            logger.warning(f"{model_type_name} experienced OOM on gpu, switching to cpu...")
+            return True
+    elif model_type_name in CATBOOST_MODEL_TYPES:
+        if model_obj.get_params().get("task_type") == "GPU":
+            model_obj.set_params(task_type="CPU")
+            logger.warning(f"{model_type_name} experienced OOM on gpu, switching to cpu...")
+            return True
+    elif model_type_name in LGBM_MODEL_TYPES:
+        if model_obj.get_params().get("device_type") in ("gpu", "cuda"):
+            model_obj.set_params(device_type="cpu")
+            logger.warning(f"{model_type_name} experienced OOM on gpu, switching to cpu...")
+            return True
+    return False
+
+
+def _filter_categorical_features(fit_params: dict, train_df: Union[pd.DataFrame, pl.DataFrame]) -> None:
+    """
+    Filter cat_features to only include actual categorical columns in the DataFrame.
+
+    Modifies fit_params in place.
+
+    Args:
+        fit_params: Fit parameters dict containing cat_features
+        train_df: Training DataFrame to check columns against
+    """
+    if "cat_features" not in fit_params:
+        return
+
+    if isinstance(train_df, pd.DataFrame):
+        # Get categorical column names directly from dtypes
+        cat_columns = set(train_df.select_dtypes(["category", "object"]).columns)
+        fit_params["cat_features"] = [col for col in fit_params["cat_features"] if col in cat_columns]
+    elif isinstance(train_df, pl.DataFrame):
+        # Get categorical column names from Polars
+        cat_columns = set(train_df.select(pl.col(pl.Categorical)).columns)
+        fit_params["cat_features"] = [col for col in fit_params["cat_features"] if col in cat_columns]
+
+
+def compute_outlier_detector_score(df: pd.DataFrame, outlier_detector: object, columns: Sequence = None) -> np.ndarray:
+    is_inlier = outlier_detector.predict(
+        df.loc[:, columns]
+    )  # For each observation, model is expected to tell whether or not (+1 or -1) it should be considered as an inlier
+    return (is_inlier == -1).astype(int)  # converts 1 to 0 and -1 to 1, as we need to transform inliers to outliers
+
+
+@njit()
+def count_num_outofranges(vals: np.ndarray, extremums: np.ndarray, mode: str) -> np.ndarray:
+    if mode == "min":
+        return (vals < extremums).sum(axis=1)
+    elif mode == "max":
+        return (vals > extremums).sum(axis=1)
+
+
+def compute_naive_outlier_score(df: pd.DataFrame, trainset_features_stats: dict, columns: Sequence = None, dtype=np.float64) -> np.ndarray:
+    """Checks deviation from trainset_features_stats (% of features out of range, per observation/row)."""
+    scores = np.zeros(len(df), dtype=np.float64)
+    if "min" in trainset_features_stats:
+        if columns is None:
+            columns = df.columns
+        num_cols = get_numeric_columns(df)
+        columns = [col for col in columns if col in num_cols]
+        if columns:
+            tmp = df.loc[:, columns].values
+            mins = pd.Series(trainset_features_stats["min"]).loc[columns].values.astype(dtype)
+            maxs = pd.Series(trainset_features_stats["max"]).loc[columns].values.astype(dtype)
+
+            scores += (tmp < mins).sum(axis=1) / len(columns)
+            scores += (tmp > maxs).sum(axis=1) / len(columns)
+    return scores
+
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Core
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+def train_and_evaluate_model(
+    model: object,  # s
+    df: pd.DataFrame = None,
+    target: pd.Series = None,  # s
+    group_ids: np.ndarray = None,
+    outlier_detector: object = None,
+    od_val_set: bool = True,
+    train_od_idx: np.ndarray = None,  # Pre-computed from parent (outlier detection done once)
+    val_od_idx: np.ndarray = None,  # Pre-computed from parent
+    trainset_features_stats: dict = None,
+    sample_weight: pd.Series = None,
+    model_name: str = "",
+    model_name_prefix: str = "",
+    pre_pipeline: TransformerMixin = None,
+    skip_pre_pipeline_transform: bool = False,
+    fit_params: Optional[dict] = None,
+    drop_columns: list = None,
+    default_drop_columns: list = None,
+    target_label_encoder: Optional[LabelEncoder] = None,
+    train_df: pd.DataFrame = None,
+    test_df: pd.DataFrame = None,
+    val_df: pd.DataFrame = None,
+    train_target: pd.Series = None,
+    test_target: pd.Series = None,
+    val_target: pd.Series = None,
+    train_idx: Optional[np.ndarray] = None,
+    test_idx: Optional[np.ndarray] = None,
+    val_idx: Optional[np.ndarray] = None,
+    train_preds: Optional[np.ndarray] = None,
+    train_probs: Optional[np.ndarray] = None,
+    test_preds: Optional[np.ndarray] = None,
+    test_probs: Optional[np.ndarray] = None,
+    val_preds: Optional[np.ndarray] = None,
+    val_probs: Optional[np.ndarray] = None,
+    custom_ice_metric: Callable = None,
+    custom_rice_metric: Callable = None,
+    subgroups: dict = None,
+    figsize: tuple = (15, 5),
+    print_report: bool = True,
+    plot_file: str = "",
+    show_perf_chart: bool = True,
+    show_fi: bool = True,
+    fi_kwargs: dict = None,
+    use_cache: bool = False,
+    nbins: int = 10,
+    compute_trainset_metrics: bool = False,
+    compute_valset_metrics: bool = True,
+    compute_testset_metrics: bool = True,
+    data_dir: str = "",
+    models_subdir: str = MODELS_SUBDIR,
+    display_sample_size: int = 0,
+    show_feature_names: bool = False,
+    verbose: bool = False,
+    use_hpt: bool = False,
+    skip_infinity_checks: bool = False,
+    # confidence_analysis
+    include_confidence_analysis: bool = False,
+    confidence_analysis_use_shap: bool = True,
+    confidence_analysis_max_features: int = 6,
+    confidence_analysis_cmap: str = "bwr",
+    confidence_analysis_alpha: float = 0.9,
+    confidence_analysis_ylabel: str = "Feature value",
+    confidence_analysis_title: str = "Confidence of correct Test set predictions",
+    confidence_model_kwargs: dict = None,
+    #
+    train_details: str = "",
+    val_details: str = "",
+    test_details: str = "",
+    #
+    callback_params: dict = None,
+    just_evaluate: bool = False,
+):
+    """Trains & evaluates given model/pipeline on train/test sets.
+    Supports feature selection via pre_pipeline.
+    Supports early stopping via val_idx.
+    Optionally dumps resulting model & test set predictions into the models dir, and loads back by model name on the next call, to save time.
+    Example of real OD:
+        outlier_detector=Pipeline([("enc",ce.CatBoostEncoder()),("imp", SimpleImputer()), ("est", IsolationForest(contamination=0.01,n_estimators=500,n_jobs=-1))]))
+
+    train_idx etc indices must be fet to .iloc[] after, ie, be integer & unique
+
+    group_ids:np.ndarray used to compute per-group AUCs (useful in recsys tasks).
+    """
+
+    clean_ram()
+
+    # Initialize mutable default arguments
+    if drop_columns is None:
+        drop_columns = []
+    if default_drop_columns is None:
+        default_drop_columns = []
+    if fi_kwargs is None:
+        fi_kwargs = {}
+    if confidence_model_kwargs is None:
+        confidence_model_kwargs = {}
+
+    columns = []
+    best_iter = None
+
+    # Preserve original DataFrame references for return (in case no transformation happens)
+    _orig_train_df = train_df
+    _orig_val_df = val_df
+    _orig_test_df = test_df
+
+    if not skip_infinity_checks:
+        if df is not None:
+            ensure_no_infinity(df)
+        else:
+            if train_df is not None:
+                ensure_no_infinity(train_df)
+
+    if not custom_ice_metric:
+        custom_ice_metric = partial(compute_probabilistic_multiclass_error, nbins=nbins)
+
+    if df is not None:
+        real_drop_columns = [col for col in drop_columns + default_drop_columns if col in df.columns]
+    elif train_df is not None:
+        real_drop_columns = [col for col in drop_columns + default_drop_columns if col in train_df.columns]
+
+    if type(model).__name__ == "Pipeline":
+        model_obj = model.named_steps["est"]  # model.steps[-1]
+    else:
+        model_obj = model
+
+    if model_obj is not None:
+        if isinstance(model_obj, TransformedTargetRegressor):
+            model_obj = model_obj.regressor
+    model_type_name = type(model_obj).__name__ if model_obj is not None else ""
+
+    if plot_file:
+        if not plot_file.endswith(os.path.sep):
+            plot_file = plot_file + "_"
+        if model_name_prefix:
+            plot_file = plot_file + slugify(model_name_prefix) + " "  # for ensembles
+        if model_type_name:
+            plot_file = plot_file + slugify(model_type_name) + " "
+
+        plot_file = plot_file.strip()
+
+    if model_name_prefix:
+        model_name = model_name_prefix + model_name
+
+    if model_type_name not in model_name:
+        model_name = model_type_name + " " + model_name
+
+    ensure_dir_exists(join(data_dir, models_subdir))
+    model_file_name = join(data_dir, models_subdir, f"{model_name}.dump")
+
+    if use_cache and exists(model_file_name):
+        logger.info(f"Loading model from file {model_file_name}")
+        model, *_, pre_pipeline = joblib.load(model_file_name)
+
+    if fit_params is None:
+        fit_params = {}
+    else:
+        fit_params = copy.copy(fit_params)  # to modify cat_features later and not affect next models
+
+    train_od_idx, val_od_idx = None, None
+
+    if target is not None:
+        if train_target is None and (train_idx is not None):
+            train_target = (
+                target.iloc[train_idx] if isinstance(target, pd.Series) else (target.gather(train_idx) if isinstance(target, pl.Series) else target[train_idx])
+            )
+        if val_target is None and (val_idx is not None):
+            val_target = (
+                target.iloc[val_idx] if isinstance(target, pd.Series) else (target.gather(val_idx) if isinstance(target, pl.Series) else target[val_idx])
+            )
+        if test_target is None and (test_idx is not None):
+            test_target = (
+                target.iloc[test_idx] if isinstance(target, pd.Series) else (target.gather(test_idx) if isinstance(target, pl.Series) else target[test_idx])
+            )
+
+    if (df is not None) or (train_df is not None):
+        if isinstance(df, pd.DataFrame):
+            if train_df is None:
+                train_df = df.iloc[train_idx].drop(columns=real_drop_columns)
+            if val_df is None and val_idx is not None:
+                val_df = df.iloc[val_idx].drop(columns=real_drop_columns)
+        elif isinstance(df, pl.DataFrame):
+            if train_df is None:
+                train_df = df[train_idx].drop(real_drop_columns)
+            if val_df is None and val_idx is not None:
+                val_df = df[val_idx].drop(real_drop_columns)
+
+        if not trainset_features_stats:
+            if verbose:
+                logger.info("Computing trainset_features_stats...")
+            if isinstance(train_df, pl.DataFrame):
+                trainset_features_stats = get_trainset_features_stats_polars(train_df)
+            elif isinstance(train_df, pd.DataFrame):
+                trainset_features_stats = get_trainset_features_stats(train_df)
+
+        # -----------------------------------------------------------------------------------------------------------------------------------------------------
+        # Place to inject Outlier Detector [OD] here!
+        # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+        if outlier_detector is not None:
+            if verbose:
+                logger.info("Fitting outlier detector...")
+            outlier_detector.fit(train_df, train_target)
+            # train
+            is_inlier = outlier_detector.predict(train_df)
+            train_od_idx = is_inlier == 1
+            if train_od_idx.sum() < len(train_df):
+                logger.info(f"Outlier rejection: received {len(train_df):_} train samples, kept {train_od_idx.sum():_}.")
+                train_idx = train_idx[train_od_idx]
+                if train_df is not None:
+                    train_df = train_df.loc[train_od_idx, :]
+                    train_target = train_target.loc[train_od_idx]
+                elif train_idx is not None:
+                    if df is not None:
+                        train_df = df.iloc[train_idx].drop(columns=real_drop_columns)
+                    else:
+                        train_df = train_df.iloc[train_idx].drop(columns=real_drop_columns)
+                    train_target = target.iloc[train_idx]
+
+            # val
+            if val_df is not None and od_val_set:
+                is_inlier = outlier_detector.predict(val_df)
+                val_od_idx = is_inlier == 1
+                if val_od_idx.sum() < len(val_df):
+                    logger.info(f"Outlier rejection: received {len(val_df):_} val samples, kept {val_od_idx.sum():_}.")
+                    val_idx = val_idx[val_od_idx]
+                    if val_df is not None:
+                        val_df = val_df.loc[val_od_idx, :]
+                        val_target = val_target.loc[val_od_idx]
+                    elif val_idx is not None:
+                        if df is not None:
+                            val_df = df.iloc[val_idx].drop(columns=real_drop_columns)
+                        else:
+                            val_df = val_df.iloc[val_idx].drop(columns=real_drop_columns)
+                        val_target = target.iloc[val_idx]
+                clean_ram()
+
+    if model is not None and pre_pipeline:
+        if skip_pre_pipeline_transform:
+            # DataFrames already transformed externally, skip fit/transform
+            if verbose:
+                logger.info(f"Skipping pre_pipeline fit/transform (already transformed)")
+        elif use_cache and exists(model_file_name):
+            if verbose:
+                logger.info(f"Transforming train_df via pre_pipeline...")
+            train_df = pre_pipeline.transform(train_df, train_target)
+            _orig_train_df = train_df  # Update for return
+            if verbose:
+                log_ram_usage()
+        else:
+            train_df = pre_pipeline.fit_transform(train_df, train_target)
+            _orig_train_df = train_df  # Update for return
+
+        if not skip_pre_pipeline_transform and val_df is not None:
+            if verbose:
+                logger.info(f"Transforming val_df via pre_pipeline...")
+            val_df = pre_pipeline.transform(val_df)
+            _orig_val_df = val_df  # Update for return
+            if verbose:
+                log_ram_usage()
+        clean_ram()
+
+    if val_df is not None:
+        # Convert target to numpy if needed
+        if isinstance(val_target, pl.Series):
+            val_target = val_target.to_numpy()
+
+        # Setup eval_set for the model type using dispatch-based helper
+        _setup_eval_set(model_type_name, fit_params, val_df, val_target, callback_params, model_obj)
+        clean_ram()
+
+    if model is not None and fit_params:
+        # Filter cat_features to only include actual categorical columns
+        _filter_categorical_features(fit_params, train_df)
+
+    if model is not None:
+        if (not use_cache) or (not exists(model_file_name)):
+            if sample_weight is not None:
+                if "sample_weight" in get_function_param_names(model_obj.fit):
+                    # Handle both numpy arrays and pandas Series
+                    if isinstance(sample_weight, (pd.Series, pd.DataFrame)):
+                        if train_idx is not None:
+                            fit_params["sample_weight"] = sample_weight.iloc[train_idx].values
+                        else:
+                            fit_params["sample_weight"] = sample_weight.values
+                    else:
+                        # Assume numpy array or similar
+                        if train_idx is not None:
+                            fit_params["sample_weight"] = sample_weight[train_idx]
+                        else:
+                            fit_params["sample_weight"] = sample_weight
+            if verbose:
+                logger.info(f"{model_name} training dataset shape: {train_df.shape}")
+
+            if display_sample_size:
+                display(train_df.head(display_sample_size).style.set_caption(f"{model_name} features head"))
+                display(train_df.tail(display_sample_size).style.set_caption(f"{model_name} features tail"))
+
+            if train_df is not None:
+
+                report_title = f"Training {model_name} model on {train_df.shape[1]} feature(s)"  # textwrap.shorten("Hello world", width=10, placeholder="...")
+                if show_feature_names:
+                    report_title += ": " + ", ".join(train_df.columns.to_list())
+                report_title += f", {len(train_df):_} records"
+
+            if model_type_name in TABNET_MODEL_TYPES:
+                train_df = train_df.values
+
+            if fit_params and type(model).__name__ == "Pipeline":
+                fit_params = prefix_dict_elems(fit_params, "est__")
+
+            if use_hpt:
+
+                import optuna
+
+                def objective(trial):
+
+                    param = {
+                        "objective": trial.suggest_categorical("objective", ["Logloss", "CrossEntropy"]),
+                        "colsample_bylevel": trial.suggest_float("colsample_bylevel", 0.01, 0.1),
+                        "depth": trial.suggest_int("depth", 1, 12),
+                        "boosting_type": trial.suggest_categorical("boosting_type", ["Ordered", "Plain"]),
+                        "bootstrap_type": trial.suggest_categorical("bootstrap_type", ["Bayesian", "Bernoulli", "MVS"]),
+                    }
+
+                    if param["bootstrap_type"] == "Bayesian":
+                        param["bagging_temperature"] = trial.suggest_float("bagging_temperature", 0, 10)
+                    elif param["bootstrap_type"] == "Bernoulli":
+                        param["subsample"] = trial.suggest_float("subsample", 0.1, 1)
+
+                    tune_model = model.copy()
+                    tune_model.set_params(**param)
+
+                    clean_ram()
+                    tune_model.fit(train_df, train_target, **fit_params)
+                    clean_ram()
+
+                    temp_metrics = {}
+                    columns = val_df.columns
+                    tune_val_preds, tune_val_probs = report_model_perf(
+                        targets=val_target,
+                        columns=columns,
+                        df=val_df.values if model_type_name in TABNET_MODEL_TYPES else val_df,
+                        model_name="VAL " + model_name,
+                        model=tune_model,
+                        target_label_encoder=target_label_encoder,
+                        preds=val_preds,
+                        probs=val_probs,
+                        figsize=figsize,
+                        report_title="",
+                        nbins=nbins,
+                        print_report=False,
+                        show_perf_chart=False,
+                        show_fi=False,
+                        fi_kwargs=fi_kwargs,
+                        subgroups=subgroups,
+                        subset_index=val_idx,
+                        custom_ice_metric=custom_ice_metric,
+                        custom_rice_metric=custom_rice_metric,
+                        metrics=temp_metrics,
+                    )
+                    return temp_metrics[1]["class_robust_integral_error"]
+
+                study = optuna.create_study(direction="minimize")
+                study.optimize(objective, n_trials=100, timeout=60 * 60)
+
+                print("Number of finished trials: {}".format(len(study.trials)))
+
+                print("Best trial:")
+                trial = study.best_trial
+
+                print("  Value: {}".format(trial.value))
+
+                print("  Params: ", trial.params)
+                model.set_params(**trial.params)
+
+            clean_ram()
+            if verbose:
+                logger.info("Training the model...")
+
+            # Convert target to numpy if needed
+            if isinstance(train_target, pl.Series):
+                train_target = train_target.to_numpy()
+
+            if not just_evaluate:
+                model, best_iter = _train_model_with_fallback(
+                    model=model,
+                    model_obj=model_obj,
+                    model_type_name=model_type_name,
+                    train_df=train_df,
+                    train_target=train_target,
+                    fit_params=fit_params,
+                    verbose=verbose,
+                )
+
+            model_name = model_name + "\n" + " ".join([f" trained on {get_human_readable_set_size(len(train_df))} rows", train_details])
+
+            if best_iter:
+                print(f"es_best_iter: {best_iter:_}")
+                model_name = model_name + f" @iter={best_iter:_}"
+
+    metrics = {"train": {}, "val": {}, "test": {}, "best_iter": best_iter}
+    test_is_inlier = None
+    if compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics:
+        if verbose:
+            logger.info("Computing model's performance...")
+        if compute_trainset_metrics and (train_idx is not None or train_df is not None):
+            if df is None and train_df is None:
+                train_df = None
+                columns = []
+            else:
+                columns = train_df.columns
+
+            train_preds, train_probs = report_model_perf(
+                targets=train_target,
+                columns=columns,
+                df=train_df.values if model_type_name in TABNET_MODEL_TYPES else train_df,
+                model_name=model_name,
+                model=model,
+                target_label_encoder=target_label_encoder,
+                preds=train_preds,
+                probs=train_probs,
+                figsize=figsize,
+                report_title=" ".join(["TRAIN", train_details]),
+                nbins=nbins,
+                print_report=print_report,
+                plot_file=plot_file + "_train" if plot_file else "",
+                show_perf_chart=show_perf_chart,
+                show_fi=show_fi and (test_df is None) and (val_df is None),
+                fi_kwargs=fi_kwargs,
+                subgroups=subgroups,
+                subset_index=train_idx,
+                custom_ice_metric=custom_ice_metric,
+                custom_rice_metric=custom_rice_metric,
+                metrics=metrics["train"],
+                group_ids=group_ids[train_idx] if group_ids is not None else None,
+            )
+
+        if compute_valset_metrics and ((val_idx is not None and len(val_idx) > 0) or val_df is not None):
+            if df is None and val_df is None:
+                val_df = None
+                columns = []
+            else:
+                columns = val_df.columns
+
+            val_preds, val_probs = report_model_perf(
+                targets=val_target,
+                columns=columns,
+                df=val_df.values if model_type_name in TABNET_MODEL_TYPES else val_df,
+                model_name=model_name,
+                model=model,
+                target_label_encoder=target_label_encoder,
+                preds=val_preds,
+                probs=val_probs,
+                figsize=figsize,
+                report_title=" ".join(["VAL", val_details]),
+                nbins=nbins,
+                print_report=print_report,
+                plot_file=plot_file + "_val" if plot_file else "",
+                show_perf_chart=show_perf_chart,
+                show_fi=show_fi and (test_idx is None and test_df is None),
+                fi_kwargs=fi_kwargs,
+                subgroups=subgroups,
+                subset_index=val_idx,
+                custom_ice_metric=custom_ice_metric,
+                custom_rice_metric=custom_rice_metric,
+                metrics=metrics["val"],
+                group_ids=group_ids[val_idx] if group_ids is not None else None,
+            )
+
+        if compute_testset_metrics and ((test_idx is not None and len(test_idx) > 0) or test_df is not None):
+            if (df is not None) or (test_df is not None):
+
+                del train_df
+                clean_ram()
+
+                if test_df is None:
+                    if isinstance(df, pd.DataFrame):
+                        test_df = df.iloc[test_idx].drop(columns=real_drop_columns)
+                    elif isinstance(df, pl.DataFrame):
+                        test_df = df[test_idx].drop(real_drop_columns)
+
+                if outlier_detector is not None:
+                    test_is_inlier = outlier_detector.predict(test_df) == 1
+
+                if test_target is None:
+                    test_target = target.iloc[test_idx] if isinstance(target, pd.Series) else target.gather(test_idx)
+
+                if model is not None and pre_pipeline and not skip_pre_pipeline_transform:
+                    test_df = pre_pipeline.transform(test_df)
+                    _orig_test_df = test_df  # Update for return
+                if model_type_name in TABNET_MODEL_TYPES:
+                    test_df = test_df.values
+                columns = test_df.columns
+            else:
+                columns = []
+                test_df = None
+
+            test_preds, test_probs = report_model_perf(
+                targets=test_target,
+                columns=columns,
+                df=test_df,
+                model_name=model_name,
+                model=model,
+                target_label_encoder=target_label_encoder,
+                preds=test_preds,
+                probs=test_probs,
+                figsize=figsize,
+                report_title=" ".join(["TEST", test_details]),
+                nbins=nbins,
+                print_report=print_report,
+                plot_file=plot_file + "_test" if plot_file else "",
+                show_perf_chart=show_perf_chart,
+                show_fi=show_fi,
+                fi_kwargs=fi_kwargs,
+                subgroups=subgroups,
+                subset_index=test_idx,
+                custom_ice_metric=custom_ice_metric,
+                custom_rice_metric=custom_rice_metric,
+                metrics=metrics["test"],
+                group_ids=group_ids[test_idx] if group_ids is not None else None,
+            )
+
+            if include_confidence_analysis:
+                """Separate analysis: having original dataset, and test predictions made by a trained model,
+                find what original factors are the most discriminative regarding prediction accuracy. for that,
+                training a meta-model on test set could do it. use original features, as targets use prediction-ground truth,
+                train a regression boosting & check its feature importances."""
+
+                # for (any, even multiclass) classification, targets are probs of ground truth classes
+                if test_df is not None:
+                    if verbose:
+                        logger.info("Running confidence analysis on the test set...")
+                    confidence_model = CatBoostRegressor(
+                        verbose=0, eval_fraction=0.1, task_type=("GPU" if CUDA_IS_AVAILABLE else "CPU"), **confidence_model_kwargs
+                    )
+
+                    if model_type_name == type(confidence_model).__name__:
+                        fit_params_copy = copy.copy(fit_params)
+                        if "eval_set" in fit_params_copy:
+                            del fit_params_copy["eval_set"]
+                    else:
+                        fit_params_copy = {}
+
+                    if "cat_features" not in fit_params_copy:
+                        fit_params_copy["cat_features"] = get_categorical_columns(test_df, include_string=False)
+
+                    fit_params_copy["plot"] = False
+
+                    clean_ram()
+                    confidence_model.fit(test_df, test_probs[np.arange(test_probs.shape[0]), test_target], **fit_params_copy)
+                    clean_ram()
+
+                    if confidence_analysis_use_shap:
+                        explainer = shap.TreeExplainer(confidence_model)
+                        shap_values = explainer(test_df)
+                        shap.plots.beeswarm(
+                            shap_values,
+                            max_display=confidence_analysis_max_features,
+                            color=plt.get_cmap(confidence_analysis_cmap),
+                            alpha=confidence_analysis_alpha,
+                            color_bar_label=confidence_analysis_ylabel,
+                            show=False,
+                        )
+                        plt.xlabel(confidence_analysis_title)
+                        plt.show()
+                    else:
+                        plot_model_feature_importances(
+                            model=confidence_model,
+                            columns=test_df.columns,
+                            model_name=confidence_analysis_title,
+                            num_factors=confidence_analysis_max_features,
+                            figsize=(figsize[0] * 0.7, figsize[1] / 2),
+                        )
+
+    clean_ram()
+
+    return (
+        SimpleNamespace(
+            model=model,
+            test_preds=test_preds,
+            test_probs=test_probs,
+            test_target=test_target,
+            test_is_inlier=test_is_inlier,
+            val_preds=val_preds,
+            val_probs=val_probs,
+            val_target=val_target,
+            train_preds=train_preds,
+            train_probs=train_probs,
+            train_target=train_target,
+            metrics=metrics,
+            columns=columns,
+            pre_pipeline=pre_pipeline,
+            outlier_detector=outlier_detector,
+            train_od_idx=train_od_idx,
+            val_od_idx=val_od_idx,
+            trainset_features_stats=trainset_features_stats,
+        ),
+        _orig_train_df,
+        _orig_val_df,
+        _orig_test_df,
+    )
+
+
+def report_model_perf(
+    targets: Union[np.ndarray, pd.Series],
+    columns: Sequence,
+    model_name: str,
+    model: ClassifierMixin,
+    subgroups: dict = None,
+    subset_index: np.ndarray = None,
+    report_ndigits: int = 4,
+    figsize: tuple = (15, 5),
+    report_title: str = "",
+    use_weights: bool = True,
+    calib_report_ndigits: int = 2,
+    verbose: bool = False,
+    classes: Sequence = [],
+    preds: Optional[np.ndarray] = None,
+    probs: Optional[np.ndarray] = None,
+    df: Optional[pd.DataFrame] = None,
+    target_label_encoder: Optional[LabelEncoder] = None,
+    nbins: int = 10,
+    print_report: bool = True,
+    show_perf_chart: bool = True,
+    show_fi: bool = True,
+    fi_kwargs: dict = None,
+    plot_file: str = "",
+    custom_ice_metric: Callable = None,
+    custom_rice_metric: Callable = None,
+    metrics: dict = None,
+    group_ids: np.ndarray = None,
+):
+
+    if is_classifier(model) or type(model).__name__ == "NGBClassifier" or (model is None and probs is not None):
+        preds, probs = report_probabilistic_model_perf(
+            targets=targets,
+            columns=columns,
+            model_name=model_name,
+            model=model,
+            subgroups=subgroups,
+            subset_index=subset_index,
+            report_ndigits=report_ndigits,
+            figsize=figsize,
+            report_title=report_title,
+            use_weights=use_weights,
+            calib_report_ndigits=calib_report_ndigits,
+            verbose=verbose,
+            classes=classes,
+            preds=preds,
+            probs=probs,
+            df=df,
+            target_label_encoder=target_label_encoder,
+            nbins=nbins,
+            print_report=print_report,
+            show_perf_chart=show_perf_chart,
+            plot_file=plot_file,
+            custom_ice_metric=custom_ice_metric,
+            custom_rice_metric=custom_rice_metric,
+            metrics=metrics,
+            group_ids=group_ids,
+        )
+    else:
+
+        preds, probs = report_regression_model_perf(
+            targets=targets,
+            columns=columns,
+            model_name=model_name,
+            model=model,
+            subgroups=subgroups,
+            subset_index=subset_index,
+            report_ndigits=report_ndigits,
+            figsize=figsize,
+            report_title=report_title,
+            verbose=verbose,
+            preds=preds,
+            df=df,
+            print_report=print_report,
+            show_perf_chart=show_perf_chart,
+            plot_file=plot_file,
+            metrics=metrics,
+        )
+    if show_fi:
+        nfeatures = f"{len(columns):_}F/" if (columns is not None and len(columns) > 0) else ""
+        feature_importances = plot_model_feature_importances(
+            model=model,
+            columns=columns,
+            model_name=(report_title + " " + model_name + f" [{nfeatures}{get_human_readable_set_size(len(preds))} rows]").strip(),
+            plot_file=plot_file + "_fiplot.png" if plot_file else "",
+            **fi_kwargs,
+        )
+        if metrics is not None:
+            metrics.update({"feature_importances": feature_importances})
+
+    return preds, probs
+
+
+def report_regression_model_perf(
+    targets: Union[np.ndarray, pd.Series],
+    columns: Sequence,
+    model_name: str,
+    model: RegressorMixin,
+    subgroups: dict = None,
+    subset_index: np.ndarray = None,
+    report_ndigits: int = 4,
+    figsize: tuple = (15, 5),
+    report_title: str = "",
+    verbose: bool = False,
+    preds: Optional[np.ndarray] = None,
+    df: Optional[pd.DataFrame] = None,
+    print_report: bool = True,
+    show_perf_chart: bool = True,
+    plot_file: str = "",
+    plot_marker: str = "o",
+    plot_sample_size: int = 500,
+    metrics: dict = None,
+):
+    """Detailed performance report (usually on a test set)."""
+
+    if preds is None:
+        preds = model.predict(df)
+
+    if isinstance(targets, pd.Series):
+        targets = targets.values
+
+    MAE = mean_absolute_error(y_true=targets, y_pred=preds)
+    MaxError = max_error(y_true=targets, y_pred=preds)
+    R2 = r2_score(y_true=targets, y_pred=preds)
+    # MAPE = mean_absolute_percentage_error(y_true=targets, y_pred=preds)
+    RMSE = root_mean_squared_error(y_true=targets, y_pred=preds)
+
+    current_metrics = dict(
+        MAE=MAE,
+        MaxError=MaxError,
+        R2=R2,
+        # MAPE=MAPE,
+        RMSE=RMSE,
+    )
+    if metrics is not None:
+        metrics.update(current_metrics)
+
+    if show_perf_chart or plot_file:
+        title = report_title + " " + model_name
+        nfeatures = f"{len(columns):_}F/" if (columns is not None and len(columns) > 0) else ""
+        title += f" [{nfeatures}{get_human_readable_set_size(len(targets))} rows]" + "\n"
+
+        title += f" MAE={MAE:.{report_ndigits}f}"
+        title += f" RMSE={RMSE:.{report_ndigits}f}"
+        title += f" MaxError={MaxError:.{report_ndigits}f}"
+        # title += f" MAPE={MAPE*100:.{report_ndigits//2}f}%"
+        title += f" R2={R2:.{report_ndigits}f}"
+
+        np.random.seed(42)
+        idx = np.random.choice(np.arange(len(preds)), size=min(plot_sample_size, len(preds)), replace=False)
+        idx = idx[np.argsort(preds[idx])]
+
+        fig = plt.figure(figsize=figsize)
+        plt.scatter(preds[idx], targets[idx], marker=plot_marker, alpha=0.3)
+        plt.plot(preds[idx], preds[idx], linestyle="--", color="green", label="Perfect fit")
+
+        plt.xlabel("Predictions")
+        plt.ylabel("True values")
+        plt.title(title)
+
+        if plot_file:
+            fig.savefig(plot_file)
+
+        if show_perf_chart:
+            plt.ion()
+            plt.show()
+        else:
+            plt.close(fig)
+
+    if print_report:
+        print(report_title + " " + model_name)
+        print(f"MAE: {MAE:.{report_ndigits}f}")
+        print(f"RMSE: {RMSE:.{report_ndigits}f}")
+        print(f"MaxError: {MaxError:.{report_ndigits}f}")
+        # print(f"MAPE: {MAPE*100:.{report_ndigits//2}f}%")
+        print(f"R2: {R2:.{report_ndigits}f}")
+
+    if subgroups:
+        fairness_report = compute_fairness_metrics(
+            subgroups=subgroups,
+            subset_index=subset_index,
+            y_true=targets,
+            y_pred=preds,
+            metrics={"MAE": mean_absolute_error, "RMSE": root_mean_squared_error},
+            metrics_higher_is_better={"MAE": False, "RMSE": False},
+        )
+        if fairness_report is not None:
+            if print_report:
+                display(fairness_report)
+            if metrics is not None:
+                metrics.update(dict(fairness_report=fairness_report))
+
+    return preds, None
+
+
+def report_probabilistic_model_perf(
+    targets: Union[np.ndarray, pd.Series],
+    columns: Sequence,
+    model_name: str,
+    model: ClassifierMixin,
+    subgroups: dict = None,
+    subset_index: np.ndarray = None,
+    report_ndigits: int = 4,
+    figsize: tuple = (15, 5),
+    report_title: str = "",
+    use_weights: bool = True,
+    calib_report_ndigits: int = 2,
+    verbose: bool = False,
+    classes: Sequence = [],
+    preds: Optional[np.ndarray] = None,
+    probs: Optional[np.ndarray] = None,
+    df: Optional[pd.DataFrame] = None,
+    target_label_encoder: Optional[LabelEncoder] = None,
+    nbins: int = 10,
+    print_report: bool = True,
+    show_perf_chart: bool = True,
+    plot_file: str = "",
+    custom_ice_metric: Callable = None,
+    custom_rice_metric: Callable = None,
+    metrics: dict = None,
+    group_ids: np.ndarray = None,
+):
+    """Detailed performance report (usually on a test set)."""
+
+    if probs is None:
+        try:
+            probs = model.predict_proba(df)
+        except (AttributeError, Exception) as e:
+            # Model doesn't have predict_proba (e.g., RidgeClassifier), fallback to predict
+            logger.warning(f"predict_proba not available for {type(model).__name__}, using predict() instead: {e}")
+            preds_fallback = model.predict(df)
+
+            # Convert predictions to probability-like format
+            # Get unique classes from training (stored in model.classes_ for sklearn)
+            if hasattr(model, "classes_"):
+                n_classes = len(model.classes_)
+                # Map predictions to class indices using searchsorted (efficient!)
+                class_indices = np.searchsorted(model.classes_, preds_fallback)
+            else:
+                n_classes = len(np.unique(preds_fallback))
+                class_indices = preds_fallback.astype(int)
+
+            # Create one-hot encoded probabilities (vectorized, no loop!)
+            probs = np.zeros((len(preds_fallback), n_classes))
+            probs[np.arange(len(preds_fallback)), class_indices] = 1.0
+
+    if preds is None:
+        preds = np.argmax(probs, axis=1)  # need this for ensembling to work. preds = model.predict(df) will do the same but more labour.
+
+    if isinstance(targets, pd.Series):
+        targets = targets.values
+
+    brs = []
+    calibs = []
+    pr_aucs = []
+    roc_aucs = []
+    integral_errors = []
+    log_losses = []
+    robust_integral_errors = []
+
+    integral_error = custom_ice_metric(y_true=targets, y_score=probs) if custom_ice_metric else 0.0
+    if custom_rice_metric and custom_rice_metric != custom_ice_metric:
+        robust_integral_error = custom_rice_metric(y_true=targets, y_score=probs)
+
+    if not classes:
+        if model is not None:
+            # Try to get classes from model (sklearn convention)
+            # Some models (e.g., NGBClassifier) don't follow this convention
+            if hasattr(model, "classes_"):
+                classes = model.classes_
+            else:
+                # Fallback: extract unique classes from targets
+                classes = np.unique(targets)
+        elif target_label_encoder:
+            classes = np.arange(len(target_label_encoder.classes_)).tolist()
+        else:
+            classes = np.unique(targets)
+
+    true_classes = []
+    for class_id, class_name in enumerate(classes):
+        if str(class_name).isnumeric() and target_label_encoder:
+            str_class_name = str(target_label_encoder.classes_[class_name])
+        else:
+            str_class_name = str(class_name)
+        true_classes.append(str_class_name)
+
+        if len(classes) == 2 and class_id == 0:
+            continue
+
+        y_true, y_score = (targets == class_name), probs[:, class_id]
+        if isinstance(y_true, pl.Series):
+            y_true = y_true.to_numpy()
+
+        title = report_title + " " + model_name
+        if len(classes) != 2:
+            title += "-" + str_class_name
+
+        class_integral_error = custom_ice_metric(y_true=y_true, y_score=y_score) if custom_ice_metric else 0.0
+        nfeatures = f"{len(columns):_}F/" if (columns is not None and len(columns) > 0) else ""
+        title += f" [{nfeatures}{get_human_readable_set_size(len(y_true))} rows]"
+        if custom_rice_metric and custom_rice_metric != custom_ice_metric:
+            class_robust_integral_error = custom_rice_metric(y_true=y_true, y_score=y_score)
+            title += f", RICE={class_robust_integral_error:.{calib_report_ndigits}f}"
+
+        brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, *_, metrics_string, fig = fast_calibration_report(
+            y_true=y_true,
+            y_pred=y_score,
+            use_weights=use_weights,
+            nbins=nbins,
+            group_ids=group_ids,
+            #
+            title=title,
+            figsize=figsize,
+            plot_file=plot_file + "_perfplot.png" if plot_file else "",
+            show_plots=show_perf_chart,
+            ndigits=calib_report_ndigits,
+            verbose=verbose,
+        )
+
+        if print_report:
+
+            calibs.append(
+                f"\t{str_class_name}: MAE{'W' if use_weights else ''}={calibration_mae * 100:.{calib_report_ndigits}f}%, STD={calibration_std * 100:.{calib_report_ndigits}f}%, COV={calibration_coverage * 100:.0f}%"
+            )
+            pr_aucs.append(f"{str_class_name}={pr_auc:.{report_ndigits}f}")
+            roc_aucs.append(f"{str_class_name}={roc_auc:.{report_ndigits}f}")
+            brs.append(f"{str_class_name}={brier_loss * 100:.{report_ndigits}f}%")
+            integral_errors.append(f"{str_class_name}={ice:.{report_ndigits}f}")
+            if ll is None:
+                log_losses.append(f"{str_class_name}=None")
+            else:
+                log_losses.append(f"{str_class_name}={ll:.{report_ndigits}f}")
+            if custom_rice_metric and custom_rice_metric != custom_ice_metric:
+                robust_integral_errors.append(f"{str_class_name}={class_robust_integral_error:.{report_ndigits}f}")
+
+        if metrics is not None:
+            class_metrics = dict(
+                roc_auc=roc_auc,
+                pr_auc=pr_auc,
+                calibration_mae=calibration_mae,
+                calibration_std=calibration_std,
+                brier_loss=brier_loss,
+                log_loss=ll,
+                ice=ice,
+                class_integral_error=class_integral_error,
+            )
+            if custom_rice_metric and custom_rice_metric != custom_ice_metric:
+                class_metrics["class_robust_integral_error"] = class_robust_integral_error
+            metrics.update({class_id: class_metrics})
+
+    if print_report:
+
+        print(report_title + " " + model_name)
+        print(classification_report(targets, preds, zero_division=0, digits=report_ndigits))
+        print(f"ROC AUCs: {', '.join(roc_aucs)}")
+        print(f"PR AUCs: {', '.join(pr_aucs)}")
+        print(f"CALIBRATIONs: \n{', '.join(calibs)}")
+        print(f"BRIER LOSSes: \n\t{', '.join(brs)}")
+        print(f"LOG_LOSSes: \n\t{', '.join(log_losses)}")
+        print(f"ICEs: \n\t{', '.join(integral_errors)}")
+        if custom_ice_metric != custom_rice_metric:
+            print(f"RICEs: \n\t{', '.join(robust_integral_errors)}")
+
+        print(f"TOTAL INTEGRAL ERROR: {integral_error:.4f}")
+        if custom_rice_metric and custom_rice_metric != custom_ice_metric:
+            print(f"TOTAL ROBUST INTEGRAL ERROR: {robust_integral_error:.4f}")
+
+    if subgroups:
+
+        subgroups_metrics = {"ICE": custom_ice_metric}
+        metrics_higher_is_better = {"ICE": False}
+
+        if probs.shape[1] == 2:
+            subgroups_metrics["ROC AUC"] = fast_roc_auc
+            metrics_higher_is_better["ROC AUC"] = True
+
+        fairness_report = compute_fairness_metrics(
+            subgroups=subgroups,
+            subset_index=subset_index,
+            y_true=targets,
+            y_pred=probs,
+            metrics=subgroups_metrics,
+            metrics_higher_is_better=metrics_higher_is_better,
+        )
+        if fairness_report is not None:
+            if print_report:
+                display(fairness_report.style.set_caption("ML perf fairness by group"))
+            if metrics is not None:
+                metrics.update(dict(fairness_report=fairness_report))
+
+    return preds, probs
+
+
+def get_model_feature_importances(model: object, columns: Sequence, return_df: bool = False):
+    if isinstance(model, Pipeline):
+        model = model.steps[-1][1]
+    if hasattr(model, "feature_importances_"):
+        feature_importances = model.feature_importances_
+    elif hasattr(model, "coef_"):
+        if model.coef_.ndim == 1:
+            feature_importances = model.coef_
+        else:
+            feature_importances = model.coef_[-1, :]
+    else:
+        feature_importances = None
+
+    if feature_importances is not None:
+
+        if return_df:
+            feature_importances = pd.DataFrame({"feature": columns, "importance": feature_importances})
+
+    return feature_importances
+
+
+def plot_model_feature_importances(
+    model: object,
+    columns: Sequence,
+    model_name: str = None,
+    num_factors: int = 40,
+    figsize: tuple = (15, 10),
+    positive_fi_only: bool = False,
+    plot_file: str = "",
+) -> np.ndarray:
+
+    feature_importances = get_model_feature_importances(model=model, columns=columns)
+
+    if feature_importances is not None:
+        try:
+            plot_feature_importance(
+                feature_importances=feature_importances,
+                columns=columns,
+                kind=model_name,
+                figsize=figsize,
+                plot_file=plot_file,
+                positive_fi_only=positive_fi_only,
+                n=num_factors,
+            )
+        except Exception:
+            logger.warning("Could not plot feature importances. Maybe data shape is changed within a pipeline?")
+
+        return feature_importances
+
+
+def get_sample_weights_by_recency(date_series: pd.Series, min_weight: float = 1.0, weight_drop_per_year: float = 0.1) -> np.ndarray:
+
+    span = (date_series.max() - date_series.min()).days
+    max_drop = np.log(span) * weight_drop_per_year
+
+    sample_weight = min_weight + max_drop - np.log((date_series.max() - date_series).dt.days) * weight_drop_per_year
+
+    return sample_weight
+
+
+def configure_training_params(
+    df: pd.DataFrame = None,
+    train_df: pd.DataFrame = None,
+    test_df: pd.DataFrame = None,
+    val_df: pd.DataFrame = None,
+    #
+    target: pd.Series = None,
+    target_label_encoder: object = None,
+    train_target: pd.Series = None,
+    test_target: pd.Series = None,
+    val_target: pd.Series = None,
+    #
+    train_idx: np.ndarray = None,
+    val_idx: np.ndarray = None,
+    test_idx: np.ndarray = None,
+    #
+    cat_features: list = None,
+    #
+    fairness_features: Sequence = None,
+    cont_nbins: int = 6,
+    fairness_min_pop_cat_thresh: Union[float, int] = 1000,
+    use_robust_eval_metric: bool = False,
+    #
+    sample_weight: np.ndarray = None,
+    prefer_gpu_configs: bool = True,
+    nbins: int = 10,
+    use_regression: bool = False,
+    verbose: bool = True,
+    rfecv_model_verbose: bool = True,
+    prefer_cpu_for_lightgbm: bool = True,
+    prefer_cpu_for_xgboost: bool = False,
+    xgboost_verbose: Union[int, bool] = False,
+    cb_fit_params: dict = None,  # cb_fit_params=dict(embedding_features=['embeddings'])
+    prefer_calibrated_classifiers: bool = True,
+    default_regression_scoring: dict = None,
+    default_classification_scoring: dict = None,
+    train_details: str = "",
+    val_details: str = "",
+    test_details: str = "",
+    group_ids: np.ndarray = None,
+    model_name: str = "",
+    common_params: dict = None,
+    config_params: dict = None,
+    metamodel_func: callable = None,
+    use_flaml_zeroshot: bool = False,
+    _precomputed_fairness_subgroups: dict = None,
+):
+    if metamodel_func is None:
+        metamodel_func = lambda x: x
+
+    if default_regression_scoring is None:
+        default_regression_scoring = dict(score_func=mean_absolute_error, response_method="predict", greater_is_better=False)
+
+    if default_classification_scoring is None:
+        default_classification_scoring = dict(score_func=fast_roc_auc, response_method="predict_proba", greater_is_better=True)
+
+    if common_params is None:
+        common_params = {}
+    if config_params is None:
+        config_params = {}
+    if fairness_features is None:
+        fairness_features = []
+    if cb_fit_params is None:
+        cb_fit_params = {}
+
+    if not use_regression:
+        if "catboost_custom_classif_metrics" not in config_params:
+            nlabels = len(np.unique(target))
+            if nlabels > 2:
+                catboost_custom_classif_metrics = ["AUC", "PRAUC"]
+            else:
+                catboost_custom_classif_metrics = ["AUC", "PRAUC", "BrierScore"]
+            config_params["catboost_custom_classif_metrics"] = catboost_custom_classif_metrics
+
+    # Use pre-computed subgroups if available, otherwise compute from available df
+    subgroups = _precomputed_fairness_subgroups
+    if subgroups is None and fairness_features:
+        for next_df in (df, train_df):
+            if next_df is not None:
+                subgroups = create_fairness_subgroups(
+                    next_df,
+                    features=fairness_features,
+                    cont_nbins=cont_nbins,
+                    min_pop_cat_thresh=fairness_min_pop_cat_thresh,
+                )
+                break
+
+    if use_robust_eval_metric and subgroups is not None:
+        indexed_subgroups = create_fairness_subgroups_indices(
+            subgroups=subgroups, train_idx=train_idx, val_idx=val_idx, test_idx=test_idx, group_weights={}, cont_nbins=cont_nbins
+        )
+    else:
+        indexed_subgroups = None
+
+    cpu_configs = get_training_configs(has_gpu=False, subgroups=indexed_subgroups, **config_params)
+    gpu_configs = get_training_configs(has_gpu=None, subgroups=indexed_subgroups, **config_params)
+
+    train_df_size = get_df_memory_consumption(train_df)
+    val_df_size = get_df_memory_consumption(val_df) if val_df is not None else 0
+    data_size_gb = (train_df_size + val_df_size) / (1024**3)
+
+    all_gpus = get_gpuinfo_gpu_info()
+    single_gpu_limits = compute_total_gpus_ram(all_gpus)
+
+    data_fits_gpu_ram = (GPU_VRAM_SAFE_SATURATION_LIMIT * data_size_gb + GPU_VRAM_SAFE_FREE_LIMIT_GB) < single_gpu_limits.get("gpu_max_ram_total", 0)
+
+    cb_devices = config_params.get("cb_kwargs", {}).get("devices")
+    if cb_devices:
+        multi_gpu_limits = compute_total_gpus_ram(parse_catboost_devices(cb_devices, all_gpus=all_gpus))
+        data_fits_cb_gpu_ram = (GPU_VRAM_SAFE_SATURATION_LIMIT * data_size_gb + GPU_VRAM_SAFE_FREE_LIMIT_GB) < multi_gpu_limits.get("gpus_ram_total", 0)
+    else:
+        data_fits_cb_gpu_ram = data_fits_gpu_ram
+
+    logger.info(f"data_fits_gpu_ram={data_fits_gpu_ram}, data_fits_cb_gpu_ram={data_fits_cb_gpu_ram}, cb_devices={cb_devices}")
+
+    configs = gpu_configs if (prefer_gpu_configs and data_fits_gpu_ram) else cpu_configs
+    cb_configs = gpu_configs if (prefer_gpu_configs and data_fits_cb_gpu_ram) else cpu_configs
+
+    common_params = dict(
+        nbins=nbins,
+        subgroups=subgroups,
+        sample_weight=sample_weight,
+        df=df,
+        train_df=train_df,
+        test_df=test_df,
+        val_df=val_df,
+        target=target,
+        train_target=train_target,
+        test_target=test_target,
+        val_target=val_target,
+        train_idx=train_idx,
+        test_idx=test_idx,
+        val_idx=val_idx,
+        target_label_encoder=target_label_encoder,
+        custom_ice_metric=configs.integral_calibration_error,
+        custom_rice_metric=configs.final_integral_calibration_error,
+        train_details=train_details,
+        val_details=val_details,
+        test_details=test_details,
+        group_ids=group_ids,
+        model_name=model_name,
+        **common_params,
+    )
+
+    cb_params = dict(
+        model=(
+            metamodel_func(CatBoostRegressor(**cb_configs.CB_REGR))
+            if use_regression
+            else CatBoostClassifier(**(cb_configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else cb_configs.CB_CLASSIF))
+        ),
+        fit_params=dict(plot=verbose, cat_features=cat_features, **cb_fit_params),
+    )
+
+    hgb_params = dict(
+        model=metamodel_func(
+            (HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS) if use_regression else HistGradientBoostingClassifier(**configs.HGB_GENERAL_PARAMS)),
+        )
+    )
+
+    if prefer_cpu_for_xgboost:
+        xgb_params = dict(
+            model=(
+                metamodel_func((XGBRegressor if not use_flaml_zeroshot else flaml_zeroshot.XGBRegressor)(**cpu_configs.XGB_GENERAL_PARAMS))
+                if use_regression
+                else (XGBClassifier if not use_flaml_zeroshot else flaml_zeroshot.XGBClassifier)(
+                    **(cpu_configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else cpu_configs.XGB_GENERAL_CLASSIF)
+                )
+            ),
+            fit_params=dict(verbose=xgboost_verbose),
+        )
+    else:
+        xgb_params = dict(
+            model=(
+                metamodel_func((XGBRegressor if not use_flaml_zeroshot else flaml_zeroshot.XGBRegressor)(**configs.XGB_GENERAL_PARAMS))
+                if use_regression
+                else (XGBClassifier if not use_flaml_zeroshot else flaml_zeroshot.XGBClassifier)(
+                    **(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF)
+                )
+            ),
+            fit_params=dict(verbose=xgboost_verbose),
+        )
+
+    if prefer_cpu_for_lightgbm:
+        lgb_params = dict(
+            model=(
+                metamodel_func((LGBMRegressor if not use_flaml_zeroshot else flaml_zeroshot.LGBMRegressor)(**cpu_configs.LGB_GENERAL_PARAMS))
+                if use_regression
+                else (LGBMClassifier if not use_flaml_zeroshot else flaml_zeroshot.LGBMClassifier)(**cpu_configs.LGB_GENERAL_PARAMS)
+            ),
+            fit_params=(dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if (prefer_calibrated_classifiers and not use_regression) else {}),
+        )
+    else:
+        lgb_params = dict(
+            model=(
+                metamodel_func((LGBMRegressor if not use_flaml_zeroshot else flaml_zeroshot.LGBMRegressor)(**configs.LGB_GENERAL_PARAMS))
+                if use_regression
+                else (LGBMClassifier if not use_flaml_zeroshot else flaml_zeroshot.LGBMClassifier)(**configs.LGB_GENERAL_PARAMS)
+            ),
+            fit_params=(dict(eval_metric=configs.lgbm_integral_calibration_error) if (prefer_calibrated_classifiers and not use_regression) else {}),
+        )
+
+    # ----------------------------------------------------------------------------------------------------------------------------------------------------
+    # MLP
+    # ----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    mlp_kwargs = config_params.get("mlp_kwargs", {})
+
+    mlp_network_params = dict(
+        nlayers=20,
+        first_layer_num_neurons=100,
+        min_layer_neurons=1,
+        neurons_by_layer_arch=MLPNeuronsByLayerArchitecture.Declining,
+        consec_layers_neurons_ratio=1.5,
+        activation_function=torch.nn.LeakyReLU,
+        weights_init_fcn=partial(nn.init.kaiming_normal_, nonlinearity="leaky_relu", a=0.01),
+        dropout_prob=0.15,
+        inputs_dropout_prob=0.002,
+        use_batchnorm=True,
+    )
+    if mlp_kwargs:
+        mlp_network_params.update(mlp_kwargs.get("network_params", {}))
+
+    # Create MLP with appropriate loss function for task type
+    mlp_general_params = configs.MLP_GENERAL_PARAMS.copy()
+    if use_regression:
+        # Override loss function for regression
+        mlp_general_params["model_params"] = mlp_general_params.get("model_params", {}).copy()
+        mlp_general_params["model_params"]["loss_fn"] = F.mse_loss
+        mlp_general_params["datamodule_params"] = mlp_general_params.get("datamodule_params", {}).copy()
+        mlp_general_params["datamodule_params"]["labels_dtype"] = torch.float32
+        mlp_model = PytorchLightningRegressor(network_params=mlp_network_params, **mlp_general_params)
+    else:
+        # Use default classification loss function
+        mlp_model = PytorchLightningClassifier(network_params=mlp_network_params, **mlp_general_params)
+
+    mlp_params = dict(
+        model=metamodel_func(mlp_model),
+    )
+
+    ngb_params = dict(
+        model=(
+            metamodel_func(
+                (NGBRegressor(**configs.NGB_GENERAL_PARAMS) if use_regression else NGBClassifier(**configs.NGB_GENERAL_PARAMS)),
+            )
+        ),
+        fit_params=dict(early_stopping_rounds=config_params.get("early_stopping_rounds")),
+    )
+
+    # ----------------------------------------------------------------------------------------------------------------------------------------------------
+    # LINEAR MODELS
+    # ----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    from mlframe.training.models import create_linear_model
+    from mlframe.training.configs import LinearModelConfig
+
+    linear_params = dict(model=metamodel_func(create_linear_model("linear", LinearModelConfig(model_type="linear"), use_regression=use_regression)))
+
+    ridge_params = dict(model=metamodel_func(create_linear_model("ridge", LinearModelConfig(model_type="ridge"), use_regression=use_regression)))
+
+    lasso_params = dict(model=metamodel_func(create_linear_model("lasso", LinearModelConfig(model_type="lasso"), use_regression=use_regression)))
+
+    elasticnet_params = dict(model=metamodel_func(create_linear_model("elasticnet", LinearModelConfig(model_type="elasticnet"), use_regression=use_regression)))
+
+    huber_params = dict(model=metamodel_func(create_linear_model("huber", LinearModelConfig(model_type="huber"), use_regression=use_regression)))
+
+    ransac_params = dict(model=metamodel_func(create_linear_model("ransac", LinearModelConfig(model_type="ransac"), use_regression=use_regression)))
+
+    sgd_params = dict(model=metamodel_func(create_linear_model("sgd", LinearModelConfig(model_type="sgd"), use_regression=use_regression)))
+
+    # ----------------------------------------------------------------------------------------------------------------------------------------------------
+    # Setting up RFECV
+    # ----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    rfecv_params = configs.COMMON_RFECV_PARAMS.copy()
+    cb_rfecv_params = cb_configs.COMMON_RFECV_PARAMS.copy()
+
+    # When show_perf_chart is False (e.g., during testing), disable Optimizer plots
+    # Note: max_runtime_mins should be set explicitly via common_params['rfecv_params'] if needed
+    if not common_params.get("show_perf_chart", True):
+        rfecv_params["optimizer_plotting"] = "No"
+        cb_rfecv_params["optimizer_plotting"] = "No"
+
+    # Allow custom rfecv_params override from common_params
+    # Extract and remove from common_params to avoid passing to train_and_evaluate_model
+    if "rfecv_params" in common_params:
+        custom_rfecv_params = common_params.pop("rfecv_params")
+        rfecv_params.update(custom_rfecv_params)
+        cb_rfecv_params.update(custom_rfecv_params)
+
+    if use_regression:
+        rfecv_scoring = make_scorer(**default_regression_scoring)
+    else:
+        if prefer_calibrated_classifiers:
+
+            def fs_and_hpt_integral_calibration_error(*args, **kwargs):
+                return configs.fs_and_hpt_integral_calibration_error(*args, **kwargs, verbose=rfecv_model_verbose)
+
+            rfecv_scoring = make_scorer(
+                score_func=fs_and_hpt_integral_calibration_error,
+                response_method="predict_proba",
+                greater_is_better=False,
+            )
+        else:
+            rfecv_scoring = make_scorer(**default_classification_scoring)
+
+    params = (cb_configs.CB_REGR if use_regression else (cb_configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else cb_configs.CB_CLASSIF)).copy()
+
+    # !TODO ! allow separate params (device ,num_iters) for FS
+    # params["iterations"] = params["iterations"] // 2
+
+    cb_rfecv = RFECV(
+        estimator=(metamodel_func(CatBoostRegressor(**params)) if use_regression else CatBoostClassifier(**params)),
+        fit_params=dict(plot=rfecv_model_verbose > 1),
+        cat_features=cat_features,
+        scoring=rfecv_scoring,
+        **cb_rfecv_params,
+    )
+
+    if prefer_cpu_for_lightgbm:
+        lgb_fit_params = dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}
+    else:
+        lgb_fit_params = dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}
+
+    lgb_rfecv = RFECV(
+        estimator=(
+            metamodel_func((LGBMRegressor if not use_flaml_zeroshot else flaml_zeroshot.LGBMRegressor)(**configs.LGB_GENERAL_PARAMS))
+            if use_regression
+            else (LGBMClassifier if not use_flaml_zeroshot else flaml_zeroshot.LGBMClassifier)(**configs.LGB_GENERAL_PARAMS)
+        ),
+        fit_params=lgb_fit_params,
+        cat_features=cat_features,
+        scoring=rfecv_scoring,
+        **rfecv_params,
+    )
+
+    xgb_rfecv = RFECV(
+        estimator=(
+            metamodel_func((XGBRegressor if not use_flaml_zeroshot else flaml_zeroshot.XGBRegressor)(**configs.XGB_GENERAL_PARAMS))
+            if use_regression
+            else (XGBClassifier if not use_flaml_zeroshot else flaml_zeroshot.XGBClassifier)(
+                **(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF)
+            )
+        ),
+        fit_params=dict(verbose=False),
+        cat_features=cat_features,
+        scoring=rfecv_scoring,
+        **rfecv_params,
+    )
+
+    models_params = dict(
+        cb=cb_params,
+        lgb=lgb_params,
+        xgb=xgb_params,
+        hgb=hgb_params,
+        mlp=mlp_params,
+        ngb=ngb_params,
+        linear=linear_params,
+        ridge=ridge_params,
+        lasso=lasso_params,
+        elasticnet=elasticnet_params,
+        huber=huber_params,
+        ransac=ransac_params,
+        sgd=sgd_params,
+    )
+
+    return (
+        common_params,
+        models_params,
+        cb_rfecv,
+        lgb_rfecv,
+        xgb_rfecv,
+        cpu_configs,
+        gpu_configs,
+    )
+
+
+def post_calibrate_model(
+    original_model: object,
+    target_series: pd.Series,
+    target_label_encoder: object,
+    val_idx: np.ndarray,
+    test_idx: np.ndarray,
+    configs: dict,
+    calib_set_size: int = 2000,
+    nbins: int = 10,
+    show_val: bool = False,
+    meta_model: object = None,
+    **fit_params,
+):
+
+    if meta_model is None:
+        meta_model = CatBoostClassifier(
+            iterations=3000,
+            verbose=False,
+            has_time=False,
+            learning_rate=0.2,
+            eval_fraction=0.1,
+            task_type="GPU",
+            early_stopping_rounds=400,
+            eval_metric=ICE(metric=configs.integral_calibration_error, higher_is_better=False),
+            custom_metric="AUC",
+        )
+    model, test_preds, test_probs, val_preds, val_probs, columns, pre_pipeline, metrics = original_model
+
+    meta_model.fit(test_probs[:calib_set_size, 1].reshape(-1, 1), target_series.iloc[test_idx].values[:calib_set_size], **fit_params)
+
+    if show_val:
+        meta_val_probs = meta_model.predict_proba(val_probs[:, 1].reshape(-1, 1))
+        _ = report_model_perf(
+            targets=target_series.iloc[val_idx],
+            columns=columns,
+            df=None,
+            model_name="VAL",
+            model=None,
+            target_label_encoder=target_label_encoder,
+            preds=val_preds,
+            probs=val_probs,
+            report_title="",
+            nbins=nbins,
+            print_report=False,
+            show_fi=False,
+            custom_ice_metric=configs.integral_calibration_error,
+        )
+        _ = report_model_perf(
+            targets=target_series.iloc[val_idx],
+            columns=columns,
+            df=None,
+            model_name="VAL fixed",
+            model=None,
+            target_label_encoder=target_label_encoder,
+            preds=val_preds,
+            probs=meta_val_probs,
+            report_title="",
+            nbins=nbins,
+            print_report=False,
+            show_fi=False,
+            custom_ice_metric=configs.integral_calibration_error,
+        )
+
+    meta_test_probs = meta_model.predict_proba(test_probs[:, 1].reshape(-1, 1))
+
+    _ = report_model_perf(
+        targets=target_series.iloc[test_idx],
+        columns=columns,
+        df=None,
+        model_name="TEST original",
+        model=None,
+        target_label_encoder=target_label_encoder,
+        preds=test_preds,
+        probs=test_probs,
+        report_title="",
+        nbins=nbins,
+        print_report=False,
+        show_fi=False,
+        custom_ice_metric=configs.integral_calibration_error,
+    )
+
+    _ = report_model_perf(
+        targets=target_series.iloc[test_idx].values[calib_set_size:],
+        columns=columns,
+        df=None,
+        model_name="TEST fixed ",
+        model=None,
+        target_label_encoder=target_label_encoder,
+        preds=(meta_test_probs[calib_set_size:, 1] > 0.5).astype(int),
+        probs=meta_test_probs[calib_set_size:, :],
+        report_title="",
+        nbins=nbins,
+        print_report=True,
+        show_fi=False,
+        custom_ice_metric=configs.integral_calibration_error,
+    )
+
+    _ = report_model_perf(
+        targets=target_series.iloc[test_idx].values[:calib_set_size],
+        columns=columns,
+        df=None,
+        model_name="TEST fixed lucky",
+        model=None,
+        target_label_encoder=target_label_encoder,
+        preds=(meta_test_probs[:calib_set_size:, 1] > 0.5).astype(int),
+        probs=meta_test_probs[:calib_set_size, :],
+        report_title="",
+        nbins=nbins,
+        print_report=True,
+        show_fi=False,
+        custom_ice_metric=configs.integral_calibration_error,
+    )
+
+    return model, test_preds, meta_test_probs, val_preds, meta_val_probs, columns, pre_pipeline, metrics
+
+
+def create_ts_train_val_test_split(
+    df: pd.DataFrame,
+    dates: pd.Series,
+    consecutive_val_ndays: int = 30,  # ts consecutive last val days
+    scattered_val_ndays: int = 0,  # ts scattered val days
+    test_ndays: int = 60,
+):
+    """Produce train-val-test split."""
+
+    all_dates = sorted(dates.unique())
+    print(f"{len(all_dates):_} distinct days")
+
+    val_dates = all_dates[-(consecutive_val_ndays + test_ndays) : -test_ndays]
+    if scattered_val_ndays:
+        val_dates += np.random.choice(all_dates[: -(consecutive_val_ndays + test_ndays)], scattered_val_ndays).tolist()
+    test_dates = all_dates[-test_ndays:]
+    train_dates = set(all_dates) - set(val_dates) - set(test_dates)
+
+    train_idx, val_idx, test_idx = (
+        df.index[dates.isin(train_dates)],
+        df.index[dates.isin(val_dates)],
+        df.index[dates.isin(test_dates)],
+    )
+
+    logger.info(
+        f"Training on {len(train_dates):_} dates, vaildating on {len(val_dates):_} dates [{pd.to_datetime(val_dates[0]).date()}->{pd.to_datetime(val_dates[-1]).date()}], testing on {len(test_dates):_} dates [{pd.to_datetime(test_dates[0]).date()}->{pd.to_datetime(test_dates[-1]).date()}]"
+    )
+
+    return train_idx, val_idx, test_idx
+
+
+def save_mlframe_model(model: object, file: str, zstd_kwargs: dict = None, verbose: int = 1) -> bool:
+    if zstd_kwargs is None:
+        zstd_kwargs = dict(level=4, write_checksum=True, write_content_size=True, threads=-1)
+    try:
+        with open(file, "wb") as f:
+            compressor = zstd.ZstdCompressor(**zstd_kwargs)
+            with compressor.stream_writer(f) as zf:
+                dill.dump(model, zf)  # Only dill is able to serialize some of the funcs I use.
+        if verbose > 0:
+            size_mb = os.path.getsize(file) / (1024 * 1024)
+            logger.info(f"Model saved successfully to {file}. Size: {size_mb:.2f} Mb")
+        return True
+    except Exception as e:
+        logger.error(f"Could not save model to file {file}: {e}")
+        return False
+
+
+def load_mlframe_model(file: str) -> object:
+    try:
+        with open(file, "rb") as f:
+            decompressor = zstd.ZstdDecompressor()
+            with decompressor.stream_reader(f) as zf:
+                model = dill.load(zf)
+        return model
+    except Exception as e:
+        logger.error(f"Could not load model from file {file}: {e}")
+
+
+def clean_mlframe_model(model: SimpleNamespace) -> SimpleNamespace:
+    """Delete extra fields from the model's namespace, to be RAM efficient."""
+    for (
+        col
+    ) in "test_preds test_probs test_target val_preds val_probs val_target train_preds train_probs train_target train_od_idx val_od_idx trainset_features_stats".split():
+        if hasattr(model, col):
+            delattr(model, col)
+    return model
+
+
+def load_production_models(
+    models_dir: str,
+    target_name: str,
+    featureset_name: str,
+    task_type=TargetTypes.BINARY_CLASSIFICATION,
+    directions: list = [],
+    clean_models: bool = True,
+    model_suffix: str = "_model",
+) -> dict:
+    """Reads models from disk, instantiates SHAP explainers where possible."""
+
+    models = {}
+    explainers = {}
+    postcalibrators = {}
+
+    from mlframe.ensembling import SIMPLE_ENSEMBLING_METHODS
+
+    logger.info(f"Loading trained production {featureset_name} {task_type} models for target {target_name}...")
+
+    featureset_dir = join(models_dir, slugify(target_name), slugify(featureset_name), task_type)
+    trainset_features_stats = None
+    for direction in tqdmu(directions, desc="direction", leave=False):
+
+        models[direction] = {}
+        explainers[direction] = {}
+        postcalibrators[direction] = {}
+
+        final_models_dir = join(featureset_dir, slugify(direction))
+
+        for fpath in glob.glob(join(final_models_dir, f"*{model_suffix}.dump")):
+            base_model_name = basename(fpath)
+
+            model = load_mlframe_model(fpath)
+            if trainset_features_stats is None:
+                trainset_features_stats = model.trainset_features_stats
+            if clean_models:
+                clean_mlframe_model(model)
+            model_name = base_model_name.replace(f"{model_suffix}.dump", "")
+            models[direction][model_name] = model
+
+            calib_fpath = fpath.replace(f"{model_suffix}.dump", "_model_postcalibrator.dump")
+            if exists(calib_fpath):
+                postcalibrator = joblib.load(calib_fpath)
+                postcalibrators[direction][model_name] = postcalibrator
+
+            explainer = None
+            try:
+                explainer = shap.TreeExplainer(model.model)
+                explainers[direction][model_name] = explainer
+            except Exception:
+                pass
+
+        # ens calibrators
+        for ensembling_method in SIMPLE_ENSEMBLING_METHODS:
+            ens_name = f"ens_{ensembling_method}"
+            calib_fpath = join(final_models_dir, f"{ens_name}_postcalibrator.dump")
+            if exists(calib_fpath):
+                postcalibrator = joblib.load(calib_fpath)
+                postcalibrators[direction][ens_name] = postcalibrator
+
+        logger.info(f"Loaded {len(models[direction]):_} production {direction} model(s): {', '.join(models[direction].keys())}")
+
+    return models, explainers, postcalibrators, trainset_features_stats
+
+
+# Training Suite
+
+
+def make_train_test_split(
+    df: pd.DataFrame,
+    test_size: float = 0.1,
+    val_size: float = 0.1,
+    shuffle_val: bool = False,
+    shuffle_test: bool = False,
+    val_sequential_fraction: float = None,
+    test_sequential_fraction: float = None,
+    trainset_aging_limit: float = None,
+    timestamps: pd.Series = None,
+    wholeday_splitting: bool = True,
+    random_seed: int = None,
+) -> tuple:
+    """
+    Split data into train, validation, and test sets with flexible sequential/shuffled control.
+
+    Args:
+        val_sequential_fraction: Fraction of validation set that should be sequential (0.0-1.0).
+                                If None and shuffle_val=True: fully shuffled
+                                If None and shuffle_val=False: fully sequential
+        test_sequential_fraction: Fraction of test set that should be sequential (0.0-1.0).
+                                 If None and shuffle_test=True: fully shuffled
+                                 If None and shuffle_test=False: fully sequential
+    """
+    if random_seed:
+        np.random.seed(random_seed)
+
+    def _calculate_split_sizes(total_size, target_size, shuffle, sequential_fraction):
+        """Calculate sequential and shuffled portions for a split."""
+        n_total = int(total_size * target_size)
+
+        if sequential_fraction is not None:
+            assert 0.0 <= sequential_fraction <= 1.0, "sequential_fraction must be between 0.0 and 1.0"
+            n_sequential = int(n_total * sequential_fraction)
+            n_shuffled = n_total - n_sequential
+        else:
+            # Legacy behavior: fully shuffled or fully sequential
+            n_shuffled = n_total if shuffle else 0
+            n_sequential = 0 if shuffle else n_total
+
+        return n_sequential, n_shuffled
+
+    def _perform_split(sorted_items, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf):
+        """Perform the actual splitting on sorted items (dates or indices)."""
+        remaining = sorted_items.copy()
+        test_seq = val_seq = None
+        test_list = []
+        val_list = []
+
+        # Sequential test (most recent)
+        if n_test_seq > 0:
+            test_seq = remaining[-n_test_seq:]
+            test_list.append(test_seq)
+            remaining = remaining[:-n_test_seq]
+
+        # Sequential val (next most recent)
+        if n_val_seq > 0:
+            val_seq = remaining[-n_val_seq:]
+            val_list.append(val_seq)
+            remaining = remaining[:-n_val_seq]
+
+        # Shuffled test from remaining
+        if n_test_shuf > 0:
+            test_shuf_idx = np.random.choice(len(remaining), n_test_shuf, replace=False)
+            test_list.append(remaining[test_shuf_idx])
+            remaining = np.delete(remaining, test_shuf_idx)
+
+        # Shuffled val from remaining
+        if n_val_shuf > 0:
+            val_shuf_idx = np.random.choice(len(remaining), n_val_shuf, replace=False)
+            val_list.append(remaining[val_shuf_idx])
+            remaining = np.delete(remaining, val_shuf_idx)
+
+        test_items = np.concatenate(test_list) if test_list else np.array([], dtype=remaining.dtype)
+        val_items = np.concatenate(val_list) if val_list else np.array([], dtype=remaining.dtype)
+        train_items = remaining
+
+        return train_items, val_items, test_items, val_seq, test_seq
+
+    def _build_details(timestamps, idx, sequential_idx, n_shuffled, unit) -> str:
+        """Build detail string for a split set."""
+        if sequential_idx is not None and len(sequential_idx) > 0:
+            details = f"{timestamps.iloc[sequential_idx].min():%Y-%m-%d}/{timestamps.iloc[sequential_idx].max():%Y-%m-%d}"
+            if n_shuffled > 0:
+                details += f" +{n_shuffled} {unit}"
+        else:
+            if len(idx) > 0:
+                details = f"{timestamps.iloc[idx].min():%Y-%m-%d}/{timestamps.iloc[idx].max():%Y-%m-%d}"
+            else:
+                details = ""
+        return details
+
+    # Calculate split sizes
+    if wholeday_splitting and timestamps is not None:
+        dates = pd.to_datetime(timestamps).dt.date
+        unique_dates = dates.unique()
+        n_total = len(unique_dates)
+    else:
+        n_total = len(df)
+
+    n_test_seq, n_test_shuf = _calculate_split_sizes(n_total, test_size, shuffle_test, test_sequential_fraction)
+    n_val_seq, n_val_shuf = _calculate_split_sizes(n_total - (n_test_seq + n_test_shuf), val_size, shuffle_val, val_sequential_fraction)
+
+    # Perform splitting
+    if wholeday_splitting and timestamps is not None:
+        # Date-based splitting
+        sorted_dates = np.sort(unique_dates)
+        train_dates, val_dates, test_dates, val_dates_seq, test_dates_seq = _perform_split(sorted_dates, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf)
+
+        # Map dates to row indices
+        train_idx = np.where(dates.isin(train_dates))[0]
+        val_idx = np.where(dates.isin(val_dates))[0]
+        test_idx = np.where(dates.isin(test_dates))[0]
+
+        # Apply aging limit
+        if trainset_aging_limit:
+            assert trainset_aging_limit > 0 and trainset_aging_limit < 1.0
+            n_dates_to_keep = int(len(train_dates) * trainset_aging_limit)
+            if n_dates_to_keep > 0:
+                recent_dates = np.sort(train_dates)[-n_dates_to_keep:]
+                train_idx = np.where(dates.isin(recent_dates))[0]
+
+        # Build detail strings
+        train_details = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
+
+        val_seq_idx = np.where(dates.isin(val_dates_seq))[0] if val_dates_seq is not None else None
+        val_details = _build_details(timestamps, val_idx, val_seq_idx, n_val_shuf, "days")
+
+        test_seq_idx = np.where(dates.isin(test_dates_seq))[0] if test_dates_seq is not None else None
+        test_details = _build_details(timestamps, test_idx, test_seq_idx, n_test_shuf, "days")
+
+    elif timestamps is not None:
+        # Row-based splitting with timestamps
+        sorted_idx = np.argsort(timestamps.values)
+        train_idx, val_idx, test_idx, val_idx_seq, test_idx_seq = _perform_split(sorted_idx, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf)
+
+        # Apply aging limit
+        if trainset_aging_limit:
+            assert trainset_aging_limit > 0 and trainset_aging_limit < 1.0
+            train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)) :]
+
+        # Build detail strings
+        train_details = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
+        val_details = _build_details(timestamps, val_idx, val_idx_seq, n_val_shuf, "records")
+        test_details = _build_details(timestamps, test_idx, test_idx_seq, n_test_shuf, "records")
+
+    else:
+        # Row-based splitting without timestamps (fallback to sklearn)
+        if test_size > 0:
+            train_idx, test_idx = train_test_split(np.arange(len(df)), test_size=test_size, shuffle=shuffle_test)
+        else:
+            train_idx, test_idx = np.arange(len(df)), None
+        train_idx, val_idx = train_test_split(train_idx, test_size=val_size, shuffle=shuffle_val)
+
+        if trainset_aging_limit:
+            assert trainset_aging_limit > 0 and trainset_aging_limit < 1.0
+            train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)) :]
+
+        train_details, val_details, test_details = "", "", ""
+
+    logger.info(
+        f"{len(train_idx):_} train rows {train_details}, {len(val_idx):_} val rows {val_details}, {len(test_idx) if test_idx is not None else 0:_} test rows {test_details}."
+    )
+
+    return np.sort(train_idx), np.sort(val_idx), np.sort(test_idx), train_details, val_details, test_details
+
+
+def select_target(
+    model_name: str,
+    target: np.ndarray,
+    target_type: TargetTypes,
+    df: pd.DataFrame,
+    train_df: pd.DataFrame = None,
+    test_df: pd.DataFrame = None,
+    val_df: pd.DataFrame = None,
+    train_idx: np.ndarray = None,
+    val_idx: np.ndarray = None,
+    test_idx: np.ndarray = None,
+    train_details: str = "",
+    val_details: str = "",
+    test_details: str = "",
+    group_ids: np.ndarray = None,
+    cat_features: list = None,
+    #
+    control_params: dict = None,
+    control_params_override: dict = None,
+    config_params: dict = None,
+    config_params_override: dict = None,
+    common_params: dict = None,
+    #
+    sample_weight: np.ndarray = None,
+):
+    """From multiple possible targets in a dataframe, selects required one and adjusts params of respective level 0 models."""
+    if target_type == TargetTypes.REGRESSION:
+        model_name += f" MT={target.mean():.4f}"
+    else:
+        if isinstance(target, (pl.Series, pd.Series)):
+            vlcnts = target.value_counts(normalize=True)
+        elif isinstance(target, (np.ndarray)):
+            vlcnts = pd.Series(target).value_counts(normalize=True)
+
+        if isinstance(target, pl.Series):
+            vlcnts = vlcnts.filter(pl.col(target.name) == 1)
+            if len(vlcnts) > 0:
+                perc = vlcnts["proportion"][0]
+            else:
+                perc = 0
+        else:
+            if 1 in vlcnts.index:
+                perc = vlcnts.loc[1]
+            else:
+                perc = 0
+        model_name += f" BT={perc*100:.0f}%"
+    print("model_name=", model_name)
+
+    if control_params is not None:
+        effective_control_params = control_params
+    else:
+        effective_control_params = dict(
+            prefer_gpu_configs=True,
+            fairness_features=None,
+            fairness_min_pop_cat_thresh=1000,
+            use_robust_eval_metric=True,
+            nbins=10,
+            xgboost_verbose=0,
+            rfecv_model_verbose=0,
+            prefer_cpu_for_lightgbm=True,
+            prefer_calibrated_classifiers=True,
+        )
+    if control_params_override:
+        effective_control_params.update(control_params_override)
+
+    effective_config_params = dict(
+        has_time=False,
+        learning_rate=0.2,
+        iterations=700,
+        early_stopping_rounds=100,
+        catboost_custom_classif_metrics=None,
+        rfecv_kwargs=dict(
+            max_runtime_mins=60 * 3,
+            cv_n_splits=4,
+            max_noimproving_iters=15,
+        ),
+    )
+    if config_params:
+        # Use copy to avoid modifying the original dict
+        effective_config_params = config_params.copy()
+    if config_params_override:
+        effective_config_params.update(config_params_override)
+
+    (
+        common_params,
+        models_params,
+        cb_rfecv,
+        lgb_rfecv,
+        xgb_rfecv,
+        cpu_configs,
+        gpu_configs,
+    ) = configure_training_params(
+        df=df,
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
+        target=target,
+        target_label_encoder=None,
+        cat_features=cat_features,
+        train_idx=train_idx,
+        val_idx=val_idx,
+        test_idx=test_idx,
+        sample_weight=sample_weight,
+        train_details=train_details,
+        val_details=val_details,
+        test_details=test_details,
+        group_ids=group_ids,
+        model_name=model_name,
+        common_params=common_params,
+        config_params=effective_config_params,
+        use_regression=target_type == TargetTypes.REGRESSION,
+        **effective_control_params,
+    )
+
+    rfecv_models_params = dict(
+        cb_rfecv=cb_rfecv,
+        lgb_rfecv=lgb_rfecv,
+        xgb_rfecv=xgb_rfecv,
+    )
+    return common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs
+
+
+def process_model(
+    model_file: str,
+    model_name: str,
+    target_type: str,
+    pre_pipeline: object,
+    pre_pipeline_name: str,
+    cur_target_name: str,
+    trainset_features_stats: dict,
+    models: dict,
+    model_params: dict,
+    common_params: dict,
+    ens_models: list,
+    verbose: int,
+    skip_pre_pipeline_transform: bool = False,
+    cached_train_df: pd.DataFrame = None,
+    cached_val_df: pd.DataFrame = None,
+    cached_test_df: pd.DataFrame = None,
+) -> dict:
+
+    fname = f"{model_name}.dump"
+    if pre_pipeline_name:
+        fname = pre_pipeline_name + " " + fname
+
+    if model_file:
+        fpath = join(model_file, fname)
+    else:
+        fpath = None
+
+    train_df_transformed, val_df_transformed, test_df_transformed = None, None, None
+
+    # Prepare common_params with cached DataFrames if provided
+    effective_common_params = common_params.copy()
+    if cached_train_df is not None:
+        effective_common_params["train_df"] = cached_train_df
+    if cached_val_df is not None:
+        effective_common_params["val_df"] = cached_val_df
+    if cached_test_df is not None:
+        effective_common_params["test_df"] = cached_test_df
+
+    # Remove parameters that are handled by pre_pipeline and not accepted by train_and_evaluate_model
+    for key in ["scaler", "imputer", "category_encoder", "rfecv_params"]:
+        effective_common_params.pop(key, None)
+
+    if fpath and exists(fpath):
+        model = load_mlframe_model(fpath)
+        pre_pipeline = model.pre_pipeline
+
+        temp_model_params = model_params.copy()
+        temp_model_params["model"] = model.model
+        model, train_df_transformed, val_df_transformed, test_df_transformed = train_and_evaluate_model(
+            just_evaluate=True,
+            pre_pipeline=pre_pipeline,
+            skip_pre_pipeline_transform=skip_pre_pipeline_transform,
+            **temp_model_params,
+            **effective_common_params,
+            model_name_prefix=pre_pipeline_name,
+        )
+    else:
+        start = timer()
+        if verbose:
+            logger.info(
+                f"Starting train_and_evaluate {target_type} {pre_pipeline_name.strip() if pre_pipeline_name else ''} {model_name.strip()} {cur_target_name}, RAM usage {get_own_ram_usage():.1f}GBs..."
+            )
+        model, train_df_transformed, val_df_transformed, test_df_transformed = train_and_evaluate_model(
+            pre_pipeline=pre_pipeline,
+            skip_pre_pipeline_transform=skip_pre_pipeline_transform,
+            verbose=verbose,
+            **model_params,
+            **effective_common_params,
+            model_name_prefix=pre_pipeline_name,
+        )
+        end = timer()
+        if verbose:
+            logger.info(f"Finished training, took {(end-start)/60:.1f} min. RAM usage {get_own_ram_usage():.1f}GBs...")
+
+        if fpath:
+            save_mlframe_model(model, fpath)
+
+    models[cur_target_name][target_type].append(model)
+
+    if ens_models is not None:
+        ens_models.append(model)
+
+    if trainset_features_stats is None:
+        trainset_features_stats = model.trainset_features_stats
+        common_params["trainset_features_stats"] = trainset_features_stats
+
+    clean_ram()
+
+    return trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed
+
+
+def showcase_features_and_targets(df: Union[pd.DataFrame, pl.DataFrame], target_by_type: dict, max_hist_samples: int = 100_000) -> None:
+    """Show distribution of targets
+
+    Args:
+        df: DataFrame with features
+        target_by_type: Dictionary of targets by type
+        max_hist_samples: Maximum samples to use for histogram (for performance)
+    """
+
+    print(get_dataframe_info(df))
+
+    head = df.head(5)
+    if isinstance(df, pl.DataFrame):
+        head = head.to_pandas()
+
+    non_floats = head.select_dtypes(exclude=np.float32)
+
+    caption = "Non-float32 dtypes"
+
+    logger.info(f"{caption}: {non_floats.dtypes.to_dict()}")
+
+    in_jupyter_notebook = is_jupyter_notebook()
+
+    if in_jupyter_notebook:
+        display(non_floats.style.set_caption("Non-float32 dtypes"))
+
+    for target_type, targets in target_by_type.items():
+        for target_name, target in targets.items():
+            line = f"{target_type} {target_name}"
+            if in_jupyter_notebook:
+                display(line)
+            else:
+                print(line)
+            if target_type == TargetTypes.REGRESSION:
+                # Subsample if target is large to speed up histogram
+                if len(target) > max_hist_samples:
+                    if isinstance(target, (pl.Series, pd.Series)):
+                        sample_idx = np.random.choice(len(target), max_hist_samples, replace=False)
+                        sample = target.iloc[sample_idx].values if isinstance(target, pd.Series) else target[sample_idx].to_numpy()
+                    else:
+                        sample_idx = np.random.choice(len(target), max_hist_samples, replace=False)
+                        sample = target[sample_idx]
+                    # Add min and max to preserve full range (if not already in sample)
+                    min_val, max_val = np.min(target), np.max(target)
+                    extras = []
+                    if min_val not in sample:
+                        extras.append(min_val)
+                    if max_val not in sample:
+                        extras.append(max_val)
+                    plot_data = np.concatenate([sample, extras]) if extras else sample
+                else:
+                    plot_data = target
+                plt.hist(plot_data, bins=30, color="skyblue", edgecolor="black")
+
+                # Add titles and labels
+                plt.title(f"{target_name} Histogram")
+                plt.xlabel("Value")
+                plt.ylabel("Frequency")
+
+                # Show the plot
+                plt.show()
+
+                if isinstance(target, (pl.Series, pd.Series)):
+                    desc_data = target.describe()
+                elif isinstance(target, (np.ndarray)):
+                    desc_data = pl.Series(target).describe()
+
+                if in_jupyter_notebook:
+                    display(desc_data)
+                else:
+                    print(desc_data)
+
+            elif target_type == TargetTypes.BINARY_CLASSIFICATION:
+                if isinstance(target, (pl.Series, pd.Series)):
+                    desc_data = target.value_counts(normalize=True)
+                elif isinstance(target, (np.ndarray)):
+                    desc_data = pl.Series(target).value_counts(normalize=True, sort=True)
+
+                if in_jupyter_notebook:
+                    display(desc_data)
+                else:
+                    print(desc_data)
+
+    if in_jupyter_notebook:
+        display(head)
+
+        tail = df.tail(5)
+        if isinstance(df, pl.DataFrame):
+            tail = tail.to_pandas()
+
+        display(tail)
+
+
+def intize_targets(targets: dict) -> None:
+    for target_name, target in targets.copy().items():
+        if isinstance(target, pl.Series):
+            target = target.cast(pl.Int8).to_numpy()
+        else:
+            target = target.astype(np.int8).values
+        targets[target_name] = target
+
+
+def train_mlframe_models_suite_old(
+    df: Union[pl.DataFrame, pd.DataFrame, str],
+    target_name: str,
+    model_name: str,
+    features_and_targets_extractor: FeaturesAndTargetsExtractor,
+    #
+    n_rows: int = None,
+    tail: int = None,
+    columns: list = None,
+    drop_columns: list = None,
+    #
+    data_dir: str = "",
+    models_dir: str = MODELS_SUBDIR,
+    #
+    mlframe_models: list = None,
+    use_ordinary_models: bool = True,
+    use_mlframe_ensembles: bool = True,
+    #
+    use_autogluon_models: bool = False,
+    autogluon_init_params: dict = None,
+    autogluon_fit_params: dict = None,
+    #
+    use_lama_models: bool = False,
+    lama_init_params: dict = None,
+    lama_fit_params: dict = None,
+    #
+    rfecv_models: list = None,
+    report_params: dict = None,
+    #
+    skip_infinity_checks: bool = True,
+    verbose: int = 1,
+    #
+    automl_verbose: int = 1,
+    automl_show_fi: bool = True,
+    automl_target_label: str = "target",
+    #
+    config_params: dict = None,
+    config_params_override: dict = None,
+    control_params: dict = None,
+    control_params_override: dict = None,
+    init_common_params: dict = None,
+    #
+    fix_infinities: bool = True,
+    fillna_value: float = None,
+    ensure_float32_dtypes: bool = True,
+    use_polarsds_pipeline: bool = True,
+    #
+    test_size: float = 0.1,
+    val_size: float = 0.1,
+    shuffle_val: bool = False,
+    shuffle_test: bool = False,
+    val_sequential_fraction: float = 0.5,
+    test_sequential_fraction: float = None,
+    trainset_aging_limit: float = None,
+    wholeday_splitting: bool = True,
+    #
+    use_mrmr_fs: bool = False,
+    mrmr_kwargs: dict = None,
+    random_seed: int = 42,
+    #
+    imputer: object = None,
+    scaler: object = None,
+    category_encoder: object = None,
+) -> dict:
+    """In a unified fashion, train a bunch of models over the same data."""
+
+    if verbose:
+        logger.info(f"Starting MLFRAME models suite training. RAM usage: {get_own_ram_usage():.1f}GB.")
+
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # Warnings
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    warnings.filterwarnings(
+        "ignore",
+        message=r"The '.*_dataloader' does not have many workers",
+        module="lightning.pytorch.trainer.connectors.data_connector",
+    )
+
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # Inits
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    trainset_features_stats = None
+    metadata = {}
+
+    # if imputer is None:
+    # imputer = SimpleImputer(strategy="most_frequent", add_indicator=False)
+
+    if category_encoder is None:
+        category_encoder = ce.CatBoostEncoder()
+    if rfecv_models is None:
+        rfecv_models = []
+    if mrmr_kwargs is None:
+        mrmr_kwargs = dict(n_workers=max(1, psutil.cpu_count(logical=False)), verbose=2, fe_max_steps=0)
+    if mlframe_models is None:
+        mlframe_models = "cb lgb xgb mlp".split()
+    if init_common_params is None:
+        init_common_params = {}
+    if autogluon_fit_params is None:
+        autogluon_fit_params = {}
+    if autogluon_init_params is None:
+        autogluon_init_params = {}
+
+    if lama_init_params is None:
+        from lightautoml.tasks import Task
+
+        lama_init_params = dict(task=Task("binary"))
+    if lama_fit_params is None:
+        lama_fit_params = {}
+
+    if report_params is None:
+        report_params = dict(
+            nbins=10,
+            # figsize=figsize,
+            # print_report=print_report,
+            # plot_file=plot_file + "_test" if plot_file else "",
+            # show_perf_chart=show_perf_chart,
+            # show_fi=show_fi,
+            # fi_kwargs=fi_kwargs,
+            # subgroups=subgroups,
+            # subset_index=test_idx,
+            # custom_ice_metric=custom_ice_metric,
+            # custom_rice_metric=custom_rice_metric,
+            # metrics=metrics["test"],
+        )
+
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # Load, fill, and prepare df
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    if isinstance(df, str):
+
+        if verbose:
+            logger.info(f"Loading df from file with Polars...")
+
+        params = dict(parallel="columns")
+        if n_rows:
+            params["n_rows"] = n_rows
+        if columns:
+            params["columns"] = columns
+        df = pl.read_parquet(df, **params)
+        clean_ram()
+        if verbose:
+            log_ram_usage()
+
+    # Now decrease "attack surface" as much as possible
+
+    if tail:
+        df = df.tail(tail)
+        clean_ram()
+
+    if verbose:
+        logger.info(f"Preprocessing dataframe...")
+    df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, additional_columns_to_drop = features_and_targets_extractor.transform(df)
+    clean_ram()
+    if verbose:
+        log_ram_usage()
+
+    if additional_columns_to_drop:
+        if drop_columns:
+            drop_columns.extend(additional_columns_to_drop)
+        else:
+            drop_columns = additional_columns_to_drop
+    if drop_columns:
+
+        logger.info(f"Dropping {len(drop_columns):_} columns...")
+
+        if isinstance(df, pd.DataFrame):
+            df_columns = set(df.columns)
+            for col in drop_columns:
+                if col in df_columns:
+                    del df[col]
+                else:
+                    df = df.drop(col)
+        elif isinstance(df, pl.DataFrame):
+            df = df.drop(drop_columns, strict=False)
+
+        clean_ram()
+        if verbose:
+            log_ram_usage()
+
+    # Now can perform costly operations
+
+    df = remove_constant_columns(df, verbose=verbose)
+
+    if ensure_float32_dtypes:
+        """Lightgbm uses np.result_type(*df_dtypes) to detect array dtype when converting from Pandas input,
+        which results in float64 for int32 and above. For the rational mem usage, it makes sense to convert cols to float32 directly before training lightgbm.
+        """
+        if verbose:
+            logger.info(f"Ensuring float32 dtypes...")
+        df = ensure_dataframe_float32_convertability(df)
+        clean_ram()
+        if verbose:
+            log_ram_usage()
+
+    if fillna_value is not None:
+        df = process_nulls(df, fill_value=fillna_value, verbose=verbose)
+        df = process_nans(df, fill_value=fillna_value, verbose=verbose)
+        imputer = None
+
+        if fix_infinities:
+            df = process_infinities(df, fill_value=fillna_value, verbose=verbose)
+
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # Train-val-test split
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    if verbose:
+        logger.info(f"make_train_test_split...")
+    train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
+        df=df,
+        timestamps=timestamps,
+        test_size=test_size,
+        val_size=val_size,
+        shuffle_val=shuffle_val,
+        shuffle_test=shuffle_test,
+        val_sequential_fraction=val_sequential_fraction,
+        test_sequential_fraction=test_sequential_fraction,
+        trainset_aging_limit=trainset_aging_limit,
+        wholeday_splitting=wholeday_splitting,
+        random_seed=random_seed,
+    )
+    if verbose:
+        log_ram_usage()
+
+    # Save timestamps ,group ids & artifacts per set
+
+    if data_dir is not None and models_dir:
+        ensure_dir_exists(join(data_dir, models_dir, slugify(target_name), slugify(model_name)))
+        for idx, idx_name in zip([train_idx, val_idx, test_idx], "train val test".split()):
+            if idx is None:
+                continue
+            if timestamps is not None and len(timestamps) > 0:
+                ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_timestamps.parquet")
+                if not exists(ts_file):
+                    save_series_or_df(timestamps[idx], ts_file, PARQUET_COMPRESION, name="ts")
+            if group_ids_raw is not None and len(group_ids_raw) > 0:
+                gid_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_group_ids_raw.parquet")
+                if not exists(gid_file):
+                    save_series_or_df(group_ids_raw[idx], gid_file, PARQUET_COMPRESION)
+            if artifacts is not None and len(artifacts) > 0:
+                art_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_artifacts.parquet")
+                if not exists(art_file):
+                    save_series_or_df(artifacts[idx], art_file, PARQUET_COMPRESION)
+
+    del timestamps, group_ids_raw, artifacts
+
+    if verbose:
+        logger.info(f"creating train_df,val_df,test_df...")
+
+    if isinstance(df, pd.DataFrame):
+
+        for next_df in (df,):
+            if next_df is not None:
+                cat_features = get_categorical_columns(next_df, include_string=True)
+                if cat_features:
+                    prepare_df_for_catboost(
+                        df=next_df,
+                        cat_features=cat_features,
+                    )
+
+        next_df = None
+
+        train_df = df.iloc[train_idx]
+        test_df = df.iloc[test_idx] if test_idx is not None else None
+        val_df = df.iloc[val_idx] if val_idx is not None else None
+
+    elif isinstance(df, pl.DataFrame):
+
+        train_df = df[train_idx].clone()
+        test_df = df[test_idx].clone() if test_idx is not None else None
+        val_df = df[val_idx].clone() if val_idx is not None else None
+
+        if verbose:
+            log_ram_usage()
+
+    if use_autogluon_models or use_lama_models:
+        tran_val_idx = np.concatenate([train_idx, val_idx])
+        if verbose:
+            logger.info(f"RSS at start: {get_own_ram_usage():.1f}GBs")
+    else:
+        if verbose:
+            logger.info(f"Ram usage before deleting main df: {get_own_ram_usage():.1f}GBs")
+        del df
+        clean_ram()
+        if verbose:
+            logger.info(f"Ram usage after deleting main df: {get_own_ram_usage():.1f}GBs")
+
+    if isinstance(train_df, pl.DataFrame):
+
+        if use_polarsds_pipeline:
+            try:
+                from polars_ds.pipeline import Pipeline as PdsPipeline, Blueprint as PdsBlueprint
+            except Exception as e:
+                logger.warning(f"Could not use mighty_scaler from polars-ds: {e}")
+            else:
+
+                if verbose:
+                    logger.info(f"Fitting mighty_scaler from polars-ds...")
+
+                bp = (
+                    PdsBlueprint(
+                        train_df,
+                        name="mighty_scaler",
+                    )
+                    .scale(cs.numeric(), method="standard")
+                    .ordinal_encode(cols=None, null_value=-1, unknown_value=-2)
+                    .int_to_float(f32=True)
+                    # .one_hot_encode(cols=None, drop_first=False, drop_cols=True)
+                )
+                mighty_scaler_pipe: PdsPipeline = bp.materialize()
+                del bp
+                clean_ram()
+
+                if verbose:
+                    log_ram_usage()
+                    logger.info(f"Applying mighty_scaler from polars-ds...")
+
+                train_df = mighty_scaler_pipe.transform(train_df)
+                if val_idx is not None:
+                    val_df = mighty_scaler_pipe.transform(val_df)
+                if test_idx is not None:
+                    test_df = mighty_scaler_pipe.transform(test_df)
+
+                if ensure_float32_dtypes:
+                    train_df = ensure_dataframe_float32_convertability(train_df)
+                    if val_idx is not None:
+                        val_df = ensure_dataframe_float32_convertability(val_df)
+                    if test_idx is not None:
+                        test_df = ensure_dataframe_float32_convertability(test_df)
+                logger.info(f"train_df dtypes after mighty_scaler={Counter(train_df.dtypes)}")
+
+                metadata["mighty_scaler_pipe"] = mighty_scaler_pipe
+                scaler = None
+
+                cat_features = []
+
+    clean_ram()
+    if verbose:
+        log_ram_usage()
+
+    if cat_features:
+        logger.info(f"Ensuring cat_features={','.join(cat_features)}")
+        for next_df in (train_df, val_df, test_df):
+            if next_df is not None and isinstance(next_df, pd.DataFrame):
+                prepare_df_for_catboost(
+                    df=next_df,
+                    cat_features=cat_features,
+                )
+        if verbose:
+            log_ram_usage()
+
+    if len(val_df) == 0:
+        val_df = None
+
+    columns = train_df.columns
+
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # Actual training
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    models = defaultdict(lambda: defaultdict(list))
+    for target_type, targets in tqdmu(target_by_type.items(), desc="target type"):
+        # !TODO ! optimize for creation of inner feature matrices of cb,lgb,xgb here. They should be created once per featureset, not once per target.
+        for cur_target_name, cur_target_values in tqdmu(targets.items(), desc="target"):
+            if mlframe_models:
+                if use_autogluon_models or use_lama_models:
+                    if automl_target_label in df.columns:
+                        if isinstance(df, pd.DataFrame):
+                            del df[automl_target_label]
+                        else:
+                            df = df.drop(automl_target_label)
+                        if verbose:
+                            logger.info(f"RSS after automl_target_label deletion: {get_own_ram_usage():.1f}GBs")
+
+                parts = slugify(target_name), slugify(model_name), slugify(target_type.lower()), slugify(cur_target_name)
+                if data_dir is not None:
+                    plot_file = join(data_dir, "charts", *parts) + os.path.sep
+                    ensure_dir_exists(plot_file)
+                else:
+                    plot_file = None
+                if models_dir is not None:
+                    model_file = join(data_dir, models_dir, *parts) + os.path.sep
+                    ensure_dir_exists(model_file)
+                else:
+                    model_file = None
+
+                if verbose:
+                    logger.info(f"select_target...")
+                cur_control_params_override = control_params_override.copy()
+                cur_control_params_override["use_regression"] = target_type == TargetTypes.REGRESSION
+                common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs = select_target(
+                    model_name=f"{target_name} {model_name} {cur_target_name}",
+                    target=cur_target_values,
+                    df=None,
+                    train_df=train_df,
+                    val_df=val_df,
+                    test_df=test_df,
+                    train_idx=train_idx,
+                    val_idx=val_idx,
+                    test_idx=test_idx,
+                    train_details=train_details,
+                    val_details=val_details,
+                    test_details=test_details,
+                    group_ids=group_ids,
+                    cat_features=cat_features,
+                    config_params=config_params,
+                    config_params_override=config_params_override,
+                    control_params=control_params,
+                    control_params_override=cur_control_params_override,
+                    common_params=dict(
+                        trainset_features_stats=trainset_features_stats, skip_infinity_checks=skip_infinity_checks, plot_file=plot_file, **init_common_params
+                    ),
+                )
+
+                pre_pipelines = []
+                pre_pipeline_names = []
+
+                if use_ordinary_models:
+                    pre_pipelines.append(None)
+                    pre_pipeline_names.append("")
+
+                for rfecv_model_name in rfecv_models:
+                    if rfecv_model_name not in rfecv_models_params:
+                        logger.warning(f"RFECV model {rfecv_model_name} not known, skipping...")
+                    else:
+                        pre_pipelines.append(rfecv_models_params[rfecv_model_name])
+                        pre_pipeline_names.append(f"{rfecv_model_name} ")
+
+                if use_mrmr_fs:
+                    pre_pipelines.append(MRMR(**mrmr_kwargs))
+                    pre_pipeline_names.append("MRMR ")
+
+                for pre_pipeline, pre_pipeline_name in zip(pre_pipelines, pre_pipeline_names):
+                    if pre_pipeline_name == "cb_rfecv" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
+                        # File /venv/main/lib/python3.12/site-packages/sklearn/base.py:142, in _clone_parametrized(estimator, safe)
+                        # RuntimeError: Cannot clone object <catboost.core.CatBoostRegressor object at 0x713048b0e840>, as the constructor either does not set or modifies parameter custom_metric
+                        continue
+                    ens_models = [] if use_mlframe_ensembles else None
+                    orig_pre_pipeline = pre_pipeline
+                    for mlframe_model_name in mlframe_models:
+                        if mlframe_model_name == "cb" and target_type == TargetTypes.REGRESSION and control_params_override.get("metamodel_func") is not None:
+                            continue
+                        if mlframe_model_name not in models_params:
+                            logger.warning(f"mlframe model {mlframe_model_name} not known, skipping...")
+                        else:
+                            if mlframe_model_name == "hgb" and cat_features:
+                                pre_pipeline = Pipeline(
+                                    steps=[
+                                        *([("pre", orig_pre_pipeline)] if orig_pre_pipeline else []),
+                                        ("ce", ce.CatBoostEncoder(verbose=2)),
+                                    ]
+                                )
+                            elif mlframe_model_name in ("mlp", "ngb"):
+                                pre_pipeline = Pipeline(
+                                    steps=[
+                                        *([("pre", orig_pre_pipeline)] if orig_pre_pipeline else []),
+                                        *([("ce", category_encoder)] if cat_features else []),
+                                        *([("imp", imputer)] if imputer else []),
+                                        *([("scaler", scaler)] if scaler else []),
+                                    ]
+                                )
+                            trainset_features_stats, pre_pipeline = process_model(
+                                model_file=model_file,
+                                model_name=mlframe_model_name,
+                                target_type=target_type,
+                                pre_pipeline=pre_pipeline,
+                                pre_pipeline_name=pre_pipeline_name,
+                                cur_target_name=cur_target_name,
+                                models=models,
+                                model_params=models_params[mlframe_model_name],
+                                common_params=common_params,
+                                ens_models=ens_models,
+                                trainset_features_stats=trainset_features_stats,
+                                verbose=verbose,
+                            )
+                            if mlframe_model_name not in ("hgb", "mlp", "ngb"):
+                                orig_pre_pipeline = pre_pipeline
+
+                    if ens_models and len(ens_models) > 1:
+                        if verbose:
+                            logger.info(f"evaluating simple ensembles...")
+                        ensembles = score_ensemble(
+                            models_and_predictions=ens_models,
+                            ensemble_name=pre_pipeline_name + f"{len(ens_models)}models ",
+                            **common_params,
+                        )
+            if use_autogluon_models or use_lama_models:
+                if isinstance(df, pd.DataFrame):
+                    df[automl_target_label] = cur_target_values
+                else:
+                    df = df.with_columns(pl.Series(automl_target_label, cur_target_values))
+                print(f"RSS after automl_target_label inserting: {get_own_ram_usage():.1f}GBs")
+                if isinstance(df, pd.DataFrame):
+                    automl_train_df = df.iloc[tran_val_idx].copy()
+                else:
+                    automl_train_df = get_pandas_view_of_polars_df(df[tran_val_idx])
+                test_target = cur_target_values[test_idx]
+                test_df_automl = test_df if isinstance(test_df, pd.DataFrame) else (get_pandas_view_of_polars_df(test_df) if test_df is not None else None)
+            if use_autogluon_models:
+                if verbose:
+                    logger.info(f"train_and_evaluate_autogluon...")
+                models[cur_target_name].append(
+                    train_and_evaluate_autogluon(
+                        train_df=automl_train_df,
+                        test_df=test_df_automl,
+                        test_target=test_target,
+                        columns=columns,
+                        model_name=model_name,
+                        automl_init_params=autogluon_init_params,
+                        automl_fit_params=autogluon_fit_params,
+                        automl_target_label=automl_target_label,
+                        automl_show_fi=automl_show_fi,
+                        automl_verbose=automl_verbose,
+                        report_params=report_params,
+                        group_ids=group_ids[test_idx] if group_ids is not None else None,
+                    )
+                )
+            if use_lama_models:
+                if verbose:
+                    logger.info(f"train_and_evaluate_lama...")
+                models[cur_target_name][target_type].append(
+                    train_and_evaluate_lama(
+                        train_df=automl_train_df,
+                        test_df=test_df_automl,
+                        test_target=test_target,
+                        columns=columns,
+                        model_name=model_name,
+                        automl_init_params=lama_init_params,
+                        automl_fit_params=lama_fit_params,
+                        automl_target_label=automl_target_label,
+                        automl_show_fi=automl_show_fi,
+                        automl_verbose=automl_verbose,
+                        report_params=report_params,
+                        group_ids=group_ids[test_idx] if group_ids is not None else None,
+                    )
+                )
+    return models, metadata
+
+
+# AUTOML
+
+
+def train_and_evaluate_autogluon(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    test_target: pd.Series,
+    columns: Iterable,
+    model_name: str,
+    automl_init_params: dict,
+    automl_fit_params: dict,
+    automl_target_label: str,
+    automl_show_fi: str,
+    automl_verbose: int,
+    report_params: dict,
+    group_ids: pd.Series = None,
+) -> dict:
+
+    try:
+        from autogluon.tabular import TabularDataset, TabularPredictor
+    except Exception as e:
+        logger.warning(f"Skipping Autogluon: {e}.")
+    else:
+
+        model_name = f"AutoGluon_{model_name}"
+
+        train_data = TabularDataset(train_df)
+
+        automl = TabularPredictor(label=automl_target_label, verbosity=automl_verbose, **automl_init_params)
+        automl.fit(train_data, **automl_fit_params)
+        clean_ram()
+
+        test_probs = automl.predict_proba(test_df).to_numpy()
+        metrics = {"test": {}}
+        _, _ = report_model_perf(
+            targets=test_target,
+            columns=columns,
+            df=None,
+            model_name=model_name,
+            model=None,
+            target_label_encoder=None,
+            preds=None,
+            probs=test_probs,
+            report_title="TEST",
+            metrics=metrics["test"],
+            group_ids=group_ids if group_ids is not None else None,
+            **report_params,
+        )
+        if automl_show_fi:
+            automl_fi = automl.feature_importance(test_df)
+        else:
+            automl_fi = None
+
+        return SimpleNamespace(model=automl, metrics=metrics, fi=automl_fi, test_target=test_target, test_probs=test_probs)
+
+
+def train_and_evaluate_lama(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    test_target: pd.Series,
+    columns: Iterable,
+    model_name: str,
+    automl_init_params: dict,
+    automl_fit_params: dict,
+    automl_target_label: str,
+    automl_show_fi: str,
+    automl_verbose: int,
+    report_params: dict,
+    group_ids: pd.Series = None,
+) -> dict:
+
+    try:
+        from lightautoml.automl.presets.tabular_presets import TabularAutoML, TabularUtilizedAutoML
+        from lightautoml.report.report_deco import ReportDeco, ReportDecoUtilized
+        from lightautoml.tasks import Task
+        import matplotlib as mpl
+    except Exception as e:
+        logger.warning(f"Skipping LaMa: {e}.")
+    else:
+
+        model_name = f"LaMa_{model_name}"
+
+        # RD = ReportDeco(output_path="LaMa_model_report")
+
+        # automl = RD(TabularAutoML(**lama_init_params))
+        automl = TabularAutoML(**automl_init_params)
+
+        out_of_fold_predictions = automl.fit_predict(train_df, roles={"target": automl_target_label}, verbose=automl_verbose, **automl_fit_params)
+
+        """
+        verbose - controls the verbosity: the higher, the more messages:
+        <1  : messages are not displayed;
+        >=1 : the computation process for layers is displayed;
+        >=2 : the information about folds processing is also displayed;
+        >=3 : the hyperparameters optimization process is also displayed;
+        >=4 : the training process for every algorithm is displayed;
+        """
+
+        test_predictions = automl.predict(test_df)
+        test_probs = np.vstack([1 - test_predictions.data[:, 0], test_predictions.data[:, 0]]).T
+
+        mpl.rcParams.update(mpl.rcParamsDefault)
+
+        metrics = {"test": {}}
+        _, _ = report_model_perf(
+            targets=test_target,
+            columns=columns,
+            df=None,
+            model_name=model_name,
+            model=None,
+            target_label_encoder=None,
+            preds=None,
+            probs=test_probs,
+            report_title="TEST",
+            metrics=metrics["test"],
+            group_ids=group_ids if group_ids is not None else None,
+            **report_params,
+        )
+        if automl_show_fi:
+            automl_fi = automl.get_feature_scores("fast")
+            # automl_fi = automl.feature_importance(calc_method= "accurate",data=temp_test_df)
+        else:
+            automl_fi = None
+
+        return SimpleNamespace(model=automl, metrics=metrics, fi=automl_fi, test_target=test_target, test_probs=test_probs)
+
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Early stopping & callbacks
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+def stop_file(fpath: str):
+    return lambda: os.path.exists(fpath)
+
+
+class UniversalCallback:
+    def __init__(
+        self,
+        time_budget_mins: Optional[float] = None,
+        reporting_interval_mins: Optional[float] = 1.0,
+        patience: Optional[int] = None,
+        min_delta: float = 0.0,
+        monitor_dataset: Optional[str] = None,
+        monitor_metric: Optional[str] = None,
+        mode: Optional[str] = None,
+        stop_flag: Optional[Callable[[], bool]] = None,
+        ndigits: int = 6,
+        verbose: int = 1,
+    ) -> None:
+
+        params = get_parent_func_args()
+        store_params_in_object(obj=self, params=params)
+
+        self.start_time = None
+        self.best_metric = None
+        self.first_iteration = True
+        self.iterations_since_improvement = 0
+        self.metric_history: Dict[str, Dict[str, List[float]]] = {}
+        self.stop_flag = stop_flag if stop_flag is not None else lambda: False
+
+        if self.verbose > 0:
+            logger.info(
+                "UniversalCallback initialized with params: "
+                f"time_budget_mins={time_budget_mins}, patience={patience}, min_delta={min_delta}, "
+                f"monitor_dataset={monitor_dataset}, monitor_metric={monitor_metric}, mode={mode}"
+            )
+
+    def on_start(self) -> None:
+        self.start_time = timer()
+        if self.verbose > 0:
+            self.last_reporting_ts = self.start_time
+            logger.info(f"Training started. Timer initiated. RAM usage {get_own_ram_usage():.1f}GB.")
+
+    def update_history(self, metrics_dict: Dict[str, Dict[str, float]]) -> None:
+        for dataset in metrics_dict:
+            if dataset not in self.metric_history:
+                self.metric_history[dataset] = {}
+            for metric, value in metrics_dict[dataset].items():
+                self.metric_history[dataset].setdefault(metric, []).append(value)
+        if self.verbose > 1:
+            logger.debug(f"Updated metric history: {metrics_dict}")
+
+    def derive_mode(self, metric_name: str) -> str:
+        known_metric_modes = {
+            "auc": "max",
+            "accuracy": "max",
+            "acc": "max",
+            "f1": "max",
+            "map": "max",
+            "ndcg": "max",
+            "ice": "min",
+            "mae": "min",
+            "mse": "min",
+            "mape": "min",
+            "rmse": "min",
+            "logloss": "min",
+            "error": "min",
+            "loss": "min",
+        }
+
+        name = metric_name.lower()
+        for key, default_mode in known_metric_modes.items():
+            if key == name:
+                return default_mode
+        if "score" in name or "auc" in name or "accuracy" in name:
+            return "max"
+        elif "loss" in name or "error" in name:
+            return "min"
+        elif name.endswith("e"):
+            return "min"
+        else:
+            logger.warning(f"Unsure about correct optimization mode for metric={name}, using min for now.")
+            return "min"  # fallback default
+
+    def set_default_monitor_metric(self, metrics_dict: Dict[str, Dict[str, float]]) -> None:
+        if self.monitor_dataset not in metrics_dict:
+            raise ValueError(f"Monitor dataset '{self.monitor_dataset}' not found in metrics.")
+        available_metrics = list(metrics_dict[self.monitor_dataset].keys())
+        logger.info(f"available_metrics={available_metrics}")
+        for preferred in ["ICE", "integral_calibration_error", "auc", "AUC"]:
+            if preferred in available_metrics:
+                self.monitor_metric = preferred
+                break
+        else:
+            self.monitor_metric = available_metrics[0]
+        self.mode = self.derive_mode(self.monitor_metric)
+        if self.verbose > 0:
+            logger.info(f"Auto-selected monitor_metric: {self.monitor_metric}, mode: {self.mode}")
+
+    def _get_state(self, current_value: float) -> str:
+        return f"iter={self.iter:_}, {self.monitor_dataset} {self.monitor_metric}: current={current_value:.{self.ndigits}f}, best={self.best_metric:.{self.ndigits}f} @{self.best_iter:_}. RAM usage {get_own_ram_usage():.1f}GB."
+
+    def should_stop(self) -> bool:
+        cur_ts = timer()
+        if self.time_budget_mins is not None and self.start_time is not None:
+
+            elapsed = cur_ts - self.start_time
+            if elapsed > self.time_budget_mins * 60:
+                if self.verbose > 0:
+                    logger.info(f"Stopping early due to time budget exceeded ({elapsed:.2f} sec).")
+                return True
+
+        if self.stop_flag():
+            if self.verbose > 0:
+                logger.info("Stopping early due to external stop flag.")
+            return True
+
+        if self.monitor_dataset in self.metric_history and self.monitor_metric in self.metric_history[self.monitor_dataset]:
+            history = self.metric_history[self.monitor_dataset][self.monitor_metric]
+            if history:
+                current_value = history[-1]
+                if self.best_metric is None:
+                    self.iter = 0
+                    self.best_iter = self.iter
+                    self.best_metric = current_value
+                    self.iterations_since_improvement = 0
+                    if self.verbose > 0:
+                        logger.info(f"Initial metric value: {current_value:.{self.ndigits}f}")
+                        self.last_reporting_ts = cur_ts
+                else:
+                    self.iter += 1
+                    improved = (self.mode == "min" and current_value < self.best_metric - self.min_delta) or (
+                        self.mode == "max" and current_value > self.best_metric + self.min_delta
+                    )
+                    if improved:
+                        self.best_iter = self.iter
+                        self.best_metric = current_value
+                        self.iterations_since_improvement = 0
+                        if self.verbose > 0 and (not self.reporting_interval_mins or (cur_ts - self.last_reporting_ts) >= self.reporting_interval_mins * 60):
+                            logger.info(self._get_state(current_value=current_value))
+                            self.last_reporting_ts = cur_ts
+                    else:
+                        self.iterations_since_improvement += 1
+                        if self.verbose > 0 and (not self.reporting_interval_mins or (cur_ts - self.last_reporting_ts) >= self.reporting_interval_mins * 60):
+                            logger.info(self._get_state(current_value=current_value))
+                            self.last_reporting_ts = cur_ts
+                    if self.patience is not None and self.iterations_since_improvement >= self.patience:
+                        if self.verbose > 0:
+                            logger.info(
+                                f"Stopping early due to no improvement for {self.iterations_since_improvement} iterations. {self._get_state(current_value=current_value)}"
+                            )
+                            self.last_reporting_ts = cur_ts
+                        return True
+        return False
+
+
+class LightGBMCallback(UniversalCallback):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.monitor_dataset = self.monitor_dataset or "valid_0"
+
+    def __call__(self, env: lgb.callback.CallbackEnv) -> bool:
+        if self.first_iteration:
+            self.on_start()
+            self.first_iteration = False
+        metrics_dict = {}
+        for dataset, metric, value, _ in env.evaluation_result_list:
+            metrics_dict.setdefault(dataset, {})[metric] = value
+        self.update_history(metrics_dict)
+        if self.monitor_metric is None:
+            self.set_default_monitor_metric(metrics_dict)
+        if self.should_stop():
+            if hasattr(self, "best_iter"):
+                best_iter = self.best_iter
+            else:
+                best_iter = 0
+            raise lgb.callback.EarlyStopException(best_iter, [(dataset, metric, self.best_metric, False)])
+            return True
+
+
+class XGBoostCallback(UniversalCallback, TrainingCallback):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.monitor_dataset = self.monitor_dataset or "validation_0"
+
+    def after_iteration(self, model: xgb.Booster, epoch: int, evals_log: Dict[str, Dict[str, List[float]]]) -> bool:
+        if self.first_iteration:
+            self.on_start()
+            self.first_iteration = False
+        metrics_dict = {dataset: {metric: values[-1] for metric, values in metric_dict.items()} for dataset, metric_dict in evals_log.items()}
+        self.update_history(metrics_dict)
+        if self.monitor_metric is None:
+            self.set_default_monitor_metric(metrics_dict)
+
+        if self.should_stop():
+            if hasattr(self, "best_iter"):
+                best_iter = self.best_iter
+            else:
+                best_iter = 0
+            model.set_attr(best_score=self.best_metric, best_iteration=best_iter)
+            return True
+
+
+class CatBoostCallback(UniversalCallback):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.monitor_dataset = self.monitor_dataset or "validation"
+
+    def after_iteration(self, info: Any) -> bool:
+        if self.first_iteration:
+            self.on_start()
+            self.first_iteration = False
+        metrics_dict = {dataset: {metric: values[-1] for metric, values in metric_dict.items()} for dataset, metric_dict in info.metrics.items()}
+        self.update_history(metrics_dict)
+        if self.monitor_metric is None:
+            self.set_default_monitor_metric(metrics_dict)
+        return not self.should_stop()
+
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Post-modelling stuff
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+def read_oos_predictions(
+    models: list,
+    models_dir: str,
+    max_mae: float = 0,
+    max_std: float = 0,
+    ensure_prob_limits: bool = True,
+    uncertainty_quantile: float = 0.1,
+    normalize_stds_by_mean_preds: bool = False,
+    ts_field: str = "ts",
+    group_field: str = "secid",
+    verbose: int = 1,
+) -> pl.DataFrame:
+
+    res = {}
+
+    test_timestamps = pl.read_parquet(join(models_dir, "test_timestamps.parquet"))
+    test_group_ids_raw = pl.read_parquet(join(models_dir, "test_group_ids_raw.parquet"))
+
+    res[ts_field] = test_timestamps[ts_field]
+    res[group_field] = test_group_ids_raw[group_field]
+    for target_name, submodels in models.items():
+        all_models_predictions = []
+        for model_name, model in submodels.items():
+            res[target_name] = model.test_target
+            key = f"{target_name}-{model_name}"
+            if model.test_probs is not None:
+                res[key] = model.test_probs[:, 1]
+                all_models_predictions.append(model.test_probs)
+            else:
+                res[key] = model.test_preds
+        for ensembling_method in ("harm", "arithm", "median", "quad", "qube", "geo"):
+            ensembled_predictions, predictions_stds, confident_indices = ensemble_probabilistic_predictions(
+                *all_models_predictions,
+                ensemble_method=ensembling_method,
+                max_mae=max_mae,
+                max_std=max_std,
+                ensure_prob_limits=ensure_prob_limits,
+                uncertainty_quantile=uncertainty_quantile,
+                normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+                verbose=verbose,
+            )
+            res[f"{target_name}-ens_{ensembling_method}"] = ensembled_predictions[:, 1]
+
+    predictions_df = pl.DataFrame(res)
+    return predictions_df
+
+
+def compute_models_perf(
+    df: pl.DataFrame,
+    directions: list,
+    report_title: str,
+    charts_dir: str = None,
+    group_field: str = "secid",
+    suffixes=["_prob"],
+    direct_order: bool = True,
+    show_perf_chart: bool = True,
+    models: list = None,
+):
+
+    report_params = {
+        "report_ndigits": 2,
+        "calib_report_ndigits": 2,
+        "print_report": False,
+        "report_title": report_title,
+        "use_weights": True,
+        "show_perf_chart": show_perf_chart,
+    }
+
+    if not models:
+        models = "cb lgb xgb".split() + [f"ens_{method}" for method in SIMPLE_ENSEMBLING_METHODS]
+
+    metrics = {}
+
+    group_ids = df[group_field].to_numpy()
+    unique_vals, group_ids = np.unique(group_ids, return_inverse=True)
+
+    for direction in directions:
+        for model in models:
+            for suffix in suffixes:
+
+                if direct_order:
+                    model_name = f"{model}_{direction}{suffix}"
+                else:
+                    model_name = f"{direction}-{model}{suffix}"
+
+                prob_col = f"{model_name}"
+                if prob_col not in df:
+                    prob_col = f"{model_name}_probs"
+                    if prob_col not in df:
+                        continue
+
+                if False:
+                    up = "UP" in model_name
+                    if up:
+                        targets = (df[f"target_UP"].to_numpy() >= MIN_SIGNIFICANT_LONG_RETURN).astype(np.int8)
+                    else:
+                        targets = (df[f"target_DOWN"].to_numpy() >= MIN_SIGNIFICANT_SHORT_RETURN).astype(np.int8)
+
+                targets = df[direction].to_numpy().astype(np.int8)
+
+                probs = df[prob_col].to_numpy()
+
+                metrics[model_name] = {
+                    "pred_min": np.min(probs),
+                    #'pred_q_0.01':np.quantile(probs,0.01),
+                    #'pred_mean':np.mean(probs),
+                    "pred_median": np.median(probs),
+                    "pred_q_0.999": np.quantile(probs, 0.999),
+                    #'pred_max':np.max(probs)
+                    "target_mean": np.mean(targets),
+                }
+
+                probs = np.vstack([1 - probs, probs]).T
+
+                _, _ = report_model_perf(
+                    targets=targets,
+                    columns=None,
+                    df=None,
+                    model_name=f"{model_name}",
+                    model=None,
+                    target_label_encoder=None,
+                    preds=None,
+                    probs=probs,
+                    plot_file=join(charts_dir, model_name) if charts_dir else None,
+                    metrics=metrics[model_name],
+                    group_ids=group_ids,
+                    **report_params,
+                )
+
+    metrics = pd.DataFrame(metrics).T
+
+    transformed = False
+    for label in (1, 0):
+        if label in metrics.columns:
+            transformed = True
+            try:
+                metrics = (
+                    metrics.drop(columns=[label])
+                    .join(metrics[label].apply(pd.Series))
+                    .drop(columns=["feature_importances", "class_integral_error"])
+                    .sort_values("ice")
+                )
+            except Exception:
+                return None
+            metrics["flipped"] = label != 1
+            break
+
+    if not transformed:
+        metrics = None
+
+    return metrics
+
+
+def compute_ml_perf(
+    predictions_df: pl.DataFrame,
+    directions: list,
+    group_field: str = None,
+    show_perf_chart: bool = True,
+    ts_field: str = "ts",
+    truncate_to: str = "1mo",
+    alias: str = "month",
+) -> pd.DataFrame:
+
+    perf_stats = []
+    by_time = ts_field and truncate_to and alias
+    assert (group_field is not None) or by_time
+
+    group_field_name = group_field
+
+    if by_time:
+        grouping = pl.col(ts_field).dt.truncate(truncate_to)
+    else:
+        if isinstance(group_field, str):
+            grouping = pl.col(group_field)
+
+        else:
+            grouping = group_field
+            group_field_name = alias if alias else group_field.meta.root_names()[0]
+
+    for mo, df in tqdmu(list(predictions_df.group_by(grouping, maintain_order=True))):
+        if show_perf_chart:
+            fields = dict(
+                npredictions=pl.len(),
+                min_date=pl.col(ts_field).min().dt.date(),
+                max_date=pl.col(ts_field).max().dt.date(),
+            )
+            if group_field is not None:
+                if isinstance(group_field, str):
+                    if by_time:
+                        fields[group_field] = pl.col(group_field).n_unique()
+                    else:
+                        fields[group_field] = pl.col(group_field).unique()
+
+            stats: dict = df.select(**fields).row(0, named=True)
+
+            if isinstance(group_field, str):
+                if by_time:
+                    report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {stats[group_field]/1000:_.2f}K {group_field} "
+                else:
+                    report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {group_field}={stats[group_field]} "
+            elif isinstance(group_field, pl.Expr):
+                report_title = f"Test {stats['min_date']:%Y-%m-%d}->{stats['max_date']:%Y-%m-%d}, {group_field_name}={mo[0]} "
+
+            print(report_title)
+        else:
+            report_title = ""
+
+        res = compute_models_perf(df=df, directions=directions, report_title=report_title, suffixes=[""], direct_order=False, show_perf_chart=show_perf_chart)
+
+        if res is not None:
+            res = res.reset_index(drop=False, names="model")
+            res["nrecs"] = len(df)
+            if by_time:
+                res[alias] = mo[0]
+            else:
+                if isinstance(group_field, str):
+                    res[group_field] = mo[0]
+                elif isinstance(group_field, pl.Expr):
+                    res[group_field_name] = mo[0]
+
+            perf_stats.append(res)
+        else:
+            logger.warning(f"Problem computing models perf for {mo[0]}")
+
+    perf_stats = pd.concat(perf_stats).sort_values(["model", alias if by_time else group_field_name])
+    return perf_stats
+
+
+def visualize_ml_metric_by_time(
+    perf_stats: pd.DataFrame,
+    metric: str = "ice",
+    rotation: float = 45,
+    good_metric_threshold: float = 0.0,
+    good_color="green",
+    bad_color="red",
+    higher_is_better: bool = False,
+    truncated_interval_name: str = "month",
+    figsize=(12, 6),
+):
+    import matplotlib.pyplot as plt
+
+    for model in perf_stats.model.unique():
+        tmp = perf_stats[perf_stats.model == model].set_index(truncated_interval_name)
+        ax = tmp.plot(y=metric, kind="bar", title=f"{metric.upper()} of {model}: mean={tmp[metric].mean():.3f}, std={tmp[metric].std():.3f}", figsize=figsize)
+        ax.xaxis.set_major_formatter(plt.FixedFormatter(tmp.index.strftime("%Y-%m-%d")))
+
+        # Color bars depending on value
+        if good_metric_threshold is not None:
+            for bar, val in zip(ax.patches, tmp[metric]):
+                if val > good_metric_threshold:
+                    bar.set_facecolor(bad_color if not higher_is_better else good_color)
+                else:
+                    bar.set_facecolor(bad_color if higher_is_better else good_color)
+
+        plt.xticks(rotation=rotation)
+        plt.tight_layout()
+        plt.show()
+
+
+def predictions_beautify_linear(preds: np.ndarray, known_outcomes: np.ndarray, alpha=0.01):
+    """
+    Adjust probabilities toward the true labels.
+
+    preds: 1D array of floats in [0,1]
+    known_outcomes:     1D array of ints {0,1}
+    alpha: how far to move toward truth (0=no change, 1=fully corrected)
+
+    returns: adjusted probabilities
+    """
+    preds = np.asarray(preds, dtype=float)
+    y = np.asarray(known_outcomes, dtype=float)
+    return (1 - alpha) * preds + alpha * y
