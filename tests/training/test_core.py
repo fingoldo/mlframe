@@ -428,6 +428,83 @@ class TestTrainMLFrameModelsSuiteConfigurations:
         assert "pipeline" in metadata
 
 
+class TestTrainWithoutSaving:
+    """Test training without saving models or charts to disk (data_dir=None, models_dir=None)."""
+
+    def test_with_data_dir_none(self, sample_regression_data, common_init_params):
+        """Test that training works with data_dir=None (no charts saved)."""
+        df, feature_names, y = sample_regression_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="test_model",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=None,  # No charts saved
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert isinstance(models, dict)
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+
+    def test_with_models_dir_none(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Test that training works with models_dir=None (no models saved)."""
+        df, feature_names, y = sample_regression_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="test_model",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir=None,  # No models saved
+            verbose=0,
+        )
+
+        assert isinstance(models, dict)
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+
+    def test_with_both_dirs_none(self, sample_regression_data, common_init_params):
+        """Test that training works with both data_dir=None and models_dir=None."""
+        df, feature_names, y = sample_regression_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="test_model",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=None,  # No charts saved
+            models_dir=None,  # No models saved
+            verbose=0,
+        )
+
+        assert isinstance(models, dict)
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+        assert metadata["model_name"] == "test_model"
+
+
 class TestTrainMLFrameModelsSuiteEdgeCases:
     """Test edge cases and error conditions."""
 
