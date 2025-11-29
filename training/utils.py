@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 
 
 import os
+from textwrap import shorten
 from typing import Union, Optional, Callable
+
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -78,7 +80,7 @@ def drop_columns_from_dataframe(
         return df
 
     if verbose:
-        logger.info(f"Dropping {len(all_cols_to_drop)} column(s)...")
+        logger.info(f"Dropping {len(all_cols_to_drop)} column(s): {shorten(','.join(all_cols_to_drop),250)}...")
 
     if isinstance(df, pl.DataFrame):
         df = df.drop(all_cols_to_drop, strict=False)

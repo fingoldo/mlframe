@@ -954,10 +954,6 @@ def train_mlframe_models_suite(
     metadata["cat_features"] = cat_features
     metadata["columns"] = train_df.columns.tolist() if isinstance(train_df, pd.DataFrame) else train_df.columns
 
-    clean_ram()
-    if verbose:
-        log_ram_usage()
-
     # ==================================================================================
     # 5. MODEL TRAINING
     # ==================================================================================
