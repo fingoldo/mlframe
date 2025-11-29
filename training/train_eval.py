@@ -410,7 +410,7 @@ def process_model(
         effective_common_params.pop(key, None)
 
     # Check if model exists in cache
-    use_cached_model = fpath and exists(fpath)
+    use_cached_model = bool(fpath and exists(fpath))
     if use_cached_model:
         loaded_model = load_mlframe_model(fpath)
         model_obj = loaded_model.model

@@ -878,9 +878,9 @@ def _build_configs_from_params(
         show_perf_chart=show_perf_chart,
         show_fi=show_fi,
         fi_kwargs=fi_kwargs or {},
-        plot_file=plot_file,
-        data_dir=data_dir,
-        models_subdir=models_subdir,
+        plot_file=plot_file or "",
+        data_dir=data_dir or "",
+        models_subdir=models_subdir or "models",
         display_sample_size=display_sample_size,
         show_feature_names=show_feature_names,
     )
