@@ -452,6 +452,11 @@ def process_model(
         trainset_features_stats=trainset_features_stats,
     )
 
+    # Handle failed model - don't save or add to lists
+    if model.model is None:
+        logger.warning(f"Skipping failed model {model_name}")
+        return trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed
+
     if not use_cached_model:
         end = timer()
         if verbose:

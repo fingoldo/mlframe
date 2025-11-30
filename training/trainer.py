@@ -562,6 +562,9 @@ def _train_model_with_fallback(
             logger.warning("CUDA is not enabled in this LightGBM build. Falling back to CPU.")
             model.set_params(device_type="cpu")
             try_again = True
+        elif "pandas dtypes must be int, float or bool" in error_str:
+            logger.warning(f"Model {model} skipped due to error {error_str}")
+            return None, None
 
         if try_again:
             clean_ram()
@@ -1182,6 +1185,34 @@ def train_and_evaluate_model(
                     fit_params=fit_params,
                     verbose=verbose,
                 )
+
+                # Handle failed model training (e.g., dtype incompatibility)
+                if model is None:
+                    logger.warning(f"Model {model_type_name} training failed - skipping evaluation")
+                    return (
+                        SimpleNamespace(
+                            model=None,
+                            test_preds=None,
+                            test_probs=None,
+                            test_target=None,
+                            test_is_inlier=None,
+                            val_preds=None,
+                            val_probs=None,
+                            val_target=None,
+                            train_preds=None,
+                            train_probs=None,
+                            train_target=None,
+                            metrics={"train": {}, "val": {}, "test": {}, "best_iter": None},
+                            columns=[],
+                            pre_pipeline=pre_pipeline,
+                            train_od_idx=train_od_idx,
+                            val_od_idx=val_od_idx,
+                            trainset_features_stats=trainset_features_stats,
+                        ),
+                        None,
+                        None,
+                        None,
+                    )
 
             model_name = _update_model_name_after_training(model_name, len(train_df), train_details, best_iter)
 
