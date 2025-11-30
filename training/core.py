@@ -59,6 +59,7 @@ from .preprocessing import (
 from .pipeline import fit_and_transform_pipeline
 from mlframe.feature_selection.filters import MRMR
 from .utils import log_ram_usage, log_phase, drop_columns_from_dataframe, get_pandas_view_of_polars_df
+from .helpers import get_trainset_features_stats_polars
 from .models import is_linear_model, LINEAR_MODEL_TYPES
 from .strategies import get_strategy, PipelineCache
 from .io import load_mlframe_model
@@ -970,8 +971,13 @@ def train_mlframe_models_suite(
     # Get pipeline components (category_encoder, imputer, scaler) from params or defaults
     category_encoder, imputer, scaler = _get_pipeline_components(init_common_params, cat_features)
 
-    # Initialize pipeline components for MLP/NGB models
-    trainset_features_stats = None
+    # Compute trainset stats while data is still in Polars format (more efficient)
+    if isinstance(train_df, pl.DataFrame):
+        if verbose:
+            logger.info("Computing trainset_features_stats on Polars...")
+        trainset_features_stats = get_trainset_features_stats_polars(train_df)
+    else:
+        trainset_features_stats = None  # Will be computed later in train_and_evaluate_model
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Actual training
