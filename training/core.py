@@ -1186,6 +1186,8 @@ def train_mlframe_models_suite(
                             polars_pipeline_applied=polars_pipeline_applied,
                         )
 
+                        print(f"model_params={models_params[mlframe_model_name]}")
+
                         trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed = process_model(
                             **process_model_kwargs
                         )
