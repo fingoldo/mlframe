@@ -310,6 +310,7 @@ def _call_train_evaluate_with_configs(
 
     # Build config objects
     data, control, metrics, display, naming, confidence, predictions = _build_configs_from_params(**all_params)
+    print("model_obj=", model_obj)
 
     # Call train_and_evaluate_model with config objects
     return train_and_evaluate_model(
