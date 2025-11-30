@@ -99,6 +99,7 @@ def drop_columns_from_dataframe(
 # NOTE: save_mlframe_model and load_mlframe_model are in io.py
 # Use: from .io import save_mlframe_model, load_mlframe_model
 
+
 def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
     """
     Return a zero-copy (Arrow-backed) pandas DataFrame view of a Polars DataFrame.
