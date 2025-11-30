@@ -184,18 +184,13 @@ _LINEAR_STRATEGY = LinearModelStrategy()
 MODEL_STRATEGIES: Dict[str, ModelPipelineStrategy] = {
     # Tree models
     "cb": _TREE_STRATEGY,
-    "catboost": _TREE_STRATEGY,
     "lgb": _TREE_STRATEGY,
-    "lightgbm": _TREE_STRATEGY,
     "xgb": _TREE_STRATEGY,
-    "xgboost": _TREE_STRATEGY,
     # HistGradientBoosting
     "hgb": _HGB_STRATEGY,
-    "histgradientboosting": _HGB_STRATEGY,
     # Neural networks
     "mlp": _NEURAL_STRATEGY,
     "ngb": _NEURAL_STRATEGY,
-    "ngboost": _NEURAL_STRATEGY,
     # Linear models
     "linear": _LINEAR_STRATEGY,
     "ridge": _LINEAR_STRATEGY,
@@ -276,9 +271,7 @@ class PipelineCache:
         """
         return self._cache.get(cache_key)
 
-    def set(
-        self, cache_key: str, train_df: Any, val_df: Any, test_df: Any
-    ) -> None:
+    def set(self, cache_key: str, train_df: Any, val_df: Any, test_df: Any) -> None:
         """
         Cache transformed DataFrames.
 
