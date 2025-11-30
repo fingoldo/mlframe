@@ -310,7 +310,6 @@ def _call_train_evaluate_with_configs(
 
     # Build config objects
     data, control, metrics, display, naming, confidence, predictions = _build_configs_from_params(**all_params)
-    print("model_obj=", model_obj)
 
     # Call train_and_evaluate_model with config objects
     return train_and_evaluate_model(
@@ -423,6 +422,8 @@ def process_model(
     # Check if model exists in cache
     use_cached_model = bool(fpath and exists(fpath))
     if use_cached_model:
+        if verbose:
+            logger.info(f"Loading model from file {fpath}")
         loaded_model = load_mlframe_model(fpath)
         model_obj = loaded_model.model
         pre_pipeline = loaded_model.pre_pipeline

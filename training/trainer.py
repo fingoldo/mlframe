@@ -1086,7 +1086,6 @@ def train_and_evaluate_model(
     if not custom_ice_metric:
         custom_ice_metric = partial(compute_probabilistic_multiclass_error, nbins=nbins)
 
-    print(f"model_name_prefix={model_name_prefix}, model_name={model_name}")
     model_obj, model_type_name, model_name, plot_file, model_file_name = _setup_model_info_and_paths(
         model=model,
         model_name=model_name,
@@ -1095,7 +1094,6 @@ def train_and_evaluate_model(
         data_dir=data_dir,
         models_subdir=models_subdir,
     )
-    print(f"new model_obj, model_type_name, model_name, plot_file, model_file_name={(model_obj, model_type_name, model_name, plot_file, model_file_name)}")
 
     if use_cache and exists(model_file_name):
         logger.info(f"Loading model from file {model_file_name}")

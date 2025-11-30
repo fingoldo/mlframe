@@ -1157,10 +1157,6 @@ def train_mlframe_models_suite(
                         if weight_name != "uniform":
                             model_name_with_weight = f"{mlframe_model_name}_{weight_name}"
 
-                        mes = f"model_name_with_weight={model_name_with_weight}, pre_pipeline={pre_pipeline}"
-                        logger.info(mes)
-                        print(mes)
-
                         # Shallow copy common_params - only sample_weight changes per iteration
                         current_common_params = common_params.copy()
                         current_common_params["sample_weight"] = weight_values
@@ -1185,8 +1181,6 @@ def train_mlframe_models_suite(
                             cached_dfs=cached_dfs,
                             polars_pipeline_applied=polars_pipeline_applied,
                         )
-
-                        print(f"process_model_kwargs={process_model_kwargs}")
 
                         trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed = process_model(
                             **process_model_kwargs
