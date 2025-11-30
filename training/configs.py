@@ -128,14 +128,11 @@ class TrainingSplitConfig(BaseConfig):
     wholeday_splitting: bool = True
     random_seed: int = DEFAULT_RANDOM_SEED
 
-    @model_validator(mode='after')
-    def validate_split_sizes(self) -> 'TrainingSplitConfig':
+    @model_validator(mode="after")
+    def validate_split_sizes(self) -> "TrainingSplitConfig":
         """Ensure test_size + val_size <= 1.0 to leave room for training data."""
         if self.test_size + self.val_size > 1.0:
-            raise ValueError(
-                f"test_size ({self.test_size}) + val_size ({self.val_size}) = "
-                f"{self.test_size + self.val_size} must be <= 1.0"
-            )
+            raise ValueError(f"test_size ({self.test_size}) + val_size ({self.val_size}) = " f"{self.test_size + self.val_size} must be <= 1.0")
         return self
 
 
@@ -169,7 +166,7 @@ class PolarsPipelineConfig(BaseConfig):
     robust_q_low: float = 0.01
     robust_q_high: float = 0.99
 
-    @field_validator('scaler_name', mode='before')
+    @field_validator("scaler_name", mode="before")
     @classmethod
     def normalize_scaler_name(cls, v: Optional[str]) -> Optional[str]:
         """Normalize scaler_name to lowercase and validate."""
@@ -291,9 +288,9 @@ class LinearModelConfig(ModelConfig):
     solver: str = "lbfgs"
 
     # Calibration
-    use_calibrated_classifier: bool = True
+    use_calibrated_classifier: bool = False
 
-    @field_validator('model_type', mode='before')
+    @field_validator("model_type", mode="before")
     @classmethod
     def normalize_model_type(cls, v: str) -> str:
         """Normalize model_type to lowercase and validate."""
@@ -348,7 +345,7 @@ class TreeModelConfig(ModelConfig):
     xgb_kwargs: Optional[Dict[str, Any]] = None  # keys: tree_method, grow_policy, max_bin
     hgb_kwargs: Optional[Dict[str, Any]] = None  # keys: max_leaf_nodes, min_samples_leaf
 
-    @field_validator('task_type', mode='before')
+    @field_validator("task_type", mode="before")
     @classmethod
     def normalize_task_type(cls, v: str) -> str:
         """Normalize task_type to uppercase and validate."""
@@ -396,7 +393,7 @@ class MLPConfig(ModelConfig):
     tune_params: bool = False
     float32_matmul_precision: str = "medium"
 
-    @field_validator('float32_matmul_precision', mode='before')
+    @field_validator("float32_matmul_precision", mode="before")
     @classmethod
     def normalize_precision(cls, v: str) -> str:
         """Normalize float32_matmul_precision to lowercase and validate."""
@@ -582,7 +579,7 @@ class TrainingConfig(BaseConfig):
     # Meta-model for target transformation
     metamodel_func: Optional[Callable] = None
 
-    @field_validator('mlframe_models', mode='before')
+    @field_validator("mlframe_models", mode="before")
     @classmethod
     def normalize_mlframe_models(cls, v: Optional[List[str]]) -> Optional[List[str]]:
         """Normalize model names to lowercase and validate."""
@@ -594,8 +591,8 @@ class TrainingConfig(BaseConfig):
             raise ValueError(f"Invalid model types: {invalid}. Valid types: {VALID_MODEL_TYPES}")
         return normalized
 
-    @model_validator(mode='after')
-    def validate_model_selection(self) -> 'TrainingConfig':
+    @model_validator(mode="after")
+    def validate_model_selection(self) -> "TrainingConfig":
         """Ensure at least one model training option is enabled."""
         if not self.use_ordinary_models and not self.use_mlframe_ensembles:
             raise ValueError("At least one of use_ordinary_models or use_mlframe_ensembles must be True")
