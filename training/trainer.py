@@ -1621,7 +1621,11 @@ def configure_training_params(
     if _should_create_model("hgb"):
         hgb_params = dict(
             model=metamodel_func(
-                (HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS) if use_regression else HistGradientBoostingClassifier(**configs.HGB_GENERAL_PARAMS)),
+                (
+                    HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS)
+                    if use_regression
+                    else HistGradientBoostingClassifier(**configs.HGB_GENERAL_PARAMS)
+                ),
             )
         )
 
@@ -1676,15 +1680,10 @@ def configure_training_params(
     for model_type in linear_models_needed:
         # Build config: use provided linear_model_config if available, otherwise defaults
         if linear_model_config:
-            config = LinearModelConfig(
-                model_type=model_type,
-                **linear_model_config.model_dump(exclude={"model_type"})
-            )
+            config = LinearModelConfig(model_type=model_type, **linear_model_config.model_dump(exclude={"model_type"}))
         else:
             config = LinearModelConfig(model_type=model_type)
-        linear_model_params[model_type] = dict(
-            model=metamodel_func(create_linear_model(model_type, config, use_regression=use_regression))
-        )
+        linear_model_params[model_type] = dict(model=metamodel_func(create_linear_model(model_type, config, use_regression=use_regression)))
 
     # Get individual params (may be None if not in mlframe_models)
     linear_params = linear_model_params.get("linear")
