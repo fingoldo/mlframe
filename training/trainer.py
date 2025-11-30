@@ -1095,6 +1095,7 @@ def train_and_evaluate_model(
         data_dir=data_dir,
         models_subdir=models_subdir,
     )
+    print(f"new model_obj, model_type_name, model_name, plot_file, model_file_name={(model_obj, model_type_name, model_name, plot_file, model_file_name)}")
 
     if use_cache and exists(model_file_name):
         logger.info(f"Loading model from file {model_file_name}")
