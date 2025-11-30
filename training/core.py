@@ -189,7 +189,7 @@ def _apply_outlier_detection_global(
 
     clean_ram()
     if verbose:
-        log_ram_usage()    
+        log_ram_usage()
 
     return (filtered_train_df, filtered_val_df, filtered_train_idx, filtered_val_idx, train_od_idx, val_od_idx)
 
@@ -1156,6 +1156,10 @@ def train_mlframe_models_suite(
                         model_name_with_weight = mlframe_model_name
                         if weight_name != "uniform":
                             model_name_with_weight = f"{mlframe_model_name}_{weight_name}"
+
+                        mes = f"model_name_with_weight={model_name_with_weight}, pre_pipeline={pre_pipeline}"
+                        logger.info(mes)
+                        print(mes)
 
                         # Shallow copy common_params - only sample_weight changes per iteration
                         current_common_params = common_params.copy()
