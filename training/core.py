@@ -108,12 +108,11 @@ def _ensure_config(
     return config
 
 
-def _apply_outlier_detection(
+def _apply_outlier_detection_global(
     train_df: pd.DataFrame,
     val_df: Optional[pd.DataFrame],
     train_idx: np.ndarray,
     val_idx: Optional[np.ndarray],
-    target_values: Union[np.ndarray, pd.Series],
     outlier_detector: Any,
     od_val_set: bool,
     verbose: bool,
@@ -124,83 +123,71 @@ def _apply_outlier_detection(
     Optional[np.ndarray],
     Optional[np.ndarray],
     Optional[np.ndarray],
-    Optional[np.ndarray],
-    Optional[np.ndarray],
 ]:
     """
-    Apply outlier detection to training and optionally validation data.
+    Apply outlier detection ONCE globally (unsupervised - no target needed).
+
+    This function fits the outlier detector on training features only and applies
+    it to both training and validation sets. Since standard sklearn outlier detectors
+    (IsolationForest, LOF, OneClassSVM) are unsupervised, no target is needed.
 
     Args:
-        train_df: Training DataFrame
+        train_df: Training DataFrame (features only)
         val_df: Validation DataFrame (can be None)
         train_idx: Training indices
         val_idx: Validation indices (can be None)
-        target_values: Target values for the current target
-        outlier_detector: Fitted outlier detector object
+        outlier_detector: Outlier detector object (e.g., IsolationForest pipeline)
         od_val_set: Whether to apply outlier detection to validation set
         verbose: Whether to log information
 
     Returns:
         Tuple of:
-        - current_train_df: Filtered training DataFrame
-        - current_val_df: Filtered validation DataFrame (or original if no OD on val)
-        - current_train_idx: Filtered training indices
-        - current_val_idx: Filtered validation indices
-        - current_train_target: Filtered training targets
-        - current_val_target: Filtered validation targets
+        - filtered_train_df: Filtered training DataFrame (inliers only)
+        - filtered_val_df: Filtered validation DataFrame (or original if no OD on val)
+        - filtered_train_idx: Filtered training indices
+        - filtered_val_idx: Filtered validation indices
         - train_od_idx: Boolean mask of inliers in training set
         - val_od_idx: Boolean mask of inliers in validation set
     """
-    train_od_idx, val_od_idx = None, None
-
     if outlier_detector is None:
-        return train_df, val_df, train_idx, val_idx, None, None, None, None
+        return train_df, val_df, train_idx, val_idx, None, None
 
     if verbose:
-        logger.info("Fitting outlier detector (once for all models)...")
+        logger.info("Fitting outlier detector (once for all targets)...")
 
-    # Subset targets to train/val splits for outlier detection
-    train_target = target_values[train_idx] if isinstance(target_values, np.ndarray) else target_values.iloc[train_idx]
-    val_target = None
-    if val_idx is not None:
-        val_target = target_values[val_idx] if isinstance(target_values, np.ndarray) else target_values.iloc[val_idx]
-
-    # Fit on training data
-    outlier_detector.fit(train_df, train_target)
+    # Fit on training features only (unsupervised - no target needed)
+    outlier_detector.fit(train_df)
 
     # Predict on training set
     is_inlier = outlier_detector.predict(train_df)
     train_od_idx = is_inlier == 1
 
-    current_train_df = train_df
-    current_train_idx = train_idx
-    current_train_target = train_target
+    filtered_train_df = train_df
+    filtered_train_idx = train_idx
 
     train_kept = train_od_idx.sum()
     if train_kept < len(train_df):
-        logger.info(f"Outlier rejection: received {len(train_df):_} train samples, kept {train_kept:_}.")
-        current_train_df = train_df.loc[train_od_idx]
-        current_train_target = train_target[train_od_idx] if isinstance(train_target, np.ndarray) else train_target.loc[train_od_idx]
-        current_train_idx = train_idx[train_od_idx]
+        logger.info(f"Outlier rejection: {len(train_df):_} train samples -> {train_kept:_} kept.")
+        filtered_train_df = train_df.loc[train_od_idx]
+        filtered_train_idx = train_idx[train_od_idx]
 
     # Predict on validation set if requested
-    current_val_df = val_df
-    current_val_idx = val_idx
-    current_val_target = val_target
+    filtered_val_df = val_df
+    filtered_val_idx = val_idx
+    val_od_idx = None
 
     if val_df is not None and od_val_set:
         is_inlier = outlier_detector.predict(val_df)
         val_od_idx = is_inlier == 1
         val_kept = val_od_idx.sum()
         if val_kept < len(val_df):
-            logger.info(f"Outlier rejection: received {len(val_df):_} val samples, kept {val_kept:_}.")
-            current_val_df = val_df.loc[val_od_idx]
-            current_val_target = val_target[val_od_idx] if isinstance(val_target, np.ndarray) else val_target.loc[val_od_idx]
-            current_val_idx = val_idx[val_od_idx]
+            logger.info(f"Outlier rejection: {len(val_df):_} val samples -> {val_kept:_} kept.")
+            filtered_val_df = val_df.loc[val_od_idx]
+            filtered_val_idx = val_idx[val_od_idx]
 
     clean_ram()
 
-    return (current_train_df, current_val_df, current_train_idx, current_val_idx, current_train_target, current_val_target, train_od_idx, val_od_idx)
+    return (filtered_train_df, filtered_val_df, filtered_train_idx, filtered_val_idx, train_od_idx, val_od_idx)
 
 
 def _setup_model_directories(
@@ -652,7 +639,7 @@ def _initialize_training_defaults(
 def _finalize_and_save_metadata(
     metadata: Dict[str, Any],
     outlier_detector: Optional[Any],
-    outlier_detection_results: Dict[str, Dict],
+    outlier_detection_result: Dict,
     trainset_features_stats: Optional[Dict],
     data_dir: str,
     models_dir: str,
@@ -666,7 +653,7 @@ def _finalize_and_save_metadata(
     Args:
         metadata: Dict to update with final values.
         outlier_detector: Outlier detector object.
-        outlier_detection_results: Dict of outlier detection results per target.
+        outlier_detection_result: Global outlier detection result (train_od_idx, val_od_idx).
         trainset_features_stats: Feature statistics from training set.
         data_dir: Base data directory.
         models_dir: Models subdirectory.
@@ -678,7 +665,7 @@ def _finalize_and_save_metadata(
     metadata.update(
         {
             "outlier_detector": outlier_detector,
-            "outlier_detection_results": outlier_detection_results,
+            "outlier_detection_result": outlier_detection_result,
             "trainset_features_stats": trainset_features_stats,
         }
     )
@@ -999,9 +986,30 @@ def train_mlframe_models_suite(
     if verbose:
         log_ram_usage()
 
+    # ==================================================================================
+    # 4.5 OUTLIER DETECTION (once, before model training loops)
+    # ==================================================================================
+
+    (filtered_train_df, filtered_val_df, filtered_train_idx, filtered_val_idx, train_od_idx, val_od_idx) = _apply_outlier_detection_global(
+        train_df=train_df_pd,
+        val_df=val_df_pd,
+        train_idx=train_idx,
+        val_idx=val_idx,
+        outlier_detector=outlier_detector,
+        od_val_set=od_val_set,
+        verbose=verbose,
+    )
+
+    # Single global OD result (not per-target)
+    outlier_detection_result = {
+        "train_od_idx": train_od_idx,
+        "val_od_idx": val_od_idx,
+    }
+
+    if verbose:
+        log_ram_usage()
+
     models = defaultdict(lambda: defaultdict(list))
-    # Collect outlier detection results per target for metadata
-    outlier_detection_results = {}
 
     for target_type, targets in tqdmu(target_by_type.items(), desc="target type"):
         # !TODO ! optimize for creation of inner feature matrices of cb,lgb,xgb here. They should be created once per featureset, not once per target.
@@ -1019,28 +1027,19 @@ def train_mlframe_models_suite(
                     models_dir=models_dir,
                 )
 
-                # -----------------------------------------------------------------------------------------------------------------------------------------------------
-                # Outlier detection (run ONCE per target, not per model)
-                # -----------------------------------------------------------------------------------------------------------------------------------------------------
-                (current_train_df, current_val_df, current_train_idx, current_val_idx, current_train_target, current_val_target, train_od_idx, val_od_idx) = (
-                    _apply_outlier_detection(
-                        train_df=train_df_pd,
-                        val_df=val_df_pd,
-                        train_idx=train_idx,
-                        val_idx=val_idx,
-                        target_values=cur_target_values,
-                        outlier_detector=outlier_detector,
-                        od_val_set=od_val_set,
-                        verbose=verbose,
-                    )
+                # Subset targets using pre-filtered indices (OD already applied globally)
+                current_train_target = (
+                    cur_target_values[filtered_train_idx]
+                    if isinstance(cur_target_values, np.ndarray)
+                    else cur_target_values.iloc[filtered_train_idx]
                 )
-
-                # Store outlier detection results for metadata
-                target_key = f"{target_type}_{cur_target_name}"
-                outlier_detection_results[target_key] = {
-                    "train_od_idx": train_od_idx,
-                    "val_od_idx": val_od_idx,
-                }
+                current_val_target = None
+                if filtered_val_idx is not None:
+                    current_val_target = (
+                        cur_target_values[filtered_val_idx]
+                        if isinstance(cur_target_values, np.ndarray)
+                        else cur_target_values.iloc[filtered_val_idx]
+                    )
 
                 if verbose:
                     logger.info(f"select_target...")
@@ -1064,11 +1063,11 @@ def train_mlframe_models_suite(
                     target=cur_target_values,  # Full target (for test_target extraction)
                     target_type=target_type,
                     df=None,
-                    train_df=current_train_df,  # Use filtered DataFrame
-                    val_df=current_val_df,  # Use filtered DataFrame
+                    train_df=filtered_train_df,  # Use pre-filtered DataFrame
+                    val_df=filtered_val_df,  # Use pre-filtered DataFrame
                     test_df=test_df_pd,  # Test set is not filtered by outlier detector
-                    train_idx=current_train_idx,  # Use filtered indices
-                    val_idx=current_val_idx,  # Use filtered indices
+                    train_idx=filtered_train_idx,  # Use pre-filtered indices
+                    val_idx=filtered_val_idx,  # Use pre-filtered indices
                     test_idx=test_idx,
                     train_details=train_details,
                     val_details=val_details,
@@ -1196,7 +1195,7 @@ def train_mlframe_models_suite(
     _finalize_and_save_metadata(
         metadata=metadata,
         outlier_detector=outlier_detector,
-        outlier_detection_results=outlier_detection_results,
+        outlier_detection_result=outlier_detection_result,
         trainset_features_stats=trainset_features_stats,
         data_dir=data_dir,
         models_dir=models_dir,
