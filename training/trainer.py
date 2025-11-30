@@ -1480,12 +1480,31 @@ def configure_training_params(
     metamodel_func: callable = None,
     use_flaml_zeroshot: bool = False,
     _precomputed_fairness_subgroups: dict = None,
+    mlframe_models: list = None,
+    linear_model_config: "LinearModelConfig" = None,
 ):
-    """Configure training parameters for all model types."""
+    """Configure training parameters for all model types.
+
+    Parameters
+    ----------
+    mlframe_models : list, optional
+        List of model types to create. If None, all models are created.
+        Used for lazy model creation to save memory.
+    linear_model_config : LinearModelConfig, optional
+        Configuration for linear models. If provided, applies shared settings
+        to all linear model types.
+    """
     from .configs import LinearModelConfig
 
     def _identity(x):
         return x
+
+    # Helper for lazy model creation
+    models_set = set(mlframe_models) if mlframe_models else None
+
+    def _should_create_model(model_name: str) -> bool:
+        """Check if a model should be created based on mlframe_models filter."""
+        return models_set is None or model_name in models_set
 
     if metamodel_func is None:
         metamodel_func = _identity
@@ -1585,71 +1604,95 @@ def configure_training_params(
         common_params_result.update(common_params)
     common_params = common_params_result
 
-    cb_params = dict(
-        model=(
-            metamodel_func(CatBoostRegressor(**cb_configs.CB_REGR))
-            if use_regression
-            else CatBoostClassifier(**(cb_configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else cb_configs.CB_CLASSIF))
-        ),
-        fit_params=dict(plot=verbose, cat_features=cat_features, **cb_fit_params),
-    )
-
-    hgb_params = dict(
-        model=metamodel_func(
-            (HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS) if use_regression else HistGradientBoostingClassifier(**configs.HGB_GENERAL_PARAMS)),
+    # Lazy model creation - only create models that are in mlframe_models (or all if None)
+    cb_params = None
+    if _should_create_model("cb"):
+        cb_params = dict(
+            model=(
+                metamodel_func(CatBoostRegressor(**cb_configs.CB_REGR))
+                if use_regression
+                else CatBoostClassifier(**(cb_configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else cb_configs.CB_CLASSIF))
+            ),
+            fit_params=dict(plot=verbose, cat_features=cat_features, **cb_fit_params),
         )
-    )
 
-    xgb_params = _configure_xgboost_params(
-        configs=configs,
-        cpu_configs=cpu_configs,
-        use_regression=use_regression,
-        prefer_cpu_for_xgboost=prefer_cpu_for_xgboost,
-        prefer_calibrated_classifiers=prefer_calibrated_classifiers,
-        use_flaml_zeroshot=use_flaml_zeroshot,
-        xgboost_verbose=xgboost_verbose,
-        metamodel_func=metamodel_func,
-    )
-
-    lgb_params = _configure_lightgbm_params(
-        configs=configs,
-        cpu_configs=cpu_configs,
-        use_regression=use_regression,
-        prefer_cpu_for_lightgbm=prefer_cpu_for_lightgbm,
-        prefer_calibrated_classifiers=prefer_calibrated_classifiers,
-        use_flaml_zeroshot=use_flaml_zeroshot,
-        metamodel_func=metamodel_func,
-    )
-
-    mlp_params = _configure_mlp_params(
-        configs=configs,
-        config_params=config_params,
-        use_regression=use_regression,
-        metamodel_func=metamodel_func,
-    )
-
-    ngb_params = dict(
-        model=(
-            metamodel_func(
-                (NGBRegressor(**configs.NGB_GENERAL_PARAMS) if use_regression else NGBClassifier(**configs.NGB_GENERAL_PARAMS)),
+    hgb_params = None
+    if _should_create_model("hgb"):
+        hgb_params = dict(
+            model=metamodel_func(
+                (HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS) if use_regression else HistGradientBoostingClassifier(**configs.HGB_GENERAL_PARAMS)),
             )
-        ),
-        fit_params=dict(early_stopping_rounds=config_params.get("early_stopping_rounds")),
-    )
-
-    # Linear models - create all variants in a loop
-    linear_model_params = {}
-    for model_type in LINEAR_MODEL_TYPES:
-        linear_model_params[model_type] = dict(
-            model=metamodel_func(create_linear_model(model_type, LinearModelConfig(model_type=model_type), use_regression=use_regression))
         )
-    linear_params = linear_model_params["linear"]
-    ridge_params = linear_model_params["ridge"]
-    lasso_params = linear_model_params["lasso"]
-    elasticnet_params = linear_model_params["elasticnet"]
-    huber_params = linear_model_params["huber"]
-    ransac_params = linear_model_params["ransac"]
-    sgd_params = linear_model_params["sgd"]
+
+    xgb_params = None
+    if _should_create_model("xgb"):
+        xgb_params = _configure_xgboost_params(
+            configs=configs,
+            cpu_configs=cpu_configs,
+            use_regression=use_regression,
+            prefer_cpu_for_xgboost=prefer_cpu_for_xgboost,
+            prefer_calibrated_classifiers=prefer_calibrated_classifiers,
+            use_flaml_zeroshot=use_flaml_zeroshot,
+            xgboost_verbose=xgboost_verbose,
+            metamodel_func=metamodel_func,
+        )
+
+    lgb_params = None
+    if _should_create_model("lgb"):
+        lgb_params = _configure_lightgbm_params(
+            configs=configs,
+            cpu_configs=cpu_configs,
+            use_regression=use_regression,
+            prefer_cpu_for_lightgbm=prefer_cpu_for_lightgbm,
+            prefer_calibrated_classifiers=prefer_calibrated_classifiers,
+            use_flaml_zeroshot=use_flaml_zeroshot,
+            metamodel_func=metamodel_func,
+        )
+
+    mlp_params = None
+    if _should_create_model("mlp"):
+        mlp_params = _configure_mlp_params(
+            configs=configs,
+            config_params=config_params,
+            use_regression=use_regression,
+            metamodel_func=metamodel_func,
+        )
+
+    ngb_params = None
+    if _should_create_model("ngb"):
+        ngb_params = dict(
+            model=(
+                metamodel_func(
+                    (NGBRegressor(**configs.NGB_GENERAL_PARAMS) if use_regression else NGBClassifier(**configs.NGB_GENERAL_PARAMS)),
+                )
+            ),
+            fit_params=dict(early_stopping_rounds=config_params.get("early_stopping_rounds")),
+        )
+
+    # Linear models - only create variants that are needed
+    linear_model_params = {}
+    linear_models_needed = LINEAR_MODEL_TYPES & models_set if models_set else LINEAR_MODEL_TYPES
+    for model_type in linear_models_needed:
+        # Build config: use provided linear_model_config if available, otherwise defaults
+        if linear_model_config:
+            config = LinearModelConfig(
+                model_type=model_type,
+                **linear_model_config.model_dump(exclude={"model_type"})
+            )
+        else:
+            config = LinearModelConfig(model_type=model_type)
+        linear_model_params[model_type] = dict(
+            model=metamodel_func(create_linear_model(model_type, config, use_regression=use_regression))
+        )
+
+    # Get individual params (may be None if not in mlframe_models)
+    linear_params = linear_model_params.get("linear")
+    ridge_params = linear_model_params.get("ridge")
+    lasso_params = linear_model_params.get("lasso")
+    elasticnet_params = linear_model_params.get("elasticnet")
+    huber_params = linear_model_params.get("huber")
+    ransac_params = linear_model_params.get("ransac")
+    sgd_params = linear_model_params.get("sgd")
 
     # RFECV setup
     rfecv_params = configs.COMMON_RFECV_PARAMS.copy()
@@ -1718,21 +1761,22 @@ def configure_training_params(
         **rfecv_params,
     )
 
-    models_params = dict(
-        cb=cb_params,
-        lgb=lgb_params,
-        xgb=xgb_params,
-        hgb=hgb_params,
-        mlp=mlp_params,
-        ngb=ngb_params,
-        linear=linear_params,
-        ridge=ridge_params,
-        lasso=lasso_params,
-        elasticnet=elasticnet_params,
-        huber=huber_params,
-        ransac=ransac_params,
-        sgd=sgd_params,
-    )
+    # Build models_params dict, only including models that were created
+    models_params = {}
+    if cb_params is not None:
+        models_params["cb"] = cb_params
+    if lgb_params is not None:
+        models_params["lgb"] = lgb_params
+    if xgb_params is not None:
+        models_params["xgb"] = xgb_params
+    if hgb_params is not None:
+        models_params["hgb"] = hgb_params
+    if mlp_params is not None:
+        models_params["mlp"] = mlp_params
+    if ngb_params is not None:
+        models_params["ngb"] = ngb_params
+    # Add linear models (already filtered to only needed ones)
+    models_params.update(linear_model_params)
 
     return (
         common_params,

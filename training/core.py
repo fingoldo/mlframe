@@ -49,6 +49,7 @@ from .configs import (
     PolarsPipelineConfig,
     TrainingConfig,
     TargetTypes,
+    LinearModelConfig,
 )
 from .preprocessing import (
     load_and_prepare_dataframe,
@@ -187,6 +188,8 @@ def _apply_outlier_detection_global(
             filtered_val_idx = val_idx[val_od_idx]
 
     clean_ram()
+    if verbose:
+        log_ram_usage()    
 
     return (filtered_train_df, filtered_val_df, filtered_train_idx, filtered_val_idx, train_od_idx, val_od_idx)
 
@@ -348,6 +351,7 @@ def _build_process_model_kwargs(
     trainset_features_stats: Optional[Dict],
     verbose: int,
     cached_dfs: Optional[Tuple],
+    polars_pipeline_applied: bool = False,
 ) -> Dict[str, Any]:
     """
     Build kwargs dictionary for process_model call.
@@ -366,6 +370,7 @@ def _build_process_model_kwargs(
         trainset_features_stats: Feature statistics from training set.
         verbose: Verbosity level.
         cached_dfs: Tuple of cached (train_df, val_df, test_df) or None.
+        polars_pipeline_applied: Whether Polars-ds pipeline was already applied globally.
 
     Returns:
         Dict of kwargs for process_model call.
@@ -385,7 +390,12 @@ def _build_process_model_kwargs(
         "verbose": verbose,
     }
 
-    # Add cached DataFrames if available
+    # Skip pre_pipeline transform if Polars-ds pipeline was already applied globally
+    # (data is already preprocessed - applying SimpleImputer/StandardScaler again would be redundant)
+    if polars_pipeline_applied:
+        kwargs["skip_pre_pipeline_transform"] = True
+
+    # Add cached DataFrames if available (also skips pre_pipeline transform)
     if cached_dfs is not None:
         kwargs.update(
             {
@@ -426,6 +436,7 @@ def _convert_dfs_to_pandas(
     train_df_pd = train_df if isinstance(train_df, pd.DataFrame) else get_pandas_view_of_polars_df(train_df)
     val_df_pd = val_df if val_df is None or isinstance(val_df, pd.DataFrame) else get_pandas_view_of_polars_df(val_df)
     test_df_pd = test_df if test_df is None or isinstance(test_df, pd.DataFrame) else get_pandas_view_of_polars_df(test_df)
+
     return train_df_pd, val_df_pd, test_df_pd
 
 
@@ -696,6 +707,8 @@ def train_mlframe_models_suite(
     preprocessing_config: Optional[Union[PreprocessingConfig, Dict]] = None,
     split_config: Optional[Union[TrainingSplitConfig, Dict]] = None,
     pipeline_config: Optional[Union[PolarsPipelineConfig, Dict]] = None,
+    # Model-specific configurations
+    linear_model_config: Optional[LinearModelConfig] = None,
     # Feature selection
     use_mrmr_fs: bool = False,
     mrmr_kwargs: Optional[Dict] = None,
@@ -929,6 +942,9 @@ def train_mlframe_models_suite(
     if verbose:
         log_phase("PHASE 3: Pipeline Fitting & Transformation")
 
+    # Track if input is Polars before pipeline transformation
+    was_polars_input = isinstance(train_df, pl.DataFrame)
+
     train_df, val_df, test_df, pipeline, cat_features = fit_and_transform_pipeline(
         train_df=train_df,
         val_df=val_df,
@@ -937,6 +953,9 @@ def train_mlframe_models_suite(
         ensure_float32=preprocessing_config.ensure_float32_dtypes,
         verbose=verbose,
     )
+
+    # Track if Polars-ds pipeline was applied (to skip redundant pre_pipeline transforms later)
+    polars_pipeline_applied = was_polars_input and pipeline_config.use_polarsds_pipeline and pipeline is not None
 
     metadata["pipeline"] = pipeline
     metadata["cat_features"] = cat_features
@@ -1012,9 +1031,6 @@ def train_mlframe_models_suite(
         "val_od_idx": val_od_idx,
     }
 
-    if verbose:
-        log_ram_usage()
-
     models = defaultdict(lambda: defaultdict(list))
 
     for target_type, targets in tqdmu(target_by_type.items(), desc="target type"):
@@ -1035,16 +1051,12 @@ def train_mlframe_models_suite(
 
                 # Subset targets using pre-filtered indices (OD already applied globally)
                 current_train_target = (
-                    cur_target_values[filtered_train_idx]
-                    if isinstance(cur_target_values, np.ndarray)
-                    else cur_target_values.iloc[filtered_train_idx]
+                    cur_target_values[filtered_train_idx] if isinstance(cur_target_values, np.ndarray) else cur_target_values.iloc[filtered_train_idx]
                 )
                 current_val_target = None
                 if filtered_val_idx is not None:
                     current_val_target = (
-                        cur_target_values[filtered_val_idx]
-                        if isinstance(cur_target_values, np.ndarray)
-                        else cur_target_values.iloc[filtered_val_idx]
+                        cur_target_values[filtered_val_idx] if isinstance(cur_target_values, np.ndarray) else cur_target_values.iloc[filtered_val_idx]
                     )
 
                 if verbose:
@@ -1085,6 +1097,8 @@ def train_mlframe_models_suite(
                     control_params=control_params,
                     control_params_override=current_control_override,
                     common_params=od_common_params,
+                    mlframe_models=mlframe_models,
+                    linear_model_config=linear_model_config,
                 )
 
             if verbose:
@@ -1165,6 +1179,7 @@ def train_mlframe_models_suite(
                             trainset_features_stats=trainset_features_stats,
                             verbose=verbose,
                             cached_dfs=cached_dfs,
+                            polars_pipeline_applied=polars_pipeline_applied,
                         )
 
                         trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed = process_model(

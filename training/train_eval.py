@@ -24,7 +24,7 @@ import polars as pl
 from pyutilz.system import clean_ram
 from mlframe.helpers import get_own_ram_usage
 
-from .configs import TargetTypes, DEFAULT_CALIBRATION_BINS
+from .configs import TargetTypes, DEFAULT_CALIBRATION_BINS, LinearModelConfig
 from .io import load_mlframe_model, save_mlframe_model
 
 
@@ -76,6 +76,8 @@ def select_target(
     config_params_override: Optional[Dict[str, Any]] = None,
     common_params: Optional[Dict[str, Any]] = None,
     sample_weight: Optional[np.ndarray] = None,
+    mlframe_models: Optional[List[str]] = None,
+    linear_model_config: Optional[LinearModelConfig] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     """Configure model parameters for a specific target variable.
 
@@ -126,6 +128,12 @@ def select_target(
         Common parameters passed to all models.
     sample_weight : np.ndarray, optional
         Sample weights for weighted training.
+    mlframe_models : list of str, optional
+        List of model types to create (e.g., ["cb", "lgb", "linear"]).
+        If None, all models are created. Used for lazy model creation.
+    linear_model_config : LinearModelConfig, optional
+        Configuration for linear models. If provided, applies to all linear
+        model types (linear, ridge, lasso, etc.).
 
     Returns
     -------
@@ -225,6 +233,8 @@ def select_target(
         common_params=common_params,
         config_params=effective_config_params,
         use_regression=target_type == TargetTypes.REGRESSION,
+        mlframe_models=mlframe_models,
+        linear_model_config=linear_model_config,
         **effective_control_params,
     )
 
