@@ -1513,6 +1513,7 @@ def configure_training_params(
     _precomputed_fairness_subgroups: dict = None,
     mlframe_models: list = None,
     linear_model_config: "LinearModelConfig" = None,
+    callback_params: dict = None,
 ):
     """Configure training parameters for all model types.
 
@@ -1630,6 +1631,7 @@ def configure_training_params(
         test_details=test_details,
         group_ids=group_ids,
         model_name=model_name,
+        callback_params=callback_params,
     )
     if common_params:
         common_params_result.update(common_params)
