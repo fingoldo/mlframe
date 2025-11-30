@@ -489,7 +489,7 @@ def _setup_early_stopping_callback(model_category, fit_params, callback_params, 
             callbacks.append(es_callback)
         model_obj.set_params(callbacks=callbacks)
 
-    print(model_category)
+    print(model_category, model_obj)
 
 
 def _handle_oom_error(model_obj, model_type_name):
