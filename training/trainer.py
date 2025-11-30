@@ -563,7 +563,7 @@ def _train_model_with_fallback(
             model.set_params(device_type="cpu")
             try_again = True
         elif "pandas dtypes must be int, float or bool" in error_str:
-            logger.warning(f"Model {model} skipped due to error {error_str}")
+            logger.warning(f"Model {model} skipped due to error 'pandas dtypes must be int, float or bool'")
             return None, None
 
         if try_again:
