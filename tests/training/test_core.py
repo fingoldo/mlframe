@@ -233,6 +233,45 @@ class TestUnifiedTrainingLoop:
         assert len(models["target"][TargetTypes.REGRESSION]) >= 2
 
 
+class TestTreeModelsWithEarlyStopping:
+    """Test tree models with early stopping enabled via callback_params."""
+
+    @pytest.mark.parametrize("model_type", ["xgb", "lgb", "cb"])
+    def test_tree_model_with_early_stopping(self, sample_regression_data, temp_data_dir, common_init_params, model_type):
+        """Test tree model training with early stopping callback."""
+        # Skip if required library not available
+        if model_type == "cb":
+            pytest.importorskip("catboost")
+        elif model_type == "lgb":
+            pytest.importorskip("lightgbm")
+        elif model_type == "xgb":
+            pytest.importorskip("xgboost")
+
+        df, feature_names, y = sample_regression_data
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name=f"{model_type}_early_stop_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=[model_type],
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=1,
+            control_params_override={
+                "callback_params": {"patience": 5, "verbose": False},
+            },
+        )
+
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) >= 1
+
+
 class TestTrainMLFrameModelsSuiteEnsembles:
     """Test ensemble creation."""
 

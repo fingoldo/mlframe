@@ -428,10 +428,10 @@ def _setup_eval_set(
         Model object for XGBoost callback setup.
     """
     eval_set_configs = {
-        "lgbm": ("eval_set", "tuple"),
-        "hgboost": ("X_val", "separate"),
-        "ngboost": ("X_val", "separate_Y"),
-        "catboost": ("eval_set", "list_of_tuples"),
+        "lgb": ("eval_set", "tuple"),
+        "hgb": ("X_val", "separate"),
+        "ngb": ("X_val", "separate_Y"),
+        "cb": ("eval_set", "list_of_tuples"),
         "xgb": ("eval_set", "list_of_tuples"),
         "tabnet": ("eval_set", "list_of_tuples_values"),
         "pytorch": ("eval_set", "tuple"),
@@ -468,19 +468,19 @@ def _setup_eval_set(
 
 def _setup_early_stopping_callback(model_category, fit_params, callback_params, model_obj=None):
     """Set up early stopping callback for the given model category."""
-    no_callback_list_models = {"xgboost", "hgboost", "ngboost"}
+    no_callback_list_models = {"xgb", "hgb", "ngb"}
 
     if model_category not in no_callback_list_models:
         if "callbacks" not in fit_params:
             fit_params["callbacks"] = []
 
-    if model_category == "lgbm":
+    if model_category == "lgb":
         es_callback = LightGBMCallback(**callback_params)
         fit_params["callbacks"].append(es_callback)
-    elif model_category == "catboost":
+    elif model_category == "cb":
         es_callback = CatBoostCallback(**callback_params)
         fit_params["callbacks"].append(es_callback)
-    elif model_category == "xgboost" and model_obj is not None:
+    elif model_category == "xgb" and model_obj is not None:
         es_callback = XGBoostCallback(**callback_params)
         callbacks = model_obj.get_params().get("callbacks", [])
         if callbacks is None:
