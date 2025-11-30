@@ -311,14 +311,12 @@ def create_linear_model(
         raise ValueError(f"Unknown {task} model type: {model_type}. Valid types: {LINEAR_MODEL_TYPES}")
 
     model = builders[model_type](config)
-    print(model)
 
     # Apply calibration for classifiers if requested
     if not use_regression and config.use_calibrated_classifier and hasattr(model, "predict_proba"):
         logger.info(f"Wrapping {model_type} with CalibratedClassifierCV")
-        print(f"Using CalibratedClassifierCV", config.use_calibrated_classifier)
         model = CalibratedClassifierCV(model, cv=DEFAULT_CALIBRATION_CV_FOLDS, method="isotonic")
-    print(model)
+
     return model
 
 

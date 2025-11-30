@@ -195,7 +195,7 @@ class PytorchLightningEstimator(BaseEstimator):
             num_classes = 1
 
         # Initialize model if needed (first call to fit or partial_fit)
-        if not hasattr(self, 'network') or self.network is None:
+        if not hasattr(self, "network") or self.network is None:
             self.network = generate_mlp(num_features=X.shape[1], num_classes=num_classes, **self.network_params)
 
         # Configure metrics and monitoring
@@ -231,8 +231,8 @@ class PytorchLightningEstimator(BaseEstimator):
 
         # Set default logger for LearningRateMonitor compatibility
         # Use CSVLogger instead of TensorBoardLogger to avoid TensorFlow dependency
-        if 'logger' not in trainer_params:
-            trainer_params['logger'] = CSVLogger(save_dir='lightning_logs', name='')
+        if "logger" not in trainer_params:
+            trainer_params["logger"] = CSVLogger(save_dir="lightning_logs", name="")
 
         # Build callbacks list
         callbacks = [
@@ -241,7 +241,7 @@ class PytorchLightningEstimator(BaseEstimator):
         ]
 
         # Only add LearningRateMonitor if logger is enabled
-        if trainer_params.get('logger') is not False:
+        if trainer_params.get("logger") is not False:
             callbacks.append(LearningRateMonitor(logging_interval="epoch"))
 
         if self.use_swa:
@@ -293,7 +293,7 @@ class PytorchLightningEstimator(BaseEstimator):
 
         # Extract best epoch from model (set by checkpoint callback, DDP-safe)
         # Prefer model.best_epoch over callback.best_epoch for distributed training compatibility
-        if hasattr(self.model, 'best_epoch') and self.model.best_epoch is not None:
+        if hasattr(self.model, "best_epoch") and self.model.best_epoch is not None:
             self.best_epoch = self.model.best_epoch
             logger.info(f"Best epoch recorded: {self.best_epoch}")
         else:
@@ -1136,7 +1136,7 @@ def generate_mlp(
 
     assert dropout_prob >= 0.0
     assert inputs_dropout_prob >= 0.0
-    assert consec_layers_neurons_ratio >= 1.0    
+    assert consec_layers_neurons_ratio >= 1.0
     assert nlayers >= 1 and isinstance(nlayers, int)
     assert min_layer_neurons >= 1 and isinstance(min_layer_neurons, int)
     assert num_classes is None or (num_classes >= 0 and isinstance(num_classes, int))
@@ -1266,9 +1266,9 @@ def generate_mlp(
                     total_weights += module.bias.numel()
             elif isinstance(module, (nn.BatchNorm1d, nn.LayerNorm)):
                 # Norm layers have weight and bias
-                if hasattr(module, 'weight') and module.weight is not None:
+                if hasattr(module, "weight") and module.weight is not None:
                     total_weights += module.weight.numel()
-                if hasattr(module, 'bias') and module.bias is not None:
+                if hasattr(module, "bias") and module.bias is not None:
                     total_weights += module.bias.numel()
 
         # Format numbers with 'k' suffix if >= 1000
@@ -1278,9 +1278,7 @@ def generate_mlp(
             return str(n)
 
         architecture = "->".join(str(size) for size in layer_sizes)
-        logger.info(
-            f"Network architecture: {architecture} [{model_type}, n={format_num(total_neurons)}, w={format_num(total_weights)}]"
-        )
+        logger.info(f"Network architecture: {architecture} [{model_type}, n={format_num(total_neurons)}, w={format_num(total_weights)}]")
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # Init weights explicitly if weights_init_fcn is set

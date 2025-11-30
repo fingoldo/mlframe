@@ -1051,12 +1051,16 @@ def train_mlframe_models_suite(
 
                 # Subset targets using pre-filtered indices (OD already applied globally)
                 current_train_target = (
-                    cur_target_values[filtered_train_idx] if isinstance(cur_target_values, np.ndarray) else cur_target_values.iloc[filtered_train_idx]
+                    cur_target_values[filtered_train_idx]
+                    if isinstance(cur_target_values, (np.ndarray, pl.Series))
+                    else cur_target_values.iloc[filtered_train_idx]
                 )
                 current_val_target = None
                 if filtered_val_idx is not None:
                     current_val_target = (
-                        cur_target_values[filtered_val_idx] if isinstance(cur_target_values, np.ndarray) else cur_target_values.iloc[filtered_val_idx]
+                        cur_target_values[filtered_val_idx]
+                        if isinstance(cur_target_values, (np.ndarray, pl.Series))
+                        else cur_target_values.iloc[filtered_val_idx]
                     )
 
                 if verbose:
