@@ -314,8 +314,7 @@ def create_linear_model(
 
     # Apply calibration for classifiers if requested
     if not use_regression and config.use_calibrated_classifier and hasattr(model, "predict_proba"):
-        if config.verbose:
-            logger.info(f"Wrapping {model_type} with CalibratedClassifierCV")
+        logger.info(f"Wrapping {model_type} with CalibratedClassifierCV")
         model = CalibratedClassifierCV(model, cv=DEFAULT_CALIBRATION_CV_FOLDS, method="isotonic")
 
     return model
