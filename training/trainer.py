@@ -545,7 +545,7 @@ def _train_model_with_fallback(
     """
     try:
         model.fit(train_df, train_target, **fit_params)
-    except (RuntimeError, ValueError, OSError, MemoryError) as e:
+    except Exception as e:
         try_again = False
         error_str = str(e)
 
