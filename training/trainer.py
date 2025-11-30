@@ -65,6 +65,7 @@ from mlframe.config import (
 
 # Constants (originally from training_old.py)
 from numba.cuda import is_available as is_cuda_available
+
 CUDA_IS_AVAILABLE = is_cuda_available()
 MODELS_SUBDIR = "models"
 GPU_VRAM_SAFE_SATURATION_LIMIT: float = 0.9
@@ -86,6 +87,7 @@ from .helpers import (
     CatBoostCallback,
     XGBoostCallback,
 )
+
 # Fairness and feature importance functions from their respective modules
 from mlframe.metrics import create_fairness_subgroups, create_fairness_subgroups_indices, compute_fairness_metrics
 from mlframe.feature_importance import plot_feature_importance
@@ -308,7 +310,7 @@ def _compute_trainset_stats(train_df, trainset_features_stats, verbose):
 def _disable_xgboost_early_stopping_if_needed(model_type_name, model_obj):
     """Disable XGBoost early stopping when no validation data is available."""
     if model_type_name in XGBOOST_MODEL_TYPES and model_obj is not None:
-        es_rounds = getattr(model_obj, 'early_stopping_rounds', None)
+        es_rounds = getattr(model_obj, "early_stopping_rounds", None)
         if es_rounds is not None:
             logger.warning(f"No validation data available - disabling early stopping for {model_type_name}")
             model_obj.set_params(early_stopping_rounds=None)
@@ -339,10 +341,7 @@ def _prepare_train_df_for_fitting(train_df, model, model_type_name, fit_params):
 
 def _update_model_name_after_training(model_name, train_df_len, train_details, best_iter):
     """Update model name with training details and early stopping info."""
-    model_name = model_name + "\n" + " ".join([
-        f" trained on {get_human_readable_set_size(train_df_len)} rows",
-        train_details
-    ])
+    model_name = model_name + "\n" + " ".join([f" trained on {get_human_readable_set_size(train_df_len)} rows", train_details])
 
     if best_iter:
         print(f"es_best_iter: {best_iter:_}")
@@ -362,7 +361,7 @@ def _prepare_test_split(df, test_df, test_idx, test_target, target, real_drop_co
 
         if model is not None and pre_pipeline and not skip_pre_pipeline_transform:
             test_df = pre_pipeline.transform(test_df)
-        columns = list(test_df.columns) if hasattr(test_df, 'columns') else []
+        columns = list(test_df.columns) if hasattr(test_df, "columns") else []
     else:
         columns = []
         test_df = None
@@ -384,10 +383,10 @@ def _apply_pre_pipeline_transforms(model, pre_pipeline, train_df, val_df, train_
                 log_ram_usage()
         else:
             if verbose:
-                logger.info(f"Fitting & Transforming train_df via pre_pipeline...")            
+                logger.info(f"Fitting & Transforming train_df via pre_pipeline...")
             train_df = pre_pipeline.fit_transform(train_df, train_target)
             if verbose:
-                log_ram_usage()            
+                log_ram_usage()
 
         if not skip_pre_pipeline_transform and val_df is not None:
             if verbose:
@@ -455,7 +454,7 @@ def _setup_eval_set(
     elif value_format == "list_of_tuples":
         fit_params[param_name] = [(val_df, val_target)]
     elif value_format == "list_of_tuples_values":
-        fit_params[param_name] = [(val_df.values, val_target.values if hasattr(val_target, 'values') else val_target)]
+        fit_params[param_name] = [(val_df.values, val_target.values if hasattr(val_target, "values") else val_target)]
     elif value_format == "separate":
         fit_params["X_val"] = val_df
         fit_params["y_val"] = val_target
@@ -700,12 +699,7 @@ def run_confidence_analysis(
     if confidence_model_kwargs is None:
         confidence_model_kwargs = {}
 
-    confidence_model = CatBoostRegressor(
-        verbose=0,
-        eval_fraction=0.1,
-        task_type=("GPU" if CUDA_IS_AVAILABLE else "CPU"),
-        **confidence_model_kwargs
-    )
+    confidence_model = CatBoostRegressor(verbose=0, eval_fraction=0.1, task_type=("GPU" if CUDA_IS_AVAILABLE else "CPU"), **confidence_model_kwargs)
 
     fit_params_copy = {}
     if fit_params:
@@ -730,6 +724,7 @@ def run_confidence_analysis(
         try:
             import shap
             import shap.utils.transformers
+
             shap.utils.transformers.is_transformers_lm = lambda model: False
         except (ImportError, AttributeError):
             pass
@@ -1113,9 +1108,7 @@ def train_and_evaluate_model(
     else:
         fit_params = copy.copy(fit_params)
 
-    train_target, val_target, test_target = _extract_targets_from_indices(
-        target, train_idx, val_idx, test_idx, train_target, val_target, test_target
-    )
+    train_target, val_target, test_target = _extract_targets_from_indices(target, train_idx, val_idx, test_idx, train_target, val_target, test_target)
 
     if (df is not None) or (train_df is not None):
         if train_df is None:
@@ -1170,9 +1163,7 @@ def train_and_evaluate_model(
                     report_title += ": " + ", ".join(train_df.columns.to_list())
                 report_title += f", {len(train_df):_} records"
 
-            train_df, fit_params = _prepare_train_df_for_fitting(
-                train_df, model, model_type_name, fit_params
-            )
+            train_df, fit_params = _prepare_train_df_for_fitting(train_df, model, model_type_name, fit_params)
 
             clean_ram()
             if verbose:
@@ -1192,9 +1183,7 @@ def train_and_evaluate_model(
                     verbose=verbose,
                 )
 
-            model_name = _update_model_name_after_training(
-                model_name, len(train_df), train_details, best_iter
-            )
+            model_name = _update_model_name_after_training(model_name, len(train_df), train_details, best_iter)
 
     metrics = {"train": {}, "val": {}, "test": {}, "best_iter": best_iter}
 
@@ -1224,10 +1213,26 @@ def train_and_evaluate_model(
         has_test = test_idx is not None or test_df is not None
 
         splits_config = [
-            ("train", train_df, train_target, train_idx, train_preds, train_probs, train_details,
-             compute_trainset_metrics and (train_idx is not None or train_df is not None)),
-            ("val", val_df, val_target, val_idx, val_preds, val_probs, val_details,
-             compute_valset_metrics and ((val_idx is not None and len(val_idx) > 0) or val_df is not None)),
+            (
+                "train",
+                train_df,
+                train_target,
+                train_idx,
+                train_preds,
+                train_probs,
+                train_details,
+                compute_trainset_metrics and (train_idx is not None or train_df is not None),
+            ),
+            (
+                "val",
+                val_df,
+                val_target,
+                val_idx,
+                val_preds,
+                val_probs,
+                val_details,
+                compute_valset_metrics and ((val_idx is not None and len(val_idx) > 0) or val_df is not None),
+            ),
         ]
 
         for split_name, split_df, split_target, split_idx, split_preds, split_probs, split_details, should_compute in splits_config:
@@ -1636,9 +1641,7 @@ def configure_training_params(
     linear_model_params = {}
     for model_type in LINEAR_MODEL_TYPES:
         linear_model_params[model_type] = dict(
-            model=metamodel_func(
-                create_linear_model(model_type, LinearModelConfig(model_type=model_type), use_regression=use_regression)
-            )
+            model=metamodel_func(create_linear_model(model_type, LinearModelConfig(model_type=model_type), use_regression=use_regression))
         )
     linear_params = linear_model_params["linear"]
     ridge_params = linear_model_params["ridge"]
@@ -1665,6 +1668,7 @@ def configure_training_params(
         rfecv_scoring = make_scorer(**default_regression_scoring)
     else:
         if prefer_calibrated_classifiers:
+
             def fs_and_hpt_integral_calibration_error(*args, **kwargs):
                 return configs.fs_and_hpt_integral_calibration_error(*args, **kwargs, verbose=rfecv_model_verbose)
 
@@ -1742,8 +1746,8 @@ def configure_training_params(
 
 
 __all__ = [
-    'train_and_evaluate_model',
-    'configure_training_params',
-    '_build_configs_from_params',
-    'run_confidence_analysis',
+    "train_and_evaluate_model",
+    "configure_training_params",
+    "_build_configs_from_params",
+    "run_confidence_analysis",
 ]
