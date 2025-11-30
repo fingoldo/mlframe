@@ -377,20 +377,20 @@ def _apply_pre_pipeline_transforms(model, pre_pipeline, train_df, val_df, train_
                 logger.info(f"Skipping pre_pipeline fit/transform (already transformed)")
         elif use_cache and exists(model_file_name):
             if verbose:
-                logger.info(f"Transforming train_df via pre_pipeline...")
+                logger.info(f"Transforming train_df via pre_pipeline {pre_pipeline}...")
             train_df = pre_pipeline.transform(train_df, train_target)
             if verbose:
                 log_ram_usage()
         else:
             if verbose:
-                logger.info(f"Fitting & Transforming train_df via pre_pipeline...")
+                logger.info(f"Fitting & Transforming train_df via pre_pipeline {pre_pipeline}...")
             train_df = pre_pipeline.fit_transform(train_df, train_target)
             if verbose:
                 log_ram_usage()
 
         if not skip_pre_pipeline_transform and val_df is not None:
             if verbose:
-                logger.info(f"Transforming val_df via pre_pipeline...")
+                logger.info(f"Transforming val_df via pre_pipeline {pre_pipeline}...")
             val_df = pre_pipeline.transform(val_df)
             if verbose:
                 log_ram_usage()
