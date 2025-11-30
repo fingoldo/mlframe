@@ -352,6 +352,7 @@ def _build_process_model_kwargs(
     verbose: int,
     cached_dfs: Optional[Tuple],
     polars_pipeline_applied: bool = False,
+    mlframe_model_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Build kwargs dictionary for process_model call.
@@ -371,10 +372,16 @@ def _build_process_model_kwargs(
         verbose: Verbosity level.
         cached_dfs: Tuple of cached (train_df, val_df, test_df) or None.
         polars_pipeline_applied: Whether Polars-ds pipeline was already applied globally.
+        mlframe_model_name: Short model type name (cb, xgb, lgb, etc.) for early stopping setup.
 
     Returns:
         Dict of kwargs for process_model call.
     """
+    # Add model_category to common_params for early stopping callback setup
+    if mlframe_model_name:
+        common_params = common_params.copy()
+        common_params["model_category"] = mlframe_model_name
+
     kwargs = {
         "model_file": model_file,
         "model_name": model_name_with_weight,
@@ -1184,6 +1191,7 @@ def train_mlframe_models_suite(
                             verbose=verbose,
                             cached_dfs=cached_dfs,
                             polars_pipeline_applied=polars_pipeline_applied,
+                            mlframe_model_name=mlframe_model_name,
                         )
 
                         trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed = process_model(

@@ -406,6 +406,7 @@ def _setup_eval_set(
     val_target: Union[pd.Series, np.ndarray],
     callback_params: Optional[Dict[str, Any]] = None,
     model_obj: Optional[Any] = None,
+    model_category: Optional[str] = None,
 ) -> None:
     """Configure eval_set/validation data for different model types.
 
@@ -426,6 +427,9 @@ def _setup_eval_set(
         Parameters for early stopping callback.
     model_obj : Any, optional
         Model object for XGBoost callback setup.
+    model_category : str, optional
+        Short model type name (cb, xgb, lgb, etc.). If provided, used directly
+        instead of deriving from model_type_name for reliable matching.
     """
     eval_set_configs = {
         "lgb": ("eval_set", "tuple"),
@@ -437,14 +441,15 @@ def _setup_eval_set(
         "pytorch": ("eval_set", "tuple"),
     }
 
-    model_category = None
-    model_type_lower = model_type_name.lower()
-    for key in eval_set_configs:
-        if key in model_type_lower:
-            model_category = key
-            break
-
+    # Use provided model_category if available, otherwise derive from model_type_name
     if model_category is None:
+        model_type_lower = model_type_name.lower()
+        for key in eval_set_configs:
+            if key in model_type_lower:
+                model_category = key
+                break
+
+    if model_category is None or model_category not in eval_set_configs:
         return
 
     param_name, value_format = eval_set_configs[model_category]
@@ -792,6 +797,7 @@ def _build_configs_from_params(
     skip_pre_pipeline_transform=False,
     fit_params=None,
     callback_params=None,
+    model_category=None,
     # Metrics params
     nbins=10,
     custom_ice_metric=None,
@@ -864,6 +870,7 @@ def _build_configs_from_params(
         skip_pre_pipeline_transform=skip_pre_pipeline_transform,
         fit_params=fit_params,
         callback_params=callback_params,
+        model_category=model_category,
     )
 
     metrics_config = MetricsConfig(
@@ -1009,6 +1016,7 @@ def train_and_evaluate_model(
     skip_pre_pipeline_transform = control.skip_pre_pipeline_transform
     fit_params = control.fit_params
     callback_params = control.callback_params
+    model_category = control.model_category
 
     # ---------------------------------------------------------------------------
     # Unpack metrics config
@@ -1144,7 +1152,7 @@ def train_and_evaluate_model(
         if isinstance(val_target, pl.Series):
             val_target = val_target.to_numpy()
 
-        _setup_eval_set(model_type_name, fit_params, val_df, val_target, callback_params, model_obj)
+        _setup_eval_set(model_type_name, fit_params, val_df, val_target, callback_params, model_obj, model_category)
         clean_ram()
     else:
         _disable_xgboost_early_stopping_if_needed(model_type_name, model_obj)

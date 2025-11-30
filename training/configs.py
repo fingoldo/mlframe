@@ -716,6 +716,9 @@ class TrainingControlConfig(BaseConfig):
     fit_params: Optional[Dict[str, Any]] = None  # keys: eval_set, early_stopping_rounds, etc.
     callback_params: Optional[Dict[str, Any]] = None  # keys: patience, verbose
 
+    # Model category for early stopping callback setup (cb, xgb, lgb, etc.)
+    model_category: Optional[str] = None
+
 
 class MetricsConfig(BaseConfig):
     """Metrics and evaluation configuration for train_and_evaluate_model.
