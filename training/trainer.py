@@ -438,7 +438,7 @@ def _setup_eval_set(
         "cb": ("eval_set", "list_of_tuples"),
         "xgb": ("eval_set", "list_of_tuples"),
         "tabnet": ("eval_set", "list_of_tuples_values"),
-        "pytorch": ("eval_set", "tuple"),
+        "mlp": ("eval_set", "tuple"),
     }
 
     # Use provided model_category if available, otherwise derive from model_type_name
