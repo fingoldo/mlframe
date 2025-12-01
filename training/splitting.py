@@ -125,7 +125,7 @@ def make_train_test_split(
         if sequential_idx is not None and len(sequential_idx) > 0:
             details = f"{timestamps.iloc[sequential_idx].min():%Y-%m-%d}/{timestamps.iloc[sequential_idx].max():%Y-%m-%d}"
             if n_shuffled > 0:
-                details += f" +{n_shuffled} {unit}"
+                details += f" +{n_shuffled}{unit}"
         else:
             if len(idx) > 0:
                 details = f"{timestamps.iloc[idx].min():%Y-%m-%d}/{timestamps.iloc[idx].max():%Y-%m-%d}"
@@ -168,10 +168,10 @@ def make_train_test_split(
         train_details = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
 
         val_seq_idx = np.where(dates.isin(val_dates_seq))[0] if val_dates_seq is not None else None
-        val_details = _build_details(timestamps, val_idx, val_seq_idx, n_val_shuf, "days")
+        val_details = _build_details(timestamps, val_idx, val_seq_idx, n_val_shuf, "D")
 
         test_seq_idx = np.where(dates.isin(test_dates_seq))[0] if test_dates_seq is not None else None
-        test_details = _build_details(timestamps, test_idx, test_seq_idx, n_test_shuf, "days")
+        test_details = _build_details(timestamps, test_idx, test_seq_idx, n_test_shuf, "D")
 
     elif timestamps is not None:
         # Row-based splitting with timestamps
@@ -186,8 +186,8 @@ def make_train_test_split(
 
         # Build detail strings
         train_details = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
-        val_details = _build_details(timestamps, val_idx, val_idx_seq, n_val_shuf, "records")
-        test_details = _build_details(timestamps, test_idx, test_idx_seq, n_test_shuf, "records")
+        val_details = _build_details(timestamps, val_idx, val_idx_seq, n_val_shuf, "R")
+        test_details = _build_details(timestamps, test_idx, test_idx_seq, n_test_shuf, "R")
 
     else:
         # Row-based splitting without timestamps (fallback to sklearn)

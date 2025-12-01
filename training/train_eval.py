@@ -438,7 +438,8 @@ def process_model(
     if verbose and not use_cached_model:
         pipeline_label = pre_pipeline_name.strip() if pre_pipeline_name else ""
         logger.info(
-            f"Starting train_and_evaluate {target_type} {pipeline_label} {model_name.strip()} " f"{cur_target_name}, RAM usage {get_own_ram_usage():.1f}GBs..."
+            f"Starting train_and_evaluate {target_type} {pipeline_label} {model_name.strip()} "
+            f"{cur_target_name}, RAM usage {get_own_ram_usage():.1f}GBs...".replace("  ", " ")
         )
 
     model, train_df_transformed, val_df_transformed, test_df_transformed = _call_train_evaluate_with_configs(

@@ -1124,7 +1124,7 @@ def train_mlframe_models_suite(
                 mrmr_kwargs=mrmr_kwargs,
             )
 
-            for pre_pipeline, pre_pipeline_name in tqdmu(zip(pre_pipelines, pre_pipeline_names), desc="pre_pipeline"):
+            for pre_pipeline, pre_pipeline_name in tqdmu(zip(pre_pipelines, pre_pipeline_names), desc="pre_pipeline", total=len(pre_pipelines)):
                 # Skip CatBoost RFECV pipeline with metamodel_func due to sklearn clone issue
                 if _should_skip_catboost_metamodel(pre_pipeline_name.strip(), target_type, control_params_override):
                     continue
@@ -1164,9 +1164,9 @@ def train_mlframe_models_suite(
                     # --- WEIGHT SCHEMA LOOP: Train with each sample weighting ---
                     for weight_name, weight_values in tqdmu(weight_schemas.items(), desc="weighting schema"):
                         # Create model name with weight suffix
-                        model_name_with_weight = mlframe_model_name
+                        model_name_with_weight = common_params["model_name"]
                         if weight_name != "uniform":
-                            model_name_with_weight = f"{mlframe_model_name}_{weight_name}"
+                            model_name_with_weight += f" w={weight_name}"
 
                         # Shallow copy common_params - only sample_weight changes per iteration
                         current_common_params = common_params.copy()
