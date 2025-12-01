@@ -159,7 +159,7 @@ class PytorchLightningEstimator(BaseEstimator):
         swa_params = swa_params or {}
         store_params_in_object(obj=self, params=get_parent_func_args())
 
-    def _fit_common(self, X, y, eval_set: tuple = (None, None), is_partial_fit: bool = False, classes: Optional[np.ndarray] = None, fit_params: dict = None):
+    def _fit_common(self, X, y, eval_set: tuple = (None, None), is_partial_fit: bool = False, classes: Optional[np.ndarray] = None, fit_params: dict = None, sample_weight=None):
         """Common logic for fit and partial_fit."""
 
         if fit_params is None:
@@ -175,12 +175,17 @@ class PytorchLightningEstimator(BaseEstimator):
         # Check validation availability once
         has_validation = eval_set[0] is not None
 
-        # Create datamodule
+        # Extract validation sample weights if provided
+        eval_sample_weight = fit_params.get("eval_sample_weight")
+
+        # Create datamodule with sample weights
         dm = self.datamodule_class(
             train_features=X,
             train_labels=y,
+            train_sample_weight=sample_weight,  # NEW
             val_features=eval_set[0],
             val_labels=eval_set[1],
+            val_sample_weight=eval_sample_weight,  # NEW
             **self.datamodule_params,
         )
 
@@ -310,15 +315,29 @@ class PytorchLightningEstimator(BaseEstimator):
 
         return self
 
-    def fit(self, X, y, **fit_params):
-        """Fit the model to the data."""
-        eval_set = fit_params.get("eval_set", (None, None))
-        return self._fit_common(X, y, eval_set=eval_set, is_partial_fit=False, fit_params=fit_params)
+    def fit(self, X, y, sample_weight=None, **fit_params):
+        """Fit the model to the data.
 
-    def partial_fit(self, X, y, classes: Optional[np.ndarray] = None, **fit_params):
+        Args:
+            X: Training features
+            y: Training labels
+            sample_weight: Optional per-sample weights for training
+            **fit_params: Additional parameters including:
+                - eval_set: Tuple of (X_val, y_val) for validation
+                - eval_sample_weight: Optional validation sample weights
+        """
+        eval_set = fit_params.get("eval_set", (None, None))
+        # Support sample_weight both as parameter and in fit_params
+        if sample_weight is None:
+            sample_weight = fit_params.get("sample_weight")
+        return self._fit_common(X, y, eval_set=eval_set, is_partial_fit=False, fit_params=fit_params, sample_weight=sample_weight)
+
+    def partial_fit(self, X, y, classes: Optional[np.ndarray] = None, sample_weight=None, **fit_params):
         """Incremental training for online learning."""
         eval_set = fit_params.get("eval_set", (None, None))
-        return self._fit_common(X, y, eval_set=eval_set, is_partial_fit=True, classes=classes, fit_params=fit_params)
+        if sample_weight is None:
+            sample_weight = fit_params.get("sample_weight")
+        return self._fit_common(X, y, eval_set=eval_set, is_partial_fit=True, classes=classes, fit_params=fit_params, sample_weight=sample_weight)
 
     def get_params(self, deep: bool = True) -> Dict[str, Any]:
         """Returns a dictionary of all parameters for scikit-learn compatibility."""
@@ -552,6 +571,7 @@ class TorchDataset(Dataset):
         self,
         features,
         labels=None,  # Make optional
+        sample_weight=None,  # NEW: Optional sample weights
         features_dtype: torch.dtype = torch.float32,
         labels_dtype: torch.dtype = torch.float32,
         device: Optional[str] = None,
@@ -591,6 +611,20 @@ class TorchDataset(Dataset):
                 dataset_length = self.features.height
             else:
                 raise TypeError(f"Cannot determine length from features type: {type(self.features)}")
+
+        # Handle sample weights (optional)
+        if sample_weight is not None:
+            if isinstance(sample_weight, (pd.DataFrame, pd.Series)):
+                sample_weight = sample_weight.to_numpy()
+            elif isinstance(sample_weight, pl.DataFrame):
+                sample_weight = sample_weight.to_numpy()
+            elif not isinstance(sample_weight, (np.ndarray, torch.Tensor)):
+                sample_weight = np.asarray(sample_weight)
+
+            sample_weight = np.asarray(sample_weight).reshape(-1)
+            self.sample_weight = torch.tensor(sample_weight, dtype=torch.float32, device=device)
+        else:
+            self.sample_weight = None
 
         # Determine # of batches if in batch mode
         if batch_size > 0:
@@ -641,6 +675,11 @@ class TorchDataset(Dataset):
         if self.batch_size == 0 and x.ndim == 2 and x.shape[0] == 1:
             x = x.squeeze(0)
 
+        # Return with sample weights if available
+        if self.sample_weight is not None:
+            w = self.sample_weight[indices]
+            return x, y, w
+
         return x, y
 
 
@@ -673,8 +712,10 @@ class TorchDataModule(LightningDataModule):
         self,
         train_features: Optional[Union[pd.DataFrame, np.ndarray, str]] = None,
         train_labels: Optional[Union[pd.DataFrame, np.ndarray, str]] = None,
+        train_sample_weight: Optional[Union[pd.DataFrame, np.ndarray]] = None,  # NEW
         val_features: Optional[Union[pd.DataFrame, np.ndarray, str]] = None,
         val_labels: Optional[Union[pd.DataFrame, np.ndarray, str]] = None,
+        val_sample_weight: Optional[Union[pd.DataFrame, np.ndarray]] = None,  # NEW
         test_features: Optional[Union[pd.DataFrame, np.ndarray, str]] = None,
         test_labels: Optional[Union[pd.DataFrame, np.ndarray, str]] = None,
         read_fcn: Optional[Callable] = None,
@@ -697,8 +738,10 @@ class TorchDataModule(LightningDataModule):
         # Store all parameters
         self.train_features = train_features
         self.train_labels = train_labels
+        self.train_sample_weight = train_sample_weight  # NEW
         self.val_features = val_features
         self.val_labels = val_labels
+        self.val_sample_weight = val_sample_weight  # NEW
         self.test_features = test_features
         self.test_labels = test_labels
         self.read_fcn = read_fcn
@@ -800,6 +843,7 @@ class TorchDataModule(LightningDataModule):
         self,
         features,
         labels=None,
+        sample_weight=None,  # NEW
         shuffle: bool = False,
         drop_last: bool = False,
     ) -> DataLoader:
@@ -809,6 +853,7 @@ class TorchDataModule(LightningDataModule):
         Args:
             features: Feature data
             labels: Label data (optional, None for prediction)
+            sample_weight: Sample weights (optional)
             shuffle: Whether to shuffle data
             drop_last: Whether to drop last incomplete batch
 
@@ -840,6 +885,7 @@ class TorchDataModule(LightningDataModule):
         dataset = TorchDataset(
             features=features,
             labels=labels,
+            sample_weight=sample_weight,  # NEW
             features_dtype=self.features_dtype,
             labels_dtype=self.labels_dtype if labels is not None else None,
             batch_size=batch_size,  # TorchDataset will handle batching
@@ -853,6 +899,7 @@ class TorchDataModule(LightningDataModule):
         return self._create_dataloader(
             features=self.train_features,
             labels=self.train_labels,
+            sample_weight=self.train_sample_weight,  # NEW
             shuffle=True,
             drop_last=False,
         )
@@ -862,6 +909,7 @@ class TorchDataModule(LightningDataModule):
         return self._create_dataloader(
             features=self.val_features,
             labels=self.val_labels,
+            sample_weight=self.val_sample_weight,  # NEW
             shuffle=False,
             drop_last=False,
         )
@@ -1432,18 +1480,55 @@ class MLPTorchModel(L.LightningModule):
         """Forward pass through the network."""
         return self.network(*args, **kwargs)
 
-    def _unpack_batch(self, batch) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Unpack batch into features and labels."""
+    def _unpack_batch(self, batch) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+        """Unpack batch into features, labels, and optional sample_weight."""
         if isinstance(batch, dict):
-            return batch["features"], batch["labels"]
-        elif isinstance(batch, (tuple, list)) and len(batch) == 2:
-            return batch[0], batch[1]
+            return batch["features"], batch["labels"], batch.get("sample_weight")
+        elif isinstance(batch, (tuple, list)):
+            if len(batch) == 3:
+                return batch[0], batch[1], batch[2]
+            elif len(batch) == 2:
+                return batch[0], batch[1], None
+        raise ValueError(f"Unexpected batch format: {type(batch)}")
+
+    def _compute_weighted_loss(
+        self, predictions: torch.Tensor, labels: torch.Tensor, sample_weight: Optional[torch.Tensor]
+    ) -> torch.Tensor:
+        """Compute loss with optional sample weighting.
+
+        Args:
+            predictions: Model predictions
+            labels: Ground truth labels
+            sample_weight: Optional per-sample weights
+
+        Returns:
+            Scalar loss tensor
+        """
+        if sample_weight is None:
+            # No weighting - use original loss function
+            return self.loss_fn(predictions, labels)
+
+        # Compute per-sample losses using functional API with reduction='none'
+        # Detect if this is classification (CrossEntropyLoss) or regression (MSELoss)
+        if predictions.dim() == 2 and predictions.shape[1] > 1:
+            # Classification: predictions are logits with shape (batch, num_classes)
+            loss_unreduced = F.cross_entropy(predictions, labels, reduction='none')
         else:
-            raise ValueError(f"Unexpected batch format: {type(batch)}")
+            # Regression: predictions are values
+            loss_unreduced = F.mse_loss(predictions, labels, reduction='none')
+
+        # Apply sample weights and normalize by sum of weights
+        weight_sum = sample_weight.sum()
+        if weight_sum > 0:
+            weighted_loss = (loss_unreduced * sample_weight).sum() / weight_sum
+        else:
+            # All weights are zero - return zero loss (no contribution from this batch)
+            weighted_loss = torch.tensor(0.0, device=predictions.device, dtype=predictions.dtype)
+        return weighted_loss
 
     def training_step(self, batch, batch_idx: int) -> Dict[str, torch.Tensor]:
         """Training step."""
-        features, labels = self._unpack_batch(batch)
+        features, labels, sample_weight = self._unpack_batch(batch)
         raw_predictions = self(features)
 
         # Squeeze predictions for single-output regression to match label shape
@@ -1452,8 +1537,8 @@ class MLPTorchModel(L.LightningModule):
         else:
             raw_predictions_for_loss = raw_predictions
 
-        # Compute loss
-        loss = self.loss_fn(raw_predictions_for_loss, labels)
+        # Compute loss (with optional sample weighting)
+        loss = self._compute_weighted_loss(raw_predictions_for_loss, labels, sample_weight)
 
         # Add L1 regularization if enabled
         if self.hparams.l1_alpha > 0:
@@ -1505,7 +1590,7 @@ class MLPTorchModel(L.LightningModule):
 
     def validation_step(self, batch, batch_idx: int) -> Dict[str, torch.Tensor]:
         """Validation step."""
-        features, labels = self._unpack_batch(batch)
+        features, labels, sample_weight = self._unpack_batch(batch)
 
         # No gradient computation needed
         raw_predictions = self(features)
@@ -1516,8 +1601,8 @@ class MLPTorchModel(L.LightningModule):
         else:
             raw_predictions_for_loss = raw_predictions
 
-        # Compute loss without L1 regularization for fair comparison
-        loss = self.loss_fn(raw_predictions_for_loss, labels)
+        # Compute loss without L1 regularization for fair comparison (with optional sample weighting)
+        loss = self._compute_weighted_loss(raw_predictions_for_loss, labels, sample_weight)
 
         # Only log if trainer is attached (avoid warnings in unit tests)
         try:

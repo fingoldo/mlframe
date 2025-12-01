@@ -281,10 +281,11 @@ class TestMLPTorchModelUnpackBatch:
         )
 
         batch = (torch.randn(4, 10), torch.randint(0, 3, (4,)))
-        features, labels = model._unpack_batch(batch)
+        features, labels, sample_weight = model._unpack_batch(batch)
 
         assert features.shape == (4, 10)
         assert labels.shape == (4,)
+        assert sample_weight is None  # No sample weight in 2-element batch
 
     def test_unpack_batch_list_format(self, simple_network, loss_function):
         """Test unpacking batch in list format."""
@@ -296,10 +297,11 @@ class TestMLPTorchModelUnpackBatch:
         )
 
         batch = [torch.randn(4, 10), torch.randint(0, 3, (4,))]
-        features, labels = model._unpack_batch(batch)
+        features, labels, sample_weight = model._unpack_batch(batch)
 
         assert features.shape == (4, 10)
         assert labels.shape == (4,)
+        assert sample_weight is None  # No sample weight in 2-element batch
 
     def test_unpack_batch_dict_format(self, simple_network, loss_function):
         """Test unpacking batch in dict format."""
@@ -314,10 +316,11 @@ class TestMLPTorchModelUnpackBatch:
             'features': torch.randn(4, 10),
             'labels': torch.randint(0, 3, (4,))
         }
-        features, labels = model._unpack_batch(batch)
+        features, labels, sample_weight = model._unpack_batch(batch)
 
         assert features.shape == (4, 10)
         assert labels.shape == (4,)
+        assert sample_weight is None  # No sample weight in dict without it
 
     def test_unpack_batch_invalid_format_raises_error(self, simple_network, loss_function):
         """Test that invalid batch format raises ValueError."""
@@ -816,10 +819,10 @@ class TestMLPTorchModelMutationTests:
         assert 'loss' in loss_dict
         # Just verify it runs without error
 
-    def test_unpack_batch_rejects_three_elements(self, simple_network, loss_function):
-        """Test that batch with 3+ elements is rejected.
+    def test_unpack_batch_accepts_three_elements(self, simple_network, loss_function):
+        """Test that batch with 3 elements (features, labels, sample_weight) is accepted.
 
-        Kills mutation: `len(batch) == 2` to `len(batch) >= 2`.
+        Kills mutation: `len(batch) == 3` to other conditions.
         """
         model = MLPTorchModel(
             network=simple_network,
@@ -828,11 +831,13 @@ class TestMLPTorchModelMutationTests:
             metrics=[]
         )
 
-        # Batch with 3 elements
-        batch = (torch.randn(4, 10), torch.randint(0, 3, (4,)), torch.randn(4))
+        # Batch with 3 elements (features, labels, sample_weight)
+        batch = (torch.randn(4, 10), torch.randint(0, 3, (4,)), torch.ones(4))
+        features, labels, sample_weight = model._unpack_batch(batch)
 
-        with pytest.raises(ValueError, match="Unexpected batch format"):
-            model._unpack_batch(batch)
+        assert features.shape == (4, 10)
+        assert labels.shape == (4,)
+        assert sample_weight.shape == (4,)
 
     def test_unpack_batch_accepts_exactly_two(self, simple_network, loss_function):
         """Test that batch with exactly 2 elements is accepted.
@@ -847,10 +852,11 @@ class TestMLPTorchModelMutationTests:
         )
 
         batch = (torch.randn(4, 10), torch.randint(0, 3, (4,)))
-        features, labels = model._unpack_batch(batch)
+        features, labels, sample_weight = model._unpack_batch(batch)
 
         assert features.shape == (4, 10)
         assert labels.shape == (4,)
+        assert sample_weight is None
 
     def test_onecyclelr_total_steps_multiplication(self, simple_network, loss_function):
         """Test OneCycleLR total_steps uses multiplication not exponentiation.

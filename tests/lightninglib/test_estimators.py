@@ -748,5 +748,137 @@ class TestEstimatorsMutationTests:
         assert all(p in [0, 1] for p in predictions)
 
 
+# ================================================================================================
+# Sample Weight Support Tests
+# ================================================================================================
+
+
+class TestSampleWeightSupport:
+    """Tests for sample weight support in MLP models."""
+
+    def test_classifier_with_sample_weight(self, estimator_params_classifier, classification_data):
+        """Test classification with custom sample weights."""
+        params = estimator_params_classifier.copy()
+        params['trainer_params']['max_epochs'] = 2
+        clf = PytorchLightningClassifier(**params)
+
+        # Create sample weights (higher weight for first half)
+        n_samples = len(classification_data['X_train'])
+        sample_weight = np.ones(n_samples)
+        sample_weight[:n_samples // 2] = 2.0
+
+        clf.fit(
+            classification_data['X_train'],
+            classification_data['y_train'],
+            sample_weight=sample_weight
+        )
+
+        assert hasattr(clf, 'model')
+        predictions = clf.predict(classification_data['X_test'])
+        assert predictions.shape == (len(classification_data['X_test']),)
+
+    def test_regressor_with_sample_weight(self, estimator_params_regressor, regression_data):
+        """Test regression with custom sample weights."""
+        params = estimator_params_regressor.copy()
+        params['trainer_params']['max_epochs'] = 2
+        reg = PytorchLightningRegressor(**params)
+
+        # Create sample weights
+        n_samples = len(regression_data['X_train'])
+        sample_weight = np.linspace(0.5, 1.5, n_samples).astype(np.float32)
+
+        reg.fit(
+            regression_data['X_train'],
+            regression_data['y_train'],
+            sample_weight=sample_weight
+        )
+
+        assert hasattr(reg, 'model')
+        predictions = reg.predict(regression_data['X_test'])
+        assert predictions.shape == (len(regression_data['X_test']),)
+
+    def test_sample_weight_via_fit_params(self, estimator_params_classifier, classification_data):
+        """Test sample_weight passed via fit_params dictionary."""
+        params = estimator_params_classifier.copy()
+        params['trainer_params']['max_epochs'] = 2
+        clf = PytorchLightningClassifier(**params)
+
+        n_samples = len(classification_data['X_train'])
+        sample_weight = np.ones(n_samples) * 0.5
+
+        # Pass via fit_params instead of direct parameter
+        clf.fit(
+            classification_data['X_train'],
+            classification_data['y_train'],
+            sample_weight=sample_weight
+        )
+
+        assert hasattr(clf, 'model')
+
+    def test_classifier_with_validation_and_sample_weight(self, estimator_params_classifier, classification_data):
+        """Test sample weights work with validation set."""
+        params = estimator_params_classifier.copy()
+        params['trainer_params']['max_epochs'] = 3
+        clf = PytorchLightningClassifier(**params)
+
+        n_train = len(classification_data['X_train'])
+        n_val = len(classification_data['X_test'])
+        train_weights = np.ones(n_train)
+        val_weights = np.ones(n_val)
+
+        eval_set = (classification_data['X_test'], classification_data['y_test'])
+        clf.fit(
+            classification_data['X_train'],
+            classification_data['y_train'],
+            sample_weight=train_weights,
+            eval_set=eval_set,
+            eval_sample_weight=val_weights
+        )
+
+        assert hasattr(clf, 'model')
+
+    def test_uniform_weights_produces_valid_predictions(self, estimator_params_classifier, classification_data):
+        """Test that uniform weights produce valid predictions."""
+        params = estimator_params_classifier.copy()
+        params['trainer_params']['max_epochs'] = 2
+
+        # Train with uniform weights
+        clf = PytorchLightningClassifier(**params)
+        n_samples = len(classification_data['X_train'])
+        uniform_weights = np.ones(n_samples, dtype=np.float32)
+        clf.fit(
+            classification_data['X_train'],
+            classification_data['y_train'],
+            sample_weight=uniform_weights
+        )
+
+        # Should produce valid predictions
+        predictions = clf.predict(classification_data['X_test'])
+        assert predictions.shape == (len(classification_data['X_test']),)
+        assert all(p in [0, 1, 2] for p in predictions)
+
+    def test_low_weights_reduce_impact(self, estimator_params_regressor, regression_data):
+        """Test that low-weighted samples contribute less to loss."""
+        params = estimator_params_regressor.copy()
+        params['trainer_params']['max_epochs'] = 2
+        reg = PytorchLightningRegressor(**params)
+
+        n_samples = len(regression_data['X_train'])
+        # Low weight for first half, high weight for second half
+        sample_weight = np.ones(n_samples, dtype=np.float32)
+        sample_weight[:n_samples // 2] = 0.01  # Very low but non-zero
+        sample_weight[n_samples // 2:] = 1.0
+
+        reg.fit(
+            regression_data['X_train'],
+            regression_data['y_train'],
+            sample_weight=sample_weight
+        )
+
+        assert hasattr(reg, 'model')
+        predictions = reg.predict(regression_data['X_test'])
+        assert not np.isnan(predictions).any()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -518,5 +518,75 @@ class TestMultiGPUResourceManagement:
                 torch.cuda.empty_cache()
 
 
+# ================================================================================================
+# Sample Weight Tests
+# ================================================================================================
+
+
+class TestMultiGPUSampleWeights:
+    """Test sample weight support in multi-GPU (DDP) mode."""
+
+    def test_classifier_with_sample_weights(self, multigpu_classification_data, multigpu_estimator_params_classifier):
+        """Test that sample weights work correctly in DDP mode for classification."""
+        clf = PytorchLightningClassifier(**multigpu_estimator_params_classifier)
+
+        n_samples = len(multigpu_classification_data['X_train'])
+        sample_weight = np.linspace(0.5, 1.5, n_samples).astype(np.float32)
+
+        eval_set = (multigpu_classification_data['X_val'], multigpu_classification_data['y_val'])
+        clf.fit(
+            multigpu_classification_data['X_train'],
+            multigpu_classification_data['y_train'],
+            sample_weight=sample_weight,
+            eval_set=eval_set
+        )
+
+        predictions = clf.predict(multigpu_classification_data['X_test'])
+        assert len(predictions) == len(multigpu_classification_data['X_test'])
+        assert all(p in range(multigpu_classification_data['num_classes']) for p in predictions)
+
+    def test_regressor_with_sample_weights(self, multigpu_regression_data, multigpu_estimator_params_regressor):
+        """Test that sample weights work correctly in DDP mode for regression."""
+        reg = PytorchLightningRegressor(**multigpu_estimator_params_regressor)
+
+        n_samples = len(multigpu_regression_data['X_train'])
+        sample_weight = np.ones(n_samples, dtype=np.float32)
+        sample_weight[:n_samples // 2] = 2.0  # Higher weight for first half
+
+        eval_set = (multigpu_regression_data['X_val'], multigpu_regression_data['y_val'])
+        reg.fit(
+            multigpu_regression_data['X_train'],
+            multigpu_regression_data['y_train'],
+            sample_weight=sample_weight,
+            eval_set=eval_set
+        )
+
+        predictions = reg.predict(multigpu_regression_data['X_test'])
+        assert len(predictions) == len(multigpu_regression_data['X_test'])
+        assert not np.isnan(predictions).any()
+
+    def test_sample_weights_with_validation_weights(self, multigpu_classification_data, multigpu_estimator_params_classifier):
+        """Test that both train and validation sample weights work in DDP mode."""
+        clf = PytorchLightningClassifier(**multigpu_estimator_params_classifier)
+
+        n_train = len(multigpu_classification_data['X_train'])
+        n_val = len(multigpu_classification_data['X_val'])
+        train_weights = np.ones(n_train, dtype=np.float32)
+        val_weights = np.ones(n_val, dtype=np.float32)
+
+        eval_set = (multigpu_classification_data['X_val'], multigpu_classification_data['y_val'])
+        clf.fit(
+            multigpu_classification_data['X_train'],
+            multigpu_classification_data['y_train'],
+            sample_weight=train_weights,
+            eval_set=eval_set,
+            eval_sample_weight=val_weights
+        )
+
+        assert hasattr(clf, 'model')
+        predictions = clf.predict(multigpu_classification_data['X_test'])
+        assert len(predictions) == len(multigpu_classification_data['X_test'])
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
