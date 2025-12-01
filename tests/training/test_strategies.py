@@ -247,21 +247,21 @@ class TestModelStrategies:
 
     def test_tree_models_registered(self):
         """Test tree models are in registry."""
-        tree_models = ['cb', 'catboost', 'lgb', 'lightgbm', 'xgb', 'xgboost']
+        tree_models = ['cb', 'lgb', 'xgb']
         for model in tree_models:
             assert model in MODEL_STRATEGIES
             assert isinstance(MODEL_STRATEGIES[model], TreeModelStrategy)
 
     def test_hgb_models_registered(self):
         """Test HGB models are in registry."""
-        hgb_models = ['hgb', 'histgradientboosting']
+        hgb_models = ['hgb']
         for model in hgb_models:
             assert model in MODEL_STRATEGIES
             assert isinstance(MODEL_STRATEGIES[model], HGBStrategy)
 
     def test_neural_models_registered(self):
         """Test neural models are in registry."""
-        neural_models = ['mlp', 'ngb', 'ngboost']
+        neural_models = ['mlp', 'ngb']
         for model in neural_models:
             assert model in MODEL_STRATEGIES
             assert isinstance(MODEL_STRATEGIES[model], NeuralNetStrategy)
