@@ -1162,7 +1162,7 @@ def train_mlframe_models_suite(
                     cache_key = strategy.cache_key
 
                     # --- WEIGHT SCHEMA LOOP: Train with each sample weighting ---
-                    for weight_name, weight_values in tqdmu(weight_schemas.items(), desc="wighting schema"):
+                    for weight_name, weight_values in tqdmu(weight_schemas.items(), desc="weighting schema"):
                         # Create model name with weight suffix
                         model_name_with_weight = mlframe_model_name
                         if weight_name != "uniform":
@@ -1171,6 +1171,10 @@ def train_mlframe_models_suite(
                         # Shallow copy common_params - only sample_weight changes per iteration
                         current_common_params = common_params.copy()
                         current_common_params["sample_weight"] = weight_values
+
+                        # Append weight_name to plot_file for non-uniform weights
+                        if weight_name != "uniform" and current_common_params.get("plot_file"):
+                            current_common_params["plot_file"] = current_common_params["plot_file"] + weight_name + "_"
 
                         # Check if we have cached transformed DataFrames for this pipeline type
                         cached_dfs = pipeline_cache.get(cache_key)
