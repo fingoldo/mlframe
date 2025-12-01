@@ -330,6 +330,7 @@ def _call_train_evaluate_with_configs(
 def process_model(
     model_file: str,
     model_name: str,
+    model_file_name: str,
     target_type: TargetTypes,
     pre_pipeline: Optional[Any],
     pre_pipeline_name: str,
@@ -401,7 +402,7 @@ def process_model(
         If 'model' key is missing in model_params when not loading from cache.
     """
     # Build model file path
-    fname = f"{model_name}.dump"
+    fname = f"{model_file_name}.dump"
     if pre_pipeline_name:
         fname = pre_pipeline_name + " " + fname
     fpath = join(model_file, fname) if model_file else None
@@ -438,8 +439,7 @@ def process_model(
     if verbose and not use_cached_model:
         pipeline_label = pre_pipeline_name.strip() if pre_pipeline_name else ""
         logger.info(
-            f"Starting train_and_evaluate {target_type} {pipeline_label} {model_name.strip()} "
-            f"{cur_target_name}, RAM usage {get_own_ram_usage():.1f}GBs...".replace("  ", " ")
+            f"Starting train_and_evaluate {target_type} {pipeline_label} {model_name.strip()}" f", RAM usage {get_own_ram_usage():.1f}GBs...".replace("  ", " ")
         )
 
     model, train_df_transformed, val_df_transformed, test_df_transformed = _call_train_evaluate_with_configs(

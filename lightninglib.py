@@ -159,7 +159,16 @@ class PytorchLightningEstimator(BaseEstimator):
         swa_params = swa_params or {}
         store_params_in_object(obj=self, params=get_parent_func_args())
 
-    def _fit_common(self, X, y, eval_set: tuple = (None, None), is_partial_fit: bool = False, classes: Optional[np.ndarray] = None, fit_params: dict = None, sample_weight=None):
+    def _fit_common(
+        self,
+        X,
+        y,
+        eval_set: tuple = (None, None),
+        is_partial_fit: bool = False,
+        classes: Optional[np.ndarray] = None,
+        fit_params: dict = None,
+        sample_weight=None,
+    ):
         """Common logic for fit and partial_fit."""
 
         if fit_params is None:
@@ -1395,6 +1404,7 @@ class MLPTorchModel(L.LightningModule):
         lr_scheduler_interval: str = "epoch",
         lr_scheduler_monitor: Optional[str] = None,
         load_best_weights_on_train_end: bool = True,
+        log_lr: bool = False,
     ):
         """
         PyTorch Lightning module for MLP training.
@@ -1491,9 +1501,7 @@ class MLPTorchModel(L.LightningModule):
                 return batch[0], batch[1], None
         raise ValueError(f"Unexpected batch format: {type(batch)}")
 
-    def _compute_weighted_loss(
-        self, predictions: torch.Tensor, labels: torch.Tensor, sample_weight: Optional[torch.Tensor]
-    ) -> torch.Tensor:
+    def _compute_weighted_loss(self, predictions: torch.Tensor, labels: torch.Tensor, sample_weight: Optional[torch.Tensor]) -> torch.Tensor:
         """Compute loss with optional sample weighting.
 
         Args:
@@ -1512,10 +1520,10 @@ class MLPTorchModel(L.LightningModule):
         # Detect if this is classification (CrossEntropyLoss) or regression (MSELoss)
         if predictions.dim() == 2 and predictions.shape[1] > 1:
             # Classification: predictions are logits with shape (batch, num_classes)
-            loss_unreduced = F.cross_entropy(predictions, labels, reduction='none')
+            loss_unreduced = F.cross_entropy(predictions, labels, reduction="none")
         else:
             # Regression: predictions are values
-            loss_unreduced = F.mse_loss(predictions, labels, reduction='none')
+            loss_unreduced = F.mse_loss(predictions, labels, reduction="none")
 
         # Apply sample weights and normalize by sum of weights
         weight_sum = sample_weight.sum()
@@ -1569,8 +1577,9 @@ class MLPTorchModel(L.LightningModule):
     def on_train_epoch_end(self) -> None:
         """Called at the end of training epoch."""
 
-        current_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
-        logger.info(f"Epoch {self.current_epoch}, Step {self.global_step}: LR = {current_lr:.2e}")
+        if self.hparams.log_lr:
+            current_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+            logger.info(f"Epoch {self.current_epoch}, Step {self.global_step}: LR = {current_lr:.2e}")
 
         if not self.hparams.compute_trainset_metrics:
             return

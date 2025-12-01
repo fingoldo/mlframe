@@ -340,6 +340,7 @@ def _build_pre_pipelines(
 def _build_process_model_kwargs(
     model_file: str,
     model_name_with_weight: str,
+    model_file_name:str,
     target_type: TargetTypes,
     pre_pipeline: Any,
     pre_pipeline_name: str,
@@ -385,6 +386,7 @@ def _build_process_model_kwargs(
     kwargs = {
         "model_file": model_file,
         "model_name": model_name_with_weight,
+        "model_file_name": model_file_name,
         "target_type": target_type,
         "pre_pipeline": pre_pipeline,
         "pre_pipeline_name": pre_pipeline_name,
@@ -1165,8 +1167,10 @@ def train_mlframe_models_suite(
                     for weight_name, weight_values in tqdmu(weight_schemas.items(), desc="weighting schema"):
                         # Create model name with weight suffix
                         model_name_with_weight = common_params["model_name"]
+                        model_file_name=f"{mlframe_model_name}"
                         if weight_name != "uniform":
                             model_name_with_weight += f" w={weight_name}"
+                            model_file_name +=f"_{weight_name}"
 
                         # Shallow copy common_params - only sample_weight changes per iteration
                         current_common_params = common_params.copy()
@@ -1183,6 +1187,7 @@ def train_mlframe_models_suite(
                         process_model_kwargs = _build_process_model_kwargs(
                             model_file=model_file,
                             model_name_with_weight=model_name_with_weight,
+                            model_file_name=model_file_name,
                             target_type=target_type,
                             pre_pipeline=pre_pipeline,
                             pre_pipeline_name=pre_pipeline_name,
