@@ -1568,9 +1568,9 @@ def configure_training_params(
         if "catboost_custom_classif_metrics" not in config_params:
             nlabels = len(np.unique(target))
             if nlabels > 2:
-                catboost_custom_classif_metrics = ["AUC", "PRAUC"]
+                catboost_custom_classif_metrics = ["AUC", "PRAUC:hints=skip_train~true"]
             else:
-                catboost_custom_classif_metrics = ["AUC", "PRAUC", "BrierScore"]
+                catboost_custom_classif_metrics = ["AUC", "PRAUC:hints=skip_train~true", "BrierScore"]
             config_params["catboost_custom_classif_metrics"] = catboost_custom_classif_metrics
 
     subgroups = _precomputed_fairness_subgroups

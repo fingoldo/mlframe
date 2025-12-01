@@ -408,6 +408,7 @@ def process_model(
 
     # Prepare common_params with cached DataFrames if provided
     effective_common_params = common_params.copy()
+    effective_common_params["model_name"] = model_name
     if cached_train_df is not None:
         effective_common_params["train_df"] = cached_train_df
     if cached_val_df is not None:
