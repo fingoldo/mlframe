@@ -624,3 +624,124 @@ class TestTrainAndEvaluateModelEdgeCases:
         assert result is not None
         assert result.test_preds is not None
         assert len(result.test_preds) == 10
+
+
+# =============================================================================
+# Early Stopping Callback Tests
+# =============================================================================
+
+
+class TestSetupEarlyStoppingCallback:
+    """Tests for _setup_early_stopping_callback function.
+
+    These tests verify that:
+    1. XGBoost callbacks are replaced (not accumulated) between training runs
+    2. User-provided callbacks are preserved
+    3. LightGBM/CatBoost get fresh callback lists each call
+    """
+
+    def test_xgboost_callback_replaced_not_accumulated(self):
+        """Test that XGBoost early stopping callback is replaced between iterations.
+
+        When training the same XGBoost model with multiple weight schemas,
+        old XGBoostCallback instances should be removed to avoid stale time budgets.
+        """
+        from xgboost import XGBClassifier
+        from mlframe.training.trainer import _setup_early_stopping_callback
+        from mlframe.training.helpers import XGBoostCallback
+
+        model_obj = XGBClassifier(n_estimators=10, verbosity=0)
+        callback_params = {"time_budget_mins": 60, "patience": 10}
+        fit_params = {}
+
+        # Simulate first weight schema - set up callback
+        _setup_early_stopping_callback("xgb", fit_params, callback_params, model_obj)
+
+        callbacks_after_first = model_obj.get_params().get("callbacks", [])
+        assert len(callbacks_after_first) == 1
+        assert isinstance(callbacks_after_first[0], XGBoostCallback)
+        first_callback = callbacks_after_first[0]
+
+        # Simulate second weight schema - set up callback again
+        _setup_early_stopping_callback("xgb", fit_params, callback_params, model_obj)
+
+        callbacks_after_second = model_obj.get_params().get("callbacks", [])
+        # Should still have only 1 callback (old one replaced, not accumulated)
+        assert len(callbacks_after_second) == 1
+        assert isinstance(callbacks_after_second[0], XGBoostCallback)
+        # Should be a different (new) callback instance
+        assert callbacks_after_second[0] is not first_callback
+
+    def test_xgboost_user_callbacks_preserved(self):
+        """Test that user-provided XGBoost callbacks are preserved.
+
+        When setting up early stopping, any user-provided callbacks that are
+        NOT XGBoostCallback instances should be preserved.
+        """
+        from xgboost import XGBClassifier
+        from xgboost.callback import TrainingCallback
+        from mlframe.training.trainer import _setup_early_stopping_callback
+        from mlframe.training.helpers import XGBoostCallback
+
+        # Create a custom user callback
+        class CustomUserCallback(TrainingCallback):
+            """Custom callback for testing."""
+            def after_iteration(self, model, epoch, evals_log):
+                return False  # Continue training
+
+        user_callback = CustomUserCallback()
+        model_obj = XGBClassifier(n_estimators=10, verbosity=0, callbacks=[user_callback])
+        callback_params = {"time_budget_mins": 60, "patience": 10}
+        fit_params = {}
+
+        # Set up early stopping callback
+        _setup_early_stopping_callback("xgb", fit_params, callback_params, model_obj)
+
+        callbacks = model_obj.get_params().get("callbacks", [])
+
+        # Should have 2 callbacks: user callback + XGBoostCallback
+        assert len(callbacks) == 2
+
+        # User callback should be preserved
+        assert user_callback in callbacks
+
+        # XGBoostCallback should be added
+        xgb_callbacks = [cb for cb in callbacks if isinstance(cb, XGBoostCallback)]
+        assert len(xgb_callbacks) == 1
+
+    def test_lgb_catboost_fresh_callback_list(self):
+        """Test that LightGBM/CatBoost get fresh callback lists each call.
+
+        Unlike XGBoost, LightGBM and CatBoost use fit_params["callbacks"] which
+        should be created fresh each time (not accumulated).
+        """
+        from mlframe.training.trainer import _setup_early_stopping_callback
+        from mlframe.training.helpers import LightGBMCallback, CatBoostCallback
+
+        callback_params = {"time_budget_mins": 60, "patience": 10}
+
+        # Test LightGBM
+        fit_params_lgb = {}
+        _setup_early_stopping_callback("lgb", fit_params_lgb, callback_params, None)
+        assert len(fit_params_lgb["callbacks"]) == 1
+        assert isinstance(fit_params_lgb["callbacks"][0], LightGBMCallback)
+        first_lgb_callback = fit_params_lgb["callbacks"][0]
+
+        # Call again - should create fresh list with new callback
+        fit_params_lgb2 = {}
+        _setup_early_stopping_callback("lgb", fit_params_lgb2, callback_params, None)
+        assert len(fit_params_lgb2["callbacks"]) == 1
+        assert fit_params_lgb2["callbacks"][0] is not first_lgb_callback
+
+        # Test CatBoost
+        fit_params_cb = {}
+        _setup_early_stopping_callback("cb", fit_params_cb, callback_params, None)
+        assert len(fit_params_cb["callbacks"]) == 1
+        assert isinstance(fit_params_cb["callbacks"][0], CatBoostCallback)
+        first_cb_callback = fit_params_cb["callbacks"][0]
+
+        # Call again - should create fresh list with new callback
+        fit_params_cb2 = {}
+        _setup_early_stopping_callback("cb", fit_params_cb2, callback_params, None)
+        assert len(fit_params_cb2["callbacks"]) == 1
+        assert fit_params_cb2["callbacks"][0] is not first_cb_callback

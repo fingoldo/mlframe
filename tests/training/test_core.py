@@ -1467,7 +1467,8 @@ class TestCustomMetrics:
 class TestSampleWeights:
     """Tests for sample weight functionality via extractor's get_sample_weights()."""
 
-    def test_sample_weight_with_custom_weights(self, temp_data_dir, common_init_params):
+    @pytest.mark.parametrize("model_name", ["ridge", "xgb", "cb", "lgb", "mlp"])
+    def test_sample_weight_with_custom_weights(self, model_name, temp_data_dir, common_init_params):
         """Test that models are trained with custom sample weights."""
         from .shared import TimestampedFeaturesExtractor
 
@@ -1496,7 +1497,7 @@ class TestSampleWeights:
             target_name="test_target",
             model_name="sample_weights_test",
             features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
+            mlframe_models=[model_name],
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -1509,9 +1510,10 @@ class TestSampleWeights:
         assert TargetTypes.REGRESSION in models["target"]
         # Should have 2 models: one uniform, one with recency weights
         model_list = models["target"][TargetTypes.REGRESSION]
-        assert len(model_list) == 2  # ridge (uniform) + ridge_recency
+        assert len(model_list) == 2
 
-    def test_multiple_weight_schemas(self, temp_data_dir, common_init_params):
+    @pytest.mark.parametrize("model_name", ["ridge", "xgb", "cb", "lgb", "mlp"])
+    def test_multiple_weight_schemas(self, model_name, temp_data_dir, common_init_params):
         """Test custom extractor returning multiple weight schemas."""
         from .shared import TimestampedFeaturesExtractor
 
@@ -1541,7 +1543,7 @@ class TestSampleWeights:
             target_name="test_target",
             model_name="multi_weights_test",
             features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
+            mlframe_models=[model_name],
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,

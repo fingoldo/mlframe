@@ -1136,9 +1136,16 @@ def train_mlframe_models_suite(
                 # Initialize pipeline cache for transformed DataFrames (reset for each pre_pipeline)
                 pipeline_cache = PipelineCache()
 
-                # Build weight schemas: uniform (no weighting) plus any from extractor
-                weight_schemas = {"uniform": None}
-                weight_schemas.update(sample_weights)
+                # Build weight schemas from extractor output
+                if sample_weights:
+                    weight_schemas = sample_weights
+                    if "uniform" in sample_weights:
+                        logger.info(f"Using {len(weight_schemas)} weighting schema(s) from extractor: {list(weight_schemas.keys())}")
+                    else:
+                        logger.info(f"Using {len(weight_schemas)} weighting schema(s) from extractor: {list(weight_schemas.keys())}. Note: uniform weighting not included.")
+                else:
+                    weight_schemas = {"uniform": None}
+                    logger.info("No weighting schemas from extractor, defaulting to uniform weighting.")
 
                 # -----------------------------------------------------------------------
                 # MODEL LOOP: Train each model type with all weight variations

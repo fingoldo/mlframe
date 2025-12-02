@@ -487,11 +487,15 @@ def _setup_early_stopping_callback(model_category, fit_params, callback_params, 
         fit_params["callbacks"].append(es_callback)
     elif model_category == "xgb" and model_obj is not None:
         es_callback = XGBoostCallback(**callback_params)
-        callbacks = model_obj.get_params().get("callbacks", [])
-        if callbacks is None:
-            callbacks = []
-        if es_callback not in callbacks:
-            callbacks.append(es_callback)
+        existing_callbacks = model_obj.get_params().get("callbacks", []) or []
+        # Remove existing XGBoostCallback instances before adding fresh one.
+        # Unlike LightGBM/CatBoost (which use fit_params["callbacks"] that gets a fresh list each call),
+        # XGBoost stores callbacks on the model object which is reused across weight schema iterations.
+        # Old XGBoostCallback instances retain stale state (first_iteration=False, start_time from hours ago)
+        # causing immediate "time budget exceeded" failures on subsequent training runs.
+        # We filter by type to preserve any user-provided non-early-stopping callbacks.
+        callbacks = [cb for cb in existing_callbacks if not isinstance(cb, XGBoostCallback)]
+        callbacks.append(es_callback)
         model_obj.set_params(callbacks=callbacks)
 
 

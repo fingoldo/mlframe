@@ -844,10 +844,12 @@ class LightGBMCallback(UniversalCallback):
         if self.first_iteration:
             self.on_start()
             self.first_iteration = False
+        
         metrics_dict = {}
         for dataset, metric, value, _ in env.evaluation_result_list:
             metrics_dict.setdefault(dataset, {})[metric] = value
         self.update_history(metrics_dict)
+        
         if self.monitor_metric is None:
             self.set_default_monitor_metric(metrics_dict)
         if self.should_stop():
@@ -868,7 +870,9 @@ class XGBoostCallback(UniversalCallback, TrainingCallback):
             self.on_start()
             self.first_iteration = False
         metrics_dict = {dataset: {metric: values[-1] for metric, values in metric_dict.items()} for dataset, metric_dict in evals_log.items()}
+        
         self.update_history(metrics_dict)
+        
         if self.monitor_metric is None:
             self.set_default_monitor_metric(metrics_dict)
 
@@ -890,8 +894,10 @@ class CatBoostCallback(UniversalCallback):
         if self.first_iteration:
             self.on_start()
             self.first_iteration = False
+        
         metrics_dict = {dataset: {metric: values[-1] for metric, values in metric_dict.items()} for dataset, metric_dict in info.metrics.items()}
         self.update_history(metrics_dict)
+
         if self.monitor_metric is None:
             self.set_default_monitor_metric(metrics_dict)
         return not self.should_stop()
