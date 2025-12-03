@@ -427,6 +427,8 @@ def process_model(
         if verbose:
             logger.info(f"Loading model from file {fpath}")
         loaded_model = load_mlframe_model(fpath)
+        if verbose:
+            logger.info(f"Loaded.")        
         model_obj = loaded_model.model
         pre_pipeline = loaded_model.pre_pipeline
     else:
