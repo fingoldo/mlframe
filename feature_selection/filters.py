@@ -50,6 +50,9 @@ from mlframe.feature_selection.wrappers import RFECV
 from mlframe.metrics import compute_probabilistic_multiclass_error
 
 from sklearn.preprocessing import KBinsDiscretizer, OrdinalEncoder
+
+# Use column names instead of iloc for Arrow-backed DataFrames (from polars zero-copy conversion)
+ENSURE_ARROW_DF_SUPPORT = True
 from sklearn.model_selection import KFold
 from sklearn.base import is_classifier, is_regressor, BaseEstimator, TransformerMixin
 from sklearn.impute import SimpleImputer
@@ -2723,7 +2726,6 @@ class MRMR(BaseEstimator, TransformerMixin):
         feature_names_in_: Sequence = None,
         support_: np.ndarray = None,
         stop_file: str = "stop",
-        ensure_arrow_df_support: bool = True,
     ):
 
         # checks
@@ -3381,7 +3383,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         if self.support_ is None or len(self.support_) == 0:
             return X
         if isinstance(X, pd.DataFrame):
-            if self.ensure_arrow_df_support:
+            if ENSURE_ARROW_DF_SUPPORT:
                 # Use column names to support Arrow-backed DataFrames (from polars zero-copy conversion).
                 # Arrow-backed DFs don't support .iloc[:, integer_array] reliably.
                 selected_cols = [self.feature_names_in_[i] for i in self.support_]

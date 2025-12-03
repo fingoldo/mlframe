@@ -50,6 +50,9 @@ import matplotlib.pyplot as plt
 import random
 import copy
 
+# Use column names instead of iloc for Arrow-backed DataFrames (from polars zero-copy conversion)
+ENSURE_ARROW_DF_SUPPORT = True
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -213,7 +216,6 @@ class RFECV(BaseEstimator, TransformerMixin):
         #
         special_feature_indices: list = None,
         conduct_final_voting: bool = False,
-        ensure_arrow_df_support: bool = True,
     ):
 
         # checks
@@ -808,7 +810,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         if self.support_ is None or len(self.support_) == 0:
             return X
         if isinstance(X, pd.DataFrame):
-            if self.ensure_arrow_df_support:
+            if ENSURE_ARROW_DF_SUPPORT:
                 # Use column names to support Arrow-backed DataFrames (from polars zero-copy conversion).
                 # Arrow-backed DFs don't support .iloc[:, integer_array] reliably.
                 # Handle both boolean masks and integer indices for support_
