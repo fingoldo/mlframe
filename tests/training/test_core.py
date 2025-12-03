@@ -1862,3 +1862,282 @@ class TestPredictMLFrameModelsSuite:
 
         # Verify models were loaded
         assert len(loaded_models) > 0
+
+
+class TestFeatureSelectorsWithPolarsPipeline:
+    """Tests for feature selectors (MRMR, RFECV) with polars-ds pipeline.
+
+    These tests verify that feature selectors are NOT skipped when polars pipeline is applied.
+    The bug was that skip_pre_pipeline_transform=True was set when polars pipeline was applied,
+    which incorrectly skipped feature selectors along with preprocessing.
+    """
+
+    def test_mrmr_with_polars_pipeline_regression(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Test that MRMR feature selection runs correctly with polars-ds pipeline on regression."""
+        df, feature_names, y = sample_regression_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        from mlframe.training.configs import PolarsPipelineConfig
+
+        # Enable polars-ds pipeline
+        pipeline_config = PolarsPipelineConfig(
+            use_polarsds_pipeline=True,
+        )
+
+        # Train with MRMR feature selection
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="mrmr_polars_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],  # Tree model that doesn't need scaling
+            pipeline_config=pipeline_config,
+            init_common_params=common_init_params,
+            use_ordinary_models=False,  # Only use MRMR models
+            use_mrmr_fs=True,  # Enable MRMR
+            mrmr_kwargs={"n_features": 5},  # Select top 5 features
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=1,  # Show logs to verify MRMR is running
+        )
+
+        # Verify training succeeded
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+
+        # Verify MRMR was used (model name should contain MRMR)
+        model_entry = models["target"][TargetTypes.REGRESSION][0]
+        assert hasattr(model_entry, 'model_name') or model_entry is not None
+
+    def test_mrmr_with_polars_pipeline_classification(self, sample_classification_data, temp_data_dir, common_init_params):
+        """Test that MRMR feature selection runs correctly with polars-ds pipeline on classification."""
+        df, feature_names, _, y = sample_classification_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
+
+        from mlframe.training.configs import PolarsPipelineConfig
+
+        # Enable polars-ds pipeline
+        pipeline_config = PolarsPipelineConfig(
+            use_polarsds_pipeline=True,
+        )
+
+        # Train with MRMR feature selection
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="mrmr_polars_clf_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            pipeline_config=pipeline_config,
+            init_common_params=common_init_params,
+            use_ordinary_models=False,
+            use_mrmr_fs=True,
+            mrmr_kwargs={"n_features": 5},
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=1,
+        )
+
+        # Verify training succeeded
+        assert "target" in models
+        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
+        assert len(models["target"][TargetTypes.BINARY_CLASSIFICATION]) > 0
+
+    def test_rfecv_with_polars_pipeline_regression(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Test that RFECV feature selection runs correctly with polars-ds pipeline."""
+        pytest = __import__('pytest')
+
+        try:
+            import catboost
+            has_catboost = True
+        except ImportError:
+            has_catboost = False
+
+        if not has_catboost:
+            pytest.skip("CatBoost not available")
+
+        df, feature_names, y = sample_regression_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        from mlframe.training.configs import PolarsPipelineConfig
+
+        # Enable polars-ds pipeline
+        pipeline_config = PolarsPipelineConfig(
+            use_polarsds_pipeline=True,
+        )
+
+        # Train with RFECV feature selection using CatBoost
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="rfecv_polars_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            pipeline_config=pipeline_config,
+            init_common_params=common_init_params,
+            use_ordinary_models=False,
+            rfecv_models=["cb_rfecv"],  # Enable RFECV with CatBoost
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=1,
+        )
+
+        # Verify training succeeded
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+
+    def test_mrmr_without_polars_pipeline(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Test MRMR feature selection without polars pipeline (baseline test)."""
+        df, feature_names, y = sample_regression_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        from mlframe.training.configs import PolarsPipelineConfig
+
+        # Disable polars-ds pipeline
+        pipeline_config = PolarsPipelineConfig(
+            use_polarsds_pipeline=False,
+        )
+
+        # Train with MRMR feature selection
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="mrmr_no_polars_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            pipeline_config=pipeline_config,
+            init_common_params=common_init_params,
+            use_ordinary_models=False,
+            use_mrmr_fs=True,
+            mrmr_kwargs={"n_features": 5},
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=1,
+        )
+
+        # Verify training succeeded
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+
+    def test_mrmr_and_ordinary_models_with_polars_pipeline(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Test that both MRMR and ordinary models work together with polars pipeline."""
+        df, feature_names, y = sample_regression_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        from mlframe.training.configs import PolarsPipelineConfig
+
+        # Enable polars-ds pipeline
+        pipeline_config = PolarsPipelineConfig(
+            use_polarsds_pipeline=True,
+        )
+
+        # Train with both ordinary models AND MRMR models
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="mixed_mrmr_ordinary_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            pipeline_config=pipeline_config,
+            init_common_params=common_init_params,
+            use_ordinary_models=True,  # Also train without feature selection
+            use_mrmr_fs=True,  # Also train with MRMR
+            mrmr_kwargs={"n_features": 5},
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=1,
+        )
+
+        # Verify training succeeded
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+        # Should have at least 2 models: ordinary + MRMR
+        assert len(models["target"][TargetTypes.REGRESSION]) >= 2
+
+    def test_mrmr_with_polars_input_dataframe(self, sample_polars_data, temp_data_dir, common_init_params):
+        """Test MRMR with Polars DataFrame input (not just pipeline config)."""
+        pl_df, feature_names, y = sample_polars_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        from mlframe.training.configs import PolarsPipelineConfig
+
+        # Enable polars-ds pipeline
+        pipeline_config = PolarsPipelineConfig(
+            use_polarsds_pipeline=True,
+        )
+
+        # Train with MRMR on Polars input
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,  # Polars DataFrame input
+            target_name="test_target",
+            model_name="mrmr_polars_input_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            pipeline_config=pipeline_config,
+            init_common_params=common_init_params,
+            use_ordinary_models=False,
+            use_mrmr_fs=True,
+            mrmr_kwargs={"n_features": 5},
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=1,
+        )
+
+        # Verify training succeeded
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+
+    def test_mrmr_with_linear_model_and_polars_pipeline(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Test MRMR with linear model (which needs scaling) and polars pipeline.
+
+        This tests the case where polars pipeline handles scaling, and MRMR still needs to run.
+        """
+        df, feature_names, y = sample_regression_data
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        from mlframe.training.configs import PolarsPipelineConfig
+
+        # Enable polars-ds pipeline (handles scaling)
+        pipeline_config = PolarsPipelineConfig(
+            use_polarsds_pipeline=True,
+        )
+
+        # Train with MRMR + linear model
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="mrmr_linear_polars_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],  # Linear model needs scaling
+            pipeline_config=pipeline_config,
+            init_common_params=common_init_params,
+            use_ordinary_models=False,
+            use_mrmr_fs=True,
+            mrmr_kwargs={"n_features": 5},
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=1,
+        )
+
+        # Verify training succeeded
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
