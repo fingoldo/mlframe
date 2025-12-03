@@ -213,6 +213,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         #
         special_feature_indices: list = None,
         conduct_final_voting: bool = False,
+        ensure_arrow_df_support: bool = True,
     ):
 
         # checks
@@ -804,8 +805,22 @@ class RFECV(BaseEstimator, TransformerMixin):
             )
 
     def transform(self, X, y=None):
+        if self.support_ is None or len(self.support_) == 0:
+            return X
         if isinstance(X, pd.DataFrame):
-            return X.iloc[:, self.support_]
+            if self.ensure_arrow_df_support:
+                # Use column names to support Arrow-backed DataFrames (from polars zero-copy conversion).
+                # Arrow-backed DFs don't support .iloc[:, integer_array] reliably.
+                # Handle both boolean masks and integer indices for support_
+                if len(self.support_) > 0 and isinstance(self.support_[0], (bool, np.bool_)):
+                    # Boolean mask - use column names where mask is True
+                    selected_cols = [col for col, selected in zip(self.feature_names_in_, self.support_) if selected]
+                else:
+                    # Integer indices - convert to column names
+                    selected_cols = [self.feature_names_in_[i] for i in self.support_]
+                return X[selected_cols]
+            else:
+                return X.iloc[:, self.support_]
         else:
             return X[:, self.support_]
 
