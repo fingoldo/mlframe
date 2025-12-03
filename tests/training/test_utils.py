@@ -485,7 +485,6 @@ class TestProcessNulls:
 class TestProcessInfinities:
     """Tests for process_infinities."""
 
-    @pytest.mark.xfail(reason="process_infinities uses replace() incorrectly for Polars")
     def test_fill_infinities_polars(self):
         """Test filling infinite values in Polars DataFrame."""
         df = pl.DataFrame({
@@ -498,7 +497,6 @@ class TestProcessInfinities:
         assert result["a"].is_infinite().sum() == 0
         assert result["b"].is_infinite().sum() == 0
 
-    @pytest.mark.xfail(reason="process_infinities pandas implementation incomplete")
     def test_fill_infinities_pandas(self):
         """Test filling infinite values in pandas DataFrame."""
         df = pd.DataFrame({

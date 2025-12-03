@@ -352,6 +352,11 @@ class FeaturesAndTargetsExtractor:
         """
         self.show_raw_data(df)
 
+        df = self.add_features(df)
+        if self.verbose:
+            logger.info("After add_features")
+            log_ram_usage()        
+
         if self.verbose:
             logger.info("build_targets...")
         target_by_type = self.build_targets(df)
@@ -378,20 +383,11 @@ class FeaturesAndTargetsExtractor:
 
         artifacts = self.prepare_artifacts(df)
 
-        df = self.add_features(df)
-        if self.verbose:
-            logger.info("After add_features")
-            log_ram_usage()
-
         # Only show visualizations for verbose >= 2 (histograms are slow)
-        if self.verbose >= 2:
+        if self.verbose:
             self.show_processed_data(df, target_by_type)
             if self.columns_to_drop or self.datetime_features:
                 pass  # clean_ram()
-
-            if self.verbose:
-                logger.info("After show_processed_data")
-                log_ram_usage()
 
         # Build sample_weights dict - subclasses can override get_sample_weights()
         sample_weights = self.get_sample_weights(df, timestamps)
