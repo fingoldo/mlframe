@@ -1896,7 +1896,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
             init_common_params=common_init_params,
             use_ordinary_models=False,  # Only use MRMR models
             use_mrmr_fs=True,  # Enable MRMR
-            mrmr_kwargs={"n_features": 5},  # Select top 5 features
+            mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0},  # Quick run for tests
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
             models_dir="models",
@@ -1936,7 +1936,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
             init_common_params=common_init_params,
             use_ordinary_models=False,
             use_mrmr_fs=True,
-            mrmr_kwargs={"n_features": 5},
+            mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0},
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
             models_dir="models",
@@ -2018,7 +2018,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
             init_common_params=common_init_params,
             use_ordinary_models=False,
             use_mrmr_fs=True,
-            mrmr_kwargs={"n_features": 5},
+            mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0},
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
             models_dir="models",
@@ -2054,7 +2054,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
             init_common_params=common_init_params,
             use_ordinary_models=True,  # Also train without feature selection
             use_mrmr_fs=True,  # Also train with MRMR
-            mrmr_kwargs={"n_features": 5},
+            mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0},
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
             models_dir="models",
@@ -2091,7 +2091,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
             init_common_params=common_init_params,
             use_ordinary_models=False,
             use_mrmr_fs=True,
-            mrmr_kwargs={"n_features": 5},
+            mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0},
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
             models_dir="models",
@@ -2130,7 +2130,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
             init_common_params=common_init_params,
             use_ordinary_models=False,
             use_mrmr_fs=True,
-            mrmr_kwargs={"n_features": 5},
+            mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0},
             use_mlframe_ensembles=False,
             data_dir=temp_data_dir,
             models_dir="models",
