@@ -1508,9 +1508,9 @@ class TestSampleWeights:
 
         assert "target" in models
         assert TargetTypes.REGRESSION in models["target"]
-        # Should have 2 models: one uniform, one with recency weights
+        # Should have 1 model with recency weights (uniform not auto-added when custom weights provided)
         model_list = models["target"][TargetTypes.REGRESSION]
-        assert len(model_list) == 2
+        assert len(model_list) == 1
 
     @pytest.mark.parametrize("model_name", ["ridge", "xgb", "cb", "lgb", "mlp"])
     def test_multiple_weight_schemas(self, model_name, temp_data_dir, common_init_params):
@@ -1554,9 +1554,9 @@ class TestSampleWeights:
 
         assert "target" in models
         assert TargetTypes.REGRESSION in models["target"]
-        # Should have 3 models: uniform, recency, inverse_recency
+        # Should have 2 models: recency, inverse_recency (uniform not auto-added)
         model_list = models["target"][TargetTypes.REGRESSION]
-        assert len(model_list) == 3
+        assert len(model_list) == 2
 
 
 class TestGroupIds:
