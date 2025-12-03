@@ -336,7 +336,7 @@ def _update_model_name_after_training(model_name, train_df_len, train_details, b
     return model_name
 
 
-def _prepare_test_split(df, test_df, test_idx, test_target, target, real_drop_columns, model, pre_pipeline, skip_pre_pipeline_transform):
+def _prepare_test_split(df, test_df, test_idx, test_target, target, real_drop_columns, model, pre_pipeline, skip_pre_pipeline_transform, skip_preprocessing=False):
     """Prepare test DataFrame and target for evaluation."""
     if (df is not None) or (test_df is not None):
         if test_df is None:
@@ -346,7 +346,13 @@ def _prepare_test_split(df, test_df, test_idx, test_target, target, real_drop_co
             test_target = _extract_target_subset(target, test_idx)
 
         if model is not None and pre_pipeline and not skip_pre_pipeline_transform:
-            test_df = pre_pipeline.transform(test_df)
+            if skip_preprocessing:
+                # Only use feature selector, not full pipeline
+                feature_selector = _extract_feature_selector(pre_pipeline)
+                if feature_selector is not None:
+                    test_df = feature_selector.transform(test_df)
+            else:
+                test_df = pre_pipeline.transform(test_df)
         columns = list(test_df.columns) if hasattr(test_df, "columns") else []
     else:
         columns = []
@@ -1380,6 +1386,7 @@ def train_and_evaluate_model(
                 model=model,
                 pre_pipeline=pre_pipeline,
                 skip_pre_pipeline_transform=skip_pre_pipeline_transform,
+                skip_preprocessing=skip_preprocessing,
             )
             if test_df is not None:
                 _orig_test_df = test_df
