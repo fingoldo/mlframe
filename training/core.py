@@ -60,7 +60,7 @@ from .preprocessing import (
 from .pipeline import fit_and_transform_pipeline
 from mlframe.feature_selection.filters import MRMR
 from .utils import log_ram_usage, log_phase, drop_columns_from_dataframe, get_pandas_view_of_polars_df
-from .helpers import get_trainset_features_stats_polars
+from .helpers import get_trainset_features_stats_polars, get_trainset_features_stats
 from .models import is_linear_model, LINEAR_MODEL_TYPES
 from .strategies import get_strategy, PipelineCache
 from .io import load_mlframe_model
@@ -999,13 +999,15 @@ def train_mlframe_models_suite(
     # Get pipeline components (category_encoder, imputer, scaler) from params or defaults
     category_encoder, imputer, scaler = _get_pipeline_components(init_common_params, cat_features)
 
-    # Compute trainset stats while data is still in Polars format (more efficient)
+    # Compute trainset stats (Polars is more efficient, but pandas works too)
     if isinstance(train_df, pl.DataFrame):
         if verbose:
             logger.info("Computing trainset_features_stats on Polars...")
         trainset_features_stats = get_trainset_features_stats_polars(train_df)
     else:
-        trainset_features_stats = None  # Will be computed later in train_and_evaluate_model
+        if verbose:
+            logger.info("Computing trainset_features_stats on pandas...")
+        trainset_features_stats = get_trainset_features_stats(train_df)
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Actual training
@@ -1039,6 +1041,20 @@ def train_mlframe_models_suite(
         "train_od_idx": train_od_idx,
         "val_od_idx": val_od_idx,
     }
+
+    # Save metadata EARLY (before training loops) so that if training is interrupted,
+    # already-trained models are still usable with the saved pipeline/preprocessing
+    _finalize_and_save_metadata(
+        metadata=metadata,
+        outlier_detector=outlier_detector,
+        outlier_detection_result=outlier_detection_result,
+        trainset_features_stats=trainset_features_stats,
+        data_dir=data_dir,
+        models_dir=models_dir,
+        target_name=target_name,
+        model_name=model_name,
+        verbose=verbose,
+    )
 
     models = defaultdict(lambda: defaultdict(list))
 
@@ -1230,28 +1246,14 @@ def train_mlframe_models_suite(
                 if ens_models and len(ens_models) > 1:
                     if verbose:
                         logger.info(f"evaluating simple ensembles...")
+                    # Get feature count from transformed DataFrame for display
+                    ens_n_features = train_df_transformed.shape[1] if train_df_transformed is not None else None
                     _ensembles = score_ensemble(  # Result used for side effects (logging/metrics)
                         models_and_predictions=ens_models,
                         ensemble_name=f"{pre_pipeline_name}{len(ens_models)}models ",
+                        n_features=ens_n_features,
                         **common_params,
                     )
-
-    # ==================================================================================
-    # 6. FINALIZATION
-    # ==================================================================================
-
-    # Finalize and save metadata
-    _finalize_and_save_metadata(
-        metadata=metadata,
-        outlier_detector=outlier_detector,
-        outlier_detection_result=outlier_detection_result,
-        trainset_features_stats=trainset_features_stats,
-        data_dir=data_dir,
-        models_dir=models_dir,
-        target_name=target_name,
-        model_name=model_name,
-        verbose=verbose,
-    )
 
     if verbose:
         log_phase(f"Training suite completed for {model_name}, {sum(len(v) for targets in models.values() for v in targets.values())} models.")

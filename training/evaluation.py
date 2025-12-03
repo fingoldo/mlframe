@@ -96,6 +96,7 @@ def report_model_perf(
     custom_rice_metric: Optional[Callable] = None,
     metrics: Optional[Dict[str, Any]] = None,
     group_ids: Optional[np.ndarray] = None,
+    n_features: Optional[int] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """
     Generate a unified performance report for both classifiers and regressors.
@@ -186,6 +187,7 @@ def report_model_perf(
         show_perf_chart=show_perf_chart,
         plot_file=plot_file,
         metrics=metrics,
+        n_features=n_features,
     )
 
     if is_classifier(model) or type(model).__name__ == "NGBClassifier" or (model is None and probs is not None):
@@ -205,7 +207,7 @@ def report_model_perf(
         preds, probs = report_regression_model_perf(**common_params)
 
     if show_fi:
-        n_cols = len(columns) if columns else 0
+        n_cols = n_features if n_features is not None else (len(columns) if columns else 0)
         nfeatures = f"{n_cols:_}F/" if n_cols > 0 else ""
         feature_importances = plot_model_feature_importances(
             model=model,
@@ -239,6 +241,7 @@ def report_regression_model_perf(
     plot_marker: str = "o",
     plot_sample_size: int = DEFAULT_PLOT_SAMPLE_SIZE,
     metrics: Optional[Dict[str, Any]] = None,
+    n_features: Optional[int] = None,
 ) -> Tuple[np.ndarray, None]:
     """
     Generate a detailed performance report for regression models.
@@ -312,7 +315,7 @@ def report_regression_model_perf(
 
     if show_perf_chart or plot_file:
         title = report_title + " " + model_name
-        n_cols = len(columns) if columns else 0
+        n_cols = n_features if n_features is not None else (len(columns) if columns else 0)
         nfeatures = f"{n_cols:_}F/" if n_cols > 0 else ""
         title += f" [{nfeatures}{get_human_readable_set_size(len(targets))} rows]" + "\n"
 
@@ -393,6 +396,7 @@ def report_probabilistic_model_perf(
     custom_rice_metric: Optional[Callable] = None,
     metrics: Optional[Dict[str, Any]] = None,
     group_ids: Optional[np.ndarray] = None,
+    n_features: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Generate a detailed performance report for probabilistic classification models.
@@ -525,7 +529,7 @@ def report_probabilistic_model_perf(
             title += "-" + str_class_name
 
         class_integral_error = custom_ice_metric(y_true=y_true, y_score=y_score) if custom_ice_metric else 0.0
-        n_cols = len(columns) if columns else 0
+        n_cols = n_features if n_features is not None else (len(columns) if columns else 0)
         nfeatures = f"{n_cols:_}F/" if n_cols > 0 else ""
         title += f" [{nfeatures}{get_human_readable_set_size(len(y_true))} rows]"
         if custom_rice_metric and custom_rice_metric != custom_ice_metric:

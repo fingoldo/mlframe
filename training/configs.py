@@ -643,6 +643,8 @@ class DataConfig(BaseConfig):
         Encoder for multiclass target labels.
     skip_infinity_checks : bool
         Whether to skip infinity value checks (default: False).
+    n_features : int, optional
+        Feature count for display when df not provided (e.g., ensembles).
     """
 
     # DataFrames
@@ -670,6 +672,9 @@ class DataConfig(BaseConfig):
     drop_columns: List[str] = Field(default_factory=list)
     target_label_encoder: Optional[Any] = None  # sklearn.preprocessing.LabelEncoder
     skip_infinity_checks: bool = False
+
+    # Feature count for display (optional - used when df not provided, e.g., ensembles)
+    n_features: Optional[int] = None
 
 
 class TrainingControlConfig(BaseConfig):

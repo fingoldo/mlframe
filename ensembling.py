@@ -18,7 +18,7 @@ from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildca
 
 import copy
 import joblib
-from joblib import delayed
+from joblib import Parallel, delayed
 import pandas as pd, numpy as np
 from pyutilz.parallel import parallel_run
 from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names, compute_numerical_aggregates_numba, get_basic_feature_names
@@ -284,6 +284,200 @@ def build_predictive_kwargs(train_data, test_data, val_data, is_regression: bool
         )
 
 
+def _process_single_ensemble_method(
+    ensemble_method: str,
+    level_models_and_predictions: Sequence,
+    is_regression: bool,
+    ensembling_level: int,
+    ensemble_name: str,
+    target: pd.Series,
+    train_idx: np.ndarray,
+    test_idx: np.ndarray,
+    val_idx: np.ndarray,
+    train_target: np.ndarray,
+    test_target: np.ndarray,
+    val_target: np.ndarray,
+    target_label_encoder: object,
+    max_mae: float,
+    max_std: float,
+    ensure_prob_limits: bool,
+    nbins: int,
+    uncertainty_quantile: float,
+    normalize_stds_by_mean_preds: bool,
+    custom_ice_metric: Callable,
+    custom_rice_metric: Callable,
+    subgroups: dict,
+    n_features: int,
+    verbose: bool,
+    kwargs: dict,
+) -> tuple:
+    """Process a single ensemble method. Returns (method_name, results, conf_results, next_level_pred)."""
+    from mlframe.training import train_and_evaluate_model
+    from mlframe.training.trainer import _build_configs_from_params
+
+    if not is_regression:
+        predictions = (el.val_probs for el in level_models_and_predictions)
+    else:
+        predictions = (el.val_preds.reshape(-1, 1) for el in level_models_and_predictions)
+
+    val_ensembled_predictions, _, val_confident_indices = ensemble_probabilistic_predictions(
+        *predictions,
+        ensemble_method=ensemble_method,
+        max_mae=max_mae,
+        max_std=max_std,
+        ensure_prob_limits=ensure_prob_limits,
+        uncertainty_quantile=uncertainty_quantile,
+        normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+        verbose=verbose,
+    )
+
+    if not is_regression:
+        predictions = (el.test_probs for el in level_models_and_predictions)
+    else:
+        predictions = (el.test_preds.reshape(-1, 1) for el in level_models_and_predictions)
+
+    test_ensembled_predictions, _, test_confident_indices = ensemble_probabilistic_predictions(
+        *predictions,
+        ensemble_method=ensemble_method,
+        max_mae=max_mae,
+        max_std=max_std,
+        ensure_prob_limits=ensure_prob_limits,
+        uncertainty_quantile=uncertainty_quantile,
+        normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+        verbose=verbose,
+    )
+
+    if not is_regression:
+        predictions = (el.train_probs for el in level_models_and_predictions)
+    elif level_models_and_predictions[0].train_preds is not None:
+        predictions = (el.train_preds for el in level_models_and_predictions)
+        predictions = (el.reshape(-1, 1) if (el is not None) else el for el in predictions)
+    else:
+        predictions = ()
+
+    train_ensembled_predictions, _, train_confident_indices = ensemble_probabilistic_predictions(
+        *predictions,
+        ensemble_method=ensemble_method,
+        max_mae=max_mae,
+        max_std=max_std,
+        ensure_prob_limits=ensure_prob_limits,
+        uncertainty_quantile=uncertainty_quantile,
+        normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+        verbose=verbose,
+    )
+
+    internal_ensemble_method = f"{ensemble_method} L{ensembling_level}" if ensembling_level > 0 else ensemble_method
+
+    predictive_kwargs = build_predictive_kwargs(
+        train_data=train_ensembled_predictions, test_data=test_ensembled_predictions, val_data=val_ensembled_predictions, is_regression=is_regression
+    )
+
+    if target is not None:
+        target_kwargs = dict(target=target)
+    else:
+        target_kwargs = dict(train_target=train_target, test_target=test_target, val_target=val_target)
+
+    # Pop params not accepted by _build_configs_from_params (they come from common_params in core.py)
+    kwargs_copy = kwargs.copy()
+    kwargs_copy.pop("trainset_features_stats", None)
+    kwargs_copy.pop("train_od_idx", None)
+    kwargs_copy.pop("val_od_idx", None)
+
+    # Build config objects from flat params
+    flat_params = dict(
+        df=None,
+        drop_columns=[],
+        model_name_prefix=f"Ens{internal_ensemble_method.upper()} {ensemble_name}",
+        train_idx=train_idx,
+        test_idx=test_idx,
+        val_idx=val_idx,
+        target_label_encoder=target_label_encoder,
+        compute_valset_metrics=True,
+        nbins=nbins,
+        custom_ice_metric=custom_ice_metric,
+        custom_rice_metric=custom_rice_metric,
+        subgroups=subgroups,
+        n_features=n_features,
+        **target_kwargs,
+        **predictive_kwargs,
+        **kwargs_copy,
+    )
+    data, control, metrics_cfg, display, naming, confidence, predictions_cfg = _build_configs_from_params(**flat_params)
+    next_ens_results = train_and_evaluate_model(
+        model=None,
+        data=data,
+        control=control,
+        metrics=metrics_cfg,
+        display=display,
+        naming=naming,
+        confidence=confidence,
+        predictions=predictions_cfg,
+    )
+
+    conf_results = None
+    if uncertainty_quantile:
+        if target is not None:
+            conf_target_kwargs = dict(target=target)
+        else:
+            conf_target_kwargs = dict(
+                train_target=train_target[train_confident_indices] if (train_target is not None and train_confident_indices is not None) else None,
+                test_target=test_target[test_confident_indices] if (test_target is not None and test_confident_indices is not None) else None,
+                val_target=val_target[val_confident_indices] if (val_target is not None and val_confident_indices is not None) else None,
+            )
+
+        conf_predictive_kwargs = build_predictive_kwargs(
+            train_data=(
+                train_ensembled_predictions[train_confident_indices]
+                if (train_ensembled_predictions is not None and train_confident_indices is not None)
+                else None
+            ),
+            test_data=(
+                test_ensembled_predictions[test_confident_indices]
+                if (test_ensembled_predictions is not None and test_confident_indices is not None)
+                else None
+            ),
+            val_data=(
+                val_ensembled_predictions[val_confident_indices]
+                if (val_ensembled_predictions is not None and val_confident_indices is not None)
+                else None
+            ),
+            is_regression=is_regression,
+        )
+
+        # Build config objects from flat params for confidence ensemble
+        conf_flat_params = dict(
+            df=None,
+            drop_columns=[],
+            model_name_prefix=f"Conf Ensemble {internal_ensemble_method} {ensemble_name}",
+            train_idx=train_idx[train_confident_indices] if (train_idx is not None and train_confident_indices is not None) else None,
+            test_idx=test_idx[test_confident_indices] if (test_idx is not None and test_confident_indices is not None) else None,
+            val_idx=val_idx[val_confident_indices] if (val_idx is not None and val_confident_indices is not None) else None,
+            target_label_encoder=target_label_encoder,
+            compute_valset_metrics=True,
+            nbins=nbins,
+            custom_ice_metric=custom_ice_metric,
+            custom_rice_metric=custom_rice_metric,
+            subgroups=subgroups,
+            n_features=n_features,
+            **conf_predictive_kwargs,
+            **conf_target_kwargs,
+            **kwargs_copy,
+        )
+        conf_data, conf_control, conf_metrics, conf_display, conf_naming, conf_confidence, conf_predictions = _build_configs_from_params(**conf_flat_params)
+        conf_results = train_and_evaluate_model(
+            model=None,
+            data=conf_data,
+            control=conf_control,
+            metrics=conf_metrics,
+            display=conf_display,
+            naming=conf_naming,
+            confidence=conf_confidence,
+            predictions=conf_predictions,
+        )
+
+    return (internal_ensemble_method, next_ens_results, conf_results)
+
+
 def score_ensemble(
     models_and_predictions: Sequence,
     ensemble_name: str,
@@ -307,13 +501,22 @@ def score_ensemble(
     custom_rice_metric: Callable = None,
     subgroups: dict = None,
     max_ensembling_level: int = 1,
+    n_features: int = None,
+    n_jobs: int = None,
+    min_samples_for_parallel: int = 10_000_000,
     verbose: bool = True,
     **kwargs,
 ):
-    """Compares different ensembling methods for a list of models."""
+    """Compares different ensembling methods for a list of models.
 
-    from mlframe.training import train_and_evaluate_model
-    from mlframe.training.trainer import _build_configs_from_params
+    Parameters
+    ----------
+    n_jobs : int, optional
+        Number of parallel jobs. If None, automatically determined based on
+        sample count and min_samples_for_parallel. Use 1 for sequential processing.
+    min_samples_for_parallel : int, default=1_000_000
+        Minimum number of samples required to enable parallel processing when n_jobs is None.
+    """
 
     res = {}
     level_models_and_predictions = models_and_predictions
@@ -328,169 +531,84 @@ def score_ensemble(
         is_regression = True
         ensure_prob_limits = False
 
+    # Determine sample count for parallelization decision
+    first_pred = level_models_and_predictions[0]
+    if first_pred.val_probs is not None:
+        n_samples = len(first_pred.val_probs)
+    elif first_pred.val_preds is not None:
+        n_samples = len(first_pred.val_preds)
+    else:
+        n_samples = 0
+
+    # Determine n_jobs if not specified
+    effective_n_jobs = n_jobs
+    if effective_n_jobs is None:
+        if n_samples >= min_samples_for_parallel:
+            n_physical_cores = joblib.cpu_count(only_physical_cores=True) or 1
+            effective_n_jobs = min(len(ensembling_methods), n_physical_cores)
+        else:
+            effective_n_jobs = 1
+
+    # Convert pandas Series to numpy arrays before parallel section to avoid pickling issues
+    train_target_arr = train_target.values if isinstance(train_target, pd.Series) else train_target
+    test_target_arr = test_target.values if isinstance(test_target, pd.Series) else test_target
+    val_target_arr = val_target.values if isinstance(val_target, pd.Series) else val_target
+    target_arr = target.values if isinstance(target, pd.Series) else target
+
     for ensembling_level in range(max_ensembling_level):
 
         next_level_models_and_predictions = []
 
-        for ensemble_method in ensembling_methods:
+        # Common parameters for all ensemble methods
+        common_params = dict(
+            level_models_and_predictions=level_models_and_predictions,
+            is_regression=is_regression,
+            ensembling_level=ensembling_level,
+            ensemble_name=ensemble_name,
+            target=target_arr,
+            train_idx=train_idx,
+            test_idx=test_idx,
+            val_idx=val_idx,
+            train_target=train_target_arr,
+            test_target=test_target_arr,
+            val_target=val_target_arr,
+            target_label_encoder=target_label_encoder,
+            max_mae=max_mae,
+            max_std=max_std,
+            ensure_prob_limits=ensure_prob_limits,
+            nbins=nbins,
+            uncertainty_quantile=uncertainty_quantile,
+            normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+            custom_ice_metric=custom_ice_metric,
+            custom_rice_metric=custom_rice_metric,
+            subgroups=subgroups,
+            n_features=n_features,
+            verbose=verbose,
+            kwargs=kwargs,
+        )
 
-            if not is_regression:
-                predictions = (el.val_probs for el in level_models_and_predictions)
-            else:
-                predictions = (el.val_preds.reshape(-1, 1) for el in level_models_and_predictions)
-
-            val_ensembled_predictions, _, val_confident_indices = ensemble_probabilistic_predictions(
-                *predictions,
-                ensemble_method=ensemble_method,
-                max_mae=max_mae,
-                max_std=max_std,
-                ensure_prob_limits=ensure_prob_limits,
-                uncertainty_quantile=uncertainty_quantile,
-                normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
-                verbose=verbose,
+        if len(ensembling_methods) > 1 and effective_n_jobs > 1:
+            # Parallel processing
+            results = Parallel(n_jobs=effective_n_jobs, backend="loky", max_nbytes="1K", verbose=0)(
+                delayed(_process_single_ensemble_method)(ensemble_method=method, **common_params)
+                for method in ensembling_methods
             )
-
-            if not is_regression:
-                predictions = (el.test_probs for el in level_models_and_predictions)
-            else:
-                predictions = (el.test_preds.reshape(-1, 1) for el in level_models_and_predictions)
-
-            test_ensembled_predictions, _, test_confident_indices = ensemble_probabilistic_predictions(
-                *predictions,
-                ensemble_method=ensemble_method,
-                max_mae=max_mae,
-                max_std=max_std,
-                ensure_prob_limits=ensure_prob_limits,
-                uncertainty_quantile=uncertainty_quantile,
-                normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
-                verbose=verbose,
-            )
-
-            if not is_regression:
-                predictions = (el.train_probs for el in level_models_and_predictions)
-            elif level_models_and_predictions[0].train_preds is not None:
-                predictions = (el.train_preds for el in level_models_and_predictions)
-                predictions = (el.reshape(-1, 1) if (el is not None) else el for el in predictions)
-            else:
-                predictions = ()
-
-            train_ensembled_predictions, _, train_confident_indices = ensemble_probabilistic_predictions(
-                *predictions,
-                ensemble_method=ensemble_method,
-                max_mae=max_mae,
-                max_std=max_std,
-                ensure_prob_limits=ensure_prob_limits,
-                uncertainty_quantile=uncertainty_quantile,
-                normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
-                verbose=verbose,
-            )
-
-            internal_ensemble_method = f"{ensemble_method} L{ensembling_level}" if ensembling_level > 0 else ensemble_method
-
-            predictive_kwargs = build_predictive_kwargs(
-                train_data=train_ensembled_predictions, test_data=test_ensembled_predictions, val_data=val_ensembled_predictions, is_regression=is_regression
-            )
-
-            if target is not None:
-                target_kwargs = dict(target=target)
-            else:
-                target_kwargs = dict(train_target=train_target, test_target=test_target, val_target=val_target)
-
-            # Pop params not accepted by _build_configs_from_params (they come from common_params in core.py)
-            kwargs.pop("trainset_features_stats", None)
-            kwargs.pop("train_od_idx", None)
-            kwargs.pop("val_od_idx", None)
-
-            # Build config objects from flat params
-            flat_params = dict(
-                df=None,
-                drop_columns=[],
-                model_name_prefix=f"Ens{internal_ensemble_method.upper()} {ensemble_name}",
-                train_idx=train_idx,
-                test_idx=test_idx,
-                val_idx=val_idx,
-                target_label_encoder=target_label_encoder,
-                compute_valset_metrics=True,
-                nbins=nbins,
-                custom_ice_metric=custom_ice_metric,
-                custom_rice_metric=custom_rice_metric,
-                subgroups=subgroups,
-                **target_kwargs,
-                **predictive_kwargs,
-                **kwargs,
-            )
-            data, control, metrics_cfg, display, naming, confidence, predictions = _build_configs_from_params(**flat_params)
-            next_ens_results = train_and_evaluate_model(
-                model=None,
-                data=data,
-                control=control,
-                metrics=metrics_cfg,
-                display=display,
-                naming=naming,
-                confidence=confidence,
-                predictions=predictions,
-            )
-            next_level_models_and_predictions.append(next_ens_results)
-            res[internal_ensemble_method] = next_ens_results
-
-            if uncertainty_quantile:
-                if target is not None:
-                    target_kwargs = dict(target=target)
-                else:
-                    target_kwargs = dict(
-                        train_target=train_target.iloc[train_confident_indices] if (train_target is not None and train_confident_indices is not None) else None,
-                        test_target=test_target.iloc[test_confident_indices] if (test_target is not None and test_confident_indices is not None) else None,
-                        val_target=val_target.iloc[val_confident_indices] if (val_target is not None and val_confident_indices is not None) else None,
-                    )
-
-                predictive_kwargs = build_predictive_kwargs(
-                    train_data=(
-                        train_ensembled_predictions[train_confident_indices]
-                        if (train_ensembled_predictions is not None and train_confident_indices is not None)
-                        else None
-                    ),
-                    test_data=(
-                        test_ensembled_predictions[test_confident_indices]
-                        if (test_ensembled_predictions is not None and test_confident_indices is not None)
-                        else None
-                    ),
-                    val_data=(
-                        val_ensembled_predictions[val_confident_indices]
-                        if (val_ensembled_predictions is not None and val_confident_indices is not None)
-                        else None
-                    ),
-                    is_regression=is_regression,
+            for internal_method, next_ens_results, conf_results in results:
+                res[internal_method] = next_ens_results
+                next_level_models_and_predictions.append(next_ens_results)
+                if conf_results is not None:
+                    res[internal_method + " conf"] = conf_results
+        else:
+            # Sequential processing
+            for ensemble_method in ensembling_methods:
+                internal_method, next_ens_results, conf_results = _process_single_ensemble_method(
+                    ensemble_method=ensemble_method, **common_params
                 )
+                res[internal_method] = next_ens_results
+                next_level_models_and_predictions.append(next_ens_results)
+                if conf_results is not None:
+                    res[internal_method + " conf"] = conf_results
 
-                # Build config objects from flat params for confidence ensemble
-                conf_flat_params = dict(
-                    df=None,
-                    drop_columns=[],
-                    model_name_prefix=f"Conf Ensemble {internal_ensemble_method} {ensemble_name}",
-                    train_idx=train_idx[train_confident_indices] if (train_idx is not None and train_confident_indices is not None) else None,
-                    test_idx=test_idx[test_confident_indices] if (test_idx is not None and test_confident_indices is not None) else None,
-                    val_idx=val_idx[val_confident_indices] if (val_idx is not None and val_confident_indices is not None) else None,
-                    target_label_encoder=target_label_encoder,
-                    compute_valset_metrics=True,
-                    nbins=nbins,
-                    custom_ice_metric=custom_ice_metric,
-                    custom_rice_metric=custom_rice_metric,
-                    subgroups=subgroups,
-                    **predictive_kwargs,
-                    **target_kwargs,
-                    **kwargs,
-                )
-                conf_data, conf_control, conf_metrics, conf_display, conf_naming, conf_confidence, conf_predictions = _build_configs_from_params(**conf_flat_params)
-                res[internal_ensemble_method + " conf"] = train_and_evaluate_model(
-                    model=None,
-                    data=conf_data,
-                    control=conf_control,
-                    metrics=conf_metrics,
-                    display=conf_display,
-                    naming=conf_naming,
-                    confidence=conf_confidence,
-                    predictions=conf_predictions,
-                )
         level_models_and_predictions = next_level_models_and_predictions
     return res
 

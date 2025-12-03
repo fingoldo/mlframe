@@ -79,8 +79,6 @@ from mlframe.metrics import (
 
 # Import helper functions from helpers module (migrated from training_old.py)
 from .helpers import (
-    get_trainset_features_stats,
-    get_trainset_features_stats_polars,
     get_training_configs,
     parse_catboost_devices,
     LightGBMCallback,
@@ -293,18 +291,6 @@ def _setup_model_info_and_paths(model, model_name, model_name_prefix, plot_file,
     model_file_name = join(data_dir, models_subdir, f"{model_name}.dump")
 
     return model_obj, model_type_name, model_name, plot_file, model_file_name
-
-
-def _compute_trainset_stats(train_df, trainset_features_stats, verbose):
-    """Compute trainset feature statistics if not already provided."""
-    if not trainset_features_stats:
-        if verbose:
-            logger.info("Computing trainset_features_stats...")
-        if isinstance(train_df, pl.DataFrame):
-            trainset_features_stats = get_trainset_features_stats_polars(train_df)
-        elif isinstance(train_df, pd.DataFrame):
-            trainset_features_stats = get_trainset_features_stats(train_df)
-    return trainset_features_stats
 
 
 def _disable_xgboost_early_stopping_if_needed(model_type_name, model_obj):
@@ -647,13 +633,16 @@ def _compute_split_metrics(
     custom_rice_metric=None,
     details: str = "",
     has_other_splits: bool = False,
+    n_features: int = None,
 ):
     """Unified metrics computation for train/val/test splits."""
-    if df is None:
+    # Only skip if we can't compute metrics (no probs AND no df to make predictions)
+    if df is None and probs is None:
         return preds, probs, []
 
-    columns = list(df.columns) if hasattr(df, "columns") else []
-    df_prepared = _prepare_df_for_model(df, model_type_name)
+    # Derive columns from df if available (for feature importance)
+    columns = list(df.columns) if df is not None and hasattr(df, "columns") else []
+    df_prepared = _prepare_df_for_model(df, model_type_name) if df is not None else None
 
     effective_show_fi = show_fi and not has_other_splits
     split_plot_file = f"{plot_file}_{split_name}" if plot_file else ""
@@ -681,6 +670,7 @@ def _compute_split_metrics(
         custom_rice_metric=custom_rice_metric,
         metrics=metrics_dict,
         group_ids=group_ids[idx] if group_ids is not None and idx is not None else None,
+        n_features=n_features,
     )
     return preds, probs, columns
 
@@ -788,6 +778,7 @@ def _build_configs_from_params(
     default_drop_columns=None,
     target_label_encoder=None,
     skip_infinity_checks=False,
+    n_features=None,
     # Control params
     verbose=False,
     use_cache=False,
@@ -859,6 +850,7 @@ def _build_configs_from_params(
         drop_columns=merged_drop_columns,
         target_label_encoder=target_label_encoder,
         skip_infinity_checks=skip_infinity_checks,
+        n_features=n_features,
     )
 
     control_config = TrainingControlConfig(
@@ -1004,6 +996,7 @@ def train_and_evaluate_model(
     drop_columns = list(data.drop_columns) if data.drop_columns else []
     target_label_encoder = data.target_label_encoder
     skip_infinity_checks = data.skip_infinity_checks
+    n_features = data.n_features
 
     # ---------------------------------------------------------------------------
     # Unpack control config
@@ -1131,8 +1124,6 @@ def train_and_evaluate_model(
         if val_df is None and val_idx is not None:
             val_df = _subset_dataframe(df, val_idx, real_drop_columns)
 
-        trainset_features_stats = _compute_trainset_stats(train_df, trainset_features_stats, verbose)
-
     train_df, val_df = _apply_pre_pipeline_transforms(
         model=model,
         pre_pipeline=pre_pipeline,
@@ -1250,6 +1241,7 @@ def train_and_evaluate_model(
             subgroups=subgroups,
             custom_ice_metric=custom_ice_metric,
             custom_rice_metric=custom_rice_metric,
+            n_features=n_features,
         )
 
         has_val = val_idx is not None or val_df is not None

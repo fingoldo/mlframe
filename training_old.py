@@ -314,6 +314,7 @@ from mlframe.training.extractors import FeaturesAndTargetsExtractor
 from mlframe.training.utils import save_series_or_df
 
 from mlframe.training.utils import log_ram_usage
+from mlframe.training.evaluation import report_model_perf
 from mlframe.training.io import load_mlframe_model, save_mlframe_model, clean_mlframe_model
 from mlframe.training.extractors import intize_targets, showcase_features_and_targets
 

@@ -19,10 +19,13 @@ from typing import Optional, Dict, List, Callable, Sequence, Any, Union
 import numpy as np
 import pandas as pd
 import polars as pl
+import polars.selectors as cs
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import lightgbm as lgb
+
 import xgboost as xgb
 from xgboost.callback import TrainingCallback
 
@@ -48,6 +51,7 @@ logger = logging.getLogger(__name__)
 # Constant - CUDA availability
 try:
     from numba.cuda import is_available as is_cuda_available
+
     CUDA_IS_AVAILABLE = is_cuda_available()
 except (ImportError, AttributeError, ModuleNotFoundError):
     CUDA_IS_AVAILABLE = False
@@ -536,7 +540,11 @@ def get_training_configs(
         datamodule_params=mlp_datamodule_params,  # includes dataloader_params
         trainer_params=mlp_trainer_params,
         use_swa=mlp_kwargs.get("use_swa", False) if mlp_kwargs else False,
-        swa_params=mlp_kwargs.get("swa_params", dict(swa_epoch_start=5, annealing_epochs=5, swa_lrs=1e-4)) if mlp_kwargs else dict(swa_epoch_start=5, annealing_epochs=5, swa_lrs=1e-4),
+        swa_params=(
+            mlp_kwargs.get("swa_params", dict(swa_epoch_start=5, annealing_epochs=5, swa_lrs=1e-4))
+            if mlp_kwargs
+            else dict(swa_epoch_start=5, annealing_epochs=5, swa_lrs=1e-4)
+        ),
         tune_params=mlp_kwargs.get("tune_params", False) if mlp_kwargs else False,
         float32_matmul_precision=mlp_kwargs.get("float32_matmul_precision", None) if mlp_kwargs else None,
         early_stopping_rounds=early_stopping_rounds,
@@ -625,7 +633,6 @@ def get_trainset_features_stats_polars(train_df: pl.DataFrame, max_ncats_to_trac
     Returns:
         dict with "min", "max" (as pd.Series) and "cat_vals" (dict of arrays)
     """
-    import polars.selectors as cs
 
     res = {}
     lf = train_df.lazy()
@@ -844,12 +851,12 @@ class LightGBMCallback(UniversalCallback):
         if self.first_iteration:
             self.on_start()
             self.first_iteration = False
-        
+
         metrics_dict = {}
         for dataset, metric, value, _ in env.evaluation_result_list:
             metrics_dict.setdefault(dataset, {})[metric] = value
         self.update_history(metrics_dict)
-        
+
         if self.monitor_metric is None:
             self.set_default_monitor_metric(metrics_dict)
         if self.should_stop():
@@ -870,9 +877,9 @@ class XGBoostCallback(UniversalCallback, TrainingCallback):
             self.on_start()
             self.first_iteration = False
         metrics_dict = {dataset: {metric: values[-1] for metric, values in metric_dict.items()} for dataset, metric_dict in evals_log.items()}
-        
+
         self.update_history(metrics_dict)
-        
+
         if self.monitor_metric is None:
             self.set_default_monitor_metric(metrics_dict)
 
@@ -894,7 +901,7 @@ class CatBoostCallback(UniversalCallback):
         if self.first_iteration:
             self.on_start()
             self.first_iteration = False
-        
+
         metrics_dict = {dataset: {metric: values[-1] for metric, values in metric_dict.items()} for dataset, metric_dict in info.metrics.items()}
         self.update_history(metrics_dict)
 
@@ -904,13 +911,13 @@ class CatBoostCallback(UniversalCallback):
 
 
 __all__ = [
-    'parse_catboost_devices',
-    'get_training_configs',
-    'get_trainset_features_stats',
-    'get_trainset_features_stats_polars',
-    'UniversalCallback',
-    'LightGBMCallback',
-    'XGBoostCallback',
-    'CatBoostCallback',
-    'CUDA_IS_AVAILABLE',
+    "parse_catboost_devices",
+    "get_training_configs",
+    "get_trainset_features_stats",
+    "get_trainset_features_stats_polars",
+    "UniversalCallback",
+    "LightGBMCallback",
+    "XGBoostCallback",
+    "CatBoostCallback",
+    "CUDA_IS_AVAILABLE",
 ]
