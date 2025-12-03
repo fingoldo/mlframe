@@ -355,31 +355,93 @@ def _prepare_test_split(df, test_df, test_idx, test_target, target, real_drop_co
     return test_df, test_target, columns
 
 
-def _apply_pre_pipeline_transforms(model, pre_pipeline, train_df, val_df, train_target, skip_pre_pipeline_transform, use_cache, model_file_name, verbose):
-    """Apply pre-pipeline transformations to train and validation DataFrames."""
+def _extract_feature_selector(pre_pipeline):
+    """Extract the feature selector ('pre' step) from a sklearn Pipeline.
+
+    Feature selectors are added as the 'pre' step in pipelines built by
+    ModelPipelineStrategy.build_pipeline() in strategies.py.
+
+    Args:
+        pre_pipeline: The preprocessing pipeline (sklearn Pipeline or transformer)
+
+    Returns:
+        The feature selector if found, otherwise None
+    """
+    if pre_pipeline is None:
+        return None
+    # If it's a Pipeline with named steps, look for the 'pre' step
+    if hasattr(pre_pipeline, 'named_steps') and 'pre' in pre_pipeline.named_steps:
+        return pre_pipeline.named_steps['pre']
+    # If it's not a Pipeline, it might be the feature selector itself (e.g., MRMR, RFECV)
+    if not isinstance(pre_pipeline, Pipeline):
+        return pre_pipeline
+    return None
+
+
+def _apply_pre_pipeline_transforms(model, pre_pipeline, train_df, val_df, train_target, skip_pre_pipeline_transform, skip_preprocessing, use_cache, model_file_name, verbose):
+    """Apply pre-pipeline transformations to train and validation DataFrames.
+
+    Args:
+        model: The model being trained
+        pre_pipeline: Preprocessing pipeline (may include feature selector + preprocessing steps)
+        train_df: Training DataFrame
+        val_df: Validation DataFrame (or None)
+        train_target: Training target values
+        skip_pre_pipeline_transform: If True, skip entire pipeline (for cached DFs)
+        skip_preprocessing: If True, skip only preprocessing steps but run feature selectors
+        use_cache: Whether to use cached pipeline
+        model_file_name: Model file path for cache checking
+        verbose: Verbosity level
+    """
     if model is not None and pre_pipeline:
         if skip_pre_pipeline_transform:
             if verbose:
-                logger.info(f"Skipping pre_pipeline fit/transform (already transformed)")
+                logger.info("Skipping pre_pipeline fit/transform (using cached DFs)")
+        elif skip_preprocessing:
+            # Only run feature selector, skip preprocessing steps (scaler/imputer/encoder)
+            # This is used when polars-ds pipeline already applied scaling/imputation
+            feature_selector = _extract_feature_selector(pre_pipeline)
+            if feature_selector is not None:
+                if verbose:
+                    logger.info(f"Running feature selector only (preprocessing skipped): {feature_selector}")
+                if use_cache and exists(model_file_name):
+                    train_df = feature_selector.transform(train_df, train_target)
+                else:
+                    train_df = feature_selector.fit_transform(train_df, train_target)
+                if verbose:
+                    log_ram_usage()
+                if val_df is not None:
+                    if verbose:
+                        logger.info(f"Transforming val_df via feature selector...")
+                    val_df = feature_selector.transform(val_df)
+                    if verbose:
+                        log_ram_usage()
+            elif verbose:
+                logger.info("No feature selector found in pipeline, skipping all transforms")
         elif use_cache and exists(model_file_name):
             if verbose:
                 logger.info(f"Transforming train_df via pre_pipeline {pre_pipeline}...")
             train_df = pre_pipeline.transform(train_df, train_target)
             if verbose:
                 log_ram_usage()
+            if val_df is not None:
+                if verbose:
+                    logger.info(f"Transforming val_df via pre_pipeline {pre_pipeline}...")
+                val_df = pre_pipeline.transform(val_df)
+                if verbose:
+                    log_ram_usage()
         else:
             if verbose:
                 logger.info(f"Fitting & Transforming train_df via pre_pipeline {pre_pipeline}...")
             train_df = pre_pipeline.fit_transform(train_df, train_target)
             if verbose:
                 log_ram_usage()
-
-        if not skip_pre_pipeline_transform and val_df is not None:
-            if verbose:
-                logger.info(f"Transforming val_df via pre_pipeline {pre_pipeline}...")
-            val_df = pre_pipeline.transform(val_df)
-            if verbose:
-                log_ram_usage()
+            if val_df is not None:
+                if verbose:
+                    logger.info(f"Transforming val_df via pre_pipeline {pre_pipeline}...")
+                val_df = pre_pipeline.transform(val_df)
+                if verbose:
+                    log_ram_usage()
         clean_ram()
 
     return train_df, val_df
@@ -1009,6 +1071,7 @@ def train_and_evaluate_model(
     compute_testset_metrics = control.compute_testset_metrics
     pre_pipeline = control.pre_pipeline
     skip_pre_pipeline_transform = control.skip_pre_pipeline_transform
+    skip_preprocessing = control.skip_preprocessing
     fit_params = control.fit_params
     callback_params = control.callback_params
     model_category = control.model_category
@@ -1131,6 +1194,7 @@ def train_and_evaluate_model(
         val_df=val_df,
         train_target=train_target,
         skip_pre_pipeline_transform=skip_pre_pipeline_transform,
+        skip_preprocessing=skip_preprocessing,
         use_cache=use_cache,
         model_file_name=model_file_name,
         verbose=verbose,

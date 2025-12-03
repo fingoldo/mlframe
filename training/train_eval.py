@@ -252,6 +252,7 @@ def _call_train_evaluate_with_configs(
     common_params: Dict[str, Any],
     pre_pipeline: Optional[Any],
     skip_pre_pipeline_transform: bool,
+    skip_preprocessing: bool,
     model_name_prefix: str,
     just_evaluate: bool = False,
     verbose: bool = False,
@@ -274,6 +275,9 @@ def _call_train_evaluate_with_configs(
         Preprocessing pipeline (sklearn TransformerMixin).
     skip_pre_pipeline_transform : bool
         Whether to skip the preprocessing pipeline transform.
+    skip_preprocessing : bool
+        Whether to skip only preprocessing (scaler/imputer/encoder) while still
+        running feature selectors.
     model_name_prefix : str
         Prefix to add to the model name for reports.
     just_evaluate : bool, default=False
@@ -304,6 +308,7 @@ def _call_train_evaluate_with_configs(
     # Add control params
     all_params["pre_pipeline"] = pre_pipeline
     all_params["skip_pre_pipeline_transform"] = skip_pre_pipeline_transform
+    all_params["skip_preprocessing"] = skip_preprocessing
     all_params["model_name_prefix"] = model_name_prefix
     all_params["just_evaluate"] = just_evaluate
     all_params["verbose"] = verbose
@@ -342,6 +347,7 @@ def process_model(
     ens_models: Optional[List[Any]],
     verbose: int,
     skip_pre_pipeline_transform: bool = False,
+    skip_preprocessing: bool = False,
     cached_train_df: Optional[pd.DataFrame] = None,
     cached_val_df: Optional[pd.DataFrame] = None,
     cached_test_df: Optional[pd.DataFrame] = None,
@@ -379,6 +385,9 @@ def process_model(
         Verbosity level (0=silent, 1=info, 2=debug).
     skip_pre_pipeline_transform : bool, default=False
         Whether to skip the preprocessing pipeline transform.
+    skip_preprocessing : bool, default=False
+        Whether to skip only preprocessing (scaler/imputer/encoder) while still
+        running feature selectors.
     cached_train_df : pd.DataFrame, optional
         Pre-transformed training DataFrame to reuse.
     cached_val_df : pd.DataFrame, optional
@@ -450,6 +459,7 @@ def process_model(
         common_params=effective_common_params,
         pre_pipeline=pre_pipeline,
         skip_pre_pipeline_transform=skip_pre_pipeline_transform,
+        skip_preprocessing=skip_preprocessing,
         model_name_prefix=pre_pipeline_name,
         just_evaluate=use_cached_model,
         verbose=verbose,

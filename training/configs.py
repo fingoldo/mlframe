@@ -700,6 +700,10 @@ class TrainingControlConfig(BaseConfig):
         sklearn-compatible preprocessing pipeline.
     skip_pre_pipeline_transform : bool
         Whether to skip pre_pipeline transform (default: False).
+    skip_preprocessing : bool
+        Whether to skip only preprocessing (scaler/imputer/encoder) while still
+        running feature selectors (default: False). Used when polars-ds pipeline
+        was already applied globally.
     fit_params : dict, optional
         Additional parameters passed to model.fit(). Keys depend on model type.
     callback_params : dict, optional
@@ -718,6 +722,7 @@ class TrainingControlConfig(BaseConfig):
     # Pipeline
     pre_pipeline: Optional[Any] = None  # sklearn TransformerMixin
     skip_pre_pipeline_transform: bool = False
+    skip_preprocessing: bool = False  # Skip only preprocessing, still run feature selectors
     fit_params: Optional[Dict[str, Any]] = None  # keys: eval_set, early_stopping_rounds, etc.
     callback_params: Optional[Dict[str, Any]] = None  # keys: patience, verbose
 

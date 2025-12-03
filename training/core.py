@@ -399,10 +399,10 @@ def _build_process_model_kwargs(
         "verbose": verbose,
     }
 
-    # Skip pre_pipeline transform if Polars-ds pipeline was already applied globally
-    # (data is already preprocessed - applying SimpleImputer/StandardScaler again would be redundant)
+    # Skip preprocessing (scaler/imputer/encoder) if Polars-ds pipeline was already applied globally
+    # but still run feature selectors (MRMR, RFECV) if present
     if polars_pipeline_applied:
-        kwargs["skip_pre_pipeline_transform"] = True
+        kwargs["skip_preprocessing"] = True
 
     # Add cached DataFrames if available (also skips pre_pipeline transform)
     if cached_dfs is not None:
