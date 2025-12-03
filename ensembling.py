@@ -20,7 +20,9 @@ import copy
 import joblib
 from joblib import Parallel, delayed
 import pandas as pd, numpy as np
+
 from pyutilz.parallel import parallel_run
+from pyutilz.pythonlib import    is_jupyter_notebook
 from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names, compute_numerical_aggregates_numba, get_basic_feature_names
 
 SIMPLE_ENSEMBLING_METHODS: list = "arithm harm median quad qube geo".split()
@@ -539,11 +541,11 @@ def score_ensemble(
         n_samples = len(first_pred.val_preds)
     else:
         n_samples = 0
-
+    
     # Determine n_jobs if not specified
     effective_n_jobs = n_jobs
     if effective_n_jobs is None:
-        if n_samples >= min_samples_for_parallel:
+        if n_samples >= min_samples_for_parallel and not is_jupyter_notebook():
             n_physical_cores = joblib.cpu_count(only_physical_cores=True) or 1
             effective_n_jobs = min(len(ensembling_methods), n_physical_cores)
         else:
