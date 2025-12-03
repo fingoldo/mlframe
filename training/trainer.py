@@ -38,6 +38,8 @@ from sklearn.metrics import (
 )
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import HistGradientBoostingRegressor, HistGradientBoostingClassifier
+from sklearn.utils.validation import check_is_fitted
+from sklearn.exceptions import NotFittedError
 
 from catboost import CatBoostRegressor, CatBoostClassifier
 from lightgbm import LGBMClassifier, LGBMRegressor
@@ -384,6 +386,29 @@ def _extract_feature_selector(pre_pipeline):
     return None
 
 
+def _is_fitted(estimator):
+    """Check if an sklearn estimator is already fitted.
+
+    Uses sklearn's check_is_fitted() to determine if the estimator has been
+    fitted. This is useful for determining whether to call fit_transform()
+    or just transform() on a pipeline/feature selector that may have been
+    loaded from cache.
+
+    Args:
+        estimator: An sklearn-compatible estimator (Pipeline, RFECV, etc.)
+
+    Returns:
+        bool: True if the estimator is fitted, False otherwise
+    """
+    if estimator is None:
+        return False
+    try:
+        check_is_fitted(estimator)
+        return True
+    except NotFittedError:
+        return False
+
+
 def _apply_pre_pipeline_transforms(model, pre_pipeline, train_df, val_df, train_target, skip_pre_pipeline_transform, skip_preprocessing, use_cache, model_file_name, verbose):
     """Apply pre-pipeline transformations to train and validation DataFrames.
 
@@ -408,11 +433,13 @@ def _apply_pre_pipeline_transforms(model, pre_pipeline, train_df, val_df, train_
             # This is used when polars-ds pipeline already applied scaling/imputation
             feature_selector = _extract_feature_selector(pre_pipeline)
             if feature_selector is not None:
-                if verbose:
-                    logger.info(f"Running feature selector only (preprocessing skipped): {feature_selector}")
-                if use_cache and exists(model_file_name):
+                if _is_fitted(feature_selector):
+                    if verbose:
+                        logger.info(f"Using pre-fitted feature selector (transform only): {feature_selector}")
                     train_df = feature_selector.transform(train_df, train_target)
                 else:
+                    if verbose:
+                        logger.info(f"Fitting feature selector: {feature_selector}")
                     train_df = feature_selector.fit_transform(train_df, train_target)
                 if verbose:
                     log_ram_usage()
@@ -424,21 +451,21 @@ def _apply_pre_pipeline_transforms(model, pre_pipeline, train_df, val_df, train_
                         log_ram_usage()
             elif verbose:
                 logger.info("No feature selector found in pipeline, skipping all transforms")
-        elif use_cache and exists(model_file_name):
+        elif _is_fitted(pre_pipeline):
             if verbose:
-                logger.info(f"Transforming train_df via pre_pipeline {pre_pipeline}...")
+                logger.info(f"Using pre-fitted pipeline (transform only): {pre_pipeline}")
             train_df = pre_pipeline.transform(train_df, train_target)
             if verbose:
                 log_ram_usage()
             if val_df is not None:
                 if verbose:
-                    logger.info(f"Transforming val_df via pre_pipeline {pre_pipeline}...")
+                    logger.info(f"Transforming val_df via pre_pipeline...")
                 val_df = pre_pipeline.transform(val_df)
                 if verbose:
                     log_ram_usage()
         else:
             if verbose:
-                logger.info(f"Fitting & Transforming train_df via pre_pipeline {pre_pipeline}...")
+                logger.info(f"Fitting & transforming train_df via pre_pipeline {pre_pipeline}...")
             train_df = pre_pipeline.fit_transform(train_df, train_target)
             if verbose:
                 log_ram_usage()

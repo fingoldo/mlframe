@@ -745,3 +745,208 @@ class TestSetupEarlyStoppingCallback:
         _setup_early_stopping_callback("cb", fit_params_cb2, callback_params, None)
         assert len(fit_params_cb2["callbacks"]) == 1
         assert fit_params_cb2["callbacks"][0] is not first_cb_callback
+
+
+# =============================================================================
+# Tests for _is_fitted helper function
+# =============================================================================
+
+
+class TestIsFitted:
+    """Tests for _is_fitted helper function.
+
+    This function checks if an sklearn estimator is already fitted by using
+    sklearn's check_is_fitted(). It's used to determine whether to call
+    fit_transform() or just transform() on pre-pipelines loaded from cache.
+    """
+
+    def test_unfitted_estimator_returns_false(self):
+        """Test that unfitted estimator returns False."""
+        from mlframe.training.trainer import _is_fitted
+        from sklearn.preprocessing import StandardScaler
+
+        scaler = StandardScaler()
+        assert _is_fitted(scaler) is False
+
+    def test_fitted_estimator_returns_true(self):
+        """Test that fitted estimator returns True."""
+        from mlframe.training.trainer import _is_fitted
+        from sklearn.preprocessing import StandardScaler
+
+        scaler = StandardScaler()
+        scaler.fit(np.array([[1, 2], [3, 4], [5, 6]]))
+        assert _is_fitted(scaler) is True
+
+    def test_none_returns_false(self):
+        """Test that None returns False."""
+        from mlframe.training.trainer import _is_fitted
+
+        assert _is_fitted(None) is False
+
+    def test_unfitted_pipeline_returns_false(self):
+        """Test that unfitted Pipeline returns False."""
+        from mlframe.training.trainer import _is_fitted
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        pipeline = Pipeline([('scaler', StandardScaler())])
+        assert _is_fitted(pipeline) is False
+
+    def test_fitted_pipeline_returns_true(self):
+        """Test that fitted Pipeline returns True."""
+        from mlframe.training.trainer import _is_fitted
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        pipeline = Pipeline([('scaler', StandardScaler())])
+        pipeline.fit(np.array([[1, 2], [3, 4], [5, 6]]))
+        assert _is_fitted(pipeline) is True
+
+    def test_fitted_logistic_regression(self):
+        """Test with a fitted classifier."""
+        from mlframe.training.trainer import _is_fitted
+        from sklearn.linear_model import LogisticRegression
+
+        model = LogisticRegression()
+        assert _is_fitted(model) is False
+
+        X = np.array([[1, 2], [3, 4], [5, 6], [7, 8]])
+        y = np.array([0, 0, 1, 1])
+        model.fit(X, y)
+        assert _is_fitted(model) is True
+
+
+class TestApplyPrePipelineTransformsWithFittedPipeline:
+    """Tests for _apply_pre_pipeline_transforms with pre-fitted pipelines.
+
+    These tests verify that when a pre-fitted pipeline is passed (e.g., loaded
+    from cache), the function correctly uses transform() instead of fit_transform().
+    """
+
+    @pytest.fixture
+    def simple_data(self):
+        """Create simple training data."""
+        np.random.seed(42)
+        train_df = pd.DataFrame({
+            'f0': np.random.randn(100),
+            'f1': np.random.randn(100),
+            'f2': np.random.randn(100),
+        })
+        val_df = pd.DataFrame({
+            'f0': np.random.randn(20),
+            'f1': np.random.randn(20),
+            'f2': np.random.randn(20),
+        })
+        train_target = np.random.randint(0, 2, 100)
+        return train_df, val_df, train_target
+
+    def test_unfitted_pipeline_calls_fit_transform(self, simple_data):
+        """Test that unfitted pipeline calls fit_transform."""
+        from mlframe.training.trainer import _apply_pre_pipeline_transforms
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        train_df, val_df, train_target = simple_data
+        pipeline = Pipeline([('scaler', StandardScaler())])
+
+        # Mock model to satisfy the condition
+        model = MagicMock()
+
+        result_train, result_val = _apply_pre_pipeline_transforms(
+            model=model,
+            pre_pipeline=pipeline,
+            train_df=train_df.copy(),
+            val_df=val_df.copy(),
+            train_target=train_target,
+            skip_pre_pipeline_transform=False,
+            skip_preprocessing=False,
+            use_cache=False,
+            model_file_name="dummy_path",
+            verbose=False,
+        )
+
+        # Pipeline should now be fitted
+        from mlframe.training.trainer import _is_fitted
+        assert _is_fitted(pipeline) is True
+        assert result_train is not None
+        assert result_val is not None
+
+    def test_fitted_pipeline_calls_transform_only(self, simple_data):
+        """Test that pre-fitted pipeline calls transform() only (no re-fitting)."""
+        from mlframe.training.trainer import _apply_pre_pipeline_transforms, _is_fitted
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        train_df, val_df, train_target = simple_data
+
+        # Pre-fit the pipeline
+        pipeline = Pipeline([('scaler', StandardScaler())])
+        pipeline.fit(train_df)
+
+        # Store the fitted parameters
+        original_mean = pipeline.named_steps['scaler'].mean_.copy()
+        original_scale = pipeline.named_steps['scaler'].scale_.copy()
+
+        assert _is_fitted(pipeline) is True
+
+        # Create different data that would change the scaler if fit() was called
+        different_train_df = pd.DataFrame({
+            'f0': np.random.randn(100) * 10 + 100,  # Very different distribution
+            'f1': np.random.randn(100) * 10 + 100,
+            'f2': np.random.randn(100) * 10 + 100,
+        })
+
+        model = MagicMock()
+
+        result_train, result_val = _apply_pre_pipeline_transforms(
+            model=model,
+            pre_pipeline=pipeline,
+            train_df=different_train_df.copy(),
+            val_df=val_df.copy(),
+            train_target=train_target,
+            skip_pre_pipeline_transform=False,
+            skip_preprocessing=False,
+            use_cache=False,  # Note: use_cache is False, but pipeline is fitted
+            model_file_name="nonexistent_path",
+            verbose=False,
+        )
+
+        # Verify the scaler parameters were NOT changed (transform, not fit)
+        np.testing.assert_array_almost_equal(
+            pipeline.named_steps['scaler'].mean_,
+            original_mean,
+            err_msg="Pipeline was re-fitted when it should have only transformed"
+        )
+        np.testing.assert_array_almost_equal(
+            pipeline.named_steps['scaler'].scale_,
+            original_scale,
+            err_msg="Pipeline was re-fitted when it should have only transformed"
+        )
+
+    def test_skip_pre_pipeline_transform_skips_all(self, simple_data):
+        """Test that skip_pre_pipeline_transform=True skips all transforms."""
+        from mlframe.training.trainer import _apply_pre_pipeline_transforms
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        train_df, val_df, train_target = simple_data
+        pipeline = Pipeline([('scaler', StandardScaler())])
+
+        model = MagicMock()
+        original_train_df = train_df.copy()
+
+        result_train, result_val = _apply_pre_pipeline_transforms(
+            model=model,
+            pre_pipeline=pipeline,
+            train_df=train_df,
+            val_df=val_df,
+            train_target=train_target,
+            skip_pre_pipeline_transform=True,
+            skip_preprocessing=False,
+            use_cache=False,
+            model_file_name="dummy_path",
+            verbose=False,
+        )
+
+        # DataFrames should be unchanged
+        pd.testing.assert_frame_equal(result_train, original_train_df)
