@@ -272,7 +272,11 @@ def _process_special_values(
             if is_polars:
                 if fill_func_name is None:
                     raise ValueError("fill_func_name is required for Polars DataFrames when fill_value is provided")
-                df = df.with_columns(getattr(cs.numeric(), fill_func_name)(fill_value))
+                if fill_func_name == "replace":
+                    # For infinities: need to specify what to replace
+                    df = df.with_columns(cs.numeric().replace([float("inf"), float("-inf")], fill_value))
+                else:
+                    df = df.with_columns(getattr(cs.numeric(), fill_func_name)(fill_value))
             else:
                 if "NaN" in kind or "null" in kind:
                     df = df.fillna(fill_value)
