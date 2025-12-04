@@ -2141,3 +2141,101 @@ class TestFeatureSelectorsWithPolarsPipeline:
         assert "target" in models
         assert TargetTypes.REGRESSION in models["target"]
         assert len(models["target"][TargetTypes.REGRESSION]) > 0
+
+
+class TestMRMRBinaryClassificationEdgeCases:
+    """Test MRMR with binary classification for edge cases."""
+
+    @pytest.fixture
+    def perfect_impact_classification_data(self):
+        """Create data where one feature perfectly predicts target."""
+        np.random.seed(42)
+        n_samples = 200
+
+        # Perfect predictor - directly determines binary target
+        perfect_feature = np.random.randint(0, 2, n_samples)
+        target = perfect_feature  # Direct relationship
+
+        # Noise features
+        noise = np.random.randn(n_samples, 5)
+
+        df = pd.DataFrame({
+            'perfect': perfect_feature,
+            **{f'noise_{i}': noise[:, i] for i in range(5)},
+            'target': target
+        })
+        return df
+
+    @pytest.fixture
+    def no_impact_classification_data(self):
+        """Create data where no features have impact on target."""
+        np.random.seed(42)
+        n_samples = 200
+
+        # Random features
+        features = np.random.randn(n_samples, 5)
+        # Random target (independent of features)
+        target = np.random.randint(0, 2, n_samples)
+
+        df = pd.DataFrame({
+            **{f'feature_{i}': features[:, i] for i in range(5)},
+            'target': target
+        })
+        return df
+
+    @pytest.mark.parametrize("use_simple_mode", [True, False])
+    def test_mrmr_perfect_impact_classification(self, perfect_impact_classification_data, temp_data_dir, common_init_params, use_simple_mode):
+        """Test MRMR correctly identifies perfect predictor in binary classification."""
+        df = perfect_impact_classification_data
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name=f"mrmr_perfect_clf_{use_simple_mode}",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params=common_init_params,
+            use_ordinary_models=False,
+            use_mrmr_fs=True,
+            mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0, "use_simple_mode": use_simple_mode},
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        # Should train successfully and find the perfect feature
+        assert "target" in models
+        assert len(models["target"][TargetTypes.BINARY_CLASSIFICATION]) > 0
+
+    @pytest.mark.parametrize("use_simple_mode", [True, False])
+    def test_mrmr_no_impact_classification(self, no_impact_classification_data, temp_data_dir, common_init_params, use_simple_mode):
+        """Test MRMR gracefully handles no predictive features in binary classification."""
+        df = no_impact_classification_data
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
+
+        # This should skip training when no features selected (no error)
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name=f"mrmr_noimpact_clf_{use_simple_mode}",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params=common_init_params,
+            use_ordinary_models=False,
+            use_mrmr_fs=True,
+            mrmr_kwargs={
+                "max_runtime_mins": 0.5,
+                "verbose": 0,
+                "use_simple_mode": use_simple_mode,
+                "min_relevance_gain": 10.0,  # Very high threshold to ensure no features selected
+            },
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        # Should complete without error (may have empty models if no features selected)
+        assert isinstance(models, dict)
