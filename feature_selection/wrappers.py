@@ -807,7 +807,9 @@ class RFECV(BaseEstimator, TransformerMixin):
             )
 
     def transform(self, X, y=None):
-        if self.support_ is None or len(self.support_) == 0:
+        # Use getattr to handle unfitted RFECV (support_ not yet set)
+        support = getattr(self, 'support_', None)
+        if support is None or len(support) == 0:
             return X
         if isinstance(X, pd.DataFrame):
             if ENSURE_ARROW_DF_SUPPORT:
