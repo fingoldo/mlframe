@@ -977,8 +977,7 @@ class TestNetworkResetAndClone:
 
         # Check all params are copied
         for key, value in clf.get_params().items():
-            cloned_value = getattr(cloned, key, None)
-            assert cloned_value is not None, f"Cloned estimator missing param: {key}"
+            assert hasattr(cloned, key), f"Cloned estimator missing param: {key}"
 
     def test_sklearn_clone_after_fit_gives_unfitted_model(self, estimator_params_classifier):
         """Test that cloning a fitted model gives an unfitted model."""

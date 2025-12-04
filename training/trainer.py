@@ -436,7 +436,7 @@ def _apply_pre_pipeline_transforms(model, pre_pipeline, train_df, val_df, train_
                 if _is_fitted(feature_selector):
                     if verbose:
                         logger.info(f"Using pre-fitted feature selector (transform only): {feature_selector}")
-                    train_df = feature_selector.transform(train_df, train_target)
+                    train_df = feature_selector.transform(train_df)
                 else:
                     if verbose:
                         logger.info(f"Fitting feature selector: {feature_selector}")
@@ -454,7 +454,7 @@ def _apply_pre_pipeline_transforms(model, pre_pipeline, train_df, val_df, train_
         elif _is_fitted(pre_pipeline):
             if verbose:
                 logger.info(f"Using pre-fitted pipeline (transform only): {pre_pipeline}")
-            train_df = pre_pipeline.transform(train_df, train_target)
+            train_df = pre_pipeline.transform(train_df)
             if verbose:
                 log_ram_usage()
             if val_df is not None:
