@@ -2594,7 +2594,10 @@ def categorize_dataset(
 
     numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "bool")).columns.values.tolist()
 
-    data = discretize_2d_array(arr=df[numerical_cols].values, n_bins=n_bins, method=method, min_ncats=min_ncats, min_values=None, max_values=None, dtype=dtype)
+    # Use .to_numpy() instead of .values for Arrow-backed DataFrames (from Polars conversion)
+    # .values can return pyobject dtype which breaks numba's @njit
+    arr = df[numerical_cols].to_numpy(dtype=np.float64, na_value=np.nan)
+    data = discretize_2d_array(arr=arr, n_bins=n_bins, method=method, min_ncats=min_ncats, min_values=None, max_values=None, dtype=dtype)
 
     categorical_factors = df.select_dtypes(include=("category", "object", "bool"))
     categorical_cols = []
