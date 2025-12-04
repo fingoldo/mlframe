@@ -3302,7 +3302,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # It's needed 'casue categorize_data can rearrange cat columns.
         # ---------------------------------------------------------------------------------------------------------------
 
-        selected_vars_names = np.array(cols)[np.array(selected_vars)]
+        selected_vars_names = np.array(cols)[np.array(selected_vars, dtype=np.intp)]
         selected_vars = [self.feature_names_in_.index(col) for col in selected_vars_names]  # !TODO! failing when fe_max_steps>1. need other source.
 
         # ---------------------------------------------------------------------------------------------------------------
