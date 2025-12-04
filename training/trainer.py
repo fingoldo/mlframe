@@ -1256,7 +1256,7 @@ def train_and_evaluate_model(
         if (not use_cache) or (not exists(model_file_name)):
             _setup_sample_weight(sample_weight, train_idx, model_obj, fit_params)
             if verbose:
-                logger.info(f"{model_name} training dataset shape: {train_df.shape}")
+                logger.info(f"training dataset shape: {train_df.shape}")
 
             if display_sample_size:
                 ipython_display(train_df.head(display_sample_size).style.set_caption(f"{model_name} features head"))
