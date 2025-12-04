@@ -3380,8 +3380,15 @@ class MRMR(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X, y=None):
-        if self.support_ is None or len(self.support_) == 0:
+        if self.support_ is None:
             return X
+        if len(self.support_) == 0:
+            # Return empty DataFrame/array with same rows but no columns
+            # This signals that feature selection found no useful features
+            if isinstance(X, pd.DataFrame):
+                return X.iloc[:, []]
+            else:
+                return X[:, np.array([], dtype=np.intp)]
         if isinstance(X, pd.DataFrame):
             if ENSURE_ARROW_DF_SUPPORT:
                 # Use column names to support Arrow-backed DataFrames (from polars zero-copy conversion).

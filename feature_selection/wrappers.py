@@ -809,8 +809,15 @@ class RFECV(BaseEstimator, TransformerMixin):
     def transform(self, X, y=None):
         # Use getattr to handle unfitted RFECV (support_ not yet set)
         support = getattr(self, 'support_', None)
-        if support is None or len(support) == 0:
+        if support is None:
             return X
+        if len(support) == 0:
+            # Return empty DataFrame/array with same rows but no columns
+            # This signals that feature selection found no useful features
+            if isinstance(X, pd.DataFrame):
+                return X.iloc[:, []]
+            else:
+                return X[:, np.array([], dtype=np.intp)]
         if isinstance(X, pd.DataFrame):
             if ENSURE_ARROW_DF_SUPPORT:
                 # Use column names to support Arrow-backed DataFrames (from polars zero-copy conversion).
