@@ -880,5 +880,172 @@ class TestSampleWeightSupport:
         assert not np.isnan(predictions).any()
 
 
+# ================================================================================================
+# Network Reset and Clone Tests
+# ================================================================================================
+
+
+class TestNetworkResetAndClone:
+    """Tests for MLP network reset behavior and sklearn clone() support."""
+
+    @staticmethod
+    def _get_input_dim(network):
+        """Get input dimension from first Linear layer in network."""
+        for layer in network:
+            if hasattr(layer, 'in_features'):
+                return layer.in_features
+        return None
+
+    def test_fit_resets_network_on_different_feature_count(self, estimator_params_classifier):
+        """Test that fit() resets network when feature count changes.
+
+        This is critical for pipelines with different feature selectors (e.g., RFECV vs MRMR)
+        that produce different feature counts.
+        """
+        clf = PytorchLightningClassifier(**estimator_params_classifier)
+
+        # First fit with 10 features
+        X1 = np.random.randn(100, 10).astype(np.float32)
+        y1 = np.random.randint(0, 3, 100)
+        clf.fit(X1, y1)
+
+        first_network = clf.network
+        first_input_dim = self._get_input_dim(first_network)
+        assert first_input_dim == 10
+
+        # Second fit with 20 features - should reset network
+        X2 = np.random.randn(100, 20).astype(np.float32)
+        y2 = np.random.randint(0, 3, 100)
+        clf.fit(X2, y2)
+
+        second_network = clf.network
+        second_input_dim = self._get_input_dim(second_network)
+        assert second_input_dim == 20, "Network should be reset with new input dimension"
+        assert first_network is not second_network, "Network should be a new object after fit()"
+
+    def test_partial_fit_keeps_network(self, estimator_params_classifier):
+        """Test that partial_fit() keeps existing network (for incremental learning)."""
+        clf = PytorchLightningClassifier(**estimator_params_classifier)
+
+        # First partial fit
+        X = np.random.randn(100, 10).astype(np.float32)
+        y = np.random.randint(0, 3, 100)
+        clf.partial_fit(X[:50], y[:50], classes=np.array([0, 1, 2]))
+
+        first_network = clf.network
+        first_network_id = id(first_network)
+
+        # Second partial fit - should keep same network
+        clf.partial_fit(X[50:], y[50:])
+
+        second_network = clf.network
+        second_network_id = id(second_network)
+
+        assert first_network_id == second_network_id, "partial_fit() should keep the same network"
+
+    def test_fit_after_partial_fit_resets_network(self, estimator_params_classifier):
+        """Test that fit() resets network even after partial_fit()."""
+        clf = PytorchLightningClassifier(**estimator_params_classifier)
+
+        # First partial fit
+        X = np.random.randn(100, 10).astype(np.float32)
+        y = np.random.randint(0, 3, 100)
+        clf.partial_fit(X[:50], y[:50], classes=np.array([0, 1, 2]))
+
+        partial_fit_network = clf.network
+        partial_fit_network_id = id(partial_fit_network)
+
+        # Now call fit() - should reset
+        clf.fit(X[50:], y[50:])
+
+        fit_network = clf.network
+        fit_network_id = id(fit_network)
+
+        assert partial_fit_network_id != fit_network_id, "fit() should reset network after partial_fit()"
+
+    def test_sklearn_clone_works(self, estimator_params_classifier):
+        """Test that sklearn.base.clone() works correctly with PytorchLightningClassifier."""
+        from sklearn.base import clone
+
+        clf = PytorchLightningClassifier(**estimator_params_classifier)
+
+        # Clone before fitting
+        cloned = clone(clf)
+
+        assert cloned is not clf, "Clone should create a new object"
+        assert type(cloned) == type(clf), "Clone should have same type"
+
+        # Check all params are copied
+        for key, value in clf.get_params().items():
+            cloned_value = getattr(cloned, key, None)
+            assert cloned_value is not None, f"Cloned estimator missing param: {key}"
+
+    def test_sklearn_clone_after_fit_gives_unfitted_model(self, estimator_params_classifier):
+        """Test that cloning a fitted model gives an unfitted model."""
+        from sklearn.base import clone
+
+        clf = PytorchLightningClassifier(**estimator_params_classifier)
+
+        # Fit the original
+        X = np.random.randn(100, 10).astype(np.float32)
+        y = np.random.randint(0, 3, 100)
+        clf.fit(X, y)
+
+        assert hasattr(clf, 'network') and clf.network is not None, "Original should be fitted"
+
+        # Clone the fitted model
+        cloned = clone(clf)
+
+        # Cloned model should not have a network (unfitted state)
+        # Note: clone() only copies parameters, not fitted attributes
+        assert not hasattr(cloned, 'network') or cloned.network is None, \
+            "Cloned model should be unfitted"
+
+    def test_cloned_model_can_fit_with_different_features(self, estimator_params_classifier):
+        """Test that cloned models can fit with different feature counts."""
+        from sklearn.base import clone
+
+        clf = PytorchLightningClassifier(**estimator_params_classifier)
+
+        # Fit original with 10 features
+        X1 = np.random.randn(100, 10).astype(np.float32)
+        y1 = np.random.randint(0, 3, 100)
+        clf.fit(X1, y1)
+
+        # Clone and fit with 20 features
+        cloned = clone(clf)
+        X2 = np.random.randn(100, 20).astype(np.float32)
+        y2 = np.random.randint(0, 3, 100)
+        cloned.fit(X2, y2)
+
+        # Both should work independently
+        pred1 = clf.predict(X1[:5])
+        pred2 = cloned.predict(X2[:5])
+
+        assert pred1.shape == (5,), "Original should predict correctly"
+        assert pred2.shape == (5,), "Cloned should predict correctly"
+
+        # Check input dimensions are different
+        assert self._get_input_dim(clf.network) == 10
+        assert self._get_input_dim(cloned.network) == 20
+
+    def test_get_params_includes_all_init_params(self, estimator_params_classifier):
+        """Test that get_params() includes all __init__ parameters required for clone()."""
+        clf = PytorchLightningClassifier(**estimator_params_classifier)
+
+        params = clf.get_params()
+
+        # All these must be present for clone() to work
+        required_params = [
+            'model_class', 'model_params', 'network_params',
+            'datamodule_class', 'datamodule_params', 'trainer_params',
+            'use_swa', 'swa_params', 'tune_params', 'tune_batch_size',
+            'float32_matmul_precision', 'early_stopping_rounds'
+        ]
+
+        for param in required_params:
+            assert param in params, f"get_params() missing required param: {param}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -156,7 +156,8 @@ class PytorchLightningEstimator(BaseEstimator):
         float32_matmul_precision: str = None,
         early_stopping_rounds: int = 100,
     ):
-        swa_params = swa_params or {}
+        # Note: Don't modify swa_params here (e.g., `swa_params or {}`) because sklearn's
+        # clone() requires that constructor parameters are not modified. Handle None later.
         store_params_in_object(obj=self, params=get_parent_func_args())
 
     def _fit_common(
@@ -208,8 +209,16 @@ class PytorchLightningEstimator(BaseEstimator):
         else:
             num_classes = 1
 
+        # Reset network on fit() to match sklearn convention (fit resets, partial_fit continues).
+        # This ensures each fit() call creates a fresh network with correct input dimensions,
+        # which is critical when feature counts change between training iterations.
+        if not is_partial_fit:
+            self.network = None
+            self.model = None  # Also reset the LightningModule wrapper
+
         # Initialize model if needed (first call to fit or partial_fit)
-        if not hasattr(self, "network") or self.network is None:
+        # Use getattr to handle freshly cloned models that don't have network attribute yet
+        if getattr(self, 'network', None) is None:
             self.network = generate_mlp(num_features=X.shape[1], num_classes=num_classes, **self.network_params)
 
         # Configure metrics and monitoring
@@ -259,7 +268,8 @@ class PytorchLightningEstimator(BaseEstimator):
             callbacks.append(LearningRateMonitor(logging_interval="epoch"))
 
         if self.use_swa:
-            callbacks.append(StochasticWeightAveraging(**self.swa_params))
+            swa_params = self.swa_params or {}
+            callbacks.append(StochasticWeightAveraging(**swa_params))
 
         if has_validation:
             logger.info(f"Using early_stopping_rounds={self.early_stopping_rounds:_}")
@@ -349,16 +359,23 @@ class PytorchLightningEstimator(BaseEstimator):
         return self._fit_common(X, y, eval_set=eval_set, is_partial_fit=True, classes=classes, fit_params=fit_params, sample_weight=sample_weight)
 
     def get_params(self, deep: bool = True) -> Dict[str, Any]:
-        """Returns a dictionary of all parameters for scikit-learn compatibility."""
+        """Returns a dictionary of all parameters for scikit-learn compatibility.
+
+        All __init__ parameters must be included for sklearn.base.clone() to work correctly.
+        """
         params = {
             "model_class": self.model_class,
             "model_params": deepcopy(self.model_params) if deep else self.model_params,
-            # "network": self.network,
+            "network_params": deepcopy(self.network_params) if deep else self.network_params,
             "datamodule_class": self.datamodule_class,
             "datamodule_params": deepcopy(self.datamodule_params) if deep else self.datamodule_params,
+            "trainer_params": self.trainer_params,
+            "use_swa": self.use_swa,
+            "swa_params": deepcopy(self.swa_params) if deep and self.swa_params else self.swa_params,
             "tune_params": self.tune_params,
             "tune_batch_size": self.tune_batch_size,
             "float32_matmul_precision": self.float32_matmul_precision,
+            "early_stopping_rounds": self.early_stopping_rounds,
         }
         return params
 

@@ -35,6 +35,7 @@ from os.path import join, exists
 import glob
 from pyutilz.system import clean_ram, tqdmu
 from pyutilz.strings import slugify
+from sklearn.base import clone
 from sklearn.pipeline import Pipeline
 import category_encoders as ce
 
@@ -1206,6 +1207,16 @@ def train_mlframe_models_suite(
                         # Check if we have cached transformed DataFrames for this pipeline type
                         cached_dfs = pipeline_cache.get(cache_key)
 
+                        # Clone model to ensure returned in-memory models can be used for predictions.
+                        # Without cloning, all entries in models[target][type] would point to the same
+                        # sklearn model object (the last-trained state), making in-memory predictions wrong.
+                        # Note: Saved .dump files and stored predictions (.test_probs, etc.) are unaffected
+                        # since they capture snapshots, but in-memory model.model.predict() requires cloning.
+                        original_model = models_params[mlframe_model_name]["model"]
+                        cloned_model = clone(original_model)
+                        current_model_params = models_params[mlframe_model_name].copy()
+                        current_model_params["model"] = cloned_model
+
                         # Build process_model kwargs using helper
                         process_model_kwargs = _build_process_model_kwargs(
                             model_file=model_file,
@@ -1216,7 +1227,7 @@ def train_mlframe_models_suite(
                             pre_pipeline_name=pre_pipeline_name,
                             cur_target_name=cur_target_name,
                             models=models,
-                            model_params=models_params[mlframe_model_name],
+                            model_params=current_model_params,
                             common_params=current_common_params,
                             ens_models=ens_models,
                             trainset_features_stats=trainset_features_stats,
