@@ -1235,6 +1235,37 @@ def train_and_evaluate_model(
         verbose=verbose,
     )
 
+    # Check if feature selection removed all features
+    if train_df is not None and train_df.shape[1] == 0:
+        logger.warning(
+            f"Feature selection removed all features for {model_name} - skipping training. "
+            "This typically means no features had predictive power for the target."
+        )
+        return (
+            SimpleNamespace(
+                model=None,
+                test_preds=None,
+                test_probs=None,
+                test_target=None,
+                test_is_inlier=None,
+                val_preds=None,
+                val_probs=None,
+                val_target=None,
+                train_preds=None,
+                train_probs=None,
+                train_target=None,
+                metrics={"train": {}, "val": {}, "test": {}, "best_iter": None},
+                columns=[],
+                pre_pipeline=pre_pipeline,
+                train_od_idx=train_od_idx,
+                val_od_idx=val_od_idx,
+                trainset_features_stats=trainset_features_stats,
+            ),
+            None,
+            None,
+            None,
+        )
+
     if model is not None and pre_pipeline and not skip_pre_pipeline_transform:
         _orig_train_df = train_df
         if val_df is not None:
