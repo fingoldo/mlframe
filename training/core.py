@@ -1158,21 +1158,17 @@ def train_mlframe_models_suite(
                 custom_pre_pipelines=custom_pre_pipelines,
             )
 
+            # Initialize pipeline cache ONCE - preprocessing output is reused across pre_pipelines.
+            # Since custom transformers run AFTER preprocessing, the preprocessing output is the same
+            # for ordinary models and all custom pipelines with the same model type (linear, tree, etc).
+            pipeline_cache = PipelineCache()
+
             for pre_pipeline, pre_pipeline_name in tqdmu(zip(pre_pipelines, pre_pipeline_names), desc="pre_pipeline", total=len(pre_pipelines)):
                 # Skip CatBoost RFECV pipeline with metamodel_func due to sklearn clone issue
                 if _should_skip_catboost_metamodel(pre_pipeline_name.strip(), target_type, control_params_override):
                     continue
                 ens_models = [] if use_mlframe_ensembles else None
                 orig_pre_pipeline = pre_pipeline
-
-                # Initialize pipeline cache for transformed DataFrames (reset for each pre_pipeline)
-                pipeline_cache = PipelineCache()
-
-                # Clone pipeline components for each pre_pipeline iteration to ensure fresh unfitted instances.
-                # This prevents _is_fitted() from incorrectly returning True due to previously fitted components.
-                iter_category_encoder = clone(category_encoder) if category_encoder is not None else None
-                iter_imputer = clone(imputer)
-                iter_scaler = clone(scaler)
 
                 # Build weight schemas from extractor output
                 if sample_weights:
@@ -1202,9 +1198,9 @@ def train_mlframe_models_suite(
                     pre_pipeline = strategy.build_pipeline(
                         base_pipeline=orig_pre_pipeline,
                         cat_features=cat_features,
-                        category_encoder=iter_category_encoder,
-                        imputer=iter_imputer,
-                        scaler=iter_scaler,
+                        category_encoder=category_encoder if cat_features else None,
+                        imputer=imputer,
+                        scaler=scaler,
                     )
                     cache_key = strategy.cache_key
 

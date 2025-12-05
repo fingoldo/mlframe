@@ -57,7 +57,8 @@ class ModelPipelineStrategy(ABC):
         Build the preprocessing pipeline for this model type.
 
         Args:
-            base_pipeline: Base feature selection pipeline (e.g., RFECV, MRMR)
+            base_pipeline: Base feature selection pipeline (e.g., RFECV, MRMR) or
+                custom transformer (e.g., IncrementalPCA)
             cat_features: List of categorical feature names
             category_encoder: Encoder for categorical features
             imputer: Imputer for missing values
@@ -65,11 +66,27 @@ class ModelPipelineStrategy(ABC):
 
         Returns:
             Configured sklearn Pipeline or None if no preprocessing needed
+
+        Note:
+            Feature selectors (MRMR, RFECV, SelectorMixin) run FIRST (before preprocessing).
+            Custom transformers (PCA, etc.) run LAST (after preprocessing).
         """
+        from sklearn.feature_selection import SelectorMixin
+        from mlframe.feature_selection.filters import MRMR
+
         steps = []
 
-        # Add base pipeline (feature selection) if provided
+        # Determine if base_pipeline is a feature selector (runs FIRST) or transformer (runs LAST)
+        is_feature_selector = False
         if base_pipeline is not None:
+            is_feature_selector = (
+                isinstance(base_pipeline, SelectorMixin)
+                or isinstance(base_pipeline, MRMR)
+                or hasattr(base_pipeline, 'get_support')  # RFECV and similar
+            )
+
+        # Feature selectors go FIRST (before preprocessing)
+        if base_pipeline is not None and is_feature_selector:
             steps.append(("pre", base_pipeline))
 
         # Add category encoding if required and categorical features exist
@@ -84,11 +101,17 @@ class ModelPipelineStrategy(ABC):
         if self.requires_scaling and scaler is not None:
             steps.append(("scaler", scaler))
 
+        # Custom transformers go LAST (after preprocessing)
+        if base_pipeline is not None and not is_feature_selector:
+            steps.append(("transform", base_pipeline))
+
         if not steps:
             return base_pipeline
 
         # Avoid wrapping base_pipeline in redundant Pipeline when it's the only step
         if len(steps) == 1 and steps[0][0] == "pre":
+            return base_pipeline
+        if len(steps) == 1 and steps[0][0] == "transform":
             return base_pipeline
 
         return Pipeline(steps=steps)
