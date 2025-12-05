@@ -2239,3 +2239,131 @@ class TestMRMRBinaryClassificationEdgeCases:
 
         # Should complete without error (may have empty models if no features selected)
         assert isinstance(models, dict)
+
+
+class TestCustomPrePipelines:
+    """Tests for custom_pre_pipelines parameter."""
+
+    def test_incremental_pca_pre_pipeline_regression(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Test IncrementalPCA as a custom pre-pipeline for regression."""
+        from sklearn.decomposition import IncrementalPCA
+
+        df, feature_names, y = sample_regression_data
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        # Create IncrementalPCA pre-pipeline
+        custom_pipelines = {
+            "ipca5": IncrementalPCA(n_components=5),
+        }
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="ipca_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            custom_pre_pipelines=custom_pipelines,
+            init_common_params=common_init_params,
+            use_ordinary_models=False,  # Only test custom pipeline
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=1,
+        )
+
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+
+    def test_incremental_pca_with_ordinary_models(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Test IncrementalPCA combined with ordinary models."""
+        from sklearn.decomposition import IncrementalPCA
+
+        df, feature_names, y = sample_regression_data
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        custom_pipelines = {
+            "ipca5": IncrementalPCA(n_components=5),
+        }
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="ipca_ordinary_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            custom_pre_pipelines=custom_pipelines,
+            init_common_params=common_init_params,
+            use_ordinary_models=True,  # Both ordinary + custom
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+        # Should have 2 models: ordinary + ipca5
+        assert len(models["target"][TargetTypes.REGRESSION]) >= 2
+
+    def test_multiple_custom_pre_pipelines(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Test multiple custom pre-pipelines."""
+        from sklearn.decomposition import IncrementalPCA
+
+        df, feature_names, y = sample_regression_data
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        custom_pipelines = {
+            "ipca3": IncrementalPCA(n_components=3),
+            "ipca5": IncrementalPCA(n_components=5),
+        }
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="multi_ipca_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            custom_pre_pipelines=custom_pipelines,
+            init_common_params=common_init_params,
+            use_ordinary_models=False,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.REGRESSION in models["target"]
+        # Should have 2 models: ipca3 + ipca5
+        assert len(models["target"][TargetTypes.REGRESSION]) == 2
+
+    def test_custom_pre_pipeline_classification(self, sample_classification_data, temp_data_dir, common_init_params):
+        """Test IncrementalPCA as a custom pre-pipeline for classification."""
+        from sklearn.decomposition import IncrementalPCA
+
+        df, feature_names, _, y = sample_classification_data
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False)
+
+        custom_pipelines = {
+            "ipca5": IncrementalPCA(n_components=5),
+        }
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="ipca_clf_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            custom_pre_pipelines=custom_pipelines,
+            init_common_params=common_init_params,
+            use_ordinary_models=False,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert "target" in models
+        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
+        assert len(models["target"][TargetTypes.BINARY_CLASSIFICATION]) > 0

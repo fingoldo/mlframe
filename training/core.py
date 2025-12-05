@@ -299,6 +299,7 @@ def _build_pre_pipelines(
     rfecv_models_params: Dict[str, Any],
     use_mrmr_fs: bool,
     mrmr_kwargs: Dict[str, Any],
+    custom_pre_pipelines: Optional[Dict[str, Any]] = None,
 ) -> Tuple[List[Any], List[str]]:
     """
     Build lists of pre-pipelines and their names for feature selection.
@@ -309,6 +310,9 @@ def _build_pre_pipelines(
         rfecv_models_params: Dict mapping RFECV model names to their pipeline configurations
         use_mrmr_fs: Whether to include MRMR feature selection
         mrmr_kwargs: Keyword arguments for MRMR
+        custom_pre_pipelines: Dict mapping pipeline names to sklearn transformers.
+            Each transformer must implement fit() and transform() methods.
+            Example: {"pca50": IncrementalPCA(n_components=50)}
 
     Returns:
         Tuple of (pre_pipelines list, pre_pipeline_names list)
@@ -334,6 +338,12 @@ def _build_pre_pipelines(
     if use_mrmr_fs:
         pre_pipelines.append(MRMR(**mrmr_kwargs))
         pre_pipeline_names.append("MRMR ")
+
+    # Add custom pre-pipelines
+    if custom_pre_pipelines:
+        for pipeline_name, pipeline_obj in custom_pre_pipelines.items():
+            pre_pipelines.append(pipeline_obj)
+            pre_pipeline_names.append(f"{pipeline_name} ")
 
     return pre_pipelines, pre_pipeline_names
 
@@ -723,6 +733,7 @@ def train_mlframe_models_suite(
     use_mrmr_fs: bool = False,
     mrmr_kwargs: Optional[Dict] = None,
     rfecv_models: Optional[List[str]] = None,
+    custom_pre_pipelines: Optional[Dict[str, Any]] = None,
     # Override parameters (for backward compatibility)
     config_params: Optional[Dict] = None,
     control_params: Optional[Dict] = None,
@@ -762,6 +773,9 @@ def train_mlframe_models_suite(
         use_mrmr_fs: Whether to use MRMR feature selection
         mrmr_kwargs: MRMR parameters
         rfecv_models: Models to use for RFECV
+        custom_pre_pipelines: Dict mapping pipeline names to sklearn transformers.
+            Each transformer must implement fit() and transform() methods.
+            Example: {"pca50": IncrementalPCA(n_components=50)}
 
         config_params: Base model configuration parameters (legacy, prefer Pydantic configs)
         control_params: Base control parameters (legacy, prefer Pydantic configs)
@@ -1141,6 +1155,7 @@ def train_mlframe_models_suite(
                 rfecv_models_params=rfecv_models_params,
                 use_mrmr_fs=use_mrmr_fs,
                 mrmr_kwargs=mrmr_kwargs,
+                custom_pre_pipelines=custom_pre_pipelines,
             )
 
             for pre_pipeline, pre_pipeline_name in tqdmu(zip(pre_pipelines, pre_pipeline_names), desc="pre_pipeline", total=len(pre_pipelines)):
