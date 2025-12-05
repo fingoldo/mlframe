@@ -1168,6 +1168,12 @@ def train_mlframe_models_suite(
                 # Initialize pipeline cache for transformed DataFrames (reset for each pre_pipeline)
                 pipeline_cache = PipelineCache()
 
+                # Clone pipeline components for each pre_pipeline iteration to ensure fresh unfitted instances.
+                # This prevents _is_fitted() from incorrectly returning True due to previously fitted components.
+                iter_category_encoder = clone(category_encoder) if category_encoder is not None else None
+                iter_imputer = clone(imputer)
+                iter_scaler = clone(scaler)
+
                 # Build weight schemas from extractor output
                 if sample_weights:
                     weight_schemas = sample_weights
@@ -1196,9 +1202,9 @@ def train_mlframe_models_suite(
                     pre_pipeline = strategy.build_pipeline(
                         base_pipeline=orig_pre_pipeline,
                         cat_features=cat_features,
-                        category_encoder=category_encoder if cat_features else None,
-                        imputer=imputer,
-                        scaler=scaler,
+                        category_encoder=iter_category_encoder,
+                        imputer=iter_imputer,
+                        scaler=iter_scaler,
                     )
                     cache_key = strategy.cache_key
 
