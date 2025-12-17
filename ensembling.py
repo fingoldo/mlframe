@@ -22,7 +22,7 @@ from joblib import Parallel, delayed
 import pandas as pd, numpy as np
 
 from pyutilz.parallel import parallel_run
-from pyutilz.pythonlib import    is_jupyter_notebook
+from pyutilz.pythonlib import is_jupyter_notebook
 from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names, compute_numerical_aggregates_numba, get_basic_feature_names
 
 SIMPLE_ENSEMBLING_METHODS: list = "arithm harm median quad qube geo".split()
@@ -131,7 +131,7 @@ def ensemble_probabilistic_predictions(
     ensure_prob_limits: bool = True,
     max_mae: float = 0.04,
     max_std: float = 0.06,
-    uncertainty_quantile: float = 0.2,
+    uncertainty_quantile: float = 0,
     normalize_stds_by_mean_preds: bool = False,
     verbose: bool = True,
 ) -> tuple:
@@ -434,14 +434,10 @@ def _process_single_ensemble_method(
                 else None
             ),
             test_data=(
-                test_ensembled_predictions[test_confident_indices]
-                if (test_ensembled_predictions is not None and test_confident_indices is not None)
-                else None
+                test_ensembled_predictions[test_confident_indices] if (test_ensembled_predictions is not None and test_confident_indices is not None) else None
             ),
             val_data=(
-                val_ensembled_predictions[val_confident_indices]
-                if (val_ensembled_predictions is not None and val_confident_indices is not None)
-                else None
+                val_ensembled_predictions[val_confident_indices] if (val_ensembled_predictions is not None and val_confident_indices is not None) else None
             ),
             is_regression=is_regression,
         )
@@ -541,7 +537,7 @@ def score_ensemble(
         n_samples = len(first_pred.val_preds)
     else:
         n_samples = 0
-    
+
     # Determine n_jobs if not specified
     effective_n_jobs = n_jobs
     if effective_n_jobs is None:
@@ -592,8 +588,7 @@ def score_ensemble(
         if len(ensembling_methods) > 1 and effective_n_jobs > 1:
             # Parallel processing
             results = Parallel(n_jobs=effective_n_jobs, backend="loky", max_nbytes="1K", verbose=0)(
-                delayed(_process_single_ensemble_method)(ensemble_method=method, **common_params)
-                for method in ensembling_methods
+                delayed(_process_single_ensemble_method)(ensemble_method=method, **common_params) for method in ensembling_methods
             )
             for internal_method, next_ens_results, conf_results in results:
                 res[internal_method] = next_ens_results
@@ -603,9 +598,7 @@ def score_ensemble(
         else:
             # Sequential processing
             for ensemble_method in ensembling_methods:
-                internal_method, next_ens_results, conf_results = _process_single_ensemble_method(
-                    ensemble_method=ensemble_method, **common_params
-                )
+                internal_method, next_ens_results, conf_results = _process_single_ensemble_method(ensemble_method=ensemble_method, **common_params)
                 res[internal_method] = next_ens_results
                 next_level_models_and_predictions.append(next_ens_results)
                 if conf_results is not None:
