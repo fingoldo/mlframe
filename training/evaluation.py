@@ -480,7 +480,15 @@ def report_probabilistic_model_perf(
             probs[np.arange(len(preds_fallback)), class_indices] = 1.0
 
     if preds is None:
-        preds = np.argmax(probs, axis=1)
+        if probs.shape[1] == 2:
+            # For binary classification, use threshold=0.5 on class 1 probability
+            # This ensures consistency with calibration metrics in fast_calibration_report
+            classes_ = model.classes_ if (model is not None and hasattr(model, 'classes_')) else np.array([0, 1])
+            preds = np.where(probs[:, 1] >= 0.5, classes_[1], classes_[0])
+        else:
+            preds = np.argmax(probs, axis=1)
+            if model is not None and hasattr(model, 'classes_'):
+                preds = model.classes_[preds]
 
     if isinstance(targets, pd.Series):
         targets = targets.values
@@ -554,8 +562,8 @@ def report_probabilistic_model_perf(
             calibs.append(
                 f"\t{str_class_name}: MAE{'W' if use_weights else ''}={calibration_mae * 100:.{calib_report_ndigits}f}%, STD={calibration_std * 100:.{calib_report_ndigits}f}%, COV={calibration_coverage * 100:.0f}%"
             )
-            pr_aucs.append(f"{str_class_name}={pr_auc:.{report_ndigits}f}")
-            roc_aucs.append(f"{str_class_name}={roc_auc:.{report_ndigits}f}")
+            pr_aucs.append(f"{str_class_name}={'N/A' if np.isnan(pr_auc) else f'{pr_auc:.{report_ndigits}f}'}")
+            roc_aucs.append(f"{str_class_name}={'N/A' if np.isnan(roc_auc) else f'{roc_auc:.{report_ndigits}f}'}")
             brs.append(f"{str_class_name}={brier_loss * 100:.{report_ndigits}f}%")
             integral_errors.append(f"{str_class_name}={ice:.{report_ndigits}f}")
             if ll is None:

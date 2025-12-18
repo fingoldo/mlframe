@@ -189,13 +189,13 @@ class TestPRAUC:
         _, pr_auc = fast_aucs(y_true, y_score)
         assert pr_auc >= 0.95
 
-    def test_pr_auc_all_zeros_returns_zero(self):
-        """All-zero true labels should return 0.0."""
+    def test_pr_auc_all_zeros_returns_nan(self):
+        """All-zero true labels should return NaN (single-class, undefined)."""
         y_true = np.zeros(10)
         y_score = np.random.random(10)
 
         _, pr_auc = fast_aucs(y_true, y_score)
-        assert pr_auc == 0.0
+        assert np.isnan(pr_auc)
 
 
 # =============================================================================
@@ -518,15 +518,62 @@ class TestCalibration:
 class TestEdgeCases:
     """Tests for edge cases and boundary conditions."""
 
-    def test_empty_arrays_aucs(self):
-        """fast_aucs with all-zero positives returns zeros."""
-        y_true = np.zeros(10, dtype=np.int64)
+    def test_single_class_aucs_return_nan(self):
+        """fast_aucs with single class returns NaN (undefined metrics)."""
+        # All negatives (no positives)
+        y_true_all_neg = np.zeros(10, dtype=np.int64)
         y_score = np.random.random(10)
 
-        roc_auc, pr_auc = fast_aucs(y_true, y_score)
+        roc_auc, pr_auc = fast_aucs(y_true_all_neg, y_score)
+        assert np.isnan(roc_auc), "ROC AUC should be NaN for all-negative data"
+        assert np.isnan(pr_auc), "PR AUC should be NaN for all-negative data"
 
-        assert roc_auc == 0.0
-        assert pr_auc == 0.0
+        # All positives (no negatives)
+        y_true_all_pos = np.ones(10, dtype=np.int64)
+        roc_auc, pr_auc = fast_aucs(y_true_all_pos, y_score)
+        assert np.isnan(roc_auc), "ROC AUC should be NaN for all-positive data"
+        assert np.isnan(pr_auc), "PR AUC should be NaN for all-positive data"
+
+    def test_single_class_roc_auc_matches_sklearn(self):
+        """fast_roc_auc should return NaN for single-class data, matching sklearn behavior."""
+        y_true_all_pos = np.ones(99, dtype=np.int64)
+        y_true_all_neg = np.zeros(99, dtype=np.int64)
+        y_score = np.random.random(99)
+
+        # Test all positives
+        custom_roc = fast_roc_auc(y_true_all_pos, y_score)
+        assert np.isnan(custom_roc), "fast_roc_auc should return NaN for all-positive data"
+
+        # Test all negatives
+        custom_roc = fast_roc_auc(y_true_all_neg, y_score)
+        assert np.isnan(custom_roc), "fast_roc_auc should return NaN for all-negative data"
+
+        # Verify this matches sklearn's behavior (sklearn also returns NaN with warning)
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sklearn_roc_pos = roc_auc_score(y_true_all_pos, y_score)
+            sklearn_roc_neg = roc_auc_score(y_true_all_neg, y_score)
+
+        assert np.isnan(sklearn_roc_pos), "sklearn should return NaN for all-positive"
+        assert np.isnan(sklearn_roc_neg), "sklearn should return NaN for all-negative"
+
+    def test_single_class_various_sizes(self):
+        """Test single-class handling with various array sizes."""
+        for size in [2, 10, 100, 1000]:
+            y_score = np.random.random(size)
+
+            # All positives
+            y_true_pos = np.ones(size, dtype=np.int64)
+            roc, pr = fast_aucs(y_true_pos, y_score)
+            assert np.isnan(roc), f"ROC AUC should be NaN for size={size}, all positives"
+            assert np.isnan(pr), f"PR AUC should be NaN for size={size}, all positives"
+
+            # All negatives
+            y_true_neg = np.zeros(size, dtype=np.int64)
+            roc, pr = fast_aucs(y_true_neg, y_score)
+            assert np.isnan(roc), f"ROC AUC should be NaN for size={size}, all negatives"
+            assert np.isnan(pr), f"PR AUC should be NaN for size={size}, all negatives"
 
     def test_single_unique_score(self):
         """All same scores should still work."""

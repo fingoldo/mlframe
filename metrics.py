@@ -184,7 +184,8 @@ def fast_numba_auc_nonw(y_true: np.ndarray, y_score: np.ndarray, desc_score_indi
     if tmp > 0:
         return auc / tmp
     else:
-        return 0
+        # Single-class data: ROC AUC is undefined
+        return np.nan
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -477,8 +478,10 @@ def fast_numba_aucs(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices:
     y_true_sorted = y_true[desc_score_indices]
 
     total_pos = np.sum(y_true_sorted)
-    if total_pos == 0:
-        return 0.0, 0.0
+    total_neg = len(y_true_sorted) - total_pos
+    if total_pos == 0 or total_neg == 0:
+        # Single-class data: both ROC AUC and PR AUC are undefined
+        return np.nan, np.nan
 
     # Variables for ROC AUC
     last_counted_fps = 0
@@ -515,7 +518,8 @@ def fast_numba_aucs(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices:
     if denom_roc > 0:
         roc_auc /= denom_roc
     else:
-        roc_auc = 0.0
+        # Should not reach here due to early return, but handle defensively
+        roc_auc = np.nan
 
     return roc_auc, pr_auc
 
@@ -631,9 +635,11 @@ def fast_numba_aucs_simple(y_true: np.ndarray, y_score: np.ndarray, desc_score_i
     y_score_sorted = y_score[desc_score_indices]
     y_true_sorted = y_true[desc_score_indices]
     total_pos = np.sum(y_true_sorted)
+    total_neg = len(y_true_sorted) - total_pos
 
-    if total_pos == 0:
-        return 0.0, 0.0
+    if total_pos == 0 or total_neg == 0:
+        # Single-class data: both ROC AUC and PR AUC are undefined
+        return np.nan, np.nan
 
     # Variables for ROC AUC
     last_counted_fps = 0
@@ -670,18 +676,23 @@ def fast_numba_aucs_simple(y_true: np.ndarray, y_score: np.ndarray, desc_score_i
     if denom_roc > 0:
         roc_auc /= denom_roc
     else:
-        roc_auc = 0.0
+        # Should not reach here due to early return, but handle defensively
+        roc_auc = np.nan
 
     return roc_auc, pr_auc
 
 
 def compute_mean_aucs_per_group(group_aucs: dict) -> tuple:
 
-    # Compute mean per-group AUCs
+    # Compute mean per-group AUCs, ignoring NaN values
     group_roc_aucs = np.array([aucs[0] for aucs in group_aucs.values()])
     group_pr_aucs = np.array([aucs[1] for aucs in group_aucs.values()])
 
-    mean_roc_auc, mean_pr_auc = np.mean(group_roc_aucs[group_roc_aucs > 0]), np.mean(group_pr_aucs[group_roc_aucs > 0])
+    # Filter out NaN values for mean calculation
+    valid_roc = ~np.isnan(group_roc_aucs)
+    valid_pr = ~np.isnan(group_pr_aucs)
+    mean_roc_auc = np.mean(group_roc_aucs[valid_roc]) if np.any(valid_roc) else np.nan
+    mean_pr_auc = np.mean(group_pr_aucs[valid_pr]) if np.any(valid_pr) else np.nan
 
     return mean_roc_auc, mean_pr_auc
 
@@ -803,15 +814,21 @@ def fast_calibration_report(
         metrics_string += f", DENS=[{max_hits:_};{min_hits:_}]"
 
     if show_roc_auc_in_title:
-        metrics_string += f", ROC AUC={roc_auc:.{ndigits}f}"
-        if mean_group_roc_auc is not None:
+        if np.isnan(roc_auc):
+            metrics_string += ", ROC AUC=N/A"
+        else:
+            metrics_string += f", ROC AUC={roc_auc:.{ndigits}f}"
+        if mean_group_roc_auc is not None and not np.isnan(mean_group_roc_auc):
             metrics_string += f"[{mean_group_roc_auc:.{ndigits}f}]"
     if show_pr_auc_in_title:
-        metrics_string += f", PR AUC={pr_auc:.{ndigits}f}"
-        if mean_group_pr_auc is not None:
+        if np.isnan(pr_auc):
+            metrics_string += ", PR AUC=N/A"
+        else:
+            metrics_string += f", PR AUC={pr_auc:.{ndigits}f}"
+        if mean_group_pr_auc is not None and not np.isnan(mean_group_pr_auc):
             metrics_string += f"[{mean_group_pr_auc:.{ndigits}f}]"
 
-        metrics_string += f", PR={precision*100:.{ndigits}f}%,RE={recall*100:.{ndigits}f}%,F1={f1:.{ndigits}f}"
+        metrics_string += f", PR={precision*100:.{ndigits}f}%,RE={recall*100:.{ndigits}f}%,F1={f1*100:.{ndigits}f}%"
 
     fig = None
 
