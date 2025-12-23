@@ -59,6 +59,7 @@ except ImportError:
                 multioutput = None
         return np.average(output_errors, weights=multioutput)
 
+
 from pyutilz.pythonlib import get_human_readable_set_size
 from IPython.display import display
 
@@ -483,11 +484,11 @@ def report_probabilistic_model_perf(
         if probs.shape[1] == 2:
             # For binary classification, use threshold=0.5 on class 1 probability
             # This ensures consistency with calibration metrics in fast_calibration_report
-            classes_ = model.classes_ if (model is not None and hasattr(model, 'classes_')) else np.array([0, 1])
+            classes_ = model.classes_ if (model is not None and hasattr(model, "classes_")) else np.array([0, 1])
             preds = np.where(probs[:, 1] >= 0.5, classes_[1], classes_[0])
         else:
             preds = np.argmax(probs, axis=1)
-            if model is not None and hasattr(model, 'classes_'):
+            if model is not None and hasattr(model, "classes_"):
                 preds = model.classes_[preds]
 
     if isinstance(targets, pd.Series):
@@ -544,19 +545,20 @@ def report_probabilistic_model_perf(
             class_robust_integral_error = custom_rice_metric(y_true=y_true, y_score=y_score)
             title += f", RICE={class_robust_integral_error:.{calib_report_ndigits}f}"
 
-        
-        brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, precision, recall, f1, metrics_string, *_ = fast_calibration_report(
-            y_true=y_true,
-            y_pred=y_score,
-            use_weights=use_weights,
-            nbins=nbins,
-            group_ids=group_ids,
-            title=title,
-            figsize=figsize,
-            plot_file=plot_file + "_perfplot.png" if plot_file else "",
-            show_plots=show_perf_chart,
-            ndigits=calib_report_ndigits,
-            verbose=verbose,
+        brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, precision, recall, f1, metrics_string, *_ = (
+            fast_calibration_report(
+                y_true=y_true,
+                y_pred=y_score,
+                use_weights=use_weights,
+                nbins=nbins,
+                group_ids=group_ids,
+                title=title,
+                figsize=figsize,
+                plot_file=plot_file + "_perfplot.png" if plot_file else "",
+                show_plots=show_perf_chart,
+                ndigits=calib_report_ndigits,
+                verbose=verbose,
+            )
         )
 
         if print_report:
@@ -584,7 +586,9 @@ def report_probabilistic_model_perf(
                 log_loss=ll,
                 ice=ice,
                 class_integral_error=class_integral_error,
-                precision=precision, recall=recall, f1=f1
+                precision=precision,
+                recall=recall,
+                f1=f1,
             )
             if custom_rice_metric and custom_rice_metric != custom_ice_metric:
                 class_metrics["class_robust_integral_error"] = class_robust_integral_error
@@ -684,6 +688,7 @@ def plot_model_feature_importances(
     num_factors: int = 40,
     figsize: Tuple[int, int] = DEFAULT_FI_FIGSIZE,
     positive_fi_only: bool = False,
+    show_plots: bool = True,
     plot_file: str = "",
 ) -> Optional[np.ndarray]:
     """
@@ -725,6 +730,7 @@ def plot_model_feature_importances(
                 plot_file=plot_file,
                 positive_fi_only=positive_fi_only,
                 n=num_factors,
+                show_plots=show_plots,
             )
         except (ValueError, AttributeError, IndexError, TypeError) as e:
             logger.warning(f"Could not plot feature importances: {e}. Maybe data shape is changed within a pipeline?")
@@ -941,11 +947,11 @@ def evaluate_model(
 
 
 __all__ = [
-    'evaluate_model',
-    'report_model_perf',
-    'report_regression_model_perf',
-    'report_probabilistic_model_perf',
-    'get_model_feature_importances',
-    'plot_model_feature_importances',
-    'post_calibrate_model',
+    "evaluate_model",
+    "report_model_perf",
+    "report_regression_model_perf",
+    "report_probabilistic_model_perf",
+    "get_model_feature_importances",
+    "plot_model_feature_importances",
+    "post_calibrate_model",
 ]
