@@ -544,7 +544,8 @@ def report_probabilistic_model_perf(
             class_robust_integral_error = custom_rice_metric(y_true=y_true, y_score=y_score)
             title += f", RICE={class_robust_integral_error:.{calib_report_ndigits}f}"
 
-        brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, *_ = fast_calibration_report(
+        
+        brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, precision, recall, f1, metrics_string, *_ = fast_calibration_report(
             y_true=y_true,
             y_pred=y_score,
             use_weights=use_weights,
@@ -583,6 +584,7 @@ def report_probabilistic_model_perf(
                 log_loss=ll,
                 ice=ice,
                 class_integral_error=class_integral_error,
+                precision=precision, recall=recall, f1=f1
             )
             if custom_rice_metric and custom_rice_metric != custom_ice_metric:
                 class_metrics["class_robust_integral_error"] = class_robust_integral_error
