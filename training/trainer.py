@@ -338,7 +338,9 @@ def _update_model_name_after_training(model_name, train_df_len, train_details, b
     return model_name
 
 
-def _prepare_test_split(df, test_df, test_idx, test_target, target, real_drop_columns, model, pre_pipeline, skip_pre_pipeline_transform, skip_preprocessing=False):
+def _prepare_test_split(
+    df, test_df, test_idx, test_target, target, real_drop_columns, model, pre_pipeline, skip_pre_pipeline_transform, skip_preprocessing=False
+):
     """Prepare test DataFrame and target for evaluation."""
     if (df is not None) or (test_df is not None):
         if test_df is None:
@@ -378,8 +380,8 @@ def _extract_feature_selector(pre_pipeline):
     if pre_pipeline is None:
         return None
     # If it's a Pipeline with named steps, look for the 'pre' step
-    if hasattr(pre_pipeline, 'named_steps') and 'pre' in pre_pipeline.named_steps:
-        return pre_pipeline.named_steps['pre']
+    if hasattr(pre_pipeline, "named_steps") and "pre" in pre_pipeline.named_steps:
+        return pre_pipeline.named_steps["pre"]
     # If it's not a Pipeline, it might be the feature selector itself (e.g., MRMR, RFECV)
     if not isinstance(pre_pipeline, Pipeline):
         return pre_pipeline
@@ -409,7 +411,9 @@ def _is_fitted(estimator):
         return False
 
 
-def _apply_pre_pipeline_transforms(model, pre_pipeline, train_df, val_df, train_target, skip_pre_pipeline_transform, skip_preprocessing, use_cache, model_file_name, verbose):
+def _apply_pre_pipeline_transforms(
+    model, pre_pipeline, train_df, val_df, train_target, skip_pre_pipeline_transform, skip_preprocessing, use_cache, model_file_name, verbose
+):
     """Apply pre-pipeline transformations to train and validation DataFrames.
 
     Args:
