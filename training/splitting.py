@@ -191,13 +191,18 @@ def make_train_test_split(
 
     else:
         # Row-based splitting without timestamps (fallback to sklearn)
+        all_idx = np.arange(len(df))
         if test_size > 0:
             train_idx, test_idx = train_test_split(
-                np.arange(len(df)), test_size=test_size, shuffle=shuffle_test
+                all_idx, test_size=test_size, shuffle=shuffle_test
             )
         else:
-            train_idx, test_idx = np.arange(len(df)), None
-        train_idx, val_idx = train_test_split(train_idx, test_size=val_size, shuffle=shuffle_val)
+            train_idx, test_idx = all_idx, np.array([], dtype=np.intp)
+
+        if val_size > 0:
+            train_idx, val_idx = train_test_split(train_idx, test_size=val_size, shuffle=shuffle_val)
+        else:
+            val_idx = np.array([], dtype=np.intp)
 
         if trainset_aging_limit:
             train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)):]
@@ -207,7 +212,7 @@ def make_train_test_split(
     logger.info(
         f"{len(train_idx):_} train rows {train_details}, "
         f"{len(val_idx):_} val rows {val_details}, "
-        f"{len(test_idx) if test_idx is not None else 0:_} test rows {test_details}."
+        f"{len(test_idx):_} test rows {test_details}."
     )
 
     return (
