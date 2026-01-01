@@ -660,6 +660,21 @@ def _train_model_with_fallback(
             logger.warning(f"Model {model} skipped due to error 'pandas dtypes must be int, float or bool, got {train_df.dtypes}'")
             return None, None
 
+        elif "unexpected keyword argument" in error_str and any(
+            param in error_str for param in ("X_val", "y_val", "eval_set")
+        ):
+            # Older sklearn versions don't support validation set in HistGradientBoosting
+            val_params = ["X_val", "y_val", "eval_set"]
+            removed = [p for p in val_params if p in fit_params]
+            if removed:
+                logger.warning(
+                    f"This sklearn version doesn't support validation set parameters ({', '.join(removed)}) "
+                    f"for {model_type_name}. Training without early stopping validation."
+                )
+                for param in val_params:
+                    fit_params.pop(param, None)
+                try_again = True
+
         if try_again:
             clean_ram()
             model.fit(train_df, train_target, **fit_params)
