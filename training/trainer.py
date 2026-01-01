@@ -457,7 +457,10 @@ def _apply_pre_pipeline_transforms(
                 logger.info("No feature selector found in pipeline, skipping all transforms")
         elif _is_fitted(pre_pipeline):
             if verbose:
-                logger.info(f"Using pre-fitted pipeline (transform only): {pre_pipeline}")
+                try:
+                    logger.info(f"Using pre-fitted pipeline (transform only): {pre_pipeline}")
+                except:
+                    pass
             train_df = pre_pipeline.transform(train_df)
             if verbose:
                 log_ram_usage()
