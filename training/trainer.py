@@ -663,9 +663,7 @@ def _train_model_with_fallback(
             logger.warning(f"Model {model} skipped due to error 'pandas dtypes must be int, float or bool, got {train_df.dtypes}'")
             return None, None
 
-        elif "unexpected keyword argument" in error_str and any(
-            param in error_str for param in ("X_val", "y_val", "eval_set")
-        ):
+        elif "unexpected keyword argument" in error_str and any(param in error_str for param in ("X_val", "y_val", "eval_set")):
             # Older sklearn versions don't support validation set in HistGradientBoosting
             val_params = ["X_val", "y_val", "eval_set"]
             removed = [p for p in val_params if p in fit_params]
