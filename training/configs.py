@@ -250,6 +250,7 @@ class LinearModelConfig(ModelConfig):
         Regularization penalty for SGD: "l2", "l1", "elasticnet" (default: "l2").
     max_iter : int
         Maximum iterations for iterative solvers (default: 1000).
+        Can also be set via `iterations` for consistency with tree models.
     tol : float
         Convergence tolerance (default: 1e-3).
     learning_rate : str
@@ -289,6 +290,19 @@ class LinearModelConfig(ModelConfig):
 
     # Calibration
     use_calibrated_classifier: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def map_iterations_to_max_iter(cls, data: Any) -> Any:
+        """Map 'iterations' to 'max_iter' for consistency with tree models."""
+        if isinstance(data, dict) and "iterations" in data:
+            # Only set max_iter from iterations if max_iter wasn't explicitly provided
+            if "max_iter" not in data:
+                data["max_iter"] = data.pop("iterations")
+            else:
+                # Remove iterations if max_iter is also present (max_iter takes precedence)
+                data.pop("iterations")
+        return data
 
     @field_validator("model_type", mode="before")
     @classmethod

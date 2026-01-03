@@ -102,6 +102,7 @@ from .configs import (
     NamingConfig,
     ConfidenceAnalysisConfig,
     PredictionsContainer,
+    LinearModelConfig,
 )
 from .utils import log_ram_usage, get_categorical_columns, get_numeric_columns
 from .models import create_linear_model, LINEAR_MODEL_TYPES
@@ -1681,7 +1682,6 @@ def configure_training_params(
         Configuration for linear models. If provided, applies shared settings
         to all linear model types.
     """
-    from .configs import LinearModelConfig
 
     def _identity(x):
         return x
@@ -1865,11 +1865,22 @@ def configure_training_params(
     linear_model_params = {}
     linear_models_needed = LINEAR_MODEL_TYPES & models_set if models_set else LINEAR_MODEL_TYPES
     for model_type in linear_models_needed:
-        # Build config: use provided linear_model_config if available, otherwise defaults
+        # Build config by merging: config_params -> linear_model_config -> model_type
+        # This allows config_params_override["iterations"] to work for linear models
+        linear_config_kwargs = {"model_type": model_type}
+        # Apply config_params first (includes iterations from config_params_override)
+        if config_params:
+            # Only include keys that LinearModelConfig recognizes
+            linear_config_fields = set(LinearModelConfig.model_fields.keys())
+            # Also include 'iterations' which gets mapped to max_iter by the validator
+            linear_config_fields.add("iterations")
+            for key, value in config_params.items():
+                if key in linear_config_fields:
+                    linear_config_kwargs[key] = value
+        # Override with explicit linear_model_config if provided
         if linear_model_config:
-            config = LinearModelConfig(model_type=model_type, **linear_model_config.model_dump(exclude={"model_type"}))
-        else:
-            config = LinearModelConfig(model_type=model_type)
+            linear_config_kwargs.update(linear_model_config.model_dump(exclude={"model_type"}))
+        config = LinearModelConfig(**linear_config_kwargs)
         linear_model_params[model_type] = dict(model=metamodel_func(create_linear_model(model_type, config, use_regression=use_regression)))
 
     # Get individual params (may be None if not in mlframe_models)
