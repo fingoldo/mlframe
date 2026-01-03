@@ -1497,6 +1497,209 @@ def predict_mlframe_models_suite(
     return results
 
 
+def predict_from_models(
+    df: Union[pl.DataFrame, pd.DataFrame],
+    models: Dict,
+    metadata: Dict,
+    features_and_targets_extractor: Optional[FeaturesAndTargetsExtractor] = None,
+    return_probabilities: bool = True,
+    verbose: int = 1,
+) -> Dict[str, Any]:
+    """
+    Generate predictions using in-memory models from train_mlframe_models_suite.
+
+    This function works with models already in memory, avoiding disk I/O.
+    Use this when you have the models dict returned by train_mlframe_models_suite.
+
+    Args:
+        df: Input DataFrame (raw data, same format as training input)
+        models: Models dict returned by train_mlframe_models_suite.
+            Structure: models[target_type][target_name] = [model_obj, ...]
+        metadata: Metadata dict returned by train_mlframe_models_suite
+        features_and_targets_extractor: Optional extractor to preprocess input (same as training)
+        return_probabilities: If True, return probabilities; if False, return class predictions
+        verbose: Verbosity level
+
+    Returns:
+        Dict with:
+            - "predictions": Dict[model_name, predictions array]
+            - "probabilities": Dict[model_name, probabilities array] (if return_probabilities)
+            - "ensemble_predictions": Combined ensemble predictions (if multiple models)
+            - "ensemble_probabilities": Averaged probabilities (if multiple models)
+            - "models_used": List of model names that were used
+
+    Example:
+        ```python
+        models, metadata = train_mlframe_models_suite(...)
+
+        # Later, predict on new data
+        results = predict_from_models(
+            df=new_data,
+            models=models,
+            metadata=metadata,
+            features_and_targets_extractor=ft_extractor,
+        )
+        print(results["ensemble_probabilities"])
+        ```
+    """
+    # Validate inputs
+    if not isinstance(df, (pd.DataFrame, pl.DataFrame)):
+        raise TypeError(f"df must be pandas or polars DataFrame, got {type(df).__name__}")
+    if len(df) == 0:
+        raise ValueError("df cannot be empty")
+
+    results = {
+        "predictions": {},
+        "probabilities": {},
+        "ensemble_predictions": None,
+        "ensemble_probabilities": None,
+        "models_used": [],
+    }
+
+    # ==================================================================================
+    # 1. PREPROCESS INPUT DATA
+    # ==================================================================================
+
+    if verbose:
+        logger.info("Preprocessing input data...")
+
+    # Apply features extractor if provided (same transformation as training)
+    if features_and_targets_extractor is not None:
+        df, _, _, _, _, _, columns_to_drop, _ = features_and_targets_extractor.transform(df)
+        # Drop extra columns (target, etc.)
+        if columns_to_drop:
+            if isinstance(df, pd.DataFrame):
+                df = df.drop(columns=[c for c in columns_to_drop if c in df.columns], errors="ignore")
+            else:  # Polars
+                df = df.drop([c for c in columns_to_drop if c in df.columns])
+
+    # Convert to pandas if needed
+    if isinstance(df, pl.DataFrame):
+        df = get_pandas_view_of_polars_df(df)
+
+    # Get expected columns from metadata
+    columns = metadata.get("columns", [])
+
+    # Ensure columns match training columns
+    if columns:
+        missing_cols = set(columns) - set(df.columns)
+        extra_cols = set(df.columns) - set(columns)
+        if missing_cols:
+            logger.warning(f"Missing columns in input: {missing_cols}")
+        if extra_cols:
+            if verbose:
+                logger.info(f"Dropping extra columns: {extra_cols}")
+            df = df[[c for c in columns if c in df.columns]]
+
+    # Apply main pipeline transformation if available
+    pipeline = metadata.get("pipeline")
+    if pipeline is not None:
+        if verbose:
+            logger.info("Applying pipeline transformation...")
+        df = pipeline.transform(df)
+
+    # ==================================================================================
+    # 2. RUN PREDICTIONS
+    # ==================================================================================
+
+    if verbose:
+        logger.info("Running predictions on in-memory models...")
+
+    all_probs = []
+    all_preds = []
+
+    for target_type, targets in models.items():
+        for target_name, model_list in targets.items():
+            for model_obj in model_list:
+                if model_obj is None or not hasattr(model_obj, "model") or model_obj.model is None:
+                    continue
+
+                # Generate a unique name for this model
+                model_name = f"{target_type}_{target_name}"
+                if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
+                    # Add pipeline info to name if present
+                    pipeline_name = type(model_obj.pre_pipeline).__name__
+                    model_name = f"{model_name}_{pipeline_name}"
+
+                # Avoid duplicate names
+                base_name = model_name
+                counter = 1
+                while model_name in results["predictions"]:
+                    model_name = f"{base_name}_{counter}"
+                    counter += 1
+
+                if verbose:
+                    logger.info(f"Predicting with model: {model_name}")
+
+                try:
+                    model = model_obj.model
+
+                    # Apply model-specific pre_pipeline if present and different from main pipeline
+                    input_for_model = df
+                    if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
+                        if model_obj.pre_pipeline != pipeline:
+                            input_for_model = model_obj.pre_pipeline.transform(df)
+
+                    # Generate predictions
+                    if return_probabilities and hasattr(model, "predict_proba"):
+                        probs = model.predict_proba(input_for_model)
+                        results["probabilities"][model_name] = probs
+                        all_probs.append(probs)
+
+                        # For binary classification, get class 1 probability for threshold
+                        if probs.ndim == 2:
+                            preds = (probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+                        else:
+                            preds = (probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+                        results["predictions"][model_name] = preds
+                        all_preds.append(preds)
+                    else:
+                        preds = model.predict(input_for_model)
+                        results["predictions"][model_name] = preds
+                        all_preds.append(preds)
+
+                    results["models_used"].append(model_name)
+
+                except Exception as e:
+                    logger.error(f"Error predicting with model {model_name}: {e}")
+                    continue
+
+    # ==================================================================================
+    # 3. ENSEMBLE PREDICTIONS
+    # ==================================================================================
+
+    if len(all_probs) > 1:
+        if verbose:
+            logger.info("Computing ensemble predictions...")
+
+        # Average probabilities
+        avg_probs = np.mean(np.stack(all_probs), axis=0)
+        results["ensemble_probabilities"] = avg_probs
+
+        # Ensemble predictions from averaged probabilities
+        if avg_probs.ndim == 2:
+            ensemble_preds = (avg_probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+        else:
+            ensemble_preds = (avg_probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+        results["ensemble_predictions"] = ensemble_preds
+
+    elif len(all_preds) > 1:
+        # Majority voting for predictions without probabilities
+        ensemble_preds, _ = stats.mode(np.stack(all_preds), axis=0)
+        results["ensemble_predictions"] = ensemble_preds.flatten()
+
+    elif len(all_preds) == 1:
+        # Single model - use its predictions as ensemble
+        results["ensemble_predictions"] = all_preds[0]
+        if all_probs:
+            results["ensemble_probabilities"] = all_probs[0]
+
+    if verbose:
+        logger.info(f"Generated predictions for {len(results['predictions'])} models")
+
+    return results
+
+
 def load_mlframe_suite(models_path: str) -> Tuple[Dict, Dict]:
     """
     Load a trained mlframe models suite from disk.
@@ -1535,5 +1738,6 @@ def load_mlframe_suite(models_path: str) -> Tuple[Dict, Dict]:
 __all__ = [
     "train_mlframe_models_suite",
     "predict_mlframe_models_suite",
+    "predict_from_models",
     "load_mlframe_suite",
 ]
