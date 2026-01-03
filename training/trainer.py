@@ -1864,6 +1864,9 @@ def configure_training_params(
     # Linear models - only create variants that are needed
     linear_model_params = {}
     linear_models_needed = LINEAR_MODEL_TYPES & models_set if models_set else LINEAR_MODEL_TYPES
+    # Keys that have incompatible meanings between tree and linear models
+    # (e.g., learning_rate is float for trees but string schedule for linear SGD)
+    linear_config_excluded_keys = {"learning_rate"}
     for model_type in linear_models_needed:
         # Build config by merging: config_params -> linear_model_config -> model_type
         # This allows config_params_override["iterations"] to work for linear models
@@ -1871,7 +1874,7 @@ def configure_training_params(
         # Apply config_params first (includes iterations from config_params_override)
         if config_params:
             # Only include keys that LinearModelConfig recognizes
-            linear_config_fields = set(LinearModelConfig.model_fields.keys())
+            linear_config_fields = set(LinearModelConfig.model_fields.keys()) - linear_config_excluded_keys
             # Also include 'iterations' which gets mapped to max_iter by the validator
             linear_config_fields.add("iterations")
             for key, value in config_params.items():
