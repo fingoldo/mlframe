@@ -1395,8 +1395,8 @@ def train_and_evaluate_model(
             n_features=n_features,
         )
 
-        has_val = val_idx is not None or val_df is not None
-        has_test = test_idx is not None or test_df is not None
+        has_val = (val_idx is not None and len(val_idx) > 0) or val_df is not None
+        has_test = (test_idx is not None and len(test_idx) > 0) or test_df is not None
 
         splits_config = [
             (
