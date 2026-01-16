@@ -154,9 +154,9 @@ def fit_and_transform_pipeline(
             if verbose:
                 logger.info(f"train_df dtypes after pipeline: {Counter(train_df.dtypes)}")
 
-            # Polars-ds handles categorical encoding, so no separate cat_features needed
-            # Use schema instead of .head() for efficiency (no data scanning)
-            cat_features = [name for name, dtype in train_df.schema.items() if dtype in (pl.Categorical, pl.Utf8, pl.String)]
+        # Detect categorical features from schema (works whether pipeline succeeded or not)
+        # This ensures cat_features is populated even if polars-ds is not available
+        cat_features = [name for name, dtype in train_df.schema.items() if dtype in (pl.Categorical, pl.Utf8, pl.String)]
 
     # Handle Polars DataFrames without polars-ds pipeline - just detect cat_features
     elif isinstance(train_df, pl.DataFrame) and not config.use_polarsds_pipeline:

@@ -2,6 +2,17 @@
 Tests for pipeline fitting and transformation.
 
 Tests fit_and_transform_pipeline and related functionality.
+
+Test Coverage Matrix for fit_and_transform_pipeline:
+----------------------------------------------------
+The function has multiple code paths based on:
+1. DataFrame type: pandas vs Polars
+2. use_polarsds_pipeline: True vs False
+3. polars-ds availability: available vs not installed
+4. Has categorical features: yes vs no
+
+All combinations should be tested to prevent regressions like the one where
+Polars + use_polarsds_pipeline=False didn't detect categorical features.
 """
 
 import pytest
@@ -12,6 +23,154 @@ import polars as pl
 from mlframe.training.pipeline import fit_and_transform_pipeline, prepare_df_for_catboost, create_polarsds_pipeline
 from mlframe.training.configs import PolarsPipelineConfig
 from unittest.mock import patch
+
+
+# =============================================================================
+# Parametrized Tests for Categorical Feature Detection
+# =============================================================================
+
+class TestCategoricalFeatureDetection:
+    """Parametrized tests ensuring cat_features is detected across all DataFrame/config combinations.
+
+    This test class exists to prevent regressions where certain combinations of
+    DataFrame type and pipeline config fail to detect categorical features.
+    """
+
+    @pytest.fixture
+    def categorical_data_pandas(self):
+        """Create pandas DataFrame with categorical column."""
+        np.random.seed(42)
+        return pd.DataFrame({
+            'feature_0': np.random.randn(500),
+            'feature_1': np.random.randn(500),
+            'cat_feature': np.random.choice(['A', 'B', 'C'], 500),
+        })
+
+    @pytest.fixture
+    def categorical_data_polars_categorical(self):
+        """Create Polars DataFrame with pl.Categorical column."""
+        np.random.seed(42)
+        return pl.DataFrame({
+            'feature_0': np.random.randn(500),
+            'feature_1': np.random.randn(500),
+            'cat_feature': np.random.choice(['A', 'B', 'C'], 500),
+        }).with_columns(pl.col('cat_feature').cast(pl.Categorical))
+
+    @pytest.fixture
+    def categorical_data_polars_string(self):
+        """Create Polars DataFrame with pl.String column."""
+        np.random.seed(42)
+        return pl.DataFrame({
+            'feature_0': np.random.randn(500),
+            'feature_1': np.random.randn(500),
+            'cat_feature': np.random.choice(['A', 'B', 'C'], 500),
+        })
+
+    @pytest.mark.parametrize("use_polarsds_pipeline", [False, True])
+    def test_polars_categorical_detection(self, categorical_data_polars_categorical, use_polarsds_pipeline):
+        """Test that pl.Categorical columns are detected regardless of use_polarsds_pipeline setting.
+
+        This test covers the bug where Polars + use_polarsds_pipeline=False didn't detect cat_features,
+        AND the bug where Polars + use_polarsds_pipeline=True with polars-ds unavailable didn't detect cat_features.
+        """
+        pl_df = categorical_data_polars_categorical
+        train_size = int(0.7 * len(pl_df))
+        train_df = pl_df[:train_size]
+        val_df = pl_df[train_size:]
+
+        config = PolarsPipelineConfig(use_polarsds_pipeline=use_polarsds_pipeline)
+
+        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+            train_df=train_df,
+            val_df=val_df,
+            test_df=None,
+            config=config,
+            ensure_float32=False,
+            verbose=0,
+        )
+
+        assert 'cat_feature' in cat_features, (
+            f"Polars Categorical column not detected with use_polarsds_pipeline={use_polarsds_pipeline}. "
+            f"Got cat_features={cat_features}"
+        )
+
+    @pytest.mark.parametrize("use_polarsds_pipeline", [False, True])
+    def test_polars_string_detection(self, categorical_data_polars_string, use_polarsds_pipeline):
+        """Test that pl.String/Utf8 columns are detected regardless of use_polarsds_pipeline setting."""
+        pl_df = categorical_data_polars_string
+        train_size = int(0.7 * len(pl_df))
+        train_df = pl_df[:train_size]
+        val_df = pl_df[train_size:]
+
+        config = PolarsPipelineConfig(use_polarsds_pipeline=use_polarsds_pipeline)
+
+        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+            train_df=train_df,
+            val_df=val_df,
+            test_df=None,
+            config=config,
+            ensure_float32=False,
+            verbose=0,
+        )
+
+        assert 'cat_feature' in cat_features, (
+            f"Polars String column not detected with use_polarsds_pipeline={use_polarsds_pipeline}. "
+            f"Got cat_features={cat_features}"
+        )
+
+    def test_pandas_categorical_detection(self, categorical_data_pandas):
+        """Test that pandas object columns are detected as categorical."""
+        df = categorical_data_pandas
+        train_size = int(0.7 * len(df))
+        train_df = df.iloc[:train_size]
+        val_df = df.iloc[train_size:]
+
+        # Use categorical_encoding="none" to preserve cat_features (for CatBoost-style models)
+        # When encoding is "ordinal" or "onehot", cat_features gets cleared since columns become numeric
+        config = PolarsPipelineConfig(use_polarsds_pipeline=False, categorical_encoding="none")
+
+        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+            train_df=train_df,
+            val_df=val_df,
+            test_df=None,
+            config=config,
+            ensure_float32=False,
+            verbose=0,
+        )
+
+        assert 'cat_feature' in cat_features, (
+            f"Pandas object column not detected. Got cat_features={cat_features}"
+        )
+
+    def test_polars_with_mocked_polarsds_unavailable(self, categorical_data_polars_categorical):
+        """Test that cat_features is still detected when polars-ds import fails.
+
+        This specifically tests the bug where use_polarsds_pipeline=True but polars-ds
+        is not installed would result in empty cat_features.
+        """
+        pl_df = categorical_data_polars_categorical
+        train_size = int(0.7 * len(pl_df))
+        train_df = pl_df[:train_size]
+        val_df = pl_df[train_size:]
+
+        config = PolarsPipelineConfig(use_polarsds_pipeline=True)
+
+        # Mock polars-ds as unavailable
+        with patch.dict('sys.modules', {'polars_ds': None, 'polars_ds.pipeline': None}):
+            train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+                train_df=train_df,
+                val_df=val_df,
+                test_df=None,
+                config=config,
+                ensure_float32=False,
+                verbose=0,
+            )
+
+        # Even with polars-ds unavailable, cat_features must be detected
+        assert 'cat_feature' in cat_features, (
+            f"Categorical features not detected when polars-ds is unavailable. "
+            f"Got cat_features={cat_features}. This is a critical bug for CatBoost."
+        )
 
 
 class TestFitAndTransformPipeline:

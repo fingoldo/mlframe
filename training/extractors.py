@@ -440,6 +440,10 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
     classification_thresholds : dict, optional
         Dict mapping column names to threshold values for binary classification.
         Example: {"score": 0.5} creates target "score_above_0.5".
+    use_uniform_weighting : bool, default=False
+        If True, include uniform weighting (None) in sample weights dict.
+    use_recency_weighting : bool, default=True
+        If True and timestamps are available, include recency-based sample weights.
 
     Example
     -------
@@ -465,6 +469,9 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
         classification_targets: Optional[Iterable] = None,
         classification_exact_values: Optional[dict] = None,
         classification_thresholds: Optional[dict] = None,
+        # Weighting options
+        use_uniform_weighting: bool = False,
+        use_recency_weighting: bool = True,
     ):
         super().__init__(
             ts_field=ts_field,
@@ -478,6 +485,8 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
         self.classification_targets = classification_targets
         self.classification_thresholds = classification_thresholds
         self.classification_exact_values = classification_exact_values
+        self.use_uniform_weighting = use_uniform_weighting
+        self.use_recency_weighting = use_recency_weighting
 
     def add_features(self, df: Union[pd.DataFrame, pl.DataFrame]) -> Union[pd.DataFrame, pl.DataFrame]:
         if self.ts_field and self.datetime_features:
@@ -552,20 +561,23 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
     def get_sample_weights(
         self, df: Union[pd.DataFrame, pl.DataFrame], timestamps: Optional[pd.Series] = None
     ) -> Dict[str, np.ndarray]:
-        """Return recency-based sample weights if timestamps are available.
+        """Return sample weights based on configured weighting options.
 
         Args:
             df: The DataFrame.
             timestamps: Timestamp series if available.
 
         Returns:
-            Dict with 'recency' weights if timestamps provided, else empty dict.
+            Dict with enabled weight schemes. Empty dict if no weighting enabled.
         """
+        weights = {}
 
-        weights =  {"uniform": None}
-        if timestamps is not None:
-            # Add recency-based weights if timestamps available
+        if self.use_uniform_weighting:
+            weights["uniform"] = None
+
+        if self.use_recency_weighting and timestamps is not None:
             weights["recency"] = get_sample_weights_by_recency(timestamps)
+
         return weights
 
 
