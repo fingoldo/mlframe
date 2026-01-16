@@ -58,7 +58,7 @@ from .preprocessing import (
     save_split_artifacts,
     create_split_dataframes,
 )
-from .pipeline import fit_and_transform_pipeline
+from .pipeline import fit_and_transform_pipeline, prepare_df_for_catboost
 from mlframe.feature_selection.filters import MRMR
 from .utils import log_ram_usage, log_phase, drop_columns_from_dataframe, get_pandas_view_of_polars_df
 from .helpers import get_trainset_features_stats_polars, get_trainset_features_stats
@@ -1033,6 +1033,15 @@ def train_mlframe_models_suite(
 
     # Cache pandas versions for select_target (zero-copy Arrow-backed view for Polars)
     train_df_pd, val_df_pd, test_df_pd = _convert_dfs_to_pandas(train_df, val_df, test_df)
+
+    # Prepare categorical features for CatBoost (convert string columns to category dtype)
+    # This is needed because get_pandas_view_of_polars_df converts Polars Categorical to strings
+    if cat_features:
+        if verbose:
+            logger.info(f"Preparing {len(cat_features)} categorical features for CatBoost: {cat_features}")
+        for df_pd in [train_df_pd, val_df_pd, test_df_pd]:
+            if df_pd is not None:
+                prepare_df_for_catboost(df_pd, cat_features)
 
     if verbose:
         log_ram_usage()

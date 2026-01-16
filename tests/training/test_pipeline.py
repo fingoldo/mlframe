@@ -104,6 +104,88 @@ class TestFitAndTransformPipeline:
         assert 'cat_feature' in cat_features
         assert len(cat_features) == 1
 
+    def test_fit_pipeline_with_polars_categorical_no_pipeline(self):
+        """Test that categorical features are detected from Polars DataFrame when use_polarsds_pipeline=False.
+
+        This is a critical test for CatBoost compatibility:
+        - When using Polars input with use_polarsds_pipeline=False
+        - Categorical columns (pl.Categorical dtype) must be detected
+        - cat_features list must be populated for CatBoost to handle them correctly
+        """
+        np.random.seed(42)
+
+        # Create Polars DataFrame with Categorical column
+        pl_df = pl.DataFrame({
+            'feature_0': np.random.randn(500),
+            'feature_1': np.random.randn(500),
+            'cat_feature': np.random.choice(['A', 'B', 'C'], 500),
+        }).with_columns(
+            pl.col('cat_feature').cast(pl.Categorical)
+        )
+
+        train_size = int(0.7 * len(pl_df))
+        train_df = pl_df[:train_size]
+        val_df = pl_df[train_size:]
+
+        config = PolarsPipelineConfig(use_polarsds_pipeline=False)
+
+        # Fit and transform
+        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+            train_df=train_df,
+            val_df=val_df,
+            test_df=None,
+            config=config,
+            ensure_float32=False,
+            verbose=0,
+        )
+
+        # CRITICAL: cat_features must be detected from Polars Categorical columns
+        assert 'cat_feature' in cat_features, (
+            f"Expected 'cat_feature' in cat_features, got {cat_features}. "
+            "Polars Categorical columns must be detected when use_polarsds_pipeline=False."
+        )
+        assert len(cat_features) == 1
+
+    def test_fit_pipeline_with_polars_string_no_pipeline(self):
+        """Test that String/Utf8 columns in Polars are detected as categorical.
+
+        Polars String (Utf8) columns should also be treated as categorical features
+        for models like CatBoost that can handle them natively.
+        """
+        np.random.seed(42)
+
+        # Create Polars DataFrame with String column (not explicitly cast to Categorical)
+        pl_df = pl.DataFrame({
+            'feature_0': np.random.randn(500),
+            'feature_1': np.random.randn(500),
+            'string_feature': np.random.choice(['X', 'Y', 'Z'], 500),
+        })
+
+        # Verify it's String/Utf8 dtype (not Categorical)
+        assert pl_df['string_feature'].dtype in (pl.Utf8, pl.String)
+
+        train_size = int(0.7 * len(pl_df))
+        train_df = pl_df[:train_size]
+        val_df = pl_df[train_size:]
+
+        config = PolarsPipelineConfig(use_polarsds_pipeline=False)
+
+        # Fit and transform
+        train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
+            train_df=train_df,
+            val_df=val_df,
+            test_df=None,
+            config=config,
+            ensure_float32=False,
+            verbose=0,
+        )
+
+        # String columns should also be detected as categorical
+        assert 'string_feature' in cat_features, (
+            f"Expected 'string_feature' in cat_features, got {cat_features}. "
+            "Polars String/Utf8 columns must be detected as categorical when use_polarsds_pipeline=False."
+        )
+
     def test_fit_pipeline_with_no_validation_set(self, sample_regression_data):
         """Test pipeline with no validation set."""
         df, feature_names, y = sample_regression_data

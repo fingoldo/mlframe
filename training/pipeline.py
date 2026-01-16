@@ -158,6 +158,13 @@ def fit_and_transform_pipeline(
             # Use schema instead of .head() for efficiency (no data scanning)
             cat_features = [name for name, dtype in train_df.schema.items() if dtype in (pl.Categorical, pl.Utf8, pl.String)]
 
+    # Handle Polars DataFrames without polars-ds pipeline - just detect cat_features
+    elif isinstance(train_df, pl.DataFrame) and not config.use_polarsds_pipeline:
+        # Detect categorical features from schema (no transformation, just detection)
+        cat_features = [name for name, dtype in train_df.schema.items() if dtype in (pl.Categorical, pl.Utf8, pl.String)]
+        if verbose and cat_features:
+            logger.info(f"Detected {len(cat_features)} categorical features from Polars schema: {cat_features}")
+
     # Handle pandas DataFrames with sklearn-style pipeline
     elif isinstance(train_df, pd.DataFrame):
         # Identify categorical features
