@@ -552,12 +552,11 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
         Returns:
             Dict with 'recency' weights if timestamps provided, else empty dict.
         """
-        if timestamps is None:
-            return {}
 
-        weights = {}
-        # Add recency-based weights if timestamps available
-        weights["recency"] = get_sample_weights_by_recency(timestamps)
+        weights =  {"uniform": None}
+        if timestamps is not None:
+            # Add recency-based weights if timestamps available
+            weights["recency"] = get_sample_weights_by_recency(timestamps)
         return weights
 
 
