@@ -194,8 +194,10 @@ def showcase_features_and_targets(
                     print(desc_data)
 
             elif target_type == TargetTypes.BINARY_CLASSIFICATION:
-                if isinstance(target, (pl.Series, pd.Series)):
+                if isinstance(target,  pd.Series):
                     desc_data = target.value_counts(normalize=True)
+                elif isinstance(target, pl.Series):
+                    desc_data = target.value_counts(normalize=True, sort=True)
                 elif isinstance(target, np.ndarray):
                     desc_data = pl.Series(target).value_counts(normalize=True, sort=True)
 
@@ -497,13 +499,15 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
             for col in self.classification_targets:
                 if col not in df_columns:
                     raise KeyError(f"Classification target column '{col}' not found in DataFrame. Available: {list(df.columns)[:10]}...")
+                # Impute NaNs with 0 for classification targets
+                col_data = df[col].fillna(0) if is_pandas else df[col].fill_null(0)
                 if self.classification_thresholds and col in self.classification_thresholds:
                     thresh_val = self.classification_thresholds[col]
                     target_name = f"{col}_above_{thresh_val}"
                     if is_pandas:
-                        targets[target_name] = (df[col] >= thresh_val).astype(np.int8)
+                        targets[target_name] = (col_data >= thresh_val).astype(np.int8)
                     elif is_polars:
-                        targets[target_name] = (df[col] >= thresh_val).cast(pl.Int8)
+                        targets[target_name] = (col_data >= thresh_val).cast(pl.Int8)
                 elif (
                     self.classification_exact_values
                     and col in self.classification_exact_values
@@ -511,15 +515,15 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
                     exact_val = self.classification_exact_values[col]
                     target_name = f"{col}_eq_{exact_val}"
                     if is_pandas:
-                        targets[target_name] = (df[col] == exact_val).astype(np.int8)
+                        targets[target_name] = (col_data == exact_val).astype(np.int8)
                     elif is_polars:
-                        targets[target_name] = (df[col] == exact_val).cast(pl.Int8)
+                        targets[target_name] = (col_data == exact_val).cast(pl.Int8)
                 else:
                     target_name = col
                     if is_pandas:
-                        targets[target_name] = df[col].astype(np.int8)
+                        targets[target_name] = col_data.astype(np.int8)
                     elif is_polars:
-                        targets[target_name] = df[col].cast(pl.Int8)
+                        targets[target_name] = col_data.cast(pl.Int8)
                 self.columns_to_drop.add(col)
 
             intize_targets(targets)
