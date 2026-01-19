@@ -54,6 +54,66 @@ from .trainer import (
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# Storage Optimization
+# =============================================================================
+
+
+def optimize_model_for_storage(
+    model,
+    target_type: TargetTypes,
+    metadata_columns: Optional[List[str]] = None,
+) -> None:
+    """Optimize a model object for storage by removing redundant data.
+
+    For classification models:
+    - Removes train_preds, val_preds, test_preds (can be recreated from *_probs >= 0.5)
+
+    For binary classification:
+    - Converts *_probs arrays from shape (n, 2) to shape (n,) keeping only class 1 probs
+      (class 0 probs = 1 - class 1 probs)
+
+    If metadata_columns is provided:
+    - Removes model.columns if identical to metadata_columns
+
+    Parameters
+    ----------
+    model : SimpleNamespace
+        Model object with predictions and metadata attributes.
+    target_type : TargetTypes
+        Type of ML task (REGRESSION or BINARY_CLASSIFICATION).
+    metadata_columns : list of str, optional
+        Columns stored in metadata. If provided and identical to model.columns,
+        model.columns will be set to None to save storage.
+
+    Notes
+    -----
+    This function modifies the model object in-place.
+    """
+    is_classification = target_type == TargetTypes.BINARY_CLASSIFICATION
+
+    if is_classification:
+        # Remove *_preds for classification (can be recreated from *_probs >= 0.5)
+        model.train_preds = None
+        model.val_preds = None
+        model.test_preds = None
+
+        # For binary classification, only store class 1 probs
+        # Original shape: (n, 2) -> New shape: (n,)
+        for attr in ["train_probs", "val_probs", "test_probs"]:
+            probs = getattr(model, attr, None)
+            if probs is not None and hasattr(probs, "ndim"):
+                if probs.ndim == 2 and probs.shape[1] == 2:
+                    # Keep only class 1 probabilities
+                    setattr(model, attr, probs[:, 1])
+
+    # Remove columns if identical to metadata columns
+    if metadata_columns is not None and hasattr(model, "columns") and model.columns is not None:
+        model_columns = list(model.columns) if not isinstance(model.columns, list) else model.columns
+        if model_columns == metadata_columns:
+            model.columns = None
+
+
 def select_target(
     model_name: str,
     target: Union[np.ndarray, pd.Series, pl.Series],
@@ -351,6 +411,8 @@ def process_model(
     cached_train_df: Optional[pd.DataFrame] = None,
     cached_val_df: Optional[pd.DataFrame] = None,
     cached_test_df: Optional[pd.DataFrame] = None,
+    optimize_storage: bool = True,
+    metadata_columns: Optional[List[str]] = None,
 ) -> Tuple[Optional[Dict[str, Any]], Optional[Any], Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
     """Process a single model: load from cache or train from scratch.
 
@@ -479,6 +541,10 @@ def process_model(
         if fpath:
             save_mlframe_model(model, fpath)
 
+    # Optimize model for in-memory storage (after saving to disk to preserve full data in files)
+    if optimize_storage:
+        optimize_model_for_storage(model, target_type, metadata_columns)
+
     models[cur_target_name][target_type].append(model)
 
     # ens_models can be None when not building ensembles
@@ -501,6 +567,7 @@ __all__ = [
     "DEFAULT_RFECV_CV_SPLITS",
     "DEFAULT_RFECV_MAX_NOIMPROVING_ITERS",
     # Functions
+    "optimize_model_for_storage",
     "select_target",
     "process_model",
     "_call_train_evaluate_with_configs",

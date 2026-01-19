@@ -365,6 +365,8 @@ def _build_process_model_kwargs(
     cached_dfs: Optional[Tuple],
     polars_pipeline_applied: bool = False,
     mlframe_model_name: Optional[str] = None,
+    optimize_storage: bool = True,
+    metadata_columns: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Build kwargs dictionary for process_model call.
@@ -408,6 +410,8 @@ def _build_process_model_kwargs(
         "ens_models": ens_models,
         "trainset_features_stats": trainset_features_stats,
         "verbose": verbose,
+        "optimize_storage": optimize_storage,
+        "metadata_columns": metadata_columns,
     }
 
     # Skip preprocessing (scaler/imputer/encoder) if Polars-ds pipeline was already applied globally
@@ -1261,6 +1265,7 @@ def train_mlframe_models_suite(
                             cached_dfs=cached_dfs,
                             polars_pipeline_applied=polars_pipeline_applied,
                             mlframe_model_name=mlframe_model_name,
+                            metadata_columns=metadata.get("columns"),
                         )
 
                         trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed = process_model(
