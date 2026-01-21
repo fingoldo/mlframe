@@ -193,6 +193,23 @@ class LinearModelStrategy(ModelPipelineStrategy):
     requires_imputation = True
 
 
+class RecurrentModelStrategy(ModelPipelineStrategy):
+    """
+    Strategy for recurrent models (LSTM, GRU, RNN, Transformer).
+
+    These models:
+    - Process sequences internally (handled by RecurrentDataModule)
+    - In HYBRID mode, tabular features require preprocessing
+    - Need imputation and scaling for tabular features
+    - Require category encoding for tabular features
+    """
+
+    cache_key = "recurrent"
+    requires_scaling = True
+    requires_encoding = True
+    requires_imputation = True
+
+
 # =============================================================================
 # Strategy Registry
 # =============================================================================
@@ -202,6 +219,7 @@ _TREE_STRATEGY = TreeModelStrategy()
 _HGB_STRATEGY = HGBStrategy()
 _NEURAL_STRATEGY = NeuralNetStrategy()
 _LINEAR_STRATEGY = LinearModelStrategy()
+_RECURRENT_STRATEGY = RecurrentModelStrategy()
 
 # Model name to strategy mapping
 MODEL_STRATEGIES: Dict[str, ModelPipelineStrategy] = {
@@ -223,6 +241,11 @@ MODEL_STRATEGIES: Dict[str, ModelPipelineStrategy] = {
     "ransac": _LINEAR_STRATEGY,
     "sgd": _LINEAR_STRATEGY,
     "logistic": _LINEAR_STRATEGY,
+    # Recurrent models
+    "lstm": _RECURRENT_STRATEGY,
+    "gru": _RECURRENT_STRATEGY,
+    "rnn": _RECURRENT_STRATEGY,
+    "transformer": _RECURRENT_STRATEGY,
 }
 
 
@@ -321,6 +344,7 @@ __all__ = [
     "HGBStrategy",
     "NeuralNetStrategy",
     "LinearModelStrategy",
+    "RecurrentModelStrategy",
     "MODEL_STRATEGIES",
     "get_strategy",
     "get_cache_key",

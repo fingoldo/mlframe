@@ -9,7 +9,7 @@ Provides classes for preparing DataFrames before ML training, including:
 
 import io
 import logging
-from typing import Union, Iterable, Optional, Dict, Any, Tuple
+from typing import Union, Iterable, Optional, Dict, Any, Tuple, List
 
 import numpy as np
 import pandas as pd
@@ -247,6 +247,9 @@ class FeaturesAndTargetsExtractor:
         columns_to_drop: Optional[set] = None,
         allowed_targets: Optional[Iterable] = None,
         verbose: int = 0,
+        # Sequence extraction parameters (for recurrent models)
+        sequence_columns: Optional[Tuple[str, ...]] = None,
+        sequence_group_column: Optional[str] = None,
     ):
         params = get_parent_func_args()
         store_params_in_object(obj=self, params=params)
@@ -308,6 +311,40 @@ class FeaturesAndTargetsExtractor:
             Dictionary of artifacts.
         """
         return {}
+
+    def get_sequences(
+        self, df: Union[pd.DataFrame, pl.DataFrame]
+    ) -> Optional[List[np.ndarray]]:
+        """Extract sequences from DataFrame for recurrent models.
+
+        Uses sequence_columns and sequence_group_column parameters configured
+        during initialization.
+
+        Args:
+            df: Input DataFrame containing sequence data.
+
+        Returns:
+            List of (seq_len, n_columns) arrays, one per group/entity,
+            or None if sequence_columns is not configured.
+
+        Example:
+            >>> extractor = FeaturesAndTargetsExtractor(
+            ...     sequence_columns=("flux", "flux_err"),
+            ...     sequence_group_column="object_id",
+            ... )
+            >>> sequences = extractor.get_sequences(df)
+            >>> # sequences[0].shape = (seq_len_0, 2)
+        """
+        if self.sequence_columns is None:
+            return None
+
+        from mlframe.training.neural import extract_sequences
+
+        return extract_sequences(
+            df,
+            columns=self.sequence_columns,
+            group_column=self.sequence_group_column,
+        )
 
     def get_sample_weights(
         self, df: Union[pd.DataFrame, pl.DataFrame], timestamps: Optional[pd.Series] = None
@@ -472,6 +509,9 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
         # Weighting options
         use_uniform_weighting: bool = False,
         use_recency_weighting: bool = True,
+        # Sequence extraction (for recurrent models)
+        sequence_columns: Optional[Tuple[str, ...]] = None,
+        sequence_group_column: Optional[str] = None,
     ):
         super().__init__(
             ts_field=ts_field,
@@ -479,6 +519,8 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
             group_field=group_field,
             columns_to_drop=columns_to_drop,
             verbose=verbose,
+            sequence_columns=sequence_columns,
+            sequence_group_column=sequence_group_column,
         )
 
         self.regression_targets = regression_targets

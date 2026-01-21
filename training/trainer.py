@@ -49,8 +49,8 @@ import flaml.default as flaml_zeroshot
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from mlframe.lightninglib import MLPNeuronsByLayerArchitecture
-from mlframe.lightninglib import PytorchLightningRegressor, PytorchLightningClassifier
+from mlframe.training.neural import MLPNeuronsByLayerArchitecture
+from mlframe.training.neural import PytorchLightningRegressor, PytorchLightningClassifier
 
 from pyutilz.system import clean_ram, ensure_dir_exists, compute_total_gpus_ram, get_gpuinfo_gpu_info
 from pyutilz.strings import slugify
@@ -1619,6 +1619,127 @@ def _configure_mlp_params(
         mlp_model = PytorchLightningClassifier(network_params=mlp_network_params, **mlp_general_params)
 
     return dict(model=metamodel_func(mlp_model))
+
+
+def _configure_recurrent_params(
+    recurrent_models: List[str],
+    recurrent_config: Optional[Any],
+    sequences_train: Optional[List[np.ndarray]],
+    features_train: Optional[Union[pd.DataFrame, np.ndarray]],
+    use_regression: bool,
+    metamodel_func: callable = None,
+) -> Dict[str, dict]:
+    """Configure recurrent model (LSTM, GRU, RNN, Transformer) parameters.
+
+    Parameters
+    ----------
+    recurrent_models : list of str
+        List of recurrent model types to configure (e.g., ["lstm", "gru"]).
+    recurrent_config : RecurrentConfig or None
+        Configuration for recurrent models. If None, uses defaults.
+    sequences_train : list of np.ndarray or None
+        Training sequences (variable length).
+    features_train : DataFrame or np.ndarray or None
+        Tabular features for HYBRID mode.
+    use_regression : bool
+        Whether to use regression (MSELoss) or classification (CrossEntropyLoss).
+    metamodel_func : callable, optional
+        Function to wrap the model (e.g., for calibration).
+
+    Returns
+    -------
+    dict
+        Dictionary mapping model names to their configurations.
+    """
+    from mlframe.training.neural import (
+        RNNType,
+        InputMode,
+        RecurrentConfig,
+        RecurrentClassifierWrapper,
+        RecurrentRegressorWrapper,
+    )
+
+    if metamodel_func is None:
+        def metamodel_func(x):
+            return x
+
+    # Determine input mode based on available data
+    has_sequences = sequences_train is not None and len(sequences_train) > 0
+    has_features = features_train is not None
+    if hasattr(features_train, 'shape'):
+        has_features = has_features and features_train.shape[1] > 0
+
+    if has_sequences and has_features:
+        input_mode = InputMode.HYBRID
+    elif has_sequences:
+        input_mode = InputMode.SEQUENCE_ONLY
+    else:
+        input_mode = InputMode.FEATURES_ONLY
+
+    # Use provided config or create default
+    if recurrent_config is None:
+        recurrent_config = RecurrentConfig()
+
+    # Infer dimensions from data
+    if has_sequences:
+        seq_input_dim = sequences_train[0].shape[-1] if sequences_train[0].ndim > 1 else 1
+    else:
+        seq_input_dim = 0
+
+    if has_features:
+        if hasattr(features_train, 'shape'):
+            features_dim = features_train.shape[1]
+        else:
+            features_dim = len(features_train.columns)
+    else:
+        features_dim = 0
+
+    result = {}
+
+    for model_name in recurrent_models:
+        model_name_lower = model_name.lower()
+
+        # Map model name to RNNType
+        rnn_type_map = {
+            "lstm": RNNType.LSTM,
+            "gru": RNNType.GRU,
+            "rnn": RNNType.RNN,
+            "transformer": RNNType.TRANSFORMER,
+        }
+        if model_name_lower not in rnn_type_map:
+            raise ValueError(f"Unknown recurrent model type: {model_name}. "
+                           f"Supported: {list(rnn_type_map.keys())}")
+
+        rnn_type = rnn_type_map[model_name_lower]
+
+        # Create model-specific config
+        config = RecurrentConfig(
+            input_mode=input_mode,
+            rnn_type=rnn_type,
+            seq_input_dim=seq_input_dim,
+            features_dim=features_dim,
+            hidden_size=recurrent_config.hidden_size,
+            num_layers=recurrent_config.num_layers,
+            dropout=recurrent_config.dropout,
+            bidirectional=recurrent_config.bidirectional,
+            num_heads=recurrent_config.num_heads,
+            use_attention=recurrent_config.use_attention,
+            mlp_hidden_dims=recurrent_config.mlp_hidden_dims,
+            num_classes=recurrent_config.num_classes,
+            learning_rate=recurrent_config.learning_rate,
+            weight_decay=recurrent_config.weight_decay,
+            max_epochs=recurrent_config.max_epochs,
+            batch_size=recurrent_config.batch_size,
+            early_stopping_patience=recurrent_config.early_stopping_patience,
+        )
+
+        # Select wrapper class based on task type
+        WrapperClass = RecurrentRegressorWrapper if use_regression else RecurrentClassifierWrapper
+        wrapper = WrapperClass(config=config)
+
+        result[model_name_lower] = dict(model=metamodel_func(wrapper))
+
+    return result
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------

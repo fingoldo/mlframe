@@ -725,6 +725,9 @@ def train_mlframe_models_suite(
     features_and_targets_extractor: FeaturesAndTargetsExtractor,
     # Model selection
     mlframe_models: Optional[List[str]] = None,
+    recurrent_models: Optional[List[str]] = None,
+    recurrent_config: Optional[Any] = None,
+    sequences: Optional[List[np.ndarray]] = None,
     use_ordinary_models: bool = True,
     use_mlframe_ensembles: bool = True,
     # Configurations (can be dicts or Pydantic objects)
@@ -767,6 +770,13 @@ def train_mlframe_models_suite(
         features_and_targets_extractor: FeaturesAndTargetsExtractor instance for computing targets
 
         mlframe_models: List of model types to train (cb, lgb, xgb, mlp, hgb, linear, ridge, etc.)
+        recurrent_models: List of recurrent model types to train (lstm, gru, rnn, transformer).
+            These models handle sequential data and support variable-length sequences.
+        recurrent_config: RecurrentConfig object for recurrent model hyperparameters.
+            If None, uses default configuration.
+        sequences: Pre-extracted sequences as list of (seq_len, n_features) arrays.
+            If None and extractor has sequence_columns configured, sequences will be
+            extracted automatically using extractor.get_sequences().
         use_ordinary_models: Whether to train regular models
         use_mlframe_ensembles: Whether to create ensembles
 
@@ -878,6 +888,16 @@ def train_mlframe_models_suite(
         df
     )
 
+    # Extract sequences for recurrent models (if not provided directly)
+    if recurrent_models and sequences is None:
+        extracted_sequences = features_and_targets_extractor.get_sequences(df)
+        if extracted_sequences is not None:
+            sequences = extracted_sequences
+            if verbose:
+                logger.info(f"Extracted {len(sequences)} sequences from DataFrame")
+        elif verbose:
+            logger.warning("recurrent_models specified but no sequences provided or extracted")
+
     clean_ram()
     if verbose:
         log_ram_usage()
@@ -952,6 +972,15 @@ def train_mlframe_models_suite(
         val_idx=val_idx,
         test_idx=test_idx,
     )
+
+    # Split sequences by train/val/test indices (for recurrent models)
+    train_sequences, val_sequences, test_sequences = None, None, None
+    if sequences is not None:
+        train_sequences = [sequences[i] for i in train_idx]
+        val_sequences = [sequences[i] for i in val_idx] if val_idx is not None else None
+        test_sequences = [sequences[i] for i in test_idx]
+        if verbose:
+            logger.info(f"Split sequences: train={len(train_sequences)}, val={len(val_sequences) if val_sequences else 0}, test={len(test_sequences)}")
 
     # Delete original df to free RAM
     if verbose:
@@ -1296,6 +1325,94 @@ def train_mlframe_models_suite(
                         n_features=ens_n_features,
                         **common_params,
                     )
+
+    # ==================================================================================
+    # 6. RECURRENT MODEL TRAINING
+    # ==================================================================================
+
+    if recurrent_models and (train_sequences is not None or train_df is not None):
+        if verbose:
+            log_phase("PHASE 5: Recurrent Model Training")
+
+        from .trainer import _configure_recurrent_params
+
+        # Determine if this is a regression task
+        use_regression = TargetTypes.REGRESSION in target_by_type
+
+        # Configure recurrent model parameters
+        recurrent_params = _configure_recurrent_params(
+            recurrent_models=recurrent_models,
+            recurrent_config=recurrent_config,
+            sequences_train=train_sequences,
+            features_train=train_df_pd if train_df_pd is not None else train_df,
+            use_regression=use_regression,
+        )
+
+        # Train recurrent models
+        for recurrent_model_name in tqdmu(recurrent_models, desc="recurrent model"):
+            model_name_lower = recurrent_model_name.lower()
+            if model_name_lower not in recurrent_params:
+                logger.warning(f"Recurrent model {recurrent_model_name} not configured, skipping...")
+                continue
+
+            recurrent_model = recurrent_params[model_name_lower]["model"]
+
+            # Iterate over target types and targets
+            for target_type, targets in target_by_type.items():
+                for cur_target_name, target_values in targets.items():
+                    if verbose:
+                        logger.info(f"Training {recurrent_model_name} for target {cur_target_name}...")
+
+                    # Extract train/val/test targets
+                    train_target = target_values[train_idx] if hasattr(target_values, '__getitem__') else target_values.iloc[train_idx]
+                    val_target = target_values[val_idx] if val_idx is not None and hasattr(target_values, '__getitem__') else None
+                    test_target = target_values[test_idx] if hasattr(target_values, '__getitem__') else target_values.iloc[test_idx]
+
+                    # Convert to numpy if needed
+                    if hasattr(train_target, 'to_numpy'):
+                        train_target = train_target.to_numpy()
+                    elif hasattr(train_target, 'values'):
+                        train_target = train_target.values
+
+                    if val_target is not None:
+                        if hasattr(val_target, 'to_numpy'):
+                            val_target = val_target.to_numpy()
+                        elif hasattr(val_target, 'values'):
+                            val_target = val_target.values
+
+                    if hasattr(test_target, 'to_numpy'):
+                        test_target = test_target.to_numpy()
+                    elif hasattr(test_target, 'values'):
+                        test_target = test_target.values
+
+                    # Clone model for this target
+                    model_clone = clone(recurrent_model)
+
+                    try:
+                        # Fit the model
+                        model_clone.fit(
+                            sequences=train_sequences,
+                            features=train_df_pd if train_df_pd is not None else None,
+                            labels=train_target,
+                            val_sequences=val_sequences,
+                            val_features=val_df_pd if val_df_pd is not None else None,
+                            val_labels=val_target,
+                        )
+
+                        # Store the trained model
+                        if target_type not in models:
+                            models[target_type] = {}
+                        if cur_target_name not in models[target_type]:
+                            models[target_type][cur_target_name] = {}
+
+                        models[target_type][cur_target_name][recurrent_model_name] = model_clone
+
+                        if verbose:
+                            logger.info(f"Successfully trained {recurrent_model_name} for {cur_target_name}")
+
+                    except Exception as e:
+                        logger.error(f"Failed to train {recurrent_model_name} for {cur_target_name}: {e}")
+                        continue
 
     if verbose:
         log_phase(f"Training suite completed for {model_name}, {sum(len(v) for targets in models.values() for v in targets.values())} models.")
