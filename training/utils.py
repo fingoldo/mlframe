@@ -39,6 +39,41 @@ def log_ram_usage() -> None:
     logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
 
+def clean_ram_and_gpu(verbose: bool = False) -> None:
+    """
+    Clean both CPU RAM and GPU memory.
+
+    Combines pyutilz.clean_ram() with GPU memory cleanup.
+    Call this after model training to free memory before training next model.
+
+    Args:
+        verbose: If True, log memory stats after cleanup
+    """
+    import gc
+
+    # Clean CPU RAM first
+    clean_ram()
+
+    # Clean GPU memory if PyTorch CUDA is available
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            # Synchronize all CUDA streams before cleanup
+            torch.cuda.synchronize()
+            # Empty the CUDA memory cache
+            torch.cuda.empty_cache()
+            # Force garbage collection again after GPU cleanup
+            gc.collect()
+
+            if verbose:
+                allocated = torch.cuda.memory_allocated() / 1e9
+                reserved = torch.cuda.memory_reserved() / 1e9
+                logger.info(f"GPU memory after cleanup: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
+    except ImportError:
+        pass  # PyTorch not installed
+
+
 def log_phase(msg: str, n: int = 160) -> None:
     """Log a phase separator with message."""
     logger.info("-" * n)
@@ -447,6 +482,7 @@ def remove_constant_columns(df: Union[pl.DataFrame, pd.DataFrame], verbose: int 
 __all__ = [
     "log_ram_usage",
     "log_phase",
+    "clean_ram_and_gpu",
     "drop_columns_from_dataframe",
     "get_pandas_view_of_polars_df",
     "save_series_or_df",

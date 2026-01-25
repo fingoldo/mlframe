@@ -40,7 +40,7 @@ from sklearn.model_selection import train_test_split
 
 try:
     from imblearn.pipeline import Pipeline
-except:
+except (ImportError, ModuleNotFoundError):
     from sklearn.pipeline import Pipeline
 
 from IPython.display import display, Markdown, Latex

@@ -74,7 +74,7 @@ def minGap(x):
     try:
         y = np.sort(x)
         return np.nanmin(y[1:] - y[:-1])
-    except:
+    except (ValueError, IndexError):
         return 0
 
 
@@ -82,7 +82,7 @@ def maxGap(x):
     try:
         y = np.sort(x)
         return np.nanmax(y[1:] - y[:-1])
-    except:
+    except (ValueError, IndexError):
         return 0
 
 
@@ -90,7 +90,7 @@ def meanGap(x):
     try:
         y = np.sort(x)
         return np.nanmean(y[1:] - y[:-1])
-    except:
+    except (ValueError, IndexError):
         return 0
 
 

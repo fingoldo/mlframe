@@ -1617,13 +1617,11 @@ def extract_sequences(
 
     col_data = [df[col].to_list() for col in columns]
 
-    result: List[np.ndarray] = []
-    for i in range(n_rows):
-        seq_len = len(col_data[0][i])
-        arr = np.empty((seq_len, n_cols), dtype=np.float32)
-        for j in range(n_cols):
-            arr[:, j] = col_data[j][i]
-        result.append(arr)
+    # Vectorized: use np.column_stack to avoid nested Python loop
+    result: List[np.ndarray] = [
+        np.column_stack([col_data[j][i] for j in range(n_cols)]).astype(np.float32)
+        for i in range(n_rows)
+    ]
 
     return result
 

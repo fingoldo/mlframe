@@ -12,17 +12,17 @@ def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed:
 
     try:
         np.random.seed(seed)
-    except:
+    except (TypeError, ValueError):
         pass
     try:
         import cupy as cp
 
         cp.random.seed(seed)
-    except:
+    except (ImportError, ModuleNotFoundError):
         pass
     try:
         set_numba_random_seed(seed)
-    except:
+    except (TypeError, ValueError, RuntimeError):
         pass
 
     if set_hash_seed:
@@ -37,7 +37,7 @@ def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed:
             torch.cuda.manual_seed(seed)
             torch.cuda.manual_seed_all(seed)
             torch.backends.cudnn.deterministic = True  # type: ignore
-        except:
+        except (ImportError, ModuleNotFoundError, RuntimeError):
             pass
 
 
@@ -55,16 +55,16 @@ def get_full_classifier_name(clf: object) -> str:
             transformer_name = type(clf.transformer).__name__
             try:
                 transformer_name += " " + clf.transformer.method
-            except:
+            except AttributeError:
                 pass
             try:
                 transformer_name += " " + clf.transformer.output_distribution  # QuantileTransformer
-            except:
+            except AttributeError:
                 pass
         else:
             try:
                 transformer_name = clf.func.__name__
-            except:
+            except AttributeError:
                 transformer_name = "func"
 
         full_clf_name = " -> ".join([regressor_name, transformer_name])

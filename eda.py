@@ -28,7 +28,7 @@ import pandas as pd
 
 try:
     from IPython.core.display import display
-except:
+except (ImportError, ModuleNotFoundError):
     display = print
 
 

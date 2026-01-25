@@ -269,19 +269,25 @@ def get_strategy(model_name: str) -> ModelPipelineStrategy:
     return strategy
 
 
-def get_cache_key(model_name: str) -> str:
+def get_cache_key(model_name: str, pre_pipeline_name: str = "") -> str:
     """
     Get the cache key for a model's transformed DataFrames.
 
     Models with the same cache key can share transformed DataFrames.
+    The pre_pipeline_name is included to differentiate between different
+    feature selectors (e.g., MRMR vs RFECV) that would otherwise share cache.
 
     Args:
         model_name: Name of the model
+        pre_pipeline_name: Name/identifier of the pre-pipeline (e.g., "mrmr", "rfecv")
 
     Returns:
-        Cache key string
+        Cache key string (e.g., "tree", "tree_mrmr", "neural_rfecv")
     """
-    return get_strategy(model_name).cache_key
+    base_key = get_strategy(model_name).cache_key
+    if pre_pipeline_name:
+        return f"{base_key}_{pre_pipeline_name}"
+    return base_key
 
 
 # =============================================================================

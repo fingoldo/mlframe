@@ -127,7 +127,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         try:
             check_feature_importance = hasattr(self.model, "feature_importances_")
 
-        except:
+        except (AttributeError, TypeError):
             check_feature_importance = True
 
         if self.model is None:
@@ -272,7 +272,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             try:
                 self.model.fit(X, y, verbose=False, **self.fit_params)
 
-            except:
+            except TypeError:
                 self.model.fit(X, y, **self.fit_params)
 
     def fit(self, X, y):
@@ -518,7 +518,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             for feature in self.features_to_remove:
                 try:
                     self.X.drop(feature, axis=1, inplace=True)
-                except:
+                except (KeyError, ValueError):
                     pass
 
         else:

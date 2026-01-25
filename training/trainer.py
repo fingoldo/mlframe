@@ -460,7 +460,7 @@ def _apply_pre_pipeline_transforms(
             if verbose:
                 try:
                     logger.info(f"Using pre-fitted pipeline (transform only): {pre_pipeline}")
-                except:
+                except (ValueError, TypeError):
                     pass
             train_df = pre_pipeline.transform(train_df)
             if verbose:

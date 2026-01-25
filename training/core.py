@@ -1244,7 +1244,8 @@ def train_mlframe_models_suite(
                         imputer=imputer,
                         scaler=scaler,
                     )
-                    cache_key = strategy.cache_key
+                    # Include pre_pipeline_name in cache key to differentiate MRMR vs RFECV etc.
+                    cache_key = f"{strategy.cache_key}_{pre_pipeline_name}" if pre_pipeline_name else strategy.cache_key
 
                     # --- WEIGHT SCHEMA LOOP: Train with each sample weighting ---
                     for weight_name, weight_values in tqdmu(weight_schemas.items(), desc="weighting schema"):
@@ -1266,11 +1267,17 @@ def train_mlframe_models_suite(
                         # Check if we have cached transformed DataFrames for this pipeline type
                         cached_dfs = pipeline_cache.get(cache_key)
 
-                        # Clone model to ensure returned in-memory models can be used for predictions.
-                        # Without cloning, all entries in models[target][type] would point to the same
-                        # sklearn model object (the last-trained state), making in-memory predictions wrong.
-                        # Note: Saved .dump files and stored predictions (.test_probs, etc.) are unaffected
-                        # since they capture snapshots, but in-memory model.model.predict() requires cloning.
+                        # ============================================================================
+                        # INTENTIONAL: Clone model for EACH weight schema iteration.
+                        # DO NOT "OPTIMIZE" BY MOVING CLONE OUTSIDE THE LOOP!
+                        # ============================================================================
+                        # Each weight schema produces a DIFFERENT trained model that gets stored
+                        # separately in models[target][type]. Without cloning per iteration:
+                        #   - All entries would point to the SAME sklearn object (last-trained state)
+                        #   - In-memory model.model.predict() would give WRONG results
+                        #   - Only saved .dump files would work correctly (they capture snapshots)
+                        # The clone() cost is negligible compared to training time.
+                        # ============================================================================
                         original_model = models_params[mlframe_model_name]["model"]
                         cloned_model = clone(original_model)
                         current_model_params = models_params[mlframe_model_name].copy()
@@ -1311,7 +1318,7 @@ def train_mlframe_models_suite(
                     # Non-tree models wrap base_pipeline in a full Pipeline (with encoder/imputer/scaler),
                     # which we don't want to use as the base for other model types.
                     # For optimal performance, list tree models first in mlframe_models.
-                    if cache_key == "tree":
+                    if cache_key.startswith("tree"):
                         orig_pre_pipeline = pre_pipeline
 
                 if ens_models and len(ens_models) > 1:
@@ -1836,10 +1843,12 @@ def load_mlframe_suite(models_path: str) -> Tuple[Dict, Dict]:
     Load a trained mlframe models suite from disk.
 
     Args:
-        models_path: Path to the models directory
+        models_path: Path to the models directory (e.g., "data/models/target_name/model_name")
 
     Returns:
-        Tuple of (models dict, metadata dict)
+        Tuple of (models dict, metadata dict) in the same format as train_mlframe_models_suite:
+        - models: Dict[target_type][target_name] = [model_obj, ...]
+        - metadata: Dict with training configuration and artifacts
     """
     # Validate inputs
     if not isinstance(models_path, str):
@@ -1853,17 +1862,31 @@ def load_mlframe_suite(models_path: str) -> Tuple[Dict, Dict]:
 
     metadata = joblib.load(metadata_file)
 
-    # Load all models
-    models = {}
+    # Load all models into nested structure matching train_mlframe_models_suite output
+    # Structure: models[target_type][target_name] = [model_obj, ...]
+    # Path structure from _setup_model_directories: models_path/target_type/target_name/model.dump
+    models = defaultdict(lambda: defaultdict(list))
     model_files = glob.glob(join(models_path, "**", "*.dump"), recursive=True)
 
     for model_file in model_files:
-        model_name = os.path.basename(model_file).replace(".dump", "")
+        # Extract target_type and target_name from path
+        rel_path = os.path.relpath(model_file, models_path)
+        path_parts = rel_path.split(os.sep)
+
+        if len(path_parts) >= 3:
+            # path_parts = [target_type, target_name, model_file.dump]
+            target_type = path_parts[0]
+            target_name = path_parts[1]
+        else:
+            # Fallback for flat structure or unexpected layout
+            target_type = "unknown"
+            target_name = "unknown"
+
         model_obj = load_mlframe_model(model_file)
         if model_obj is not None:
-            models[model_name] = model_obj
+            models[target_type][target_name].append(model_obj)
 
-    return models, metadata
+    return dict(models), metadata
 
 
 __all__ = [

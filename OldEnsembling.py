@@ -20,17 +20,22 @@ from datetime import datetime
 
 import joblib
 
-import winsound
+# winsound is Windows-only; use conditional import
+try:
+    import winsound
+except ImportError:
+    winsound = None  # type: ignore
+
 from os import path
 import os,platform,socket,sys
-from past.builtins import execfile
+# Removed: from past.builtins import execfile (Python 2 deprecated)
 
 import itertools
 from collections import OrderedDict
 
 from shutil import rmtree
 from tempfile import mkdtemp
-from sklearn.externals.joblib import Memory
+from joblib import Memory  # Changed from sklearn.externals.joblib (deprecated)
 
 ##########################################################################################################################################################################################################
 #Sparse data
@@ -46,7 +51,7 @@ from scipy.stats import randint as sp_randint
 ##########################################################################################################################################################################################################
 #Preprocessing
 ##########################################################################################################################################################################################################
-from sklearn.preprocessing import Imputer
+from sklearn.impute import SimpleImputer as Imputer  # Changed from sklearn.preprocessing.Imputer (deprecated)
 from sklearn.preprocessing import LabelEncoder,OneHotEncoder
 from sklearn.preprocessing import Normalizer,Binarizer,KBinsDiscretizer
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, MaxAbsScaler, RobustScaler, QuantileTransformer
@@ -448,9 +453,11 @@ def TestEstimator(clf,standardize=False,tfidf=False,pre_pipeline=[],target_encod
     else:
         cv_scores=cross_val_score(pipe,x_train,y_train,scoring=scoring,cv=10,n_jobs=-1)
         print("CV scoring: %0.3f \u00B1 %0.3f" % (cv_scores.mean(),cv_scores.std()))   
-    try:
-        winsound.PlaySound('sound.wav', winsound.SND_FILENAME)
-    except:pass
+    if winsound is not None:
+        try:
+            winsound.PlaySound('sound.wav', winsound.SND_FILENAME)
+        except (RuntimeError, OSError):
+            pass
     return pipe
     
 ########################################################################################################################################################################################################

@@ -282,7 +282,7 @@ def show_classifier_calibration(
                 ax.set_xlabel("Expected")
                 ax.set_ylabel("Real")
                 ax.set_title("%s, %d bins, %d points" % (title, nbins, len(y_true)))
-            except:
+            except (RuntimeError, ValueError, AttributeError):
                 pass
 
             if is_profit:

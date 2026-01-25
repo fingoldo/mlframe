@@ -725,7 +725,7 @@ def analyse_and_clean_features(
 def fix_doublespaces_and_strip(text: str) -> str:
     try:
         text = text.strip().replace("  ", " ")
-    except:
+    except (AttributeError, TypeError):
         pass
 
     return text

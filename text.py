@@ -10,7 +10,7 @@ def read_glove_embeddings(embeddings_dict:dict,fpath:Optional[str]="glove.6B.50d
             word = values[0]
             try:
                 coefs = np.asarray(values[1:], dtype='float32')
-            except:
-                pass
+            except (ValueError, TypeError):
+                continue
             embeddings_dict[word] = coefs
     logging.debug('Total %s word vectors.' % len(embeddings_dict))
