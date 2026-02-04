@@ -950,3 +950,58 @@ class TestApplyPrePipelineTransformsWithFittedPipeline:
 
         # DataFrames should be unchanged
         pd.testing.assert_frame_equal(result_train, original_train_df)
+
+
+class TestValidateTargetValues:
+    """Tests for _validate_target_values helper function."""
+
+    @pytest.mark.parametrize("target_factory", [
+        pytest.param(lambda arr: pd.Series(arr), id="pandas"),
+        pytest.param(lambda arr: np.array(arr), id="numpy"),
+        pytest.param(lambda arr: pl.Series(arr).to_numpy(), id="polars_to_numpy"),
+    ])
+    def test_clean_target_passes(self, target_factory):
+        from mlframe.training.trainer import _validate_target_values
+
+        target = target_factory([1.0, 2.0, 3.0, 4.0])
+        _validate_target_values(target, "train")  # should not raise
+
+    @pytest.mark.parametrize("target_factory", [
+        pytest.param(lambda arr: pd.Series(arr), id="pandas"),
+        pytest.param(lambda arr: np.array(arr), id="numpy"),
+    ])
+    def test_nan_in_target_raises(self, target_factory):
+        from mlframe.training.trainer import _validate_target_values
+
+        target = target_factory([1.0, np.nan, 3.0, np.nan])
+        with pytest.raises(ValueError, match="2 NaN"):
+            _validate_target_values(target, "train")
+
+    @pytest.mark.parametrize("target_factory", [
+        pytest.param(lambda arr: pd.Series(arr), id="pandas"),
+        pytest.param(lambda arr: np.array(arr), id="numpy"),
+    ])
+    def test_inf_in_target_raises(self, target_factory):
+        from mlframe.training.trainer import _validate_target_values
+
+        target = target_factory([1.0, np.inf, 3.0, -np.inf])
+        with pytest.raises(ValueError, match="2 infinity"):
+            _validate_target_values(target, "train")
+
+    @pytest.mark.parametrize("target_factory", [
+        pytest.param(lambda arr: pd.Series(arr), id="pandas"),
+        pytest.param(lambda arr: np.array(arr), id="numpy"),
+    ])
+    def test_nan_and_inf_in_target_raises(self, target_factory):
+        from mlframe.training.trainer import _validate_target_values
+
+        target = target_factory([np.nan, np.inf, 3.0])
+        with pytest.raises(ValueError, match="NaN.*infinity"):
+            _validate_target_values(target, "train")
+
+    def test_subset_name_in_error_message(self):
+        from mlframe.training.trainer import _validate_target_values
+
+        target = np.array([1.0, np.nan])
+        with pytest.raises(ValueError, match="val target"):
+            _validate_target_values(target, "val")

@@ -573,11 +573,14 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
                     and col in self.classification_exact_values
                 ):
                     exact_val = self.classification_exact_values[col]
-                    target_name = f"{col}_eq_{exact_val}"
-                    if is_pandas:
-                        targets[target_name] = (col_data == exact_val).astype(np.int8)
-                    elif is_polars:
-                        targets[target_name] = (col_data == exact_val).cast(pl.Int8)
+                    exact_vals = exact_val if isinstance(exact_val, list) else [exact_val]
+
+                    for val in exact_vals:
+                        target_name = f"{col}_eq_{val}"
+                        if is_pandas:
+                            targets[target_name] = (col_data == val).astype(np.int8)
+                        elif is_polars:
+                            targets[target_name] = (col_data == val).cast(pl.Int8)
                 else:
                     target_name = col
                     if is_pandas:

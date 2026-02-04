@@ -841,7 +841,7 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
         assert TargetTypes.REGRESSION in models["target"]
 
     def test_nan_in_target_column(self, temp_data_dir, common_init_params):
-        """Test behavior with NaN values in target column."""
+        """Test that NaN values in regression target raise a clear ValueError."""
         np.random.seed(42)
         n_samples = 100
         df = pd.DataFrame({
@@ -854,9 +854,8 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
 
-        # Should either handle gracefully or raise clear error
-        try:
-            models, metadata = train_mlframe_models_suite(
+        with pytest.raises(ValueError, match="target contains.*NaN"):
+            train_mlframe_models_suite(
                 df=df,
                 target_name="test_target",
                 model_name="nan_target",
@@ -869,11 +868,35 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
                 models_dir="models",
                 verbose=0,
             )
-            # If it succeeds, verify results
-            assert "target" in models
-        except (ValueError, Exception):
-            # Expected - NaN in target is typically an error
-            pass
+
+    def test_infinity_in_target_column(self, temp_data_dir, common_init_params):
+        """Test that infinity values in regression target raise a clear ValueError."""
+        np.random.seed(42)
+        n_samples = 100
+        df = pd.DataFrame({
+            'feature_0': np.random.randn(n_samples),
+            'feature_1': np.random.randn(n_samples),
+            'target': np.random.randn(n_samples),
+        })
+        df.loc[5, 'target'] = np.inf
+        df.loc[15, 'target'] = -np.inf
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
+
+        with pytest.raises(ValueError, match="target contains.*infinity"):
+            train_mlframe_models_suite(
+                df=df,
+                target_name="test_target",
+                model_name="inf_target",
+                features_and_targets_extractor=fte,
+                mlframe_models=["ridge"],
+                init_common_params=common_init_params,
+                use_ordinary_models=True,
+                use_mlframe_ensembles=False,
+                data_dir=temp_data_dir,
+                models_dir="models",
+                verbose=0,
+            )
 
     def test_infinite_values_in_features(self, temp_data_dir, common_init_params):
         """Test behavior with infinite values in features."""

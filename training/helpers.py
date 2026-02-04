@@ -681,11 +681,8 @@ def get_trainset_features_stats_polars(train_df: pl.DataFrame, max_ncats_to_trac
     # Get unique values for qualifying categorical columns
     if cat_cols_to_fetch:
         cat_vals = {}
-        # Compute unique values in parallel using lazy mode
-        unique_exprs = [pl.col(c).unique().alias(c) for c in cat_cols_to_fetch]
-        unique_results = lf.select(unique_exprs).collect()
         for col in cat_cols_to_fetch:
-            cat_vals[col] = unique_results[col].to_numpy()
+            cat_vals[col] = lf.select(pl.col(col).unique()).collect()[col].to_numpy()
         res["cat_vals"] = cat_vals
 
     return res

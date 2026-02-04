@@ -245,6 +245,26 @@ def _initialize_mutable_defaults(drop_columns, default_drop_columns, fi_kwargs, 
     return drop_columns, default_drop_columns, fi_kwargs, confidence_model_kwargs
 
 
+def _validate_target_values(target, subset_name="train"):
+    """Check target for NaN and infinity values before training."""
+    arr = target.values if isinstance(target, pd.Series) else target
+    try:
+        nan_count = int(np.isnan(arr).sum())
+        inf_count = int(np.isinf(arr).sum())
+    except TypeError:
+        return  # non-numeric target (e.g., categorical), skip check
+    if nan_count > 0 or inf_count > 0:
+        parts = []
+        if nan_count > 0:
+            parts.append(f"{nan_count:_} NaN")
+        if inf_count > 0:
+            parts.append(f"{inf_count:_} infinity")
+        raise ValueError(
+            f"{subset_name} target contains {' and '.join(parts)} value(s). "
+            f"Clean the target before training."
+        )
+
+
 def _validate_infinity_and_columns(df, train_df, skip_infinity_checks, drop_columns, default_drop_columns):
     """Validate DataFrames for infinity values and compute real drop columns."""
     if not skip_infinity_checks:
@@ -1328,6 +1348,10 @@ def train_and_evaluate_model(
 
             if isinstance(train_target, pl.Series):
                 train_target = train_target.to_numpy()
+
+            _validate_target_values(train_target, "train")
+            if val_target is not None:
+                _validate_target_values(val_target, "val")
 
             if not just_evaluate:
                 model, best_iter = _train_model_with_fallback(
