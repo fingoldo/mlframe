@@ -474,9 +474,12 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
     classification_exact_values : dict, optional
         Dict mapping column names to exact values for binary classification.
         Example: {"status": 1} creates target "status_eq_1".
-    classification_thresholds : dict, optional
-        Dict mapping column names to threshold values for binary classification.
+    classification_lower_thresholds : dict, optional
+        Dict mapping column names to lower threshold values for binary classification.
         Example: {"score": 0.5} creates target "score_above_0.5".
+    classification_upper_thresholds : dict, optional
+        Dict mapping column names to upper threshold values for binary classification.
+        Example: {"score": 0.8} creates target "score_below_0.8".
     use_uniform_weighting : bool, default=False
         If True, include uniform weighting (None) in sample weights dict.
     use_recency_weighting : bool, default=True
@@ -487,7 +490,8 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
     >>> extractor = SimpleFeaturesAndTargetsExtractor(
     ...     regression_targets=["price"],
     ...     classification_targets=["quality"],
-    ...     classification_thresholds={"quality": 3},
+    ...     classification_lower_thresholds={"quality": 3},
+    ...     classification_upper_thresholds={"quality": 8},
     ...     ts_field="date",
     ... )
     >>> df, targets, *rest = extractor.transform(df)
@@ -505,7 +509,8 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
         regression_targets: Optional[Iterable] = None,
         classification_targets: Optional[Iterable] = None,
         classification_exact_values: Optional[dict] = None,
-        classification_thresholds: Optional[dict] = None,
+        classification_lower_thresholds: Optional[dict] = None,
+        classification_upper_thresholds: Optional[dict] = None,
         # Weighting options
         use_uniform_weighting: bool = False,
         use_recency_weighting: bool = True,
@@ -525,7 +530,8 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
 
         self.regression_targets = regression_targets
         self.classification_targets = classification_targets
-        self.classification_thresholds = classification_thresholds
+        self.classification_lower_thresholds = classification_lower_thresholds
+        self.classification_upper_thresholds = classification_upper_thresholds
         self.classification_exact_values = classification_exact_values
         self.use_uniform_weighting = use_uniform_weighting
         self.use_recency_weighting = use_recency_weighting
@@ -561,14 +567,27 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
                     raise KeyError(f"Classification target column '{col}' not found in DataFrame. Available: {list(df.columns)[:10]}...")
                 # Impute NaNs with 0 for classification targets
                 col_data = df[col].fillna(0) if is_pandas else df[col].fill_null(0)
-                if self.classification_thresholds and col in self.classification_thresholds:
-                    thresh_val = self.classification_thresholds[col]
+
+                # Process lower thresholds
+                if self.classification_lower_thresholds and col in self.classification_lower_thresholds:
+                    thresh_val = self.classification_lower_thresholds[col]
                     target_name = f"{col}_above_{thresh_val}"
                     if is_pandas:
                         targets[target_name] = (col_data >= thresh_val).astype(np.int8)
                     elif is_polars:
                         targets[target_name] = (col_data >= thresh_val).cast(pl.Int8)
-                elif (
+
+                # Process upper thresholds
+                if self.classification_upper_thresholds and col in self.classification_upper_thresholds:
+                    thresh_val = self.classification_upper_thresholds[col]
+                    target_name = f"{col}_below_{thresh_val}"
+                    if is_pandas:
+                        targets[target_name] = (col_data <= thresh_val).astype(np.int8)
+                    elif is_polars:
+                        targets[target_name] = (col_data <= thresh_val).cast(pl.Int8)
+
+                # Process exact values
+                if (
                     self.classification_exact_values
                     and col in self.classification_exact_values
                 ):
@@ -581,12 +600,19 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
                             targets[target_name] = (col_data == val).astype(np.int8)
                         elif is_polars:
                             targets[target_name] = (col_data == val).cast(pl.Int8)
-                else:
+
+                # Default: use column as-is
+                if (
+                    col not in (self.classification_lower_thresholds or {})
+                    and col not in (self.classification_upper_thresholds or {})
+                    and col not in (self.classification_exact_values or {})
+                ):
                     target_name = col
                     if is_pandas:
                         targets[target_name] = col_data.astype(np.int8)
                     elif is_polars:
                         targets[target_name] = col_data.cast(pl.Int8)
+
                 self.columns_to_drop.add(col)
 
             intize_targets(targets)
