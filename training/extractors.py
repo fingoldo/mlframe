@@ -164,7 +164,12 @@ def showcase_features_and_targets(
                         )
                         sample = target[sample_idx]
                     # Add min and max to preserve full range (if not already in sample)
-                    min_val, max_val = np.min(target), np.max(target)
+                    if isinstance(target, pl.Series):
+                        min_val, max_val = target.min(), target.max()
+                    elif isinstance(target, pd.Series):
+                        min_val, max_val = target.min(), target.max()
+                    else:  # np.ndarray
+                        min_val, max_val = np.min(target), np.max(target)
                     extras = []
                     if min_val not in sample:
                         extras.append(min_val)
@@ -172,7 +177,13 @@ def showcase_features_and_targets(
                         extras.append(max_val)
                     plot_data = np.concatenate([sample, extras]) if extras else sample
                 else:
-                    plot_data = target
+                    # Convert to numpy array if needed
+                    if isinstance(target, pl.Series):
+                        plot_data = target.to_numpy()
+                    elif isinstance(target, pd.Series):
+                        plot_data = target.values
+                    else:
+                        plot_data = target
                 plt.hist(plot_data, bins=30, color="skyblue", edgecolor="black")
 
                 # Add titles and labels
