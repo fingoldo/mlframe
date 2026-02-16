@@ -545,7 +545,7 @@ def process_model(
     if optimize_storage:
         optimize_model_for_storage(model, target_type, metadata_columns)
 
-    models[cur_target_name][target_type].append(model)
+    models[target_type][cur_target_name].append(model)
 
     # ens_models can be None when not building ensembles
     if ens_models is not None:

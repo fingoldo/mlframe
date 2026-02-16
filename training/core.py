@@ -682,6 +682,8 @@ def _finalize_and_save_metadata(
     target_name: str,
     model_name: str,
     verbose: int,
+    slug_to_original_target_type: Optional[Dict[str, str]] = None,
+    slug_to_original_target_name: Optional[Dict[str, str]] = None,
 ) -> None:
     """
     Finalize and save metadata to disk.
@@ -696,6 +698,8 @@ def _finalize_and_save_metadata(
         target_name: Target name for path construction.
         model_name: Model name for path construction.
         verbose: Verbosity level.
+        slug_to_original_target_type: Mapping from slugified target_type to original.
+        slug_to_original_target_name: Mapping from slugified cur_target_name to original.
     """
     # Add shared objects to metadata
     metadata.update(
@@ -705,6 +709,12 @@ def _finalize_and_save_metadata(
             "trainset_features_stats": trainset_features_stats,
         }
     )
+
+    # Add slug-to-original name mappings for load_mlframe_suite
+    if slug_to_original_target_type:
+        metadata["slug_to_original_target_type"] = slug_to_original_target_type
+    if slug_to_original_target_name:
+        metadata["slug_to_original_target_name"] = slug_to_original_target_name
 
     # Save metadata
     if data_dir and models_dir:
@@ -1115,9 +1125,18 @@ def train_mlframe_models_suite(
 
     models = defaultdict(lambda: defaultdict(list))
 
+    # Track mapping from slugified names to original names for load_mlframe_suite
+    slug_to_original_target_type = {}
+    slug_to_original_target_name = {}
+
     for target_type, targets in tqdmu(target_by_type.items(), desc="target type"):
+        # Store original target_type mapping
+        slug_to_original_target_type[slugify(str(target_type).lower())] = target_type
+
         # !TODO ! optimize for creation of inner feature matrices of cb,lgb,xgb here. They should be created once per featureset, not once per target.
         for cur_target_name, cur_target_values in tqdmu(targets.items(), desc="target"):
+            # Store original cur_target_name mapping
+            slug_to_original_target_name[slugify(cur_target_name)] = cur_target_name
             # Initialize rfecv_models_params before conditional to avoid NameError if mlframe_models is empty
             rfecv_models_params = {}
             if mlframe_models:
@@ -1272,7 +1291,7 @@ def train_mlframe_models_suite(
                         # DO NOT "OPTIMIZE" BY MOVING CLONE OUTSIDE THE LOOP!
                         # ============================================================================
                         # Each weight schema produces a DIFFERENT trained model that gets stored
-                        # separately in models[target][type]. Without cloning per iteration:
+                        # separately in models[type][target]. Without cloning per iteration:
                         #   - All entries would point to the SAME sklearn object (last-trained state)
                         #   - In-memory model.model.predict() would give WRONG results
                         #   - Only saved .dump files would work correctly (they capture snapshots)
@@ -1407,12 +1426,7 @@ def train_mlframe_models_suite(
                         )
 
                         # Store the trained model
-                        if target_type not in models:
-                            models[target_type] = {}
-                        if cur_target_name not in models[target_type]:
-                            models[target_type][cur_target_name] = {}
-
-                        models[target_type][cur_target_name][recurrent_model_name] = model_clone
+                        models[target_type][cur_target_name].append(model_clone)
 
                         if verbose:
                             logger.info(f"Successfully trained {recurrent_model_name} for {cur_target_name}")
@@ -1424,6 +1438,21 @@ def train_mlframe_models_suite(
     if verbose:
         log_phase(f"Training suite completed for {model_name}, {sum(len(v) for targets in models.values() for v in targets.values())} models.")
         log_ram_usage()
+
+    # Save metadata again with slug-to-original name mappings (for load_mlframe_suite)
+    _finalize_and_save_metadata(
+        metadata=metadata,
+        outlier_detector=outlier_detector,
+        outlier_detection_result=outlier_detection_result,
+        trainset_features_stats=trainset_features_stats,
+        data_dir=data_dir,
+        models_dir=models_dir,
+        target_name=target_name,
+        model_name=model_name,
+        verbose=0,  # Silent to avoid duplicate log messages
+        slug_to_original_target_type=slug_to_original_target_type,
+        slug_to_original_target_name=slug_to_original_target_name,
+    )
 
     return dict(models), metadata
 
@@ -1862,6 +1891,10 @@ def load_mlframe_suite(models_path: str) -> Tuple[Dict, Dict]:
 
     metadata = joblib.load(metadata_file)
 
+    # Get slug-to-original name mappings from metadata (if available)
+    slug_to_original_target_type = metadata.get("slug_to_original_target_type", {})
+    slug_to_original_target_name = metadata.get("slug_to_original_target_name", {})
+
     # Load all models into nested structure matching train_mlframe_models_suite output
     # Structure: models[target_type][target_name] = [model_obj, ...]
     # Path structure from _setup_model_directories: models_path/target_type/target_name/model.dump
@@ -1874,9 +1907,13 @@ def load_mlframe_suite(models_path: str) -> Tuple[Dict, Dict]:
         path_parts = rel_path.split(os.sep)
 
         if len(path_parts) >= 3:
-            # path_parts = [target_type, target_name, model_file.dump]
-            target_type = path_parts[0]
-            target_name = path_parts[1]
+            # path_parts = [slugified_target_type, slugified_target_name, model_file.dump]
+            slugified_target_type = path_parts[0]
+            slugified_target_name = path_parts[1]
+
+            # Restore original names from metadata mappings
+            target_type = slug_to_original_target_type.get(slugified_target_type, slugified_target_type)
+            target_name = slug_to_original_target_name.get(slugified_target_name, slugified_target_name)
         else:
             # Fallback for flat structure or unexpected layout
             target_type = "unknown"
