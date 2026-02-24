@@ -431,7 +431,9 @@ class FeaturesAndTargetsExtractor:
                 if isinstance(group_ids_raw, pl.Series)
                 else group_ids_raw.values
             )
-            _, group_ids = np.unique(group_ids_raw_np, return_inverse=True)
+            # pd.factorize handles None/NaN and mixed types; -1 codes map to a "__null__" sentinel
+            codes, _ = pd.factorize(group_ids_raw_np)
+            group_ids = codes
 
         artifacts = self.prepare_artifacts(df)
 
