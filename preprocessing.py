@@ -52,6 +52,19 @@ def prepare_df_for_catboost(
         if text_exprs:
             df = df.with_columns(text_exprs)
 
+        # Cast nullable integer/boolean columns to Float64 so that to_pandas() produces
+        # numpy float64 with np.nan instead of nullable Int64/boolean with pd.NA,
+        # which CatBoost cannot handle.
+        _NULLABLE_INT_BOOL = (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64, pl.Boolean)
+        numeric_exprs = []
+        for var in cols:
+            if var not in cat_features and var not in text_features:
+                dtype = df[var].dtype
+                if dtype in _NULLABLE_INT_BOOL and df[var].is_null().any():
+                    numeric_exprs.append(pl.col(var).cast(pl.Float64))
+        if numeric_exprs:
+            df = df.with_columns(numeric_exprs)
+
         # Categorical features
         cat_exprs = []
         for var in tqdmu(cols, desc="Processing categorical features for CatBoost...", leave=False):
@@ -101,6 +114,13 @@ def prepare_df_for_catboost(
                             df[var] = df[var].astype("category")
                         except Exception:
                             logger.warning(f"Could not convert column {var} to categorical.")
+                elif pd.api.types.is_extension_array_dtype(df[var].dtype):
+                    # Nullable extension dtypes (Int64, Float64, boolean, etc.) use pd.NA,
+                    # which CatBoost cannot handle — convert to numpy float64 (pd.NA → np.nan)
+                    try:
+                        df[var] = df[var].astype(float)
+                    except Exception:
+                        pass
 
     return df
 
