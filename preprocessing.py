@@ -26,40 +26,83 @@ def prepare_df_for_catboost(
     na_filler: str = "",
     ensure_categorical: bool = True,
     verbose: bool = False,
-) -> None:
+):
     """
     Catboost needs NAs in cat features replaced by a string value.
     Possibly extends cat_features list.
     ensure_categorical:bool=True makes further processing also suitable for xgboost.
+    Works with both pandas and polars DataFrames. Always use the return value.
     """
+    is_polars = isinstance(df, pl.DataFrame)
 
     if columns_to_drop:
-        df.drop(columns=columns_to_drop, inplace=True)
+        if is_polars:
+            df = df.drop([c for c in columns_to_drop if c in df.columns])
+        else:
+            df.drop(columns=columns_to_drop, inplace=True)
 
     cols = set(df.columns)
 
-    for var in tqdmu(text_features, desc="Processing textual features for CatBoost...", leave=False):
-        if var in cols:
-            if df[var].isna().any():
-                df[var] = df[var].fillna(na_filler)
+    if is_polars:
+        # Text features: fill nulls
+        text_exprs = []
+        for var in tqdmu(text_features, desc="Processing textual features for CatBoost...", leave=False):
+            if var in cols and df[var].is_null().any():
+                text_exprs.append(pl.col(var).fill_null(na_filler))
+        if text_exprs:
+            df = df.with_columns(text_exprs)
 
-    for var in tqdmu(cols, desc="Processing categorical features for CatBoost...", leave=False):
-        if isinstance(df[var].dtype, pd.CategoricalDtype):
-            if df[var].isna().any():
-                df[var] = df[var].astype(str).fillna(na_filler).astype("category")
-            if var not in cat_features:
-                if verbose:
-                    logging.info(f"{var} appended to cat_features")
-                cat_features.append(var)
-        else:
-            if var in cat_features:
-                if df[var].isna().any():
-                    df[var] = df[var].fillna(na_filler)
+        # Categorical features
+        cat_exprs = []
+        for var in tqdmu(cols, desc="Processing categorical features for CatBoost...", leave=False):
+            dtype = df[var].dtype
+            is_cat = dtype == pl.Categorical or isinstance(dtype, pl.Enum)
+            if is_cat:
+                if df[var].is_null().any():
+                    cat_exprs.append(pl.col(var).cast(pl.String).fill_null(na_filler).cast(pl.Categorical))
+                if var not in cat_features:
+                    if verbose:
+                        logging.info(f"{var} appended to cat_features")
+                    cat_features.append(var)
+            elif var in cat_features:
+                expr = pl.col(var)
+                if df[var].is_null().any():
+                    expr = expr.fill_null(na_filler)
                 if ensure_categorical:
                     try:
-                        df[var] = df[var].astype("category")
-                    except Exception as e:
+                        expr = expr.cast(pl.Categorical)
+                    except Exception:
                         logger.warning(f"Could not convert column {var} to categorical.")
+                        expr = None
+                if expr is not None:
+                    cat_exprs.append(expr)
+        if cat_exprs:
+            df = df.with_columns(cat_exprs)
+    else:
+        for var in tqdmu(text_features, desc="Processing textual features for CatBoost...", leave=False):
+            if var in cols:
+                if df[var].isna().any():
+                    df[var] = df[var].fillna(na_filler)
+
+        for var in tqdmu(cols, desc="Processing categorical features for CatBoost...", leave=False):
+            if isinstance(df[var].dtype, pd.CategoricalDtype):
+                if df[var].isna().any():
+                    df[var] = df[var].astype(str).fillna(na_filler).astype("category")
+                if var not in cat_features:
+                    if verbose:
+                        logging.info(f"{var} appended to cat_features")
+                    cat_features.append(var)
+            else:
+                if var in cat_features:
+                    if df[var].isna().any():
+                        df[var] = df[var].fillna(na_filler)
+                    if ensure_categorical:
+                        try:
+                            df[var] = df[var].astype("category")
+                        except Exception:
+                            logger.warning(f"Could not convert column {var} to categorical.")
+
+    return df
 
 
 def prepare_df_for_xgboost(
