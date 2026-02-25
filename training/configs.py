@@ -149,10 +149,12 @@ class PolarsPipelineConfig(BaseConfig):
     scaler_name : str, optional
         Scaler type: "standard", "min_max", "abs_max", "robust", or None.
         Case-insensitive, normalized to lowercase (default: "standard").
-    imputer_strategy : str
+    imputer_strategy : str, optional
         Strategy for imputing missing values: "mean", "median", etc. (default: "mean").
-    categorical_encoding : str
+        Pass None to skip imputation.
+    categorical_encoding : str, optional
         Encoding for categorical features: "ordinal", "onehot", "target" (default: "ordinal").
+        Pass None to skip categorical encoding.
     robust_q_low : float
         Lower quantile for robust scaling (default: 0.01).
     robust_q_high : float
@@ -161,8 +163,8 @@ class PolarsPipelineConfig(BaseConfig):
 
     use_polarsds_pipeline: bool = True
     scaler_name: Optional[str] = "standard"
-    imputer_strategy: str = "mean"
-    categorical_encoding: str = "ordinal"
+    imputer_strategy: Optional[str] = "mean"
+    categorical_encoding: Optional[str] = "ordinal"
     robust_q_low: float = 0.01
     robust_q_high: float = 0.99
 
