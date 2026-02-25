@@ -1298,7 +1298,14 @@ def train_mlframe_models_suite(
                         # The clone() cost is negligible compared to training time.
                         # ============================================================================
                         original_model = models_params[mlframe_model_name]["model"]
-                        cloned_model = clone(original_model)
+                        try:
+                            cloned_model = clone(original_model)
+                        except RuntimeError:
+                            # CatBoost wraps custom eval_metric objects internally, causing sklearn's
+                            # identity check (param1 is not param2) to fail. Fall back to direct
+                            # constructor call with the same params, which produces an equivalent
+                            # fresh unfitted model without the verification step.
+                            cloned_model = type(original_model)(**original_model.get_params())
                         current_model_params = models_params[mlframe_model_name].copy()
                         current_model_params["model"] = cloned_model
 
