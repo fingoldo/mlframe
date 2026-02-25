@@ -718,6 +718,11 @@ class UniversalCallback:
         self.metric_history: Dict[str, Dict[str, List[float]]] = {}
         self.stop_flag = stop_flag if stop_flag is not None else lambda: False
 
+        # Call super().__init__() to ensure proper MRO chain initialization.
+        # For XGBoostCallback(UniversalCallback, TrainingCallback), this calls
+        # TrainingCallback.__init__(), which is required by XGBoost >= 2.x ABC checks.
+        super().__init__()
+
         if self.verbose > 0:
             logger.info(
                 "UniversalCallback initialized with params: "

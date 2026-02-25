@@ -44,6 +44,7 @@ from sklearn.exceptions import NotFittedError
 from catboost import CatBoostRegressor, CatBoostClassifier
 from lightgbm import LGBMClassifier, LGBMRegressor
 from xgboost import XGBClassifier, XGBRegressor
+from xgboost.callback import TrainingCallback as XGBTrainingCallback
 from ngboost import NGBClassifier, NGBRegressor
 import flaml.default as flaml_zeroshot
 import torch
@@ -597,13 +598,11 @@ def _setup_early_stopping_callback(model_category, fit_params, callback_params, 
     elif model_category == "xgb" and model_obj is not None:
         es_callback = XGBoostCallback(**callback_params)
         existing_callbacks = model_obj.get_params().get("callbacks", []) or []
-        # Remove existing XGBoostCallback instances before adding fresh one.
-        # Unlike LightGBM/CatBoost (which use fit_params["callbacks"] that gets a fresh list each call),
-        # XGBoost stores callbacks on the model object which is reused across weight schema iterations.
-        # Old XGBoostCallback instances retain stale state (first_iteration=False, start_time from hours ago)
-        # causing immediate "time budget exceeded" failures on subsequent training runs.
-        # We filter by type to preserve any user-provided non-early-stopping callbacks.
-        callbacks = [cb for cb in existing_callbacks if not isinstance(cb, XGBoostCallback)]
+        # Keep only valid TrainingCallback instances, excluding stale XGBoostCallback instances.
+        # This also filters out any legacy callbacks (e.g. from xgb_kwargs in XGB_GENERAL_PARAMS)
+        # that do not inherit from xgboost.callback.TrainingCallback, which would cause a
+        # TypeError in XGBoost >= 2.x where CallbackContainer validates isinstance strictly.
+        callbacks = [cb for cb in existing_callbacks if isinstance(cb, XGBTrainingCallback) and not isinstance(cb, XGBoostCallback)]
         callbacks.append(es_callback)
         model_obj.set_params(callbacks=callbacks)
 
