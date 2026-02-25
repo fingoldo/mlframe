@@ -499,7 +499,7 @@ def process_model(
             logger.info(f"Loading model from file {fpath}")
         loaded_model = load_mlframe_model(fpath)
         if verbose:
-            logger.info(f"Loaded.")        
+            logger.info(f"Loaded.")
         model_obj = loaded_model.model
         pre_pipeline = loaded_model.pre_pipeline
     else:
@@ -507,13 +507,16 @@ def process_model(
             raise KeyError(f"'model' key missing in model_params. Available keys: {list(model_params.keys())}")
         model_obj = model_params["model"]
 
+    clean_ram()
+
     # Train or evaluate the model
     start = timer()
     if verbose and not use_cached_model:
         pipeline_label = pre_pipeline_name.strip() if pre_pipeline_name else ""
         model_type_name = type(model_obj).__name__
         logger.info(
-            f"Starting train_and_evaluate {model_type_name} on {target_type} {pipeline_label} {model_name.strip()}" f", RAM usage {get_own_ram_usage():.1f}GBs...".replace("  ", " ")
+            f"Starting train_and_evaluate {model_type_name} on {target_type} {pipeline_label} {model_name.strip()}"
+            f", RAM usage {get_own_ram_usage():.1f}GBs...".replace("  ", " ")
         )
 
     model, train_df_transformed, val_df_transformed, test_df_transformed = _call_train_evaluate_with_configs(
