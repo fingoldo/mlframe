@@ -70,8 +70,8 @@ def optimize_model_for_storage(
     - Removes train_preds, val_preds, test_preds (can be recreated from *_probs >= 0.5)
 
     For binary classification:
-    - Converts *_probs arrays from shape (n, 2) to shape (n,) keeping only class 1 probs
-      (class 0 probs = 1 - class 1 probs)
+    - Keeps *_probs arrays in original (n, 2) shape for compatibility with
+      load_mlframe_suite and ensembling code
 
     If metadata_columns is provided:
     - Removes model.columns if identical to metadata_columns
@@ -98,14 +98,10 @@ def optimize_model_for_storage(
         model.val_preds = None
         model.test_preds = None
 
-        # For binary classification, only store class 1 probs
-        # Original shape: (n, 2) -> New shape: (n,)
-        for attr in ["train_probs", "val_probs", "test_probs"]:
-            probs = getattr(model, attr, None)
-            if probs is not None and hasattr(probs, "ndim"):
-                if probs.ndim == 2 and probs.shape[1] == 2:
-                    # Keep only class 1 probabilities
-                    setattr(model, attr, probs[:, 1])
+        # NOTE: Do NOT squeeze probs from (n, 2) to (n,) here.
+        # The in-memory models must keep 2D probs to match load_mlframe_suite output
+        # and to remain compatible with ensembling code (ensemble_probabilistic_predictions
+        # expects 2D arrays via pred.shape[1]).
 
     # Remove columns if identical to metadata columns
     if metadata_columns is not None and hasattr(model, "columns") and model.columns is not None:
