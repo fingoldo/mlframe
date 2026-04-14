@@ -137,7 +137,9 @@ def make_train_test_split(
 
     # Calculate split sizes
     if wholeday_splitting and timestamps is not None:
-        dates = pd.to_datetime(timestamps).dt.date
+        # `.dt.floor('D')` is vectorized over datetime64 and stays in datetime dtype
+        # (unlike `.dt.date` which yields a Python-object Series — much slower for isin).
+        dates = pd.to_datetime(timestamps).dt.floor("D")
         unique_dates = dates.unique()
         n_total = len(unique_dates)
     else:
@@ -154,10 +156,6 @@ def make_train_test_split(
             sorted_dates, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf
         )
 
-        # Map dates to row indices
-        val_idx = np.where(dates.isin(val_dates))[0]
-        test_idx = np.where(dates.isin(test_dates))[0]
-
         # Apply aging limit BEFORE computing train_idx / train_details,
         # so the printed train date range reflects the actually-used rows
         # (consistent with the row-timestamp branch below).
@@ -166,15 +164,36 @@ def make_train_test_split(
             if n_dates_to_keep > 0:
                 train_dates = np.sort(train_dates)[-n_dates_to_keep:]
 
-        train_idx = np.where(dates.isin(train_dates))[0]
+        # Map dates → split label once, then derive all index arrays from the cached
+        # label array. Each `dates.isin(...)` call would re-hash the full Series; doing
+        # it once via a unique-date categorical keeps the work O(n) instead of O(n*k).
+        # Label convention: 0=train, 1=val, 2=test, -1=dropped by aging.
+        uniq = pd.unique(dates)
+        date_to_label = {d: -1 for d in uniq}
+        for d in train_dates:
+            date_to_label[d] = 0
+        for d in val_dates:
+            date_to_label[d] = 1
+        for d in test_dates:
+            date_to_label[d] = 2
+        labels = dates.map(date_to_label).to_numpy()
+        train_idx = np.flatnonzero(labels == 0)
+        val_idx = np.flatnonzero(labels == 1)
+        test_idx = np.flatnonzero(labels == 2)
+
+        def _dates_to_idx(dates_subset):
+            if dates_subset is None:
+                return None
+            subset_map = {d: True for d in dates_subset}
+            return np.flatnonzero(dates.map(lambda d: subset_map.get(d, False)).to_numpy())
+
+        val_seq_idx = _dates_to_idx(val_dates_seq)
+        test_seq_idx = _dates_to_idx(test_dates_seq)
 
         # Build detail strings
         train_details = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
 
-        val_seq_idx = np.where(dates.isin(val_dates_seq))[0] if val_dates_seq is not None else None
         val_details = _build_details(timestamps, val_idx, val_seq_idx, n_val_shuf, "D")
-
-        test_seq_idx = np.where(dates.isin(test_dates_seq))[0] if test_dates_seq is not None else None
         test_details = _build_details(timestamps, test_idx, test_seq_idx, n_test_shuf, "D")
 
     elif timestamps is not None:

@@ -104,7 +104,8 @@ def should_clean_ram(baseline_rss_mb: float, df_size_mb: float, min_growth_mb: f
         import psutil
         rss_mb = psutil.Process().memory_info().rss / 1024**2
         free_mb = psutil.virtual_memory().available / 1024**2
-    except Exception:
+    except Exception as e:
+        logger.debug("should_clean_ram: RAM measurement failed, falling back to clean", exc_info=e)
         return True  # can't measure → fall back to cleaning
     growth = rss_mb - baseline_rss_mb
     return (growth > max(min_growth_mb, 0.3 * df_size_mb)) or (free_mb < 2 * df_size_mb)
@@ -127,6 +128,15 @@ def maybe_clean_ram_and_gpu(
             logger.info(f"  clean_ram fired ({reason})" if reason else "  clean_ram fired")
         return True
     return False
+
+
+def filter_existing(df: Union[pd.DataFrame, pl.DataFrame], cols) -> list:
+    """Return only the column names from `cols` that exist in `df.columns`.
+
+    Preserves input order. Accepts any iterable of column names.
+    """
+    existing = set(df.columns)
+    return [c for c in cols if c in existing]
 
 
 def log_phase(msg: str, n: int = 160) -> None:
@@ -209,6 +219,9 @@ def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
 
     tbl = df.to_arrow()
 
+    # Note: short-circuit on "no dictionary columns" was benchmarked 2026-04-14 and
+    # delivered only 1.16x on pure-numeric workloads (below 1.2x threshold), so the
+    # per-column scan is retained for code uniformity.
     fixed_cols = []
     for col in tbl.columns:
         if pa.types.is_dictionary(col.type):
@@ -311,7 +324,10 @@ def _process_special_values(
         if drop_columns:
             # For constant column detection
             if "numeric" in kind:
-                # Numeric constants: min == max
+                # Numeric constants: min == max. Per-column loop measured faster than
+                # a single df.agg(['min','max']) pass on both narrow-tall and wide-short
+                # shapes (benchmark 2026-04-14: 10x slower on 1000x200, 0.74x on 100k x 50).
+                # NaN-skipping min/max preserves Polars semantics ([1.0, NaN, 1.0] constant).
                 constant_cols = [col for col in df.select_dtypes(include="number").columns if df[col].min() == df[col].max()]
             else:
                 # Categorical constants: n_unique == 1
@@ -359,7 +375,9 @@ def _process_special_values(
                 if fill_func_name is None:
                     raise ValueError("fill_func_name is required for Polars DataFrames when fill_value is provided")
                 if fill_func_name == "replace":
-                    # For infinities: need to specify what to replace
+                    # For infinities: only ±inf are replaced. NaN is preserved here
+                    # (cs.numeric().replace does not touch NaN). Callers that also want
+                    # NaN filled should run `process_nans` first.
                     df = df.with_columns(cs.numeric().replace([float("inf"), float("-inf")], fill_value))
                 else:
                     df = df.with_columns(getattr(cs.numeric(), fill_func_name)(fill_value))
@@ -474,12 +492,15 @@ def get_categorical_columns(df: Union[pl.DataFrame, pd.DataFrame], include_strin
         List of categorical column names
     """
     if isinstance(df, pl.DataFrame):
+        # Function-local import: strategies imports from utils, so a top-level
+        # import here would form a strategies→utils→strategies cycle at module load.
         from .strategies import get_polars_cat_columns
         if include_string:
             return get_polars_cat_columns(df)
         else:
             return [name for name, dtype in df.schema.items() if dtype == pl.Categorical]
     else:
+        # Function-local import (see note above) — breaks strategies↔utils cycle.
         from .strategies import PANDAS_CATEGORICAL_DTYPES
         if include_string:
             return df.select_dtypes(include=list(PANDAS_CATEGORICAL_DTYPES)).columns.tolist()
@@ -523,16 +544,20 @@ def remove_constant_columns(df: Union[pl.DataFrame, pd.DataFrame], verbose: int 
             verbose=verbose,
         )
     else:
-        # Pandas: faster constant column detection
-        first = df.iloc[0]
-        mask_equal = df.eq(first).all()
-        mask_all_nan = df.isna().all()
-        all_constant_cols = df.columns[mask_equal | mask_all_nan].tolist()
+        # Pandas: match Polars semantics (min==max for numeric; n_unique==1 for others).
+        # Per-column loop measured faster than df.agg(['min','max']) — see audit 2026-04-14.
+        numeric_cols = df.select_dtypes(include="number").columns
+        constant_num_cols = [col for col in numeric_cols if df[col].min() == df[col].max()]
 
-        # Separate numeric and non-numeric constant columns
-        constant_num_cols = [col for col in all_constant_cols if np.issubdtype(df[col].dtype, np.number)]
-        constant_cat_cols = [col for col in all_constant_cols if not np.issubdtype(df[col].dtype, np.number)]
-        constant_cols = constant_num_cols + constant_cat_cols
+        # All-NaN numeric columns: min==max yields NaN==NaN -> False, so they are NOT
+        # flagged by the loop above. Treat them as constant too (no information).
+        all_nan_num = [c for c in numeric_cols if c not in constant_num_cols and df[c].isna().all()]
+        constant_num_cols = constant_num_cols + all_nan_num
+
+        non_numeric_cols = df.select_dtypes(exclude="number").columns
+        constant_cat_cols = [col for col in non_numeric_cols if df[col].nunique(dropna=False) <= 1]
+
+        constant_cols = list(constant_num_cols) + list(constant_cat_cols)
 
         if constant_cols and verbose:
             logger.info(f"Removing {len(constant_cols)} constant columns: {constant_cols}")
@@ -560,4 +585,5 @@ __all__ = [
     "get_numeric_columns",
     "get_categorical_columns",
     "remove_constant_columns",
+    "filter_existing",
 ]

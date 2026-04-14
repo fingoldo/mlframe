@@ -113,6 +113,14 @@ _LAZY_IMPORTS = {
     'process_nulls': ('.utils', 'process_nulls'),
     'process_infinities': ('.utils', 'process_infinities'),
     'remove_constant_columns': ('.utils', 'remove_constant_columns'),
+    'clean_ram_and_gpu': ('.utils', 'clean_ram_and_gpu'),
+    'estimate_df_size_mb': ('.utils', 'estimate_df_size_mb'),
+    'get_process_rss_mb': ('.utils', 'get_process_rss_mb'),
+    'should_clean_ram': ('.utils', 'should_clean_ram'),
+    'maybe_clean_ram_and_gpu': ('.utils', 'maybe_clean_ram_and_gpu'),
+    'get_numeric_columns': ('.utils', 'get_numeric_columns'),
+    'get_categorical_columns': ('.utils', 'get_categorical_columns'),
+    'filter_existing': ('.utils', 'filter_existing'),
 
     # IO utilities
     'save_mlframe_model': ('.io', 'save_mlframe_model'),
@@ -232,6 +240,15 @@ __all__ = [
     'process_nulls',
     'process_infinities',
     'remove_constant_columns',
+    # Previously importable via `from mlframe.training import ...` but missing from __all__
+    'NGBConfig',
+    'clean_ram_and_gpu',
+    'estimate_df_size_mb',
+    'get_process_rss_mb',
+    'should_clean_ram',
+    'maybe_clean_ram_and_gpu',
+    'get_numeric_columns',
+    'get_categorical_columns',
 
     # Evaluation
     'evaluate_model',

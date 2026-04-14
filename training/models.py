@@ -98,7 +98,9 @@ def _build_elasticnet_regressor(config: LinearModelConfig) -> BaseEstimator:
     """Build an ElasticNet regression model with combined L1/L2 regularization."""
     return ElasticNet(
         alpha=config.alpha,
-        l1_ratio=config.l1_ratio,
+        # Route through the shared helper so elasticnet respects the same fallback
+        # behavior as SGD/elasticnet-classifier paths (keeps single source of truth).
+        l1_ratio=_get_l1_ratio(config) if config.penalty == "elasticnet" else config.l1_ratio,
         random_state=config.random_state,
         max_iter=config.max_iter,
         tol=config.tol,
@@ -118,7 +120,7 @@ def _build_huber_regressor(config: LinearModelConfig) -> BaseEstimator:
 def _build_ransac_regressor(config: LinearModelConfig) -> BaseEstimator:
     """Build a RANSACRegressor model for robust regression with outliers."""
     return RANSACRegressor(
-        estimator=LinearRegression(),
+        estimator=LinearRegression(n_jobs=config.n_jobs),
         max_trials=config.max_trials,
         residual_threshold=config.residual_threshold,
         random_state=config.random_state,

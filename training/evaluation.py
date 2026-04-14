@@ -30,6 +30,23 @@ DEFAULT_NBINS = 10
 DEFAULT_FIGSIZE = (15, 5)
 DEFAULT_FI_FIGSIZE = (15, 10)
 
+# Module-level cache for the plot-sample index. Hot report paths re-draw the same
+# scatter repeatedly with identical (len(preds), seed) — caching the choice avoids
+# rebuilding the RNG and resampling each call.
+_PLOT_IDX_CACHE: "dict[tuple, np.ndarray]" = {}
+
+
+def _get_cached_plot_idx(n: int, sample_size: int, seed: int) -> "np.ndarray":
+    key = (n, sample_size, seed)
+    cached = _PLOT_IDX_CACHE.get(key)
+    if cached is not None:
+        return cached
+    import numpy as _np
+    _rng = _np.random.default_rng(seed)
+    idx = _rng.choice(_np.arange(n), size=min(sample_size, n), replace=False)
+    _PLOT_IDX_CACHE[key] = idx
+    return idx
+
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -325,9 +342,9 @@ def report_regression_model_perf(
         title += f" MaxError={MaxError:.{report_ndigits}f}"
         title += f" R2={R2:.{report_ndigits}f}"
 
-        # Local RNG — do not pollute global numpy state.
-        _rng = np.random.default_rng(DEFAULT_RANDOM_SEED)
-        idx = _rng.choice(np.arange(len(preds)), size=min(plot_sample_size, len(preds)), replace=False)
+        # Local RNG — do not pollute global numpy state. Cache by (n, size, seed)
+        # so repeated reports on the same prediction length reuse the sample.
+        idx = _get_cached_plot_idx(len(preds), plot_sample_size, DEFAULT_RANDOM_SEED)
         idx = idx[np.argsort(preds[idx])]
 
         fig = plt.figure(figsize=figsize)

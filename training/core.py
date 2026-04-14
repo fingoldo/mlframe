@@ -18,6 +18,46 @@ from timeit import default_timer as timer
 logger = logging.getLogger(__name__)
 
 
+def _drop_cols_df(df, cols):
+    """Drop ``cols`` from ``df`` (pandas or Polars), ignoring missing names.
+
+    Centralizes the 4-line `isinstance(df, pd.DataFrame)` branch that appeared in
+    both `predict_mlframe_models_suite` and `predict_from_models`.
+    """
+    import pandas as _pd  # local import to avoid top-level cost during helper init
+    if not cols:
+        return df
+    existing = [c for c in cols if c in df.columns]
+    if not existing:
+        return df
+    if isinstance(df, _pd.DataFrame):
+        return df.drop(columns=existing, errors="ignore")
+    return df.drop(existing)  # Polars
+
+
+def _validate_trusted_path(path: str, trusted_root):
+    """Raise ValueError if ``path`` is not inside ``trusted_root``.
+
+    Mirrors the `mlframe.inference.read_trained_models` convention. Gating every
+    ``joblib.load`` of a pickled metadata/model file keeps arbitrary-code-execution
+    surface limited to explicitly-opted-in directories.
+    """
+    import os as _os
+    if trusted_root is None:
+        raise ValueError(
+            "trusted_root is required for joblib.load() of metadata files. Pass an "
+            "absolute directory under which the metadata artifact is stored."
+        )
+    abs_root = _os.path.abspath(trusted_root)
+    abs_path = _os.path.abspath(path)
+    try:
+        common = _os.path.commonpath([abs_root, abs_path])
+    except ValueError:
+        raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}")
+    if common != abs_root:
+        raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}")
+
+
 def _df_shape_str(df) -> str:
     """Format DataFrame shape as 'rows×cols' with thousands separators."""
     if df is None:
@@ -1871,6 +1911,7 @@ def predict_mlframe_models_suite(
     model_names: Optional[List[str]] = None,
     return_probabilities: bool = True,
     verbose: int = 1,
+    trusted_root: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Generate predictions using a trained mlframe models suite.
@@ -1920,6 +1961,10 @@ def predict_mlframe_models_suite(
 
     if verbose:
         logger.info(f"Loading metadata from {metadata_file}...")
+    # Default trusted_root to the models directory if not provided — matches the
+    # in-process "we just wrote this file" flow while still refusing path escape.
+    _root = trusted_root if trusted_root is not None else os.path.abspath(models_path)
+    _validate_trusted_path(metadata_file, _root)
     metadata = joblib.load(metadata_file)
     results["metadata"] = metadata
 
@@ -1939,12 +1984,8 @@ def predict_mlframe_models_suite(
     # Apply features extractor if provided (same transformation as training)
     if features_and_targets_extractor is not None:
         df, _, _, _, _, _, columns_to_drop, _ = features_and_targets_extractor.transform(df)
-        # Drop extra columns (target, etc.)
-        if columns_to_drop:
-            if isinstance(df, pd.DataFrame):
-                df = df.drop(columns=[c for c in columns_to_drop if c in df.columns], errors="ignore")
-            else:  # Polars
-                df = df.drop([c for c in columns_to_drop if c in df.columns])
+        # Drop extra columns (target, etc.) — unified via helper.
+        df = _drop_cols_df(df, columns_to_drop)
 
     # Convert to pandas if needed
     if isinstance(df, pl.DataFrame):
@@ -2140,12 +2181,8 @@ def predict_from_models(
     # Apply features extractor if provided (same transformation as training)
     if features_and_targets_extractor is not None:
         df, _, _, _, _, _, columns_to_drop, _ = features_and_targets_extractor.transform(df)
-        # Drop extra columns (target, etc.)
-        if columns_to_drop:
-            if isinstance(df, pd.DataFrame):
-                df = df.drop(columns=[c for c in columns_to_drop if c in df.columns], errors="ignore")
-            else:  # Polars
-                df = df.drop([c for c in columns_to_drop if c in df.columns])
+        # Drop extra columns (target, etc.) — unified via helper.
+        df = _drop_cols_df(df, columns_to_drop)
 
     # Convert to pandas if needed
     if isinstance(df, pl.DataFrame):
@@ -2274,7 +2311,7 @@ def predict_from_models(
     return results
 
 
-def load_mlframe_suite(models_path: str) -> Tuple[Dict, Dict]:
+def load_mlframe_suite(models_path: str, trusted_root: Optional[str] = None) -> Tuple[Dict, Dict]:
     """
     Load a trained mlframe models suite from disk.
 
@@ -2296,6 +2333,8 @@ def load_mlframe_suite(models_path: str) -> Tuple[Dict, Dict]:
     if not exists(metadata_file):
         raise FileNotFoundError(f"Metadata file not found: {metadata_file}")
 
+    _root = trusted_root if trusted_root is not None else os.path.abspath(models_path)
+    _validate_trusted_path(metadata_file, _root)
     metadata = joblib.load(metadata_file)
 
     # Get slug-to-original name mappings from metadata (if available)

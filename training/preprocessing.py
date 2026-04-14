@@ -86,11 +86,14 @@ def load_and_prepare_dataframe(
             if verbose:
                 logger.info(f"Loading {len(config.columns)} columns...")
 
-        # Use read_parquet if columns specified (scan_parquet doesn't support columns parameter)
+        # Use read_parquet if columns/n_rows specified (scan_parquet has a narrower kwarg surface
+        # and does not accept `parallel="columns"` or `columns=`). Otherwise scan lazily and let
+        # Polars collect once downstream — keeps memory low for wide files.
         if config.columns or config.n_rows:
             df = pl.read_parquet(df, **load_params)
         else:
-            df = pl.scan_parquet(df, **load_params)
+            # scan_parquet rejects `parallel="columns"` (only valid on eager read_parquet).
+            df = pl.scan_parquet(df)
 
     # Apply tail if specified (after loading)
     if config.tail:
@@ -178,22 +181,34 @@ def save_split_artifacts(
         compression: Compression algorithm
     """
     if data_dir is not None and models_dir:
-        ensure_dir_exists(join(data_dir, models_dir, slugify(target_name), slugify(model_name)))
+        # Hoist invariant path join out of the per-split loop.
+        split_dir = join(data_dir, models_dir, slugify(target_name), slugify(model_name))
+        ensure_dir_exists(split_dir)
+
         for idx, idx_name in zip([train_idx, val_idx, test_idx], "train val test".split()):
             if idx is None:
                 continue
             if timestamps is not None and len(timestamps) > 0:
-                ts_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_timestamps.parquet")
+                ts_file = join(split_dir, f"{idx_name}_timestamps.parquet")
                 if not exists(ts_file):
                     save_series_or_df(timestamps[idx], ts_file, compression, name="ts")
             if group_ids_raw is not None and len(group_ids_raw) > 0:
-                gid_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_group_ids_raw.parquet")
+                gid_file = join(split_dir, f"{idx_name}_group_ids_raw.parquet")
                 if not exists(gid_file):
                     save_series_or_df(group_ids_raw[idx], gid_file, compression)
             if artifacts is not None and len(artifacts) > 0:
-                art_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), f"{idx_name}_artifacts.parquet")
-                if not exists(art_file):
-                    save_series_or_df(artifacts[idx], art_file, compression)
+                if isinstance(artifacts, dict):
+                    # Per-key artifacts: write one parquet file per dict entry.
+                    for art_key, art_val in artifacts.items():
+                        if art_val is None:
+                            continue
+                        art_file = join(split_dir, f"{idx_name}_artifacts_{slugify(str(art_key))}.parquet")
+                        if not exists(art_file):
+                            save_series_or_df(art_val[idx], art_file, compression)
+                else:
+                    art_file = join(split_dir, f"{idx_name}_artifacts.parquet")
+                    if not exists(art_file):
+                        save_series_or_df(artifacts[idx], art_file, compression)
 
 
 def create_split_dataframes(

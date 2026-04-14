@@ -15,6 +15,7 @@ import logging
 import pickle
 from timeit import default_timer as timer
 from functools import partial
+import os
 from os import sep as os_sep
 from os.path import join, exists
 from types import SimpleNamespace
@@ -24,7 +25,13 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import joblib
-import matplotlib.pyplot as plt
+# Heavy optional deps: defer failures to first actual use so `import mlframe.training`
+# stays cheap and does not crash when a given backend is not installed. Mirrors the
+# lazy-loading style in `mlframe.training.__init__.__getattr__`.
+try:
+    import matplotlib.pyplot as plt  # only used in a handful of plotting branches
+except ImportError:  # pragma: no cover — optional backend
+    plt = None  # type: ignore[assignment]
 
 from sklearn.base import ClassifierMixin, RegressorMixin, TransformerMixin, is_classifier
 from sklearn.compose import TransformedTargetRegressor
@@ -42,17 +49,43 @@ from sklearn.ensemble import HistGradientBoostingRegressor, HistGradientBoosting
 from sklearn.utils.validation import check_is_fitted
 from sklearn.exceptions import NotFittedError
 
-from catboost import CatBoostRegressor, CatBoostClassifier
-from lightgbm import LGBMClassifier, LGBMRegressor
-from xgboost import XGBClassifier, XGBRegressor
-from xgboost.callback import TrainingCallback as XGBTrainingCallback
-from ngboost import NGBClassifier, NGBRegressor
-import flaml.default as flaml_zeroshot
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from mlframe.training.neural import MLPNeuronsByLayerArchitecture
-from mlframe.training.neural import PytorchLightningRegressor, PytorchLightningClassifier
+# Optional model backends — lazy/tolerant of missing deps, matching __init__.py style.
+try:
+    from catboost import CatBoostRegressor, CatBoostClassifier
+except ImportError:  # pragma: no cover
+    CatBoostRegressor = CatBoostClassifier = None  # type: ignore[assignment]
+try:
+    from lightgbm import LGBMClassifier, LGBMRegressor
+except ImportError:  # pragma: no cover
+    LGBMClassifier = LGBMRegressor = None  # type: ignore[assignment]
+try:
+    from xgboost import XGBClassifier, XGBRegressor
+    from xgboost.callback import TrainingCallback as XGBTrainingCallback
+except ImportError:  # pragma: no cover
+    XGBClassifier = XGBRegressor = None  # type: ignore[assignment]
+    XGBTrainingCallback = object  # type: ignore[assignment]
+try:
+    from ngboost import NGBClassifier, NGBRegressor
+except ImportError:  # pragma: no cover
+    NGBClassifier = NGBRegressor = None  # type: ignore[assignment]
+try:
+    import flaml.default as flaml_zeroshot
+except ImportError:  # pragma: no cover
+    flaml_zeroshot = None  # type: ignore[assignment]
+try:
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+except ImportError:  # pragma: no cover
+    torch = None  # type: ignore[assignment]
+    nn = None  # type: ignore[assignment]
+    F = None  # type: ignore[assignment]
+try:
+    from mlframe.training.neural import MLPNeuronsByLayerArchitecture
+    from mlframe.training.neural import PytorchLightningRegressor, PytorchLightningClassifier
+except ImportError:  # pragma: no cover
+    MLPNeuronsByLayerArchitecture = None  # type: ignore[assignment]
+    PytorchLightningRegressor = PytorchLightningClassifier = None  # type: ignore[assignment]
 
 from pyutilz.system import clean_ram, ensure_dir_exists, compute_total_gpus_ram, get_gpuinfo_gpu_info
 from pyutilz.strings import slugify
@@ -107,6 +140,31 @@ from .configs import (
     LinearModelConfig,
 )
 from .utils import log_ram_usage, get_categorical_columns, get_numeric_columns
+
+
+def _validate_trusted_path(path: str, trusted_root: Optional[str]) -> None:
+    """Raise ValueError if ``path`` is not inside ``trusted_root`` (absolute commonpath check).
+
+    Matches the convention used in ``mlframe.inference.read_trained_models``. Callers that
+    want to disable the check must pass ``trusted_root=None`` explicitly; that is only
+    appropriate for internally-produced cache files (the default posture refuses silently
+    loading untrusted pickles).
+    """
+    import os as _os
+    if trusted_root is None:
+        raise ValueError(
+            "trusted_root is required for joblib.load() of cached model files. "
+            "Pass an absolute directory under which cached artifacts are stored, "
+            "or set it to the containing directory of the file being loaded."
+        )
+    abs_root = _os.path.abspath(trusted_root)
+    abs_path = _os.path.abspath(path)
+    try:
+        common = _os.path.commonpath([abs_root, abs_path])
+    except ValueError:
+        raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}")
+    if common != abs_root:
+        raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}")
 from .models import create_linear_model, LINEAR_MODEL_TYPES
 
 logger = logging.getLogger(__name__)
@@ -1084,6 +1142,7 @@ def train_and_evaluate_model(
     train_od_idx: Optional[np.ndarray] = None,
     val_od_idx: Optional[np.ndarray] = None,
     trainset_features_stats: Optional[dict] = None,
+    trusted_root: Optional[str] = None,
 ):
     """Train and evaluate a machine learning model with comprehensive metrics and optional caching.
 
@@ -1255,9 +1314,14 @@ def train_and_evaluate_model(
 
     if use_cache and exists(model_file_name):
         logger.info(f"Loading model from file {model_file_name}")
+        # Security: only load pickles from an explicitly trusted directory root.
+        # Default `trusted_root` to the model file's parent dir when not provided,
+        # preserving backward compat for in-process trained-then-loaded flows.
+        _root = trusted_root if trusted_root is not None else os.path.dirname(os.path.abspath(model_file_name))
+        _validate_trusted_path(model_file_name, _root)
         try:
             model, *_, pre_pipeline = joblib.load(model_file_name)
-        except (EOFError, OSError, ModuleNotFoundError, pickle.UnpicklingError) as e:
+        except (EOFError, OSError, ModuleNotFoundError, pickle.UnpicklingError, AttributeError) as e:
             logger.warning(f"Failed to load cached model from {model_file_name}: {e}. Will retrain instead.")
             # Continue to training - model remains as originally passed
 

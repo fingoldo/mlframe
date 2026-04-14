@@ -88,6 +88,10 @@ def save_mlframe_model(
         with open(file, "wb") as f:
             compressor = zstd.ZstdCompressor(**zstd_kwargs)
             with compressor.stream_writer(f) as zf:
+                # Note: BufferedWriter wrapping (64KB/256KB/1MB/4MB) was benchmarked
+                # 2026-04-14 on a fitted RandomForest + 1M-element ndarray payload —
+                # all sizes landed within ±5% of the direct write (high variance).
+                # Direct write retained.
                 dill.dump(model, zf)
         if verbose > 0:
             size_mb = os.path.getsize(file) / (1024 * 1024)
