@@ -9,6 +9,8 @@ Covers:
 """
 
 import pytest
+
+pytestmark = pytest.mark.slow
 import numpy as np
 import pandas as pd
 import tempfile

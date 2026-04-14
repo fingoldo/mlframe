@@ -777,3 +777,56 @@ class TestHypothesisRemoveConstant:
 
         # All columns should be preserved since they all vary
         assert set(result.columns) == {"a", "b", "c"}
+
+
+class TestProcessNansHypothesis:
+    @given(
+        n_rows=st.integers(1, 100),
+        n_cols=st.integers(1, 10),
+        nan_fraction=st.floats(0.0, 0.5),
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_no_nans_remain(self, n_rows, n_cols, nan_fraction):
+        data = np.random.randn(n_rows, n_cols)
+        mask = np.random.random((n_rows, n_cols)) < nan_fraction
+        data[mask] = np.nan
+        df = pd.DataFrame(data, columns=[f"c{i}" for i in range(n_cols)])
+        result = process_nans(df, fill_value=0.0, verbose=0)
+        assert not result.isna().any().any()
+
+
+class TestProcessInfinitiesHypothesis:
+    @given(
+        n_rows=st.integers(1, 50),
+        n_cols=st.integers(1, 5),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_no_infs_remain(self, n_rows, n_cols):
+        data = np.random.randn(n_rows, n_cols)
+        # Inject some infinities
+        data[0, 0] = np.inf
+        if n_rows > 1:
+            data[1, 0] = -np.inf
+        df = pd.DataFrame(data, columns=[f"c{i}" for i in range(n_cols)])
+        result = process_infinities(df, fill_value=0.0, verbose=0)
+        assert not np.isinf(result.values).any()
+
+
+class TestRemoveConstantColumnsHypothesis:
+    @given(
+        n_rows=st.integers(2, 50),
+        n_varying=st.integers(1, 5),
+        n_constant=st.integers(0, 3),
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_only_varying_columns_remain(self, n_rows, n_varying, n_constant):
+        cols = {}
+        for i in range(n_varying):
+            cols[f"vary_{i}"] = np.random.randn(n_rows)
+        for i in range(n_constant):
+            cols[f"const_{i}"] = np.full(n_rows, 42.0)
+        df = pd.DataFrame(cols)
+        result = remove_constant_columns(df, verbose=0)
+        # All constant columns should be removed
+        for col in result.columns:
+            assert result[col].nunique() > 1

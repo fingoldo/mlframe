@@ -6,8 +6,34 @@ Each model type may require different preprocessing (scaling, encoding, imputati
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, List, Any, Dict, Tuple
+from typing import Optional, List, Any, Dict, FrozenSet, Tuple, TYPE_CHECKING
 from sklearn.pipeline import Pipeline
+
+if TYPE_CHECKING:
+    import polars as pl
+
+# =============================================================================
+# Unified categorical type constants
+# =============================================================================
+# Used across pipeline.py, trainer.py, utils.py, core.py to detect categoricals.
+# Import these instead of hardcoding type lists.
+
+PANDAS_CATEGORICAL_DTYPES: FrozenSet[str] = frozenset({
+    "category", "object", "string", "string[pyarrow]", "large_string[pyarrow]",
+})
+
+def _polars_categorical_dtypes():
+    """Lazy import to avoid importing polars at module level."""
+    import polars as pl
+    return (pl.Categorical, pl.Utf8, pl.String)
+
+def is_polars_categorical(dtype) -> bool:
+    """Check whether a Polars dtype is categorical/string."""
+    return dtype in _polars_categorical_dtypes()
+
+def get_polars_cat_columns(df: "pl.DataFrame") -> list:
+    """Detect categorical/string columns from a Polars DataFrame schema."""
+    return [name for name, dtype in df.schema.items() if is_polars_categorical(dtype)]
 
 
 class ModelPipelineStrategy(ABC):
@@ -44,6 +70,42 @@ class ModelPipelineStrategy(ABC):
     def requires_imputation(self) -> bool:
         """Whether this model type requires missing value imputation."""
         ...
+
+    @property
+    def supports_polars(self) -> bool:
+        """Whether this model type can accept Polars DataFrames directly for training."""
+        return False
+
+    @property
+    def supports_text_features(self) -> bool:
+        """Whether this model supports text features (free-text string columns)."""
+        return False
+
+    @property
+    def supports_embedding_features(self) -> bool:
+        """Whether this model supports embedding features (list-of-float vector columns)."""
+        return False
+
+    def feature_tier(self) -> tuple:
+        """Hashable key for grouping models by feature support level.
+
+        Models with the same tier can share trimmed DataFrames (text/embedding
+        columns dropped once per tier). Higher tiers support more feature types
+        and should train first.
+        """
+        return (self.supports_text_features, self.supports_embedding_features)
+
+    def prepare_polars_dataframe(self, df: "pl.DataFrame", cat_features: List[str]) -> "pl.DataFrame":
+        """Prepare a Polars DataFrame for models that support native Polars input.
+
+        Called in the Polars fastpath before training. Override in subclasses
+        to apply model-specific transformations (e.g., casting string columns
+        to pl.Categorical for HGB).
+
+        Default implementation returns the DataFrame unchanged (suitable for
+        CatBoost which handles all dtypes natively).
+        """
+        return df
 
     def build_pipeline(
         self,
@@ -145,6 +207,52 @@ class TreeModelStrategy(ModelPipelineStrategy):
         return base_pipeline
 
 
+class CatBoostStrategy(TreeModelStrategy):
+    """
+    Strategy for CatBoost models.
+
+    Inherits tree model behavior and additionally supports native Polars DataFrames,
+    allowing training without pandas conversion (CatBoost >= 1.2.7).
+    Also supports text_features and embedding_features natively.
+    """
+
+    supports_polars = True
+    supports_text_features = True
+    supports_embedding_features = True
+    cache_key = "catboost"
+
+
+class XGBoostStrategy(TreeModelStrategy):
+    """
+    Strategy for XGBoost models (>= 3.1).
+
+    Inherits tree model behavior and additionally supports native Polars DataFrames.
+    XGBoost auto-detects pl.Categorical columns when enable_categorical=True,
+    but pl.String columns must be cast to pl.Categorical first.
+    No cardinality limit (unlike HGB).
+    """
+
+    supports_polars = True
+    cache_key = "xgboost"
+
+    def prepare_polars_dataframe(self, df: "pl.DataFrame", cat_features: List[str]) -> "pl.DataFrame":
+        """Cast string columns to pl.Categorical for XGBoost auto-detection.
+
+        XGBoost detects pl.Categorical natively when enable_categorical=True
+        but does NOT handle raw pl.String columns.
+        """
+        import polars as pl
+
+        schema_cats = {
+            name for name, dtype in df.schema.items()
+            if dtype in (pl.Utf8, pl.String)
+        }
+        cols_to_cast = schema_cats | {c for c in (cat_features or []) if c in df.columns and df[c].dtype in (pl.Utf8, pl.String)}
+        if not cols_to_cast:
+            return df
+        return df.with_columns([pl.col(c).cast(pl.Categorical) for c in cols_to_cast])
+
+
 class HGBStrategy(ModelPipelineStrategy):
     """
     Strategy for HistGradientBoosting models.
@@ -152,13 +260,60 @@ class HGBStrategy(ModelPipelineStrategy):
     These models:
     - Handle NaN values natively
     - Don't require feature scaling
-    - DO require category encoding (don't handle categoricals natively)
+    - Support Polars DataFrames natively (numeric + pl.Categorical)
+    - Require category encoding only on the pandas fallback path
+    - Hard limit: categorical cardinality must be <= 255 (max_bins constraint)
     """
 
     cache_key = "hgb"
     requires_scaling = False
-    requires_encoding = True
+    requires_encoding = True  # pandas fallback path still needs encoding
     requires_imputation = False
+    supports_polars = True
+
+    # HGB max_bins is capped at 255 in sklearn
+    _MAX_CATEGORICAL_CARDINALITY = 255
+
+    def prepare_polars_dataframe(self, df: "pl.DataFrame", cat_features: List[str]) -> "pl.DataFrame":
+        """Cast categorical columns for HGB compatibility.
+
+        - Cardinality <= 255: cast pl.String → pl.Categorical (HGB auto-detects via from_dtype)
+        - Cardinality > 255: ordinal-encode to pl.UInt32 (HGB treats as continuous, bins into histogram)
+
+        Detects columns from both the provided cat_features list AND the DF schema
+        (pl.String/pl.Utf8/pl.Categorical columns), so it works even when the pipeline
+        has already converted some columns.
+        """
+        import polars as pl
+
+        # Detect all string/categorical columns from schema (may include columns
+        # not in cat_features if pipeline didn't detect them)
+        schema_cats = set(get_polars_cat_columns(df))
+        all_cats = schema_cats | set(cat_features or [])
+        existing = [c for c in all_cats if c in df.columns]
+        if not existing:
+            return df
+
+        casts = []
+        for col in existing:
+            dtype = df[col].dtype
+            if dtype == pl.Categorical:
+                n_unique = df[col].n_unique()
+                if n_unique > self._MAX_CATEGORICAL_CARDINALITY:
+                    # Too many categories — ordinal encode to integer
+                    casts.append(pl.col(col).cast(pl.String).cast(pl.Categorical).to_physical().cast(pl.UInt32).alias(col))
+                # else: already pl.Categorical with acceptable cardinality, keep as-is
+            elif dtype == pl.String or dtype == pl.Utf8:
+                n_unique = df[col].n_unique()
+                if n_unique <= self._MAX_CATEGORICAL_CARDINALITY:
+                    casts.append(pl.col(col).cast(pl.Categorical).alias(col))
+                else:
+                    # Ordinal encode high-cardinality strings
+                    casts.append(pl.col(col).cast(pl.Categorical).to_physical().cast(pl.UInt32).alias(col))
+
+        if casts:
+            df = df.with_columns(casts)
+        return df
 
 
 class NeuralNetStrategy(ModelPipelineStrategy):
@@ -216,6 +371,8 @@ class RecurrentModelStrategy(ModelPipelineStrategy):
 
 # Pre-instantiated strategy instances
 _TREE_STRATEGY = TreeModelStrategy()
+_CATBOOST_STRATEGY = CatBoostStrategy()
+_XGBOOST_STRATEGY = XGBoostStrategy()
 _HGB_STRATEGY = HGBStrategy()
 _NEURAL_STRATEGY = NeuralNetStrategy()
 _LINEAR_STRATEGY = LinearModelStrategy()
@@ -224,9 +381,9 @@ _RECURRENT_STRATEGY = RecurrentModelStrategy()
 # Model name to strategy mapping
 MODEL_STRATEGIES: Dict[str, ModelPipelineStrategy] = {
     # Tree models
-    "cb": _TREE_STRATEGY,
+    "cb": _CATBOOST_STRATEGY,
     "lgb": _TREE_STRATEGY,
-    "xgb": _TREE_STRATEGY,
+    "xgb": _XGBOOST_STRATEGY,
     # HistGradientBoosting
     "hgb": _HGB_STRATEGY,
     # Neural networks
@@ -345,8 +502,13 @@ class PipelineCache:
 
 
 __all__ = [
+    "PANDAS_CATEGORICAL_DTYPES",
+    "is_polars_categorical",
+    "get_polars_cat_columns",
     "ModelPipelineStrategy",
     "TreeModelStrategy",
+    "CatBoostStrategy",
+    "XGBoostStrategy",
     "HGBStrategy",
     "NeuralNetStrategy",
     "LinearModelStrategy",

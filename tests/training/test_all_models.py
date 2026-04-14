@@ -11,6 +11,8 @@ Tests cover:
 """
 
 import pytest
+
+pytestmark = pytest.mark.slow
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -74,7 +76,7 @@ class TestAllModelsRegression:
             model_name=f"{model_name}_regression",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
-            config_params_override=config_override,
+            hyperparams_config=config_override,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -84,9 +86,9 @@ class TestAllModelsRegression:
         )
 
         # Verify
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     @pytest.mark.parametrize("model_name", ALL_MODELS)
     def test_regression_with_polars(self, model_name, sample_polars_data, temp_data_dir, common_init_params, fast_iterations):
@@ -104,7 +106,7 @@ class TestAllModelsRegression:
             model_name=f"{model_name}_polars_regression",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
-            config_params_override=config_override,
+            hyperparams_config=config_override,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -114,9 +116,9 @@ class TestAllModelsRegression:
         )
 
         # Verify
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
 
 # ================================================================================================
@@ -143,7 +145,7 @@ class TestAllModelsClassification:
             model_name=f"{model_name}_classification",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
-            config_params_override=config_override,
+            hyperparams_config=config_override,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -153,9 +155,9 @@ class TestAllModelsClassification:
         )
 
         # Verify
-        assert "target" in models
-        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
-        assert len(models["target"][TargetTypes.BINARY_CLASSIFICATION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
+        assert len(models[TargetTypes.BINARY_CLASSIFICATION]["target"]) > 0
 
     @pytest.mark.parametrize("model_name", CLASSIFICATION_MODELS)
     def test_classification_with_polars(self, model_name, sample_classification_data, temp_data_dir, common_init_params, fast_iterations):
@@ -175,7 +177,7 @@ class TestAllModelsClassification:
             model_name=f"{model_name}_polars_classification",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
-            config_params_override=config_override,
+            hyperparams_config=config_override,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -185,9 +187,9 @@ class TestAllModelsClassification:
         )
 
         # Verify
-        assert "target" in models
-        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
-        assert len(models["target"][TargetTypes.BINARY_CLASSIFICATION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
+        assert len(models[TargetTypes.BINARY_CLASSIFICATION]["target"]) > 0
 
 
 # ================================================================================================
@@ -229,7 +231,7 @@ class TestCategoricalFeatures:
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
             pipeline_config=pipeline_config,
-            config_params_override=config_override,
+            hyperparams_config=config_override,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -239,9 +241,9 @@ class TestCategoricalFeatures:
         )
 
         # Verify
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     @pytest.mark.parametrize("model_name", CATEGORICAL_ENCODING_MODELS)
     @pytest.mark.parametrize("encoding", ["ordinal", "onehot"])
@@ -277,7 +279,7 @@ class TestCategoricalFeatures:
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
             pipeline_config=pipeline_config,
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -287,9 +289,9 @@ class TestCategoricalFeatures:
         )
 
         # Verify
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
 
 # ================================================================================================
@@ -320,7 +322,7 @@ class TestGPUSupport:
             model_name=f"{model_name}_cpu",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
-            config_params_override=config_override,
+            hyperparams_config=config_override,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -330,9 +332,9 @@ class TestGPUSupport:
         )
 
         # Verify
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     @pytest.mark.parametrize("model_name", ["cb", "xgb"])
     def test_gpu_configuration(self, model_name, sample_regression_data, temp_data_dir, check_gpu_available, common_init_params, fast_iterations):
@@ -357,7 +359,7 @@ class TestGPUSupport:
             model_name=f"{model_name}_gpu",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
-            config_params_override=config_override,
+            hyperparams_config=config_override,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -367,9 +369,9 @@ class TestGPUSupport:
         )
 
         # Verify
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_lgb_cpu_configuration(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations):
         """Test LightGBM CPU configuration."""
@@ -386,7 +388,7 @@ class TestGPUSupport:
             model_name="lgb_cpu",
             features_and_targets_extractor=fte,
             mlframe_models=["lgb"],
-            config_params_override=config_override,
+            hyperparams_config=config_override,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -396,9 +398,9 @@ class TestGPUSupport:
         )
 
         # Verify
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_lgb_gpu_configuration(self, sample_regression_data, temp_data_dir, check_lgb_gpu_available, check_gpu_available, common_init_params, fast_iterations):
         """Test LightGBM GPU configuration (with CUDA Tree Learner check)."""
@@ -421,7 +423,7 @@ class TestGPUSupport:
             model_name="lgb_gpu",
             features_and_targets_extractor=fte,
             mlframe_models=["lgb"],
-            config_params_override=config_override,
+            hyperparams_config=config_override,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -431,9 +433,9 @@ class TestGPUSupport:
         )
 
         # Verify
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_mlp_cpu_configuration(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations):
         """Test MLP CPU configuration (with trainer params)."""
@@ -457,7 +459,7 @@ class TestGPUSupport:
             model_name="mlp_cpu",
             features_and_targets_extractor=fte,
             mlframe_models=["mlp"],
-            config_params_override=config_override,
+            hyperparams_config=config_override,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -467,9 +469,9 @@ class TestGPUSupport:
         )
 
         # Verify
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_mlp_gpu_configuration(self, sample_regression_data, temp_data_dir, check_gpu_available, common_init_params, fast_iterations):
         """Test MLP GPU configuration (if GPU available)."""
@@ -497,7 +499,7 @@ class TestGPUSupport:
             model_name="mlp_gpu",
             features_and_targets_extractor=fte,
             mlframe_models=["mlp"],
-            config_params_override=config_override,
+            hyperparams_config=config_override,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -507,9 +509,9 @@ class TestGPUSupport:
         )
 
         # Verify
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_mlp_multi_gpu_configuration(self, sample_regression_data, temp_data_dir, check_gpu_available, common_init_params, fast_iterations):
         """Test MLP multi-GPU configuration (if multiple GPUs available)."""
@@ -552,7 +554,7 @@ class TestGPUSupport:
             model_name="mlp_multi_gpu",
             features_and_targets_extractor=fte,
             mlframe_models=["mlp"],
-            config_params_override=config_override,
+            hyperparams_config=config_override,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -562,9 +564,9 @@ class TestGPUSupport:
         )
 
         # Verify
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_catboost_multi_gpu_configuration(self, sample_regression_data, temp_data_dir, check_gpu_available, common_init_params, fast_iterations):
         """Test CatBoost multi-GPU configuration (if multiple GPUs available)."""
@@ -593,7 +595,7 @@ class TestGPUSupport:
             model_name="cb_multi_gpu",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            config_params_override=config_override,
+            hyperparams_config=config_override,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -603,9 +605,9 @@ class TestGPUSupport:
         )
 
         # Verify
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
 
 # ================================================================================================
@@ -640,7 +642,7 @@ class TestFeatureSelection:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],  # Use cb as final model
             rfecv_models=[estimator],  # Vary the RFECV estimator
-            config_params_override=config_override,
+            hyperparams_config=config_override,
             init_common_params={
                 **common_init_params,
                 "rfecv_params": {"max_runtime_mins": 2},  # Limit RFECV runtime for tests
@@ -653,9 +655,9 @@ class TestFeatureSelection:
         )
 
         # Verify
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
 
 # ================================================================================================
@@ -678,7 +680,7 @@ class TestSpecialCases:
             model_name="ransac_outliers",
             features_and_targets_extractor=fte,
             mlframe_models=["ransac"],
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -688,9 +690,9 @@ class TestSpecialCases:
         )
 
         # Verify
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_ridge_classifier_without_predict_proba(self, sample_classification_data, temp_data_dir, common_init_params, fast_iterations):
         """Test RidgeClassifier uses predict() fallback (no predict_proba)."""
@@ -704,7 +706,7 @@ class TestSpecialCases:
             model_name="ridge_classifier_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -714,9 +716,9 @@ class TestSpecialCases:
         )
 
         # Verify it worked (should use predict() fallback)
-        assert "target" in models
-        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
-        assert len(models["target"][TargetTypes.BINARY_CLASSIFICATION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
+        assert len(models[TargetTypes.BINARY_CLASSIFICATION]["target"]) > 0
 
     def test_sgd_convergence(self, sample_large_regression_data, temp_data_dir, common_init_params, fast_iterations):
         """Test SGD with larger dataset for better convergence."""
@@ -730,7 +732,7 @@ class TestSpecialCases:
             model_name="sgd_large_data",
             features_and_targets_extractor=fte,
             mlframe_models=["sgd"],
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -740,9 +742,9 @@ class TestSpecialCases:
         )
 
         # Verify
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_huber_with_outliers(self, sample_outlier_data, temp_data_dir, common_init_params, fast_iterations):
         """Test Huber regressor on data with outliers."""
@@ -756,7 +758,7 @@ class TestSpecialCases:
             model_name="huber_outliers",
             features_and_targets_extractor=fte,
             mlframe_models=["huber"],
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -766,9 +768,9 @@ class TestSpecialCases:
         )
 
         # Verify
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
 
 # ================================================================================================
@@ -802,7 +804,7 @@ class TestOutlierDetection:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],  # Simple model for fast test
             outlier_detector=outlier_detector,
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -812,9 +814,9 @@ class TestOutlierDetection:
         )
 
         # Verify model trained successfully
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
         # Verify outlier detector is stored in metadata
         assert "outlier_detector" in metadata
@@ -844,7 +846,7 @@ class TestOutlierDetection:
             features_and_targets_extractor=fte,
             mlframe_models=["linear"],  # Simple model for fast test
             outlier_detector=outlier_detector,
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -854,9 +856,9 @@ class TestOutlierDetection:
         )
 
         # Verify model trained
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_local_outlier_factor_detection(self, sample_outlier_data, temp_data_dir, common_init_params, fast_iterations):
         """Test LocalOutlierFactor outlier detection (novelty mode)."""
@@ -881,7 +883,7 @@ class TestOutlierDetection:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],  # Simple model for fast test
             outlier_detector=outlier_detector,
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -891,9 +893,9 @@ class TestOutlierDetection:
         )
 
         # Verify model trained successfully
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
 
 # ================================================================================================
@@ -916,7 +918,7 @@ class TestPredictionValidation:
             model_name="pred_range_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -926,7 +928,7 @@ class TestPredictionValidation:
         )
 
         # Get predictions from the trained model result
-        model_entry = models["target"][TargetTypes.REGRESSION][0]
+        model_entry = models[TargetTypes.REGRESSION]["target"][0]
 
         # Check that test predictions exist and are reasonable
         if hasattr(model_entry, 'test_preds') and model_entry.test_preds is not None:
@@ -950,7 +952,7 @@ class TestPredictionValidation:
             model_name="prob_sum_test",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],  # CatBoost has good proba support
-            config_params_override={"iterations": fast_iterations, "cb_kwargs": {"task_type": "CPU"}},
+            hyperparams_config={"iterations": fast_iterations, "cb_kwargs": {"task_type": "CPU"}},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -960,7 +962,7 @@ class TestPredictionValidation:
         )
 
         # Get model entry
-        model_entry = models["target"][TargetTypes.BINARY_CLASSIFICATION][0]
+        model_entry = models[TargetTypes.BINARY_CLASSIFICATION]["target"][0]
 
         # Check test probabilities if available
         if hasattr(model_entry, 'test_probs') and model_entry.test_probs is not None:
@@ -986,7 +988,7 @@ class TestPredictionValidation:
             model_name="not_nan_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -996,7 +998,7 @@ class TestPredictionValidation:
         )
 
         # Get predictions
-        model_entry = models["target"][TargetTypes.REGRESSION][0]
+        model_entry = models[TargetTypes.REGRESSION]["target"][0]
 
         # Verify predictions are not all NaN
         for attr in ['train_preds', 'val_preds', 'test_preds']:
@@ -1017,7 +1019,7 @@ class TestPredictionValidation:
             model_name="not_same_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -1027,7 +1029,7 @@ class TestPredictionValidation:
         )
 
         # Get predictions
-        model_entry = models["target"][TargetTypes.REGRESSION][0]
+        model_entry = models[TargetTypes.REGRESSION]["target"][0]
 
         # Verify predictions have variance (model learned)
         if hasattr(model_entry, 'test_preds') and model_entry.test_preds is not None:
@@ -1052,7 +1054,7 @@ class TestPredictionValidation:
             model_name=f"{model_name}_shape_test",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
-            config_params_override=config_override,
+            hyperparams_config=config_override,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -1062,7 +1064,7 @@ class TestPredictionValidation:
         )
 
         # Get predictions
-        model_entry = models["target"][TargetTypes.REGRESSION][0]
+        model_entry = models[TargetTypes.REGRESSION]["target"][0]
 
         # Check that shapes match expected sizes from metadata
         if hasattr(model_entry, 'test_preds') and model_entry.test_preds is not None:
@@ -1099,7 +1101,7 @@ class TestGPUUsageVerification:
             model_name="cb_gpu_verify",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            config_params_override=config_override,
+            hyperparams_config=config_override,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -1109,11 +1111,11 @@ class TestGPUUsageVerification:
         )
 
         # Verify training succeeded
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
         # Get the trained model and verify GPU params if accessible
-        model_entry = models["target"][TargetTypes.REGRESSION][0]
+        model_entry = models[TargetTypes.REGRESSION]["target"][0]
         if hasattr(model_entry, 'model'):
             model = model_entry.model
             # CatBoost stores task_type in params
@@ -1147,7 +1149,7 @@ class TestGPUUsageVerification:
             model_name="xgb_gpu_verify",
             features_and_targets_extractor=fte,
             mlframe_models=["xgb"],
-            config_params_override=config_override,
+            hyperparams_config=config_override,
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -1157,11 +1159,11 @@ class TestGPUUsageVerification:
         )
 
         # Verify training succeeded
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
         # Verify XGBoost GPU config
-        model_entry = models["target"][TargetTypes.REGRESSION][0]
+        model_entry = models[TargetTypes.REGRESSION]["target"][0]
         if hasattr(model_entry, 'model'):
             model = model_entry.model
             if hasattr(model, 'get_params'):

@@ -5,6 +5,8 @@ Tests memory usage, large datasets, timeout handling, and parallel execution.
 """
 
 import pytest
+
+pytestmark = pytest.mark.slow
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -17,7 +19,7 @@ import tempfile
 from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.io import save_mlframe_model, load_mlframe_model
 from mlframe.training.pipeline import fit_and_transform_pipeline
-from mlframe.training.configs import PolarsPipelineConfig
+from mlframe.training.configs import PolarsPipelineConfig, TargetTypes
 from .shared import SimpleFeaturesAndTargetsExtractor
 
 
@@ -53,7 +55,7 @@ class TestMemoryStress:
             model_name="large_pandas",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            config_params_override={"iterations": 10},
+            hyperparams_config={"iterations": 10},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -71,7 +73,7 @@ class TestMemoryStress:
 
         # Should not leak excessive memory (< 500 MB delta for this size)
         assert mem_delta < 500, f"Memory delta {mem_delta:.0f} MB exceeds threshold"
-        assert "target" in models
+        assert TargetTypes.REGRESSION in models
 
     def test_large_dataframe_polars(self, temp_data_dir, common_init_params):
         """Test with large Polars DataFrame."""
@@ -94,7 +96,7 @@ class TestMemoryStress:
             model_name="large_polars",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            config_params_override={"iterations": 10},
+            hyperparams_config={"iterations": 10},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -103,7 +105,7 @@ class TestMemoryStress:
             verbose=0,
         )
 
-        assert "target" in models
+        assert TargetTypes.REGRESSION in models
 
     def test_many_columns(self, temp_data_dir, common_init_params):
         """Test with many feature columns."""
@@ -125,7 +127,7 @@ class TestMemoryStress:
             model_name="many_columns",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            config_params_override={"iterations": 10},
+            hyperparams_config={"iterations": 10},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -134,7 +136,7 @@ class TestMemoryStress:
             verbose=0,
         )
 
-        assert "target" in models
+        assert TargetTypes.REGRESSION in models
 
     def test_repeated_training_memory_leak(self, temp_data_dir, common_init_params):
         """Test for memory leaks with repeated training."""
@@ -158,7 +160,7 @@ class TestMemoryStress:
                 model_name=f"repeat_{i}",
                 features_and_targets_extractor=fte,
                 mlframe_models=["ridge"],
-                config_params_override={"iterations": 10},
+                hyperparams_config={"iterations": 10},
                 init_common_params=common_init_params,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
@@ -219,7 +221,7 @@ class TestPerformance:
             model_name="save_load_perf",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            config_params_override={"iterations": 10},
+            hyperparams_config={"iterations": 10},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -258,7 +260,7 @@ class TestPerformance:
             model_name="multi_model_perf",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge", "lasso", "elasticnet"],
-            config_params_override={"iterations": 10},
+            hyperparams_config={"iterations": 10},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -271,7 +273,7 @@ class TestPerformance:
 
         # 3 linear models should complete quickly (< 30 seconds)
         assert elapsed < 30.0, f"Multiple models took {elapsed:.1f}s"
-        assert "target" in models
+        assert TargetTypes.REGRESSION in models
 
 
 # ================================================================================================
@@ -308,7 +310,7 @@ class TestConcurrency:
                 features_and_targets_extractor=fte,
                 mlframe_models=["ridge"],
                 pipeline_config=pipeline_config,
-                config_params_override={"iterations": 10},
+                hyperparams_config={"iterations": 10},
                 init_common_params=common_init_params,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
@@ -334,7 +336,7 @@ class TestConcurrency:
                 model_name=f"gc_test_{i}",
                 features_and_targets_extractor=fte,
                 mlframe_models=["ridge"],
-                config_params_override={"iterations": 10},
+                hyperparams_config={"iterations": 10},
                 init_common_params=common_init_params,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
@@ -376,7 +378,7 @@ class TestEdgeCaseStress:
             model_name="tiny_dataset",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            config_params_override={"iterations": 5},
+            hyperparams_config={"iterations": 5},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -385,7 +387,7 @@ class TestEdgeCaseStress:
             verbose=0,
         )
 
-        assert "target" in models
+        assert TargetTypes.REGRESSION in models
 
     def test_high_dimensional_sparse(self, temp_data_dir, common_init_params):
         """Test with high-dimensional sparse-like data."""
@@ -412,7 +414,7 @@ class TestEdgeCaseStress:
             model_name="sparse_like",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            config_params_override={"iterations": 5},
+            hyperparams_config={"iterations": 5},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -421,7 +423,7 @@ class TestEdgeCaseStress:
             verbose=0,
         )
 
-        assert "target" in models
+        assert TargetTypes.REGRESSION in models
 
     def test_many_nan_values(self, temp_data_dir, common_init_params):
         """Test with many NaN values (50%)."""
@@ -446,7 +448,7 @@ class TestEdgeCaseStress:
                 model_name="many_nan",
                 features_and_targets_extractor=fte,
                 mlframe_models=["ridge"],
-                config_params_override={"iterations": 5},
+                hyperparams_config={"iterations": 5},
                 init_common_params=common_init_params,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
@@ -454,7 +456,7 @@ class TestEdgeCaseStress:
                 models_dir="models",
                 verbose=0,
             )
-            assert "target" in models
+            assert TargetTypes.REGRESSION in models
         except Exception:
             # Expected - too many NaNs may cause issues
             pass
@@ -479,7 +481,7 @@ class TestEdgeCaseStress:
             model_name="extreme_values",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            config_params_override={"iterations": 5},
+            hyperparams_config={"iterations": 5},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -488,7 +490,7 @@ class TestEdgeCaseStress:
             verbose=0,
         )
 
-        assert "target" in models
+        assert TargetTypes.REGRESSION in models
 
     def test_duplicate_rows(self, temp_data_dir, common_init_params):
         """Test with duplicate rows in data."""
@@ -510,7 +512,7 @@ class TestEdgeCaseStress:
             model_name="duplicates",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            config_params_override={"iterations": 5},
+            hyperparams_config={"iterations": 5},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -519,7 +521,7 @@ class TestEdgeCaseStress:
             verbose=0,
         )
 
-        assert "target" in models
+        assert TargetTypes.REGRESSION in models
 
 
 # ================================================================================================

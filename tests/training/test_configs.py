@@ -330,3 +330,39 @@ class TestConfigValidationEdgeCases:
         # Large seed value
         config = TrainingSplitConfig(random_seed=2**31 - 1)
         assert config.random_seed == 2**31 - 1
+
+
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
+
+class TestModelHyperparamsConfigHypothesis:
+    @given(
+        iterations=st.integers(1, 10000),
+        learning_rate=st.floats(0.001, 1.0, allow_nan=False, allow_infinity=False),
+        early_stopping_rounds=st.integers(0, 1000),
+    )
+    @settings(max_examples=50, deadline=None)
+    def test_round_trip_through_model_dump(self, iterations, learning_rate, early_stopping_rounds):
+        from mlframe.training.configs import ModelHyperparamsConfig
+        config = ModelHyperparamsConfig(iterations=iterations, learning_rate=learning_rate, early_stopping_rounds=early_stopping_rounds)
+        dumped = config.model_dump(exclude_none=True)
+        restored = ModelHyperparamsConfig(**dumped)
+        assert restored.iterations == iterations
+        assert restored.learning_rate == pytest.approx(learning_rate)
+        assert restored.early_stopping_rounds == early_stopping_rounds
+
+
+class TestTrainingBehaviorConfigHypothesis:
+    @given(
+        nbins=st.integers(2, 100),
+        cont_nbins=st.integers(2, 20),
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_round_trip_through_model_dump(self, nbins, cont_nbins):
+        from mlframe.training.configs import TrainingBehaviorConfig
+        config = TrainingBehaviorConfig(nbins=nbins, cont_nbins=cont_nbins)
+        dumped = config.model_dump(exclude_none=True)
+        restored = TrainingBehaviorConfig(**dumped)
+        assert restored.nbins == nbins
+        assert restored.cont_nbins == cont_nbins

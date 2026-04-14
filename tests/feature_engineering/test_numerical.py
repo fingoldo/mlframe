@@ -368,60 +368,17 @@ class TestWeightedStatsRegression:
 class TestParameterCoverage:
     """Test all parameter combinations produce consistent output."""
 
-    @pytest.mark.parametrize("directional_only", [True, False])
-    def test_directional_only_output_length(self, random_array_100, directional_only):
-        """Test directional_only parameter affects output length correctly."""
+    @pytest.mark.parametrize("param", [
+        "directional_only", "return_entropy", "return_hurst",
+        "return_profit_factor", "return_exotic_means",
+        "return_unsorted_stats", "return_n_zer_pos_int",
+    ])
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_boolean_param_output_length(self, random_array_100, param, enabled):
+        """Test that each boolean parameter consistently affects output length."""
         arr = random_array_100.astype(np.float32)
-        result = compute_numaggs(arr, directional_only=directional_only)
-        names = get_numaggs_names(directional_only=directional_only)
-        assert len(result) == len(names)
-
-    @pytest.mark.parametrize("return_entropy", [True, False])
-    def test_return_entropy_output_length(self, random_array_100, return_entropy):
-        """Test return_entropy parameter affects output length correctly."""
-        arr = random_array_100.astype(np.float32)
-        result = compute_numaggs(arr, return_entropy=return_entropy)
-        names = get_numaggs_names(return_entropy=return_entropy)
-        assert len(result) == len(names)
-
-    @pytest.mark.parametrize("return_hurst", [True, False])
-    def test_return_hurst_output_length(self, random_array_100, return_hurst):
-        """Test return_hurst parameter affects output length correctly."""
-        arr = random_array_100.astype(np.float32)
-        result = compute_numaggs(arr, return_hurst=return_hurst)
-        names = get_numaggs_names(return_hurst=return_hurst)
-        assert len(result) == len(names)
-
-    @pytest.mark.parametrize("return_profit_factor", [True, False])
-    def test_return_profit_factor_output_length(self, random_array_100, return_profit_factor):
-        """Test return_profit_factor parameter."""
-        arr = random_array_100.astype(np.float32)
-        result = compute_numaggs(arr, return_profit_factor=return_profit_factor)
-        names = get_numaggs_names(return_profit_factor=return_profit_factor)
-        assert len(result) == len(names)
-
-    @pytest.mark.parametrize("return_exotic_means", [True, False])
-    def test_return_exotic_means_output_length(self, random_array_100, return_exotic_means):
-        """Test return_exotic_means parameter."""
-        arr = random_array_100.astype(np.float32)
-        result = compute_numaggs(arr, return_exotic_means=return_exotic_means)
-        names = get_numaggs_names(return_exotic_means=return_exotic_means)
-        assert len(result) == len(names)
-
-    @pytest.mark.parametrize("return_unsorted_stats", [True, False])
-    def test_return_unsorted_stats_output_length(self, random_array_100, return_unsorted_stats):
-        """Test return_unsorted_stats parameter."""
-        arr = random_array_100.astype(np.float32)
-        result = compute_numaggs(arr, return_unsorted_stats=return_unsorted_stats)
-        names = get_numaggs_names(return_unsorted_stats=return_unsorted_stats)
-        assert len(result) == len(names)
-
-    @pytest.mark.parametrize("return_n_zer_pos_int", [True, False])
-    def test_return_n_zer_pos_int_output_length(self, random_array_100, return_n_zer_pos_int):
-        """Test return_n_zer_pos_int parameter."""
-        arr = random_array_100.astype(np.float32)
-        result = compute_numaggs(arr, return_n_zer_pos_int=return_n_zer_pos_int)
-        names = get_numaggs_names(return_n_zer_pos_int=return_n_zer_pos_int)
+        result = compute_numaggs(arr, **{param: enabled})
+        names = get_numaggs_names(**{param: enabled})
         assert len(result) == len(names)
 
     def test_return_drawdown_stats_output_length(self, random_array_100):

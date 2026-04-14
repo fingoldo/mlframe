@@ -13,8 +13,165 @@ Contains the refactored train_mlframe_models_suite function.
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import logging
+from timeit import default_timer as timer
 
 logger = logging.getLogger(__name__)
+
+
+def _df_shape_str(df) -> str:
+    """Format DataFrame shape as 'rows×cols' with thousands separators."""
+    if df is None:
+        return "None"
+    nrows = df.shape[0] if hasattr(df, "shape") else len(df)
+    ncols = df.shape[1] if hasattr(df, "shape") else 0
+    return f"{nrows:_}×{ncols}"
+
+
+def _elapsed_str(start: float) -> str:
+    """Format elapsed time since start as human-readable string."""
+    elapsed = timer() - start
+    if elapsed < 60:
+        return f"{elapsed:.1f}s"
+    return f"{elapsed / 60:.1f}min"
+
+def _auto_detect_feature_types(
+    df,
+    feature_types_config,
+    cat_features: list,
+    verbose: bool = False,
+) -> tuple:
+    """Auto-detect text and embedding features from DataFrame schema and cardinality.
+
+    Args:
+        df: Training DataFrame (Polars or pandas).
+        feature_types_config: FeatureTypesConfig with user overrides and threshold.
+        cat_features: Already-detected categorical features (from pipeline).
+        verbose: Whether to log detections.
+
+    Returns:
+        (text_features, embedding_features) — lists of column names.
+    """
+    import polars as pl
+
+    text_features = list(feature_types_config.text_features or [])
+    embedding_features = list(feature_types_config.embedding_features or [])
+
+    if not feature_types_config.auto_detect_feature_types:
+        return text_features, embedding_features
+
+    threshold = feature_types_config.cat_text_cardinality_threshold
+    # Only user-specified features are "already assigned" — auto-detected categoricals
+    # should still be checked by cardinality (high-cardinality → text, not cat)
+    already_assigned = set(text_features) | set(embedding_features)
+
+    if isinstance(df, pl.DataFrame):
+        for name, dtype in df.schema.items():
+            if name in already_assigned:
+                continue
+            # Embedding: pl.List(pl.Float32/Float64)
+            if dtype == pl.List(pl.Float32) or dtype == pl.List(pl.Float64):
+                embedding_features.append(name)
+                already_assigned.add(name)
+            # String/Categorical: split by cardinality
+            elif dtype in (pl.String, pl.Utf8, pl.Categorical):
+                n_unique = df[name].n_unique()
+                if n_unique > threshold:
+                    text_features.append(name)
+                    already_assigned.add(name)
+                # else: leave for existing cat_features pipeline
+    else:
+        # pandas: only detect high-cardinality text (no reliable embedding auto-detect)
+        for col in df.columns:
+            if col in already_assigned:
+                continue
+            dtype_name = str(df[col].dtype)
+            if dtype_name.startswith("object") or dtype_name.startswith("string"):
+                n_unique = df[col].nunique()
+                if n_unique > threshold:
+                    text_features.append(col)
+                    already_assigned.add(col)
+
+    if verbose and (text_features or embedding_features):
+        logger.info(f"  Auto-detected feature types — text: {text_features or '(none)'}, embedding: {embedding_features or '(none)'}")
+
+    return text_features, embedding_features
+
+
+def _validate_feature_type_exclusivity(
+    text_features: list,
+    embedding_features: list,
+    cat_features: list,
+) -> None:
+    """Raise ValueError if any column appears in multiple feature type lists."""
+    overlap_tc = set(text_features) & set(cat_features)
+    if overlap_tc:
+        raise ValueError(f"Columns cannot be both text_features and cat_features: {overlap_tc}")
+    overlap_ec = set(embedding_features) & set(cat_features)
+    if overlap_ec:
+        raise ValueError(f"Columns cannot be both embedding_features and cat_features: {overlap_ec}")
+    overlap_te = set(text_features) & set(embedding_features)
+    if overlap_te:
+        raise ValueError(f"Columns cannot be both text_features and embedding_features: {overlap_te}")
+
+
+def _build_tier_dfs(
+    base_dfs: dict,
+    strategy,
+    text_features: list,
+    embedding_features: list,
+    tier_cache: dict,
+    verbose: bool = False,
+) -> dict:
+    """Get or create tier-specific DataFrames with unsupported columns removed.
+
+    Uses .select() instead of .drop() to avoid unnecessary full-DF copies.
+
+    Args:
+        base_dfs: Dict with keys train_df, val_df, test_df.
+        strategy: ModelPipelineStrategy for the current model.
+        text_features: Text feature column names.
+        embedding_features: Embedding feature column names.
+        tier_cache: Mutable dict caching tier DFs (tier_key -> dict of DFs).
+        verbose: Log column dropping.
+
+    Returns:
+        Dict with train_df, val_df, test_df (trimmed for tier).
+    """
+    import polars as pl
+
+    tier = strategy.feature_tier()
+    if tier in tier_cache:
+        return tier_cache[tier]
+
+    # Determine columns to exclude for this tier
+    cols_to_exclude = set()
+    if text_features and not strategy.supports_text_features:
+        cols_to_exclude.update(text_features)
+    if embedding_features and not strategy.supports_embedding_features:
+        cols_to_exclude.update(embedding_features)
+
+    if not cols_to_exclude:
+        # Tier supports all features — use base DFs directly (no copy)
+        tier_dfs = base_dfs
+    else:
+        if verbose:
+            logger.info(f"  Tier {tier}: dropping {len(cols_to_exclude)} text/embedding columns: {sorted(cols_to_exclude)}")
+        tier_dfs = {}
+        for key in ("train_df", "val_df", "test_df"):
+            df_ = base_dfs.get(key)
+            if df_ is None:
+                tier_dfs[key] = None
+                continue
+            if isinstance(df_, pl.DataFrame):
+                cols_to_keep = [c for c in df_.columns if c not in cols_to_exclude]
+                tier_dfs[key] = df_.select(cols_to_keep)
+            else:
+                cols_to_drop = [c for c in cols_to_exclude if c in df_.columns]
+                tier_dfs[key] = df_.drop(columns=cols_to_drop) if cols_to_drop else df_
+
+    tier_cache[tier] = tier_dfs
+    return tier_dfs
+
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
@@ -48,6 +205,9 @@ from .configs import (
     PreprocessingConfig,
     TrainingSplitConfig,
     PolarsPipelineConfig,
+    FeatureTypesConfig,
+    ModelHyperparamsConfig,
+    TrainingBehaviorConfig,
     TrainingConfig,
     TargetTypes,
     LinearModelConfig,
@@ -63,7 +223,7 @@ from mlframe.feature_selection.filters import MRMR
 from .utils import log_ram_usage, log_phase, drop_columns_from_dataframe, get_pandas_view_of_polars_df
 from .helpers import get_trainset_features_stats_polars, get_trainset_features_stats
 from .models import is_linear_model, LINEAR_MODEL_TYPES
-from .strategies import get_strategy, PipelineCache
+from .strategies import get_strategy, get_polars_cat_columns, PipelineCache
 from .io import load_mlframe_model
 from .splitting import make_train_test_split
 
@@ -243,11 +403,11 @@ def _build_common_params_for_target(
     current_train_target: Optional[Any],
     current_val_target: Optional[Any],
     outlier_detector: Optional[Any],
-    control_params_override: Optional[Dict[str, Any]],
+    behavior_config: "TrainingBehaviorConfig",
     fairness_subgroups: Optional[Dict],
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+) -> Tuple[Dict[str, Any], "TrainingBehaviorConfig"]:
     """
-    Build common_params and control_params_override for select_target call.
+    Build common_params and behavior_config for select_target call.
 
     Args:
         init_common_params: Initial common parameters from caller
@@ -258,20 +418,22 @@ def _build_common_params_for_target(
         current_train_target: Training targets (filtered if OD applied)
         current_val_target: Validation targets (filtered if OD applied)
         outlier_detector: Outlier detector object (or None)
-        control_params_override: Control parameters override dict
+        behavior_config: Training behavior configuration
         fairness_subgroups: Pre-computed fairness subgroups
 
     Returns:
         Tuple containing:
-            - od_common_params: Dict with common parameters for model training, including
-              trainset_features_stats, plot_file, OD indices, and optionally train/val targets.
-            - current_control_override: Dict with control overrides, including any
-              pre-computed fairness subgroups under "_precomputed_fairness_subgroups" key.
+            - od_common_params: Dict with common parameters for model training.
+            - current_behavior_config: TrainingBehaviorConfig, possibly with
+              _precomputed_fairness_subgroups attached.
     """
-    # Add pre-computed fairness subgroups to control_params_override
-    current_control_override = control_params_override.copy() if control_params_override else {}
+    # Add pre-computed fairness subgroups to behavior_config (extra fields allowed by BaseConfig)
     if fairness_subgroups is not None:
-        current_control_override["_precomputed_fairness_subgroups"] = fairness_subgroups
+        current_behavior_config = behavior_config.model_copy(
+            update={"_precomputed_fairness_subgroups": fairness_subgroups}
+        )
+    else:
+        current_behavior_config = behavior_config
 
     # Build common_params dict
     # Filter out train_target/val_target from init_common_params to avoid conflict when OD is applied
@@ -290,7 +452,7 @@ def _build_common_params_for_target(
         if current_val_target is not None:
             od_common_params["val_target"] = current_val_target
 
-    return od_common_params, current_control_override
+    return od_common_params, current_behavior_config
 
 
 def _build_pre_pipelines(
@@ -505,19 +667,19 @@ def _get_pipeline_components(
 
 def _compute_fairness_subgroups(
     df: Union[pd.DataFrame, pl.DataFrame],
-    control_params_override: Optional[Dict[str, Any]],
+    behavior_config: "TrainingBehaviorConfig",
 ) -> Tuple[Optional[Dict], List[str]]:
     """
     Compute fairness subgroups from DataFrame if fairness_features are specified.
 
     Args:
         df: Full DataFrame (before splitting).
-        control_params_override: Control params that may contain fairness_features.
+        behavior_config: Training behavior configuration.
 
     Returns:
         Tuple of (fairness subgroups dict or None, list of fairness feature names).
     """
-    fairness_features = (control_params_override or {}).get("fairness_features", [])
+    fairness_features = behavior_config.fairness_features or []
     if not fairness_features:
         return None, fairness_features
 
@@ -537,8 +699,8 @@ def _compute_fairness_subgroups(
     subgroups = create_fairness_subgroups(
         df_subset,
         features=fairness_features,
-        cont_nbins=control_params_override.get("cont_nbins", 6),
-        min_pop_cat_thresh=control_params_override.get("fairness_min_pop_cat_thresh", 1000),
+        cont_nbins=behavior_config.cont_nbins,
+        min_pop_cat_thresh=behavior_config.fairness_min_pop_cat_thresh,
     )
     return subgroups, fairness_features
 
@@ -546,7 +708,7 @@ def _compute_fairness_subgroups(
 def _should_skip_catboost_metamodel(
     model_or_pipeline_name: str,
     target_type: TargetTypes,
-    control_params_override: Dict[str, Any],
+    behavior_config: "TrainingBehaviorConfig",
 ) -> bool:
     """
     Check if CatBoost model should be skipped due to metamodel_func incompatibility.
@@ -558,14 +720,14 @@ def _should_skip_catboost_metamodel(
     Args:
         model_or_pipeline_name: Model name or pre-pipeline name to check.
         target_type: Type of target (regression or classification).
-        control_params_override: Control params that may contain metamodel_func.
+        behavior_config: Training behavior configuration.
 
     Returns:
         True if this combination should be skipped.
     """
     if target_type != TargetTypes.REGRESSION:
         return False
-    if control_params_override.get("metamodel_func") is None:
+    if behavior_config.metamodel_func is None:
         return False
     # Check if name contains 'cb' (for model names like 'cb') or 'cb_rfecv' (for pipelines)
     return model_or_pipeline_name in ("cb", "cb_rfecv")
@@ -609,11 +771,7 @@ def _initialize_training_defaults(
     init_common_params: Optional[Dict[str, Any]],
     rfecv_models: Optional[List[str]],
     mrmr_kwargs: Optional[Dict[str, Any]],
-    config_params: Optional[Dict[str, Any]],
-    control_params: Optional[Dict[str, Any]],
-    config_params_override: Optional[Dict[str, Any]],
-    control_params_override: Optional[Dict[str, Any]],
-) -> Tuple[Dict[str, Any], List[str], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+) -> Tuple[Dict[str, Any], List[str], Dict[str, Any]]:
     """
     Initialize default values for training parameters.
 
@@ -621,20 +779,12 @@ def _initialize_training_defaults(
         init_common_params: Initial common parameters (can be None).
         rfecv_models: List of RFECV models (can be None).
         mrmr_kwargs: MRMR keyword arguments (can be None).
-        config_params: Config parameters (can be None).
-        control_params: Control parameters (can be None).
-        config_params_override: Config params override (can be None).
-        control_params_override: Control params override (can be None).
 
     Returns:
         Tuple of initialized values:
         - init_common_params: Dict (never None)
         - rfecv_models: List (never None)
         - mrmr_kwargs: Dict (never None)
-        - config_params: Dict (never None)
-        - control_params: Dict (never None)
-        - config_params_override: Dict (never None)
-        - control_params_override: Dict (never None)
     """
     if init_common_params is None:
         init_common_params = {}
@@ -649,26 +799,10 @@ def _initialize_training_defaults(
             fe_max_steps=0,
         )
 
-    if config_params is None:
-        config_params = {}
-
-    if control_params is None:
-        control_params = {}
-
-    if config_params_override is None:
-        config_params_override = {}
-
-    if control_params_override is None:
-        control_params_override = {}
-
     return (
         init_common_params,
         rfecv_models,
         mrmr_kwargs,
-        config_params,
-        control_params,
-        config_params_override,
-        control_params_override,
     )
 
 
@@ -744,6 +878,7 @@ def train_mlframe_models_suite(
     preprocessing_config: Optional[Union[PreprocessingConfig, Dict]] = None,
     split_config: Optional[Union[TrainingSplitConfig, Dict]] = None,
     pipeline_config: Optional[Union[PolarsPipelineConfig, Dict]] = None,
+    feature_types_config: Optional[Union[FeatureTypesConfig, Dict]] = None,
     # Model-specific configurations
     linear_model_config: Optional[LinearModelConfig] = None,
     # Feature selection
@@ -751,11 +886,9 @@ def train_mlframe_models_suite(
     mrmr_kwargs: Optional[Dict] = None,
     rfecv_models: Optional[List[str]] = None,
     custom_pre_pipelines: Optional[Dict[str, Any]] = None,
-    # Override parameters (for backward compatibility)
-    config_params: Optional[Dict] = None,
-    control_params: Optional[Dict] = None,
-    config_params_override: Optional[Dict] = None,
-    control_params_override: Optional[Dict] = None,
+    # Model hyperparameters and training behavior
+    hyperparams_config: Optional[Union[ModelHyperparamsConfig, Dict]] = None,
+    behavior_config: Optional[Union[TrainingBehaviorConfig, Dict]] = None,
     init_common_params: Optional[Dict] = None,
     # Paths
     data_dir: str = "",
@@ -765,8 +898,6 @@ def train_mlframe_models_suite(
     # Outlier detection (run once for all models)
     outlier_detector: Optional[Any] = None,
     od_val_set: bool = True,
-    # Backward compatibility parameters
-    **kwargs,
 ) -> Tuple[Dict, Dict]:
     """
     Train a suite of ML models on a dataset.
@@ -801,10 +932,10 @@ def train_mlframe_models_suite(
             Each transformer must implement fit() and transform() methods.
             Example: {"pca50": IncrementalPCA(n_components=50)}
 
-        config_params: Base model configuration parameters (legacy, prefer Pydantic configs)
-        control_params: Base control parameters (legacy, prefer Pydantic configs)
-        config_params_override: Override for model config parameters (highest priority)
-        control_params_override: Override for control parameters (highest priority)
+        hyperparams_config: Model hyperparameters (iterations, learning rate, per-model kwargs).
+            Accepts ModelHyperparamsConfig or dict. Defaults are built in.
+        behavior_config: Training behavior flags (GPU preference, calibration, fairness).
+            Accepts TrainingBehaviorConfig or dict. Defaults are built in.
         init_common_params: Common initialization parameters (pipeline components, etc.)
 
         data_dir: Directory for saving artifacts
@@ -814,13 +945,6 @@ def train_mlframe_models_suite(
 
     Returns:
         Tuple of (models_dict, metadata_dict)
-
-    Note:
-        Parameter precedence (highest to lowest):
-        1. config_params_override / control_params_override (explicit overrides, always win)
-        2. config_params / control_params (user-provided base configuration)
-        3. Pydantic config objects (preprocessing_config, split_config, etc.)
-        4. Built-in defaults
 
     Example:
         ```python
@@ -862,9 +986,12 @@ def train_mlframe_models_suite(
         log_phase(f"Starting mlframe training suite: {model_name}")
 
     # Convert dict configs to Pydantic if needed
-    preprocessing_config = _ensure_config(preprocessing_config, PreprocessingConfig, kwargs)
-    pipeline_config = _ensure_config(pipeline_config, PolarsPipelineConfig, kwargs)
-    split_config = _ensure_config(split_config, TrainingSplitConfig, kwargs)
+    preprocessing_config = _ensure_config(preprocessing_config, PreprocessingConfig, {})
+    pipeline_config = _ensure_config(pipeline_config, PolarsPipelineConfig, {})
+    feature_types_config = _ensure_config(feature_types_config, FeatureTypesConfig, {})
+    split_config = _ensure_config(split_config, TrainingSplitConfig, {})
+    hyperparams_config = _ensure_config(hyperparams_config, ModelHyperparamsConfig, {})
+    behavior_config = _ensure_config(behavior_config, TrainingBehaviorConfig, {})
 
     # Default models
     if mlframe_models is None:
@@ -888,15 +1015,21 @@ def train_mlframe_models_suite(
         log_phase("PHASE 1: Data Loading & Preprocessing")
 
     # Load and prepare dataframe
+    t0_phase1 = timer()
     df = load_and_prepare_dataframe(df, preprocessing_config, verbose=verbose)
+    if verbose:
+        logger.info(f"  load_and_prepare_dataframe done — {_df_shape_str(df)}, {_elapsed_str(t0_phase1)}")
 
     # Apply features_and_targets_extractor to extract targets
     if verbose:
         logger.info("Create additional features & extracting targets...")
 
+    t0_fte = timer()
     df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, additional_columns_to_drop, sample_weights = features_and_targets_extractor.transform(
         df
     )
+    if verbose:
+        logger.info(f"  features_and_targets_extractor done — {_df_shape_str(df)}, {_elapsed_str(t0_fte)}")
 
     # Extract sequences for recurrent models (if not provided directly)
     if recurrent_models and sequences is None:
@@ -921,7 +1054,11 @@ def train_mlframe_models_suite(
     )
 
     # Preprocess dataframe (handle nulls, infinities, constants, dtypes)
+    t0_preproc = timer()
     df = preprocess_dataframe(df, preprocessing_config, verbose=verbose)
+    if verbose:
+        logger.info(f"  preprocess_dataframe done — {_df_shape_str(df)}, {_elapsed_str(t0_preproc)}")
+        logger.info(f"  PHASE 1 total: {_elapsed_str(t0_phase1)}")
 
     # ==================================================================================
     # 3. TRAIN/VAL/TEST SPLITTING
@@ -930,6 +1067,7 @@ def train_mlframe_models_suite(
     if verbose:
         log_phase("PHASE 2: Train/Val/Test Splitting")
 
+    t0_phase2 = timer()
     if verbose:
         logger.info(f"Making train_val_test split...")
     train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
@@ -968,7 +1106,7 @@ def train_mlframe_models_suite(
 
     # Pre-compute fairness subgroups from full df BEFORE splitting
     # (bins must cover all rows for train/val/test evaluation)
-    fairness_subgroups, fairness_features = _compute_fairness_subgroups(df, control_params_override)
+    fairness_subgroups, fairness_features = _compute_fairness_subgroups(df, behavior_config)
     if verbose:
         if fairness_features and fairness_subgroups is None:
             logger.warning(f"Fairness features {fairness_features} specified but subgroups could not be computed")
@@ -982,6 +1120,9 @@ def train_mlframe_models_suite(
         val_idx=val_idx,
         test_idx=test_idx,
     )
+    if verbose:
+        logger.info(f"  Split shapes — train: {_df_shape_str(train_df)}, val: {_df_shape_str(val_df)}, test: {_df_shape_str(test_df)}")
+        logger.info(f"  PHASE 2 total: {_elapsed_str(t0_phase2)}")
 
     # Split sequences by train/val/test indices (for recurrent models)
     train_sequences, val_sequences, test_sequences = None, None, None
@@ -1006,12 +1147,55 @@ def train_mlframe_models_suite(
     # 4. PIPELINE FITTING & TRANSFORMATION
     # ==================================================================================
 
+    t0_phase3 = timer()
     if verbose:
         log_phase("PHASE 3: Pipeline Fitting & Transformation")
 
     # Track if input is Polars before pipeline transformation
     was_polars_input = isinstance(train_df, pl.DataFrame)
 
+    # Auto-skip categorical encoding when all models handle categoricals natively.
+    # This avoids wasting time encoding columns that polars-native models don't need,
+    # and avoids the .clone() overhead for preserving pre-pipeline originals.
+    if was_polars_input and not pipeline_config.skip_categorical_encoding:
+        all_polars_native = all(get_strategy(m).supports_polars for m in mlframe_models)
+        if all_polars_native:
+            pipeline_config = pipeline_config.model_copy(update={"skip_categorical_encoding": True})
+            if verbose:
+                logger.info(f"  All models {mlframe_models} support Polars natively — skipping categorical encoding in pipeline")
+
+    # Save pre-pipeline Polars originals for the Polars fastpath.
+    # Only clone when the pipeline will actually modify categorical columns;
+    # when skip_categorical_encoding=True the pipeline preserves dtypes so the
+    # original DF reference is sufficient (B1 optimization — saves 100GB+ clone).
+    needs_polars_pre_clone = (
+        was_polars_input
+        and not pipeline_config.skip_categorical_encoding
+        and pipeline_config.categorical_encoding is not None
+    )
+    if was_polars_input:
+        if needs_polars_pre_clone:
+            train_df_polars_pre = train_df.clone()
+            val_df_polars_pre = val_df.clone() if isinstance(val_df, pl.DataFrame) else None
+            test_df_polars_pre = test_df.clone() if isinstance(test_df, pl.DataFrame) else None
+            if verbose:
+                logger.info(f"  Cloned pre-pipeline Polars originals (pipeline will modify categoricals)")
+        else:
+            # No clone needed — pipeline won't touch categoricals, reuse references
+            train_df_polars_pre = train_df
+            val_df_polars_pre = val_df if isinstance(val_df, pl.DataFrame) else None
+            test_df_polars_pre = test_df if isinstance(test_df, pl.DataFrame) else None
+            if verbose:
+                logger.info(f"  Skipped pre-pipeline clone (skip_categorical_encoding=True)")
+        cat_features_polars = get_polars_cat_columns(train_df)
+    else:
+        train_df_polars_pre = None
+        val_df_polars_pre = None
+        test_df_polars_pre = None
+        cat_features_polars = []
+
+    # Pass user-specified text/embedding features to exclude from encoding/scaling.
+    # Auto-detection happens later (after pipeline, when cat_features are known).
     train_df, val_df, test_df, pipeline, cat_features = fit_and_transform_pipeline(
         train_df=train_df,
         val_df=val_df,
@@ -1019,6 +1203,8 @@ def train_mlframe_models_suite(
         config=pipeline_config,
         ensure_float32=preprocessing_config.ensure_float32_dtypes,
         verbose=verbose,
+        text_features=feature_types_config.text_features,
+        embedding_features=feature_types_config.embedding_features,
     )
 
     # Track if Polars-ds pipeline was applied (to skip redundant pre_pipeline transforms later)
@@ -1027,6 +1213,34 @@ def train_mlframe_models_suite(
     metadata["pipeline"] = pipeline
     metadata["cat_features"] = cat_features
     metadata["columns"] = train_df.columns.tolist() if isinstance(train_df, pd.DataFrame) else train_df.columns
+
+    if verbose:
+        logger.info(f"  Pipeline done — train: {_df_shape_str(train_df)}, cat_features: {cat_features or '(none)'}")
+        if was_polars_input and cat_features_polars:
+            logger.info(f"  Pre-pipeline Polars cat_features: {cat_features_polars}")
+        logger.info(f"  PHASE 3 total: {_elapsed_str(t0_phase3)}")
+
+    # ==================================================================================
+    # 4.5. AUTO-DETECT TEXT & EMBEDDING FEATURES
+    # ==================================================================================
+
+    # Use pre-pipeline DF for auto-detection (original dtypes preserved).
+    detect_df = train_df_polars_pre if was_polars_input else train_df
+    # Merge pipeline-detected and pre-pipeline Polars categorical columns
+    raw_cat_features = list(set((cat_features or []) + (cat_features_polars or [])))
+    text_features, embedding_features = _auto_detect_feature_types(
+        detect_df, feature_types_config, raw_cat_features, verbose=verbose,
+    )
+    # Remove auto-detected text/embedding features from cat list (they're not categoricals)
+    text_emb_set = set(text_features) | set(embedding_features)
+    effective_cat_features = [c for c in raw_cat_features if c not in text_emb_set]
+    _validate_feature_type_exclusivity(text_features, embedding_features, effective_cat_features)
+
+    if verbose and (text_features or embedding_features):
+        logger.info(f"  Feature types — text: {text_features}, embedding: {embedding_features}, cat: {cat_features or '(none)'}")
+
+    metadata["text_features"] = text_features
+    metadata["embedding_features"] = embedding_features
 
     # ==================================================================================
     # 5. MODEL TRAINING
@@ -1040,18 +1254,10 @@ def train_mlframe_models_suite(
         init_common_params,
         rfecv_models,
         mrmr_kwargs,
-        config_params,
-        control_params,
-        config_params_override,
-        control_params_override,
     ) = _initialize_training_defaults(
         init_common_params=init_common_params,
         rfecv_models=rfecv_models,
         mrmr_kwargs=mrmr_kwargs,
-        config_params=config_params,
-        control_params=control_params,
-        config_params_override=config_params_override,
-        control_params_override=control_params_override,
     )
 
     # Get pipeline components (category_encoder, imputer, scaler) from params or defaults
@@ -1074,6 +1280,13 @@ def train_mlframe_models_suite(
     if verbose:
         logger.info("Zero-copy conversion to pandas...")
 
+    # Use pre-pipeline Polars originals for models that support native Polars input.
+    # Post-pipeline DFs may have string/categorical columns converted to float by
+    # polars-ds, losing dtype info needed by CatBoost and HGB.
+    train_df_polars = train_df_polars_pre
+    val_df_polars = val_df_polars_pre
+    test_df_polars = test_df_polars_pre
+
     # Cache pandas versions for select_target (zero-copy Arrow-backed view for Polars)
     train_df_pd, val_df_pd, test_df_pd = _convert_dfs_to_pandas(train_df, val_df, test_df)
 
@@ -1085,6 +1298,16 @@ def train_mlframe_models_suite(
         for df_pd in [train_df_pd, val_df_pd, test_df_pd]:
             if df_pd is not None:
                 prepare_df_for_catboost(df_pd, cat_features)
+
+    # B2: Release post-pipeline Polars DFs after pandas conversion.
+    # Arrow-backed pandas views hold their own Arrow buffer references,
+    # so the Polars objects are no longer needed. Saves ~100GB peak memory.
+    if was_polars_input and needs_polars_pre_clone:
+        # Only release if we cloned (otherwise train_df IS train_df_polars_pre)
+        train_df = val_df = test_df = None
+        clean_ram()
+        if verbose:
+            logger.info("  Released post-pipeline Polars DFs (pandas views retained)")
 
     if verbose:
         log_ram_usage()
@@ -1167,8 +1390,8 @@ def train_mlframe_models_suite(
                 if verbose:
                     logger.info(f"select_target...")
 
-                # Build common_params and control_params_override for select_target
-                od_common_params, current_control_override = _build_common_params_for_target(
+                # Build common_params and behavior_config for select_target
+                od_common_params, current_behavior_config = _build_common_params_for_target(
                     init_common_params=init_common_params,
                     trainset_features_stats=trainset_features_stats,
                     plot_file=plot_file,
@@ -1177,7 +1400,7 @@ def train_mlframe_models_suite(
                     current_train_target=current_train_target,
                     current_val_target=current_val_target,
                     outlier_detector=outlier_detector,
-                    control_params_override=control_params_override,
+                    behavior_config=behavior_config,
                     fairness_subgroups=fairness_subgroups,
                 )
 
@@ -1197,10 +1420,10 @@ def train_mlframe_models_suite(
                     test_details=test_details,
                     group_ids=group_ids,
                     cat_features=cat_features,
-                    config_params=config_params,
-                    config_params_override=config_params_override,
-                    control_params=control_params,
-                    control_params_override=current_control_override,
+                    text_features=text_features,
+                    embedding_features=embedding_features,
+                    hyperparams_config=hyperparams_config,
+                    behavior_config=current_behavior_config,
                     common_params=od_common_params,
                     mlframe_models=mlframe_models,
                     linear_model_config=linear_model_config,
@@ -1226,7 +1449,7 @@ def train_mlframe_models_suite(
 
             for pre_pipeline, pre_pipeline_name in tqdmu(zip(pre_pipelines, pre_pipeline_names), desc="pre_pipeline", total=len(pre_pipelines)):
                 # Skip CatBoost RFECV pipeline with metamodel_func due to sklearn clone issue
-                if _should_skip_catboost_metamodel(pre_pipeline_name.strip(), target_type, control_params_override):
+                if _should_skip_catboost_metamodel(pre_pipeline_name.strip(), target_type, behavior_config):
                     continue
                 ens_models = [] if use_mlframe_ensembles else None
                 orig_pre_pipeline = pre_pipeline
@@ -1244,10 +1467,20 @@ def train_mlframe_models_suite(
 
                 # -----------------------------------------------------------------------
                 # MODEL LOOP: Train each model type with all weight variations
+                # Models sorted by feature tier (most features first) so that
+                # text/embedding columns are dropped once per tier, not per model.
                 # -----------------------------------------------------------------------
-                for mlframe_model_name in tqdmu(mlframe_models, desc="mlframe model"):
+                sorted_models = sorted(
+                    mlframe_models,
+                    key=lambda m: get_strategy(m).feature_tier(),
+                    reverse=True,  # (True, True) before (False, False)
+                )
+                tier_dfs_cache = {}  # feature_tier -> {train_df, val_df, test_df}
+                prev_tier = None
+
+                for mlframe_model_name in tqdmu(sorted_models, desc="mlframe model"):
                     # Skip CatBoost model with metamodel_func due to sklearn clone issue
-                    if _should_skip_catboost_metamodel(mlframe_model_name, target_type, control_params_override):
+                    if _should_skip_catboost_metamodel(mlframe_model_name, target_type, behavior_config):
                         continue
 
                     if mlframe_model_name not in models_params:
@@ -1266,6 +1499,53 @@ def train_mlframe_models_suite(
                     # Include pre_pipeline_name in cache key to differentiate MRMR vs RFECV etc.
                     cache_key = f"{strategy.cache_key}_{pre_pipeline_name}" if pre_pipeline_name else strategy.cache_key
 
+                    # Polars fastpath: substitute original Polars DataFrames for models
+                    # that support native Polars input (e.g. CatBoost >= 1.2.7, HGB).
+                    polars_fastpath_active = train_df_polars is not None and strategy.supports_polars
+
+                    # B3: Prepare Polars DFs once per model (outside weight loop).
+                    # prepare_polars_dataframe() calls .with_columns() which allocates —
+                    # doing it per weight schema wastes memory for 100GB+ DataFrames.
+                    if polars_fastpath_active:
+                        if verbose:
+                            logger.info(f"  Polars fastpath active for {mlframe_model_name} (strategy={type(strategy).__name__})")
+                        _cat_features = cat_features_polars or cat_features or []
+
+                        # Build tier-specific DFs with text/embedding columns dropped for non-supporting models
+                        tier_base = {
+                            "train_df": train_df_polars,
+                            "val_df": val_df_polars,
+                            "test_df": test_df_polars,
+                        }
+                        tier_polars = _build_tier_dfs(
+                            tier_base, strategy, text_features, embedding_features, tier_dfs_cache, verbose=verbose,
+                        )
+
+                        prepared_train = strategy.prepare_polars_dataframe(tier_polars["train_df"], _cat_features)
+                        prepared_val = strategy.prepare_polars_dataframe(tier_polars["val_df"], _cat_features) if tier_polars.get("val_df") is not None else None
+                        prepared_test = strategy.prepare_polars_dataframe(tier_polars["test_df"], _cat_features) if tier_polars.get("test_df") is not None else None
+
+                        # Null-fill text features for CatBoost (requires no nulls in text columns)
+                        if text_features and mlframe_model_name == "cb":
+                            text_cols_present = [c for c in text_features if c in prepared_train.columns]
+                            if text_cols_present:
+                                fill_exprs = [pl.col(c).fill_null("") for c in text_cols_present]
+                                prepared_train = prepared_train.with_columns(fill_exprs)
+                                if prepared_val is not None:
+                                    prepared_val = prepared_val.with_columns(fill_exprs)
+                                if prepared_test is not None:
+                                    prepared_test = prepared_test.with_columns(fill_exprs)
+
+                        polars_fastpath_skip_preprocessing = strategy.requires_encoding
+                    else:
+                        polars_fastpath_skip_preprocessing = False
+
+                        # For non-Polars models, build tier DFs from pandas common_params
+                        tier_pandas = _build_tier_dfs(
+                            {"train_df": common_params.get("train_df"), "val_df": common_params.get("val_df"), "test_df": common_params.get("test_df")},
+                            strategy, text_features, embedding_features, tier_dfs_cache, verbose=verbose,
+                        )
+
                     # --- WEIGHT SCHEMA LOOP: Train with each sample weighting ---
                     for weight_name, weight_values in tqdmu(weight_schemas.items(), desc="weighting schema"):
                         # Create model name with weight suffix
@@ -1278,6 +1558,20 @@ def train_mlframe_models_suite(
                         # Shallow copy common_params - only sample_weight changes per iteration
                         current_common_params = common_params.copy()
                         current_common_params["sample_weight"] = weight_values
+
+                        # Apply tier DFs (text/embedding columns dropped for non-supporting models)
+                        if polars_fastpath_active:
+                            current_common_params["train_df"] = prepared_train
+                            if prepared_val is not None:
+                                current_common_params["val_df"] = prepared_val
+                            if prepared_test is not None:
+                                current_common_params["test_df"] = prepared_test
+                        else:
+                            current_common_params["train_df"] = tier_pandas["train_df"]
+                            if tier_pandas.get("val_df") is not None:
+                                current_common_params["val_df"] = tier_pandas["val_df"]
+                            if tier_pandas.get("test_df") is not None:
+                                current_common_params["test_df"] = tier_pandas["test_df"]
 
                         # Append weight_name to plot_file for non-uniform weights
                         if weight_name != "uniform" and current_common_params.get("plot_file"):
@@ -1309,6 +1603,25 @@ def train_mlframe_models_suite(
                         current_model_params = models_params[mlframe_model_name].copy()
                         current_model_params["model"] = cloned_model
 
+                        # Polars fastpath: update cat_features/text_features/embedding_features
+                        # in fit_params for CatBoost only.
+                        # XGBoost/HGB auto-detect pl.Categorical via enable_categorical=True
+                        # and do NOT accept cat_features/text_features/embedding_features as fit() params.
+                        if polars_fastpath_active and mlframe_model_name == "cb" and "fit_params" in current_model_params:
+                            extra_fit = {}
+                            if _cat_features:
+                                extra_fit["cat_features"] = _cat_features
+                            if text_features:
+                                cb_text = [c for c in text_features if c in prepared_train.columns]
+                                if cb_text:
+                                    extra_fit["text_features"] = cb_text
+                            if embedding_features:
+                                cb_emb = [c for c in embedding_features if c in prepared_train.columns]
+                                if cb_emb:
+                                    extra_fit["embedding_features"] = cb_emb
+                            if extra_fit:
+                                current_model_params["fit_params"] = {**current_model_params["fit_params"], **extra_fit}
+
                         # Build process_model kwargs using helper
                         process_model_kwargs = _build_process_model_kwargs(
                             model_file=model_file,
@@ -1325,14 +1638,17 @@ def train_mlframe_models_suite(
                             trainset_features_stats=trainset_features_stats,
                             verbose=verbose,
                             cached_dfs=cached_dfs,
-                            polars_pipeline_applied=polars_pipeline_applied,
+                            polars_pipeline_applied=polars_pipeline_applied or polars_fastpath_skip_preprocessing,
                             mlframe_model_name=mlframe_model_name,
                             metadata_columns=metadata.get("columns"),
                         )
 
+                        t0_model = timer()
                         trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed = process_model(
                             **process_model_kwargs
                         )
+                        if verbose:
+                            logger.info(f"  process_model({mlframe_model_name}, w={weight_name}) done — {_elapsed_str(t0_model)}")
 
                         # Cache the transformed DataFrames if not already cached
                         if cached_dfs is None:
@@ -1346,6 +1662,19 @@ def train_mlframe_models_suite(
                     # For optimal performance, list tree models first in mlframe_models.
                     if cache_key.startswith("tree"):
                         orig_pre_pipeline = pre_pipeline
+
+                    # B5: Release Polars originals after all tier-1 (Polars-native) models finish.
+                    # When transitioning to a lower tier, pre-pipeline Polars DFs are no longer needed.
+                    cur_tier = strategy.feature_tier()
+                    if prev_tier is not None and cur_tier != prev_tier and not strategy.supports_polars:
+                        if train_df_polars is not None:
+                            del train_df_polars, val_df_polars, test_df_polars
+                            train_df_polars = val_df_polars = test_df_polars = None
+                            tier_dfs_cache.clear()
+                            clean_ram()
+                            if verbose:
+                                logger.info("  Released pre-pipeline Polars originals (tier transition)")
+                    prev_tier = cur_tier
 
                 if ens_models and len(ens_models) > 1:
                     if verbose:

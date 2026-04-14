@@ -1,57 +1,20 @@
 """
 Shared pytest fixtures for training module tests.
+
+Note: autouse fixtures (cleanup_memory, suppress_convergence_warnings) live in
+tests/conftest.py and apply to all test modules automatically.
 """
 
 # Set matplotlib backend to 'Agg' BEFORE any matplotlib import to prevent plt.show() from blocking
 import matplotlib
 matplotlib.use('Agg')
 
-import gc
 import pytest
 import numpy as np
 import pandas as pd
 import polars as pl
 import warnings
 from pathlib import Path
-
-
-@pytest.fixture(autouse=True)
-def cleanup_memory():
-    """Clean up memory after each test to prevent OOM issues."""
-    import os
-    import psutil
-
-    # Only log in main process (avoid duplicate logs from worker processes)
-    is_main_process = os.environ.get('PYTEST_CURRENT_TEST') is not None
-
-    process = psutil.Process()
-    mem_before = process.memory_info().rss / 1024 / 1024  # MB
-    if is_main_process:
-        print(f"\n[MEM] Before: {mem_before:.0f} MB")
-
-    yield
-
-    gc.collect()
-
-    # Clear GPU memory and destroy distributed process groups to prevent CUDA OOM and TCPStore errors
-    try:
-        import torch
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-
-        # Destroy distributed process groups to prevent TCPStore broken pipe errors
-        if torch.distributed.is_initialized():
-            torch.distributed.destroy_process_group()
-    except ImportError:
-        pass
-    except Exception:
-        # Ignore errors during cleanup (process group may already be destroyed)
-        pass
-
-    mem_after = process.memory_info().rss / 1024 / 1024
-    if is_main_process:
-        print(f"[MEM] After: {mem_after:.0f} MB (delta: {mem_after - mem_before:+.0f} MB)")
 
 
 @pytest.fixture
@@ -134,23 +97,6 @@ def temp_models_dir(tmp_path):
     models_dir = tmp_path / "test_models"
     models_dir.mkdir()
     return str(models_dir)
-
-
-# ================================================================================================
-# Warning Suppression
-# ================================================================================================
-
-@pytest.fixture(autouse=True)
-def suppress_convergence_warnings():
-    """Suppress convergence warnings during tests."""
-    from sklearn.exceptions import ConvergenceWarning
-
-    warnings.filterwarnings("ignore", category=ConvergenceWarning)
-    warnings.filterwarnings("ignore", message=".*ConvergenceWarning.*")
-    warnings.filterwarnings("ignore", message=".*lbfgs failed to converge.*")
-    warnings.filterwarnings("ignore", message=".*Objective did not converge.*")
-    yield
-    warnings.resetwarnings()
 
 
 # ================================================================================================
@@ -310,13 +256,13 @@ def check_gpu_available():
         return False
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def common_init_params():
     """Common init_common_params to suppress matplotlib figures in tests."""
     return {'show_perf_chart': False, 'show_fi': False}
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def fast_iterations():
     """Low iteration count for fast test execution.
 
@@ -326,7 +272,7 @@ def fast_iterations():
     return 10
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def fast_config_override(fast_iterations):
     """Config params override for fast test execution."""
     return {'iterations': fast_iterations}

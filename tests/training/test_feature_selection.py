@@ -158,6 +158,7 @@ class TestMRMRFeatureSelection:
 # ================================================================================================
 
 
+@pytest.mark.slow
 class TestRFECVFeatureSelection:
     """Tests for RFECV feature selector."""
 
@@ -321,7 +322,7 @@ class TestFeatureSelectionIntegration:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             rfecv_models=["cb_rfecv"],
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params={
                 **common_init_params,
                 "rfecv_params": {"max_runtime_mins": 1, "max_refits": 3},
@@ -333,8 +334,8 @@ class TestFeatureSelectionIntegration:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
 
     def test_multiple_rfecv_models(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations, check_lgb_gpu_available):
         """Test training with multiple RFECV estimators."""
@@ -353,7 +354,7 @@ class TestFeatureSelectionIntegration:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             rfecv_models=rfecv_models,
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params={
                 **common_init_params,
                 "rfecv_params": {"max_runtime_mins": 1, "max_refits": 3},
@@ -365,8 +366,8 @@ class TestFeatureSelectionIntegration:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
     def test_use_mrmr_fs_true(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations):
         """Test training with MRMR feature selection enabled."""
@@ -387,7 +388,7 @@ class TestFeatureSelectionIntegration:
                 "quantization_nbins": 5,
                 "use_simple_mode": True,
             },
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -396,8 +397,8 @@ class TestFeatureSelectionIntegration:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
     def test_mrmr_with_classification(self, sample_classification_data, temp_data_dir, common_init_params, fast_iterations):
         """Test MRMR feature selection with classification task."""
@@ -420,7 +421,7 @@ class TestFeatureSelectionIntegration:
                 "n_workers": 1,
                 "quantization_nbins": 5,
             },
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -429,8 +430,8 @@ class TestFeatureSelectionIntegration:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
 
 
 # ================================================================================================
@@ -462,7 +463,7 @@ class TestCombinedPipelines:
                 "quantization_nbins": 5,
                 "use_simple_mode": True,
             },
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params={
                 **common_init_params,
                 "rfecv_params": {"max_runtime_mins": 1, "max_refits": 3},
@@ -474,10 +475,10 @@ class TestCombinedPipelines:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
         # Should have models from both regular training and RFECV
-        assert len(models["target"][TargetTypes.REGRESSION]) >= 1
+        assert len(models[TargetTypes.REGRESSION]["target"]) >= 1
 
     def test_feature_selection_with_fairness(self, temp_data_dir, common_init_params, fast_iterations):
         """Test feature selection combined with fairness_features parameter."""
@@ -506,9 +507,9 @@ class TestCombinedPipelines:
                 "max_runtime_mins": 1,
                 "n_workers": 1,
             },
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params=common_init_params,
-            control_params_override={
+            behavior_config={
                 'fairness_features': ['group_feature'],
                 'fairness_min_pop_cat_thresh': 10,  # Small threshold for test data
             },
@@ -519,8 +520,8 @@ class TestCombinedPipelines:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
     def test_rfecv_with_polars(self, sample_polars_data, temp_data_dir, common_init_params, fast_iterations):
         """Test RFECV with Polars DataFrame input."""
@@ -534,7 +535,7 @@ class TestCombinedPipelines:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             rfecv_models=["cb_rfecv"],
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params={
                 **common_init_params,
                 "rfecv_params": {"max_runtime_mins": 1, "max_refits": 3},
@@ -546,7 +547,7 @@ class TestCombinedPipelines:
             verbose=0,
         )
 
-        assert "target" in models
+        assert TargetTypes.REGRESSION in models
 
     def test_mrmr_with_polars(self, sample_polars_data, temp_data_dir, common_init_params, fast_iterations):
         """Test MRMR with Polars DataFrame input."""
@@ -565,7 +566,7 @@ class TestCombinedPipelines:
                 "max_runtime_mins": 1,
                 "n_workers": 1,
             },
-            config_params_override={"iterations": fast_iterations},
+            hyperparams_config={"iterations": fast_iterations},
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
@@ -574,7 +575,7 @@ class TestCombinedPipelines:
             verbose=0,
         )
 
-        assert "target" in models
+        assert TargetTypes.REGRESSION in models
 
     def test_rfecv_with_small_dataset(self, temp_data_dir, common_init_params):
         """Test RFECV with very small dataset."""
@@ -596,7 +597,7 @@ class TestCombinedPipelines:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             rfecv_models=["cb_rfecv"],
-            config_params_override={"iterations": 5},
+            hyperparams_config={"iterations": 5},
             init_common_params={
                 **common_init_params,
                 "rfecv_params": {"max_runtime_mins": 0.5, "max_refits": 2, "cv": 2},
@@ -608,7 +609,7 @@ class TestCombinedPipelines:
             verbose=0,
         )
 
-        assert "target" in models
+        assert TargetTypes.REGRESSION in models
 
     def test_rfecv_with_many_features(self, temp_data_dir, common_init_params):
         """Test RFECV with many features (feature selection stress test)."""
@@ -630,7 +631,7 @@ class TestCombinedPipelines:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             rfecv_models=["cb_rfecv"],
-            config_params_override={"iterations": 5},
+            hyperparams_config={"iterations": 5},
             init_common_params={
                 **common_init_params,
                 "rfecv_params": {"max_runtime_mins": 2, "max_refits": 5},
@@ -642,7 +643,7 @@ class TestCombinedPipelines:
             verbose=0,
         )
 
-        assert "target" in models
+        assert TargetTypes.REGRESSION in models
 
 
 # ================================================================================================

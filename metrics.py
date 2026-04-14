@@ -875,7 +875,7 @@ def compute_probabilistic_multiclass_error(
     std_weight: float = 2,
     roc_auc_weight: float = 1.5,
     pr_auc_weight: float = 0.1,
-    brier_loss_weight: float = 0.4,
+    brier_loss_weight: float = 0.8,
     min_roc_auc: float = 0.54,
     roc_auc_penalty: float = 0.00,
     use_weighted_calibration: bool = True,
@@ -1055,7 +1055,7 @@ def integral_calibration_error_from_metrics(
     std_weight: float = 2,
     roc_auc_weight: float = 1.5,
     pr_auc_weight: float = 0.1,
-    brier_loss_weight: float = 0.4,
+    brier_loss_weight: float = 0.8,
     min_roc_auc: float = 0.54,
     roc_auc_penalty: float = 0.00,
 ) -> float:

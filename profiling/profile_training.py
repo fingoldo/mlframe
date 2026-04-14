@@ -87,7 +87,7 @@ def run_profiling():
                 data_dir=tmpdir,
                 models_dir="models",
                 verbose=1,
-                control_params_override={"prefer_gpu_configs": False},  # Force CPU
+                behavior_config={"prefer_gpu_configs": False},  # Force CPU
             )
 
         # Profile the function

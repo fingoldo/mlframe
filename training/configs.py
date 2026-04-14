@@ -24,6 +24,18 @@ DEFAULT_TREE_ITERATIONS = 5000
 DEFAULT_CALIBRATION_BINS = 10
 """Default number of bins for calibration reports."""
 
+DEFAULT_FAIRNESS_MIN_POP_CAT_THRESH = 1000
+"""Default minimum population per category for fairness analysis."""
+
+DEFAULT_RFECV_MAX_RUNTIME_MINS = 180
+"""Default RFECV max runtime in minutes (3 hours)."""
+
+DEFAULT_RFECV_CV_SPLITS = 4
+"""Default number of CV splits for RFECV."""
+
+DEFAULT_RFECV_MAX_NOIMPROVING_ITERS = 15
+"""Default max non-improving iterations for RFECV early stopping."""
+
 VALID_MODEL_TYPES = {"cb", "lgb", "xgb", "mlp", "ngb", "linear", "ridge", "lasso", "elasticnet", "huber", "ransac", "sgd"}
 """Valid model type identifiers for mlframe_models parameter."""
 
@@ -155,6 +167,11 @@ class PolarsPipelineConfig(BaseConfig):
     categorical_encoding : str, optional
         Encoding for categorical features: "ordinal", "onehot", "target" (default: "ordinal").
         Pass None to skip categorical encoding.
+    skip_categorical_encoding : bool
+        If True, skip categorical encoding even when ``categorical_encoding`` is set.
+        Auto-set by ``train_mlframe_models_suite`` when all requested models handle
+        categoricals natively (e.g. CatBoost, XGBoost, HGB on Polars input).
+        Default: False.
     robust_q_low : float
         Lower quantile for robust scaling (default: 0.01).
     robust_q_high : float
@@ -165,6 +182,7 @@ class PolarsPipelineConfig(BaseConfig):
     scaler_name: Optional[str] = "standard"
     imputer_strategy: Optional[str] = "mean"
     categorical_encoding: Optional[str] = "ordinal"
+    skip_categorical_encoding: bool = False
     robust_q_low: float = 0.01
     robust_q_high: float = 0.99
 
@@ -179,6 +197,38 @@ class PolarsPipelineConfig(BaseConfig):
         if v_lower not in valid_names:
             raise ValueError(f"scaler_name must be one of {valid_names} or None, got '{v}'")
         return v_lower
+
+
+class FeatureTypesConfig(BaseConfig):
+    """Configuration for special feature types (text, embedding).
+
+    Controls how text and embedding columns are detected and routed to models
+    that support them (currently CatBoost only). Columns are dropped for
+    models that don't support them.
+
+    Parameters
+    ----------
+    text_features : list of str, optional
+        Explicit list of text feature column names. These are free-text string
+        columns passed to CatBoost via ``fit(text_features=...)``.
+    embedding_features : list of str, optional
+        Explicit list of embedding feature column names. These are columns
+        containing list-of-float vectors, passed via ``fit(embedding_features=...)``.
+    auto_detect_feature_types : bool
+        Whether to auto-detect text and embedding features from DataFrame schema
+        (default: True). Embeddings detected via ``pl.List(pl.Float32/64)``.
+        Text vs categorical split by cardinality threshold.
+    cat_text_cardinality_threshold : int
+        String columns with ``n_unique <= threshold`` are treated as categorical
+        (existing pipeline). Columns with ``n_unique > threshold`` are treated
+        as text features. Only applies when ``auto_detect_feature_types=True``
+        (default: 50).
+    """
+
+    text_features: Optional[List[str]] = None
+    embedding_features: Optional[List[str]] = None
+    auto_detect_feature_types: bool = True
+    cat_text_cardinality_threshold: int = Field(default=50, ge=1)
 
 
 class FeatureSelectionConfig(BaseConfig):
@@ -491,6 +541,124 @@ class AutoMLConfig(BaseConfig):
     time_limit: Optional[int] = None  # In seconds
 
 
+class ModelHyperparamsConfig(BaseConfig):
+    """Model hyperparameters for the training pipeline.
+
+    Replaces the legacy untyped ``config_params`` / ``config_params_override`` dicts.
+    All fields have sensible defaults; pass only what you want to change.
+
+    Parameters
+    ----------
+    has_time : bool
+        Whether the dataset has a time column (ordered splitting).
+    learning_rate : float
+        Global learning rate for tree models.
+    iterations : int
+        Number of boosting iterations.
+    early_stopping_rounds : int
+        Patience for early stopping.
+    catboost_custom_classif_metrics : list of str, optional
+        Custom CatBoost classification metrics.
+    rfecv_kwargs : dict, optional
+        RFECV parameters (max_runtime_mins, cv_n_splits, max_noimproving_iters).
+    cb_kwargs : dict, optional
+        Extra CatBoost constructor kwargs.
+    lgb_kwargs : dict, optional
+        Extra LightGBM constructor kwargs.
+    xgb_kwargs : dict, optional
+        Extra XGBoost constructor kwargs.
+    hgb_kwargs : dict, optional
+        Extra HistGradientBoosting constructor kwargs.
+    mlp_kwargs : dict, optional
+        Extra MLP constructor kwargs.
+    ngb_kwargs : dict, optional
+        Extra NGBoost constructor kwargs.
+    """
+
+    has_time: bool = False
+    learning_rate: float = 0.2
+    iterations: int = 700
+    early_stopping_rounds: int = 100
+    catboost_custom_classif_metrics: Optional[List[str]] = None
+    rfecv_kwargs: Dict[str, Any] = Field(default_factory=lambda: {
+        "max_runtime_mins": DEFAULT_RFECV_MAX_RUNTIME_MINS,
+        "cv_n_splits": DEFAULT_RFECV_CV_SPLITS,
+        "max_noimproving_iters": DEFAULT_RFECV_MAX_NOIMPROVING_ITERS,
+    })
+
+    # Per-model kwargs
+    cb_kwargs: Optional[Dict[str, Any]] = None
+    lgb_kwargs: Optional[Dict[str, Any]] = None
+    xgb_kwargs: Optional[Dict[str, Any]] = None
+    hgb_kwargs: Optional[Dict[str, Any]] = None
+    mlp_kwargs: Optional[Dict[str, Any]] = None
+    ngb_kwargs: Optional[Dict[str, Any]] = None
+
+
+class TrainingBehaviorConfig(BaseConfig):
+    """Training behavior flags and control settings.
+
+    Replaces the legacy untyped ``control_params`` / ``control_params_override`` dicts.
+    Controls *how* training runs (GPU, calibration, fairness, verbosity) rather than
+    model hyperparameters.
+
+    Parameters
+    ----------
+    prefer_gpu_configs : bool
+        Whether to prefer GPU model configurations.
+    prefer_cpu_for_lightgbm : bool
+        Force LightGBM to CPU even when GPU is available.
+    prefer_calibrated_classifiers : bool
+        Use calibrated classifier variants (CalibratedClassifierCV wrappers).
+    use_robust_eval_metric : bool
+        Use robust evaluation metrics.
+    nbins : int
+        Number of bins for calibration reports.
+    xgboost_verbose : int
+        Verbosity level for XGBoost training.
+    rfecv_model_verbose : int
+        Verbosity level for RFECV models.
+    fairness_features : list of str, optional
+        Feature names for fairness analysis.
+    fairness_min_pop_cat_thresh : int
+        Minimum population per category for fairness analysis.
+    metamodel_func : Callable, optional
+        Function to wrap models (e.g., for target transformation).
+    default_classification_scoring : dict, optional
+        Custom classification scoring configuration.
+    default_regression_scoring : dict, optional
+        Custom regression scoring configuration.
+    callback_params : dict, optional
+        Parameters for training callbacks (patience, verbose).
+    prefer_cpu_for_xgboost : bool
+        Force XGBoost to CPU even when GPU is available.
+    cont_nbins : int
+        Number of bins for continuous features in fairness subgroups.
+    cb_fit_params : dict, optional
+        Extra kwargs passed to CatBoost .fit() (e.g. early_stopping_rounds, custom callbacks).
+    use_flaml_zeroshot : bool
+        Use FLAML zero-shot models for XGBoost/LightGBM.
+    """
+
+    prefer_gpu_configs: bool = True
+    prefer_cpu_for_lightgbm: bool = True
+    prefer_cpu_for_xgboost: bool = False
+    prefer_calibrated_classifiers: bool = True
+    use_robust_eval_metric: bool = True
+    nbins: int = DEFAULT_CALIBRATION_BINS
+    xgboost_verbose: int = 0
+    rfecv_model_verbose: int = 0
+    fairness_features: Optional[List[str]] = None
+    fairness_min_pop_cat_thresh: int = DEFAULT_FAIRNESS_MIN_POP_CAT_THRESH
+    cont_nbins: int = 6
+    metamodel_func: Optional[Callable] = None
+    default_classification_scoring: Optional[Dict[str, Any]] = None
+    default_regression_scoring: Optional[Dict[str, Any]] = None
+    callback_params: Optional[Dict[str, Any]] = None
+    cb_fit_params: Optional[Dict[str, Any]] = None
+    use_flaml_zeroshot: bool = False
+
+
 class TrainingConfig(BaseConfig):
     """Main configuration aggregating all training settings.
 
@@ -530,10 +698,10 @@ class TrainingConfig(BaseConfig):
         Base directory for data files.
     models_dir : str
         Directory for saved models (default: "models").
-    config_params_override : dict, optional
-        Override model config parameters. Keys depend on model type.
-    control_params_override : dict, optional
-        Override training control parameters.
+    hyperparams : ModelHyperparamsConfig
+        Model hyperparameters (iterations, learning rate, per-model kwargs).
+    behavior : TrainingBehaviorConfig
+        Training behavior flags (GPU preference, calibration, fairness).
     init_common_params : dict, optional
         Common parameters for all models.
     verbose : int
@@ -579,9 +747,9 @@ class TrainingConfig(BaseConfig):
     data_dir: str = ""
     models_dir: str = "models"
 
-    # Control parameters
-    config_params_override: Optional[Dict[str, Any]] = None  # keys: model-specific overrides
-    control_params_override: Optional[Dict[str, Any]] = None  # keys: verbose, use_cache, just_evaluate
+    # Typed configuration objects
+    hyperparams: ModelHyperparamsConfig = Field(default_factory=ModelHyperparamsConfig)
+    behavior: TrainingBehaviorConfig = Field(default_factory=TrainingBehaviorConfig)
     init_common_params: Optional[Dict[str, Any]] = None  # keys: common params for all models
 
     # Misc
@@ -948,6 +1116,10 @@ __all__ = [
     "DEFAULT_RANDOM_SEED",
     "DEFAULT_TREE_ITERATIONS",
     "DEFAULT_CALIBRATION_BINS",
+    "DEFAULT_FAIRNESS_MIN_POP_CAT_THRESH",
+    "DEFAULT_RFECV_MAX_RUNTIME_MINS",
+    "DEFAULT_RFECV_CV_SPLITS",
+    "DEFAULT_RFECV_MAX_NOIMPROVING_ITERS",
     "VALID_MODEL_TYPES",
     "VALID_LINEAR_MODEL_TYPES",
     "VALID_SCALER_NAMES",
@@ -960,6 +1132,7 @@ __all__ = [
     "PreprocessingConfig",
     "TrainingSplitConfig",
     "PolarsPipelineConfig",
+    "FeatureTypesConfig",
     "FeatureSelectionConfig",
     "ModelConfig",
     "LinearModelConfig",
@@ -967,6 +1140,8 @@ __all__ = [
     "MLPConfig",
     "NGBConfig",
     "AutoMLConfig",
+    "ModelHyperparamsConfig",
+    "TrainingBehaviorConfig",
     "TrainingConfig",
     "config_from_dict",
     # train_and_evaluate_model configs

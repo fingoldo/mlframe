@@ -13,6 +13,7 @@ import copy
 import inspect
 import logging
 import pickle
+from timeit import default_timer as timer
 from functools import partial
 from os import sep as os_sep
 from os.path import join, exists
@@ -451,6 +452,7 @@ def _apply_pre_pipeline_transforms(
         verbose: Verbosity level
     """
     if model is not None and pre_pipeline:
+        t0_pre = timer()
         if skip_pre_pipeline_transform:
             if verbose:
                 logger.info("Skipping pre_pipeline fit/transform (using cached DFs)")
@@ -505,6 +507,9 @@ def _apply_pre_pipeline_transforms(
                 if verbose:
                     log_ram_usage()
         clean_ram()
+        if verbose:
+            shape_str = f"{train_df.shape[0]:_}×{train_df.shape[1]}" if hasattr(train_df, "shape") else ""
+            logger.info(f"  pre_pipeline done — train: {shape_str}, {timer() - t0_pre:.1f}s")
 
     return train_df, val_df
 
@@ -660,6 +665,7 @@ def _train_model_with_fallback(
     tuple
         (trained_model, best_iteration) where best_iteration may be None.
     """
+    t0_fit = timer()
     try:
         model.fit(train_df, train_target, **fit_params)
     except Exception as e:
@@ -703,6 +709,10 @@ def _train_model_with_fallback(
             raise e
 
     clean_ram()
+    fit_elapsed = timer() - t0_fit
+    if verbose:
+        shape_str = f"{train_df.shape[0]:_}×{train_df.shape[1]}" if hasattr(train_df, "shape") else ""
+        logger.info(f"  model.fit({model_type_name}) done — {shape_str}, {fit_elapsed:.1f}s")
 
     best_iter = None
     if model is not None:
@@ -722,10 +732,12 @@ def _filter_categorical_features(fit_params, train_df):
         return
 
     if isinstance(train_df, pd.DataFrame):
-        cat_columns = set(train_df.select_dtypes(["category", "object"]).columns)
+        from .strategies import PANDAS_CATEGORICAL_DTYPES
+        cat_columns = set(train_df.select_dtypes(list(PANDAS_CATEGORICAL_DTYPES)).columns)
         fit_params["cat_features"] = [col for col in fit_params["cat_features"] if col in cat_columns]
     elif isinstance(train_df, pl.DataFrame):
-        cat_columns = set(train_df.select(pl.col(pl.Categorical)).columns)
+        from .strategies import get_polars_cat_columns
+        cat_columns = set(get_polars_cat_columns(train_df))
         fit_params["cat_features"] = [col for col in fit_params["cat_features"] if col in cat_columns]
 
 
@@ -1336,7 +1348,7 @@ def train_and_evaluate_model(
             if train_df is not None:
                 report_title = f"Training {model_name} model on {train_df.shape[1]} feature(s)"
                 if show_feature_names:
-                    report_title += ": " + ", ".join(train_df.columns.to_list())
+                    report_title += ": " + ", ".join(list(train_df.columns))
                 report_title += f", {len(train_df):_} records"
 
             train_df, fit_params = _prepare_train_df_for_fitting(train_df, model, model_type_name, fit_params)
@@ -1396,6 +1408,7 @@ def train_and_evaluate_model(
     metrics = {"train": {}, "val": {}, "test": {}, "best_iter": best_iter}
 
     if compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics:
+        t0_metrics = timer()
         if verbose:
             logger.info("Computing model's performance...")
 
@@ -1523,6 +1536,9 @@ def train_and_evaluate_model(
                     figsize=figsize,
                     verbose=verbose,
                 )
+
+    if (compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics) and verbose:
+        logger.info(f"  Metrics computation done — {timer() - t0_metrics:.1f}s")
 
     clean_ram()
 
@@ -1784,6 +1800,8 @@ def configure_training_params(
     val_idx: np.ndarray = None,
     test_idx: np.ndarray = None,
     cat_features: list = None,
+    text_features: list = None,
+    embedding_features: list = None,
     fairness_features: Sequence = None,
     cont_nbins: int = 6,
     fairness_min_pop_cat_thresh: Union[float, int] = 1000,
@@ -1945,7 +1963,13 @@ def configure_training_params(
                 if use_regression
                 else CatBoostClassifier(**(cb_configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else cb_configs.CB_CLASSIF))
             ),
-            fit_params=dict(plot=verbose, cat_features=cat_features, **cb_fit_params),
+            fit_params=dict(
+                plot=verbose,
+                cat_features=cat_features,
+                **({"text_features": text_features} if text_features else {}),
+                **({"embedding_features": embedding_features} if embedding_features else {}),
+                **cb_fit_params,
+            ),
         )
 
     hgb_params = None

@@ -24,7 +24,17 @@ import polars as pl
 from pyutilz.system import clean_ram
 from mlframe.helpers import get_own_ram_usage
 
-from .configs import TargetTypes, DEFAULT_CALIBRATION_BINS, LinearModelConfig
+from .configs import (
+    TargetTypes,
+    DEFAULT_CALIBRATION_BINS,
+    DEFAULT_FAIRNESS_MIN_POP_CAT_THRESH,
+    DEFAULT_RFECV_MAX_RUNTIME_MINS,
+    DEFAULT_RFECV_CV_SPLITS,
+    DEFAULT_RFECV_MAX_NOIMPROVING_ITERS,
+    LinearModelConfig,
+    ModelHyperparamsConfig,
+    TrainingBehaviorConfig,
+)
 from .io import load_mlframe_model, save_mlframe_model
 
 
@@ -32,17 +42,7 @@ from .io import load_mlframe_model, save_mlframe_model
 # Constants
 # =============================================================================
 
-DEFAULT_FAIRNESS_MIN_POP_CAT_THRESH = 1000
-"""Minimum population threshold for fairness categorical features."""
-
-DEFAULT_RFECV_MAX_RUNTIME_MINS = 180  # 60 * 3
-"""Maximum runtime in minutes for RFECV optimization."""
-
-DEFAULT_RFECV_CV_SPLITS = 4
-"""Number of cross-validation splits for RFECV."""
-
-DEFAULT_RFECV_MAX_NOIMPROVING_ITERS = 15
-"""Maximum iterations without improvement before stopping RFECV."""
+# Constants now imported from configs.py (DEFAULT_FAIRNESS_MIN_POP_CAT_THRESH, etc.)
 
 # Import from trainer module (migrated from training_old.py)
 from .trainer import (
@@ -126,10 +126,10 @@ def select_target(
     test_details: str = "",
     group_ids: Optional[np.ndarray] = None,
     cat_features: Optional[List[str]] = None,
-    control_params: Optional[Dict[str, Any]] = None,
-    control_params_override: Optional[Dict[str, Any]] = None,
-    config_params: Optional[Dict[str, Any]] = None,
-    config_params_override: Optional[Dict[str, Any]] = None,
+    text_features: Optional[List[str]] = None,
+    embedding_features: Optional[List[str]] = None,
+    hyperparams_config: Optional[ModelHyperparamsConfig] = None,
+    behavior_config: Optional[TrainingBehaviorConfig] = None,
     common_params: Optional[Dict[str, Any]] = None,
     sample_weight: Optional[np.ndarray] = None,
     mlframe_models: Optional[List[str]] = None,
@@ -172,14 +172,10 @@ def select_target(
         Group identifiers for per-group AUC computation.
     cat_features : list of str, optional
         Names of categorical feature columns.
-    control_params : dict, optional
-        Control parameters for training (e.g., prefer_gpu_configs, nbins).
-    control_params_override : dict, optional
-        Override values for control_params.
-    config_params : dict, optional
-        Configuration parameters (e.g., learning_rate, iterations).
-    config_params_override : dict, optional
-        Override values for config_params.
+    hyperparams_config : ModelHyperparamsConfig, optional
+        Model hyperparameters (iterations, learning_rate, per-model kwargs).
+    behavior_config : TrainingBehaviorConfig, optional
+        Training behavior flags (GPU preference, calibration, fairness).
     common_params : dict, optional
         Common parameters passed to all models.
     sample_weight : np.ndarray, optional
@@ -226,40 +222,25 @@ def select_target(
         model_name += f" BT={perc*100:.0f}%"
     logger.debug(f"select_target: model_name={model_name}")
 
-    # Build effective control params with defaults
-    effective_control_params = control_params or {
-        "prefer_gpu_configs": True,
-        "fairness_features": None,
-        "fairness_min_pop_cat_thresh": DEFAULT_FAIRNESS_MIN_POP_CAT_THRESH,
-        "use_robust_eval_metric": True,
-        "nbins": DEFAULT_CALIBRATION_BINS,
-        "xgboost_verbose": 0,
-        "rfecv_model_verbose": 0,
-        "prefer_cpu_for_lightgbm": True,
-        "prefer_calibrated_classifiers": True,
-    }
-    if control_params_override:
-        effective_control_params = {**effective_control_params, **control_params_override}
+    # Ensure configs have defaults
+    if hyperparams_config is None:
+        hyperparams_config = ModelHyperparamsConfig()
+    if behavior_config is None:
+        behavior_config = TrainingBehaviorConfig()
 
-    # Build effective config params with defaults
-    effective_config_params = (
-        config_params.copy()
-        if config_params
-        else {
-            "has_time": False,
-            "learning_rate": 0.2,
-            "iterations": 700,
-            "early_stopping_rounds": 100,
-            "catboost_custom_classif_metrics": None,
-            "rfecv_kwargs": {
-                "max_runtime_mins": DEFAULT_RFECV_MAX_RUNTIME_MINS,
-                "cv_n_splits": DEFAULT_RFECV_CV_SPLITS,
-                "max_noimproving_iters": DEFAULT_RFECV_MAX_NOIMPROVING_ITERS,
-            },
-        }
-    )
-    if config_params_override:
-        effective_config_params.update(config_params_override)
+    # Convert Pydantic configs to dicts for configure_training_params
+    # exclude_none=True: downstream functions handle missing keys with their own defaults
+    effective_config_params = hyperparams_config.model_dump(exclude_none=True)
+    # Only include defined fields — exclude any extra fields (e.g. _precomputed_fairness_subgroups)
+    defined_behavior_fields = set(TrainingBehaviorConfig.model_fields.keys())
+    effective_behavior_params = {
+        k: v for k, v in behavior_config.model_dump(exclude_none=True).items()
+        if k in defined_behavior_fields
+    }
+    # Pass _precomputed_fairness_subgroups explicitly if present (set by _build_common_params_for_target)
+    precomputed_fairness = (behavior_config.model_extra or {}).get("_precomputed_fairness_subgroups")
+    if precomputed_fairness is not None:
+        effective_behavior_params["_precomputed_fairness_subgroups"] = precomputed_fairness
 
     (
         common_params,
@@ -277,6 +258,8 @@ def select_target(
         target=target,
         target_label_encoder=None,
         cat_features=cat_features,
+        text_features=text_features,
+        embedding_features=embedding_features,
         train_idx=train_idx,
         val_idx=val_idx,
         test_idx=test_idx,
@@ -291,7 +274,7 @@ def select_target(
         use_regression=target_type == TargetTypes.REGRESSION,
         mlframe_models=mlframe_models,
         linear_model_config=linear_model_config,
-        **effective_control_params,
+        **effective_behavior_params,
     )
 
     rfecv_models_params = dict(

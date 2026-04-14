@@ -10,32 +10,22 @@ from hypothesis import given, strategies as st, settings
 from mlframe.feature_engineering.basic import create_date_features
 
 
-@given(st.integers(min_value=1, max_value=100))
+@pytest.mark.parametrize("df_lib", ["pandas", "polars"])
+@given(n_rows=st.integers(min_value=1, max_value=100))
 @settings(deadline=None)
-def test_create_date_features_adds_columns_pandas(n_rows):
-    """Test that date features are added correctly for pandas."""
+def test_create_date_features_adds_columns(df_lib, n_rows):
+    """Test that date features are added correctly for pandas and polars."""
     dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(n_rows)]
-    df = pd.DataFrame({'date': dates, 'value': range(n_rows)})
+    if df_lib == "pandas":
+        df = pd.DataFrame({'date': dates, 'value': range(n_rows)})
+    else:
+        df = pl.DataFrame({'date': dates, 'value': list(range(n_rows))})
     result = create_date_features(df, ['date'])
 
     assert 'date_day' in result.columns
     assert 'date_weekday' in result.columns
     assert 'date_month' in result.columns
     assert 'date' not in result.columns  # Original deleted
-
-
-@given(st.integers(min_value=1, max_value=100))
-@settings(deadline=None)
-def test_create_date_features_adds_columns_polars(n_rows):
-    """Test that date features are added correctly for polars."""
-    dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(n_rows)]
-    df = pl.DataFrame({'date': dates, 'value': list(range(n_rows))})
-    result = create_date_features(df, ['date'])
-
-    assert 'date_day' in result.columns
-    assert 'date_weekday' in result.columns
-    assert 'date_month' in result.columns
-    assert 'date' not in result.columns
 
 
 def test_create_date_features_keep_original():
@@ -72,23 +62,17 @@ def test_create_date_features_custom_methods():
     assert 'date_weekday' not in result.columns
 
 
-def test_create_date_features_weekday_range_pandas():
-    """Test that weekday values are in correct range (0-6) for pandas."""
+@pytest.mark.parametrize("df_lib", ["pandas", "polars"])
+def test_create_date_features_weekday_range(df_lib):
+    """Test that weekday values are in correct range (0-6)."""
     dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(7)]
-    df = pd.DataFrame({'date': dates})
+    if df_lib == "pandas":
+        df = pd.DataFrame({'date': dates})
+    else:
+        df = pl.DataFrame({'date': dates})
     result = create_date_features(df, ['date'])
 
-    weekdays = result['date_weekday'].values
-    assert all(0 <= w <= 6 for w in weekdays)
-
-
-def test_create_date_features_weekday_range_polars():
-    """Test that weekday values are in correct range (0-6) for polars."""
-    dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(7)]
-    df = pl.DataFrame({'date': dates})
-    result = create_date_features(df, ['date'])
-
-    weekdays = result['date_weekday'].to_list()
+    weekdays = result['date_weekday'].to_list() if df_lib == "polars" else result['date_weekday'].values.tolist()
     assert all(0 <= w <= 6 for w in weekdays)
 
 
@@ -132,23 +116,18 @@ def test_create_date_features_invalid_df():
         create_date_features({'not': 'a dataframe'}, ['date'])
 
 
-def test_create_date_features_dtypes_pandas():
-    """Test that dtypes are correctly applied for pandas."""
+@pytest.mark.parametrize("df_lib", ["pandas", "polars"])
+def test_create_date_features_dtypes(df_lib):
+    """Test that dtypes are correctly applied."""
     dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(10)]
-    df = pd.DataFrame({'date': dates})
+    if df_lib == "pandas":
+        df = pd.DataFrame({'date': dates})
+        expected_dtype = np.int8
+    else:
+        df = pl.DataFrame({'date': dates})
+        expected_dtype = pl.Int8
     result = create_date_features(df, ['date'])
 
-    assert result['date_day'].dtype == np.int8
-    assert result['date_weekday'].dtype == np.int8
-    assert result['date_month'].dtype == np.int8
-
-
-def test_create_date_features_dtypes_polars():
-    """Test that dtypes are correctly applied for polars."""
-    dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(10)]
-    df = pl.DataFrame({'date': dates})
-    result = create_date_features(df, ['date'])
-
-    assert result['date_day'].dtype == pl.Int8
-    assert result['date_weekday'].dtype == pl.Int8
-    assert result['date_month'].dtype == pl.Int8
+    assert result['date_day'].dtype == expected_dtype
+    assert result['date_weekday'].dtype == expected_dtype
+    assert result['date_month'].dtype == expected_dtype

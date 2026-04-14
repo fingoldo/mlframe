@@ -147,7 +147,7 @@ def get_training_configs(
     std_weight: float = 2,
     roc_auc_weight: float = 1.5,
     pr_auc_weight: float = 0.1,
-    brier_loss_weight: float = 0.4,
+    brier_loss_weight: float = 0.8,
     min_roc_auc: float = 0.54,
     roc_auc_penalty: float = 0.00,
     use_weighted_calibration: bool = True,
@@ -203,10 +203,16 @@ def get_training_configs(
         xgb_kwargs = xgb_kwargs.copy()  # Don't mutate caller's dict
     if hgb_kwargs is None:
         hgb_kwargs = dict(verbose=0)
+    else:
+        hgb_kwargs = hgb_kwargs.copy()
     if mlp_kwargs is None:
         mlp_kwargs = dict()
+    else:
+        mlp_kwargs = mlp_kwargs.copy()
     if ngb_kwargs is None:
         ngb_kwargs = dict(verbose=True)
+    else:
+        ngb_kwargs = ngb_kwargs.copy()
 
     if not early_stopping_rounds:
         early_stopping_rounds = max(2, iterations // 3)
@@ -558,6 +564,8 @@ def get_training_configs(
 
     if rfecv_kwargs is None:
         rfecv_kwargs = {}
+    else:
+        rfecv_kwargs = rfecv_kwargs.copy()
 
     cv = rfecv_kwargs.get("cv")
     if not cv:

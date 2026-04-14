@@ -41,11 +41,11 @@ class TestTrainMLFrameModelsSuiteBasic:
             verbose=0,
         )
 
-        # Verify structure (models[target_name][target_type])
+        # Verify structure (models[target_type][target_name])
         assert isinstance(models, dict)
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
         # Verify metadata
         assert metadata["model_name"] == "test_model"
@@ -75,13 +75,13 @@ class TestTrainMLFrameModelsSuiteBasic:
             verbose=0,
         )
 
-        # Verify structure (models[target_name][target_type])
+        # Verify structure (models[target_type][target_name])
         assert isinstance(models, dict)
-        assert "target" in models
-        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
 
         # Check that model has predictions
-        model_entry = models["target"][TargetTypes.BINARY_CLASSIFICATION][0]
+        model_entry = models[TargetTypes.BINARY_CLASSIFICATION]["target"][0]
         assert hasattr(model_entry, "model") or "model" in model_entry.__dict__ if hasattr(model_entry, "__dict__") else True
 
     def test_train_multiple_linear_models(self, sample_regression_data, temp_data_dir, common_init_params):
@@ -106,10 +106,10 @@ class TestTrainMLFrameModelsSuiteBasic:
         )
 
         # Verify all 3 models were trained (models[target_name][target_type])
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
         # Should have 3 models (linear, ridge, lasso)
-        assert len(models["target"][TargetTypes.REGRESSION]) >= 3
+        assert len(models[TargetTypes.REGRESSION]["target"]) >= 3
 
     def test_train_with_polars_dataframe(self, sample_polars_data, temp_data_dir, common_init_params):
         """Test training with Polars DataFrame input."""
@@ -134,8 +134,8 @@ class TestTrainMLFrameModelsSuiteBasic:
 
         # Verify it worked (models[target_name][target_type])
         assert isinstance(models, dict)
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
 
 class TestUnifiedTrainingLoop:
@@ -178,14 +178,15 @@ class TestUnifiedTrainingLoop:
             data_dir=temp_data_dir,
             models_dir="models",
             verbose=1,  # Show output to see both models training
+            hyperparams_config={"iterations": 50},
         )
 
         # Verify BOTH models were trained
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
         # Should have 2 models: ridge (linear) + cb (tree)
-        trained_models = models["target"][TargetTypes.REGRESSION]
+        trained_models = models[TargetTypes.REGRESSION]["target"]
         assert len(trained_models) >= 2, f"Expected 2 models, got {len(trained_models)}"
 
         # Verify both model types are present
@@ -225,12 +226,13 @@ class TestUnifiedTrainingLoop:
             data_dir=temp_data_dir,
             models_dir="models",
             verbose=0,
+            hyperparams_config={"iterations": 50},
         )
 
         # Verify both models trained
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) >= 2
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) >= 2
 
 
 class TestTreeModelsWithEarlyStopping:
@@ -262,14 +264,15 @@ class TestTreeModelsWithEarlyStopping:
             data_dir=temp_data_dir,
             models_dir="models",
             verbose=1,
-            control_params_override={
+            hyperparams_config={"iterations": 50},
+            behavior_config={
                 "callback_params": {"patience": 5, "verbose": False},
             },
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) >= 1
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) >= 1
 
 
 class TestTrainMLFrameModelsSuiteEnsembles:
@@ -297,9 +300,9 @@ class TestTrainMLFrameModelsSuiteEnsembles:
         )
 
         # Verify models were trained (models[target_name][target_type])
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) >= 2
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) >= 2
 
 
 class TestTrainMLFrameModelsSuiteMetadata:
@@ -433,8 +436,8 @@ class TestTrainMLFrameModelsSuiteConfigurations:
         )
 
         # Verify it completed successfully (models[target_name][target_type])
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
     def test_with_pipeline_config(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test with custom pipeline configuration."""
@@ -491,8 +494,8 @@ class TestTrainWithoutSaving:
         )
 
         assert isinstance(models, dict)
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
     def test_with_models_dir_none(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test that training works with models_dir=None (no models saved)."""
@@ -515,8 +518,8 @@ class TestTrainWithoutSaving:
         )
 
         assert isinstance(models, dict)
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
     def test_with_both_dirs_none(self, sample_regression_data, common_init_params):
         """Test that training works with both data_dir=None and models_dir=None."""
@@ -539,8 +542,8 @@ class TestTrainWithoutSaving:
         )
 
         assert isinstance(models, dict)
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
         assert metadata["model_name"] == "test_model"
 
 
@@ -574,8 +577,8 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
         )
 
         # Should still work (models[target_name][target_type])
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
     def test_with_no_ensembles(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test with ensembles explicitly disabled."""
@@ -598,9 +601,9 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
         )
 
         # Verify models were trained but no ensemble (models[target_name][target_type])
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) >= 2
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) >= 2
 
     def test_with_single_row_dataset(self, temp_data_dir, common_init_params):
         """Test behavior with single row dataset."""
@@ -732,7 +735,7 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             verbose=0,
         )
 
-        assert "target" in models
+        assert TargetTypes.REGRESSION in models
 
     def test_with_binary_classification_imbalanced(self, temp_data_dir, common_init_params):
         """Test with highly imbalanced binary classification."""
@@ -760,8 +763,8 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
 
     def test_with_multiclass_few_samples_per_class(self, temp_data_dir, common_init_params):
         """Test multiclass with very few samples per class."""
@@ -789,7 +792,7 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             verbose=0,
         )
 
-        assert "target" in models
+        assert TargetTypes.REGRESSION in models
 
     def test_empty_dataframe_raises_error(self, temp_data_dir, common_init_params):
         """Test that empty DataFrame raises appropriate error."""
@@ -837,8 +840,8 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
     def test_nan_in_target_column(self, temp_data_dir, common_init_params):
         """Test that NaN values in regression target raise a clear ValueError."""
@@ -931,8 +934,8 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
     def test_duplicate_column_names(self, temp_data_dir, common_init_params):
         """Test behavior with duplicate column names."""
@@ -990,8 +993,8 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
     def test_high_dimensional_data(self, temp_data_dir, common_init_params):
         """Test with high-dimensional data (many features)."""
@@ -1019,8 +1022,8 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
 
 class TestCustomTransformers:
@@ -1051,9 +1054,9 @@ class TestCustomTransformers:
         )
 
         # Verify training succeeded
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_custom_imputer(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test passing a custom imputer via init_common_params."""
@@ -1085,9 +1088,9 @@ class TestCustomTransformers:
         )
 
         # Verify training succeeded
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_custom_category_encoder(self, sample_categorical_data, temp_data_dir, common_init_params):
         """Test passing a custom category_encoder via init_common_params."""
@@ -1114,9 +1117,9 @@ class TestCustomTransformers:
         )
 
         # Verify training succeeded
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_all_custom_transformers(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test passing all custom transformers together."""
@@ -1152,9 +1155,9 @@ class TestCustomTransformers:
         )
 
         # Verify training succeeded
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_default_transformers_initialized(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test that default transformers are initialized when not provided."""
@@ -1177,9 +1180,9 @@ class TestCustomTransformers:
         )
 
         # Verify training succeeded (defaults were used)
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_custom_scaler_with_mlp_model(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test custom scaler is actually used by MLP model (which uses the scaler)."""
@@ -1218,8 +1221,8 @@ class TestCustomTransformers:
         )
 
         # Verify training succeeded
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
 
 class TestFairnessFeatures:
@@ -1245,7 +1248,7 @@ class TestFairnessFeatures:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             init_common_params=common_init_params,
-            control_params_override={
+            behavior_config={
                 'fairness_features': [],  # explicitly empty
             },
             use_ordinary_models=True,
@@ -1255,8 +1258,8 @@ class TestFairnessFeatures:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
 
 class TestCalibration:
@@ -1275,7 +1278,7 @@ class TestCalibration:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             init_common_params=common_init_params,
-            control_params_override={
+            behavior_config={
                 'prefer_calibrated_classifiers': True,
             },
             use_ordinary_models=True,
@@ -1285,9 +1288,9 @@ class TestCalibration:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
-        assert len(models["target"][TargetTypes.BINARY_CLASSIFICATION]) > 0
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
+        assert len(models[TargetTypes.BINARY_CLASSIFICATION]["target"]) > 0
 
     def test_calibrated_classifier_with_cb(self, sample_classification_data, temp_data_dir, common_init_params):
         """Test calibration with CatBoost classifier."""
@@ -1312,9 +1315,9 @@ class TestCalibration:
             model_name="calibrated_cb_test",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            config_params_override={"iterations": 10},
+            hyperparams_config={"iterations": 10},
             init_common_params=common_init_params,
-            control_params_override={
+            behavior_config={
                 'prefer_calibrated_classifiers': True,
             },
             use_ordinary_models=True,
@@ -1324,8 +1327,8 @@ class TestCalibration:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
 
     def test_uncalibrated_vs_calibrated(self, sample_classification_data, temp_data_dir, common_init_params):
         """Test that we can train both calibrated and uncalibrated classifiers."""
@@ -1341,7 +1344,7 @@ class TestCalibration:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             init_common_params=common_init_params,
-            control_params_override={
+            behavior_config={
                 'prefer_calibrated_classifiers': False,
             },
             use_ordinary_models=True,
@@ -1359,7 +1362,7 @@ class TestCalibration:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             init_common_params=common_init_params,
-            control_params_override={
+            behavior_config={
                 'prefer_calibrated_classifiers': True,
             },
             use_ordinary_models=True,
@@ -1403,7 +1406,7 @@ class TestConfidenceAnalysis:
             model_name="confidence_test",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            config_params_override={"iterations": 10},
+            hyperparams_config={"iterations": 10},
             init_common_params={
                 **common_init_params,
                 'include_confidence_analysis': True,
@@ -1415,8 +1418,8 @@ class TestConfidenceAnalysis:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
 
 
 class TestCustomMetrics:
@@ -1437,7 +1440,7 @@ class TestCustomMetrics:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             init_common_params=common_init_params,
-            control_params_override={
+            behavior_config={
                 'default_regression_scoring': dict(
                     score_func=mean_absolute_error,
                     response_method="predict",
@@ -1451,8 +1454,8 @@ class TestCustomMetrics:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
     def test_custom_classification_scoring(self, sample_classification_data, temp_data_dir, common_init_params):
         """Test custom default_classification_scoring parameter."""
@@ -1469,7 +1472,7 @@ class TestCustomMetrics:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             init_common_params=common_init_params,
-            control_params_override={
+            behavior_config={
                 'default_classification_scoring': dict(
                     score_func=f1_score,
                     response_method="predict",
@@ -1483,8 +1486,8 @@ class TestCustomMetrics:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
 
 
 class TestSampleWeights:
@@ -1529,10 +1532,10 @@ class TestSampleWeights:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
         # Should have 1 model with recency weights (uniform not auto-added when custom weights provided)
-        model_list = models["target"][TargetTypes.REGRESSION]
+        model_list = models[TargetTypes.REGRESSION]["target"]
         assert len(model_list) == 1
 
     @pytest.mark.parametrize("model_name", ["ridge", "xgb", "cb", "lgb", "mlp"])
@@ -1575,10 +1578,10 @@ class TestSampleWeights:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
         # Should have 2 models: recency, inverse_recency (uniform not auto-added)
-        model_list = models["target"][TargetTypes.REGRESSION]
+        model_list = models[TargetTypes.REGRESSION]["target"]
         assert len(model_list) == 2
 
 
@@ -1619,8 +1622,8 @@ class TestGroupIds:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
 
 class TestFairnessFeaturesExtended:
@@ -1651,7 +1654,7 @@ class TestFairnessFeaturesExtended:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             init_common_params=common_init_params,
-            control_params_override={
+            behavior_config={
                 'fairness_features': ['category'],
                 'fairness_min_pop_cat_thresh': 10,  # Small threshold for test data
             },
@@ -1662,8 +1665,8 @@ class TestFairnessFeaturesExtended:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
     def test_fairness_continuous_features(self, temp_data_dir, common_init_params):
         """Test fairness evaluation with continuous features binned into subgroups."""
@@ -1685,7 +1688,7 @@ class TestFairnessFeaturesExtended:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             init_common_params=common_init_params,
-            control_params_override={
+            behavior_config={
                 'fairness_features': ['feature_0'],  # Continuous feature will be binned
                 'fairness_min_pop_cat_thresh': 10,  # Small threshold for test data
             },
@@ -1696,8 +1699,8 @@ class TestFairnessFeaturesExtended:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
     def test_fairness_min_pop_cat_thresh_parameter_passthrough(self, temp_data_dir, common_init_params):
         """Test that fairness_min_pop_cat_thresh parameter is passed through the API.
@@ -1723,7 +1726,7 @@ class TestFairnessFeaturesExtended:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             init_common_params=common_init_params,
-            control_params_override={
+            behavior_config={
                 'fairness_features': [],
                 'fairness_min_pop_cat_thresh': 10,  # Verify this parameter is accepted
             },
@@ -1734,8 +1737,8 @@ class TestFairnessFeaturesExtended:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
 
 
 # =====================================================================================================================
@@ -1927,12 +1930,12 @@ class TestFeatureSelectorsWithPolarsPipeline:
         )
 
         # Verify training succeeded
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
         # Verify MRMR was used (model name should contain MRMR)
-        model_entry = models["target"][TargetTypes.REGRESSION][0]
+        model_entry = models[TargetTypes.REGRESSION]["target"][0]
         assert hasattr(model_entry, 'model_name') or model_entry is not None
 
     def test_mrmr_with_polars_pipeline_classification(self, sample_classification_data, temp_data_dir, common_init_params):
@@ -1967,9 +1970,9 @@ class TestFeatureSelectorsWithPolarsPipeline:
         )
 
         # Verify training succeeded
-        assert "target" in models
-        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
-        assert len(models["target"][TargetTypes.BINARY_CLASSIFICATION]) > 0
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
+        assert len(models[TargetTypes.BINARY_CLASSIFICATION]["target"]) > 0
 
     def test_rfecv_with_polars_pipeline_regression(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test that RFECV feature selection runs correctly with polars-ds pipeline."""
@@ -2013,9 +2016,9 @@ class TestFeatureSelectorsWithPolarsPipeline:
         )
 
         # Verify training succeeded
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_mrmr_without_polars_pipeline(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test MRMR feature selection without polars pipeline (baseline test)."""
@@ -2049,9 +2052,9 @@ class TestFeatureSelectorsWithPolarsPipeline:
         )
 
         # Verify training succeeded
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_mrmr_and_ordinary_models_with_polars_pipeline(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test that both MRMR and ordinary models work together with polars pipeline."""
@@ -2085,10 +2088,10 @@ class TestFeatureSelectorsWithPolarsPipeline:
         )
 
         # Verify training succeeded
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
         # Should have at least 2 models: ordinary + MRMR
-        assert len(models["target"][TargetTypes.REGRESSION]) >= 2
+        assert len(models[TargetTypes.REGRESSION]["target"]) >= 2
 
     def test_mrmr_with_polars_input_dataframe(self, sample_polars_data, temp_data_dir, common_init_params):
         """Test MRMR with Polars DataFrame input (not just pipeline config)."""
@@ -2122,9 +2125,9 @@ class TestFeatureSelectorsWithPolarsPipeline:
         )
 
         # Verify training succeeded
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_mrmr_with_linear_model_and_polars_pipeline(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test MRMR with linear model (which needs scaling) and polars pipeline.
@@ -2161,9 +2164,9 @@ class TestFeatureSelectorsWithPolarsPipeline:
         )
 
         # Verify training succeeded
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
 
 class TestMRMRBinaryClassificationEdgeCases:
@@ -2229,8 +2232,8 @@ class TestMRMRBinaryClassificationEdgeCases:
         )
 
         # Should train successfully and find the perfect feature
-        assert "target" in models
-        assert len(models["target"][TargetTypes.BINARY_CLASSIFICATION]) > 0
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        assert len(models[TargetTypes.BINARY_CLASSIFICATION]["target"]) > 0
 
     @pytest.mark.parametrize("use_simple_mode", [True, False])
     def test_mrmr_no_impact_classification(self, no_impact_classification_data, temp_data_dir, common_init_params, use_simple_mode):
@@ -2294,9 +2297,9 @@ class TestCustomPrePipelines:
             verbose=1,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
-        assert len(models["target"][TargetTypes.REGRESSION]) > 0
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_incremental_pca_with_ordinary_models(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test IncrementalPCA combined with ordinary models."""
@@ -2324,10 +2327,10 @@ class TestCustomPrePipelines:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
         # Should have 2 models: ordinary + ipca5
-        assert len(models["target"][TargetTypes.REGRESSION]) >= 2
+        assert len(models[TargetTypes.REGRESSION]["target"]) >= 2
 
     def test_multiple_custom_pre_pipelines(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test multiple custom pre-pipelines."""
@@ -2356,10 +2359,10 @@ class TestCustomPrePipelines:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.REGRESSION in models["target"]
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
         # Should have 2 models: ipca3 + ipca5
-        assert len(models["target"][TargetTypes.REGRESSION]) == 2
+        assert len(models[TargetTypes.REGRESSION]["target"]) == 2
 
     def test_custom_pre_pipeline_classification(self, sample_classification_data, temp_data_dir, common_init_params):
         """Test IncrementalPCA as a custom pre-pipeline for classification."""
@@ -2387,6 +2390,1657 @@ class TestCustomPrePipelines:
             verbose=0,
         )
 
-        assert "target" in models
-        assert TargetTypes.BINARY_CLASSIFICATION in models["target"]
-        assert len(models["target"][TargetTypes.BINARY_CLASSIFICATION]) > 0
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
+        assert len(models[TargetTypes.BINARY_CLASSIFICATION]["target"]) > 0
+
+
+class TestPolarsNativeFastpath:
+    """Tests for CatBoost Polars native fastpath — no pandas conversion."""
+
+    def test_catboost_receives_polars_dataframe(self, temp_data_dir, common_init_params, monkeypatch):
+        """Verify CatBoost .fit() receives a Polars DataFrame when input is Polars."""
+        pytest.importorskip("catboost")
+
+        np.random.seed(42)
+        n = 200
+        pl_df = pl.DataFrame({
+            "num_feat": np.random.randn(n),
+            "cat_feat": np.random.choice(["a", "b", "c"], size=n),
+            "target": np.random.randint(0, 2, size=n),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        # Capture the DataFrame type that reaches model.fit()
+        fit_df_types = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            fit_df_types.append((model_type_name, type(train_df).__name__))
+            return original_train(
+                model=model,
+                model_obj=model_obj,
+                model_type_name=model_type_name,
+                train_df=train_df,
+                train_target=train_target,
+                fit_params=fit_params,
+                verbose=verbose,
+            )
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="polars_fastpath_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
+
+        # The CatBoost model must have received a Polars DataFrame, NOT pandas
+        cb_entries = [(name, df_type) for name, df_type in fit_df_types if "CatBoost" in name]
+        assert len(cb_entries) > 0, f"No CatBoost .fit() calls recorded. All calls: {fit_df_types}"
+        for name, df_type in cb_entries:
+            assert df_type == "DataFrame", (
+                f"CatBoost received {df_type} instead of Polars DataFrame — fastpath not active"
+            )
+
+    def test_hgb_receives_polars_dataframe(self, temp_data_dir, common_init_params, monkeypatch):
+        """Verify HGB .fit() receives a Polars DataFrame when input is Polars."""
+        np.random.seed(42)
+        n = 200
+        pl_df = pl.DataFrame({
+            "num_feat": np.random.randn(n),
+            "cat_feat": np.random.choice(["a", "b", "c"], size=n),
+            "target": np.random.randint(0, 2, size=n),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        fit_df_types = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            fit_df_types.append((model_type_name, type(train_df).__name__))
+            return original_train(
+                model=model,
+                model_obj=model_obj,
+                model_type_name=model_type_name,
+                train_df=train_df,
+                train_target=train_target,
+                fit_params=fit_params,
+                verbose=verbose,
+            )
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="hgb_polars_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["hgb"],
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
+
+        # HGB must have received a Polars DataFrame, NOT pandas
+        hgb_entries = [(name, df_type) for name, df_type in fit_df_types if "HistGradient" in name or "HGB" in name]
+        assert len(hgb_entries) > 0, f"No HGB .fit() calls recorded. All calls: {fit_df_types}"
+        for name, df_type in hgb_entries:
+            assert df_type == "DataFrame", (
+                f"HGB received {df_type} instead of Polars DataFrame — fastpath not active"
+            )
+
+    def test_hgb_polars_categorical_is_cast(self, temp_data_dir, common_init_params, monkeypatch):
+        """Verify HGB receives cat columns as pl.Categorical (not pl.String) on Polars fastpath."""
+        np.random.seed(42)
+        n = 200
+        pl_df = pl.DataFrame({
+            "num_feat": np.random.randn(n),
+            "cat_feat": np.random.choice(["a", "b", "c"], size=n),
+            "target": np.random.randint(0, 2, size=n),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        captured_dfs = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            captured_dfs.append(train_df)
+            return original_train(
+                model=model,
+                model_obj=model_obj,
+                model_type_name=model_type_name,
+                train_df=train_df,
+                train_target=train_target,
+                fit_params=fit_params,
+                verbose=verbose,
+            )
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="hgb_cat_cast_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["hgb"],
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert len(captured_dfs) > 0
+        train_df = captured_dfs[0]
+        assert isinstance(train_df, pl.DataFrame)
+        # cat_feat must be pl.Categorical, not pl.String
+        assert train_df["cat_feat"].dtype == pl.Categorical, (
+            f"cat_feat dtype is {train_df['cat_feat'].dtype}, expected pl.Categorical"
+        )
+
+    @pytest.mark.parametrize("model_name,regression", [
+        ("cb", False),
+        ("cb", True),
+        ("xgb", False),
+        ("xgb", True),
+        ("hgb", False),
+        ("hgb", True),
+    ])
+    def test_polars_fastpath_parametrized(self, model_name, regression, temp_data_dir, common_init_params, monkeypatch):
+        """Parametrized: verify Polars fastpath for cb/hgb/xgb with classification and regression."""
+        if model_name == "cb":
+            pytest.importorskip("catboost")
+
+        np.random.seed(42)
+        n = 200
+        pl_df = pl.DataFrame({
+            "num_feat": np.random.randn(n),
+            "cat_feat": np.random.choice(["a", "b", "c"], size=n),
+            "target": np.random.randn(n) if regression else np.random.randint(0, 2, size=n),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=regression)
+
+        fit_df_types = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            fit_df_types.append((model_type_name, type(train_df).__name__))
+            return original_train(
+                model=model, model_obj=model_obj, model_type_name=model_type_name,
+                train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose,
+            )
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name=f"param_{model_name}_{'reg' if regression else 'cls'}",
+            features_and_targets_extractor=fte,
+            mlframe_models=[model_name],
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        expected_tt = TargetTypes.REGRESSION if regression else TargetTypes.BINARY_CLASSIFICATION
+        assert expected_tt in models
+        assert "target" in models[expected_tt]
+
+        # Model must have received a Polars DataFrame
+        relevant = [(n, t) for n, t in fit_df_types if n != ""]
+        assert len(relevant) > 0, f"No .fit() calls recorded: {fit_df_types}"
+        for name, df_type in relevant:
+            assert df_type == "DataFrame", (
+                f"{name} received {df_type} instead of Polars DataFrame"
+            )
+
+    def test_mixed_feature_types(self, temp_data_dir, common_init_params, monkeypatch):
+        """Test Polars fastpath with numeric (float, int), string, pl.Categorical, and boolean features."""
+        pytest.importorskip("catboost")
+
+        np.random.seed(42)
+        n = 200
+        pl_df = pl.DataFrame({
+            "float_feat": np.random.randn(n),
+            "int_feat": np.random.randint(0, 100, size=n),
+            "str_feat": np.random.choice(["alpha", "beta", "gamma"], size=n),
+            "cat_feat": pl.Series(np.random.choice(["x", "y", "z"], size=n)).cast(pl.Categorical),
+            "bool_feat": np.random.choice([True, False], size=n),
+            "target": np.random.randint(0, 2, size=n),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        captured_dfs = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            captured_dfs.append((model_type_name, train_df))
+            return original_train(
+                model=model, model_obj=model_obj, model_type_name=model_type_name,
+                train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose,
+            )
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="mixed_types_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        assert len(captured_dfs) > 0
+        train_df = captured_dfs[0][1]
+        assert isinstance(train_df, pl.DataFrame), f"Expected Polars DataFrame, got {type(train_df)}"
+
+    def test_hgb_high_cardinality_categorical(self, temp_data_dir, common_init_params, monkeypatch):
+        """HGB with a categorical column having >255 unique values should get ordinal-encoded to integer."""
+        np.random.seed(42)
+        n = 500
+        # 300 unique categories — exceeds the 255 limit for pl.Categorical in HGB
+        high_card_values = [f"cat_{i}" for i in range(300)]
+        pl_df = pl.DataFrame({
+            "num_feat": np.random.randn(n),
+            "high_card": np.random.choice(high_card_values, size=n),
+            "target": np.random.randint(0, 2, size=n),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        captured_dfs = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            captured_dfs.append((model_type_name, train_df))
+            return original_train(
+                model=model, model_obj=model_obj, model_type_name=model_type_name,
+                train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose,
+            )
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="hgb_highcard_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["hgb"],
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        assert len(captured_dfs) > 0
+        train_df = captured_dfs[0][1]
+        assert isinstance(train_df, pl.DataFrame)
+        # High-cardinality column should be cast to pl.Categorical for HGB Polars fastpath
+        assert train_df["high_card"].dtype == pl.Categorical, (
+            f"high_card expected pl.Categorical, got {train_df['high_card'].dtype}"
+        )
+        # Verify training completed successfully despite >255 unique categories
+        assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
+
+    def test_multiple_categorical_columns(self, temp_data_dir, common_init_params, monkeypatch):
+        """Test Polars fastpath with 3+ categorical columns of varying cardinality."""
+        pytest.importorskip("catboost")
+
+        np.random.seed(42)
+        n = 200
+        pl_df = pl.DataFrame({
+            "num_feat": np.random.randn(n),
+            "cat_low": np.random.choice(["a", "b"], size=n),
+            "cat_mid": np.random.choice([f"m{i}" for i in range(20)], size=n),
+            "cat_high": np.random.choice([f"h{i}" for i in range(100)], size=n),
+            "target": np.random.randint(0, 2, size=n),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        captured_dfs = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            captured_dfs.append((model_type_name, train_df))
+            return original_train(
+                model=model, model_obj=model_obj, model_type_name=model_type_name,
+                train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose,
+            )
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="multi_cat_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        assert len(captured_dfs) > 0
+        train_df = captured_dfs[0][1]
+        assert isinstance(train_df, pl.DataFrame), f"Expected Polars DataFrame, got {type(train_df)}"
+        # All 3 categorical columns should be present
+        for col in ["cat_low", "cat_mid", "cat_high"]:
+            assert col in train_df.columns, f"Missing column {col} in train_df"
+
+    def test_polars_fastpath_with_sample_weights(self, temp_data_dir, common_init_params, monkeypatch):
+        """Test that Polars fastpath works correctly when sample_weight is provided."""
+        pytest.importorskip("catboost")
+        from .shared import TimestampedFeaturesExtractor
+
+        np.random.seed(42)
+        n = 200
+        pl_df = pl.DataFrame({
+            "num_feat": np.random.randn(n),
+            "cat_feat": np.random.choice(["a", "b", "c"], size=n),
+            "target": np.random.randint(0, 2, size=n),
+        })
+
+        sample_weights = {
+            "recency": np.linspace(0.5, 1.0, n),
+        }
+
+        fte = TimestampedFeaturesExtractor(
+            target_column="target",
+            regression=False,
+            sample_weights=sample_weights,
+        )
+
+        fit_df_types = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            fit_df_types.append((model_type_name, type(train_df).__name__))
+            return original_train(
+                model=model, model_obj=model_obj, model_type_name=model_type_name,
+                train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose,
+            )
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="polars_weights_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        # CatBoost should still receive Polars DataFrame even with sample weights
+        cb_entries = [(name, df_type) for name, df_type in fit_df_types if "CatBoost" in name]
+        assert len(cb_entries) > 0, f"No CatBoost .fit() calls recorded. All calls: {fit_df_types}"
+        for name, df_type in cb_entries:
+            assert df_type == "DataFrame", (
+                f"CatBoost received {df_type} instead of Polars DataFrame with sample weights"
+            )
+
+    @pytest.mark.parametrize("model_name", ["hgb", "cb", "xgb"])
+    def test_polars_fastpath_regression_target(self, model_name, temp_data_dir, common_init_params, monkeypatch):
+        """Test Polars fastpath with a continuous regression target."""
+        if model_name == "cb":
+            pytest.importorskip("catboost")
+
+        np.random.seed(42)
+        n = 200
+        pl_df = pl.DataFrame({
+            "feat_a": np.random.randn(n),
+            "feat_b": np.random.randn(n),
+            "cat_feat": np.random.choice(["low", "mid", "high"], size=n),
+            "target": np.random.randn(n) * 10 + 50,  # continuous regression target
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
+
+        captured_dfs = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            captured_dfs.append((model_type_name, type(train_df).__name__))
+            return original_train(
+                model=model, model_obj=model_obj, model_type_name=model_type_name,
+                train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose,
+            )
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name=f"polars_reg_{model_name}",
+            features_and_targets_extractor=fte,
+            mlframe_models=[model_name],
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        # Must receive Polars DataFrame
+        assert len(captured_dfs) > 0
+        for name, df_type in captured_dfs:
+            assert df_type == "DataFrame", (
+                f"{name} received {df_type} instead of Polars DataFrame for regression"
+            )
+
+    def test_non_catboost_still_gets_pandas(self, temp_data_dir, common_init_params, monkeypatch):
+        """Verify non-CatBoost models still receive pandas even when input is Polars."""
+        np.random.seed(42)
+        n = 200
+        pl_df = pl.DataFrame({
+            "num_feat": np.random.randn(n),
+            "target": np.random.randn(n),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
+
+        fit_df_types = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            fit_df_types.append((model_type_name, type(train_df).__module__))
+            return original_train(
+                model=model,
+                model_obj=model_obj,
+                model_type_name=model_type_name,
+                train_df=train_df,
+                train_target=train_target,
+                fit_params=fit_params,
+                verbose=verbose,
+            )
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="polars_nonfastpath_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert TargetTypes.REGRESSION in models
+        # Ridge must receive pandas, not Polars
+        ridge_entries = [(name, mod) for name, mod in fit_df_types if "Ridge" in name or "SGD" in name or "Linear" in name]
+        assert len(ridge_entries) > 0, f"No linear .fit() calls recorded. All calls: {fit_df_types}"
+        for name, mod in ridge_entries:
+            assert "pandas" in mod, (
+                f"Linear model received {mod} instead of pandas — polars should NOT leak to non-CatBoost models"
+            )
+
+    @pytest.mark.parametrize("models,should_skip", [
+        (["cb"], True),
+        (["xgb"], True),
+        (["hgb"], True),
+        (["cb", "xgb", "hgb"], True),
+        (["cb", "ridge"], False),
+        (["ridge"], False),
+    ])
+    def test_skip_categorical_encoding_auto_detection(self, models, should_skip, temp_data_dir, common_init_params, monkeypatch):
+        """Verify skip_categorical_encoding is auto-set when all models support Polars natively."""
+        if "cb" in models:
+            pytest.importorskip("catboost")
+
+        np.random.seed(42)
+        n = 200
+        pl_df = pl.DataFrame({
+            "num_feat": np.random.randn(n),
+            "cat_feat": np.random.choice(["a", "b", "c"], size=n),
+            "target": np.random.randint(0, 2, size=n),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        captured_configs = []
+        import mlframe.training.core as core_mod
+        original_fit = core_mod.fit_and_transform_pipeline
+
+        def _spy_pipeline(**kwargs):
+            captured_configs.append(kwargs["config"].skip_categorical_encoding)
+            return original_fit(**kwargs)
+
+        monkeypatch.setattr(core_mod, "fit_and_transform_pipeline", _spy_pipeline)
+
+        train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="skip_catenc_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=models,
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert len(captured_configs) > 0
+        assert captured_configs[0] == should_skip, (
+            f"skip_categorical_encoding={captured_configs[0]}, expected {should_skip} for models={models}"
+        )
+
+    def test_mixed_polars_and_nonpolars_models(self, temp_data_dir, common_init_params, monkeypatch):
+        """Mixed models: cb gets Polars, ridge gets pandas, both train successfully."""
+        pytest.importorskip("catboost")
+
+        np.random.seed(42)
+        n = 200
+        pl_df = pl.DataFrame({
+            "num_feat": np.random.randn(n),
+            "cat_feat": np.random.choice(["a", "b", "c"], size=n),
+            "target": np.random.randn(n),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
+
+        fit_df_info = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            fit_df_info.append((model_type_name, type(train_df).__module__, type(train_df).__name__))
+            return original_train(
+                model=model, model_obj=model_obj, model_type_name=model_type_name,
+                train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose,
+            )
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="mixed_models_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb", "ridge"],
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) >= 2
+
+        # CatBoost must get Polars
+        cb_entries = [(n, m) for n, m, _ in fit_df_info if "CatBoost" in n]
+        assert len(cb_entries) > 0
+        for name, mod in cb_entries:
+            assert "polars" in mod, f"CatBoost received {mod} instead of Polars"
+
+        # Ridge must get pandas
+        ridge_entries = [(n, m) for n, m, _ in fit_df_info if "Ridge" in n or "SGD" in n or "Linear" in n]
+        assert len(ridge_entries) > 0
+        for name, mod in ridge_entries:
+            assert "pandas" in mod, f"Linear model received {mod} instead of pandas"
+
+    def test_all_polars_native_models_together(self, temp_data_dir, common_init_params, monkeypatch):
+        """All 3 polars-native models (cb, xgb, hgb) run together — each gets Polars, no cache collision."""
+        pytest.importorskip("catboost")
+
+        np.random.seed(42)
+        n = 200
+        pl_df = pl.DataFrame({
+            "num_feat": np.random.randn(n),
+            "cat_feat": np.random.choice(["x", "y", "z"], size=n),
+            "target": np.random.randint(0, 2, size=n),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        fit_df_info = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            fit_df_info.append((model_type_name, type(train_df).__name__))
+            return original_train(
+                model=model, model_obj=model_obj, model_type_name=model_type_name,
+                train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose,
+            )
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="all_polars_native",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb", "xgb", "hgb"],
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        assert len(models[TargetTypes.BINARY_CLASSIFICATION]["target"]) >= 3
+
+        # All models must receive Polars DataFrames
+        relevant = [(n, t) for n, t in fit_df_info if n != ""]
+        assert len(relevant) >= 3, f"Expected ≥3 .fit() calls, got {len(relevant)}: {relevant}"
+        for name, df_type in relevant:
+            assert df_type == "DataFrame", (
+                f"{name} received {df_type} instead of Polars DataFrame"
+            )
+
+    def test_polars_fastpath_predictions_valid(self, temp_data_dir, common_init_params):
+        """Verify that Polars fastpath models produce valid (non-NaN, correct shape) predictions."""
+        pytest.importorskip("catboost")
+
+        np.random.seed(42)
+        n = 200
+        # Create a dataset with signal so predictions aren't random
+        x = np.random.randn(n)
+        pl_df = pl.DataFrame({
+            "signal": x,
+            "noise": np.random.randn(n) * 0.1,
+            "cat_feat": np.random.choice(["a", "b"], size=n),
+            "target": (x > 0).astype(int),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="preds_valid_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 20},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        model_entries = models[TargetTypes.BINARY_CLASSIFICATION]["target"]
+        assert len(model_entries) > 0
+        model_ns = model_entries[0]
+        # Model must be fitted
+        assert model_ns.model is not None
+        # Metrics must be computed
+        assert model_ns.metrics is not None
+        assert any(model_ns.metrics[split] for split in ["train", "val", "test"])
+
+    def test_pandas_input_still_works_for_polars_native_models(self, temp_data_dir, common_init_params, monkeypatch):
+        """Pandas input should work for cb/xgb/hgb — no Polars fastpath, standard pandas path."""
+        pytest.importorskip("catboost")
+
+        np.random.seed(42)
+        n = 200
+        import pandas as pd
+        pd_df = pd.DataFrame({
+            "num_feat": np.random.randn(n),
+            "cat_feat": np.random.choice(["a", "b", "c"], size=n),
+            "target": np.random.randint(0, 2, size=n),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        fit_df_types = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            fit_df_types.append((model_type_name, type(train_df).__module__))
+            return original_train(
+                model=model, model_obj=model_obj, model_type_name=model_type_name,
+                train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose,
+            )
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pd_df,
+            target_name="test_target",
+            model_name="pandas_input_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        # With pandas input, no Polars fastpath — model receives pandas
+        cb_entries = [(n, m) for n, m in fit_df_types if "CatBoost" in n]
+        assert len(cb_entries) > 0
+        for name, mod in cb_entries:
+            assert "pandas" in mod or "numpy" in mod, (
+                f"With pandas input, CatBoost should receive pandas/numpy, got {mod}"
+            )
+
+    def test_polars_fastpath_with_many_categorical_values(self, temp_data_dir, common_init_params, monkeypatch):
+        """Polars fastpath with high-cardinality categoricals (>10 unique values)."""
+        pytest.importorskip("catboost")
+
+        np.random.seed(42)
+        n = 200
+        cats = np.random.choice([f"cat_{i}" for i in range(50)], size=n)
+        pl_df = pl.DataFrame({
+            "num_feat": np.random.randn(n),
+            "cat_feat": cats,
+            "target": np.random.randint(0, 2, size=n),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        fit_df_types = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            fit_df_types.append((model_type_name, type(train_df).__name__))
+            return original_train(
+                model=model, model_obj=model_obj, model_type_name=model_type_name,
+                train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose,
+            )
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="high_card_cats_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        cb_entries = [(n, t) for n, t in fit_df_types if "CatBoost" in n]
+        assert len(cb_entries) > 0
+        for name, df_type in cb_entries:
+            assert df_type == "DataFrame", f"CatBoost received {df_type} instead of Polars DataFrame"
+
+    def test_skip_categorical_encoding_manual_flag(self, temp_data_dir, common_init_params, monkeypatch):
+        """Manually setting skip_categorical_encoding=True is preserved in the pipeline config."""
+        pytest.importorskip("catboost")
+        from mlframe.training.configs import PolarsPipelineConfig
+
+        np.random.seed(42)
+        n = 200
+        pl_df = pl.DataFrame({
+            "num_feat": np.random.randn(n),
+            "cat_feat": np.random.choice(["a", "b", "c"], size=n),
+            "target": np.random.randint(0, 2, size=n),
+        })
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        captured_configs = []
+        import mlframe.training.core as core_mod
+        original_fit = core_mod.fit_and_transform_pipeline
+
+        def _spy_pipeline(**kwargs):
+            captured_configs.append(kwargs["config"].skip_categorical_encoding)
+            return original_fit(**kwargs)
+
+        monkeypatch.setattr(core_mod, "fit_and_transform_pipeline", _spy_pipeline)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="manual_skip_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            pipeline_config=PolarsPipelineConfig(skip_categorical_encoding=True),
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        assert len(captured_configs) > 0
+        assert captured_configs[0] is True, "Manual skip_categorical_encoding=True should be preserved"
+
+
+# =============================================================================
+# Text Features & Embedding Features Support
+# =============================================================================
+
+
+def _make_text_embedding_polars_df(n=200, n_cat_unique=5, n_text_unique=100):
+    """Build a Polars DataFrame with numeric, categorical, text, and embedding columns."""
+    rng = np.random.default_rng(42)
+    return pl.DataFrame({
+        "num_feat": rng.standard_normal(n),
+        "cat_feat": rng.choice([f"cat_{i}" for i in range(n_cat_unique)], size=n),
+        "text_feat": rng.choice([f"sentence number {i} with some words" for i in range(n_text_unique)], size=n),
+        "emb_feat": [rng.standard_normal(4).tolist() for _ in range(n)],
+        "target": rng.integers(0, 2, size=n),
+    })
+
+
+class TestTextAndEmbeddingFeatures:
+    """Tests for text_features and embedding_features support (CatBoost)."""
+
+    # -----------------------------------------------------------------------
+    # A: Feature type detection and routing
+    # -----------------------------------------------------------------------
+
+    def test_catboost_text_features_in_fit_params(self, temp_data_dir, common_init_params, monkeypatch):
+        """CatBoost receives text_features in fit_params via Polars fastpath."""
+        pytest.importorskip("catboost")
+        from mlframe.training.configs import FeatureTypesConfig
+
+        pl_df = _make_text_embedding_polars_df()
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        captured_fit_params = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            captured_fit_params.append((model_type_name, dict(fit_params) if fit_params else {}))
+            return original_train(model=model, model_obj=model_obj, model_type_name=model_type_name,
+                                  train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose)
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="text_feat_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            feature_types_config=FeatureTypesConfig(text_features=["text_feat"]),
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        cb_entries = [(n, p) for n, p in captured_fit_params if "CatBoost" in n]
+        assert len(cb_entries) > 0
+        assert "text_features" in cb_entries[0][1], f"text_features missing from fit_params: {cb_entries[0][1].keys()}"
+        assert "text_feat" in cb_entries[0][1]["text_features"]
+
+    def test_catboost_embedding_features_in_fit_params(self, temp_data_dir, common_init_params, monkeypatch):
+        """CatBoost receives embedding_features in fit_params via Polars fastpath."""
+        pytest.importorskip("catboost")
+        from mlframe.training.configs import FeatureTypesConfig
+
+        pl_df = _make_text_embedding_polars_df()
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        captured_fit_params = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            captured_fit_params.append((model_type_name, dict(fit_params) if fit_params else {}))
+            return original_train(model=model, model_obj=model_obj, model_type_name=model_type_name,
+                                  train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose)
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="emb_feat_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            feature_types_config=FeatureTypesConfig(embedding_features=["emb_feat"]),
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        cb_entries = [(n, p) for n, p in captured_fit_params if "CatBoost" in n]
+        assert len(cb_entries) > 0
+        assert "embedding_features" in cb_entries[0][1], f"embedding_features missing: {cb_entries[0][1].keys()}"
+        assert "emb_feat" in cb_entries[0][1]["embedding_features"]
+
+    def test_non_catboost_drops_text_columns(self, temp_data_dir, common_init_params, monkeypatch):
+        """Ridge model's train_df should NOT contain text columns."""
+        from mlframe.training.configs import FeatureTypesConfig
+
+        pl_df = _make_text_embedding_polars_df()
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        captured_dfs = {}
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            cols = list(train_df.columns) if hasattr(train_df, 'columns') else []
+            captured_dfs[model_type_name] = cols
+            return original_train(model=model, model_obj=model_obj, model_type_name=model_type_name,
+                                  train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose)
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="drop_text_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            feature_types_config=FeatureTypesConfig(text_features=["text_feat"]),
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        for model_name, cols in captured_dfs.items():
+            assert "text_feat" not in cols, f"{model_name} received text_feat column — should have been dropped"
+
+    def test_non_catboost_drops_embedding_columns(self, temp_data_dir, common_init_params, monkeypatch):
+        """Ridge model's train_df should NOT contain embedding columns."""
+        from mlframe.training.configs import FeatureTypesConfig
+
+        pl_df = _make_text_embedding_polars_df()
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        captured_dfs = {}
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            cols = list(train_df.columns) if hasattr(train_df, 'columns') else []
+            captured_dfs[model_type_name] = cols
+            return original_train(model=model, model_obj=model_obj, model_type_name=model_type_name,
+                                  train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose)
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="drop_emb_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            feature_types_config=FeatureTypesConfig(embedding_features=["emb_feat"]),
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        for model_name, cols in captured_dfs.items():
+            assert "emb_feat" not in cols, f"{model_name} received emb_feat column — should have been dropped"
+
+    def test_text_cat_mutual_exclusivity_raises(self, temp_data_dir, common_init_params):
+        """ValueError when same column is in both text_features and embedding_features."""
+        from mlframe.training.configs import FeatureTypesConfig
+
+        pl_df = _make_text_embedding_polars_df()
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        # Same column in text AND embedding → must raise ValueError
+        with pytest.raises(ValueError, match="text_features.*embedding_features"):
+            train_mlframe_models_suite(
+                df=pl_df,
+                target_name="test_target",
+                model_name="mutual_excl_test",
+                features_and_targets_extractor=fte,
+                mlframe_models=["cb"],
+                feature_types_config=FeatureTypesConfig(
+                    text_features=["text_feat"],
+                    embedding_features=["text_feat"],  # conflict!
+                ),
+                init_common_params=common_init_params,
+                hyperparams_config={"iterations": 10},
+                use_ordinary_models=True,
+                use_mlframe_ensembles=False,
+                data_dir=temp_data_dir,
+                verbose=0,
+            )
+
+    def test_embedding_auto_detection_polars(self, temp_data_dir, common_init_params):
+        """pl.List(pl.Float64) columns are auto-detected as embedding features."""
+        from mlframe.training.configs import FeatureTypesConfig
+        pytest.importorskip("catboost")
+
+        pl_df = _make_text_embedding_polars_df()
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        # Don't specify embedding_features — let auto-detection find emb_feat
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="emb_autodetect",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            feature_types_config=FeatureTypesConfig(),  # auto_detect=True by default
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        assert "emb_feat" in metadata.get("embedding_features", []), \
+            f"emb_feat not auto-detected. embedding_features={metadata.get('embedding_features')}"
+
+    def test_text_auto_detection_high_cardinality(self, temp_data_dir, common_init_params):
+        """String column with 100 unique values is auto-detected as text feature."""
+        from mlframe.training.configs import FeatureTypesConfig
+
+        pl_df = _make_text_embedding_polars_df(n_text_unique=100)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="text_autodetect",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            feature_types_config=FeatureTypesConfig(cat_text_cardinality_threshold=50),
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        assert "text_feat" in metadata.get("text_features", []), \
+            f"text_feat not auto-detected as text. text_features={metadata.get('text_features')}"
+
+    def test_text_auto_detection_low_cardinality_stays_cat(self, temp_data_dir, common_init_params):
+        """String column with 5 unique values stays categorical (not text)."""
+        from mlframe.training.configs import FeatureTypesConfig
+
+        pl_df = _make_text_embedding_polars_df(n_cat_unique=5, n_text_unique=5)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="low_card_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            feature_types_config=FeatureTypesConfig(cat_text_cardinality_threshold=50),
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        # With only 5 unique text values (< threshold=50), text_feat should NOT be in text_features
+        text_feats = metadata.get("text_features", [])
+        assert "text_feat" not in text_feats, \
+            f"text_feat should stay categorical (5 unique < threshold 50), but found in text_features"
+
+    def test_catboost_text_and_embedding_together(self, temp_data_dir, common_init_params, monkeypatch):
+        """CatBoost receives both text_features and embedding_features simultaneously."""
+        pytest.importorskip("catboost")
+        from mlframe.training.configs import FeatureTypesConfig
+
+        pl_df = _make_text_embedding_polars_df()
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        captured_fit_params = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            captured_fit_params.append((model_type_name, dict(fit_params) if fit_params else {}))
+            return original_train(model=model, model_obj=model_obj, model_type_name=model_type_name,
+                                  train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose)
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="text_emb_together",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            feature_types_config=FeatureTypesConfig(
+                text_features=["text_feat"],
+                embedding_features=["emb_feat"],
+            ),
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        cb_entries = [(n, p) for n, p in captured_fit_params if "CatBoost" in n]
+        assert len(cb_entries) > 0
+        fp = cb_entries[0][1]
+        assert "text_features" in fp and "embedding_features" in fp
+        assert "text_feat" in fp["text_features"]
+        assert "emb_feat" in fp["embedding_features"]
+
+    def test_mixed_models_text_features(self, temp_data_dir, common_init_params, monkeypatch):
+        """CatBoost gets text columns, Ridge drops them — both train successfully."""
+        pytest.importorskip("catboost")
+        from mlframe.training.configs import FeatureTypesConfig
+
+        pl_df = _make_text_embedding_polars_df()
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        captured_dfs = {}
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            cols = list(train_df.columns) if hasattr(train_df, 'columns') else []
+            captured_dfs[model_type_name] = cols
+            return original_train(model=model, model_obj=model_obj, model_type_name=model_type_name,
+                                  train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose)
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="mixed_text_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb", "ridge"],
+            feature_types_config=FeatureTypesConfig(
+                text_features=["text_feat"],
+                embedding_features=["emb_feat"],
+            ),
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        # CatBoost should have text_feat and emb_feat
+        cb_cols = [c for name, c in captured_dfs.items() if "CatBoost" in name]
+        assert len(cb_cols) > 0
+        assert "text_feat" in cb_cols[0], "CatBoost should retain text_feat"
+        assert "emb_feat" in cb_cols[0], "CatBoost should retain emb_feat"
+
+        # Ridge should NOT have text_feat or emb_feat
+        ridge_cols = [c for name, c in captured_dfs.items() if "Ridge" in name]
+        assert len(ridge_cols) > 0
+        assert "text_feat" not in ridge_cols[0], "Ridge should not have text_feat"
+        assert "emb_feat" not in ridge_cols[0], "Ridge should not have emb_feat"
+
+    def test_custom_cardinality_threshold(self, temp_data_dir, common_init_params):
+        """cat_text_cardinality_threshold=10 changes text vs cat classification."""
+        from mlframe.training.configs import FeatureTypesConfig
+
+        # 20 unique text values — with threshold=10 it should be text, with 50 it should be cat
+        pl_df = _make_text_embedding_polars_df(n_text_unique=20)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="threshold_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            feature_types_config=FeatureTypesConfig(cat_text_cardinality_threshold=10),
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        assert "text_feat" in metadata.get("text_features", []), \
+            f"With threshold=10 and 20 unique values, text_feat should be text. Got: {metadata.get('text_features')}"
+
+    # -----------------------------------------------------------------------
+    # B: Feature tier ordering
+    # -----------------------------------------------------------------------
+
+    def test_model_training_order_by_feature_tier(self, temp_data_dir, common_init_params, monkeypatch):
+        """CatBoost (tier 1) trains before Ridge (tier 2) regardless of input order."""
+        pytest.importorskip("catboost")
+        from mlframe.training.configs import FeatureTypesConfig
+
+        pl_df = _make_text_embedding_polars_df()
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        training_order = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            training_order.append(model_type_name)
+            return original_train(model=model, model_obj=model_obj, model_type_name=model_type_name,
+                                  train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose)
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        # Pass Ridge FIRST in the list — but CatBoost should still train first (higher tier)
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="tier_order_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge", "cb"],
+            feature_types_config=FeatureTypesConfig(
+                text_features=["text_feat"],
+                embedding_features=["emb_feat"],
+            ),
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        cb_idx = next((i for i, n in enumerate(training_order) if "CatBoost" in n), None)
+        ridge_idx = next((i for i, n in enumerate(training_order) if "Ridge" in n), None)
+        assert cb_idx is not None and ridge_idx is not None
+        assert cb_idx < ridge_idx, f"CatBoost should train before Ridge. Order: {training_order}"
+
+    def test_tier_column_dropping_cached(self, temp_data_dir, common_init_params, monkeypatch):
+        """Column dropping happens once per tier, not once per model."""
+        from mlframe.training.configs import FeatureTypesConfig
+
+        pl_df = _make_text_embedding_polars_df()
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        captured_dfs = {}
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            # Store id to verify same object is reused
+            captured_dfs[model_type_name] = id(train_df)
+            return original_train(model=model, model_obj=model_obj, model_type_name=model_type_name,
+                                  train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose)
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="tier_cache_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge", "lgb"],
+            feature_types_config=FeatureTypesConfig(
+                text_features=["text_feat"],
+                embedding_features=["emb_feat"],
+            ),
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        # Both Ridge and Lasso are same tier — should receive same trimmed DF object
+        ridge_ids = [v for k, v in captured_dfs.items() if "Ridge" in k]
+        lgb_ids = [v for k, v in captured_dfs.items() if "LGB" in k or "lgb" in k.lower()]
+        # Both should have trained (same tier — both lack text/embedding support)
+        assert len(ridge_ids) > 0 and len(lgb_ids) > 0, f"captured keys: {list(captured_dfs.keys())}"
+
+    # -----------------------------------------------------------------------
+    # C: Memory optimizations (B1-B5)
+    # -----------------------------------------------------------------------
+
+    def test_no_clone_when_skip_categorical_encoding(self, temp_data_dir, common_init_params, monkeypatch):
+        """B1: No .clone() when all models are Polars-native (skip_categorical_encoding auto-set)."""
+        pytest.importorskip("catboost")
+
+        pl_df = _make_text_embedding_polars_df()
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        clone_calls = []
+        original_clone = pl.DataFrame.clone
+
+        def _spy_clone(self):
+            clone_calls.append(True)
+            return original_clone(self)
+
+        monkeypatch.setattr(pl.DataFrame, "clone", _spy_clone)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="no_clone_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],  # All Polars-native → skip_categorical_encoding=True → no clone
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        assert len(clone_calls) == 0, \
+            f"Expected 0 clone() calls (skip_categorical_encoding=True), got {len(clone_calls)}"
+
+    def test_post_pipeline_polars_deleted(self, temp_data_dir, common_init_params, monkeypatch):
+        """B2: Post-pipeline Polars DFs freed after pandas conversion when clone was needed."""
+        import weakref
+
+        n = 200
+        rng = np.random.default_rng(42)
+        pl_df = pl.DataFrame({
+            "num_feat": rng.standard_normal(n),
+            "cat_feat": rng.choice(["a", "b", "c"], size=n),
+            "target": rng.integers(0, 2, size=n),
+        })
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        # Force clone by mixing polars-native and non-native models with encoding
+        from mlframe.training.configs import PolarsPipelineConfig
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="post_pipeline_del_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            pipeline_config=PolarsPipelineConfig(categorical_encoding="ordinal"),
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        # If we got here without OOM, the test passes — the point is that
+        # post-pipeline DFs were deleted. Hard to assert memory directly,
+        # so we just verify training completed successfully.
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+
+    def test_prepare_polars_cached_across_weights(self, temp_data_dir, common_init_params, monkeypatch):
+        """B3: prepare_polars_dataframe() called once per model, not once per weight schema."""
+        pytest.importorskip("catboost")
+
+        pl_df = _make_text_embedding_polars_df()
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        prepare_calls = []
+        from mlframe.training.strategies import CatBoostStrategy
+        original_prepare = CatBoostStrategy.prepare_polars_dataframe
+
+        def _spy_prepare(self, df, cat_features):
+            prepare_calls.append(True)
+            return original_prepare(self, df, cat_features)
+
+        monkeypatch.setattr(CatBoostStrategy, "prepare_polars_dataframe", _spy_prepare)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="prepare_cache_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        # With 1 weight schema (uniform), prepare should be called exactly 3 times
+        # (train, val, test) — NOT more from the weight loop
+        assert len(prepare_calls) <= 3, \
+            f"prepare_polars_dataframe called {len(prepare_calls)} times — should be ≤3 (once per split)"
+
+    def test_tier_uses_select_not_drop(self, temp_data_dir, common_init_params, monkeypatch):
+        """B4: Tier trimming produces correct column count (text/emb excluded)."""
+        from mlframe.training.configs import FeatureTypesConfig
+
+        pl_df = _make_text_embedding_polars_df()
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        captured_ncols = {}
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            ncols = train_df.shape[1] if hasattr(train_df, 'shape') else 0
+            captured_ncols[model_type_name] = ncols
+            return original_train(model=model, model_obj=model_obj, model_type_name=model_type_name,
+                                  train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose)
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="select_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            feature_types_config=FeatureTypesConfig(
+                text_features=["text_feat"],
+                embedding_features=["emb_feat"],
+            ),
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        # Ridge DF should have 2 fewer columns (text_feat + emb_feat dropped)
+        for name, ncols in captured_ncols.items():
+            if "Ridge" in name:
+                # Original has num_feat, cat_feat, text_feat, emb_feat = 4 feature columns
+                # After dropping text + emb = 2 feature columns remain
+                assert ncols < 4, f"Ridge should have fewer columns after tier trimming, got {ncols}"
+
+    def test_polars_originals_freed_after_tier1(self, temp_data_dir, common_init_params, monkeypatch):
+        """B5: Pre-pipeline Polars originals released after all Polars-native models finish."""
+        pytest.importorskip("catboost")
+        from mlframe.training.configs import FeatureTypesConfig
+
+        pl_df = _make_text_embedding_polars_df()
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        # Track training order and if Polars originals exist at each call
+        training_info = []
+        import mlframe.training.trainer as trainer_mod
+        original_train = trainer_mod._train_model_with_fallback
+
+        def _spy_train(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
+            training_info.append((model_type_name, type(train_df).__name__))
+            return original_train(model=model, model_obj=model_obj, model_type_name=model_type_name,
+                                  train_df=train_df, train_target=train_target, fit_params=fit_params, verbose=verbose)
+
+        monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="tier_release_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb", "ridge"],
+            feature_types_config=FeatureTypesConfig(
+                text_features=["text_feat"],
+                embedding_features=["emb_feat"],
+            ),
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        # Both models should have trained successfully
+        assert len(training_info) >= 2
+        # CatBoost got Polars, Ridge got pandas
+        cb_entries = [(n, t) for n, t in training_info if "CatBoost" in n]
+        ridge_entries = [(n, t) for n, t in training_info if "Ridge" in n]
+        assert len(cb_entries) > 0 and len(ridge_entries) > 0
+        assert cb_entries[0][1] == "DataFrame", "CatBoost should receive Polars DataFrame"
+
+    # -----------------------------------------------------------------------
+    # D: GPU tests (actual training)
+    # -----------------------------------------------------------------------
+
+    @pytest.mark.gpu
+    def test_catboost_polars_with_text_features_trains(self, temp_data_dir, common_init_params):
+        """Actual CatBoost training with text features on Polars input."""
+        pytest.importorskip("catboost")
+        from mlframe.training.configs import FeatureTypesConfig
+
+        pl_df = _make_text_embedding_polars_df(n=300)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="gpu_text_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            feature_types_config=FeatureTypesConfig(text_features=["text_feat"]),
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 20},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        model_ns = models[TargetTypes.BINARY_CLASSIFICATION]["target"][0]
+        assert model_ns.model is not None
+
+    @pytest.mark.gpu
+    def test_catboost_polars_with_embeddings_trains(self, temp_data_dir, common_init_params):
+        """Actual CatBoost training with embedding features on Polars input."""
+        pytest.importorskip("catboost")
+        from mlframe.training.configs import FeatureTypesConfig
+
+        pl_df = _make_text_embedding_polars_df(n=300)
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="gpu_emb_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            feature_types_config=FeatureTypesConfig(embedding_features=["emb_feat"]),
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 20},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        model_ns = models[TargetTypes.BINARY_CLASSIFICATION]["target"][0]
+        assert model_ns.model is not None

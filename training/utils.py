@@ -393,6 +393,11 @@ def get_numeric_columns(df: Union[pl.DataFrame, pd.DataFrame]) -> list:
 
     Returns:
         List of numeric column names
+
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({"a": [1, 2], "b": ["x", "y"], "c": [1.0, 2.0]})
+    >>> sorted(get_numeric_columns(df))
+    ['a', 'c']
     """
     if isinstance(df, pl.DataFrame):
         return [name for name, dtype in df.schema.items() if dtype.is_numeric()]
@@ -412,15 +417,17 @@ def get_categorical_columns(df: Union[pl.DataFrame, pd.DataFrame], include_strin
         List of categorical column names
     """
     if isinstance(df, pl.DataFrame):
-        cat_dtypes = [pl.Categorical]
+        from .strategies import get_polars_cat_columns
         if include_string:
-            cat_dtypes.extend([pl.Utf8, pl.String])
-        return [name for name, dtype in df.schema.items() if dtype in cat_dtypes]
+            return get_polars_cat_columns(df)
+        else:
+            return [name for name, dtype in df.schema.items() if dtype == pl.Categorical]
     else:
-        include_types = ["category"]
+        from .strategies import PANDAS_CATEGORICAL_DTYPES
         if include_string:
-            include_types.extend(["object", "string", "string[pyarrow]", "large_string[pyarrow]"])
-        return df.select_dtypes(include=include_types).columns.tolist()
+            return df.select_dtypes(include=list(PANDAS_CATEGORICAL_DTYPES)).columns.tolist()
+        else:
+            return df.select_dtypes(include=["category"]).columns.tolist()
 
 
 def remove_constant_columns(df: Union[pl.DataFrame, pd.DataFrame], verbose: int = 1) -> Union[pl.DataFrame, pd.DataFrame]:

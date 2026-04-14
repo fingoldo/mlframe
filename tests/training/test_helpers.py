@@ -199,3 +199,57 @@ class TestSetupSampleWeight:
         _setup_sample_weight(weights, train_idx, MockModel(), fit_params)
         assert "sample_weight" in fit_params
         np.testing.assert_array_equal(fit_params["sample_weight"], [2.0, 4.0])
+
+
+from mlframe.training.helpers import parse_catboost_devices
+
+
+class TestParseCatboostDevices:
+    """Tests for parse_catboost_devices."""
+
+    ALL_GPUS = [
+        {"index": 0, "name": "GPU0"},
+        {"index": 1, "name": "GPU1"},
+        {"index": 2, "name": "GPU2"},
+        {"index": 3, "name": "GPU3"},
+    ]
+
+    def test_single_gpu(self):
+        """Single GPU index returns that GPU only."""
+        result = parse_catboost_devices("0", all_gpus=self.ALL_GPUS)
+        assert result == [self.ALL_GPUS[0]]
+
+    def test_multiple_colon_separated(self):
+        """Colon-separated indices return matching GPUs."""
+        result = parse_catboost_devices("0:2", all_gpus=self.ALL_GPUS)
+        assert result == [self.ALL_GPUS[0], self.ALL_GPUS[2]]
+
+    def test_range(self):
+        """Dash range returns all GPUs in range inclusive."""
+        result = parse_catboost_devices("0-3", all_gpus=self.ALL_GPUS)
+        assert result == self.ALL_GPUS
+
+    def test_empty_string_returns_all(self):
+        """Empty string returns all available GPUs."""
+        result = parse_catboost_devices("", all_gpus=self.ALL_GPUS)
+        assert result == self.ALL_GPUS
+
+    def test_invalid_non_numeric(self):
+        """Non-numeric string raises ValueError."""
+        with pytest.raises(ValueError):
+            parse_catboost_devices("abc", all_gpus=self.ALL_GPUS)
+
+    def test_invalid_reversed_range(self):
+        """Reversed range (start > end) raises ValueError."""
+        with pytest.raises(ValueError):
+            parse_catboost_devices("3-0", all_gpus=self.ALL_GPUS)
+
+    def test_out_of_range_index(self):
+        """Index beyond available GPUs raises ValueError."""
+        with pytest.raises(ValueError):
+            parse_catboost_devices("5", all_gpus=self.ALL_GPUS)
+
+    def test_invalid_range_format(self):
+        """Range with too many dashes raises ValueError."""
+        with pytest.raises(ValueError):
+            parse_catboost_devices("0-1-2", all_gpus=self.ALL_GPUS)

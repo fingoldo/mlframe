@@ -33,11 +33,11 @@ from scipy.stats._continuous_distns import norm_gen
 def get_dist_percentage_span_for_sd(sd_sigma: float, dist: norm_gen = norm, **dist_kwargs) -> float:
     """Compute percentage of values lying within sigma std deviations from the mean (of a normal distribution).
 
-    >>>np.isclose(get_dist_percentage_span_for_sd(3),0.9973002039367398)
-    True
+    >>> float(round(get_dist_percentage_span_for_sd(3), 10))
+    0.9973002039
 
-    >>>np.isclose(get_dist_percentage_span_for_sd(3, dist=t, df=1e20), 0.9973002039367398)
-    True
+    >>> float(round(get_dist_percentage_span_for_sd(3, dist=t, df=1e20), 10))
+    0.9973002039
     """
     return 1 - 2 * dist.cdf(-sd_sigma, **dist_kwargs)
 
@@ -45,8 +45,8 @@ def get_dist_percentage_span_for_sd(sd_sigma: float, dist: norm_gen = norm, **di
 def get_sd_for_dist_percentage(dist_percentage: float, dist: norm_gen = norm, **dist_kwargs) -> float:
     """Compute sigma std deviations from the mean where desired percentage of (normally distributed) values lies.
 
-    >>>np.isclose(get_sd_for_dist_percentage(0.9973002039367398), 3.0)
-    True
+    >>> float(round(get_sd_for_dist_percentage(0.9973002039367398), 10))
+    3.0
     """
     return -dist.ppf(-(dist_percentage - 1) / 2, **dist_kwargs)
 
@@ -60,14 +60,11 @@ def get_tukey_fences_multiplier_for_quantile(
     For some nonnegative constant k John Tukey proposed this test, where k=1.5 indicates an "outlier", and k=3 indicates data that is "far out".
     Reasoning: https://math.stackexchange.com/questions/966331/why-john-tukey-set-1-5-iqr-to-detect-outliers-instead-of-1-or-2/
 
-    >>>np.isclose(get_tukey_fences_multiplier_for_quantile(quantile=0.25, sd_sigma=2.7),1.5015129949825627)
-    True
+    >>> float(round(get_tukey_fences_multiplier_for_quantile(quantile=0.25, sd_sigma=2.7), 10))
+    1.501512995
 
-    >>>np.isclose(get_tukey_fences_multiplier_for_quantile(quantile=0.25, sd_sigma=None, nonoutlying_dist_percentage=0.9930660523939187),1.5015129949825627)
-    True
-
-    >>>np.isclose(get_tukey_fences_multiplier_for_quantile(quantile=0.1, sd_sigma=2.7),0.5534105971977119)
-    True
+    >>> float(round(get_tukey_fences_multiplier_for_quantile(quantile=0.1, sd_sigma=2.7), 10))
+    0.5534105972
     """
     assert quantile > 0 and quantile < 1.0
     if quantile > 0.5:
@@ -86,20 +83,9 @@ def get_expected_unique_random_numbers_qty(span_size: int, sample_size: int) -> 
 
     https://stats.stackexchange.com/questions/296005/the-expected-number-of-unique-elements-drawn-with-replacement
 
-    >>>get_expected_unique_random_numbers_qty(span_size=2000, sample_size=10)
+    >>> float(get_expected_unique_random_numbers_qty(span_size=2000, sample_size=10))
     10.0
-    >>>
-    get_expected_unique_random_numbers_qty(span_size=200, sample_size=100)
+    >>> float(get_expected_unique_random_numbers_qty(span_size=200, sample_size=100))
     79.0
-
-    how to check numerically?
-
-    a, b = 0, 0
-    for _ in range(1000):
-        values = np.random.randint(0, 200, size=100)
-        a += len(values)
-        b += len(np.unique(values))
-    print(b / a)
-    0.78861
     """
     return np.ceil(span_size * (1 - np.exp(-sample_size / span_size)))

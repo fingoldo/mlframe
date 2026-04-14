@@ -36,6 +36,9 @@ from mlframe.metrics import (
     fast_precision,
     fast_classification_report,
     probability_separation_score,
+    cb_logits_to_probs_binary,
+    cb_logits_to_probs_multiclass,
+    maximum_absolute_percentage_error,
 )
 
 
@@ -600,6 +603,104 @@ class TestEdgeCases:
 
         score = probability_separation_score(y_true, y_prob, class_label=1)
         assert np.isnan(score)
+
+
+# =============================================================================
+# CatBoost Logits to Probabilities
+# =============================================================================
+
+
+class TestCbLogitsToProbs:
+    """Edge cases for cb_logits_to_probs_binary."""
+
+    def test_zeros(self):
+        """Logits of zero should give 0.5 probability for both classes."""
+        logits = np.array([0.0, 0.0])
+        probs = cb_logits_to_probs_binary(logits)
+        np.testing.assert_allclose(probs[:, 0], 0.5)
+        np.testing.assert_allclose(probs[:, 1], 0.5)
+
+    def test_extreme_positive(self):
+        """Very large positive logit should map to prob close to [0, 1]."""
+        logits = np.array([100.0])
+        probs = cb_logits_to_probs_binary(logits)
+        np.testing.assert_allclose(probs[0, 0], 0.0, atol=1e-10)
+        np.testing.assert_allclose(probs[0, 1], 1.0, atol=1e-10)
+
+    def test_extreme_negative(self):
+        """Very large negative logit should map to prob close to [1, 0]."""
+        logits = np.array([-100.0])
+        probs = cb_logits_to_probs_binary(logits)
+        np.testing.assert_allclose(probs[0, 0], 1.0, atol=1e-10)
+        np.testing.assert_allclose(probs[0, 1], 0.0, atol=1e-10)
+
+    @given(
+        logits=arrays(np.float64, st.just(20), elements=st.floats(-10, 10))
+    )
+    @settings(max_examples=50, deadline=None)
+    def test_rows_sum_to_one_and_in_unit_interval(self, logits):
+        """For any logits, each row sums to 1.0 and all values in [0, 1]."""
+        probs = cb_logits_to_probs_binary(logits)
+        np.testing.assert_allclose(probs.sum(axis=1), 1.0, atol=1e-10)
+        assert np.all(probs >= 0.0)
+        assert np.all(probs <= 1.0)
+
+
+class TestCbLogitsToPropsMulticlass:
+    """Property-based tests for cb_logits_to_probs_multiclass."""
+
+    @given(
+        data=st.data(),
+        n_classes=st.integers(2, 10),
+        n_samples=st.integers(1, 50),
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_rows_sum_to_one_and_in_unit_interval(self, data, n_classes, n_samples):
+        """For any (n_classes, n_samples) logits, rows sum to 1.0, values in [0, 1]."""
+        logits = data.draw(
+            arrays(np.float64, (n_classes, n_samples), elements=st.floats(-10, 10))
+        )
+        probs = cb_logits_to_probs_multiclass(logits)
+        np.testing.assert_allclose(probs.sum(axis=1), 1.0, atol=1e-10)
+        assert np.all(probs >= 0.0)
+        assert np.all(probs <= 1.0)
+
+
+# =============================================================================
+# Maximum Absolute Percentage Error
+# =============================================================================
+
+
+class TestMaximumAbsolutePercentageError:
+    """Edge cases for maximum_absolute_percentage_error."""
+
+    def test_perfect_predictions(self):
+        """When y_true == y_pred, result should be 0."""
+        y = np.array([1.0, 2.0, 3.0])
+        assert maximum_absolute_percentage_error(y, y) == 0.0
+
+    def test_zero_true_values(self):
+        """With zero true values, epsilon denominator gives large but finite result."""
+        y_true = np.array([0.0, 0.0])
+        y_pred = np.array([1.0, 1.0])
+        result = maximum_absolute_percentage_error(y_true, y_pred)
+        assert np.isfinite(result)
+        assert result > 0
+
+
+# =============================================================================
+# Fast ROC AUC Edge Cases
+# =============================================================================
+
+
+class TestFastRocAucEdgeCases:
+    """Edge cases for fast_roc_auc."""
+
+    def test_perfect_separation(self):
+        """Perfect separation should give AUC of 1.0."""
+        y_true = np.array([0, 0, 1, 1])
+        y_score = np.array([0.1, 0.2, 0.8, 0.9])
+        assert fast_roc_auc(y_true, y_score) == 1.0
 
 
 # =============================================================================
