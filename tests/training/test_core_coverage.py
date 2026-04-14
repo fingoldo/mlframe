@@ -732,27 +732,40 @@ class TestModelTrainingLoop:
 
 
 class TestRecurrentModels:
-    """Tests for Section 6 recurrent model training path."""
+    """Tests for Section 6 recurrent model training path.
 
-    def _make_mock_model(self):
-        mock_model = unittest.mock.MagicMock()
-        mock_model.get_params.return_value = {}
-        mock_model.set_params.return_value = mock_model
-        return mock_model
+    Uses targeted mocking of only the recurrent code path to avoid
+    interfering with regular model training (clone, process_model, etc.).
+    """
 
     def _build_sequences(self, n_samples=1000, seq_len=10, n_seq_features=5):
         return [np.random.randn(seq_len, n_seq_features) for _ in range(n_samples)]
 
-    def test_recurrent_fit_called(self, sample_regression_data, temp_data_dir, common_init_params):
-        """Recurrent model fit() is called when sequences are provided."""
+    def test_recurrent_fit_called_and_error_handled(self, sample_regression_data, temp_data_dir, common_init_params):
+        """Recurrent model fit() is called; errors are caught gracefully."""
         df, feature_names, y = sample_regression_data
         n_samples = len(df)
         sequences = self._build_sequences(n_samples=n_samples)
-        mock_model = self._make_mock_model()
 
-        with unittest.mock.patch("mlframe.training.core._configure_recurrent_params") as mock_cfg:
-            mock_cfg.return_value = {"lstm": {"model": mock_model}}
-            with unittest.mock.patch("mlframe.training.core.clone", return_value=mock_model):
+        mock_model = unittest.mock.MagicMock()
+        mock_model.get_params.return_value = {}
+        mock_model.set_params.return_value = mock_model
+        # fit() raises to test error handling path
+        mock_model.fit.side_effect = RuntimeError("simulated GPU OOM")
+
+        def fake_configure(**kwargs):
+            return {"lstm": {"model": mock_model}}
+
+        with unittest.mock.patch("mlframe.training.trainer._configure_recurrent_params", side_effect=fake_configure):
+            # Patch clone ONLY for the recurrent section by selectively returning mock
+            original_clone = __import__("sklearn.base", fromlist=["clone"]).clone
+
+            def selective_clone(estimator, **kw):
+                if estimator is mock_model:
+                    return mock_model
+                return original_clone(estimator, **kw)
+
+            with unittest.mock.patch("mlframe.training.core.clone", side_effect=selective_clone):
                 fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
                 models, metadata = train_mlframe_models_suite(
                     df=df,
@@ -771,66 +784,42 @@ class TestRecurrentModels:
                     hyperparams_config={"iterations": 10},
                 )
 
+        # fit() was called (even though it raised)
         assert mock_model.fit.called, "Expected recurrent model fit() to be called"
-
-    def test_recurrent_fit_error_continues(self, sample_regression_data, temp_data_dir, common_init_params):
-        """Exception in recurrent fit() is caught; training continues."""
-        df, feature_names, y = sample_regression_data
-        n_samples = len(df)
-        sequences = self._build_sequences(n_samples=n_samples)
-        mock_model = self._make_mock_model()
-        mock_model.fit.side_effect = RuntimeError("simulated GPU OOM")
-
-        with unittest.mock.patch("mlframe.training.core._configure_recurrent_params") as mock_cfg:
-            mock_cfg.return_value = {"lstm": {"model": mock_model}}
-            with unittest.mock.patch("mlframe.training.core.clone", return_value=mock_model):
-                fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
-                models, metadata = train_mlframe_models_suite(
-                    df=df,
-                    target_name="test_target",
-                    model_name="test_recurrent_err",
-                    features_and_targets_extractor=fte,
-                    mlframe_models=["ridge"],
-                    recurrent_models=["lstm"],
-                    sequences=sequences,
-                    init_common_params=common_init_params,
-                    use_ordinary_models=True,
-                    use_mlframe_ensembles=False,
-                    data_dir=temp_data_dir,
-                    models_dir="models",
-                    verbose=0,
-                    hyperparams_config={"iterations": 10},
-                )
-        # Should not raise; ridge still trained
-        assert isinstance(models, dict)
+        # Regular ridge model still trained successfully
+        assert TargetTypes.REGRESSION in models
+        assert len(models[TargetTypes.REGRESSION]["target"]) >= 1
 
     def test_unknown_recurrent_model_skipped(self, sample_regression_data, temp_data_dir, common_init_params):
         """Unconfigured recurrent model is skipped; fit() not called."""
         df, feature_names, y = sample_regression_data
         n_samples = len(df)
         sequences = self._build_sequences(n_samples=n_samples)
-        mock_model = self._make_mock_model()
 
-        with unittest.mock.patch("mlframe.training.core._configure_recurrent_params") as mock_cfg:
-            mock_cfg.return_value = {}  # "gru" not in params
-            with unittest.mock.patch("mlframe.training.core.clone", return_value=mock_model):
-                fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
-                models, metadata = train_mlframe_models_suite(
-                    df=df,
-                    target_name="test_target",
-                    model_name="test_recurrent_unknown",
-                    features_and_targets_extractor=fte,
-                    mlframe_models=["ridge"],
-                    recurrent_models=["gru"],
-                    sequences=sequences,
-                    init_common_params=common_init_params,
-                    use_ordinary_models=True,
-                    use_mlframe_ensembles=False,
-                    data_dir=temp_data_dir,
-                    models_dir="models",
-                    verbose=0,
-                    hyperparams_config={"iterations": 10},
-                )
+        mock_model = unittest.mock.MagicMock()
+        mock_model.get_params.return_value = {}
+
+        def fake_configure(**kwargs):
+            return {}  # "gru" not configured
+
+        with unittest.mock.patch("mlframe.training.trainer._configure_recurrent_params", side_effect=fake_configure):
+            fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
+            models, metadata = train_mlframe_models_suite(
+                df=df,
+                target_name="test_target",
+                model_name="test_recurrent_unknown",
+                features_and_targets_extractor=fte,
+                mlframe_models=["ridge"],
+                recurrent_models=["gru"],
+                sequences=sequences,
+                init_common_params=common_init_params,
+                use_ordinary_models=True,
+                use_mlframe_ensembles=False,
+                data_dir=temp_data_dir,
+                models_dir="models",
+                verbose=0,
+                hyperparams_config={"iterations": 10},
+            )
 
         assert not mock_model.fit.called
 

@@ -1,5 +1,39 @@
 # Changelog
 
+## 2026-04-14 — Test Suite Optimization & Coverage Expansion
+
+### Added
+
+- **`tests/training/test_core_coverage.py`** — 48 new tests targeting 99% coverage of `train_mlframe_models_suite`:
+  - `TestInputValidation` (8 tests): TypeError/ValueError for invalid df types, non-parquet paths, empty names, None FTE, parquet path loading, dict config acceptance.
+  - `TestConfigurationSetup` (4 tests): Pydantic config passthrough for PreprocessingConfig, TrainingSplitConfig, ModelHyperparamsConfig, TrainingBehaviorConfig.
+  - `TestDataLoadingPreprocessing` (2 tests): NaN fillna, column dropping via preprocessing_config.
+  - `TestSplitting` (4 tests): split size sums, artifact saving, no-data-dir skip, metadata keys.
+  - `TestPipelineFitting` (8 tests): auto-skip categorical encoding for Polars-native models, pre-clone logic, metadata pipeline/cat_features/columns keys, mixed native/non-native models.
+  - `TestFeatureTypeDetection` (3 tests): text/embedding features in metadata, empty defaults.
+  - `TestModelTrainingLoop` (9 tests): unknown model skip with warning, uniform/custom weight schemas, model × weight combinations, ensemble scoring, clone per weight.
+  - `TestRecurrentModels` (2 tests): recurrent fit() with error handling, unknown recurrent model skip (selective mock of clone).
+  - `TestCrossCuttingParametrized` (4 cases): `@pytest.mark.parametrize` over (ridge/lasso) × (pandas/polars).
+  - `TestMetadataCompleteness` (4 tests): all expected keys, configs, split sizes, joblib persistence.
+- **`tests/conftest.py`** — root conftest with shared autouse fixtures (`cleanup_memory`, `suppress_convergence_warnings`).
+- **`tests/feature_engineering/conftest.py`** — shared date/DataFrame fixtures.
+- **`pytest.ini`** — custom markers (`slow`, `integration`, `gpu`), doctest options.
+- **`tests/training/test_train_eval.py`** — 10 tests for `optimize_model_for_storage`, `select_target`.
+- **`tests/test_utils.py`** — 10 tests for root utils (`set_random_seed`, `get_pipeline_last_element`, etc.).
+- **`tests/test_metrics.py`** — 8 new edge case + Hypothesis tests.
+- **`tests/training/test_configs.py`** — 2 Hypothesis round-trip tests for Pydantic configs.
+- **`tests/training/test_utils.py`** — 3 Hypothesis property-based tests for DataFrame transforms.
+- **`tests/training/test_helpers.py`** — 8 tests for `parse_catboost_devices`.
+
+### Changed
+
+- **Consolidated duplicated tests**: 3 pandas/polars test pairs in `test_basic.py` → parametrized; 7 boolean param tests in `test_numerical.py` → single parametrized test.
+- **Marked slow tests**: `@pytest.mark.slow` on test_stress.py, test_all_models.py, test_integration.py, RFECV tests. Enables `pytest -m "not slow"` for fast CI.
+- **Optimized tree model tests**: reduced iterations from 5000 to 50 in test_core.py (3 tests).
+- **Promoted fixture scopes**: `common_init_params`, `fast_iterations`, `fast_config_override` → `scope="session"`.
+- **Fixed doctests**: NumPy 2.x compatibility in stats.py (7 doctests), added doctest to `get_numeric_columns`.
+- **Fixed dict mutation bugs**: `.copy()` on `hgb_kwargs`, `mlp_kwargs`, `ngb_kwargs`, `rfecv_kwargs` in helpers.py.
+
 ## 2026-04-14 — CatBoost Text & Embedding Features + Memory Optimizations
 
 ### Added

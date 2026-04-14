@@ -22,6 +22,7 @@ mlframe/
   tests/
     training/
       test_core.py       # Integration tests for train_mlframe_models_suite
+      test_core_coverage.py  # Comprehensive coverage tests (48 tests, all code paths)
       test_catboost_polars.py  # CatBoost & HGB native Polars support tests
       ...
 ```
