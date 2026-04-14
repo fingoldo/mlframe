@@ -978,4 +978,113 @@ __all__ = [
     "get_model_feature_importances",
     "plot_model_feature_importances",
     "post_calibrate_model",
+    "compute_ml_perf_by_time",
+    "visualize_ml_metric_by_time",
 ]
+
+
+# =============================================================================
+# Salvaged from training_old.py (compute_ml_perf, visualize_ml_metric_by_time)
+# =============================================================================
+
+
+def _compute_metric(metric: str, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Thin dispatcher used by compute_ml_perf_by_time."""
+    from sklearn.metrics import roc_auc_score, average_precision_score, brier_score_loss, mean_squared_error
+
+    if metric == "roc_auc":
+        if len(np.unique(y_true)) < 2:
+            return float("nan")
+        return float(roc_auc_score(y_true, y_pred))
+    if metric == "average_precision":
+        return float(average_precision_score(y_true, y_pred))
+    if metric == "brier":
+        return float(brier_score_loss(y_true, y_pred))
+    if metric == "mse":
+        return float(mean_squared_error(y_true, y_pred))
+    raise ValueError(f"Unsupported metric: {metric}")
+
+
+def compute_ml_perf_by_time(
+    y_true,
+    y_pred,
+    timestamps,
+    freq: str = "D",
+    metric: str = "roc_auc",
+    min_samples: int = 100,
+) -> pd.DataFrame:
+    """Bin predictions by time frequency and compute a metric per bin.
+
+    Salvaged shape of training_old.compute_ml_perf, adapted to a clean
+    y_true/y_pred/timestamps interface. Returns a DataFrame indexed by time
+    bucket with columns [metric, n_samples].
+    """
+    df = pd.DataFrame(
+        {
+            "y_true": np.asarray(y_true),
+            "y_pred": np.asarray(y_pred, dtype=float),
+            "ts": pd.to_datetime(pd.Series(timestamps).values),
+        }
+    )
+    df = df.set_index("ts").sort_index()
+    rows = []
+    for bin_start, chunk in df.groupby(pd.Grouper(freq=freq)):
+        n = len(chunk)
+        if n == 0:
+            continue
+        if n < min_samples:
+            val = float("nan")
+        else:
+            try:
+                val = _compute_metric(metric, chunk["y_true"].values, chunk["y_pred"].values)
+            except Exception as exc:
+                logger.warning("metric %s failed on bin %s: %s", metric, bin_start, exc)
+                val = float("nan")
+        rows.append({"bin": bin_start, metric: val, "n_samples": n})
+    out = pd.DataFrame(rows).set_index("bin") if rows else pd.DataFrame(columns=[metric, "n_samples"])
+    return out
+
+
+def visualize_ml_metric_by_time(
+    perf_df: pd.DataFrame,
+    ax=None,
+    good_metric_threshold: Optional[float] = None,
+    higher_is_better: bool = True,
+    good_color: str = "green",
+    bad_color: str = "red",
+):
+    """Line-plot a perf DataFrame produced by compute_ml_perf_by_time.
+
+    Threshold-aware color banding: bars below/above good_metric_threshold get
+    coloured by goodness. Returns a matplotlib Figure.
+    """
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(12, 6))
+    else:
+        fig = ax.figure
+
+    metric_cols = [c for c in perf_df.columns if c != "n_samples"]
+    if not metric_cols:
+        return fig
+    metric = metric_cols[0]
+    values = perf_df[metric].values
+    xs = np.arange(len(perf_df))
+    ax.plot(xs, values, marker="o", color="steelblue", label=metric)
+    if good_metric_threshold is not None:
+        for x, v in zip(xs, values):
+            if np.isnan(v):
+                continue
+            if higher_is_better:
+                color = good_color if v >= good_metric_threshold else bad_color
+            else:
+                color = good_color if v <= good_metric_threshold else bad_color
+            ax.axvspan(x - 0.4, x + 0.4, color=color, alpha=0.08)
+    try:
+        ax.set_xticks(xs)
+        ax.set_xticklabels([str(i) for i in perf_df.index], rotation=45)
+    except Exception:
+        pass
+    ax.set_ylabel(metric)
+    ax.set_title(f"{metric} by time bin")
+    ax.legend(loc="best")
+    return fig

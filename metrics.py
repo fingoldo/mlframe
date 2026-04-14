@@ -1534,3 +1534,63 @@ def robust_mlperf_metric(
                 total_metric_value += bin_metric_value * bin_weight
 
     return total_metric_value / weights_sum
+
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Salvaged from OldEnsembling.py — combined Brier+precision scorer
+# ----------------------------------------------------------------------------------------------------------------------------
+
+
+def brier_and_precision_score(
+    y_true,
+    y_proba,
+    precision_threshold: float = 0.5,
+    brier_threshold: float = 0.25,
+) -> float:
+    """precision_score - fast_brier_score_loss when both thresholds pass, else 0.
+
+    Brier must be <= brier_threshold and precision must be >= precision_threshold
+    (at a 0.5 decision boundary) for a non-zero result. Useful as a conservative
+    optimisation objective that rewards only models that are simultaneously
+    calibrated AND precise at the top.
+    """
+    from sklearn.metrics import precision_score
+
+    y_true = np.asarray(y_true)
+    y_proba = np.asarray(y_proba, dtype=float)
+
+    brier = fast_brier_score_loss(y_true=y_true, y_prob=y_proba)
+    if brier > brier_threshold:
+        return 0.0
+    y_pred = (y_proba > 0.5).astype(int)
+    try:
+        precision = precision_score(y_true, y_pred, zero_division=0)
+    except Exception:
+        return 0.0
+    if precision < precision_threshold:
+        return 0.0
+    return float(precision - brier)
+
+
+def make_brier_precision_scorer(precision_threshold: float = 0.5, brier_threshold: float = 0.25):
+    """Return an sklearn scorer wrapping brier_and_precision_score (needs_proba=True)."""
+    from sklearn.metrics import make_scorer
+
+    # New sklearn (>=1.4) replaces `needs_proba` with `response_method`; fall back
+    # to the legacy kwarg for older versions.
+    try:
+        return make_scorer(
+            brier_and_precision_score,
+            response_method="predict_proba",
+            greater_is_better=True,
+            precision_threshold=precision_threshold,
+            brier_threshold=brier_threshold,
+        )
+    except TypeError:
+        return make_scorer(
+            brier_and_precision_score,
+            needs_proba=True,
+            greater_is_better=True,
+            precision_threshold=precision_threshold,
+            brier_threshold=brier_threshold,
+        )

@@ -388,3 +388,197 @@ def evaluate_grouped(
     by_position = pd.DataFrame(res)
 
     return by_position.sort_values(by="Точность", ascending=False).reset_index(drop=True)
+
+
+# ****************************************************************************************************************************
+# Salvaged legacy evaluation helpers (copied from training_old.py / OldEnsembling.py)
+# ****************************************************************************************************************************
+
+
+def predictions_beautify_linear(preds: np.ndarray, known_outcomes: np.ndarray, alpha: float = 0.01) -> np.ndarray:
+    """
+    Adjust probabilities linearly toward ground-truth labels by mixing weight alpha.
+
+    preds: 1D array of floats in [0,1]
+    known_outcomes: 1D array of ints {0,1}
+    alpha: mixing weight toward truth (0=no change, 1=fully corrected)
+
+    Business use case: visualise the business-lift effect of a more accurate
+    forecast without actually improving the model — useful for sensitivity /
+    counterfactual analysis on thresholded decisions.
+
+    Returns the adjusted probabilities as a numpy float array.
+    """
+    preds = np.asarray(preds, dtype=float)
+    y = np.asarray(known_outcomes, dtype=float)
+    return (1 - alpha) * preds + alpha * y
+
+
+def _precision_at_top_decile(y_true: np.ndarray, preds: np.ndarray) -> float:
+    y_true = np.asarray(y_true)
+    preds = np.asarray(preds, dtype=float)
+    n = len(preds)
+    if n == 0:
+        return 0.0
+    k = max(1, n // 10)
+    idx = np.argsort(-preds)[:k]
+    return float(np.mean(y_true[idx]))
+
+
+def plot_beautified_lift(
+    preds: np.ndarray,
+    y: np.ndarray,
+    alphas: Sequence[float] = (0.0, 0.01, 0.05, 0.1, 0.2),
+    metric: str = "precision_at_top_decile",
+    ax: Optional[object] = None,
+):
+    """Plot metric(preds_beautified, y) as a function of alpha mixing weight.
+
+    Supported metrics: 'auroc', 'auprc', 'precision_at_top_decile', 'brier'.
+    Returns the matplotlib Figure (does not call plt.show()).
+    """
+    from sklearn.metrics import roc_auc_score, average_precision_score, brier_score_loss
+
+    y = np.asarray(y)
+    preds = np.asarray(preds, dtype=float)
+
+    if metric == "auroc":
+        _score = roc_auc_score
+    elif metric == "auprc":
+        _score = average_precision_score
+    elif metric == "brier":
+        _score = lambda y_, p_: brier_score_loss(y_, p_)
+    elif metric == "precision_at_top_decile":
+        _score = _precision_at_top_decile
+    else:
+        raise ValueError(f"Unsupported metric: {metric}")
+
+    xs = list(alphas)
+    ys = [_score(y, predictions_beautify_linear(preds, y, alpha=a)) for a in xs]
+
+    if ax is None:
+        fig, ax = plt.subplots()
+    else:
+        fig = ax.figure
+    ax.plot(xs, ys, marker="o")
+    ax.set_xlabel("alpha (mixing weight toward truth)")
+    ax.set_ylabel(metric)
+    ax.set_title(f"Beautified-lift: {metric} vs alpha")
+    return fig
+
+
+def plot_pr_curve(
+    y: np.ndarray,
+    preds: np.ndarray,
+    show_calibration: bool = False,
+    save_as: Optional[str] = None,
+    thresh: float = 0.5,
+    ax: Optional[object] = None,
+):
+    """Dual PR + ROC on same axes with PR baseline and classification_report printed at thresh.
+
+    Adapted from OldEnsembling.plot_pr; returns Figure instead of showing plot.
+    """
+    from scipy import stats
+    from sklearn.metrics import (
+        precision_recall_curve,
+        average_precision_score,
+        roc_curve,
+        auc,
+        brier_score_loss,
+        classification_report,
+    )
+
+    y = np.asarray(y)
+    preds = np.asarray(preds, dtype=float)
+
+    precision, recall, _ = precision_recall_curve(y, preds)
+    dummy_predictions = np.full(len(y), float(stats.mode(y, keepdims=False).mode))
+    dummy_precision, dummy_recall, _ = precision_recall_curve(y, dummy_predictions)
+    pr_auc = average_precision_score(y, preds)
+    dummy_pr_auc = average_precision_score(y, dummy_predictions)
+
+    if ax is None:
+        fig, ax = plt.subplots()
+    else:
+        fig = ax.figure
+
+    ax.set_title("PRC/ROC, BrierLoss=%.3f" % brier_score_loss(y, preds))
+    ax.step(recall, precision, color="b", alpha=0.4, label="PR AUC=%.2f/%.2fR" % (pr_auc, dummy_pr_auc), where="post")
+    ax.fill_between(recall, precision, alpha=0.2, color="b", step="post")
+    ax.step(dummy_recall, dummy_precision, color="r", alpha=0.1, where="post")
+    ax.fill_between(dummy_recall, dummy_precision, alpha=0.1, color="r", step="post")
+    ax.set_xlabel("Recall/Fall-out")
+    ax.set_ylabel("Precision/Recall")
+    ax.set_ylim([0.0, 1.05])
+    ax.set_xlim([0.0, 1.0])
+
+    fpr, tpr, _ = roc_curve(y, preds)
+    roc_auc = auc(fpr, tpr)
+    ax.plot(fpr, tpr, "b", label="ROC AUC=%0.3f" % roc_auc)
+    ax.plot([0, 1], [0, 1], "r--")
+    ax.legend(loc="lower right")
+
+    if show_calibration:
+        try:
+            fraction_of_positives, mean_predicted_value = calibration_curve(y, preds, n_bins=50)
+            ax.plot(mean_predicted_value, fraction_of_positives, "--g")
+        except Exception as exc:
+            logger.warning("calibration overlay failed: %s", exc)
+
+    if save_as:
+        fig.savefig(save_as, bbox_inches="tight")
+
+    try:
+        print(classification_report(y, preds > thresh))
+    except Exception as exc:
+        logger.warning("classification_report failed: %s", exc)
+
+    return fig
+
+
+def plot_roc_curve(
+    y: np.ndarray,
+    preds: np.ndarray,
+    show_calibration: bool = False,
+    save_as: Optional[str] = None,
+    ax: Optional[object] = None,
+):
+    """Simple ROC + diagonal, calibration overlay optional. Returns Figure.
+
+    Source: OldEnsembling.plot_roc (preferred over the Models.py duplicate
+    because it includes the calibration overlay).
+    """
+    from sklearn.metrics import roc_curve, auc
+
+    y = np.asarray(y)
+    preds = np.asarray(preds, dtype=float)
+
+    fpr, tpr, _ = roc_curve(y, preds)
+    roc_auc = auc(fpr, tpr)
+
+    if ax is None:
+        fig, ax = plt.subplots()
+    else:
+        fig = ax.figure
+
+    ax.set_title("ROC")
+    ax.plot(fpr, tpr, "b", label="AUC = %0.2f" % roc_auc)
+    ax.plot([0, 1], [0, 1], "r--")
+    ax.set_xlim([0.0, 1.0])
+    ax.set_ylim([0.0, 1.0])
+    ax.set_ylabel("Recall")
+    ax.set_xlabel("Fall-out")
+    ax.legend(loc="lower right")
+
+    if show_calibration:
+        try:
+            fraction_of_positives, mean_predicted_value = calibration_curve(y, preds, n_bins=50)
+            ax.plot(mean_predicted_value, fraction_of_positives)
+        except Exception as exc:
+            logger.warning("calibration overlay failed: %s", exc)
+
+    if save_as:
+        fig.savefig(save_as, bbox_inches="tight")
+
+    return fig
