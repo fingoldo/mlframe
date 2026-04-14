@@ -130,12 +130,17 @@ def maybe_clean_ram_and_gpu(
     return False
 
 
-def filter_existing(df: Union[pd.DataFrame, pl.DataFrame], cols) -> list:
+def filter_existing(df, cols) -> list:
     """Return only the column names from `cols` that exist in `df.columns`.
 
-    Preserves input order. Accepts any iterable of column names.
+    Preserves input order. Accepts any iterable of column names. When `df`
+    has no `columns` attribute (e.g. numpy ndarray), returns an empty list
+    so callers can safely chain without pre-checks.
     """
-    existing = set(df.columns)
+    columns = getattr(df, "columns", None)
+    if columns is None:
+        return []
+    existing = set(columns)
     return [c for c in cols if c in existing]
 
 
@@ -555,7 +560,14 @@ def remove_constant_columns(df: Union[pl.DataFrame, pd.DataFrame], verbose: int 
         constant_num_cols = constant_num_cols + all_nan_num
 
         non_numeric_cols = df.select_dtypes(exclude="number").columns
-        constant_cat_cols = [col for col in non_numeric_cols if df[col].nunique(dropna=False) <= 1]
+        constant_cat_cols = []
+        for col in non_numeric_cols:
+            try:
+                if df[col].nunique(dropna=False) <= 1:
+                    constant_cat_cols.append(col)
+            except TypeError:
+                # Unhashable values (e.g. list/np.ndarray embeddings) — can't be constant-checked.
+                continue
 
         constant_cols = list(constant_num_cols) + list(constant_cat_cols)
 

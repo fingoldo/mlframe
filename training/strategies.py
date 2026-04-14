@@ -5,9 +5,18 @@ Implements the Strategy pattern to handle model-specific preprocessing pipelines
 Each model type may require different preprocessing (scaling, encoding, imputation).
 """
 
+import importlib.util
+import logging
+import re
 from abc import ABC, abstractmethod
 from typing import Optional, List, Any, Dict, FrozenSet, Tuple, TYPE_CHECKING
 from sklearn.pipeline import Pipeline
+
+logger = logging.getLogger(__name__)
+
+# Pre-compiled slug pattern (MEMORY.md: pre-compile regex at module level).
+# Only allow alnum, dash, underscore; everything else collapses to a single "_".
+_SLUG_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
 
 if TYPE_CHECKING:
     import polars as pl
@@ -410,24 +419,162 @@ MODEL_STRATEGIES: Dict[str, ModelPipelineStrategy] = {
 }
 
 
-def get_strategy(model_name: str) -> ModelPipelineStrategy:
+def get_strategy(model_name) -> ModelPipelineStrategy:
     """
     Get the appropriate pipeline strategy for a model type.
 
-    Args:
-        model_name: Name of the model (e.g., "cb", "lgb", "mlp", "linear")
+    Accepts:
+      * string alias (e.g. ``"cb"``, ``"lgb"``, ``"mlp"``, ``"linear"``)
+      * sklearn-compatible estimator instance
+      * ``(name, estimator)`` tuple
+
+    For non-string inputs dispatch is delegated to
+    :func:`_strategy_for_estimator` (MRO-based).
 
     Returns:
         ModelPipelineStrategy instance for the model type.
-        Defaults to TreeModelStrategy for unknown models (with warning).
+        Defaults to TreeModelStrategy for unknown string aliases (with warning)
+        and LinearModelStrategy for unregistered estimator classes.
     """
     import warnings
 
-    strategy = MODEL_STRATEGIES.get(model_name.lower())
-    if strategy is None:
-        warnings.warn(f"Unknown model '{model_name}', defaulting to TreeModelStrategy")
+    # Accept tuple form (name, estimator) and fall through to estimator handling.
+    if isinstance(model_name, tuple) and len(model_name) == 2:
+        return _strategy_for_estimator(model_name[1])
+
+    if isinstance(model_name, str):
+        strategy = MODEL_STRATEGIES.get(model_name.lower())
+        if strategy is None:
+            warnings.warn(f"Unknown model '{model_name}', defaulting to TreeModelStrategy")
+            return _TREE_STRATEGY
+        return strategy
+
+    # Anything else is treated as an estimator instance.
+    return _strategy_for_estimator(model_name)
+
+
+# ---------------------------------------------------------------------------
+# Estimator-instance dispatch (lazy-guarded imports)
+# ---------------------------------------------------------------------------
+
+def _catboost_classes():
+    if importlib.util.find_spec("catboost") is None:
+        return ()
+    from catboost import CatBoostClassifier, CatBoostRegressor  # type: ignore
+    return (CatBoostClassifier, CatBoostRegressor)
+
+
+def _lightgbm_classes():
+    if importlib.util.find_spec("lightgbm") is None:
+        return ()
+    from lightgbm import LGBMClassifier, LGBMRegressor  # type: ignore
+    return (LGBMClassifier, LGBMRegressor)
+
+
+def _xgboost_classes():
+    if importlib.util.find_spec("xgboost") is None:
+        return ()
+    from xgboost import XGBClassifier, XGBRegressor  # type: ignore
+    return (XGBClassifier, XGBRegressor)
+
+
+def _hgb_classes():
+    from sklearn.ensemble import (
+        HistGradientBoostingClassifier,
+        HistGradientBoostingRegressor,
+    )
+    return (HistGradientBoostingClassifier, HistGradientBoostingRegressor)
+
+
+def _strategy_for_estimator(estimator: Any) -> ModelPipelineStrategy:
+    """MRO-based dispatch from an estimator instance to a Strategy.
+
+    Unknown classes fall back to :class:`LinearModelStrategy` (scaler-requiring)
+    with a WARNING log line.
+    """
+    cb = _catboost_classes()
+    if cb and isinstance(estimator, cb):
+        return _CATBOOST_STRATEGY
+    lgb = _lightgbm_classes()
+    if lgb and isinstance(estimator, lgb):
         return _TREE_STRATEGY
-    return strategy
+    xgb = _xgboost_classes()
+    if xgb and isinstance(estimator, xgb):
+        return _XGBOOST_STRATEGY
+    if isinstance(estimator, _hgb_classes()):
+        return _HGB_STRATEGY
+
+    logger.warning(
+        "No registered strategy for %s; defaulting to LinearModelStrategy",
+        type(estimator).__name__,
+    )
+    return _LINEAR_STRATEGY
+
+
+def _slugify(name: str) -> str:
+    """Slugify a user-provided model key to alnum + ``-`` + ``_`` only."""
+    slug = _SLUG_PATTERN.sub("_", name).strip("_-")
+    return slug or "model"
+
+
+def _dedupe_key(key: str, used: set) -> str:
+    """Return ``key`` if unused, else ``key_2``, ``key_3`` etc."""
+    if key not in used:
+        used.add(key)
+        return key
+    i = 2
+    while f"{key}_{i}" in used:
+        i += 1
+    new = f"{key}_{i}"
+    used.add(new)
+    return new
+
+
+def _resolve_model_spec(
+    entry: Any,
+    used_keys: Optional[set] = None,
+) -> Tuple[str, Optional[Any], ModelPipelineStrategy]:
+    """Resolve one ``mlframe_models`` entry to ``(key, estimator, strategy)``.
+
+    Parameters
+    ----------
+    entry:
+        One of:
+          * string alias (``"cb"``): ``estimator`` returned as ``None``.
+          * estimator instance: ``key`` is ``type(entry).__name__``.
+          * ``(name, estimator)`` tuple: ``key`` is ``_slugify(name)``.
+    used_keys:
+        Optional mutable set of already-issued keys. Duplicates are disambiguated
+        by appending ``_2``, ``_3`` suffixes.
+
+    Returns
+    -------
+    Tuple of metadata key, estimator instance (or ``None`` for string aliases),
+    and resolved strategy.
+    """
+    if used_keys is None:
+        used_keys = set()
+
+    # Tuple form: (name, estimator)
+    if isinstance(entry, tuple) and len(entry) == 2:
+        name, est = entry
+        if not isinstance(name, str):
+            raise TypeError(
+                f"Tuple model spec requires (str, estimator); got name of type {type(name).__name__}"
+            )
+        key = _dedupe_key(_slugify(name), used_keys)
+        strat = _strategy_for_estimator(est)
+        return key, est, strat
+
+    # String alias
+    if isinstance(entry, str):
+        key = _dedupe_key(entry, used_keys)
+        return key, None, get_strategy(entry)
+
+    # Otherwise treat as estimator instance
+    key = _dedupe_key(type(entry).__name__, used_keys)
+    strat = _strategy_for_estimator(entry)
+    return key, entry, strat
 
 
 def get_cache_key(model_name: str, pre_pipeline_name: str = "") -> str:
@@ -519,6 +666,7 @@ __all__ = [
     "RecurrentModelStrategy",
     "MODEL_STRATEGIES",
     "get_strategy",
+    "_resolve_model_spec",
     "get_cache_key",
     "PipelineCache",
 ]
