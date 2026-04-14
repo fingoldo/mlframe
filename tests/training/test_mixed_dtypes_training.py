@@ -90,7 +90,7 @@ class TestMixedDtypesTraining:
 
     @pytest.fixture(scope="class")
     def synthetic_df(self):
-        return _make_synthetic_mixed_df()
+        return _make_synthetic_mixed_df(n_rows=50_000)
 
     def test_catboost_trains_on_mixed_dtypes(self, synthetic_df, tmp_path):
         """

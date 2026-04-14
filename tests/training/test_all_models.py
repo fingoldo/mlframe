@@ -898,6 +898,46 @@ class TestOutlierDetection:
         assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
 
+    def test_isolation_forest_with_polars_input(self, sample_outlier_data, temp_data_dir, common_init_params, fast_iterations):
+        """Polars DF + sklearn outlier detector: sklearn 1.4+ accepts Polars input;
+        _apply_outlier_detection_global uses a polars-aware boolean-mask filter."""
+        from sklearn.ensemble import IsolationForest
+        from sklearn.pipeline import Pipeline
+        from sklearn.impute import SimpleImputer
+
+        df_pd, feature_names, y = sample_outlier_data
+        df_pl = pl.from_pandas(df_pd)  # Polars input path
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
+
+        outlier_detector = Pipeline([
+            ("imp", SimpleImputer()),
+            ("est", IsolationForest(contamination=0.1, n_estimators=50, random_state=42, n_jobs=-1)),
+        ])
+
+        # Use a polars-native model (cb) so can_skip_pandas_conv = True AND outlier_detector is set.
+        # This exercises the code path where _apply_outlier_detection_global receives a Polars DF.
+        models, metadata = train_mlframe_models_suite(
+            df=df_pl,
+            target_name="test_target",
+            model_name="outlier_polars_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            outlier_detector=outlier_detector,
+            hyperparams_config=get_cpu_config("cb", fast_iterations),
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            models_dir="models",
+            verbose=0,
+        )
+
+        assert TargetTypes.REGRESSION in models
+        assert "target" in models[TargetTypes.REGRESSION]
+        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
+        assert metadata.get("outlier_detector") is not None
+
+
 # ================================================================================================
 # Test Class 8: Prediction Validation
 # ================================================================================================

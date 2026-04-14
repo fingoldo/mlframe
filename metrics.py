@@ -17,6 +17,7 @@ from typing import *
 import numba
 from math import floor
 from scipy.special import expit
+import matplotlib
 from matplotlib import pyplot as plt
 import numpy as np, pandas as pd, polars as pl
 from sklearn.metrics import log_loss, average_precision_score
@@ -34,7 +35,7 @@ from mlframe.stats import get_tukey_fences_multiplier_for_quantile
 # Inits
 # ----------------------------------------------------------------------------------------------------------------------------
 
-NUMBA_NJIT_PARAMS = dict(fastmath=False)
+NUMBA_NJIT_PARAMS = dict(fastmath=False, cache=True, nogil=True)
 
 
 def prewarm_numba_cache():
@@ -318,8 +319,44 @@ def show_calibration_plot(
             else:
                 return f"{n:.0f}"
 
-        # Create figure
-        cm = plt.cm.get_cmap("RdYlBu")
+        # Save-only fast path: bypass pyplot + GUI backend (Qt init costs ~1.7s per call).
+        # Using Figure + FigureCanvasAgg directly drops this to ~0.2s. Also thread-safe,
+        # which matters for parallel val/test evaluation.
+        if plot_file and not show_plots:
+            from matplotlib.figure import Figure
+            from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+            fig = Figure(figsize=figsize)
+            FigureCanvasAgg(fig)
+            ax = fig.add_subplot(1, 1, 1)
+            # Use matplotlib.colormaps[...] instead of deprecated cm.get_cmap
+            # (mpl 3.9+ emits DeprecationWarning, future removal).
+            cm = matplotlib.colormaps["RdYlBu"]
+            sc = ax.scatter(
+                x=freqs_predicted, y=freqs_true, marker="o",
+                s=5000 * hits / hits.sum(), c=hits, label=label_freq, cmap=cm,
+            )
+            ax.plot(
+                [min(freqs_predicted), max(freqs_predicted)],
+                [min(freqs_predicted), max(freqs_predicted)],
+                "g--", label=label_perfect,
+            )
+            ax.set_xlabel(label_prob)
+            ax.set_ylabel(label_freq)
+            cbar = fig.colorbar(sc, ax=ax)
+            cbar.set_label(colorbar_label)
+            vertical_offset = 0.02
+            for x, y, hit in zip(freqs_predicted, freqs_true, hits):
+                ax.text(x, y + vertical_offset, format_population(hit),
+                        fontsize=8, ha="right", va="bottom")
+            if plot_title:
+                ax.set_title(plot_title)
+            fig.tight_layout()
+            fig.savefig(plot_file)
+            return fig
+
+        # Interactive path (show_plots=True) — keep pyplot so the GUI window is managed.
+        cm = matplotlib.colormaps["RdYlBu"]
         fig = plt.figure(figsize=figsize)
         sc = plt.scatter(x=freqs_predicted, y=freqs_true, marker="o", s=5000 * hits / hits.sum(), c=hits, label=label_freq, cmap=cm)
         plt.plot([min(freqs_predicted), max(freqs_predicted)], [min(freqs_predicted), max(freqs_predicted)], "g--", label=label_perfect)

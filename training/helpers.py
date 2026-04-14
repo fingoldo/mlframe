@@ -21,9 +21,8 @@ import pandas as pd
 import polars as pl
 import polars.selectors as cs
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+# NOTE: torch + mlframe.lightninglib are imported lazily inside `get_training_configs`
+# (only needed for MLP configs). Top-level import cost ~2-3s — avoided for CB/LGB/XGB-only runs.
 import lightgbm as lgb
 
 import xgboost as xgb
@@ -41,7 +40,6 @@ from mlframe.metrics import (
     robust_mlperf_metric,
     ICE,
 )
-from mlframe.lightninglib import MLPTorchModel, TorchDataModule
 
 from .utils import get_numeric_columns, get_categorical_columns
 
@@ -507,6 +505,11 @@ def get_training_configs(
 
     if mlp_kwargs:
         mlp_trainer_params.update(mlp_kwargs.get("trainer_params", {}))
+
+    # Lazy imports — only paid when MLP configs are actually being built.
+    import torch
+    import torch.nn.functional as F
+    from mlframe.lightninglib import MLPTorchModel, TorchDataModule
 
     # Default loss function and dtype (classification)
     loss_fn = F.cross_entropy

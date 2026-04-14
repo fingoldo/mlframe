@@ -437,8 +437,8 @@ class FeaturesAndTargetsExtractor:
 
         artifacts = self.prepare_artifacts(df)
 
-        # Only show visualizations for verbose >= 2 (histograms are slow)
-        if self.verbose:
+        # Only show visualizations for verbose >= 2 (df.info() dumps are slow on wide frames)
+        if self.verbose >= 2:
             self.show_processed_data(df, target_by_type)
             if self.columns_to_drop or self.datetime_features:
                 pass  # clean_ram()

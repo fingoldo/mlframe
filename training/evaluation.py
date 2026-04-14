@@ -554,6 +554,12 @@ def report_probabilistic_model_perf(
                 group_ids=group_ids,
                 title=title,
                 figsize=figsize,
+                # NOTE: plot_file and show_perf_chart are intentionally independent.
+                # `plot_file` (derived from `data_dir`) controls whether plots are SAVED
+                # to disk. `show_perf_chart` controls only interactive DISPLAY (plt.show).
+                # Saving plots even when show_perf_chart=False is deliberate — users get
+                # artifacts on disk without GUI popups. The Agg save-only fastpath in
+                # show_calibration_plot handles this case without Qt overhead.
                 plot_file=plot_file + "_perfplot.png" if plot_file else "",
                 show_plots=show_perf_chart,
                 ndigits=calib_report_ndigits,

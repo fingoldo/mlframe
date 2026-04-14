@@ -220,7 +220,15 @@ from .preprocessing import (
 )
 from .pipeline import fit_and_transform_pipeline, prepare_df_for_catboost
 from mlframe.feature_selection.filters import MRMR
-from .utils import log_ram_usage, log_phase, drop_columns_from_dataframe, get_pandas_view_of_polars_df
+from .utils import (
+    log_ram_usage,
+    log_phase,
+    drop_columns_from_dataframe,
+    get_pandas_view_of_polars_df,
+    estimate_df_size_mb,
+    get_process_rss_mb,
+    maybe_clean_ram_and_gpu,
+)
 from .helpers import get_trainset_features_stats_polars, get_trainset_features_stats
 from .models import is_linear_model, LINEAR_MODEL_TYPES
 from .strategies import get_strategy, get_polars_cat_columns, PipelineCache
@@ -279,6 +287,8 @@ def _apply_outlier_detection_global(
     outlier_detector: Any,
     od_val_set: bool,
     verbose: bool,
+    baseline_rss_mb: float = 0.0,
+    df_size_mb: float = 0.0,
 ) -> Tuple[
     pd.DataFrame,
     Optional[pd.DataFrame],
@@ -328,10 +338,16 @@ def _apply_outlier_detection_global(
     filtered_train_df = train_df
     filtered_train_idx = train_idx
 
+    def _filter_df_by_mask(_df, mask):
+        """Boolean-mask filter that works for both pandas and Polars."""
+        if isinstance(_df, pl.DataFrame):
+            return _df.filter(pl.Series(mask))
+        return _df.loc[mask]
+
     train_kept = train_od_idx.sum()
     if train_kept < len(train_df):
         logger.info(f"Outlier rejection: {len(train_df):_} train samples -> {train_kept:_} kept.")
-        filtered_train_df = train_df.loc[train_od_idx]
+        filtered_train_df = _filter_df_by_mask(train_df, train_od_idx)
         filtered_train_idx = train_idx[train_od_idx]
 
     # Predict on validation set if requested
@@ -345,10 +361,10 @@ def _apply_outlier_detection_global(
         val_kept = val_od_idx.sum()
         if val_kept < len(val_df):
             logger.info(f"Outlier rejection: {len(val_df):_} val samples -> {val_kept:_} kept.")
-            filtered_val_df = val_df.loc[val_od_idx]
+            filtered_val_df = _filter_df_by_mask(val_df, val_od_idx)
             filtered_val_idx = val_idx[val_od_idx]
 
-    clean_ram()
+    maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="post-outlier-detection")
     if verbose:
         log_ram_usage()
 
@@ -1031,6 +1047,14 @@ def train_mlframe_models_suite(
     if verbose:
         logger.info(f"  features_and_targets_extractor done — {_df_shape_str(df)}, {_elapsed_str(t0_fte)}")
 
+    # Capture baseline RSS + DF size NOW — before any downstream steps that may allocate
+    # transient state (get_sequences, drop_columns, preprocess). Used by
+    # maybe_clean_ram_and_gpu() at later sites to skip ~0.6s gc calls when memory
+    # pressure is low. On 100GB production DFs the growth/free-RAM thresholds trip and
+    # clean_ram fires; on small test DFs all sites are skipped.
+    baseline_rss_mb = get_process_rss_mb()
+    df_size_mb = estimate_df_size_mb(df)
+
     # Extract sequences for recurrent models (if not provided directly)
     if recurrent_models and sequences is None:
         extracted_sequences = features_and_targets_extractor.get_sequences(df)
@@ -1041,7 +1065,7 @@ def train_mlframe_models_suite(
         elif verbose:
             logger.warning("recurrent_models specified but no sequences provided or extracted")
 
-    clean_ram()
+    maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="post-FTE")
     if verbose:
         log_ram_usage()
 
@@ -1138,7 +1162,7 @@ def train_mlframe_models_suite(
         logger.info("Deleting original DataFrame to free RAM...")
 
     del df
-    clean_ram()
+    maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="post-split (del df)")
 
     if verbose:
         log_ram_usage()
@@ -1154,12 +1178,17 @@ def train_mlframe_models_suite(
     # Track if input is Polars before pipeline transformation
     was_polars_input = isinstance(train_df, pl.DataFrame)
 
+    # Resolve strategies once for subsequent polars-native gating (avoids redundant lookups).
+    _strategies_for_polars_check = [get_strategy(m) for m in mlframe_models] if mlframe_models else []
+    all_models_polars_native = bool(_strategies_for_polars_check) and all(
+        s.supports_polars for s in _strategies_for_polars_check
+    )
+
     # Auto-skip categorical encoding when all models handle categoricals natively.
     # This avoids wasting time encoding columns that polars-native models don't need,
     # and avoids the .clone() overhead for preserving pre-pipeline originals.
     if was_polars_input and not pipeline_config.skip_categorical_encoding:
-        all_polars_native = all(get_strategy(m).supports_polars for m in mlframe_models)
-        if all_polars_native:
+        if all_models_polars_native:
             pipeline_config = pipeline_config.model_copy(update={"skip_categorical_encoding": True})
             if verbose:
                 logger.info(f"  All models {mlframe_models} support Polars natively — skipping categorical encoding in pipeline")
@@ -1287,12 +1316,30 @@ def train_mlframe_models_suite(
     val_df_polars = val_df_polars_pre
     test_df_polars = test_df_polars_pre
 
-    # Cache pandas versions for select_target (zero-copy Arrow-backed view for Polars)
-    train_df_pd, val_df_pd, test_df_pd = _convert_dfs_to_pandas(train_df, val_df, test_df)
+    # Cache pandas versions for select_target (zero-copy Arrow-backed view for Polars).
+    # Skip the conversion entirely when every model supports Polars natively — the Polars
+    # fastpath in process_model substitutes Polars DFs back anyway, so pandas views would
+    # be unused. Saves ~1-2s on CB-only runs on small-to-medium DFs.
+    # sklearn 1.4+ accepts Polars DataFrames as input (verified on 1.7.2 with
+    # IsolationForest, LocalOutlierFactor novelty=True, and Pipeline wrappers);
+    # _apply_outlier_detection_global's boolean-mask filter handles both pandas and
+    # Polars via _filter_df_by_mask. So we can skip the conversion regardless of
+    # outlier_detector presence.
+    # Guard: recurrent models use fit() signatures that predate Polars support
+    # (core.py passes train_df_pd as `features_train=` / `val_features=` / `features=`).
+    # Force pandas conversion if recurrent_models is non-empty.
+    can_skip_pandas_conv = was_polars_input and all_models_polars_native and not recurrent_models
+    if can_skip_pandas_conv:
+        train_df_pd, val_df_pd, test_df_pd = train_df, val_df, test_df
+        if verbose:
+            logger.info("  Skipped pandas conversion — all models are Polars-native (no outlier_detector)")
+    else:
+        train_df_pd, val_df_pd, test_df_pd = _convert_dfs_to_pandas(train_df, val_df, test_df)
 
-    # Prepare categorical features for CatBoost (convert string columns to category dtype)
-    # This is needed because get_pandas_view_of_polars_df converts Polars Categorical to strings
-    if cat_features:
+    # Prepare categorical features for CatBoost (convert string columns to category dtype).
+    # This is needed because get_pandas_view_of_polars_df converts Polars Categorical to
+    # strings — irrelevant when we skipped the pandas conversion (Polars preserves dtypes).
+    if cat_features and not can_skip_pandas_conv:
         if verbose:
             logger.info(f"Preparing {len(cat_features)} categorical features for CatBoost: {cat_features}")
         for df_pd in [train_df_pd, val_df_pd, test_df_pd]:
@@ -1305,7 +1352,7 @@ def train_mlframe_models_suite(
     if was_polars_input and needs_polars_pre_clone:
         # Only release if we cloned (otherwise train_df IS train_df_polars_pre)
         train_df = val_df = test_df = None
-        clean_ram()
+        maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="post-pipeline Polars release")
         if verbose:
             logger.info("  Released post-pipeline Polars DFs (pandas views retained)")
 
@@ -1324,6 +1371,8 @@ def train_mlframe_models_suite(
         outlier_detector=outlier_detector,
         od_val_set=od_val_set,
         verbose=verbose,
+        baseline_rss_mb=baseline_rss_mb,
+        df_size_mb=df_size_mb,
     )
 
     # Single global OD result (not per-target)
@@ -1470,9 +1519,12 @@ def train_mlframe_models_suite(
                 # Models sorted by feature tier (most features first) so that
                 # text/embedding columns are dropped once per tier, not per model.
                 # -----------------------------------------------------------------------
+                # Resolve strategies once and reuse — avoids re-calling get_strategy() inside
+                # sort key, main loop, and tier-transition check (was ~3x redundant calls).
+                strategy_by_model = {m: get_strategy(m) for m in mlframe_models}
                 sorted_models = sorted(
                     mlframe_models,
-                    key=lambda m: get_strategy(m).feature_tier(),
+                    key=lambda m: strategy_by_model[m].feature_tier(),
                     reverse=True,  # (True, True) before (False, False)
                 )
                 tier_dfs_cache = {}  # feature_tier -> {train_df, val_df, test_df}
@@ -1488,7 +1540,7 @@ def train_mlframe_models_suite(
                         continue
 
                     # Use strategy pattern to determine pipeline and cache key
-                    strategy = get_strategy(mlframe_model_name)
+                    strategy = strategy_by_model[mlframe_model_name]
                     pre_pipeline = strategy.build_pipeline(
                         base_pipeline=orig_pre_pipeline,
                         cat_features=cat_features,
@@ -1671,7 +1723,7 @@ def train_mlframe_models_suite(
                             del train_df_polars, val_df_polars, test_df_polars
                             train_df_polars = val_df_polars = test_df_polars = None
                             tier_dfs_cache.clear()
-                            clean_ram()
+                            maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="tier transition")
                             if verbose:
                                 logger.info("  Released pre-pipeline Polars originals (tier transition)")
                     prev_tier = cur_tier

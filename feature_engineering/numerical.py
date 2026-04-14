@@ -48,7 +48,7 @@ warnings.simplefilter(action="ignore", category=RuntimeWarning)
 # Inits
 # ----------------------------------------------------------------------------------------------------------------------------
 
-NUMBA_NJIT_PARAMS = dict(fastmath=False)
+NUMBA_NJIT_PARAMS = dict(fastmath=False, cache=True, nogil=True)
 empty_float32_array = np.array([], dtype=np.float32)
 
 

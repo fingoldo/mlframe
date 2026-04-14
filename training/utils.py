@@ -74,6 +74,61 @@ def clean_ram_and_gpu(verbose: bool = False) -> None:
         pass  # PyTorch not installed
 
 
+def estimate_df_size_mb(df) -> float:
+    """Estimated in-memory size of a Polars/pandas DataFrame in MB."""
+    if isinstance(df, pl.DataFrame):
+        return float(df.estimated_size("mb"))
+    if isinstance(df, pd.DataFrame):
+        return float(df.memory_usage(deep=True).sum() / 1024**2)
+    return 0.0
+
+
+def get_process_rss_mb() -> float:
+    """Current process RSS in MB."""
+    try:
+        import psutil
+        return psutil.Process().memory_info().rss / 1024**2
+    except ImportError:
+        return 0.0
+
+
+def should_clean_ram(baseline_rss_mb: float, df_size_mb: float, min_growth_mb: float = 500.0) -> bool:
+    """True iff a clean_ram call (~0.6s) is likely justified.
+
+    Triggers when either:
+      - RSS grew beyond baseline by max(min_growth_mb, 30% of DF size) — accumulated
+        temp state worth collecting; OR
+      - free system RAM < 2x DF size — OOM risk, gc may release Arrow buffers.
+    """
+    try:
+        import psutil
+        rss_mb = psutil.Process().memory_info().rss / 1024**2
+        free_mb = psutil.virtual_memory().available / 1024**2
+    except Exception:
+        return True  # can't measure → fall back to cleaning
+    growth = rss_mb - baseline_rss_mb
+    return (growth > max(min_growth_mb, 0.3 * df_size_mb)) or (free_mb < 2 * df_size_mb)
+
+
+def maybe_clean_ram_and_gpu(
+    baseline_rss_mb: float,
+    df_size_mb: float,
+    verbose: bool = False,
+    reason: str = "",
+) -> bool:
+    """Call clean_ram_and_gpu only when RAM metrics indicate it's worthwhile.
+
+    On small DFs this avoids 0.6s of pure overhead per call; on large production
+    DFs (or when the process is growing) it still fires at every site.
+    """
+    if should_clean_ram(baseline_rss_mb, df_size_mb):
+        clean_ram_and_gpu(verbose=verbose)
+        if verbose:
+            logger.info(f"  clean_ram fired ({reason})" if reason else "  clean_ram fired")
+        return True
+    return False
+
+
 def log_phase(msg: str, n: int = 160) -> None:
     """Log a phase separator with message."""
     logger.info("-" * n)
@@ -490,6 +545,10 @@ __all__ = [
     "log_ram_usage",
     "log_phase",
     "clean_ram_and_gpu",
+    "estimate_df_size_mb",
+    "get_process_rss_mb",
+    "should_clean_ram",
+    "maybe_clean_ram_and_gpu",
     "drop_columns_from_dataframe",
     "get_pandas_view_of_polars_df",
     "save_series_or_df",
