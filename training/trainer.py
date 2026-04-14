@@ -100,7 +100,6 @@ from mlframe.config import (
     LGBM_MODEL_TYPES,
 )
 
-# Constants (originally from training_old.py)
 from numba.cuda import is_available as is_cuda_available
 
 CUDA_IS_AVAILABLE = is_cuda_available()
@@ -114,7 +113,7 @@ from mlframe.metrics import (
 )
 
 
-# Import helper functions from helpers module (migrated from training_old.py)
+# Import helper functions from helpers module
 from .helpers import (
     get_training_configs,
     parse_catboost_devices,

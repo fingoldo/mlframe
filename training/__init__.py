@@ -61,8 +61,8 @@ automl_models = train_automl_models_suite(
 ```
 """
 
-# Lazy imports using __getattr__ to avoid circular dependencies with training_old.py
-# All imports are deferred until actually accessed
+# Lazy imports via __getattr__ — deferred until actually accessed (kept for
+# fast-import / optional-dep isolation; no longer guarding a training_old cycle).
 
 _LAZY_IMPORTS = {
     # Core functions
@@ -136,7 +136,7 @@ _LAZY_IMPORTS = {
     'select_target': ('.train_eval', 'select_target'),
     'process_model': ('.train_eval', 'process_model'),
 
-    # Core trainer functions (migrated from training_old.py)
+    # Core trainer functions
     'train_and_evaluate_model': ('.trainer', 'train_and_evaluate_model'),
     'configure_training_params': ('.trainer', 'configure_training_params'),
     'DataConfig': ('.configs', 'DataConfig'),
@@ -148,7 +148,7 @@ _LAZY_IMPORTS = {
     'PredictionsContainer': ('.configs', 'PredictionsContainer'),
     'FairnessConfig': ('.configs', 'FairnessConfig'),
 
-    # Helper functions (migrated from training_old.py)
+    # Helper functions
     'get_trainset_features_stats': ('.helpers', 'get_trainset_features_stats'),
     'get_trainset_features_stats_polars': ('.helpers', 'get_trainset_features_stats_polars'),
     'get_training_configs': ('.helpers', 'get_training_configs'),

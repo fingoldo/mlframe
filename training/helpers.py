@@ -1,7 +1,7 @@
 """
 Training helper functions and callback classes.
 
-This module contains helper utilities migrated from training_old.py:
+This module contains helper utilities:
 - parse_catboost_devices: GPU device parsing for CatBoost
 - get_training_configs: Training configuration factory
 - get_trainset_features_stats: Compute training set statistics (pandas)

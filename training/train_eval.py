@@ -44,7 +44,7 @@ from .io import load_mlframe_model, save_mlframe_model
 
 # Constants now imported from configs.py (DEFAULT_FAIRNESS_MIN_POP_CAT_THRESH, etc.)
 
-# Import from trainer module (migrated from training_old.py)
+# Import from trainer module
 from .trainer import (
     configure_training_params,
     _build_configs_from_params,
