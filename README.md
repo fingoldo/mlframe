@@ -100,3 +100,17 @@ python -m pytest mlframe/tests/training/test_catboost_polars.py -v
 python -m pytest mlframe/tests/training/test_core.py::TestPolarsNativeFastpath -v
 python -m pytest mlframe/tests/training/test_core.py::TestTextAndEmbeddingFeatures -v -m "not gpu"
 ```
+
+Run the whole suite in parallel (falls back to rerunning last-failed verbosely):
+
+```bash
+pytest tests/ -n auto --maxprocesses=16 --dist loadscope && exit 0 || pytest tests/ -vv --lf
+```
+
+## Security notes
+
+- `joblib.load` / `dill.load` in `inference.py`, `pipelines.py`, `training/io.py` are gated by a `trusted_root` path check and (for dill) a `_SafeUnpickler` allowlist. Never load pickle/joblib artifacts from untrusted sources.
+- `torch.load` is always called with `weights_only=True`.
+- SQL field names in `experiments.py` are validated against an allowlist.
+
+See `CHANGELOG.md` (2026-04-14 entry) for the full audit/fix history.

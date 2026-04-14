@@ -55,6 +55,8 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 lightning_logs/
+
+# Windows-specific (> NUL redirect accidents)
 NUL
 
 # Mutation testing
@@ -148,3 +150,19 @@ app/cloud_translation_key.json
 
 # Pickle file
 app/all_data.pkl
+
+# Added 2026-04-14 hygiene sweep
+*.prof
+*.backup
+*.py.backup
+.benchmarks/
+.ruff_cache/
+.black_cache/
+.vscode/
+.direnv/
+.envrc
+coverage.lcov
+tests/**/catboost_info/
+tests/**/lightning_logs/
+tests/**/checkpoints/
+tests/**/logs/

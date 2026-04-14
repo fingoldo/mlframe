@@ -267,6 +267,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         use_fi_ranking = self.use_fi_ranking
         importance_getter = self.importance_getter
         random_state = self.random_state
+        self._rng = np.random.default_rng(random_state)
         leave_progressbars = self.leave_progressbars
         verbose = self.verbose
         show_plot = self.show_plot
@@ -324,8 +325,11 @@ class RFECV(BaseEstimator, TransformerMixin):
                 logger.info(f"Using cv={cv}")
 
         if early_stopping_val_nsplits:
-            val_cv = copy.copy(cv)
-            val_cv.n_splits = early_stopping_val_nsplits
+            try:
+                val_cv = type(cv)(**{**cv.get_params(), "n_splits": early_stopping_val_nsplits})
+            except (AttributeError, TypeError):
+                val_cv = copy.copy(cv)
+                val_cv.n_splits = early_stopping_val_nsplits
             if not early_stopping_rounds:
                 early_stopping_rounds = 20  # TODO: derive as 1/5 of nestimators'
         else:
@@ -487,7 +491,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 if frac:
                     size = int(len(train_index) * frac)
                     if size > 10:
-                        train_index = np.random.choice(train_index, size=size, replace=False)
+                        train_index = self._rng.choice(train_index, size=size, replace=False)
 
                 X_train, y_train, X_test, y_test = split_into_train_test(
                     X=X, y=y, train_index=train_index, test_index=test_index, features_indices=current_features
@@ -771,10 +775,13 @@ class RFECV(BaseEstimator, TransformerMixin):
                 # An obvious solution is to return exact features that we used when measuring scores.
                 # Convert feature_name to string if feature_names_in_ contains strings (ndarray case)
                 selected = self.selected_features_[best_top_n]
+                # Represent support_ as a boolean mask for consistency with sklearn's RFE API.
                 if self.feature_names_in_ and isinstance(self.feature_names_in_[0], str):
-                    self.support_ = np.array([self.feature_names_in_.index(str(feature_name)) for feature_name in selected])
+                    selected_set = {str(feature_name) for feature_name in selected}
+                    self.support_ = np.array([str(f) in selected_set for f in self.feature_names_in_])
                 else:
-                    self.support_ = np.array([self.feature_names_in_.index(feature_name) for feature_name in selected])
+                    selected_set = set(selected)
+                    self.support_ = np.array([f in selected_set for f in self.feature_names_in_])
 
             else:
 
@@ -800,8 +807,8 @@ class RFECV(BaseEstimator, TransformerMixin):
                 self.support_ = np.array([(i in self.ranking_[:best_top_n]) for i in self.feature_names_in_])
 
         if verbose:
-            dummy_gain = base_perf[0] / base_perf[best_idx] - 1
-            allfeat_gain = base_perf[-1] / base_perf[best_idx] - 1
+            dummy_gain = (base_perf[0] / base_perf[best_idx] - 1) if base_perf[best_idx] != 0 else np.inf
+            allfeat_gain = (base_perf[-1] / base_perf[best_idx] - 1) if base_perf[best_idx] != 0 else np.inf
             logger.info(
                 f"{self.n_features_:_} predictive factors selected out of {self.n_features_in_:_} during {len(self.selected_features_):_} rounds. Gain vs dummy={dummy_gain*100:.1f}%, gain vs all features={allfeat_gain*100:.1f}%"
             )

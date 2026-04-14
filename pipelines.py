@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
 
+import os
+import tempfile
+
 import joblib
 
 import matplotlib as mpl
@@ -52,8 +55,20 @@ def agg_pipeline_metric(cv_results, metric: str = "root_mean_squared_error", fun
     return func(np.array(res))
 
 
-def replay_cv_results(fname: str):
-    """Visualize CV results from stored dump file."""
+def replay_cv_results(fname: str, trusted_root: Optional[str] = None):
+    """Visualize CV results from stored dump file.
+
+    If ``trusted_root`` is provided, ``fname`` must resolve inside it.
+    """
+    if trusted_root is not None:
+        abs_root = os.path.abspath(trusted_root)
+        abs_fname = os.path.abspath(fname)
+        try:
+            common = os.path.commonpath([abs_root, abs_fname])
+        except ValueError:
+            raise ValueError(f"Path {abs_fname} is not inside trusted_root {abs_root}")
+        if common != abs_root:
+            raise ValueError(f"Path {abs_fname} is not inside trusted_root {abs_root}")
     cv_results = joblib.load(fname)
     for title, runs in cv_results.items():
         logger.info("Dataset: %s", title)
@@ -63,7 +78,7 @@ def replay_cv_results(fname: str):
     return cv_results
 
 
-def optimize_pipeline_by_gridsearch(X, Y, title: str, cv_func: object, cv_results: dict = {}, possible_pipeline_blocks: dict = {}, constants: dict = {}):
+def optimize_pipeline_by_gridsearch(X, Y, title: str, cv_func: object, cv_results: dict = {}, possible_pipeline_blocks: dict = {}, constants: dict = {}, output_dir: Optional[str] = None):
     """For a given dataset, checks all possible combinations of the pipeline blocks,
     starting from the least comp. expensive: no FS, no HPT, no OD.
     Saves results on each cycle, summarizes by desired params like estimator type (even over different CVs) etc.
@@ -91,7 +106,8 @@ def optimize_pipeline_by_gridsearch(X, Y, title: str, cv_func: object, cv_result
         logger.info("Submitting CV pipeline %s", paramset_hash)
         cv_results[title][paramset_hash] = cv_func(X=X, Y=Y, title=title, **constants)
 
-        joblib.dump(cv_results, f"cv_results-{slugify(title)}.dump", compress=9)
+        out_dir = output_dir if output_dir is not None else tempfile.gettempdir()
+        joblib.dump(cv_results, os.path.join(out_dir, f"cv_results-{slugify(title)}.dump"), compress=9)
 
         compare_cv_metrics(cv_results=cv_results[title][paramset_hash], extended=False)
         # compare_cv_metrics(cv_results=cv_results, extended=True)
@@ -120,7 +136,7 @@ def compare_cv_metrics(cv_results: dict, metric: str = "root_mean_squared_error"
             mean_score = agg_fcn(np.array(vals))
             if mean_score > max_score:
                 max_score = mean_score
-            elif mean_score < min_score:
+            if mean_score < min_score:
                 min_score = mean_score
             mean_scores[estimator_name] = mean_score
 

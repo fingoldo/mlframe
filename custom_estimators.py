@@ -8,7 +8,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-while True:
+for _install_attempt in range(3):
     try:
 
         # ----------------------------------------------------------------------------------------------------------------------------
@@ -17,7 +17,7 @@ while True:
 
         from typing import *
         import pandas as pd, numpy as np
-        from scipy.ndimage.interpolation import shift
+        from scipy.ndimage import shift
         from sklearn.preprocessing import KBinsDiscretizer,OrdinalEncoder
         from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin, RegressorMixin, MultiOutputMixin
 
@@ -27,9 +27,11 @@ while True:
         from sklearn.preprocessing import PowerTransformer
 
         from collections.abc import Iterable
-        from sklearn.utils import _safe_indexing, check_array
+        from sklearn.utils import _safe_indexing, check_array, check_random_state
+        from sklearn.utils.validation import check_is_fitted
+        from sklearn.exceptions import NotFittedError
         from sklearn.compose import TransformedTargetRegressor
-        from sklearn.base import BaseEstimator, RegressorMixin, _fit_context, clone        
+        from sklearn.base import BaseEstimator, RegressorMixin, _fit_context, clone
 
     except ModuleNotFoundError as e:
 
@@ -47,13 +49,16 @@ while True:
         ensure_installed("numpy pandas scikit-learn")
 
     else:
-        break       
+        break
+else:
+    raise ImportError("Failed to import custom_estimators dependencies after 3 attempts")
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
 # ----------------------------------------------------------------------------------------------------------------------------
 
-power_transformer_obj = PowerTransformer(method="box-cox")
+# Module-level PowerTransformer removed: it was never fit and unsafe across threads.
+# Callers should pass a fitted PowerTransformer to inv_box_cox_plus_c via the `transformer` kwarg.
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Core
@@ -217,8 +222,11 @@ class PdKBinsDiscretizer(KBinsDiscretizer):
             col_names = X.columns.values.tolist()
         else:
             col_names=None
-        
+
         X = super().transform(X)
+        # KBinsDiscretizer with encode='onehot' returns sparse; densify for pandas path
+        if hasattr(X, "toarray"):
+            X = X.toarray()
         if col_names:
             return pd.DataFrame(data=X, columns=col_names).astype(np.int32)
         else:
@@ -229,12 +237,19 @@ class ArithmAvgClassifier(BaseEstimator, ClassifierMixin):
         self.nprobs = nprobs
 
     def fit(self, X, y):
+        X = check_array(X)
+        self.classes_ = np.unique(y)
+        self.n_features_in_ = X.shape[1]
         return self
 
     def predict(self, X):
-        return np.argmax(self.predict_proba(X), axis=1)
+        check_is_fitted(self)
+        X = check_array(X)
+        return self.classes_[np.argmax(self.predict_proba(X), axis=1)]
 
     def predict_proba(self, X):
+        check_is_fitted(self)
+        X = check_array(X)
         posProbs = np.mean(X[:, : self.nprobs], axis=1).reshape(-1, 1)
         return np.concatenate([1 - posProbs, posProbs], axis=1)
 
@@ -244,29 +259,56 @@ class GeomAvgClassifier(BaseEstimator, ClassifierMixin):
         self.nprobs = nprobs
 
     def fit(self, X, y):
+        X = check_array(X)
+        self.classes_ = np.unique(y)
+        self.n_features_in_ = X.shape[1]
         return self
 
     def predict(self, X):
-        return np.argmax(self.predict_proba(X), axis=1)
+        check_is_fitted(self)
+        X = check_array(X)
+        return self.classes_[np.argmax(self.predict_proba(X), axis=1)]
 
     def predict_proba(self, X):
-        posProbs = (np.product(X[:, : self.nprobs], axis=1) ** (1 / self.nprobs)).reshape(-1, 1)
+        check_is_fitted(self)
+        X = check_array(X)
+        posProbs = (np.prod(X[:, : self.nprobs], axis=1) ** (1 / self.nprobs)).reshape(-1, 1)
         return np.concatenate([1 - posProbs, posProbs], axis=1)
 
 
 class PureRandomClassifier(BaseEstimator, ClassifierMixin):
-    def __init__(self, nprobs):
+    """Random-prediction baseline. Respects `random_state` for reproducibility.
+
+    Follows sklearn conventions: stores `classes_`, `n_features_in_` in fit,
+    and `predict` returns original class labels (not argmax indices).
+    """
+
+    def __init__(self, nprobs=2, random_state=None):
         self.nprobs = nprobs
+        self.random_state = random_state
 
     def fit(self, X, y):
+        X = np.asarray(X)
+        y = np.asarray(y)
+        self.random_state_ = check_random_state(self.random_state)
+        self.classes_ = np.unique(y)
+        self.n_features_in_ = X.shape[1] if X.ndim > 1 else 1
         return self
 
     def predict(self, X):
-        return np.argmax(self.predict_proba(X), axis=1)
+        proba = self.predict_proba(X)
+        return self.classes_[np.argmax(proba, axis=1)]
 
     def predict_proba(self, X):
-        posProbs = np.random.random(len(X)).reshape(-1, 1)
-        return np.concatenate([1 - posProbs, posProbs], axis=1)
+        check_is_fitted(self, "random_state_")
+        n = len(X)
+        n_cls = len(self.classes_)
+        if n_cls == 2:
+            posProbs = self.random_state_.random_sample(n).reshape(-1, 1) if hasattr(self.random_state_, "random_sample") else self.random_state_.random(n).reshape(-1, 1)
+            return np.concatenate([1 - posProbs, posProbs], axis=1)
+        # Multiclass: sample Dirichlet-like rows (uniform then normalize).
+        raw = self.random_state_.random_sample((n, n_cls)) if hasattr(self.random_state_, "random_sample") else self.random_state_.random((n, n_cls))
+        return raw / raw.sum(axis=1, keepdims=True)
 
 
 class MyDecorrelator(BaseEstimator, TransformerMixin):
@@ -274,7 +316,6 @@ class MyDecorrelator(BaseEstimator, TransformerMixin):
 
     def __init__(self, threshold):
         self.threshold = threshold
-        self.correlated_columns = None
 
     def fit(self, X, y=None):
         correlated_features = set()
@@ -285,11 +326,12 @@ class MyDecorrelator(BaseEstimator, TransformerMixin):
                 if abs(corr_matrix.iloc[i, j]) > self.threshold:  # we are interested in absolute coeff value
                     colname = corr_matrix.columns[i]  # getting the name of column
                     correlated_features.add(colname)
-        self.correlated_features = correlated_features
+        self.correlated_features_ = correlated_features
         return self
 
     def transform(self, X, y=None, **kwargs):
-        return (pd.DataFrame(X)).drop(labels=self.correlated_features, axis=1)
+        check_is_fitted(self)
+        return (pd.DataFrame(X)).drop(labels=self.correlated_features_, axis=1)
 
 
 def create_dummy_lagged_predictions(y_true: np.ndarray, strategy: str = "constant_lag", lag: int = 1) -> np.ndarray:
@@ -339,8 +381,13 @@ def box_cox_plus_c(x, c: float = 50.0, lmbda: float = -1):
     return boxcox(np.clip(x + c, 1e-16, None), lmbda)
 
 
-def inv_box_cox_plus_c(x, c: float = 50.0, lmbda: float = -1):
-    return power_transformer_obj._box_cox_inverse_tranform(x, lmbda=lmbda) - c
+def inv_box_cox_plus_c(x, c: float = 50.0, lmbda: float = -1, transformer: "PowerTransformer | None" = None):
+    if transformer is None:
+        raise NotFittedError(
+            "inv_box_cox_plus_c requires a fitted PowerTransformer passed via `transformer=`. "
+            "The previous module-level instance was removed because it was never fit and was unsafe across threads."
+        )
+    return transformer._box_cox_inverse_tranform(x, lmbda=lmbda) - c
 
 
 def soft_winsorize(
@@ -453,10 +500,15 @@ def clip_to_quantiles_hard(arr):
 
 
 class IdentityEstimator(BaseEstimator):
-    """Just returns some if the existing featurs as-is instead of real learning & predicting.
-    Good to check via ML metrics decisions of other methods/models.
+    """Pass-through estimator: returns selected existing feature(s) as-is instead of learning & predicting.
+
+    This is useful for benchmarking: treats a pre-computed column as the model's "prediction", so you can
+    compare downstream metrics against real models. For classifier usage (IdentityClassifier), the caller
+    must ensure the selected feature already contains values drawn from `self.classes_` (fitted from y).
+
+    Note: `predict` returns the raw feature slice — it is NOT sklearn-standard label-from-argmax behaviour.
     """
-    
+
     def __init__(self,feature_names:list=None,feature_indices:list=None):
         self.feature_names=feature_names
         self.feature_indices=feature_indices
@@ -464,9 +516,9 @@ class IdentityEstimator(BaseEstimator):
     def fit(self, X, y, **fit_params):
         if isinstance(self, ClassifierMixin):
             if isinstance(y, pd.Series):
-                self.classes_ = sorted(y.unique())
+                self.classes_ = np.array(sorted(y.unique()))
             else:
-                self.classes_ = sorted(np.unique(y))
+                self.classes_ = np.array(sorted(np.unique(y)))
         return self
 
     def predict(self, X):

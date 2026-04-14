@@ -215,7 +215,12 @@ def estimate_calibration_quality_binned(
         pockets_predicted,
         pockets_true,
         data,
-        {fname: (f(y_true, y_pred) if f == brier_score_loss else f(pockets_true, pockets_predicted)) for fname, f in metrics_to_show.items()},
+        {
+            # Brier is a per-sample proper scoring rule — compute on raw (y_true, y_pred).
+            # All other metrics evaluate calibration curve fidelity — compute on binned pockets.
+            fname: (f(y_true, y_pred) if f is brier_score_loss else f(pockets_true, pockets_predicted))
+            for fname, f in metrics_to_show.items()
+        },
     )
 
 
@@ -245,6 +250,8 @@ def show_classifier_calibration(
     if ax is None:
         ax = plt
 
+    # Collect per-interval performances (previous code only returned the last interval).
+    all_performances: list = []
     for i in range(nintervals):
         if i == nintervals - 1:
             r = s
@@ -258,6 +265,7 @@ def show_classifier_calibration(
         except Exception as e:
             logging.exception(e)
             return
+        all_performances.append(performances)
 
         if not skip_plotting:
             metrics_formatted = " ".join([f"{metric_name}: {round(metric_value,metrics_digits)}" for metric_name, metric_value in performances.items()])
@@ -299,7 +307,11 @@ def show_classifier_calibration(
         else:
             return pd.DataFrame(data, columns=["Prob", "Won", "Predicted", "Freq"])
     else:
-        return performances
+        # Return all intervals when more than one was requested; preserve previous
+        # single-dict contract for nintervals == 1.
+        if nintervals == 1:
+            return all_performances[0] if all_performances else performances
+        return all_performances
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -375,6 +387,9 @@ def anderson_darling_statistic(pit_values):
     sorted_pit = np.sort(pit_values)
     i = np.arange(1, n + 1)  # Index from 1 to n
 
+    # Clip PIT values away from 0 and 1 before taking logs to avoid -inf/NaN on boundary samples.
+    eps = 1e-12
+    sorted_pit = np.clip(sorted_pit, eps, 1.0 - eps)
     # Compute the Anderson-Darling statistic
     ad_stat = -n - (1 / n) * np.sum((2 * i - 1) * (np.log(sorted_pit) + np.log(1 - sorted_pit[::-1])))
     return ad_stat
@@ -389,10 +404,19 @@ def chi_square_statistic(pit_values, bins=10):
 
 
 def entropy_calibration_index(pit_values, bins=10):
-    """Calculate the Entropy-Based Calibration Index (ECI)."""
-    observed, _ = np.histogram(pit_values, bins=bins, range=(0, 1), density=True)
+    """Calculate the Entropy-Based Calibration Index (ECI).
+
+    Uses raw counts normalized to a probability distribution. The previous implementation fed
+    ``density=True`` (which returns densities, not probabilities) to ``scipy.stats.entropy``,
+    which gave incorrect entropy values whenever bin width != 1.
+    """
+    counts, _ = np.histogram(pit_values, bins=bins, range=(0, 1), density=False)
+    total = counts.sum()
+    if total == 0:
+        return 0.0
+    probs = counts / total
     uniform_entropy = np.log(bins)
-    observed_entropy = entropy(observed)
+    observed_entropy = entropy(probs)
     eci = uniform_entropy - observed_entropy
     return eci
 
@@ -405,6 +429,8 @@ def mean_squared_deviation(pit_values):
 
 def weighted_pit_deviation(pit_values):
     """Calculate the Weighted PIT Deviation (WPD)."""
-    weights = 1 / (pit_values * (1 - pit_values) + 1e-10)  # Add small constant to avoid division by zero
+    # Use a larger eps (1e-6) to prevent extreme weights on near-boundary PIT values from
+    # dominating the mean. 1e-10 produced weights up to ~1e10 which wrecked numerical stability.
+    weights = 1.0 / np.clip(pit_values * (1.0 - pit_values), 1e-6, None)
     wpd = np.mean(weights * (pit_values - 0.5) ** 2)
     return wpd

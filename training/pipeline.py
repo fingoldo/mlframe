@@ -144,6 +144,11 @@ def fit_and_transform_pipeline(
 
     # Handle Polars DataFrames with polars-ds
     if isinstance(train_df, pl.DataFrame) and config.use_polarsds_pipeline:
+        # Detect cat_features from the ORIGINAL schema before the pipeline possibly
+        # ordinal/one-hot-encodes them to numeric (which would erase their categorical dtype).
+        _orig_cat_features = [
+            c for c in get_polars_cat_columns(train_df) if c not in _exclude_from_encoding
+        ]
         pipeline = create_polarsds_pipeline(train_df, config, verbose=verbose)
 
         if pipeline is not None:
@@ -172,9 +177,11 @@ def fit_and_transform_pipeline(
                 logger.info(f"  train_df dtypes after pipeline: {Counter(train_df.dtypes)}")
 
         # Detect categorical features from schema (works whether pipeline succeeded or not)
-        # This ensures cat_features is populated even if polars-ds is not available
-        # Exclude text/embedding columns — they're not categoricals even if they're strings
-        cat_features = [c for c in get_polars_cat_columns(train_df) if c not in _exclude_from_encoding]
+        # This ensures cat_features is populated even if polars-ds is not available.
+        # Prefer the ORIGINAL cat columns (captured before transform) — after ordinal/onehot
+        # encoding they're no longer Categorical/Utf8 in the transformed frame.
+        post_cat = [c for c in get_polars_cat_columns(train_df) if c not in _exclude_from_encoding]
+        cat_features = _orig_cat_features if _orig_cat_features else post_cat
 
     # Handle Polars DataFrames without polars-ds pipeline - just detect cat_features
     elif isinstance(train_df, pl.DataFrame) and not config.use_polarsds_pipeline:

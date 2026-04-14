@@ -218,9 +218,11 @@ def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
 
     tbl_fixed = pa.table(fixed_cols, names=tbl.column_names)
 
-    pandas_df = tbl_fixed.to_pandas(
-        types_mapper=pd.ArrowDtype,  # keep Arrow-backed columns for zero-copy
-    )
+    # Use numpy-backed pandas (types_mapper=None) for broad model compatibility.
+    # LightGBM (and some other sklearn-family models) reject pandas columns with
+    # ArrowDtype (e.g. 'float[pyarrow]'). Numpy-backed columns are still near-zero-copy
+    # for numeric types because Arrow's to_pandas picks up zero-copy numpy views when possible.
+    pandas_df = tbl_fixed.to_pandas()
 
     return pandas_df
 

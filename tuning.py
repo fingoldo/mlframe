@@ -32,7 +32,7 @@ from sklearn.model_selection import train_test_split
 from pyutilz import db
 import logging
 
-from random import random
+import random as _stdlib_random
 import pandas as pd, numpy as np
 from catboost import CatBoostRegressor
 from sklearn.dummy import DummyRegressor
@@ -155,16 +155,18 @@ def check_rules(params, drop_if_rules=None, drop_if_not_rules=None, skip_if_valu
     return True
 
 
-def double_check_dist_params(cand: dict, drop_none: bool = False) -> dict:
+def double_check_dist_params(cand: dict, drop_none: bool = False, rng: Optional[np.random.Generator] = None) -> dict:
     """If some of params were not resolved by the first ParameterSampler call,
     try on a deeper level.
     """
+    if rng is None:
+        rng = np.random.default_rng()
     nchanged = 1
     while nchanged > 0:
         nchanged = 0
         for key, value in cand.copy().items():
             if isinstance(value, (rv_continuous_frozen, rv_discrete_frozen)):
-                cand[key] = value.rvs()  # list(ParameterSampler({key: value}, n_iter=1))[0][key]
+                cand[key] = value.rvs(random_state=rng)  # list(ParameterSampler({key: value}, n_iter=1))[0][key]
                 nchanged += 1
     return cand
 
@@ -178,15 +180,18 @@ def generate_valid_candidates(
     allow_if_values_and=None,
     n: int = 1,
     max_iters: int = 1000,
+    random_state: Union[int, np.random.Generator, None] = None,
 ):
+    rng = np.random.default_rng(random_state)
     logging.info(f"Generating {n} valid candidates...")
     approved = []
     niters = 0
     while True:
-        params_samples = list(ParameterSampler(params, n_iter=n))
+        sklearn_seed = int(rng.integers(0, 2**32 - 1))
+        params_samples = list(ParameterSampler(params, n_iter=n, random_state=sklearn_seed))
 
         for sample in params_samples:
-            double_check_dist_params(sample)
+            double_check_dist_params(sample, rng=rng)
             if check_rules(
                 sample,
                 drop_if_rules=drop_if_rules,
@@ -269,11 +274,12 @@ def favorize_unexplored(candidates: list, probs: np.ndarray, trials: pd.DataFram
             logging.info(f"Favorized {len(favorized_items):_} previously unexplored candidates")
 
 
-def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv: int, scoring: str, min_score: float, max_new_trials: int = 10):
-    # trained_models[experiment_name]=[fitted_model,len(trials),ml_scoring,expected_performance]
+def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv: int, scoring: str, min_score: float, max_new_trials: int = 10, random_state: Union[int, np.random.Generator, None] = None):
+    # trained_models[cache_key]=[fitted_model,len(trials),ml_scoring,expected_performance]
+    cache_key = (experiment_name, tuple(cat_features))
     should_retrain = True
-    if experiment_name in trained_models:
-        fitted_model, num_trials, prev_scoring, expected_score, model_columns = trained_models[experiment_name]
+    if cache_key in trained_models:
+        fitted_model, num_trials, prev_scoring, expected_score, model_columns = trained_models[cache_key]
         if prev_scoring == scoring:
 
             if expected_score >= min_score:
@@ -296,15 +302,15 @@ def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv
         X = trials
         model_columns = X.columns
 
-        fitted_model, expected_score = justify_estimator(model, X, y, refit=True, test_size=0.1, cv=cv, scoring=scoring, min_score=min_score)
+        fitted_model, expected_score = justify_estimator(model, X, y, refit=True, test_size=0.1, cv=cv, scoring=scoring, min_score=min_score, random_state=random_state)
 
-        y_min, y_max = y.min, y.max()
-        trained_models[experiment_name] = [fitted_model, len(trials), scoring, expected_score, model_columns]
+        y_min, y_max = y.min(), y.max()
+        trained_models[cache_key] = [fitted_model, len(trials), scoring, expected_score, model_columns]
 
     return fitted_model, model_columns, y
 
 
-def justify_estimator(est, X, y, cv=3, refit: bool = True, scoring="r2", min_score: float = 0.6, test_size=0.1, plot=False):
+def justify_estimator(est, X, y, cv=3, refit: bool = True, scoring="r2", min_score: float = 0.6, test_size=0.1, plot=False, random_state: Union[int, np.random.Generator, None] = None):
 
     logging.info(f"Checking if ML gains some predictive power already on {len(y):_} samples...")
 
@@ -317,7 +323,8 @@ def justify_estimator(est, X, y, cv=3, refit: bool = True, scoring="r2", min_sco
             logging.info(f"Fitting a model")
 
             if "cat" in str(est).lower():
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size)
+                rng = np.random.default_rng(random_state)
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=int(rng.integers(0, 2**32 - 1)))
                 est.fit(X_train, y_train, eval_set=(X_test, y_test), plot=plot, verbose=False)
             else:
                 est.fit(X, y)
@@ -329,19 +336,23 @@ def justify_estimator(est, X, y, cv=3, refit: bool = True, scoring="r2", min_sco
     return est, mean_score
 
 
-def create_ctr_params(GPU_ENABLED: bool = True, params: dict = {}) -> str:
+def create_ctr_params(GPU_ENABLED: bool = True, params: dict = {}, stdlib_rng: Optional[_stdlib_random.Random] = None, random_state: Union[int, np.random.Generator, None] = None) -> str:
+    if stdlib_rng is None:
+        _rng_tmp = np.random.default_rng(random_state)
+        stdlib_rng = _stdlib_random.Random(int(_rng_tmp.integers(0, 2**32 - 1)))
     res = []
     for main_type in (
         "Borders Buckets BinarizedTargetMeanValue Counter".split() if not GPU_ENABLED else "Borders Buckets FeatureFreq FloatTargetMeanValue".split()
     ):  # The method for transforming categorical features to numerical features.
-        if random() > 0.5:
+        if stdlib_rng.random() > 0.5:
             cands = generate_valid_candidates(
                 params={
                     "CtrBorderCount": [1, randint(1, 255)],
                     "CtrBorderType": ["Uniform"] if not GPU_ENABLED else "Median Uniform".split(),
                     "TargetBorderCount": [1, randint(1, 255)],
                     "TargetBorderType": ["Uniform"] if not GPU_ENABLED else "Median Uniform UniformAndQuantiles MaxLogSum MinEntropy GreedyLogSum".split(),
-                }
+                },
+                random_state=random_state,
             )
             line = main_type
             for key, val in list(cands)[0].items():
@@ -361,8 +372,11 @@ def create_ctr_params(GPU_ENABLED: bool = True, params: dict = {}) -> str:
 
 
 class ParamsOptimizer:
-    def __init__(self):
+    def __init__(self, random_state: Union[int, np.random.Generator, None] = None):
         # ,db_name:str=None,db_host:str=None,db_port:int=None,db_username:str=None,db_pwd:str=None,db_schema:str="public"
+        self._rng = np.random.default_rng(random_state)
+        self._stdlib_rng = _stdlib_random.Random(int(self._rng.integers(0, 2**32 - 1)))
+        self._random_state = random_state
         if False:
             db.connect_to_db(
                 m_db_name=db_name,
@@ -407,6 +421,7 @@ class ParamsOptimizer:
                 allow_if_values_or=self.allow_if_values_or,
                 allow_if_values_and=self.allow_if_values_and,
                 n=n,
+                random_state=self._rng,
             )
 
         if sampler == "random":
@@ -446,7 +461,8 @@ class ParamsOptimizer:
                         # ---------------------------------------------------------------------------------------------
 
                         fitted_model, model_columns, y = get_model(
-                            experiment_name=experiment_name, trials=trials, cat_features=cat_features, cv=ml_cv, scoring=ml_scoring, min_score=ml_min_score
+                            experiment_name=experiment_name, trials=trials, cat_features=cat_features, cv=ml_cv, scoring=ml_scoring, min_score=ml_min_score,
+                            random_state=self._rng,
                         )
 
                         if fitted_model is not None:
@@ -510,7 +526,7 @@ class ParamsOptimizer:
 
                     # Fewer non-zero entries in p than size
                     n = min(n, len(np.where(probs > 0)[0]))
-                    return np.random.choice(candidates, n, replace=False, p=probs)
+                    return self._rng.choice(candidates, n, replace=False, p=probs)
 
             return candidates[:n]
 
@@ -530,8 +546,10 @@ class CatboostParamsOptimizer(ParamsOptimizer):
         task: MLTaskType = MLTaskType.Regression,
         params_override: dict = {},
         delete_params: Sequence = [],
+        random_state: Union[int, np.random.Generator, None] = None,
     ):
 
+        super().__init__(random_state=random_state)
         # ,db_name:str=None,db_host:str=None,db_port:int=None,db_username:str=None,db_pwd:str=None,db_schema:str="public"
         # super().init(db_name=db_name,db_host=db_host,db_port=db_port,db_usernam=db_username,db_pwd=db_pwd,db_schema=db_schema)
 
@@ -547,7 +565,7 @@ class CatboostParamsOptimizer(ParamsOptimizer):
             # Float params
             # ----------------------------------------------------------------------------------------------------------------------------
             "subsample": [None, uniform(0.5, 1.0 - 0.5)],
-            "learning_rate": uniform(0.1, 0.4 - 0.1),  # Alias: eta
+            "learning_rate": loguniform(1e-3, 0.3),  # Alias: eta
             "bagging_temperature": [
                 0,
                 1,
@@ -574,7 +592,6 @@ class CatboostParamsOptimizer(ParamsOptimizer):
             "max_leaves": randint(2, 70),
             "l2_leaf_reg": randint(1, 10),  # Any positive value is allowed.
             "border_count": [None, randint(30, 300)],
-            "penalties_coefficient": randint(1, 10),  # Any positive value is allowed.
             "model_size_reg": randint(1, 10),
             "one_hot_max_size": [None, randint(2, 300)],
             "ctr_leaf_count_limit": [
@@ -656,16 +673,16 @@ class CatboostParamsOptimizer(ParamsOptimizer):
         if False:
             if task == MLTaskType.Regression:
                 self.params["loss_function"] = "MAE MAPE Poisson Quantile RMSE LogLinQuantile LogCosh".split() + [
-                    "Lq:q=" + str(loguniform(1, 100).rvs()),
-                    "Expectile:alpha=" + str(loguniform(0.01, 1 - 0.01).rvs()),
-                    "Tweedie:variance_power=" + str(uniform(1.01, 1.99 - 1.01).rvs()),
-                    "Huber:delta=" + str(loguniform(0.1, 100).rvs()),
+                    "Lq:q=" + str(loguniform(1, 100).rvs(random_state=self._rng)),
+                    "Expectile:alpha=" + str(loguniform(0.01, 1 - 0.01).rvs(random_state=self._rng)),
+                    "Tweedie:variance_power=" + str(uniform(1.01, 1.99 - 1.01).rvs(random_state=self._rng)),
+                    "Huber:delta=" + str(loguniform(0.1, 100).rvs(random_state=self._rng)),
                     # "MultiQuantile:alpha=" + str(loguniform(0.01, 1 - 0.01).rvs()) + "," + str(loguniform(0.01, 1 - 0.01).rvs()), # if MultiQuantile is chosen, it hs to be both a loss and eval_metric!
                 ]  # RMSEWithUncertainty needs double target #Alpha parameter for expectile metric should be in interval [0, 1]
                 self.params["eval_metric"] = (
                     self.params["loss_function"]
                     + "FairLoss SMAPE R2 MSLE MedianAbsoluteError".split()
-                    + ["NumErrors:greater_than=" + str(loguniform(1, 100).rvs())]
+                    + ["NumErrors:greater_than=" + str(loguniform(1, 100).rvs(random_state=self._rng))]
                 )
                 if not GPU_ENABLED:
                     self.params[
@@ -681,7 +698,7 @@ class CatboostParamsOptimizer(ParamsOptimizer):
                 self.params["eval_metric"] = (
                     self.params["loss_function"]
                     + "Precision Recall F1 BalancedAccuracy BalancedErrorRate MCC Accuracy AUC NormalizedGini BrierScore HingeLoss HammingLoss ZeroOneLoss Kappa WKappa LogLikelihoodOfPrediction".split()
-                    + ["F:beta=" + str(loguniform(0.01, 100).rvs())]
+                    + ["F:beta=" + str(loguniform(0.01, 100).rvs(random_state=self._rng))]
                 )  # CtrFactor cannot be used for overfitting detection or selecting best iteration on validation
                 # QueryAUC : Groupwise loss/metrics require nontrivial groups
             elif task == MLTaskType.Multiclassification:
@@ -729,11 +746,11 @@ class CatboostParamsOptimizer(ParamsOptimizer):
 
         self.params["simple_ctr"] = [
             None,
-            create_ctr_params(GPU_ENABLED=GPU_ENABLED, params=self.params),
+            create_ctr_params(GPU_ENABLED=GPU_ENABLED, params=self.params, stdlib_rng=self._stdlib_rng, random_state=self._rng),
         ]  # ['Borders:CtrBorderCount=15:CtrBorderType=Uniform:TargetBorderCount=1:TargetBorderType=MinEntropy:Prior=0/1:Prior=0.5/1:Prior=1/1','Counter:CtrBorderCount=15:CtrBorderType=Uniform:Prior=0/1'], # Quantization settings for simple categorical features. Use this parameter to specify the principles for defining the class of the object for regression tasks. By default, it is considered that an object belongs to the positive class if its' label value is greater than the median of all label values of the dataset.
         self.params["combinations_ctr"] = [
             None,
-            create_ctr_params(GPU_ENABLED=GPU_ENABLED, params=self.params),
+            create_ctr_params(GPU_ENABLED=GPU_ENABLED, params=self.params, stdlib_rng=self._stdlib_rng, random_state=self._rng),
         ]  # Quantization settings for combinations of categorical features.
 
         for key in delete_params:

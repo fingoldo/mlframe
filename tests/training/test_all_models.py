@@ -155,7 +155,7 @@ class TestAllModelsClassification:
         )
 
         # Verify
-        assert TargetTypes.REGRESSION in models
+        assert TargetTypes.BINARY_CLASSIFICATION in models
         assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
         assert len(models[TargetTypes.BINARY_CLASSIFICATION]["target"]) > 0
 
@@ -187,7 +187,7 @@ class TestAllModelsClassification:
         )
 
         # Verify
-        assert TargetTypes.REGRESSION in models
+        assert TargetTypes.BINARY_CLASSIFICATION in models
         assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
         assert len(models[TargetTypes.BINARY_CLASSIFICATION]["target"]) > 0
 
@@ -716,7 +716,7 @@ class TestSpecialCases:
         )
 
         # Verify it worked (should use predict() fallback)
-        assert TargetTypes.REGRESSION in models
+        assert TargetTypes.BINARY_CLASSIFICATION in models
         assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
         assert len(models[TargetTypes.BINARY_CLASSIFICATION]["target"]) > 0
 

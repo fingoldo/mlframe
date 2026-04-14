@@ -5,6 +5,13 @@
 import numpy as np
 from numba import njit, prange
 
+# NOTE: Three parallel MI kernel implementations (grok / chatgpt / deepseek)
+# are intentional and load-bearing by design. They are used for cross-
+# validation of MI estimates across different summation orders to catch
+# numerical drift under @njit(fastmath=True). DO NOT delete or unify them.
+# The runtime benchmark in feature_selection.general picks the fastest
+# at import time but all three must remain callable for correctness tests.
+
 USE_FASTMATH: bool = True
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -20,6 +27,7 @@ def grok_compute_joint_hist(a: np.ndarray, b: np.ndarray, n_bins: int, dtype: ob
     return hist
 
 
+# TODO: verify removal safety — superseded by grok_mutual_information (kept for now, not one of the 3 live kernels).
 @njit(fastmath=USE_FASTMATH)
 def grok_mutual_information_old(a: np.ndarray, b: np.ndarray, n_bins: int = 15, hist_dtype: object = np.int64):
     joint_hist = grok_compute_joint_hist(a=a, b=b, n_bins=n_bins, dtype=hist_dtype)
@@ -37,7 +45,7 @@ def grok_mutual_information_old(a: np.ndarray, b: np.ndarray, n_bins: int = 15, 
     return mi
 
 
-@njit(fastmath=USE_FASTMATH)
+@njit
 def grok_mutual_information(a: np.ndarray, b: np.ndarray, inv_n_samples: float, log_n_samples: float, n_bins: int = 15, hist_dtype: object = np.int64):
     joint_hist = grok_compute_joint_hist(a=a, b=b, n_bins=n_bins, dtype=hist_dtype)
     a_hist = np.sum(joint_hist, axis=1)
@@ -209,6 +217,9 @@ def deepseek_compute_mutual_information(
 
     n_samples, n_columns = data.shape
     n_targets = len(target_indices)
+
+    if n_samples == 0:
+        return np.zeros((n_targets, n_columns), dtype=out_dtype)
 
     # Precompute marginals and sum_N_log_N for each column
     marginals = np.zeros((n_columns, n_bins), dtype=hist_dtype)

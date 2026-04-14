@@ -257,14 +257,14 @@ def compute_numerical_aggregates_numba(
             if weights is not None:
                 weighted_qubic_mean += temp_value * next_weight
 
-        if next_value > maximum:
-            maximum = next_value
-            max_index = i
-            nmaxupdates += 1
-        elif next_value < minimum:
+        if next_value < minimum:
             minimum = next_value
             min_index = i
             nminupdates += 1
+        elif next_value > maximum:
+            maximum = next_value
+            max_index = i
+            nmaxupdates += 1
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Drawdowns
@@ -854,6 +854,7 @@ def compute_numaggs(
     if len(arr) <= 1:
         return (np.nan,) * len(
             get_numaggs_names(
+                weights=weights,
                 q=q,
                 directional_only=directional_only,
                 whiten_means=whiten_means,
@@ -1028,8 +1029,13 @@ def rolling_moving_average(arr: np.ndarray, n: int = 2):
 
     result[0] = sum_window * mult
 
+    # Kahan compensated summation to minimize float drift on long rolling windows.
+    kahan_c = 0.0
     for i in range(1, len(arr) - n + 1):
-        sum_window += arr[i + n - 1] - arr[i - 1]
+        y = (arr[i + n - 1] - arr[i - 1]) - kahan_c
+        t = sum_window + y
+        kahan_c = (t - sum_window) - y
+        sum_window = t
         result[i] = sum_window * mult
 
     return result

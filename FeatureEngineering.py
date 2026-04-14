@@ -244,7 +244,9 @@ def CalculateNumericalStatsNumpyNumbaOptimizedNanAware(x, l=0, r=0, geomean_log_
     if r == 0:
         r = len(x) - 1
     size = r + 1 - l
-    mask = np.isnan(x[l:r])
+    # Off-by-one fix: r is treated as inclusive above (size = r+1-l), so mask must span x[l:r+1]
+    # to cover all `size` elements (previously missed the last element).
+    mask = np.isnan(x[l : r + 1])
     num_nans = np.sum(mask)
     if num_nans == 0:
         return CalculateNumericalStatsNumpyNumbaOptimized(x, l, r, geomean_log_mode, weights=weights) + tuple((num_nans,))
@@ -252,9 +254,9 @@ def CalculateNumericalStatsNumpyNumbaOptimizedNanAware(x, l=0, r=0, geomean_log_
         return tuple([np.nan] * len(GetNumericalStatsNames())) + tuple((num_nans,))
     else:
         if len(weights) < size:
-            return CalculateNumericalStatsNumpyNumbaOptimized(x[l:r][~mask], geomean_log_mode=geomean_log_mode, weights=weights) + tuple((num_nans,))
+            return CalculateNumericalStatsNumpyNumbaOptimized(x[l : r + 1][~mask], geomean_log_mode=geomean_log_mode, weights=weights) + tuple((num_nans,))
         else:
-            return CalculateNumericalStatsNumpyNumbaOptimized(x[l:r][~mask], geomean_log_mode=geomean_log_mode, weights=weights[~mask]) + tuple((num_nans,))
+            return CalculateNumericalStatsNumpyNumbaOptimized(x[l : r + 1][~mask], geomean_log_mode=geomean_log_mode, weights=weights[~mask]) + tuple((num_nans,))
 
 
 def CalculateCategoricalStatsNumpy(a, res, l=1):

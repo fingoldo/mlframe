@@ -4,13 +4,19 @@ from mlframe.utils import get_pipeline_last_element
 from pyutilz.system import tqdmu
 
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, IsolationForest
-from sklearn.datasets import load_breast_cancer  # , load_boston
 from statsmodels.stats.multitest import multipletests
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.cluster import KMeans
 from scipy.sparse import issparse
-from scipy.stats import binom_test, ks_2samp
+try:
+    from scipy.stats import binomtest as _binomtest
+
+    def binom_test(x, n, p, alternative="two-sided"):
+        return _binomtest(x, n=n, p=p, alternative=alternative).pvalue
+except ImportError:  # SciPy < 1.7 fallback
+    from scipy.stats import binom_test  # type: ignore
+from scipy.stats import ks_2samp
 import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
 import random
@@ -24,7 +30,9 @@ import re
 
 import warnings
 
-warnings.filterwarnings("ignore")
+# Narrowed scope (was a blanket filter that silenced legitimate warnings).
+warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="sklearn")
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # LOGGING
@@ -90,7 +98,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         self.model = model
         self.check_model()
 
-        if random_state:
+        if random_state is not None:
             np.random.seed(random_state)
         self.random_state = random_state
 
@@ -596,7 +604,8 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         """
         mean_value = np.mean(array)
         std_value = np.std(array)
-        return [(element - mean_value) / std_value for element in array]
+        array = np.asarray(array, dtype=np.float64)
+        return (array - mean_value) / (std_value + 1e-12)
 
     def feature_importance(self, normalize):
         """
@@ -626,8 +635,11 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             if normalize:
                 vals = self.calculate_Zscore(vals)
 
+            # Layout of self.X_boruta is [X | X_shadow]. Real features come first,
+            # shadow afterwards. Using len(self.X.columns) for the split is correct
+            # even when the shadow side was padded to >= 5 columns.
             X_feature_import = vals[: len(self.X.columns)]
-            Shadow_feature_import = vals[len(self.X_shadow.columns) :]
+            Shadow_feature_import = vals[len(self.X.columns) :]
 
         elif self.importance_measure == "gini":
             feature_importances_ = np.abs(self.model.feature_importances_)
@@ -984,6 +996,7 @@ def load_data(data_type="classification"):
     data_type = data_type.lower()
 
     if data_type == "classification":
+        from sklearn.datasets import load_breast_cancer
         cancer = load_breast_cancer()
         X = pd.DataFrame(np.c_[cancer["data"], cancer["target"]], columns=np.append(cancer["feature_names"], ["target"]))
         y = X.pop("target")

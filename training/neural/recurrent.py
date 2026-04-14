@@ -1269,7 +1269,7 @@ class _RecurrentWrapperBase(BaseEstimator):
     @classmethod
     def load(cls, path: str | Path) -> "_RecurrentWrapperBase":
         """Load model from disk."""
-        state = torch.load(path, map_location="cpu", weights_only=False)
+        state = torch.load(path, map_location="cpu", weights_only=True)
 
         wrapper = cls(config=state["config"], random_state=state["random_state"])
         wrapper._aux_input_size = state.get("aux_input_size", 0)

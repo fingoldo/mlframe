@@ -39,9 +39,12 @@ def sample_random_variable(
 
     dist_name, params = random.choice(source)
 
-    # Append recommended dist params
+    # Append recommended dist params.
+    # Note: `params` came out of random.choice as a tuple, but we convert to list
+    # to allow appending. The membership check below must compare tuples since
+    # `conts` entries are tuples.
     params = list(params)
-    if (dist_name, params) in conts:
+    if (dist_name, tuple(params)) in conts:
         if randomize_params:
             params = params + [shift * random.random(), scale * random.random()]
         else:
@@ -109,9 +112,13 @@ def generate_modelling_data(
         Attempt to model a situation in sports, where bookies odds are said to be the only and the best estimates of the winning probability.
     """
     if n_classes > 0:
-        assert n_informative <= n_classes
+        if n_informative > n_classes:
+            raise ValueError(f"n_informative ({n_informative}) must be <= n_classes ({n_classes})")
 
-    assert n_unrelated_single >= n_unrelated_intercorrelated
+    if n_unrelated_single < n_unrelated_intercorrelated:
+        raise ValueError(
+            f"n_unrelated_single ({n_unrelated_single}) must be >= n_unrelated_intercorrelated ({n_unrelated_intercorrelated})"
+        )
 
     generator = check_random_state(random_state)
     # random.seed(random_state)
@@ -139,16 +146,20 @@ def generate_modelling_data(
             for j in tqdmu(range(n_classes), desc=rpad("predictors")):
                 dist_name, predictors[:, j] = sample_random_variable(kind="cont", size=n_samples, shift=shift, scale=scale, include=include_distributions)
                 pred_min, pred_max = predictors[:, j].min(), predictors[:, j].max()
-                predictors[:, j] = (predictors[:, j] - pred_min) / (pred_max - pred_min)
+                # Guarded normalization: avoid division by zero when the sampled
+                # column is constant (all values equal).
+                span = pred_max - pred_min
+                predictors[:, j] = np.where(span == 0, 0.0, (predictors[:, j] - pred_min) / (span if span != 0 else 1.0))
 
                 fnames.append(f"prob_{dist_name}_{j}")
             pred_sums = predictors.sum(axis=1)
 
             for j in range(n_classes):
-                predictors[:, j] = predictors[:, j] / pred_sums
+                # Guard divide-by-zero when the row of predictors sums to zero.
+                predictors[:, j] = np.where(pred_sums == 0, 0.0, predictors[:, j] / np.where(pred_sums == 0, 1.0, pred_sums))
 
             # Let's draw from 0 to 1 and pick the class
-            draw = np.random.rand(n_samples)
+            draw = generator.rand(n_samples)
             for i in range(n_samples):
                 total = 0.0
                 for j in range(n_classes):
@@ -178,7 +189,7 @@ def generate_modelling_data(
         for j in tqdmu(range(n_singly_correlated), desc=rpad("singly_correlated")):
             dist_name, X[:, idx + j] = sample_random_variable(kind="cont", size=n_samples, shift=shift, scale=scale, include=include_distributions)
 
-            k = np.random.choice(range(n_informative))
+            k = generator.choice(range(n_informative))
             X[:, idx + j] *= X[:, k]
 
             fnames.append(f"sc_{dist_name}_{k}")
@@ -188,8 +199,8 @@ def generate_modelling_data(
         # dependent on a random subset of predictors (>1). cont.
 
         for j in tqdmu(range(n_mutually_correlated), desc=rpad("mutually_correlated")):
-            combs = list(combinations(range(n_informative), np.random.choice(range(2, n_informative + 1))))
-            current_combination = combs[np.random.choice(len(combs))]
+            combs = list(combinations(range(n_informative), generator.choice(range(2, n_informative + 1))))
+            current_combination = combs[generator.choice(len(combs))]
 
             dist_name, X[:, idx + j] = sample_random_variable(kind="cont", size=n_samples, shift=shift, scale=scale, include=include_distributions)
 
@@ -220,12 +231,15 @@ def generate_modelling_data(
     if n_unrelated_intercorrelated > 0:
         # features not dependent on any true predictor, but interdependent on themselves. cat or cont.
         for j in tqdmu(range(n_unrelated_intercorrelated), desc=rpad("unrelated_intercorrelated")):
-            combs = list(combinations(range(n_unrelated_single), np.random.choice(range(2, n_unrelated_single + 1))))
-            current_combination = combs[np.random.choice(len(combs))]
+            combs = list(combinations(range(n_unrelated_single), generator.choice(range(2, n_unrelated_single + 1))))
+            current_combination = combs[generator.choice(len(combs))]
 
             dist_name, X[:, idx + j] = sample_random_variable(kind="mixed", size=n_samples, shift=shift, scale=scale, include=include_distributions)
 
             for k in current_combination:
+                # `idx - n_unrelated_single + k` reaches back into the block of
+                # unrelated-single features created in the previous section so
+                # the new intercorrelated feature depends on a combination of them.
                 X[:, idx + j] *= X[:, idx - n_unrelated_single + k]
 
             fnames.append(f"unrintrc_{dist_name}_{'-'.join(map(str,current_combination))}")
@@ -238,7 +252,10 @@ def generate_modelling_data(
 
     if n_repeated > 0:
         n = idx
-        indices = ((n - 1) * generator.rand(n_repeated) + 0.5).astype(np.intp)
+        # Uniformly pick source columns from [0, n). The previous formula
+        # `((n-1)*rand + 0.5).astype(intp)` under-sampled column 0 and
+        # column n-1 (each had half the weight of interior columns).
+        indices = generator.randint(0, n, size=n_repeated)
         X[:, n : n + n_repeated] = X[:, indices]
 
     # ----------------------------------------------------------------------------------------------------------------------------

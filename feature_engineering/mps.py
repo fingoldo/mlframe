@@ -98,7 +98,10 @@ def compute_area_profits(prices, positions):
     # For index i in run, profit[i] = profit of run from prices[i]
 
     start = 0
-    while start < n - 1:
+    # Outer bound is `n` (not n-1) so the final index is visited. Inner bound `n` lets the run
+    # extend through the last bar. When a run reaches end == n-1, there is no next price —
+    # profit over the open tail is 0 (position never closes within the sample).
+    while start < n:
         pos = positions[start]
 
         # If position is zero, no directional profit, profit = 0
@@ -109,8 +112,14 @@ def compute_area_profits(prices, positions):
 
         # Find the end of this run (where position changes or reaches n-1)
         end = start
-        while end + 1 < n - 1 and positions[end + 1] == pos:
+        while end + 1 < n and positions[end + 1] == pos:
             end += 1
+
+        # If the run extends to the final bar, there is no closing price; leave tail profits at 0.
+        if end >= n - 1:
+            # profits already initialized to 0 for [start..end]
+            start = end + 1
+            continue
 
         # profit on the run is price difference between prices[end+1] and prices[start]
         price_diff = prices[end + 1] - prices[start]

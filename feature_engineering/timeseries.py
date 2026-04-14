@@ -591,7 +591,7 @@ def create_windowed_features(
             forward_direction=True,
             window_features_names=future_vars_names,
             window_features=None if targets_creation_fcn else row_targets,
-            create_features_names=targets,
+            create_features_names=(index == start_index),
             verbose=verbose,
         )
 
@@ -613,7 +613,7 @@ def create_windowed_features(
             forward_direction=False,
             window_features_names=past_vars_names,
             window_features=None if features_creation_fcn else row_features,
-            create_features_names=targets,
+            create_features_names=(index == start_index),
             verbose=verbose,
         )
 
@@ -657,7 +657,8 @@ def create_and_process_windows(
     windows: dict,
     window_features_names: list,
     window_features: list,
-    targets: list,
+    targets: list = None,
+    create_features_names: bool = False,
     forward_direction: bool = True,
     window_index_name: str = "",  # example: D for days, or T for Ticks, R for rows
     nrecords_per_period: int = 1,  # use when fixed number of records belongs to the same period, for example, data contains values for 24 consecutive hours of a day.
@@ -687,6 +688,7 @@ def create_and_process_windows(
 
         for window_order, window_size in enumerate(windows_lengths):  # (p_window_size := tqdmu(enumerate(windows_lengths), desc=f"window size", leave=False)):
             # p_window_size.set_description("window size=" + str(window_size))
+            accumulated_amount = 0.0
             if window_var == "":  # just index
                 dataset_name = str(window_size) + window_index_name
                 if forward_direction:

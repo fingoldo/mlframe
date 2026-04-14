@@ -298,7 +298,7 @@ def evaluate_estimators(
                         )
 
                         # plt.rcParams['axes.grid'] = False
-                        plt.grid(b=None)
+                        plt.grid(visible=None)
                         if confusion_matrix_file:
                             plt.savefig(confusion_matrix_file, dpi=dpi, bbox_inches="tight")
 
@@ -336,7 +336,7 @@ def evaluate_estimators(
                                 plt.tight_layout()
                                 plt.show()
                         else:
-                            fig=make_custom_calibration_plot(                                
+                            fig, _cal_metrics = make_custom_calibration_plot(
                                 y=y_test_test,
                                 probs=probs,
                                 nclasses=nclasses,
@@ -344,9 +344,10 @@ def evaluate_estimators(
                                 display_labels=display_labels,
                                 figsize=figsize,
                                 competing_probs=competing_probs,
-                                X=X_test_test,                                
+                                X=X_test_test,
                             )
-                            fig.show()
+                            if fig is not None:
+                                fig.show()
 
     return pipe, classification_report_text, classification_report_dict, cm
 

@@ -1,5 +1,4 @@
 import numba
-import mlframe
 import numpy as np
 import pandas as pd
 from numba import cuda, njit, prange
@@ -11,8 +10,12 @@ from numba import cuda, njit, prange
 
 @njit(fastmath=True)
 def arrayMinMax(x, l=0, r=0):
+    n = len(x)
     if r == 0:
-        r = len(x)
+        r = n
+    # Empty-range guard: return NaN sentinels (numba-friendly: no Python exceptions)
+    if n == 0 or r <= l:
+        return (np.nan, np.nan)
     firstElem = x[l]
     maximum, minimum = firstElem, firstElem
     for v in x[l:r]:
@@ -163,7 +166,7 @@ def arrayCountingArgSortThreaded(array, maxval, mask=np.array([], np.int32), max
         nThreads = 1
     else:
         nThreads = min(max(arrayLen // effectiveSize, 1), maxThreads)
-    groups = [[emptyListOfInts() for k in range(0)]] * nThreads
+    groups = [[emptyListOfInts() for k in range(0)] for _ in range(nThreads)]
     chunkSize = arrayLen // nThreads
     # print("nThreads=",nThreads)
     for k in prange(nThreads):
@@ -200,7 +203,7 @@ def arrayCountingArgSortAndUniqueValuesThreaded(array, maxval, mask=np.array([],
         nThreads = 1
     else:
         nThreads = min(max(arrayLen // effectiveSize, 1), maxThreads)
-    groups = [[emptyListOfInts() for k in range(0)]] * nThreads
+    groups = [[emptyListOfInts() for k in range(0)] for _ in range(nThreads)]
     chunkSize = arrayLen // nThreads
     # print("nThreads=",nThreads)
     for k in prange(nThreads):
@@ -212,10 +215,12 @@ def arrayCountingArgSortAndUniqueValuesThreaded(array, maxval, mask=np.array([],
 
     position = 0
     uniqueValues, uniqueValuesIndices = [], []
+    seen = np.zeros(m, dtype=np.bool_)  # O(1) membership test (replaces O(U) `k in uniqueValues`)
     for k in range(m):
         for groupedIndices in groups:
             if len(groupedIndices[k]) > 0:
-                if not (k in uniqueValues):
+                if not seen[k]:
+                    seen[k] = True
                     uniqueValues.append(k)
                     uniqueValuesIndices.append(position)
                 for index in groupedIndices[k]:
@@ -225,18 +230,36 @@ def arrayCountingArgSortAndUniqueValuesThreaded(array, maxval, mask=np.array([],
 
 
 def topk_by_partition(input: np.ndarray, k: int, axis: int = None, ascending: bool = False) -> tuple:
-    """Returns indices and values of TOP-k elements of an array"""
+    """Returns indices and values of TOP-k elements of an array.
+
+    Does NOT mutate the caller's array (previous implementation did `input *= -1` in place).
+    """
+    # Copy rather than mutate caller's array; flip sign for descending.
     if not ascending:
-        input *= -1
-    k = min(k, len(input) - 1)
-    ind = np.argpartition(input, k, axis=axis)
-    ind = np.take(ind, np.arange(k), axis=axis)  # k non-sorted indices
-    input = np.take_along_axis(input, ind, axis=axis)  # k non-sorted values
+        input = -input
+    else:
+        input = np.asarray(input).copy()
+
+    # len() on multi-dim arrays gives len of first axis; use shape[axis] for per-axis cap.
+    n_along_axis = input.shape[axis] if axis is not None else input.size
+    k = min(k, n_along_axis)
+    if k <= 0:
+        # Empty selection; return empty arrays with matching shape.
+        empty_ind = np.take(np.argsort(input, axis=axis), np.arange(0), axis=axis)
+        empty_val = np.take(input if ascending else -input, empty_ind, axis=axis)
+        return empty_ind, empty_val
+
+    # np.argpartition requires kth in [0, n-1]; clamp.
+    part_kth = min(k - 1, n_along_axis - 1) if k == n_along_axis else k
+    ind = np.argpartition(input, min(part_kth, n_along_axis - 1), axis=axis)
+    # Slice first k along axis.
+    ind = np.take(ind, np.arange(k), axis=axis)
+    vals_part = np.take_along_axis(input, ind, axis=axis) if axis is not None else input[ind]
 
     # sort within k elements
-    ind_part = np.argsort(input, axis=axis)
-    ind = np.take_along_axis(ind, ind_part, axis=axis)
+    ind_part = np.argsort(vals_part, axis=axis)
+    ind = np.take_along_axis(ind, ind_part, axis=axis) if axis is not None else ind[ind_part]
+    val = np.take_along_axis(vals_part, ind_part, axis=axis) if axis is not None else vals_part[ind_part]
     if not ascending:
-        input *= -1
-    val = np.take_along_axis(input, ind_part, axis=axis)
+        val = -val
     return ind, val

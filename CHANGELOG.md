@@ -1,5 +1,73 @@
 # Changelog
 
+## 2026-04-14 — Full Audit & Fix Sweep (10 parallel audit agents + 9 parallel fix agents)
+
+### Security (RCE hardening)
+- `training/neural/flat.py`, `training/neural/recurrent.py` — `torch.load(..., weights_only=True)`.
+- `training/io.py` — `_SafeUnpickler` allowlist; `safe=True` default for `dill.load` paths.
+- `inference.py`, `pipelines.py` — `joblib.load` gated by `trusted_root` path validation (`os.path.commonpath`); sorted `os.listdir` for determinism; consistent `(models, X)` return shape; `output_dir` defaults to `tempfile.gettempdir()`.
+- `experiments.py` — SQL `fields` validated against `_ALLOWED_EXPERIMENT_FIELDS` frozenset (f-string injection fixed).
+- New `tests/test_security_rce.py` (4 tests).
+
+### Correctness / numeric sweep
+- `calibration.py` — Brier vs. binned-metric dispatch uses `is` identity (was no-op dict-comp typo); AD clips PIT to `[1e-12, 1-1e-12]`; ECI on probability-normalized counts; WPD `np.clip(p*(1-p), 1e-6, None)`; `show_classifier_calibration` accumulates per-interval perfs.
+- `postcalibration.py` — `isinstance` dispatch with lazy imports; `transform_method_name` resolved at `fit()`; 1-D probs clipped to [0,1] before `np.vstack`.
+- `metrics.py` — bounds guards in numba kernels; `fast_log_loss_binary` OOB→NaN; `fast_roc_auc` raises on `sample_weight`; `brier_score_loss` → `fast_brier_score_loss` (alias retained); rounding precision `max(1, ceil(log10(max(nbins,2))))`.
+- `ewma.py` — full O(n) numba recurrence (was O(n²) matrix + no-op `x[::np.newaxis]` slice).
+- `arrays.py` — removed `import mlframe` self-import; `arrayMinMax` returns `(nan,nan)` on empty; `topk_by_partition` no longer mutates caller, `k = min(k, n)`; O(1) membership check; shared-ref list fixed.
+- `stats.py:75` — `dist_kwargs=dist_kwargs` → `**dist_kwargs`.
+- `FeatureEngineering.py:247` — off-by-one mask (spans `x[l:r+1]` matching inclusive size).
+- `feature_engineering/mps.py` — OOB guards on start/end indices.
+- `feature_engineering/numerical.py` — Kahan compensator in rolling MA; argmin/argmax first-wins consistent with sibling kernel; weights threaded into early-exit path.
+- `feature_engineering/timeseries.py` — list-as-boolean wire bug in `create_and_process_windows` fixed; `accumulated_amount` initialized to avoid NameError.
+- `boruta_shap.py` — SciPy 1.12+ `binomtest` wrapper; lazy iris import; vectorized Z-score; shap split fix.
+- `feature_selection/general.py`/`wrappers.py`/`filters.py`/`optbinning.py` — empty-list guards, proper CV clone + rng, zero-prob entropy filter, `@njit(cache=True)`, deduped LOGGING block.
+- `feature_selection/mi.py` — design-intent NOTE preserving 3 MI kernels (grok/chatgpt/deepseek) as load-bearing.
+- `optimization.py:689` — **CRITICAL**: `elif OptimizationDirection.Maximize:` → `Minimize` (copy-paste bug).
+- `optimization.py` — `plt.close(fig)` after plotting; `logger.warn` → `logger.warning`.
+- `tuning.py` — cache key tuple instead of list; `learning_rate` uniform→loguniform; duplicate `penalties_coefficient` removed.
+- `evaluation.py:301` — `plt.grid(b=None)` → `visible=None` (mpl ≥3.5); `:339` tuple unpack fix.
+- `custom_estimators.py` — bounded retry loop; `scipy.ndimage.shift`; `PowerTransformer` no longer module-level; sklearn-compliant averagers (`classes_`, `n_features_in_`, `check_is_fitted`, `check_array`); `MyDecorrelator` trailing-underscore convention; `PdKBinsDiscretizer` sparse densify.
+- `estimators.py` — `logger` properly imported; `check_array` in fit/predict; `ClassifierWithEarlyStopping` gains `predict_proba`/`decision_function`; typo fixes.
+- `cluster.py` — `from sklearn.cluster import DBSCAN` (was undefined).
+- `eda.py:41` — `is not None` for pandas Series.
+- `feature_importance.py:73` — `feature_importances[sorted_idx[0]]`.
+- `helpers.py` — wildcard `from .config import *` → explicit imports; `model.steps[-1][1]` (was `(name, est)` tuple); vectorized `np.isinf` over numeric columns; tutorial helpers deleted.
+
+### RNG discipline
+- `MBHOptimizer`, `ParamsOptimizer`, `CatboostParamsOptimizer`, `optimize_finite_onedimensional_search_space`, `generate_valid_candidates`, `create_ctr_params`, `get_model`, `justify_estimator` — all accept `random_state`; internal `_rng = np.random.default_rng(...)` + `_stdlib_rng = random.Random(...)`; `np.random.*`/bare `random()` removed.
+- `training/splitting.py`, `training/evaluation.py`, `datasets.py`, `synthetic.py` — no more global `np.random.seed`; `generator`-threaded; scipy `.rvs(random_state=rng)`; sklearn bridge via `rng.integers(0, 2**32-1)`.
+- `custom_estimators.py::PureRandomClassifier` — fully sklearn-compliant (`random_state_`, `classes_`, `n_features_in_`, label-returning `predict`).
+- `synthetic.py` — tuple-vs-list dead branch at :44 fixed; asserts → `ValueError`; guarded divisions; off-by-one at :241 replaced with `generator.randint`.
+
+### Conventions (per MEMORY.md)
+- `postcalibration.py` — 2 regex sites hoisted to module-level `re.compile`; shared `_compile_pattern = lru_cache(re.compile)` helper.
+- New `tests/test_conventions.py` meta-tests.
+
+### Test suite & hygiene
+- `pytest.ini` rewritten — `minversion=7.0`, `testpaths=tests`, `pythonpath=.`, `--strict-markers --strict-config --doctest-modules --cov=mlframe`, `xfail_strict=true`, 8 `--ignore=` for legacy/broken, custom markers (`benchmark`, `multigpu`, `windows_only`, `linux_only`), `filterwarnings`.
+- `tests/conftest.py` — autouse session-scoped RNG seed fixture (random/numpy/torch = 0); `psutil` guarded via try/except; `warnings.resetwarnings()` replaced with scoped `catch_warnings()`.
+- 7 `assert True` exception-swallowing patterns replaced with real post-conditions + `pytest.skip` (test_core.py, test_feature_selection.py, test_stress.py).
+- `tests.py` (root) renamed → `bench_helpers.py`; `unittest_arrays.py` migrated → `tests/test_arrays.py` (9 pytest fns, timing asserts dropped).
+- `tests/lightninglib/` — 9 duplicate files deleted (kept `test_deprecated_import.py`).
+
+### Repo hygiene (~104 MB reclaimed)
+- Removed: `profile_mixed_dtypes.prof`, root `__pycache__/`, `catboost_info/`, `checkpoints/`, `lightning_logs/`, `logs/`, `.coverage`, `training_old.py.backup`, `read.me` (content merged into README), `NUL` (via `\\?\` extended-path API).
+- `.gitignore` — grouped `NUL` under Windows-specific block; added `*.prof`, `*.backup`, `*.py.backup`, `.benchmarks/`, `.ruff_cache/`, `.black_cache/`, `.vscode/`, `.direnv/`, `.envrc`, `coverage.lcov`, `tests/**/{catboost_info,lightning_logs,checkpoints,logs}/`.
+- `public_suffix_list.dat` retained (used at `FeatureEngineering.py:365`).
+
+### New tests (property-based + determinism + regression)
+- `tests/test_security_rce.py`, `tests/test_conventions.py`, `tests/test_rng_determinism.py`, `tests/test_rng_determinism_b.py`, `tests/test_numeric_bug_sweep.py`, `tests/test_sklearn_compliance.py`, `tests/test_fs_fe_fixes.py`, `tests/test_arrays.py`.
+
+### Verification
+- Import smoke: `mlframe`, `mlframe.training`, `mlframe.feature_engineering`, `mlframe.feature_selection` — all ok.
+- Per-agent suites: 4 + 3 + 6 + 9 + 7 + 19 + 6 + 9 = **63 new tests pass**.
+- Full-suite run flagged one order-dependent hypothesis test in `test_timeseries.py::test_find_next_cumsum_left_index` (passes in file scope; pre-existing test-pollution, not introduced by this sweep).
+
+### Deferred
+- Dead-code removal (Phase 3: `training_old.py`, `OldEnsembling.py`, `Models.py`, `Backtesting.py`, `Features.py`, `Data.py`, empty `models/`) — pending user decision.
+- Audit findings under `.claude/plans/mlframe_audit/*.md` (10 reports + `_SUMMARY.md`, outside repo).
+
 ## 2026-04-14 — Test Suite Optimization & Coverage Expansion
 
 ### Added

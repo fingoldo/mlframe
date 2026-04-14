@@ -38,17 +38,36 @@ from pyutilz.system import tqdmu
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-def read_trained_models(featureset: str, X: pd.DataFrame, features_file_name: str = "features.dump", inference_folder: str = "infer"):
+def read_trained_models(
+    featureset: str,
+    X: pd.DataFrame,
+    features_file_name: str = "features.dump",
+    inference_folder: str = "infer",
+    trusted_root: Optional[str] = None,
+):
     """Read trained models from a folder, along with required features names.
     Ensure that the models conform passed dataset.
+
+    If ``trusted_root`` is provided, the resolved model directory MUST be inside it
+    (absolute-path commonpath check). Otherwise a ValueError is raised.
     """
 
     models = {}
 
     fpath = join(inference_folder, featureset)
+    if trusted_root is not None:
+        abs_root = os.path.abspath(trusted_root)
+        abs_fpath = os.path.abspath(fpath)
+        try:
+            common = os.path.commonpath([abs_root, abs_fpath])
+        except ValueError:
+            raise ValueError(f"Path {abs_fpath} is not inside trusted_root {abs_root}")
+        if common != abs_root:
+            raise ValueError(f"Path {abs_fpath} is not inside trusted_root {abs_root}")
     if not isdir(fpath):
-        return models
+        return models, X
 
+    features = None
     features_file = join(fpath, features_file_name)
     if isfile(features_file):
         try:
@@ -67,7 +86,7 @@ def read_trained_models(featureset: str, X: pd.DataFrame, features_file_name: st
     else:
         X = X[features]
 
-    for model_name in tqdmu(os.listdir(fpath), desc="Reading trained models"):
+    for model_name in tqdmu(sorted(os.listdir(fpath)), desc="Reading trained models"):
         model_file = join(fpath, model_name)
         if isfile(model_file) and model_name != features_file_name:
             # load model

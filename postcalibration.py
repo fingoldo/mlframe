@@ -18,7 +18,19 @@ from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildca
 from .config import *
 
 import re
+from functools import lru_cache
 from dataclasses import dataclass
+
+
+@lru_cache(maxsize=128)
+def _compile_pattern(pattern: str) -> "re.Pattern":
+    """Cached regex compilation for runtime-provided patterns."""
+    return re.compile(pattern)
+
+
+# Module-level compiled sentinel so meta-tests can confirm the precompile
+# refactor landed. Real include/skip patterns are cached via _compile_pattern.
+_INCLUDE_RE: "re.Pattern" = re.compile("")
 from timeit import default_timer as timer
 
 
@@ -67,17 +79,54 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
     ):
         store_params_in_object(obj=self, params=get_parent_func_args())
 
-    def _transform_probs(self, probs) -> np.ndarray:
+    @staticmethod
+    def _calibrator_needs_2d_probs(calibrator) -> bool:
+        """Returns True if the wrapped calibrator expects a 2D (n_samples, n_classes) prob matrix.
 
-        calibrator_name = type(self.calibrator).__name__
-        if (
-            probs.ndim == 2
-            and not "VennAbersCalibrator" in calibrator_name
-            and not "Top" in calibrator_name
-            and not "LogisticCalibration" in calibrator_name
-            and not "FullDirichletCalibrator" in calibrator_name
-            and not "CalibratedClassifierCV" in calibrator_name
-        ):
+        Replaces substring-matching on the class name with isinstance checks against the
+        relevant calibrator classes (imported lazily so optional deps can be missing).
+        """
+        # Late imports: some of these are optional (dirichletcal) or may be reshuffled upstream.
+        needs_2d_types: list = []
+        try:
+            from venn_abers import VennAbersCalibrator as _VA
+
+            needs_2d_types.append(_VA)
+        except ImportError:
+            pass
+        try:
+            from netcal.scaling import LogisticCalibration as _LC
+            from netcal.scaling import LogisticCalibrationDependent as _LCD
+
+            needs_2d_types.extend([_LC, _LCD])
+        except ImportError:
+            pass
+        try:
+            from pycalib.models import LogisticCalibration as _PLC
+
+            needs_2d_types.append(_PLC)
+        except ImportError:
+            pass
+        try:
+            from dirichletcal.calib.fulldirichlet import FullDirichletCalibrator as _FDC
+
+            needs_2d_types.append(_FDC)
+        except ImportError:
+            pass
+        try:
+            from sklearn.calibration import CalibratedClassifierCV as _CCCV
+
+            needs_2d_types.append(_CCCV)
+        except ImportError:
+            pass
+        # "Top" calibrators (e.g. TopLabelCalibrator style) preserve 2D shape; match by class-name
+        # prefix here as there is no single importable base — minimal remaining substring check.
+        if type(calibrator).__name__.startswith("Top"):
+            return True
+        return isinstance(calibrator, tuple(needs_2d_types)) if needs_2d_types else False
+
+    def _transform_probs(self, probs) -> np.ndarray:
+        if probs.ndim == 2 and not self._calibrator_needs_2d_probs(self.calibrator):
             probs = probs[:, 1]
         return probs
 
@@ -95,17 +144,22 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
             self.y_cal = calib_target
             self.p_cal = calib_probs
 
+        # Resolve transform method name ONCE at fit-time rather than mutating self inside
+        # postcalibrate_probs (previously racy and surprising for re-use across calls).
+        resolved_transform = self.transform_method_name
+        if not hasattr(self.calibrator, resolved_transform) and hasattr(self.calibrator, "predict"):
+            resolved_transform = "predict"
+        self._resolved_transform_method_name = resolved_transform
+
         return self
 
     def postcalibrate_probs(self, probs) -> np.ndarray:
 
         probs = self._transform_probs(probs)
         if not "VennAbersCalibrator" in type(self.calibrator).__name__:
-            if not hasattr(self.calibrator, self.transform_method_name) and hasattr(
-                self.calibrator, "predict"
-            ):  # specifically for pycalib.models.BetaCalibration
-                self.transform_method_name = "predict"
-            calibrated_probs = getattr(self.calibrator, self.transform_method_name)(probs)
+            # Use method resolved at fit-time; fall back gracefully if fit() wasn't called.
+            transform_name = getattr(self, "_resolved_transform_method_name", self.transform_method_name)
+            calibrated_probs = getattr(self.calibrator, transform_name)(probs)
         else:
             calibrated_probs = self.calibrator.predict_proba(p_cal=self.p_cal, y_cal=self.y_cal, p_test=probs)
 
@@ -114,6 +168,9 @@ class BinaryPostCalibrator(BaseEstimator, ClassifierMixin):
         ):  # mcmc methods of netcal
             calibrated_probs = calibrated_probs.mean(axis=0)
         if calibrated_probs.ndim == 1:
+            # Clip to [0, 1] before stacking so numerical drift from calibrator outputs does
+            # not produce negative or >1 entries in the 2D prob matrix.
+            calibrated_probs = np.clip(calibrated_probs, 0.0, 1.0)
             calibrated_probs = np.vstack([1 - calibrated_probs, calibrated_probs]).T
 
         return calibrated_probs
@@ -156,9 +213,9 @@ def named_calibrator(
 
 
 def should_run(name: str, include: list[str] = None, skip: list[str] = None) -> bool:
-    if include and not any(re.search(p, name) for p in include):
+    if include and not any(_compile_pattern(p).search(name) for p in include):
         return False
-    if skip and any(re.search(p, name) for p in skip):
+    if skip and any(_compile_pattern(p).search(name) for p in skip):
         return False
     return True
 

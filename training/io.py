@@ -7,6 +7,7 @@ zstandard compression and dill serialization.
 
 import logging
 import os
+import warnings
 from types import SimpleNamespace
 from typing import Optional, Dict, Any
 
@@ -14,6 +15,44 @@ import dill
 import zstandard as zstd
 
 logger = logging.getLogger(__name__)
+
+
+# Allowlist of module prefixes for safe unpickling.
+_SAFE_MODULE_PREFIXES: tuple = (
+    "numpy",
+    "pandas",
+    "polars",
+    "sklearn",
+    "pytorch_lightning",
+    "torch",
+    "catboost",
+    "lightgbm",
+    "xgboost",
+    "builtins",
+    "collections",
+    "datetime",
+    "dataclasses",
+    "types",
+)
+
+# Specific safe names in "types" (only SimpleNamespace).
+_SAFE_SPECIFIC: frozenset = frozenset({("types", "SimpleNamespace")})
+
+
+class _SafeUnpickler(dill.Unpickler):
+    """Restricted unpickler that only allows a conservative allowlist of modules."""
+
+    def find_class(self, module: str, name: str):
+        # Allow exact specific pairs.
+        if (module, name) in _SAFE_SPECIFIC:
+            return super().find_class(module, name)
+        # Allow by module prefix (module == prefix or module startswith prefix + ".").
+        for prefix in _SAFE_MODULE_PREFIXES:
+            if module == prefix or module.startswith(prefix + "."):
+                return super().find_class(module, name)
+        raise dill.UnpicklingError(
+            f"Unsafe class blocked by _SafeUnpickler allowlist: {module}.{name}"
+        )
 
 
 def save_mlframe_model(
@@ -59,12 +98,14 @@ def save_mlframe_model(
         return False
 
 
-def load_mlframe_model(file: str) -> Optional[object]:
+def load_mlframe_model(file: str, safe: bool = True) -> Optional[object]:
     """
     Load an mlframe model from a compressed file.
 
     Args:
         file: Path to the model file.
+        safe: If True (default), use _SafeUnpickler with a conservative allowlist.
+            If False, use vanilla dill.load (unsafe — RCE risk from untrusted sources).
 
     Returns:
         The loaded model object, or None if loading failed.
@@ -73,7 +114,15 @@ def load_mlframe_model(file: str) -> Optional[object]:
         with open(file, "rb") as f:
             decompressor = zstd.ZstdDecompressor()
             with decompressor.stream_reader(f) as zf:
-                model = dill.load(zf)
+                if safe:
+                    model = _SafeUnpickler(zf).load()
+                else:
+                    warnings.warn(
+                        "Loading without allowlist — trust source",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    model = dill.load(zf)
         return model
     except Exception as e:
         logger.error(f"Could not load model from file {file}: {e}")
@@ -117,4 +166,5 @@ __all__ = [
     "save_mlframe_model",
     "load_mlframe_model",
     "clean_mlframe_model",
+    "_SafeUnpickler",
 ]

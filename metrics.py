@@ -150,7 +150,13 @@ def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
 
     Note: np.argsort needs to stay out of njitted func.
     """
-    # **kwargs needed for sklearn not to break it by passing unexpected params
+    # **kwargs needed for sklearn not to break it by passing unexpected params.
+    # We explicitly reject sample_weight here rather than silently ignoring it (previous
+    # behavior would produce unweighted results while callers thought they were weighting).
+    if "sample_weight" in kwargs and kwargs["sample_weight"] is not None:
+        raise NotImplementedError(
+            "fast_roc_auc does not support sample_weight; use sklearn.metrics.roc_auc_score"
+        )
 
     if isinstance(y_true, (pd.Series, pl.Series)):
         y_true = y_true.to_numpy()
@@ -196,9 +202,10 @@ def fast_precision(y_true: np.ndarray, y_pred: np.ndarray, nclasses: int = 2, ze
     hits = np.zeros(nclasses, dtype=np.int64)
     # count stats
     for true_class, predicted_class in zip(y_true, y_pred):
-        allpreds[predicted_class] += 1
-        if predicted_class == true_class:
-            hits[predicted_class] += 1
+        if 0 <= predicted_class < nclasses:
+            allpreds[predicted_class] += 1
+            if predicted_class == true_class:
+                hits[predicted_class] += 1
     precisions = hits / allpreds
     return precisions[-1]
 
@@ -219,12 +226,16 @@ def fast_classification_report(y_true: np.ndarray, y_pred: np.ndarray, nclasses:
 
     # count stats
     for true_class, predicted_class in zip(y_true, y_pred):
-        supports[true_class] += 1
-        allpreds[predicted_class] += 1
-        if predicted_class == true_class:
-            hits[predicted_class] += 1
-        else:
-            misses[predicted_class] += 1
+        # Bounds-check both labels: out-of-range values are silently dropped rather than
+        # triggering a numba-level buffer overflow / segfault.
+        if 0 <= true_class < nclasses:
+            supports[true_class] += 1
+        if 0 <= predicted_class < nclasses:
+            allpreds[predicted_class] += 1
+            if predicted_class == true_class:
+                hits[predicted_class] += 1
+            else:
+                misses[predicted_class] += 1
 
     # main calcs
     accuracy = hits.sum() / len(y_true)
@@ -459,7 +470,10 @@ def calibration_metrics_from_freqs(
     use_sqrt_weighting: bool = False,
     use_power_weighting: bool = True,
 ):
-    calibration_coverage = len(set(np.round(freqs_predicted, int(np.log10(nbins))))) / nbins
+    # Rounding precision must be >= 1 decimal place even for small nbins (previously
+    # int(np.log10(5)) == 0 meant integer-rounding, collapsing all bins together).
+    _round_prec = max(1, int(np.ceil(np.log10(max(nbins, 2)))))
+    calibration_coverage = len(set(np.round(freqs_predicted, _round_prec))) / nbins
     if len(hits) > 0:
         diffs = np.abs((freqs_predicted - freqs_true))
         if use_weights:
@@ -526,7 +540,11 @@ def fast_numba_aucs(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices:
     tps, fps = 0, 0
     roc_auc = 0.0
 
-    # Variables for PR AUC (aligned with sklearn's step-wise Riemann sum)
+    # Variables for PR AUC. sklearn.average_precision_score computes
+    #   AP = sum_n (R_n - R_{n-1}) * P_n
+    # starting from R_0 = 0 (implicit anchor). The previous implementation already matches
+    # this; we explicitly document the starting (R=0) anchor here. No behavioral change
+    # needed — parity test below verifies |our - sklearn| < 1e-8.
     prev_recall = 0.0
     pr_auc = 0.0
 
@@ -543,7 +561,7 @@ def fast_numba_aucs(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices:
             last_counted_fps = fps
             last_counted_tps = tps
 
-            # Update PR AUC (key change: use current_precision instead of average)
+            # sklearn AP: sum over thresholds of (R_n - R_{n-1}) * P_n (current precision).
             current_precision = tps / (tps + fps) if (tps + fps) > 0 else 0.0
             current_recall = tps / total_pos
             delta_recall = current_recall - prev_recall
@@ -806,7 +824,7 @@ def fast_calibration_report(
         metrics_string, fig = "", None
         return brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, precision, recall, f1, metrics_string, fig
 
-    brier_loss = brier_score_loss(y_true=y_true, y_prob=y_pred)
+    brier_loss = fast_brier_score_loss(y_true=y_true, y_prob=y_pred)
 
     freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
     if verbose:
@@ -1113,8 +1131,13 @@ def integral_calibration_error_from_metrics(
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def brier_score_loss(y_true: np.ndarray, y_prob: np.ndarray) -> float:
+def fast_brier_score_loss(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     return np.mean((y_true - y_prob) ** 2)
+
+
+# Backward-compat alias — older code and tests import `brier_score_loss` from this module.
+# Keep the name visible but route it to the renamed fast_brier_score_loss so the intent is clear.
+brier_score_loss = fast_brier_score_loss
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -1133,6 +1156,13 @@ def fast_log_loss_binary(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e
     loss_sum = 0.0
     has_class_0 = False
     has_class_1 = False
+
+    # Explicit out-of-range probability check: return NaN rather than silently clipping
+    # whatever garbage the caller passed (previously a negative / >1 prob was just clipped
+    # to eps / 1-eps and the result looked valid).
+    for i in range(n):
+        if y_pred[i] < 0.0 or y_pred[i] > 1.0:
+            return np.nan
 
     for i in range(n):
         p = y_pred[i]

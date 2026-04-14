@@ -60,9 +60,10 @@ def _auto_detect_feature_types(
         return text_features, embedding_features
 
     threshold = feature_types_config.cat_text_cardinality_threshold
-    # Only user-specified features are "already assigned" — auto-detected categoricals
-    # should still be checked by cardinality (high-cardinality → text, not cat)
-    already_assigned = set(text_features) | set(embedding_features)
+    # Already-assigned features skip auto-detection. Include explicit cat_features too
+    # (user-declared cats must not be silently promoted to text features — CatBoost text
+    # tokenization on short categorical strings frequently yields empty dictionaries).
+    already_assigned = set(text_features) | set(embedding_features) | set(cat_features or [])
 
     if isinstance(df, pl.DataFrame):
         for name, dtype in df.schema.items():
@@ -1381,6 +1382,15 @@ def train_mlframe_models_suite(
         "val_od_idx": val_od_idx,
     }
 
+    # Keep polars fastpath DFs in sync with pandas-filtered copies so that the
+    # Polars-native training path operates on OD-filtered rows matching the
+    # OD-filtered targets. Without this the downstream training call feeds the
+    # unfiltered Polars DF but the OD-filtered target → length mismatch.
+    if train_od_idx is not None and train_df_polars is not None:
+        train_df_polars = train_df_polars.filter(pl.Series(train_od_idx))
+    if val_od_idx is not None and val_df_polars is not None:
+        val_df_polars = val_df_polars.filter(pl.Series(val_od_idx))
+
     # Save metadata EARLY (before training loops) so that if training is interrupted,
     # already-trained models are still usable with the saved pipeline/preprocessing
     _finalize_and_save_metadata(
@@ -1652,6 +1662,15 @@ def train_mlframe_models_suite(
                             # constructor call with the same params, which produces an equivalent
                             # fresh unfitted model without the verification step.
                             cloned_model = type(original_model)(**original_model.get_params())
+                        except TypeError:
+                            # NGBoost: get_params() exposes attributes (validation_fraction,
+                            # early_stopping_rounds) that __init__ doesn't accept. Filter get_params
+                            # to those actually in the signature.
+                            import inspect as _inspect
+                            _cls = type(original_model)
+                            _sig_params = set(_inspect.signature(_cls.__init__).parameters) - {"self"}
+                            _raw = original_model.get_params(deep=False)
+                            cloned_model = _cls(**{k: v for k, v in _raw.items() if k in _sig_params})
                         current_model_params = models_params[mlframe_model_name].copy()
                         current_model_params["model"] = cloned_model
 

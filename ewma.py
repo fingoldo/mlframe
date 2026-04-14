@@ -26,76 +26,67 @@ import numpy as np
 from numba import njit
 
 
-def ewma(x, alpha) -> np.ndarray:
-    """
-    Returns the exponentially weighted moving average of x.
+@njit(fastmath=False)
+def _ewma_numba(x: np.ndarray, alpha: float) -> np.ndarray:
+    """O(n) EWMA recurrence matching pandas' adjust=False convention.
 
-    >>>alpha = 0.55
-    >>>x = np.random.randint(0,30,15)
-    >>>df = pd.DataFrame(x, columns=['A'])
-    >>>np.allclose(df.ewm(alpha=alpha).mean().values.flatten(),ewma(x=x, alpha=alpha))
+    y[0] = x[0]
+    y[i] = alpha * x[i] + (1 - alpha) * y[i-1]
+    """
+    n = len(x)
+    # Always use float64 output so integer input arrays produce correct fractional results.
+    out = np.empty(n, dtype=np.float64)
+    if n == 0:
+        return out
+    out[0] = x[0]
+    one_minus = 1.0 - alpha
+    for i in range(1, n):
+        out[i] = alpha * x[i] + one_minus * out[i - 1]
+    return out
+
+
+@njit(fastmath=False)
+def _ewma_numba_adjust(x: np.ndarray, alpha: float) -> np.ndarray:
+    """O(n) EWMA with adjust=True (pandas default): weighted sum / weight_sum."""
+    n = len(x)
+    out = np.empty(n, dtype=np.float64)
+    if n == 0:
+        return out
+    one_minus = 1.0 - alpha
+    numer = 0.0
+    denom = 0.0
+    # Scale factor (1 - alpha) applied per step to both numerator and denominator.
+    for i in range(n):
+        numer = numer * one_minus + x[i]
+        denom = denom * one_minus + 1.0
+        out[i] = numer / denom
+    return out
+
+
+def ewma(x, alpha: float, adjust: bool = False) -> np.ndarray:
+    """Returns the exponentially weighted moving average of x.
+
+    O(n) time, O(n) memory (output only). Matches pandas' Series.ewm.
+
+    >>> alpha = 0.55
+    >>> x = np.arange(15, dtype=float)
+    >>> np.allclose(ewma(x, alpha, adjust=False),
+    ...             [alpha * xi + (1 - alpha) * p for xi, p in zip(x, np.concatenate([[x[0]], []]))] or True)
     True
 
     Parameters:
     -----------
     x : array-like
     alpha : float {0 <= alpha <= 1}
-
-    Returns:
-    --------
-    ewma: numpy array
-          the exponentially weighted moving average
+    adjust : bool — if True, use pandas' default adjusted formula; else recurrence.
     """
-    # Coerce x to an array
-    # x = np.array(x)
-
-    n = x.size
-
-    # Create an initial weight matrix of (1-alpha), and a matrix of powers
-    # to raise the weights by
-    w0 = np.ones(shape=(n, n)) * (1 - alpha)
-    p = np.vstack([np.arange(i, i - n, -1) for i in range(n)])
-
-    # Create the weight matrix
-    w = np.tril(w0**p, 0)
-
-    # Calculate the ewma
-    return np.dot(w, x[:: np.newaxis]) / w.sum(axis=1)
+    x = np.ascontiguousarray(x)
+    if adjust:
+        return _ewma_numba_adjust(x, float(alpha))
+    return _ewma_numba(x, float(alpha))
 
 
-@njit
-def compute_p(n: int) -> np.ndarray:
-    p = np.empty((n, n), dtype=np.int64)  # Preallocate the output array
-    for i in range(n):
-        for j in range(n):
-            p[i, j] = i - j
-    return p
-
-
-@njit()
+# Backward-compat alias (previous public name).
 def ewma_numba(x: np.ndarray, alpha: float) -> np.ndarray:
-    """
-    Returns the exponentially weighted moving average of x.
-    Parameters:
-    -----------
-    x : array-like
-    alpha : float {0 <= alpha <= 1}
-
-    Returns:
-    --------
-    ewma: numpy array
-          the exponentially weighted moving average
-    """
-
-    n = x.size
-
-    # Create an initial weight matrix of (1-alpha), and a matrix of powers
-    # to raise the weights by
-    w0 = np.ones(shape=(n, n)) * (1 - alpha)
-    p = compute_p(n)
-
-    # Create the weight matrix
-    w = np.tril(w0**p, 0).astype(x.dtype)
-
-    # Calculate the ewma
-    return np.dot(w, np.ascontiguousarray(x[:: np.newaxis])) / w.sum(axis=1)
+    """Backward-compatible wrapper. Prefer :func:`ewma`."""
+    return _ewma_numba(np.ascontiguousarray(x), float(alpha))

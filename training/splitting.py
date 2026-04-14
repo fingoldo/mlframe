@@ -60,8 +60,10 @@ def make_train_test_split(
         Tuple of (train_idx, val_idx, test_idx, train_details, val_details, test_details)
         where *_idx are sorted numpy arrays of indices and *_details are description strings.
     """
-    if random_seed:
-        np.random.seed(random_seed)
+    # Local RNG — never mutate global numpy random state (policy).
+    rng = np.random.default_rng(random_seed)
+    # Derive a 32-bit int seed for sklearn splitters that need an integer seed.
+    sklearn_seed = int(rng.integers(0, 2**32 - 1)) if random_seed is not None else None
 
     # Validate trainset_aging_limit once at the start (used in multiple branches below)
     if trainset_aging_limit and not (0 < trainset_aging_limit < 1.0):
@@ -83,7 +85,7 @@ def make_train_test_split(
 
         return n_sequential, n_shuffled
 
-    def _perform_split(sorted_items, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf):
+    def _perform_split(sorted_items, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf, rng=rng):
         """Perform the actual splitting on sorted items (dates or indices)."""
         remaining = sorted_items.copy()
         test_seq = val_seq = None
@@ -104,13 +106,13 @@ def make_train_test_split(
 
         # Shuffled test from remaining
         if n_test_shuf > 0:
-            test_shuf_idx = np.random.choice(len(remaining), n_test_shuf, replace=False)
+            test_shuf_idx = rng.choice(len(remaining), n_test_shuf, replace=False)
             test_list.append(remaining[test_shuf_idx])
             remaining = np.delete(remaining, test_shuf_idx)
 
         # Shuffled val from remaining
         if n_val_shuf > 0:
-            val_shuf_idx = np.random.choice(len(remaining), n_val_shuf, replace=False)
+            val_shuf_idx = rng.choice(len(remaining), n_val_shuf, replace=False)
             val_list.append(remaining[val_shuf_idx])
             remaining = np.delete(remaining, val_shuf_idx)
 
@@ -153,16 +155,18 @@ def make_train_test_split(
         )
 
         # Map dates to row indices
-        train_idx = np.where(dates.isin(train_dates))[0]
         val_idx = np.where(dates.isin(val_dates))[0]
         test_idx = np.where(dates.isin(test_dates))[0]
 
-        # Apply aging limit
+        # Apply aging limit BEFORE computing train_idx / train_details,
+        # so the printed train date range reflects the actually-used rows
+        # (consistent with the row-timestamp branch below).
         if trainset_aging_limit:
             n_dates_to_keep = int(len(train_dates) * trainset_aging_limit)
             if n_dates_to_keep > 0:
-                recent_dates = np.sort(train_dates)[-n_dates_to_keep:]
-                train_idx = np.where(dates.isin(recent_dates))[0]
+                train_dates = np.sort(train_dates)[-n_dates_to_keep:]
+
+        train_idx = np.where(dates.isin(train_dates))[0]
 
         # Build detail strings
         train_details = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
@@ -194,13 +198,17 @@ def make_train_test_split(
         all_idx = np.arange(len(df))
         if test_size > 0:
             train_idx, test_idx = train_test_split(
-                all_idx, test_size=test_size, shuffle=shuffle_test
+                all_idx, test_size=test_size, shuffle=shuffle_test,
+                random_state=sklearn_seed if shuffle_test else None,
             )
         else:
             train_idx, test_idx = all_idx, np.array([], dtype=np.intp)
 
         if val_size > 0:
-            train_idx, val_idx = train_test_split(train_idx, test_size=val_size, shuffle=shuffle_val)
+            train_idx, val_idx = train_test_split(
+                train_idx, test_size=val_size, shuffle=shuffle_val,
+                random_state=sklearn_seed if shuffle_val else None,
+            )
         else:
             val_idx = np.array([], dtype=np.intp)
 

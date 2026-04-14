@@ -325,8 +325,9 @@ def report_regression_model_perf(
         title += f" MaxError={MaxError:.{report_ndigits}f}"
         title += f" R2={R2:.{report_ndigits}f}"
 
-        np.random.seed(DEFAULT_RANDOM_SEED)
-        idx = np.random.choice(np.arange(len(preds)), size=min(plot_sample_size, len(preds)), replace=False)
+        # Local RNG — do not pollute global numpy state.
+        _rng = np.random.default_rng(DEFAULT_RANDOM_SEED)
+        idx = _rng.choice(np.arange(len(preds)), size=min(plot_sample_size, len(preds)), replace=False)
         idx = idx[np.argsort(preds[idx])]
 
         fig = plt.figure(figsize=figsize)

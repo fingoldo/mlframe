@@ -144,6 +144,7 @@ class ModelPipelineStrategy(ABC):
             is_feature_selector = (
                 isinstance(base_pipeline, SelectorMixin)
                 or isinstance(base_pipeline, MRMR)
+                or isinstance(base_pipeline, Pipeline)  # nested sklearn Pipeline is treated as pre-step
                 or hasattr(base_pipeline, 'get_support')  # RFECV and similar
             )
 
@@ -219,7 +220,8 @@ class CatBoostStrategy(TreeModelStrategy):
     supports_polars = True
     supports_text_features = True
     supports_embedding_features = True
-    cache_key = "catboost"
+    # Inherits cache_key = "tree" from TreeModelStrategy so CB/LGB/XGB share
+    # transformed-DF cache (they have identical preprocessing requirements).
 
 
 class XGBoostStrategy(TreeModelStrategy):
@@ -233,7 +235,7 @@ class XGBoostStrategy(TreeModelStrategy):
     """
 
     supports_polars = True
-    cache_key = "xgboost"
+    # Inherits cache_key = "tree" from TreeModelStrategy (see CatBoostStrategy note).
 
     def prepare_polars_dataframe(self, df: "pl.DataFrame", cat_features: List[str]) -> "pl.DataFrame":
         """Cast string columns to pl.Categorical for XGBoost auto-detection.

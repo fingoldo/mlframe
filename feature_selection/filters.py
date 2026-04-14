@@ -32,7 +32,7 @@ from pyutilz.system import tqdmu
 from pyutilz.pythonlib import sort_dict_by_value
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 from pyutilz.parallel import mem_map_array, split_list_into_chunks, parallel_run
-from pyutilz.numbalib import set_numba_random_seed, arr2str, python_dict_2_numba_dict, generate_combinations_recursive_njit
+from pyutilz.numbalib import set_numba_random_seed, arr2str as _py_arr2str, python_dict_2_numba_dict, generate_combinations_recursive_njit
 
 # from mlframe.boruta_shap import BorutaShap
 
@@ -65,6 +65,17 @@ from joblib import Parallel, delayed
 
 from numba import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
 import warnings
+
+
+@njit()
+def arr2str(arr) -> str:
+    """Numba-compiled replacement for pyutilz.numbalib.arr2str (which is pure Python
+    and therefore unusable inside @njit functions). Uses str(el) per element, which
+    numba supports for integer arrays."""
+    out = ""
+    for el in arr:
+        out += str(el)
+    return out
 
 # ensure_installed("numba numpy pandas scipy astropy scikit-learn joblib catboost psutil")  # cupy-cuda11x
 
@@ -289,6 +300,8 @@ def merge_vars(
 def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
     if min_occupancy:
         freqs = freqs[freqs >= min_occupancy]
+    else:
+        freqs = freqs[freqs > 0]
 
     return -(np.log(freqs) * freqs).sum()
 
@@ -457,7 +470,7 @@ def conditional_mi(
     return res
 
 
-@njit()
+@njit(cache=True)
 def compute_mi_from_classes(
     classes_x: np.ndarray,
     freqs_x: np.ndarray,
@@ -2818,7 +2831,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         if isinstance(X, np.ndarray):
             X = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
 
-        self.feature_names_in_ = X.columns.tolist()
+        self.feature_names_in_ = X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)
         self.n_features_in_ = len(self.feature_names_in_)
 
         # ---------------------------------------------------------------------------------------------------------------
@@ -2842,6 +2855,9 @@ class MRMR(BaseEstimator, TransformerMixin):
             print("Converted targets from int64 to int16.")
             vals = vals.astype(np.int16)
 
+        # Polars DataFrames lack .loc — convert to pandas once for target injection + downstream ops.
+        if hasattr(X, "to_pandas") and not hasattr(X, "loc"):
+            X = X.to_pandas()
         X.loc[:, target_names] = vals.reshape(-1, 1)
 
         # ---------------------------------------------------------------------------------------------------------------

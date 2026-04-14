@@ -524,6 +524,7 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
         classification_exact_values: Optional[dict] = None,
         classification_lower_thresholds: Optional[dict] = None,
         classification_upper_thresholds: Optional[dict] = None,
+        classification_thresholds: Optional[dict] = None,  # alias for classification_lower_thresholds
         # Weighting options
         use_uniform_weighting: bool = False,
         use_recency_weighting: bool = True,
@@ -543,6 +544,9 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
 
         self.regression_targets = regression_targets
         self.classification_targets = classification_targets
+        # classification_thresholds is an alias for classification_lower_thresholds
+        if classification_thresholds is not None and classification_lower_thresholds is None:
+            classification_lower_thresholds = classification_thresholds
         self.classification_lower_thresholds = classification_lower_thresholds
         self.classification_upper_thresholds = classification_upper_thresholds
         self.classification_exact_values = classification_exact_values

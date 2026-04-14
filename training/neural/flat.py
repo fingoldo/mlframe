@@ -747,7 +747,7 @@ class MLPTorchModel(L.LightningModule):
         logger.info(f"Loading best model from {best_model_path} (score: {score_str})")
 
         try:
-            checkpoint = torch.load(best_model_path, map_location=self.device, weights_only=False)
+            checkpoint = torch.load(best_model_path, map_location=self.device, weights_only=True)
 
             if "state_dict" not in checkpoint:
                 logger.error("Checkpoint missing 'state_dict'. Cannot load weights.")

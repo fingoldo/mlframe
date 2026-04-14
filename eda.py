@@ -38,7 +38,7 @@ def showcase_dataframe_columns(df: pd.DataFrame, dtype: str = "object", value_co
     if verbose:
         logger.info("Showcasing %s cols of type %s", sample.shape[1], dtype)
     for col in sample.columns:
-        if value_counts:
+        if value_counts is not None:
             tmp = value_counts.get(col)
         else:
             tmp = df[col].value_counts(dropna=False)

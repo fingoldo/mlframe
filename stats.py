@@ -72,7 +72,7 @@ def get_tukey_fences_multiplier_for_quantile(
 
     if sd_sigma is None:
         assert nonoutlying_dist_percentage > 0 and nonoutlying_dist_percentage < 1.0
-        sd_sigma = get_sd_for_dist_percentage(nonoutlying_dist_percentage, dist=dist, dist_kwargs=dist_kwargs)
+        sd_sigma = get_sd_for_dist_percentage(nonoutlying_dist_percentage, dist=dist, **dist_kwargs)
 
     ppf = np.abs(dist.ppf(quantile, **dist_kwargs))
     return (sd_sigma - ppf) / (2 * ppf)

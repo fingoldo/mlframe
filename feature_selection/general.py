@@ -62,7 +62,7 @@ def estimate_features_relevancy(
     permuted_max_mi_quantile: float = None,
     min_permuted_mi_evaluations: int = 500,
     min_randomized_permutations: int = 1,
-    max_permuted_prevalence_percent: float = 0.0,
+    max_permuted_prevalence_percent: float = 0.05,
     # stopping criteria
     max_runtime_mins: float = None,
     # style
@@ -114,7 +114,7 @@ def estimate_features_relevancy(
     if verbose > 1:
         logger.info("Computing original MIs...")
 
-    arr = bins.to_numpy(allow_copy=True)
+    arr = bins.to_numpy(allow_copy=True).copy()
     target_indices = [bins.columns.index(target_col) for target_col in target_columns]
 
     original_mi_results = mi_algorithms_ranking[0](arr, target_indices)
@@ -177,6 +177,9 @@ def estimate_features_relevancy(
 
     for target_idx, target_col_idx in enumerate(target_indices):
         target_name = target_columns[target_idx]
+
+        if not all_permuted_mis[target_name] or not current_permuted_mis[target_name]:
+            continue
 
         all_permuted_mis[target_name] = np.hstack(all_permuted_mis[target_name])
         current_permuted_mis[target_name] = np.vstack(current_permuted_mis[target_name])

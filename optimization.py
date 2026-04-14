@@ -25,7 +25,7 @@ while True:
 
         import matplotlib.pyplot as plt
 
-        from random import random
+        import random as _stdlib_random
         from enum import Enum, auto
         from expiringdict import ExpiringDict
         from timeit import default_timer as timer
@@ -166,6 +166,7 @@ class MBHOptimizer:
         verbose: int = 0,
         suggestions_cache_max_age_sec: int = 60 * 60,  # wait 1 hr before allowing repeated suggestions
         greedy_prob: float = 0.03,
+        random_state: Union[int, np.random.Generator, None] = None,
     ):
 
         # ----------------------------------------------------------------------------------------------------------------------------
@@ -185,6 +186,13 @@ class MBHOptimizer:
 
         params = get_parent_func_args()
         store_params_in_object(obj=self, params=params)
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # RNG discipline — seed-threadable randomness
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        self._rng = np.random.default_rng(random_state)
+        self._stdlib_rng = _stdlib_random.Random(int(self._rng.integers(0, 2**32 - 1)))
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Inits
@@ -241,10 +249,12 @@ class MBHOptimizer:
 
         if init_num_samples > 0:
             if isinstance(init_num_samples, float) and init_num_samples < 1.0:
-                init_num_samples = len(search_space) * init_num_samples
+                init_num_samples = int(len(search_space) * init_num_samples)
+            else:
+                init_num_samples = int(init_num_samples)
 
             if init_sampling_method == CandidateSamplingMethod.Random:
-                sampled_inputs = np.random.choice(search_space, size=min(init_num_samples, len(search_space)), replace=False)
+                sampled_inputs = self._rng.choice(search_space, size=min(init_num_samples, len(search_space)), replace=False)
             elif init_sampling_method == CandidateSamplingMethod.Equidistant:
                 sampled_indices = np.linspace(0, len(search_space) - 1, init_num_samples).astype(int)
                 sampled_inputs = np.array(search_space)[sampled_indices[:init_num_samples]]
@@ -322,7 +332,7 @@ class MBHOptimizer:
             # of underlying model's opinion.
 
             greedy_prob = min(self.greedy_prob * min(self.n_noimproving_iters, self.n_steps_since_greedy + 1), 1.0)
-            if random() < greedy_prob:
+            if self._stdlib_rng.random() < greedy_prob:
                 self.n_steps_since_greedy = 0
 
                 expected_fitness = np.abs(np.array(self.search_space) - self.best_candidate)
@@ -348,7 +358,7 @@ class MBHOptimizer:
 
                     # First need to check that targets are not all the same:
                     if np.all(self.known_evaluations == self.known_evaluations[0]):
-                        logger.warn(f"All targets are the same! Can't train the underlying process model.")
+                        logger.warning(f"All targets are the same! Can't train the underlying process model.")
                         return None
 
                     if not hasattr(self.model, "partial_fit"):
@@ -379,7 +389,7 @@ class MBHOptimizer:
                     y_pred = self.y_pred
                     y_std = self.y_std
 
-                if random() < self.exploitation_probability:
+                if self._stdlib_rng.random() < self.exploitation_probability:
                     self.mode = "exploitation"
                 else:
                     self.mode = "exploration"
@@ -447,7 +457,7 @@ class MBHOptimizer:
                         if next_candidate not in self.known_candidates and next_candidate not in self.suggested_candidates:
                             if self.skip_best_candidate_prob > 0.0:
                                 # Randomly skip the best candidate, if required
-                                if random() < self.skip_best_candidate_prob:
+                                if self._stdlib_rng.random() < self.skip_best_candidate_prob:
                                     continue
                             self.suggested_candidates[next_candidate] = eval_start_time
                             return next_candidate
@@ -572,6 +582,7 @@ def optimize_finite_onedimensional_search_space(
     legend_location: str = "best",
     # small settings
     verbose: int = 0,
+    random_state: Union[int, np.random.Generator, None] = None,
 ) -> None:
     """Finds extremum of some (possibly multi-input) function F that is supposedly costly to estimate (like in HPT, FS tasks).
     Function F can also be a numerical sequence in form of some y scores array.
@@ -650,6 +661,7 @@ def optimize_finite_onedimensional_search_space(
         expected_fitness_color=expected_fitness_color,
         legend_location=legend_location,
         verbose=verbose,
+        random_state=random_state,
     )
 
     # ----------------------------------------------------------------------------------------------------------------------------
@@ -686,7 +698,7 @@ def optimize_finite_onedimensional_search_space(
                     if verbose:
                         logger.info(f"best_desired_score={optimizer.best_evaluation:_.6f} reached.")
                     break
-            elif direction == OptimizationDirection.Maximize:
+            elif direction == OptimizationDirection.Minimize:
                 if optimizer.best_evaluation <= best_desired_score:
                     if verbose:
                         logger.info(f"best_desired_score={optimizer.best_evaluation:_.6f} reached.")
@@ -786,3 +798,4 @@ def plot_search_state(
     axMain.set_title(f"Iteration #{nsteps}, mode={mode} {additional_info}, best={best_evaluation:.6f}@{best_candidate:_}")
     axMain.legend(loc=legend_location)
     plt.show()
+    plt.close(fig)
