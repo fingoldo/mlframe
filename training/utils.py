@@ -361,11 +361,11 @@ def _process_special_values(
             if cols_to_drop:
                 # Only drop columns that actually exist in the dataframe
                 if is_polars:
-                    existing_cols = [col for col in cols_to_drop if col in df.columns]
+                    existing_cols = filter_existing(df, cols_to_drop)
                     if existing_cols:
                         df = df.drop(existing_cols)
                 else:
-                    existing_cols = [col for col in cols_to_drop if col in df.columns]
+                    existing_cols = filter_existing(df, cols_to_drop)
                     if existing_cols:
                         df = df.drop(columns=existing_cols)
             if verbose:

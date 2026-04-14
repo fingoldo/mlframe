@@ -27,7 +27,7 @@ def _drop_cols_df(df, cols):
     import pandas as _pd  # local import to avoid top-level cost during helper init
     if not cols:
         return df
-    existing = [c for c in cols if c in df.columns]
+    existing = filter_existing(df, cols)
     if not existing:
         return df
     if isinstance(df, _pd.DataFrame):
@@ -207,7 +207,7 @@ def _build_tier_dfs(
                 cols_to_keep = [c for c in df_.columns if c not in cols_to_exclude]
                 tier_dfs[key] = df_.select(cols_to_keep)
             else:
-                cols_to_drop = [c for c in cols_to_exclude if c in df_.columns]
+                cols_to_drop = filter_existing(df_, cols_to_exclude)
                 tier_dfs[key] = df_.drop(columns=cols_to_drop) if cols_to_drop else df_
 
     tier_cache[tier] = tier_dfs
@@ -269,6 +269,7 @@ from .utils import (
     estimate_df_size_mb,
     get_process_rss_mb,
     maybe_clean_ram_and_gpu,
+    filter_existing,
 )
 from .helpers import get_trainset_features_stats_polars, get_trainset_features_stats
 from .models import is_linear_model, LINEAR_MODEL_TYPES
@@ -1629,7 +1630,7 @@ def train_mlframe_models_suite(
 
                         # Null-fill text features for CatBoost (requires no nulls in text columns)
                         if text_features and mlframe_model_name == "cb":
-                            text_cols_present = [c for c in text_features if c in prepared_train.columns]
+                            text_cols_present = filter_existing(prepared_train, text_features)
                             if text_cols_present:
                                 fill_exprs = [pl.col(c).fill_null("") for c in text_cols_present]
                                 prepared_train = prepared_train.with_columns(fill_exprs)
@@ -1723,11 +1724,11 @@ def train_mlframe_models_suite(
                             if _cat_features:
                                 extra_fit["cat_features"] = _cat_features
                             if text_features:
-                                cb_text = [c for c in text_features if c in prepared_train.columns]
+                                cb_text = filter_existing(prepared_train, text_features)
                                 if cb_text:
                                     extra_fit["text_features"] = cb_text
                             if embedding_features:
-                                cb_emb = [c for c in embedding_features if c in prepared_train.columns]
+                                cb_emb = filter_existing(prepared_train, embedding_features)
                                 if cb_emb:
                                     extra_fit["embedding_features"] = cb_emb
                             if extra_fit:
@@ -2000,7 +2001,7 @@ def predict_mlframe_models_suite(
         if extra_cols:
             if verbose:
                 logger.info(f"Dropping extra columns: {extra_cols}")
-            df = df[[c for c in columns if c in df.columns]]
+            df = df[filter_existing(df, columns)]
 
     # Apply pipeline transformation if available
     if pipeline is not None:
@@ -2200,7 +2201,7 @@ def predict_from_models(
         if extra_cols:
             if verbose:
                 logger.info(f"Dropping extra columns: {extra_cols}")
-            df = df[[c for c in columns if c in df.columns]]
+            df = df[filter_existing(df, columns)]
 
     # Apply main pipeline transformation if available
     pipeline = metadata.get("pipeline")

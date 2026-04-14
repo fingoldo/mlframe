@@ -139,7 +139,7 @@ from .configs import (
     PredictionsContainer,
     LinearModelConfig,
 )
-from .utils import log_ram_usage, get_categorical_columns, get_numeric_columns
+from .utils import log_ram_usage, get_categorical_columns, get_numeric_columns, filter_existing
 
 
 def _validate_trusted_path(path: str, trusted_root: Optional[str]) -> None:
@@ -257,9 +257,9 @@ def _subset_dataframe(
             logger.warning(f"drop_columns should be a list, got string '{drop_columns}'. Converting to list.")
             drop_columns = [drop_columns]
         if isinstance(result, pd.DataFrame):
-            return result.drop(columns=[c for c in drop_columns if c in result.columns])
+            return result.drop(columns=filter_existing(result, drop_columns))
         elif isinstance(result, pl.DataFrame):
-            cols_to_drop = [c for c in drop_columns if c in result.columns]
+            cols_to_drop = filter_existing(result, drop_columns)
             return result.drop(cols_to_drop) if cols_to_drop else result
     return result
 
@@ -335,9 +335,9 @@ def _validate_infinity_and_columns(df, train_df, skip_infinity_checks, drop_colu
                 ensure_no_infinity(train_df)
 
     if df is not None:
-        real_drop_columns = [col for col in drop_columns + default_drop_columns if col in df.columns]
+        real_drop_columns = filter_existing(df, drop_columns + default_drop_columns)
     elif train_df is not None:
-        real_drop_columns = [col for col in drop_columns + default_drop_columns if col in train_df.columns]
+        real_drop_columns = filter_existing(train_df, drop_columns + default_drop_columns)
     else:
         real_drop_columns = []
 

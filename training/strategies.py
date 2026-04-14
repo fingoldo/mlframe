@@ -290,9 +290,11 @@ class HGBStrategy(ModelPipelineStrategy):
 
         # Detect all string/categorical columns from schema (may include columns
         # not in cat_features if pipeline didn't detect them)
+        from .utils import filter_existing
+
         schema_cats = set(get_polars_cat_columns(df))
         all_cats = schema_cats | set(cat_features or [])
-        existing = [c for c in all_cats if c in df.columns]
+        existing = filter_existing(df, all_cats)
         if not existing:
             return df
 
