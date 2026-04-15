@@ -252,6 +252,7 @@ from .configs import (
     TrainingConfig,
     TargetTypes,
     LinearModelConfig,
+    PreprocessingExtensionsConfig,
 )
 from .preprocessing import (
     load_and_prepare_dataframe,
@@ -259,7 +260,7 @@ from .preprocessing import (
     save_split_artifacts,
     create_split_dataframes,
 )
-from .pipeline import fit_and_transform_pipeline, prepare_df_for_catboost
+from .pipeline import fit_and_transform_pipeline, prepare_df_for_catboost, apply_preprocessing_extensions
 from mlframe.feature_selection.filters import MRMR
 from .utils import (
     log_ram_usage,
@@ -936,6 +937,7 @@ def train_mlframe_models_suite(
     preprocessing_config: Optional[Union[PreprocessingConfig, Dict]] = None,
     split_config: Optional[Union[TrainingSplitConfig, Dict]] = None,
     pipeline_config: Optional[Union[PolarsPipelineConfig, Dict]] = None,
+    preprocessing_extensions: Optional[Union["PreprocessingExtensionsConfig", Dict]] = None,
     feature_types_config: Optional[Union[FeatureTypesConfig, Dict]] = None,
     # Model-specific configurations
     linear_model_config: Optional[LinearModelConfig] = None,
@@ -1285,7 +1287,20 @@ def train_mlframe_models_suite(
     # Track if Polars-ds pipeline was applied (to skip redundant pre_pipeline transforms later)
     polars_pipeline_applied = was_polars_input and pipeline_config.use_polarsds_pipeline and pipeline is not None
 
+    # Apply shared sklearn-based extensions (scaler override / poly / dim-reducer / …).
+    # When preprocessing_extensions is None (default) this is a zero-cost noop and the
+    # Polars-native fastpath is preserved byte-for-byte.
+    if preprocessing_extensions is not None and isinstance(preprocessing_extensions, dict):
+        preprocessing_extensions = PreprocessingExtensionsConfig(**preprocessing_extensions)
+    train_df, val_df, test_df, extensions_pipeline = apply_preprocessing_extensions(
+        train_df, val_df, test_df, preprocessing_extensions, verbose=verbose,
+    )
+    if extensions_pipeline is not None:
+        # cat_features are materialised into numeric columns by the sklearn stack.
+        cat_features = []
+
     metadata["pipeline"] = pipeline
+    metadata["extensions_pipeline"] = extensions_pipeline
     metadata["cat_features"] = cat_features
     metadata["columns"] = train_df.columns.tolist() if isinstance(train_df, pd.DataFrame) else train_df.columns
 
