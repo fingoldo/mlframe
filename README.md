@@ -93,6 +93,26 @@ Each model type has a `ModelPipelineStrategy` that declares its preprocessing ne
 
 When `text_features` or `embedding_features` are present, models are sorted by feature support level (most features first). CatBoost trains first with all columns, then text/embedding columns are dropped once per tier for remaining models. This avoids redundant column operations and enables aggressive memory cleanup between tiers.
 
+## Fast test mode
+
+Run the full test surface with one representative variant per parametrized group (scalers, dim reducers, optimizers, …):
+
+```bash
+pytest --fast                      # CLI flag
+MLFRAME_FAST=1 pytest              # env var (equivalent)
+```
+
+Parametrized tests opt in by wrapping their argument list with `fast_subset`:
+
+```python
+from tests.conftest import fast_subset
+
+@pytest.mark.parametrize("scaler", fast_subset(ALL_SCALERS, representative="StandardScaler"))
+def test_scaler_round_trip(scaler): ...
+```
+
+Tests marked `@pytest.mark.slow` (or `slow_only`) are auto-skipped in fast mode.
+
 ## Running tests
 
 ```bash
@@ -105,6 +125,16 @@ Run the whole suite in parallel (falls back to rerunning last-failed verbosely):
 
 ```bash
 pytest tests/ -n auto --maxprocesses=16 --dist loadscope && exit 0 || pytest tests/ -vv --lf
+```
+
+## Troubleshooting
+
+### Windows fatal exception / access violation in numba kernels
+
+After changing `NUMBA_NJIT_PARAMS` flags (e.g. `cache=True`, `nogil=True`), stale on-disk numba caches (`.nbi`/`.nbc` in `__pycache__`) from a prior build can trigger `Windows fatal exception: access violation` inside `compute_numerical_aggregates_numba` / similar kernels. The flags themselves are correct — a cold rebuild is required. Clear and retry:
+
+```bash
+find . -name "*.nbi" -delete; find . -name "*.nbc" -delete
 ```
 
 ## Security notes

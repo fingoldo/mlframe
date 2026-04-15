@@ -3589,6 +3589,41 @@ class TestTextAndEmbeddingFeatures:
         assert "text_feat" not in text_feats, \
             f"text_feat should stay categorical (5 unique < threshold 50), but found in text_features"
 
+    def test_user_declared_polars_categorical_not_promoted_to_text(
+        self, temp_data_dir, common_init_params
+    ):
+        """Columns the user explicitly marked as pl.Categorical must stay categorical
+        even when their cardinality would otherwise trigger text-auto-detection.
+        Regression: earlier version passed empty cat_features to _auto_detect_feature_types,
+        causing high-cardinality user-declared Categorical columns to be silently promoted
+        to text_features."""
+        from mlframe.training.configs import FeatureTypesConfig
+
+        # 100 unique values + pl.Categorical dtype — threshold=50 would promote if we
+        # didn't honor the user's explicit dtype.
+        pl_df = _make_text_embedding_polars_df(n_text_unique=100)
+        pl_df = pl_df.with_columns(pl.col("text_feat").cast(pl.Categorical))
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="user_cat_preserved",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            feature_types_config=FeatureTypesConfig(cat_text_cardinality_threshold=50),
+            init_common_params=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            data_dir=temp_data_dir,
+            verbose=0,
+        )
+        text_feats = metadata.get("text_features", [])
+        assert "text_feat" not in text_feats, (
+            "User-declared pl.Categorical column (text_feat) was silently promoted to "
+            f"text_features — user's explicit dtype must be honored. text_features={text_feats}"
+        )
+
     def test_catboost_text_and_embedding_together(self, temp_data_dir, common_init_params, monkeypatch):
         """CatBoost receives both text_features and embedding_features simultaneously."""
         pytest.importorskip("catboost")

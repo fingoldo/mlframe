@@ -17,6 +17,28 @@ import warnings
 from pathlib import Path
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _prewarm_numba_once():
+    """Pre-warm numba JIT cache ONCE per session when running under pytest-xdist.
+
+    Without prewarm, multiple xdist workers race on .nbc/.nbi cache files at
+    first compile → lock contention and occasional Windows access violations.
+    Serial runs don't need this (single-process compile), and skipping the
+    call avoids an early-session crash if the prewarm itself trips a stale
+    cache artifact. Trigger only when -n <workers> is set.
+    """
+    import os
+    if not os.environ.get("PYTEST_XDIST_WORKER"):
+        yield
+        return
+    try:
+        from mlframe.metrics import prewarm_numba_cache
+        prewarm_numba_cache()
+    except Exception:
+        pass
+    yield
+
+
 @pytest.fixture
 def sample_regression_data():
     """Generate synthetic regression dataset."""

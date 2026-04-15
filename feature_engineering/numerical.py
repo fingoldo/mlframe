@@ -222,7 +222,10 @@ def compute_numerical_aggregates_numba(
     nmaxupdates, nminupdates = 0, 0
 
     n_last_crossings, n_last_touches = 0, 0
-    prev_d = None
+    # numba Optional[NoneType|float64] segfaults under numba 0.62 / numpy 2.2 —
+    # use a bool flag + sentinel float so the variable type is invariant.
+    has_prev_d = False
+    prev_d = 0.0
 
     for i, next_value in enumerate(arr):
         if weights is not None:
@@ -233,7 +236,7 @@ def compute_numerical_aggregates_numba(
 
         if return_unsorted_stats:
             d = next_value - last
-            if prev_d is not None:
+            if has_prev_d:
                 mul = d * prev_d
                 if mul < 0:
                     n_last_crossings += 1
@@ -243,6 +246,7 @@ def compute_numerical_aggregates_numba(
                 if next_value == last:
                     n_last_touches += 1
             prev_d = d
+            has_prev_d = True
 
         arithmetic_mean += next_value
 
@@ -658,7 +662,8 @@ def compute_moments_slope_mi(
     xvals_mean = np.mean(xvals)
 
     n_mean_crossings = 0.0
-    prev_d = None
+    has_prev_d = False
+    prev_d = 0.0
 
     r_sum = 0.0
 
@@ -672,10 +677,11 @@ def compute_moments_slope_mi(
         d = next_value - mean_value
         r_sum += sl_x * d
 
-        if prev_d is not None:
+        if has_prev_d:
             if d * prev_d < 0:
                 n_mean_crossings += 1
         prev_d = d
+        has_prev_d = True
 
         mad += abs(d)
         if weights is not None:
@@ -754,7 +760,8 @@ def compute_moments_slope_mi(
 
         # slope crossings & trend approximation errors
 
-        prev_d = None
+        has_prev_d = False
+        prev_d = 0.0
         intercept = mean_value - slope * xvals_mean
         n_lintrend_crossings = 0.0
 
@@ -765,10 +772,11 @@ def compute_moments_slope_mi(
 
         for i, next_value in enumerate(arr):
             d = next_value - (slope * xvals[i] + intercept)
-            if prev_d is not None:
+            if has_prev_d:
                 if d * prev_d < 0:
                     n_lintrend_crossings += 1
             prev_d = d
+            has_prev_d = True
             if return_lintrend_approx_stats:
                 lintrend_data_diffs[i] = d
 

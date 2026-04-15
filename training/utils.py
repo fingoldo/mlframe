@@ -75,12 +75,17 @@ def clean_ram_and_gpu(verbose: bool = False) -> None:
 
 
 def estimate_df_size_mb(df) -> float:
-    """Estimated in-memory size of a Polars/pandas DataFrame in MB."""
+    """Estimated in-memory size of a Polars/pandas DataFrame in MB.
+
+    Returns `inf` for unsupported types so downstream OOM-protection thresholds
+    trip correctly (Arrow/Modin/Dask inputs otherwise silently lose `clean_ram`
+    heuristic's size-proportional growth check).
+    """
     if isinstance(df, pl.DataFrame):
         return float(df.estimated_size("mb"))
     if isinstance(df, pd.DataFrame):
         return float(df.memory_usage(deep=True).sum() / 1024**2)
-    return 0.0
+    return float("inf")
 
 
 def get_process_rss_mb() -> float:
@@ -116,18 +121,23 @@ def maybe_clean_ram_and_gpu(
     df_size_mb: float,
     verbose: bool = False,
     reason: str = "",
-) -> bool:
+) -> float:
     """Call clean_ram_and_gpu only when RAM metrics indicate it's worthwhile.
 
     On small DFs this avoids 0.6s of pure overhead per call; on large production
     DFs (or when the process is growing) it still fires at every site.
+
+    Returns the (possibly refreshed) baseline RSS in MB. After a fire, baseline
+    is re-captured so subsequent `growth = rss - baseline` checks are not
+    monotonically inflated by already-cleaned state. Callers should assign
+    the return back to their local baseline variable.
     """
     if should_clean_ram(baseline_rss_mb, df_size_mb):
         clean_ram_and_gpu(verbose=verbose)
         if verbose:
             logger.info(f"  clean_ram fired ({reason})" if reason else "  clean_ram fired")
-        return True
-    return False
+        return get_process_rss_mb()
+    return baseline_rss_mb
 
 
 def filter_existing(df, cols) -> list:

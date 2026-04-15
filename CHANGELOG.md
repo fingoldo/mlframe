@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-04-15 — Audit #02 (legacy) + test fast mode
+
+### Commit 1/5 — Salvage from legacy modules (pre-move)
+- `evaluation.py`: added `predictions_beautify_linear`, `plot_beautified_lift`, `plot_pr_curve`, `plot_roc_curve`.
+- `training/evaluation.py`: added `compute_ml_perf_by_time`, `visualize_ml_metric_by_time`.
+- `outliers.py`: added `compute_outlier_detector_score`, `count_num_outofranges` (@njit), `compute_naive_outlier_score`. Fixed broken hard-import of `imblearn` (lazy guarded).
+- `metrics.py`: added `brier_and_precision_score`, `make_brier_precision_scorer`.
+- NEW `training/callbacks.py`: `stop_file` + `{CatBoost,LightGBM,XGBoost,Lightning}StopFileCallback`.
+- NEW `training/neural/keras_compat.py` (TF-guarded): `build_keras_mlp`, `KerasCompatibleMLP`.
+- NEW `tests/test_evaluation_salvage.py` (18 tests, 16 pass / 2 TF-skip).
+
+### Commit 2/5 — Move to legacy/
+- Deleted `mlframe/Backtesting.py` (10-LOC stub, zero importers).
+- `git mv` `training_old.py`, `OldEnsembling.py` → `mlframe/legacy/`.
+- NEW `mlframe/legacy/__init__.py` — emits `DeprecationWarning` on import.
+- Stripped 5 stale "migrated from training_old.py" comments across `training/{__init__,helpers,train_eval,trainer}.py`.
+- `pytest.ini` ignores point at `legacy/` directory.
+
+### Commit 3/5 — Resource-logging decorators + estimator-object model spec
+- NEW `training/logging_transformers.py`:
+  - `log_resources(*, stage, level, extra_factory)` — function decorator, logs wall-time + ΔRSS.
+  - `log_methods(*methods, stage_prefix)` — class decorator.
+  - `wrap_with_logging(obj, *, stage, methods)` — instance-proxy factory.
+- `training/strategies.py`: `get_strategy` accepts strings, estimator instances, `(name, estimator)` tuples. MRO dispatch via `_strategy_for_estimator` (lazy-guarded CatBoost/LightGBM/XGBoost imports); unknown classes fall back to `LinearModelStrategy` with warning. New helpers `_resolve_model_spec`, `_slugify`, `_dedupe_key`.
+- `training/utils.py::filter_existing`: tolerate ndarray (no `.columns` → `[]`).
+- NEW `tests/training/test_logging_transformers.py` (8 tests).
+- NEW `tests/training/test_model_spec_resolution.py` (14 tests).
+
+### Test infrastructure — Fast mode (`--fast` / `MLFRAME_FAST=1`)
+- `tests/conftest.py`: `--fast` CLI flag + `MLFRAME_FAST` env var; `is_fast_mode()`, `fast_subset(values, representative=..., keep=1)` helper. `@pytest.mark.slow` / `slow_only` auto-skip in fast mode.
+- Pattern: parametrized tests call `fast_subset([...scalers...], representative="StandardScaler")` so all code paths still execute but with one representative variant.
+- NEW `tests/test_fast_mode.py` (8 self-tests incl. subprocess end-to-end).
+
+### Pending (commits 4/5, 5/5)
+- `PreprocessingExtensionsConfig` (scaler / binarization / kbins / polynomial / nonlinear / tfidf / dim_reducer) wired into shared `fit_and_transform_pipeline`.
+- Full extension test suite + benchmark guard (≤2% regression budget on default path).
+
 ## 2026-04-14 — Full Audit & Fix Sweep (10 parallel audit agents + 9 parallel fix agents)
 
 ### Security (RCE hardening)

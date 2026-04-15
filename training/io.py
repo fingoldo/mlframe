@@ -33,6 +33,8 @@ _SAFE_MODULE_PREFIXES: tuple = (
     "datetime",
     "dataclasses",
     "types",
+    "dill",
+    "scipy",
 )
 
 # Specific safe names in "types" (only SimpleNamespace).

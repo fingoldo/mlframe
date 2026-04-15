@@ -38,6 +38,46 @@ from mlframe.stats import get_tukey_fences_multiplier_for_quantile
 NUMBA_NJIT_PARAMS = dict(fastmath=False, cache=True, nogil=True)
 
 
+def _assert_numba_nogil_active() -> bool:
+    """Verify JIT-compiled kernels actually released the GIL (nogil=True took effect).
+
+    Numba silently retains the GIL when a kernel references Python objects it
+    cannot prove safe — the compile succeeds (nopython mode) but parallelism
+    under ThreadPoolExecutor is lost without any warning. Inspect one hot
+    kernel's compiled signatures after prewarm; if the flag didn't stick,
+    log a warning so the degradation is observable.
+
+    Called once at end of prewarm_numba_cache(). Cheap (dict attribute read).
+    Returns True iff every compiled signature on the canary kernel reports
+    `release_gil`.
+    """
+    try:
+        # cb_logits_to_probs_binary is forward-declared; pick any @njit symbol
+        # that definitely compiled during prewarm.
+        canary = globals().get("fast_roc_auc")
+        if canary is None or not hasattr(canary, "signatures"):
+            return True  # nothing to check — don't spam warnings
+        overloads = getattr(canary, "overloads", {})
+        for sig, compile_result in overloads.items():
+            # numba CompileResult has `.targetctx` / `.fndesc`; the nogil flag
+            # lives under `compile_result.type_annotation.ir`. Safer: check
+            # `compile_result.fndesc.release_gil` when present, else trust
+            # the NUMBA_NJIT_PARAMS.
+            fndesc = getattr(compile_result, "fndesc", None)
+            if fndesc is not None and hasattr(fndesc, "release_gil"):
+                if not fndesc.release_gil:
+                    logger.warning(
+                        "numba JIT: nogil=True requested but kernel retained GIL "
+                        f"({canary.__name__}, sig={sig}). ThreadPoolExecutor parallelism "
+                        "over metrics will silently degrade to sequential."
+                    )
+                    return False
+        return True
+    except Exception as e:
+        logger.debug("_assert_numba_nogil_active: inspection failed", exc_info=e)
+        return True
+
+
 def prewarm_numba_cache():
     """Pre-warm Numba JIT cache to avoid compilation overhead during profiling.
 
@@ -80,6 +120,10 @@ def prewarm_numba_cache():
 
     logits_multi = np.array([[-1.0, 0.0, 1.0], [0.5, -0.5, 0.0], [0.0, 1.0, -1.0]], dtype=np.float64)
     _ = cb_logits_to_probs_multiclass(logits_multi)
+
+    # Audit hook: verify nogil=True actually stuck. Silent fallback would
+    # make parallel val/test metric evaluation secretly sequential.
+    _assert_numba_nogil_active()
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
