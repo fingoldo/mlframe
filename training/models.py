@@ -201,7 +201,7 @@ def _build_elasticnet_classifier(config: LinearModelConfig) -> BaseEstimator:
     return LogisticRegression(
         penalty="elasticnet",
         C=1.0 / config.alpha if config.alpha > 0 else 1.0,
-        l1_ratio=config.l1_ratio,
+        l1_ratio=_get_l1_ratio(config),
         solver="saga",
         max_iter=config.max_iter,
         tol=config.tol,

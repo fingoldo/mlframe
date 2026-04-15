@@ -1635,16 +1635,12 @@ def train_and_evaluate_model(
                 **common_metrics_params,
             )
 
-        if _val_cfg is not None and _run_test:
-            from concurrent.futures import ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=2) as _ex:
-                _fut_val = _ex.submit(_run_val)
-                _fut_test = _ex.submit(_run_test_metrics)
-                val_res = _fut_val.result()
-                test_res = _fut_test.result()
-        else:
-            val_res = _run_val()
-            test_res = _run_test_metrics()
+        # Note: concurrent ThreadPoolExecutor was tried but matplotlib figure creation
+        # from concurrent threads races on pyplot's shared state even with Agg backend,
+        # producing "Argument must be an image or collection" errors in calibration plots.
+        # Sequential path is correct; the earlier _prepare_test_split refactor still stands.
+        val_res = _run_val()
+        test_res = _run_test_metrics()
 
         if val_res is not None:
             val_preds, val_probs, columns = val_res
