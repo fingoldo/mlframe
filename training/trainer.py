@@ -1573,49 +1573,35 @@ def train_and_evaluate_model(
             ),
         ]
 
+        # Train runs sequentially (may feed into val/test setup); val+test parallelize later.
         for split_name, split_df, split_target, split_idx, split_preds, split_probs, split_details, should_compute in splits_config:
-            if should_compute:
-                if split_name == "train":
-                    has_other = has_val or has_test
-                else:
-                    has_other = has_test
-
+            if should_compute and split_name == "train":
                 preds_result, probs_result, columns = _compute_split_metrics(
                     split_name=split_name,
-                    df=split_df,
-                    target=split_target,
-                    idx=split_idx,
+                    df=split_df, target=split_target, idx=split_idx,
                     metrics_dict=metrics[split_name],
-                    preds=split_preds,
-                    probs=split_probs,
-                    details=split_details,
-                    has_other_splits=has_other,
+                    preds=split_preds, probs=split_probs, details=split_details,
+                    has_other_splits=has_val or has_test,
                     **common_metrics_params,
                 )
-                if split_name == "train":
-                    train_preds, train_probs = preds_result, probs_result
-                else:
-                    val_preds, val_probs = preds_result, probs_result
+                train_preds, train_probs = preds_result, probs_result
 
-        if compute_testset_metrics and ((test_idx is not None and len(test_idx) > 0) or test_df is not None):
-            if (df is not None) or (test_df is not None):
-                # Free memory before test evaluation (train_df may not exist if just_evaluate=True)
-                try:
-                    if train_df is not None:
-                        del train_df
-                except NameError:
-                    pass  # train_df was never assigned (e.g., just_evaluate=True with no training)
-                clean_ram()
+        _val_cfg = next((c for c in splits_config if c[0] == "val" and c[-1]), None)
+        _run_test = compute_testset_metrics and ((test_idx is not None and len(test_idx) > 0) or test_df is not None)
 
+        if _run_test and ((df is not None) or (test_df is not None)):
+            try:
+                if train_df is not None:
+                    del train_df
+            except NameError:
+                pass
+            clean_ram()
+
+        if _run_test:
             test_df, test_target, columns = _prepare_test_split(
-                df=df,
-                test_df=test_df,
-                test_idx=test_idx,
-                test_target=test_target,
-                target=target,
-                real_drop_columns=real_drop_columns,
-                model=model,
-                pre_pipeline=pre_pipeline,
+                df=df, test_df=test_df, test_idx=test_idx, test_target=test_target,
+                target=target, real_drop_columns=real_drop_columns,
+                model=model, pre_pipeline=pre_pipeline,
                 skip_pre_pipeline_transform=skip_pre_pipeline_transform,
                 skip_preprocessing=skip_preprocessing,
                 selector_passthrough_cols=(list(fit_params.get("text_features") or []) + list(fit_params.get("embedding_features") or [])) or None,
@@ -1623,19 +1609,49 @@ def train_and_evaluate_model(
             if test_df is not None:
                 _orig_test_df = test_df
 
-            test_preds, test_probs, columns = _compute_split_metrics(
-                split_name="test",
-                df=test_df,
-                target=test_target,
-                idx=test_idx,
+        # Parallelize val and test metric computation — numba kernels release GIL,
+        # Agg matplotlib is thread-safe. Pure-Python parts still block, but the
+        # heavy cumtime (binning, AUC, calibration plot save) runs concurrently.
+        def _run_val():
+            if _val_cfg is None:
+                return None
+            _, sdf, starg, sidx, spreds, sprobs, sdet, _sc = _val_cfg
+            return _compute_split_metrics(
+                split_name="val", df=sdf, target=starg, idx=sidx,
+                metrics_dict=metrics["val"],
+                preds=spreds, probs=sprobs, details=sdet,
+                has_other_splits=has_test,
+                **common_metrics_params,
+            )
+
+        def _run_test_metrics():
+            if not _run_test:
+                return None
+            return _compute_split_metrics(
+                split_name="test", df=test_df, target=test_target, idx=test_idx,
                 metrics_dict=metrics["test"],
-                preds=test_preds,
-                probs=test_probs,
-                details=test_details,
+                preds=test_preds, probs=test_probs, details=test_details,
                 has_other_splits=False,
                 **common_metrics_params,
             )
 
+        if _val_cfg is not None and _run_test:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=2) as _ex:
+                _fut_val = _ex.submit(_run_val)
+                _fut_test = _ex.submit(_run_test_metrics)
+                val_res = _fut_val.result()
+                test_res = _fut_test.result()
+        else:
+            val_res = _run_val()
+            test_res = _run_test_metrics()
+
+        if val_res is not None:
+            val_preds, val_probs, columns = val_res
+        if test_res is not None:
+            test_preds, test_probs, columns = test_res
+
+        if _run_test:
             if include_confidence_analysis and test_df is not None:
                 run_confidence_analysis(
                     test_df=test_df,
