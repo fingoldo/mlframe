@@ -88,6 +88,9 @@ except ImportError:  # pragma: no cover
     PytorchLightningRegressor = PytorchLightningClassifier = None  # type: ignore[assignment]
 
 from pyutilz.system import clean_ram, ensure_dir_exists, compute_total_gpus_ram, get_gpuinfo_gpu_info
+
+
+from mlframe.training.utils import maybe_clean_ram_adaptive as _maybe_clean_ram
 from pyutilz.strings import slugify
 from pyutilz.pandaslib import get_df_memory_consumption
 from pyutilz.pythonlib import prefix_dict_elems, get_human_readable_set_size
@@ -615,7 +618,7 @@ def _apply_pre_pipeline_transforms(
                 )
                 if verbose:
                     log_ram_usage()
-        clean_ram()
+        _maybe_clean_ram()
         if verbose:
             shape_str = f"{train_df.shape[0]:_}×{train_df.shape[1]}" if hasattr(train_df, "shape") else ""
             logger.info(f"  pre_pipeline done — train: {shape_str}, {timer() - t0_pre:.1f}s")
@@ -812,12 +815,12 @@ def _train_model_with_fallback(
                 try_again = True
 
         if try_again:
-            clean_ram()
+            _maybe_clean_ram()
             model.fit(train_df, train_target, **fit_params)
         else:
             raise e
 
-    clean_ram()
+    _maybe_clean_ram()
     fit_elapsed = timer() - t0_fit
     if verbose:
         shape_str = f"{train_df.shape[0]:_}×{train_df.shape[1]}" if hasattr(train_df, "shape") else ""
@@ -974,9 +977,9 @@ def run_confidence_analysis(
 
     confidence_targets = test_probs[np.arange(test_probs.shape[0]), test_target]
 
-    clean_ram()
+    _maybe_clean_ram()
     confidence_model.fit(test_df, confidence_targets, **fit_params_copy)
-    clean_ram()
+    _maybe_clean_ram()
 
     if use_shap:
         try:
@@ -1329,7 +1332,7 @@ def train_and_evaluate_model(
     # ---------------------------------------------------------------------------
     # Begin original function logic
     # ---------------------------------------------------------------------------
-    clean_ram()
+    _maybe_clean_ram()
 
     # default_drop_columns is no longer needed - merged into drop_columns
     default_drop_columns = []
@@ -1444,7 +1447,7 @@ def train_and_evaluate_model(
             val_target = val_target.to_numpy()
 
         _setup_eval_set(model_type_name, fit_params, val_df, val_target, callback_params, model_obj, model_category)
-        clean_ram()
+        _maybe_clean_ram()
     else:
         _disable_xgboost_early_stopping_if_needed(model_type_name, model_obj)
 
@@ -1469,7 +1472,7 @@ def train_and_evaluate_model(
 
             train_df, fit_params = _prepare_train_df_for_fitting(train_df, model, model_type_name, fit_params)
 
-            clean_ram()
+            _maybe_clean_ram()
             if verbose:
                 logger.info("Training the model...")
 
@@ -1595,7 +1598,7 @@ def train_and_evaluate_model(
                     del train_df
             except NameError:
                 pass
-            clean_ram()
+            _maybe_clean_ram()
 
         if _run_test:
             test_df, test_target, columns = _prepare_test_split(
@@ -1669,7 +1672,7 @@ def train_and_evaluate_model(
     if (compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics) and verbose:
         logger.info(f"  Metrics computation done — {timer() - t0_metrics:.1f}s")
 
-    clean_ram()
+    _maybe_clean_ram()
 
     return (
         SimpleNamespace(
@@ -2037,17 +2040,23 @@ def configure_training_params(
     val_df_size = get_df_memory_consumption(val_df) if val_df is not None else 0
     data_size_gb = (train_df_size + val_df_size) / (1024**3)
 
-    all_gpus = get_gpuinfo_gpu_info()
-    single_gpu_limits = compute_total_gpus_ram(all_gpus)
-
-    data_fits_gpu_ram = (GPU_VRAM_SAFE_SATURATION_LIMIT * data_size_gb + GPU_VRAM_SAFE_FREE_LIMIT_GB) < single_gpu_limits.get("gpu_max_ram_total", 0)
-
+    # Skip expensive GPU probe (nvidia-smi subprocess ~0.5s) when GPU configs
+    # are disabled or CatBoost is explicitly on CPU — the result is unused.
+    cb_task_type = config_params.get("cb_kwargs", {}).get("task_type")
     cb_devices = config_params.get("cb_kwargs", {}).get("devices")
-    if cb_devices:
-        multi_gpu_limits = compute_total_gpus_ram(parse_catboost_devices(cb_devices, all_gpus=all_gpus))
-        data_fits_cb_gpu_ram = (GPU_VRAM_SAFE_SATURATION_LIMIT * data_size_gb + GPU_VRAM_SAFE_FREE_LIMIT_GB) < multi_gpu_limits.get("gpus_ram_total", 0)
+    if not prefer_gpu_configs or cb_task_type == "CPU":
+        all_gpus = {}
+        data_fits_gpu_ram = False
+        data_fits_cb_gpu_ram = False
     else:
-        data_fits_cb_gpu_ram = data_fits_gpu_ram
+        all_gpus = get_gpuinfo_gpu_info()
+        single_gpu_limits = compute_total_gpus_ram(all_gpus)
+        data_fits_gpu_ram = (GPU_VRAM_SAFE_SATURATION_LIMIT * data_size_gb + GPU_VRAM_SAFE_FREE_LIMIT_GB) < single_gpu_limits.get("gpu_max_ram_total", 0)
+        if cb_devices:
+            multi_gpu_limits = compute_total_gpus_ram(parse_catboost_devices(cb_devices, all_gpus=all_gpus))
+            data_fits_cb_gpu_ram = (GPU_VRAM_SAFE_SATURATION_LIMIT * data_size_gb + GPU_VRAM_SAFE_FREE_LIMIT_GB) < multi_gpu_limits.get("gpus_ram_total", 0)
+        else:
+            data_fits_cb_gpu_ram = data_fits_gpu_ram
 
     logger.info(f"data_fits_gpu_ram={data_fits_gpu_ram}, data_fits_cb_gpu_ram={data_fits_cb_gpu_ram}, cb_devices={cb_devices}")
 

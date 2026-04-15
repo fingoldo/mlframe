@@ -39,6 +39,38 @@ def log_ram_usage() -> None:
     logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
 
+# Adaptive clean_ram: skip gc.collect + trim when RSS hasn't grown meaningfully
+# since the last clean. On small-DF runs (<50MB), gc.collect alone costs ~0.4s/call;
+# 10 unconditional calls is ~44% of a 10s training. Baseline is refreshed after
+# every real clean, so growth is measured from the most recent state.
+_MAYBE_CLEAN_BASELINE_MB: float = 0.0
+_MAYBE_CLEAN_MIN_GROWTH_MB: float = 500.0
+
+
+def maybe_clean_ram_adaptive() -> None:
+    """Call pyutilz.clean_ram only when process RSS has grown by
+    ``_MAYBE_CLEAN_MIN_GROWTH_MB`` since the previous clean. Cheap
+    short-circuit replacement for bare ``clean_ram()`` on hot training
+    paths where small-DF runs don't justify a 0.4s gc.collect per call.
+    """
+    global _MAYBE_CLEAN_BASELINE_MB
+    try:
+        import psutil
+        rss_mb = psutil.Process().memory_info().rss / 1024**2
+    except Exception:
+        clean_ram()
+        return
+    if _MAYBE_CLEAN_BASELINE_MB == 0.0:
+        _MAYBE_CLEAN_BASELINE_MB = rss_mb
+        return
+    if rss_mb - _MAYBE_CLEAN_BASELINE_MB > _MAYBE_CLEAN_MIN_GROWTH_MB:
+        clean_ram()
+        try:
+            _MAYBE_CLEAN_BASELINE_MB = psutil.Process().memory_info().rss / 1024**2
+        except Exception:
+            _MAYBE_CLEAN_BASELINE_MB = rss_mb
+
+
 def clean_ram_and_gpu(verbose: bool = False) -> None:
     """
     Clean both CPU RAM and GPU memory.

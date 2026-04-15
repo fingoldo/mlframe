@@ -22,6 +22,7 @@ import pandas as pd
 import polars as pl
 
 from pyutilz.system import clean_ram
+from mlframe.training.utils import maybe_clean_ram_adaptive
 from mlframe.helpers import get_own_ram_usage
 
 from .configs import (
@@ -486,7 +487,7 @@ def process_model(
             raise KeyError(f"'model' key missing in model_params. Available keys: {list(model_params.keys())}")
         model_obj = model_params["model"]
 
-    clean_ram()
+    maybe_clean_ram_adaptive()
 
     # Train or evaluate the model
     start = timer()
@@ -537,7 +538,7 @@ def process_model(
         trainset_features_stats = model.trainset_features_stats
         common_params["trainset_features_stats"] = trainset_features_stats
 
-    clean_ram()
+    maybe_clean_ram_adaptive()
 
     return trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed
 

@@ -27,6 +27,7 @@ import polars.selectors as cs
 from typing import Union, Optional, List, Tuple
 from collections import Counter
 from pyutilz.system import clean_ram
+from .utils import maybe_clean_ram_adaptive
 from pyutilz.pandaslib import ensure_dataframe_float32_convertability
 
 from .utils import log_ram_usage
@@ -249,7 +250,7 @@ def create_polarsds_pipeline(
 
     # Materialize the pipeline
     pipeline = bp.materialize()
-    clean_ram()
+    maybe_clean_ram_adaptive()
 
     if verbose:
         bp_elapsed = timer() - t0_bp
@@ -393,7 +394,7 @@ def fit_and_transform_pipeline(
     if test_df is not None and len(test_df) == 0:
         test_df = None
 
-    clean_ram()
+    maybe_clean_ram_adaptive()
     if verbose:
         log_ram_usage()
 
