@@ -30,8 +30,156 @@ from pyutilz.system import clean_ram
 from pyutilz.pandaslib import ensure_dataframe_float32_convertability
 
 from .utils import log_ram_usage
-from .configs import PolarsPipelineConfig
+from .configs import PolarsPipelineConfig, PreprocessingExtensionsConfig
 from .strategies import PANDAS_CATEGORICAL_DTYPES, get_polars_cat_columns
+
+
+_SCALER_FACTORIES = {
+    "StandardScaler": lambda: __import__("sklearn.preprocessing", fromlist=["StandardScaler"]).StandardScaler(),
+    "StandardScaler_nomean": lambda: __import__("sklearn.preprocessing", fromlist=["StandardScaler"]).StandardScaler(with_mean=False),
+    "RobustScaler": lambda: __import__("sklearn.preprocessing", fromlist=["RobustScaler"]).RobustScaler(),
+    "MinMaxScaler": lambda: __import__("sklearn.preprocessing", fromlist=["MinMaxScaler"]).MinMaxScaler(),
+    "MaxAbsScaler": lambda: __import__("sklearn.preprocessing", fromlist=["MaxAbsScaler"]).MaxAbsScaler(),
+    "PowerTransformer_yj": lambda: __import__("sklearn.preprocessing", fromlist=["PowerTransformer"]).PowerTransformer(method="yeo-johnson", standardize=True),
+    "PowerTransformer_yj_nostd": lambda: __import__("sklearn.preprocessing", fromlist=["PowerTransformer"]).PowerTransformer(method="yeo-johnson", standardize=False),
+    "QuantileTransformer_uniform": lambda: __import__("sklearn.preprocessing", fromlist=["QuantileTransformer"]).QuantileTransformer(output_distribution="uniform"),
+    "QuantileTransformer_normal": lambda: __import__("sklearn.preprocessing", fromlist=["QuantileTransformer"]).QuantileTransformer(output_distribution="normal"),
+    "Normalizer_l2": lambda: __import__("sklearn.preprocessing", fromlist=["Normalizer"]).Normalizer(norm="l2"),
+}
+
+
+def _build_extension_steps(config: PreprocessingExtensionsConfig, n_features: int, random_state: int = 42) -> list:
+    """Assemble the ordered list of (name, transformer) pairs for the extensions config.
+
+    Raises ImportError for missing optional deps (UMAP) with an install hint.
+    Raises ValueError when PolynomialFeatures would exceed memory_safety_max_features.
+    """
+    from sklearn.preprocessing import Binarizer, KBinsDiscretizer, PolynomialFeatures
+    steps = []
+    if config.scaler is not None:
+        steps.append(("scaler", _SCALER_FACTORIES[config.scaler]()))
+    if config.binarization_threshold is not None:
+        steps.append(("binarizer", Binarizer(threshold=config.binarization_threshold)))
+    if config.kbins is not None:
+        steps.append(("kbins", KBinsDiscretizer(n_bins=config.kbins, encode=config.kbins_encode, strategy="quantile")))
+    if config.polynomial_degree is not None:
+        projected = n_features ** config.polynomial_degree
+        if projected > config.memory_safety_max_features:
+            raise ValueError(
+                f"PolynomialFeatures(degree={config.polynomial_degree}) on {n_features} features "
+                f"would produce up to {projected} columns, above memory_safety_max_features="
+                f"{config.memory_safety_max_features}. Add dim_reducer='PCA' first or raise the guard."
+            )
+        steps.append(("poly", PolynomialFeatures(
+            degree=config.polynomial_degree,
+            interaction_only=config.polynomial_interaction_only,
+            include_bias=False,
+        )))
+    if config.nonlinear_features is not None:
+        from sklearn.kernel_approximation import RBFSampler, Nystroem, AdditiveChi2Sampler, SkewedChi2Sampler
+        _nl = {"RBFSampler": RBFSampler, "Nystroem": Nystroem,
+               "AdditiveChi2Sampler": AdditiveChi2Sampler, "SkewedChi2Sampler": SkewedChi2Sampler}
+        cls = _nl[config.nonlinear_features]
+        kw = {"n_components": config.nonlinear_n_components}
+        if cls is AdditiveChi2Sampler:
+            kw = {}
+        else:
+            kw["random_state"] = random_state
+        steps.append(("nonlinear", cls(**kw)))
+    if config.dim_reducer is not None:
+        reducer = _build_dim_reducer(config.dim_reducer, config.dim_n_components, random_state)
+        steps.append(("dim_reducer", reducer))
+    return steps
+
+
+def _build_dim_reducer(name: str, n_components: int, random_state: int):
+    if name == "UMAP":
+        import importlib.util as _ilu
+        if _ilu.find_spec("umap") is None:
+            raise ImportError("UMAP requires `pip install umap-learn`")
+        import umap  # type: ignore
+        return umap.UMAP(n_components=n_components, random_state=random_state)
+    from sklearn.decomposition import PCA, KernelPCA, NMF, TruncatedSVD, FastICA
+    from sklearn.manifold import Isomap
+    from sklearn.random_projection import GaussianRandomProjection, SparseRandomProjection
+    from sklearn.ensemble import RandomTreesEmbedding
+    from sklearn.neural_network import BernoulliRBM
+    from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+    factories = {
+        "PCA": lambda: PCA(n_components=n_components, random_state=random_state),
+        "KernelPCA": lambda: KernelPCA(n_components=n_components, random_state=random_state),
+        "LDA": lambda: LinearDiscriminantAnalysis(n_components=n_components),
+        "NMF": lambda: NMF(n_components=n_components, random_state=random_state),
+        "TruncatedSVD": lambda: TruncatedSVD(n_components=n_components, random_state=random_state),
+        "FastICA": lambda: FastICA(n_components=n_components, random_state=random_state),
+        "Isomap": lambda: Isomap(n_components=n_components),
+        "GaussianRandomProjection": lambda: GaussianRandomProjection(n_components=n_components, random_state=random_state),
+        "SparseRandomProjection": lambda: SparseRandomProjection(n_components=n_components, random_state=random_state),
+        "RandomTreesEmbedding": lambda: RandomTreesEmbedding(n_components=n_components, random_state=random_state),
+        "BernoulliRBM": lambda: BernoulliRBM(n_components=n_components, random_state=random_state),
+    }
+    return factories[name]()
+
+
+def apply_preprocessing_extensions(
+    train_df,
+    val_df,
+    test_df,
+    config: Optional[PreprocessingExtensionsConfig],
+    verbose: int = 1,
+):
+    """Apply shared sklearn-based extensions to train/val/test after the Polars-ds pipeline.
+
+    Returns (train, val, test, fitted_pipeline_or_None). Fastpath: when ``config``
+    is None OR has zero active stages, returns inputs untouched with None pipeline.
+    """
+    if config is None:
+        return train_df, val_df, test_df, None
+    # Polars input → convert to pandas (extensions use sklearn; mixing with
+    # the polars-native fastpath would defeat the point if user opted in).
+    def _to_pandas(df):
+        if df is None:
+            return None
+        if isinstance(df, pl.DataFrame):
+            return df.to_pandas()
+        return df
+
+    train = _to_pandas(train_df)
+    val = _to_pandas(val_df)
+    test = _to_pandas(test_df)
+    if train is None:
+        return train_df, val_df, test_df, None
+
+    n_features = train.shape[1]
+    steps = _build_extension_steps(config, n_features=n_features)
+    if not steps:
+        return train_df, val_df, test_df, None
+
+    from sklearn.pipeline import Pipeline as SkPipeline
+    pipe = SkPipeline(steps=steps)
+    t0 = timer()
+    train_arr = pipe.fit_transform(train)
+    val_arr = pipe.transform(val) if val is not None and len(val) > 0 else None
+    test_arr = pipe.transform(test) if test is not None and len(test) > 0 else None
+
+    def _to_df(arr, template):
+        if arr is None:
+            return None
+        if hasattr(arr, "toarray"):
+            arr = arr.toarray()
+        cols = [f"ext_{i}" for i in range(arr.shape[1])]
+        return pd.DataFrame(arr, columns=cols, index=getattr(template, "index", None))
+
+    train_out = _to_df(train_arr, train)
+    val_out = _to_df(val_arr, val)
+    test_out = _to_df(test_arr, test)
+    if verbose:
+        elapsed = timer() - t0
+        logger.info(
+            "Applied preprocessing extensions (%d stages) — train %s, %.2fs",
+            len(steps), train_out.shape, elapsed,
+        )
+    return train_out, val_out, test_out, pipe
 
 
 def prepare_df_for_catboost(df: pd.DataFrame, cat_features: List[str]) -> None:
@@ -256,4 +404,5 @@ __all__ = [
     "prepare_df_for_catboost",
     "create_polarsds_pipeline",
     "fit_and_transform_pipeline",
+    "apply_preprocessing_extensions",
 ]
