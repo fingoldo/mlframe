@@ -9,7 +9,7 @@ from tests.training.test_mixed_dtypes_training import (
     _make_synthetic_mixed_df, TestMixedDtypesTraining,
 )
 
-df = _make_synthetic_mixed_df(n_rows=50_000)
+df = _make_synthetic_mixed_df(n_rows=1_000)
 print(f"DF shape: {df.shape}")
 
 t = TestMixedDtypesTraining()

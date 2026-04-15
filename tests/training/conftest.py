@@ -18,6 +18,26 @@ from pathlib import Path
 
 
 @pytest.fixture(scope="session", autouse=True)
+def _force_cpu_training_defaults():
+    """Force prefer_gpu_configs=False during tests.
+
+    CI and many dev boxes have limited GPU memory; parameterized CatBoost
+    test sweeps can accumulate CUDA allocations across the session and
+    eventually OOM mid-suite (Windows fatal "bad allocation" out of the
+    CatBoost cython layer is unrecoverable — kills the pytest process).
+    CPU fallback is slower per-test but keeps the suite runnable end-to-end.
+    Individual GPU-specific tests remain opt-in via @pytest.mark.gpu.
+    """
+    from mlframe.training.configs import TrainingBehaviorConfig
+    original = TrainingBehaviorConfig.model_fields["prefer_gpu_configs"].default
+    TrainingBehaviorConfig.model_fields["prefer_gpu_configs"].default = False
+    TrainingBehaviorConfig.model_rebuild(force=True)
+    yield
+    TrainingBehaviorConfig.model_fields["prefer_gpu_configs"].default = original
+    TrainingBehaviorConfig.model_rebuild(force=True)
+
+
+@pytest.fixture(scope="session", autouse=True)
 def _prewarm_numba_once():
     """Pre-warm numba JIT cache ONCE per session when running under pytest-xdist.
 

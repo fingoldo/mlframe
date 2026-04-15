@@ -238,6 +238,26 @@ class TestPlotFilePreserved:
 # 5. Arrow large_string compat (Polars-native models)
 # ======================================================================
 class TestArrowLargeStringCompat:
+    """Arrow large_string compat matrix for Polars-native tree models.
+
+    Motivation: XGBoost's arrow bridge raised KeyError(DataType(large_string))
+    for pl.Utf8 before the precast was added. CatBoost/HGB have different
+    Arrow bridges but the same surface risk when Polars evolves String
+    dtype semantics. These tests pin the contract across all three.
+    """
+
+    def _assert_lib_versions_logged(self):
+        """Record library versions on stdout so failures across upgrades are
+        traceable from CI logs without running git-bisect."""
+        import sys
+        try:
+            import xgboost, catboost, pyarrow
+            print(f"[arrow-compat] pl={pl.__version__} "
+                  f"pa={pyarrow.__version__} xgb={xgboost.__version__} "
+                  f"cb={catboost.__version__} py={sys.version.split()[0]}")
+        except ImportError:
+            pass
+
     def test_xgb_polars_utf8_does_not_explode(self, temp_data_dir, common_init_params):
         """XGBoost's arrow bridge rejected pl.Utf8 in prior versions; verify one-time precast works."""
         pytest.importorskip("xgboost")
@@ -258,6 +278,35 @@ class TestArrowLargeStringCompat:
             data_dir=temp_data_dir, verbose=0,
         )
         assert models is not None
+        self._assert_lib_versions_logged()
+
+    @pytest.mark.parametrize("model_name", ["cb", "hgb", "xgb"])
+    def test_polars_native_models_handle_utf8_and_string_dtypes(
+        self, model_name, temp_data_dir, common_init_params
+    ):
+        """All Polars-native strategies must survive pl.Utf8 AND pl.String (same dtype
+        under the hood in Polars >= 0.19; large_string is the tripwire for XGBoost)."""
+        pytest.importorskip({"cb": "catboost", "xgb": "xgboost", "hgb": "sklearn"}[model_name])
+        from .shared import SimpleFeaturesAndTargetsExtractor
+        from mlframe.training.core import train_mlframe_models_suite
+
+        df = _make_simple_polars_df()
+        # Force String dtype if the Polars version exposes it separately.
+        if hasattr(pl, "String"):
+            df = df.with_columns(pl.col("cat_feat").cast(pl.String))
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+        models, _ = train_mlframe_models_suite(
+            df=df, target_name="t", model_name=f"compat_{model_name}",
+            features_and_targets_extractor=fte,
+            mlframe_models=[model_name],
+            init_common_params=common_init_params,
+            hyperparams_config={"iterations": 10},
+            behavior_config=CPU_BEHAVIOR,
+            use_ordinary_models=True, use_mlframe_ensembles=False,
+            data_dir=temp_data_dir, verbose=0,
+        )
+        assert models is not None
+        self._assert_lib_versions_logged()
 
 
 # ======================================================================
@@ -278,12 +327,6 @@ class TestFeatureSelectorsWithTextEmbedding:
             "target": rng.integers(0, 2, size=n),
         })
 
-    @pytest.mark.xfail(
-        reason="MRMR's selected-feature subset drops text columns before CatBoost.fit; "
-        "CB then raises 'text_feat is not in list'. Selectors need to preserve declared "
-        "text/embedding columns through feature-subset selection.",
-        strict=True,
-    )
     def test_mrmr_with_text_column(self, temp_data_dir, common_init_params):
         """MRMR on CatBoost with text_feat — text should be passed through to CB."""
         pytest.importorskip("catboost")
@@ -315,13 +358,7 @@ class TestFeatureSelectorsWithTextEmbedding:
         )
         assert TargetTypes.BINARY_CLASSIFICATION in models
 
-    @pytest.mark.xfail(
-        reason="MRMR encoder rejects list-of-float embedding columns — "
-        "selector treats them as plain object/ndarray features. "
-        "Needs upstream handling: either drop embeddings before MRMR or teach MRMR to pass them through.",
-        strict=True,
-    )
-    def test_mrmr_with_embedding_column_xfail(self, temp_data_dir, common_init_params):
+    def test_mrmr_with_embedding_column(self, temp_data_dir, common_init_params):
         pytest.importorskip("catboost")
         from .shared import SimpleFeaturesAndTargetsExtractor
         from mlframe.training.core import train_mlframe_models_suite

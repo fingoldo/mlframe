@@ -419,7 +419,8 @@ def _update_model_name_after_training(model_name, train_df_len, train_details, b
 
 
 def _prepare_test_split(
-    df, test_df, test_idx, test_target, target, real_drop_columns, model, pre_pipeline, skip_pre_pipeline_transform, skip_preprocessing=False
+    df, test_df, test_idx, test_target, target, real_drop_columns, model, pre_pipeline, skip_pre_pipeline_transform, skip_preprocessing=False,
+    selector_passthrough_cols=None,
 ):
     """Prepare test DataFrame and target for evaluation."""
     if (df is not None) or (test_df is not None):
@@ -431,12 +432,15 @@ def _prepare_test_split(
 
         if model is not None and pre_pipeline and not skip_pre_pipeline_transform:
             if skip_preprocessing:
-                # Only use feature selector, not full pipeline
                 feature_selector = _extract_feature_selector(pre_pipeline)
                 if feature_selector is not None:
-                    test_df = feature_selector.transform(test_df)
+                    test_df = _passthrough_cols_fit_transform(
+                        feature_selector.transform, test_df, passthrough_cols=selector_passthrough_cols,
+                    )
             else:
-                test_df = pre_pipeline.transform(test_df)
+                test_df = _passthrough_cols_fit_transform(
+                    pre_pipeline.transform, test_df, passthrough_cols=selector_passthrough_cols,
+                )
         columns = list(test_df.columns) if hasattr(test_df, "columns") else []
     else:
         columns = []
@@ -491,8 +495,38 @@ def _is_fitted(estimator):
         return False
 
 
+def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=False, target=None):
+    """Run a selector fit/transform on df with passthrough_cols hidden, then re-attach them.
+
+    Feature selectors (MRMR, RFECV) can't encode text or list-of-float embedding columns;
+    catboost needs them back intact for fit. Hide → run → re-attach preserves both.
+    """
+    if not passthrough_cols or df is None or not hasattr(df, "columns"):
+        return fn(df, target) if fit else fn(df)
+    present = [c for c in passthrough_cols if c in df.columns]
+    if not present:
+        return fn(df, target) if fit else fn(df)
+    is_polars = isinstance(df, pl.DataFrame)
+    if is_polars:
+        held = df.select(present)
+        reduced = df.drop(present)
+    else:
+        held = df[present]
+        reduced = df.drop(columns=present)
+    out = fn(reduced, target) if fit else fn(reduced)
+    if hasattr(out, "columns"):
+        if isinstance(out, pl.DataFrame):
+            out = out.with_columns([held[c] for c in present])
+        else:
+            held_pd = held.to_pandas() if is_polars else held
+            for c in present:
+                out[c] = held_pd[c].values if hasattr(held_pd[c], "values") else held_pd[c]
+    return out
+
+
 def _apply_pre_pipeline_transforms(
-    model, pre_pipeline, train_df, val_df, train_target, skip_pre_pipeline_transform, skip_preprocessing, use_cache, model_file_name, verbose
+    model, pre_pipeline, train_df, val_df, train_target, skip_pre_pipeline_transform, skip_preprocessing, use_cache, model_file_name, verbose,
+    selector_passthrough_cols=None,
 ):
     """Apply pre-pipeline transformations to train and validation DataFrames.
 
@@ -521,17 +555,26 @@ def _apply_pre_pipeline_transforms(
                 if _is_fitted(feature_selector):
                     if verbose:
                         logger.info(f"Using pre-fitted feature selector (transform only): {feature_selector}")
-                    train_df = feature_selector.transform(train_df)
+                    train_df = _passthrough_cols_fit_transform(
+                        feature_selector.transform, train_df,
+                        passthrough_cols=selector_passthrough_cols,
+                    )
                 else:
                     if verbose:
                         logger.info(f"Fitting feature selector: {feature_selector}")
-                    train_df = feature_selector.fit_transform(train_df, train_target)
+                    train_df = _passthrough_cols_fit_transform(
+                        feature_selector.fit_transform, train_df,
+                        passthrough_cols=selector_passthrough_cols, fit=True, target=train_target,
+                    )
                 if verbose:
                     log_ram_usage()
                 if val_df is not None:
                     if verbose:
                         logger.info(f"Transforming val_df via feature selector...")
-                    val_df = feature_selector.transform(val_df)
+                    val_df = _passthrough_cols_fit_transform(
+                        feature_selector.transform, val_df,
+                        passthrough_cols=selector_passthrough_cols,
+                    )
                     if verbose:
                         log_ram_usage()
             elif verbose:
@@ -542,25 +585,34 @@ def _apply_pre_pipeline_transforms(
                     logger.info(f"Using pre-fitted pipeline (transform only): {pre_pipeline}")
                 except (ValueError, TypeError):
                     pass
-            train_df = pre_pipeline.transform(train_df)
+            train_df = _passthrough_cols_fit_transform(
+                pre_pipeline.transform, train_df, passthrough_cols=selector_passthrough_cols,
+            )
             if verbose:
                 log_ram_usage()
             if val_df is not None:
                 if verbose:
                     logger.info(f"Transforming val_df via pre_pipeline...")
-                val_df = pre_pipeline.transform(val_df)
+                val_df = _passthrough_cols_fit_transform(
+                    pre_pipeline.transform, val_df, passthrough_cols=selector_passthrough_cols,
+                )
                 if verbose:
                     log_ram_usage()
         else:
             if verbose:
                 logger.info(f"Fitting & transforming train_df via pre_pipeline {pre_pipeline}...")
-            train_df = pre_pipeline.fit_transform(train_df, train_target)
+            train_df = _passthrough_cols_fit_transform(
+                pre_pipeline.fit_transform, train_df,
+                passthrough_cols=selector_passthrough_cols, fit=True, target=train_target,
+            )
             if verbose:
                 log_ram_usage()
             if val_df is not None:
                 if verbose:
                     logger.info(f"Transforming val_df via pre_pipeline {pre_pipeline}...")
-                val_df = pre_pipeline.transform(val_df)
+                val_df = _passthrough_cols_fit_transform(
+                    pre_pipeline.transform, val_df, passthrough_cols=selector_passthrough_cols,
+                )
                 if verbose:
                     log_ram_usage()
         clean_ram()
@@ -1348,6 +1400,7 @@ def train_and_evaluate_model(
         use_cache=use_cache,
         model_file_name=model_file_name,
         verbose=verbose,
+        selector_passthrough_cols=(list(fit_params.get("text_features") or []) + list(fit_params.get("embedding_features") or [])) or None,
     )
 
     # Check if feature selection removed all features
@@ -1565,6 +1618,7 @@ def train_and_evaluate_model(
                 pre_pipeline=pre_pipeline,
                 skip_pre_pipeline_transform=skip_pre_pipeline_transform,
                 skip_preprocessing=skip_preprocessing,
+                selector_passthrough_cols=(list(fit_params.get("text_features") or []) + list(fit_params.get("embedding_features") or [])) or None,
             )
             if test_df is not None:
                 _orig_test_df = test_df
