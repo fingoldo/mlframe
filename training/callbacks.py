@@ -129,34 +129,38 @@ else:  # pragma: no cover
 # PyTorch Lightning
 # ----------------------------------------------------------------------------------------------------------------------------
 
-try:
-    import pytorch_lightning as _pl  # noqa: F401
+# Detect Lightning via find_spec only — importing the package eagerly drags in
+# torch DLLs at module load, which is expensive and (on Windows under memory
+# pressure) can trip the paging-file-too-small OSError during test collection
+# in every unrelated test that transitively imports this module.
+import importlib.util as _ilu
 
-    _HAS_LIGHTNING = True
-except ImportError:
-    _HAS_LIGHTNING = False
+_HAS_LIGHTNING = _ilu.find_spec("pytorch_lightning") is not None
 
 
-if _HAS_LIGHTNING:
-    import pytorch_lightning as _pl_mod
+class LightningStopFileCallback:
+    """PyTorch-Lightning callback that sets trainer.should_stop when a stop-file appears.
 
-    class LightningStopFileCallback(_pl_mod.callbacks.Callback):
-        """PyTorch-Lightning callback that sets trainer.should_stop when a stop-file appears."""
+    Lightning is imported on first instantiation — keeps module import cheap.
+    """
 
-        def __init__(self, fpath: str):
-            super().__init__()
-            self.fpath = fpath
-            self._check = stop_file(fpath)
+    def __init__(self, fpath: str):
+        if not _HAS_LIGHTNING:
+            raise ImportError(
+                "pytorch_lightning is not installed; cannot use LightningStopFileCallback"
+            )
+        import pytorch_lightning as _pl_mod  # lazy
+        # Dynamically subclass the real Callback at first use.
+        base = _pl_mod.callbacks.Callback
+        if not isinstance(self, base):
+            self.__class__ = type(self.__class__.__name__, (self.__class__, base), {})
+            base.__init__(self)
+        self.fpath = fpath
+        self._check = stop_file(fpath)
 
-        def on_train_epoch_end(self, trainer, pl_module):  # pragma: no cover
-            if self._check():
-                trainer.should_stop = True
-
-else:  # pragma: no cover
-
-    class LightningStopFileCallback:
-        def __init__(self, *args, **kwargs):
-            raise ImportError("pytorch_lightning is not installed; cannot use LightningStopFileCallback")
+    def on_train_epoch_end(self, trainer, pl_module):  # pragma: no cover
+        if self._check():
+            trainer.should_stop = True
 
 
 __all__ = [
