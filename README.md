@@ -86,8 +86,19 @@ Each model type has a `ModelPipelineStrategy` that declares its preprocessing ne
   - `embedding_features` — list of list-of-float vector columns (passed to CatBoost via `fit(embedding_features=[...])`, dropped for other models)
   - `auto_detect_feature_types` — when `True` (default), auto-detects embeddings from `pl.List(pl.Float*)` and splits string columns into text vs categorical by cardinality
   - `cat_text_cardinality_threshold` — unique value count threshold (default 50): `<= threshold` → categorical, `> threshold` → text
+- **`preprocessing_extensions`** — optional `PreprocessingExtensionsConfig` (or dict). Shared sklearn stack applied once after the Polars-ds pipeline; every model reuses the transformed frame. Covers scaler override (10 variants), `Binarizer`/`KBinsDiscretizer` (mutually exclusive), `PolynomialFeatures` with `memory_safety_max_features` guard, non-linear maps (`RBFSampler`/`Nystroem`/`AdditiveChi2Sampler`/`SkewedChi2Sampler`), TF-IDF, and dim reducers (PCA / KernelPCA / LDA / NMF / TruncatedSVD / FastICA / Isomap / UMAP / random projections / RandomTreesEmbedding / BernoulliRBM). `None` (default) is a byte-for-byte noop — the Polars-native fastpath is preserved. UMAP is gated via `importlib.util.find_spec` with an install-hint `ImportError`.
 - **`custom_pre_pipelines`** — dict of custom sklearn transformers (e.g., PCA)
 - **`verbose`** — when `True`, logs timing and shape info for every major phase (data loading, splitting, pipeline, per-model training, metrics)
+
+### Sweeping variants — `run_grid`
+
+When you need to compare multiple configs of the same suite, use
+`mlframe.training.run_grid(base_kwargs, grid)` — it calls
+`train_mlframe_models_suite` once per entry and collects results in a dict.
+Grid entries may be raw dicts (auto-labelled `variant_0`, `variant_1`, …)
+or `(label, dict)` tuples. With `stop_on_error=False` (default) a failing
+variant is logged and stored as `{"error": repr(exc)}` while the sweep
+continues.
 
 ## Feature-tier model grouping
 

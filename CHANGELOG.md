@@ -33,9 +33,39 @@
 - Pattern: parametrized tests call `fast_subset([...scalers...], representative="StandardScaler")` so all code paths still execute but with one representative variant.
 - NEW `tests/test_fast_mode.py` (8 self-tests incl. subprocess end-to-end).
 
-### Pending (commits 4/5, 5/5)
-- `PreprocessingExtensionsConfig` (scaler / binarization / kbins / polynomial / nonlinear / tfidf / dim_reducer) wired into shared `fit_and_transform_pipeline`.
-- Full extension test suite + benchmark guard (≤2% regression budget on default path).
+### Commit 4/5 — PreprocessingExtensionsConfig + apply_preprocessing_extensions
+- `training/configs.py`: new `PreprocessingExtensionsConfig` with 14 fields
+  (scaler override, binarization/kbins mutually-exclusive, polynomial with
+  memory-safety guard, nonlinear feature maps, tfidf, dim_reducer covering
+  PCA/KernelPCA/LDA/NMF/TruncatedSVD/FastICA/Isomap/UMAP/random projections/
+  RandomTreesEmbedding/BernoulliRBM). None default on every stage so the
+  whole config reads as a noop.
+- `training/pipeline.py`: new `apply_preprocessing_extensions` helper runs
+  after `fit_and_transform_pipeline`. Config=None = byte-for-byte fastpath
+  preservation. UMAP gated via `find_spec` with install-hint ImportError.
+- `training/core.py`: `train_mlframe_models_suite` gains
+  `preprocessing_extensions: Optional[PreprocessingExtensionsConfig | Dict]`.
+  Dict inputs auto-promoted. Extensions pipeline stored under
+  `metadata["extensions_pipeline"]`. `cat_features` cleared once
+  extensions materialise them to numeric columns.
+- NEW `training/grid.py::run_grid` — sequential variant sweeper (replaces
+  the dropped `TryAllMethods` pattern). Accepts base kwargs + list of dicts
+  or `(label, dict)` tuples; `stop_on_error=False` default captures
+  exceptions per variant. 6 unit tests via injected `suite_fn` stub.
+- NEW `tests/training/test_preprocessing_extensions.py` (13 tests).
+- NEW `tests/test_scalers.py` (8-scaler LR-AUROC round-trip, fast_subset
+  keeps one representative).
+
+### Collection-time fix — `training/callbacks.py` lazy lightning
+- Top-level `import pytorch_lightning` was pulling torch DLLs into every
+  test collection. Under Windows memory pressure this triggered
+  `OSError WinError 1455` (paging file too small) on `shm.dll` /
+  `cufft64_10.dll`, aborting collection before a single test could run.
+- Switched to `importlib.util.find_spec()` detection + lazy import inside
+  `LightningStopFileCallback.__init__` with dynamic base-class rebasing.
+
+### Pending (commit 5/5)
+- Benchmark guard (≤2% regression budget on default path).
 
 ## 2026-04-14 — Full Audit & Fix Sweep (10 parallel audit agents + 9 parallel fix agents)
 
