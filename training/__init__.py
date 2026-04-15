@@ -73,6 +73,7 @@ _LAZY_IMPORTS = {
     'PreprocessingConfig': ('.configs', 'PreprocessingConfig'),
     'TrainingSplitConfig': ('.configs', 'TrainingSplitConfig'),
     'PolarsPipelineConfig': ('.configs', 'PolarsPipelineConfig'),
+    'PreprocessingExtensionsConfig': ('.configs', 'PreprocessingExtensionsConfig'),
     'FeatureSelectionConfig': ('.configs', 'FeatureSelectionConfig'),
     'LinearModelConfig': ('.configs', 'LinearModelConfig'),
     'TreeModelConfig': ('.configs', 'TreeModelConfig'),
@@ -156,6 +157,9 @@ _LAZY_IMPORTS = {
     'LightGBMCallback': ('.helpers', 'LightGBMCallback'),
     'CatBoostCallback': ('.helpers', 'CatBoostCallback'),
     'XGBoostCallback': ('.helpers', 'XGBoostCallback'),
+
+    # Grid runner
+    'run_grid': ('.grid', 'run_grid'),
 }
 
 _cache = {}
@@ -190,6 +194,7 @@ __all__ = [
     'PreprocessingConfig',
     'TrainingSplitConfig',
     'PolarsPipelineConfig',
+    'PreprocessingExtensionsConfig',
     'FeatureSelectionConfig',
     'LinearModelConfig',
     'TreeModelConfig',
@@ -265,6 +270,9 @@ __all__ = [
     'LightGBMCallback',
     'CatBoostCallback',
     'XGBoostCallback',
+
+    # Grid runner
+    'run_grid',
 ]
 
 

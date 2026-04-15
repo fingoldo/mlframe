@@ -5,10 +5,19 @@ Uses Pydantic for validation while supporting dict-like instantiation for backwa
 All config classes support lenient validation - inputs are normalized to canonical forms.
 """
 
-from typing import Optional, Dict, Any, List, Callable, Tuple
+from typing import Optional, Dict, Any, List, Callable, Tuple, Literal
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, ConfigDict, model_validator, field_validator
+
+
+# =============================================================================
+# Preprocessing extensions (Audit #02 phase 3) — single shared pipeline surface.
+#
+# Wired into `fit_and_transform_pipeline` so every model in the suite reuses one
+# transformed frame. A None config preserves the existing polars-native fastpath
+# byte-for-byte. See `PreprocessingExtensionsConfig` below for field details.
+# =============================================================================
 
 
 # =============================================================================
@@ -197,6 +206,64 @@ class PolarsPipelineConfig(BaseConfig):
         if v_lower not in valid_names:
             raise ValueError(f"scaler_name must be one of {valid_names} or None, got '{v}'")
         return v_lower
+
+
+class PreprocessingExtensionsConfig(BaseConfig):
+    """Optional shared-pipeline extensions applied once, reused by every model.
+
+    When ``None`` is passed to ``train_mlframe_models_suite``, no extension runs
+    and the Polars-native fastpath is preserved. Setting any field here
+    activates the sklearn bridge inside ``fit_and_transform_pipeline`` — even
+    tree models will then consume the shared transformed frame.
+
+    Order of application (each step is optional):
+      1. TF-IDF on declared text columns.
+      2. Scaler (overrides the Polars-ds scaler when set).
+      3. Binarizer OR KBinsDiscretizer (mutually exclusive).
+      4. PolynomialFeatures (guarded by ``memory_safety_max_features``).
+      5. Non-linear feature map (RBFSampler / Nystroem / …).
+      6. Dim reducer (PCA / UMAP / …).
+    """
+
+    scaler: Optional[Literal[
+        "StandardScaler", "StandardScaler_nomean",
+        "RobustScaler", "MinMaxScaler", "MaxAbsScaler",
+        "PowerTransformer_yj", "PowerTransformer_yj_nostd",
+        "QuantileTransformer_uniform", "QuantileTransformer_normal",
+        "Normalizer_l2",
+    ]] = None
+    binarization_threshold: Optional[float] = None
+    kbins: Optional[int] = None
+    kbins_encode: Literal["ordinal", "onehot"] = "ordinal"
+    polynomial_degree: Optional[int] = None
+    polynomial_interaction_only: bool = True
+    nonlinear_features: Optional[Literal[
+        "RBFSampler", "Nystroem", "AdditiveChi2Sampler", "SkewedChi2Sampler"
+    ]] = None
+    nonlinear_n_components: int = 100
+    tfidf_columns: List[str] = Field(default_factory=list)
+    tfidf_max_features: int = 5000
+    tfidf_ngram_range: Tuple[int, int] = (1, 2)
+    dim_reducer: Optional[Literal[
+        "PCA", "KernelPCA", "LDA", "NMF", "TruncatedSVD", "FastICA",
+        "Isomap", "UMAP", "GaussianRandomProjection",
+        "SparseRandomProjection", "RandomTreesEmbedding", "BernoulliRBM",
+    ]] = None
+    dim_n_components: int = 50
+    memory_safety_max_features: int = 100_000
+    verbose_logging: bool = True
+
+    @model_validator(mode="after")
+    def _check_mutual_exclusion(self) -> "PreprocessingExtensionsConfig":
+        if self.binarization_threshold is not None and self.kbins is not None:
+            raise ValueError(
+                "binarization_threshold and kbins are mutually exclusive; set at most one."
+            )
+        if self.polynomial_degree is not None and self.polynomial_degree < 2:
+            raise ValueError("polynomial_degree must be >= 2 when set")
+        if self.kbins is not None and self.kbins < 2:
+            raise ValueError("kbins must be >= 2 when set")
+        return self
 
 
 class FeatureTypesConfig(BaseConfig):
