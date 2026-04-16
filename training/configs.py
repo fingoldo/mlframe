@@ -5,7 +5,7 @@ Uses Pydantic for validation while supporting dict-like instantiation for backwa
 All config classes support lenient validation - inputs are normalized to canonical forms.
 """
 
-from typing import Optional, Dict, Any, List, Callable, Tuple, Literal
+from typing import Optional, Dict, Any, List, Callable, Tuple, Literal, Union
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, ConfigDict, model_validator, field_validator
@@ -962,7 +962,7 @@ class TrainingControlConfig(BaseConfig):
         Parameters for training callbacks. Keys: patience, verbose.
     """
 
-    verbose: bool = False
+    verbose: Union[bool, int] = False
     use_cache: bool = False
     just_evaluate: bool = False
 
