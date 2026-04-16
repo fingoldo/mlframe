@@ -90,7 +90,7 @@ class TestMixedDtypesTraining:
 
     @pytest.fixture(scope="class")
     def synthetic_df(self):
-        return _make_synthetic_mixed_df(n_rows=50_000)
+        return _make_synthetic_mixed_df(n_rows=100_000)
 
     def test_catboost_trains_on_mixed_dtypes(self, synthetic_df, tmp_path):
         """
@@ -113,8 +113,8 @@ class TestMixedDtypesTraining:
             model_name="prod_jobsdetails",
             features_and_targets_extractor=ft_extractor,
             mlframe_models=["cb"],
-            init_common_params={"show_perf_chart": False, "show_fi": False},
             use_ordinary_models=True,
+            use_mlframe_ensembles=False,
             pipeline_config=PolarsPipelineConfig(
                 use_polarsds_pipeline=False,
                 categorical_encoding=None,
@@ -128,16 +128,14 @@ class TestMixedDtypesTraining:
                 val_size=0.1,
                 wholeday_splitting=False,
             ),
-            # --- NEW API (replaces config_params_override / control_params_override) ---
             hyperparams_config=ModelHyperparamsConfig(
-                iterations=50,
-                early_stopping_rounds=10,
-                cb_kwargs={"task_type": "CPU"},
+                iterations=20,
+                early_stopping_rounds=5,
             ),
             behavior_config=TrainingBehaviorConfig(
                 prefer_calibrated_classifiers=False,
             ),
-            use_mlframe_ensembles=False,
+            init_common_params={"show_perf_chart": True, "show_fi": True},
             data_dir=str(tmp_path / "data"),
             verbose=True,
         )

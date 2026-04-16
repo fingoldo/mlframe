@@ -236,7 +236,6 @@ def drop_columns_from_dataframe(
         if existing_cols:
             df = df.drop(columns=existing_cols)
 
-    clean_ram()
     if verbose:
         log_ram_usage()
 

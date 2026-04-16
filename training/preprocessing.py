@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 from typing import Union, Optional, Tuple, Any
+import os
 from os.path import join, exists
 from pyutilz.pandaslib import ensure_dataframe_float32_convertability
 from pyutilz.system import ensure_dir_exists
@@ -185,30 +186,37 @@ def save_split_artifacts(
         split_dir = join(data_dir, models_dir, slugify(target_name), slugify(model_name))
         ensure_dir_exists(split_dir)
 
+        # Single listdir instead of per-file exists() — avoids N×17ms os.stat on Windows
+        # where antivirus scanning makes each stat call ~17ms.
+        try:
+            _existing = set(os.listdir(split_dir))
+        except OSError:
+            _existing = set()
+
         for idx, idx_name in zip([train_idx, val_idx, test_idx], "train val test".split()):
             if idx is None:
                 continue
             if timestamps is not None and len(timestamps) > 0:
-                ts_file = join(split_dir, f"{idx_name}_timestamps.parquet")
-                if not exists(ts_file):
-                    save_series_or_df(timestamps[idx], ts_file, compression, name="ts")
+                ts_fname = f"{idx_name}_timestamps.parquet"
+                if ts_fname not in _existing:
+                    save_series_or_df(timestamps[idx], join(split_dir, ts_fname), compression, name="ts")
             if group_ids_raw is not None and len(group_ids_raw) > 0:
-                gid_file = join(split_dir, f"{idx_name}_group_ids_raw.parquet")
-                if not exists(gid_file):
-                    save_series_or_df(group_ids_raw[idx], gid_file, compression)
+                gid_fname = f"{idx_name}_group_ids_raw.parquet"
+                if gid_fname not in _existing:
+                    save_series_or_df(group_ids_raw[idx], join(split_dir, gid_fname), compression)
             if artifacts is not None and len(artifacts) > 0:
                 if isinstance(artifacts, dict):
                     # Per-key artifacts: write one parquet file per dict entry.
                     for art_key, art_val in artifacts.items():
                         if art_val is None:
                             continue
-                        art_file = join(split_dir, f"{idx_name}_artifacts_{slugify(str(art_key))}.parquet")
-                        if not exists(art_file):
-                            save_series_or_df(art_val[idx], art_file, compression)
+                        art_fname = f"{idx_name}_artifacts_{slugify(str(art_key))}.parquet"
+                        if art_fname not in _existing:
+                            save_series_or_df(art_val[idx], join(split_dir, art_fname), compression)
                 else:
-                    art_file = join(split_dir, f"{idx_name}_artifacts.parquet")
-                    if not exists(art_file):
-                        save_series_or_df(artifacts[idx], art_file, compression)
+                    art_fname = f"{idx_name}_artifacts.parquet"
+                    if art_fname not in _existing:
+                        save_series_or_df(artifacts[idx], join(split_dir, art_fname), compression)
 
 
 def create_split_dataframes(
