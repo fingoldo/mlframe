@@ -447,8 +447,9 @@ class TreeModelConfig(ModelConfig):
         Step size for gradient descent (default: 0.1).
     max_depth : int, optional
         Maximum tree depth (None for unlimited).
-    early_stopping_rounds : int
+    early_stopping_rounds : int or None
         Rounds without improvement before stopping. 0 = auto (iterations // 3).
+        None disables early stopping entirely.
     task_type : str
         Computation device: "CPU" or "GPU". Case-insensitive, normalized to uppercase.
     devices : str, optional
@@ -466,7 +467,7 @@ class TreeModelConfig(ModelConfig):
     iterations: int = DEFAULT_TREE_ITERATIONS
     learning_rate: float = 0.1
     max_depth: Optional[int] = None
-    early_stopping_rounds: int = 0  # 0 means auto (iterations // 3)
+    early_stopping_rounds: Optional[int] = 0  # 0 = auto (iterations // 3); None = disabled
 
     # GPU settings
     task_type: str = "CPU"
@@ -622,8 +623,8 @@ class ModelHyperparamsConfig(BaseConfig):
         Global learning rate for tree models.
     iterations : int
         Number of boosting iterations.
-    early_stopping_rounds : int
-        Patience for early stopping.
+    early_stopping_rounds : int or None
+        Patience for early stopping. None disables early stopping entirely.
     catboost_custom_classif_metrics : list of str, optional
         Custom CatBoost classification metrics.
     rfecv_kwargs : dict, optional
@@ -645,7 +646,7 @@ class ModelHyperparamsConfig(BaseConfig):
     has_time: bool = False
     learning_rate: float = 0.2
     iterations: int = 700
-    early_stopping_rounds: int = 100
+    early_stopping_rounds: Optional[int] = 100
     catboost_custom_classif_metrics: Optional[List[str]] = None
     rfecv_kwargs: Dict[str, Any] = Field(default_factory=lambda: {
         "max_runtime_mins": DEFAULT_RFECV_MAX_RUNTIME_MINS,

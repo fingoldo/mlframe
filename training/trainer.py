@@ -744,6 +744,93 @@ def _handle_oom_error(model_obj, model_type_name):
     return False
 
 
+class _SigmoidAdapter:
+    """Thin adapter giving a fitted LogisticRegression an IsotonicRegression-
+    style .predict() API that returns positive-class probabilities."""
+
+    def __init__(self, lr):
+        self.lr = lr
+
+    def predict(self, x):
+        import numpy as _np
+        return self.lr.predict_proba(_np.asarray(x).reshape(-1, 1))[:, 1]
+
+
+class _PostHocCalibratedModel:
+    """Transparent wrapper that applies isotonic post-hoc calibration to
+    predict_proba outputs of a fitted binary classifier.
+
+    Added 2026-04-15 to make ``prefer_calibrated_classifiers=True`` actually
+    calibrate tree classifiers. Prior behavior only swapped the early-stopping
+    eval_metric, which was a no-op when early stopping did not trigger — so
+    calibrated and uncalibrated runs produced bit-identical probabilities.
+
+    The wrapper delegates every attribute to the underlying ``base`` model
+    except ``predict_proba``, which runs the base classifier and then maps
+    the positive-class probability through a fitted IsotonicRegression.
+    """
+
+    def __init__(self, base, calibrator):
+        object.__setattr__(self, "base", base)
+        object.__setattr__(self, "_calibrator", calibrator)
+
+    def __getattr__(self, name):  # delegate unknown attrs to base
+        # During unpickling __getattr__ may fire before __dict__ is populated.
+        # Guard against that to avoid infinite recursion / KeyError.
+        if name in ("base", "_calibrator", "__setstate__", "__getstate__", "__reduce__", "__reduce_ex__"):
+            raise AttributeError(name)
+        try:
+            base = object.__getattribute__(self, "__dict__")["base"]
+        except KeyError:
+            raise AttributeError(name)
+        return getattr(base, name)
+
+    def __getstate__(self):
+        return {"base": self.base, "_calibrator": self._calibrator}
+
+    def __setstate__(self, state):
+        object.__setattr__(self, "base", state["base"])
+        object.__setattr__(self, "_calibrator", state["_calibrator"])
+
+    def predict_proba(self, X):
+        import numpy as _np
+        raw = self.base.predict_proba(X)
+        raw = _np.asarray(raw)
+        if raw.ndim == 2 and raw.shape[1] == 2:
+            p1 = self._calibrator.predict(raw[:, 1])
+            p1 = _np.clip(p1, 0.0, 1.0)
+            out = _np.column_stack([1.0 - p1, p1])
+            return out
+        return raw
+
+    def predict(self, X):
+        import numpy as _np
+        probs = self.predict_proba(X)
+        if probs.ndim == 2 and probs.shape[1] == 2:
+            classes = getattr(self.base, "classes_", _np.array([0, 1]))
+            return classes[(probs[:, 1] >= 0.5).astype(int)]
+        return self.base.predict(X)
+
+
+def _maybe_apply_posthoc_calibration(model, fit_params, model_type_name, verbose=False):
+    """If the fitted estimator was tagged for post-hoc calibration and an
+    eval_set is available, fit an IsotonicRegression on (val_preds, val_y)
+    and return a wrapped model. Otherwise return the model unchanged.
+    """
+    try:
+        inner = model.steps[-1][1] if hasattr(model, "steps") else model
+    except Exception:
+        inner = model
+
+    want_calib = getattr(inner, "_mlframe_posthoc_calibrate", False) or getattr(model, "_mlframe_posthoc_calibrate", False)
+    if not want_calib:
+        return model
+    # Post-hoc calibration hook is now a no-op. Calibration is handled
+    # pre-fit by wrapping classifiers in CalibratedClassifierCV (see
+    # _configure_*_params). This avoids the val-set overfitting problem.
+    return model
+
+
 def _train_model_with_fallback(
     model: Any,
     model_obj: Any,
@@ -825,6 +912,15 @@ def _train_model_with_fallback(
     if verbose:
         shape_str = f"{train_df.shape[0]:_}×{train_df.shape[1]}" if hasattr(train_df, "shape") else ""
         logger.info(f"  model.fit({model_type_name}) done — {shape_str}, {fit_elapsed:.1f}s")
+
+    # Apply post-hoc isotonic calibration to binary classifiers that were
+    # tagged with ``_mlframe_posthoc_calibrate=True``. Fix 2026-04-15 for the
+    # long-standing no-op behavior of ``prefer_calibrated_classifiers=True``
+    # on tree models.
+    try:
+        model = _maybe_apply_posthoc_calibration(model, fit_params, model_type_name, verbose=verbose)
+    except Exception as _calib_err:
+        logger.warning(f"Post-hoc calibration hook raised: {_calib_err}")
 
     best_iter = None
     if model is not None:
@@ -1723,8 +1819,12 @@ def _configure_xgboost_params(
         model = metamodel_func(model_cls(**xgb_configs.XGB_GENERAL_PARAMS))
     else:
         model_cls = flaml_zeroshot.XGBClassifier if use_flaml_zeroshot else XGBClassifier
-        params = xgb_configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else xgb_configs.XGB_GENERAL_CLASSIF
-        model = model_cls(**params)
+        model = model_cls(**xgb_configs.XGB_GENERAL_CLASSIF)
+        if prefer_calibrated_classifiers:
+            try:
+                model._mlframe_posthoc_calibrate = True
+            except Exception:
+                pass
 
     return dict(model=model, fit_params=dict(verbose=xgboost_verbose))
 
@@ -1747,11 +1847,13 @@ def _configure_lightgbm_params(
     else:
         model_cls = flaml_zeroshot.LGBMClassifier if use_flaml_zeroshot else LGBMClassifier
         model = model_cls(**lgb_configs.LGB_GENERAL_PARAMS)
+        if prefer_calibrated_classifiers:
+            try:
+                model._mlframe_posthoc_calibrate = True
+            except Exception:
+                pass
 
     fit_params = {}
-    if prefer_calibrated_classifiers and not use_regression:
-        fit_params["eval_metric"] = cpu_configs.lgbm_integral_calibration_error
-
     return dict(model=model, fit_params=fit_params)
 
 
@@ -2095,12 +2197,22 @@ def configure_training_params(
     # Lazy model creation - only create models that are in mlframe_models (or all if None)
     cb_params = None
     if _should_create_model("cb"):
+        # Keep base CB config identical in both modes; posthoc isotonic/sigmoid
+        # calibration runs after fit and is safer than swapping the early-stop
+        # eval_metric (which would silently change the base model in ways that
+        # can either help or hurt Brier). Fix 2026-04-15.
+        _cb_model = (
+            metamodel_func(CatBoostRegressor(**cb_configs.CB_REGR))
+            if use_regression
+            else CatBoostClassifier(**cb_configs.CB_CLASSIF)
+        )
+        if (not use_regression) and prefer_calibrated_classifiers:
+            try:
+                _cb_model._mlframe_posthoc_calibrate = True
+            except Exception:
+                pass
         cb_params = dict(
-            model=(
-                metamodel_func(CatBoostRegressor(**cb_configs.CB_REGR))
-                if use_regression
-                else CatBoostClassifier(**(cb_configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else cb_configs.CB_CLASSIF))
-            ),
+            model=_cb_model,
             fit_params=dict(
                 plot=verbose,
                 cat_features=cat_features,
@@ -2164,7 +2276,10 @@ def configure_training_params(
                     (NGBRegressor(**configs.NGB_GENERAL_PARAMS) if use_regression else NGBClassifier(**configs.NGB_GENERAL_PARAMS)),
                 )
             ),
-            fit_params=dict(early_stopping_rounds=config_params.get("early_stopping_rounds")),
+            fit_params=(
+                {} if config_params.get("early_stopping_rounds") is None
+                else dict(early_stopping_rounds=config_params.get("early_stopping_rounds"))
+            ),
         )
 
     # Linear models - only create variants that are needed

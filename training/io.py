@@ -35,6 +35,10 @@ _SAFE_MODULE_PREFIXES: tuple = (
     "types",
     "dill",
     "scipy",
+    # Fix date 2026-04-15 (bug A): persisted CatBoost models reference assorted
+    # mlframe.* helpers (metrics.ICE, training.helpers.*, etc.) inside their pickled
+    # state; without this the cb model is silently dropped at load time.
+    "mlframe",
 )
 
 # Specific safe names in "types" (only SimpleNamespace).

@@ -124,7 +124,7 @@ def parse_catboost_devices(devices: str, all_gpus: list = None) -> List[Dict]:
 
 def get_training_configs(
     iterations: int = 5000,
-    early_stopping_rounds: int = 0,
+    early_stopping_rounds: Optional[int] = 0,
     validation_fraction: float = 0.1,
     use_explicit_early_stopping: bool = True,
     has_time: bool = True,
@@ -212,7 +212,9 @@ def get_training_configs(
     else:
         ngb_kwargs = ngb_kwargs.copy()
 
-    if not early_stopping_rounds:
+    # None = disabled (don't pass to model fit at all); 0 = auto (iterations // 3); int = as-is.
+    early_stopping_disabled = early_stopping_rounds is None
+    if not early_stopping_disabled and not early_stopping_rounds:
         early_stopping_rounds = max(2, iterations // 3)
 
     def neg_ovr_roc_auc_score(*args, **kwargs):
@@ -588,6 +590,22 @@ def get_training_configs(
         cv_shuffle=not has_time,
     )
     COMMON_RFECV_PARAMS.update(rfecv_kwargs)
+
+    # If ES is disabled (early_stopping_rounds=None), strip the key from every per-model
+    # constructor-params dict so backends don't register an ES callback.
+    # - LGB: omitted from constructor → LightGBMSklearn skips ES on fit
+    # - XGB: omitted from constructor → no early_stopping_rounds passed
+    # - CB:  omitted → CatBoost runs full iterations (no od_type)
+    # - HGB: replace n_iter_no_change with iterations+1 so ES condition never trips
+    if early_stopping_disabled:
+        for _params in (CB_GENERAL_PARAMS, CB_REGR, CB_CLASSIF, CB_CALIB_CLASSIF,
+                        LGB_GENERAL_PARAMS, XGB_GENERAL_PARAMS,
+                        XGB_GENERAL_CLASSIF, XGB_CALIB_CLASSIF,
+                        MLP_GENERAL_PARAMS, COMMON_RFECV_PARAMS):
+            _params.pop("early_stopping_rounds", None)
+        # HGB uses early_stopping=True + n_iter_no_change; force ES off explicitly
+        HGB_GENERAL_PARAMS["early_stopping"] = False
+        HGB_GENERAL_PARAMS.pop("n_iter_no_change", None)
 
     return SimpleNamespace(
         integral_calibration_error=integral_calibration_error,

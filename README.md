@@ -88,7 +88,20 @@ Each model type has a `ModelPipelineStrategy` that declares its preprocessing ne
   - `cat_text_cardinality_threshold` — unique value count threshold (default 50): `<= threshold` → categorical, `> threshold` → text
 - **`preprocessing_extensions`** — optional `PreprocessingExtensionsConfig` (or dict). Shared sklearn stack applied once after the Polars-ds pipeline; every model reuses the transformed frame. Covers scaler override (10 variants), `Binarizer`/`KBinsDiscretizer` (mutually exclusive), `PolynomialFeatures` with `memory_safety_max_features` guard, non-linear maps (`RBFSampler`/`Nystroem`/`AdditiveChi2Sampler`/`SkewedChi2Sampler`), TF-IDF, and dim reducers (PCA / KernelPCA / LDA / NMF / TruncatedSVD / FastICA / Isomap / UMAP / random projections / RandomTreesEmbedding / BernoulliRBM). `None` (default) is a byte-for-byte noop — the Polars-native fastpath is preserved. UMAP is gated via `importlib.util.find_spec` with an install-hint `ImportError`.
 - **`custom_pre_pipelines`** — dict of custom sklearn transformers (e.g., PCA)
+- **`save_charts`** — when `False` (default `True`), skips per-model chart file output. Useful for CI / fast runs where only metrics are needed.
 - **`verbose`** — when `True`, logs timing and shape info for every major phase (data loading, splitting, pipeline, per-model training, metrics)
+
+### Hyperparameters notes
+
+- `ModelHyperparamsConfig.early_stopping_rounds: Optional[int]` — set to `None` to disable early stopping across all strategies (CB/LGB/XGB/MLP/RFECV/HGB/NGB).
+- `PreprocessingExtensionsConfig.tfidf_columns` — listed text columns are vectorized in `apply_preprocessing_extensions` and replaced with `<col>__tfidf_<i>` numeric features before any model sees the frame.
+
+### Suite metadata
+
+On return, `metadata` exposes (in addition to the training artefacts documented elsewhere):
+
+- `metadata["fairness_report"]` — aggregated fairness metrics propagated from per-model runs.
+- `metadata["outlier_detection"]` — dict with `applied`, `n_outliers_dropped_train`, `n_outliers_dropped_val`, `train_size_after_od`, `val_size_after_od`.
 
 ### Sweeping variants — `run_grid`
 

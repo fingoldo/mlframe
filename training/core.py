@@ -421,6 +421,7 @@ def _setup_model_directories(
     cur_target_name: str,
     data_dir: Optional[str],
     models_dir: Optional[str],
+    save_charts: bool = True,
 ) -> Tuple[Optional[str], Optional[str]]:
     """
     Set up directories for model artifacts and charts.
@@ -438,7 +439,7 @@ def _setup_model_directories(
     """
     parts = slugify(target_name), slugify(model_name), slugify(target_type.lower()), slugify(cur_target_name)
 
-    if data_dir is not None:
+    if data_dir is not None and save_charts:
         plot_file = join(data_dir, "charts", *parts) + os.path.sep
         ensure_dir_exists(plot_file)
     else:
@@ -953,6 +954,7 @@ def train_mlframe_models_suite(
     # Paths
     data_dir: str = "",
     models_dir: str = "models",
+    save_charts: bool = True,
     # Misc
     verbose: int = 1,
     # Outlier detection (run once for all models)
@@ -1490,6 +1492,25 @@ def train_mlframe_models_suite(
         "val_od_idx": val_od_idx,
     }
 
+    # Surface OD row-reduction evidence in returned metadata so callers/tests can assert
+    # that OD actually ran without grepping logs. Only populated when an OD was applied.
+    if outlier_detector is not None:
+        n_train_pre_od = len(train_df_pd) if train_df_pd is not None else None
+        n_val_pre_od = len(val_df_pd) if val_df_pd is not None else None
+        n_train_post_od = int(train_od_idx.sum()) if train_od_idx is not None else n_train_pre_od
+        n_val_post_od = int(val_od_idx.sum()) if val_od_idx is not None else n_val_pre_od
+        n_train_dropped = (n_train_pre_od - n_train_post_od) if n_train_pre_od is not None else 0
+        n_val_dropped = (n_val_pre_od - n_val_post_od) if (n_val_pre_od is not None and val_od_idx is not None) else 0
+        metadata["outlier_detection"] = {
+            "applied": True,
+            "n_outliers_dropped_train": int(n_train_dropped),
+            "n_outliers_dropped_val": int(n_val_dropped),
+            "train_size_after_od": int(n_train_post_od) if n_train_post_od is not None else None,
+            "val_size_after_od": int(n_val_post_od) if n_val_post_od is not None else None,
+        }
+    else:
+        metadata["outlier_detection"] = {"applied": False}
+
     # Keep polars fastpath DFs in sync with pandas-filtered copies so that the
     # Polars-native training path operates on OD-filtered rows matching the
     # OD-filtered targets. Without this the downstream training call feeds the
@@ -1538,6 +1559,7 @@ def train_mlframe_models_suite(
                     cur_target_name=cur_target_name,
                     data_dir=data_dir,
                     models_dir=models_dir,
+                    save_charts=save_charts,
                 )
 
                 # Subset targets using pre-filtered indices (OD already applied globally)
@@ -1781,6 +1803,15 @@ def train_mlframe_models_suite(
                             _sig_params = set(_inspect.signature(_cls.__init__).parameters) - {"self"}
                             _raw = original_model.get_params(deep=False)
                             cloned_model = _cls(**{k: v for k, v in _raw.items() if k in _sig_params})
+                        # Preserve the mlframe posthoc calibration tag across clone.
+                        # sklearn.clone() strips non-param attributes, which would
+                        # drop the calibration directive and silently revert to an
+                        # uncalibrated model. Fix 2026-04-15.
+                        if getattr(original_model, "_mlframe_posthoc_calibrate", False):
+                            try:
+                                cloned_model._mlframe_posthoc_calibrate = True
+                            except Exception:
+                                pass
                         current_model_params = models_params[mlframe_model_name].copy()
                         current_model_params["model"] = cloned_model
 
@@ -1955,6 +1986,24 @@ def train_mlframe_models_suite(
     if verbose:
         log_phase(f"Training suite completed for {model_name}, {sum(len(v) for targets in models.values() for v in targets.values())} models.")
         log_ram_usage()
+
+    # Aggregate per-model fairness_report into metadata so callers can access it without
+    # re-walking the models dict. Trainer stores fairness_report in model.metrics[split].
+    # Fix date 2026-04-15: bug B (fairness_report not propagated into suite metadata).
+    fairness_reports: Dict[str, Any] = {}
+    for _ttype, _targets in models.items():
+        for _tname, _model_list in _targets.items():
+            for _m in _model_list:
+                _m_metrics = getattr(_m, "metrics", None)
+                if not isinstance(_m_metrics, dict):
+                    continue
+                for _split in ("test", "val", "train"):
+                    _split_metrics = _m_metrics.get(_split)
+                    if isinstance(_split_metrics, dict) and "fairness_report" in _split_metrics:
+                        _key = f"{_ttype}__{_tname}__{getattr(_m, 'model_name', type(getattr(_m, 'model', _m)).__name__)}__{_split}"
+                        fairness_reports[_key] = _split_metrics["fairness_report"]
+    if fairness_reports:
+        metadata["fairness_report"] = fairness_reports
 
     # Save metadata again with slug-to-original name mappings (for load_mlframe_suite)
     _finalize_and_save_metadata(
@@ -2157,6 +2206,11 @@ def predict_mlframe_models_suite(
         # Average probabilities
         avg_probs = np.mean(np.stack(all_probs), axis=0)
         results["ensemble_probabilities"] = avg_probs
+        # Also expose the ensemble inside the per-model probabilities dict under
+        # the canonical "ensemble" key so downstream consumers can iterate a
+        # single dict and see both per-model and ensemble streams (2026-04-15).
+        if isinstance(results.get("probabilities"), dict):
+            results["probabilities"]["ensemble"] = avg_probs
 
         # Ensemble predictions from averaged probabilities
         if avg_probs.ndim == 2:
@@ -2164,6 +2218,8 @@ def predict_mlframe_models_suite(
         else:
             ensemble_preds = (avg_probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
         results["ensemble_predictions"] = ensemble_preds
+        if isinstance(results.get("predictions"), dict):
+            results["predictions"]["ensemble"] = ensemble_preds
 
     elif len(all_preds) > 1:
         # Majority voting for predictions without probabilities
@@ -2356,6 +2412,11 @@ def predict_from_models(
         # Average probabilities
         avg_probs = np.mean(np.stack(all_probs), axis=0)
         results["ensemble_probabilities"] = avg_probs
+        # Also expose the ensemble inside the per-model probabilities dict under
+        # the canonical "ensemble" key so downstream consumers can iterate a
+        # single dict and see both per-model and ensemble streams (2026-04-15).
+        if isinstance(results.get("probabilities"), dict):
+            results["probabilities"]["ensemble"] = avg_probs
 
         # Ensemble predictions from averaged probabilities
         if avg_probs.ndim == 2:
@@ -2363,6 +2424,8 @@ def predict_from_models(
         else:
             ensemble_preds = (avg_probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
         results["ensemble_predictions"] = ensemble_preds
+        if isinstance(results.get("predictions"), dict):
+            results["predictions"]["ensemble"] = ensemble_preds
 
     elif len(all_preds) > 1:
         # Majority voting for predictions without probabilities

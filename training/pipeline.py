@@ -116,7 +116,10 @@ def _build_dim_reducer(name: str, n_components: int, random_state: int):
         "Isomap": lambda: Isomap(n_components=n_components),
         "GaussianRandomProjection": lambda: GaussianRandomProjection(n_components=n_components, random_state=random_state),
         "SparseRandomProjection": lambda: SparseRandomProjection(n_components=n_components, random_state=random_state),
-        "RandomTreesEmbedding": lambda: RandomTreesEmbedding(n_components=n_components, random_state=random_state),
+        # RandomTreesEmbedding exposes `n_estimators` (trees), not `n_components` — the
+        # output dim is controlled by tree leaves. Map our `n_components` knob to
+        # `n_estimators` for consistency with other dim_reducer factories.
+        "RandomTreesEmbedding": lambda: RandomTreesEmbedding(n_estimators=n_components, random_state=random_state),
         "BernoulliRBM": lambda: BernoulliRBM(n_components=n_components, random_state=random_state),
     }
     return factories[name]()
@@ -128,6 +131,7 @@ def apply_preprocessing_extensions(
     test_df,
     config: Optional[PreprocessingExtensionsConfig],
     verbose: int = 1,
+    y_train=None,
 ):
     """Apply shared sklearn-based extensions to train/val/test after the Polars-ds pipeline.
 
@@ -151,15 +155,50 @@ def apply_preprocessing_extensions(
     if train is None:
         return train_df, val_df, test_df, None
 
+    # TF-IDF preflight: vectorize declared text columns and replace them with
+    # numeric features before downstream sklearn steps (which expect numeric).
+    tfidf_pipes = {}
+    if config.tfidf_columns:
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        for col in config.tfidf_columns:
+            if col not in train.columns:
+                continue
+            vec = TfidfVectorizer(
+                max_features=config.tfidf_max_features,
+                ngram_range=tuple(config.tfidf_ngram_range),
+            )
+            train_text = train[col].fillna("").astype(str).values
+            tfidf_train = vec.fit_transform(train_text)
+            tfidf_pipes[col] = vec
+            new_cols = [f"{col}__tfidf_{i}" for i in range(tfidf_train.shape[1])]
+            tfidf_train_df = pd.DataFrame(tfidf_train.toarray(), columns=new_cols, index=train.index)
+            train = train.drop(columns=[col]).join(tfidf_train_df)
+            for split_name, split_df in (("val", val), ("test", test)):
+                if split_df is not None and col in split_df.columns:
+                    text_arr = split_df[col].fillna("").astype(str).values
+                    tfidf_arr = vec.transform(text_arr).toarray()
+                    new_split_df = pd.DataFrame(tfidf_arr, columns=new_cols, index=split_df.index)
+                    if split_name == "val":
+                        val = split_df.drop(columns=[col]).join(new_split_df)
+                    else:
+                        test = split_df.drop(columns=[col]).join(new_split_df)
+
     n_features = train.shape[1]
     steps = _build_extension_steps(config, n_features=n_features)
     if not steps:
+        if tfidf_pipes:
+            # TF-IDF was applied but no other steps — return TF-IDF-augmented frames.
+            return train, val, test, tfidf_pipes
         return train_df, val_df, test_df, None
 
     from sklearn.pipeline import Pipeline as SkPipeline
     pipe = SkPipeline(steps=steps)
     t0 = timer()
-    train_arr = pipe.fit_transform(train)
+    # LDA requires `y` during fit; forward y_train when provided.
+    if y_train is not None:
+        train_arr = pipe.fit_transform(train, y_train)
+    else:
+        train_arr = pipe.fit_transform(train)
     val_arr = pipe.transform(val) if val is not None and len(val) > 0 else None
     test_arr = pipe.transform(test) if test is not None and len(test) > 0 else None
 
