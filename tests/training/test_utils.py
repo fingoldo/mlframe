@@ -172,16 +172,19 @@ class TestGetPandasViewOfPolarsDF:
 
         assert pd_df["name"].tolist() == ["Alice", "Bob", "Charlie"]
 
-    def test_categorical_to_string_conversion(self):
-        """Test that categorical columns are converted to strings."""
+    def test_categorical_preserved_as_pd_categorical(self):
+        """Test that Polars Categorical columns become pd.Categorical (int codes
+        + categories dict), not strings. Benchmarked 2026-04-17: string cast
+        adds ~37% to CatBoost fit+predict and OOMs at 450k+ rows."""
         pl_df = pl.DataFrame({
             "category": pl.Series(["A", "B", "A", "C"]).cast(pl.Categorical),
         })
 
         pd_df = get_pandas_view_of_polars_df(pl_df)
 
-        # Should be converted to string
+        assert isinstance(pd_df["category"].dtype, pd.CategoricalDtype)
         assert pd_df["category"].tolist() == ["A", "B", "A", "C"]
+        assert list(pd_df["category"].cat.categories) == ["A", "B", "C"]
 
     def test_boolean_columns(self):
         """Test conversion of boolean columns."""
@@ -242,6 +245,137 @@ class TestGetPandasViewOfPolarsDF:
         pd_df = get_pandas_view_of_polars_df(pl_df)
 
         assert list(pd_df.columns) == ["z", "a", "m"]
+
+    # --- Categorical edge-case coverage (2026-04-17 dict→pd.Categorical change) ---
+    # These guard the optimization: polars emits dict with uint32 indices, we
+    # rebuild with int32. Properties to verify differ from native pandas
+    # categoricals in subtle ways.
+
+    def test_categorical_codes_are_integer(self):
+        """Polars uses uint32 dictionary indices; pyarrow refuses them in
+        to_pandas. We rebuild as int32 so conversion succeeds — but pandas
+        then downcasts the codes to int8/int16 based on cardinality. The
+        contract is only that conversion SUCCEEDS and yields a valid
+        pd.Categorical with integer codes, not a specific codes dtype."""
+        pl_df = pl.DataFrame({
+            "c": pl.Series(["a", "b", "c"]).cast(pl.Categorical),
+        })
+        pd_df = get_pandas_view_of_polars_df(pl_df)
+        assert pd.api.types.is_integer_dtype(pd_df["c"].cat.codes.dtype)
+        assert pd_df["c"].cat.codes.tolist() == [0, 1, 2]
+
+    def test_categorical_with_nulls_becomes_nan(self):
+        """A polars Categorical containing nulls round-trips into a pandas
+        Categorical where nulls are represented by code == -1 (NaN)."""
+        pl_df = pl.DataFrame({
+            "c": pl.Series(["a", None, "b", None, "a"], dtype=pl.Categorical),
+        })
+        pd_df = get_pandas_view_of_polars_df(pl_df)
+        assert isinstance(pd_df["c"].dtype, pd.CategoricalDtype)
+        codes = pd_df["c"].cat.codes.tolist()
+        assert codes.count(-1) == 2  # two nulls
+        # Non-null codes point at the two distinct categories
+        assert set(c for c in codes if c != -1) <= {0, 1}
+        assert sorted(pd_df["c"].cat.categories.tolist()) == ["a", "b"]
+
+    def test_categorical_high_cardinality(self):
+        """300 distinct values (above the 255 int8 ceiling, below the int16
+        ceiling). The rebuilt Categorical must still be valid and contain
+        all 300 categories; pandas picks whatever codes dtype fits."""
+        cats = [f"cat_{i % 300}" for i in range(1000)]
+        pl_df = pl.DataFrame({"c": pl.Series(cats, dtype=pl.Categorical)})
+        pd_df = get_pandas_view_of_polars_df(pl_df)
+        assert isinstance(pd_df["c"].dtype, pd.CategoricalDtype)
+        assert pd.api.types.is_integer_dtype(pd_df["c"].cat.codes.dtype)
+        assert len(pd_df["c"].cat.categories) == 300
+
+    def test_categorical_single_category(self):
+        """Degenerate: one distinct value repeated. Codes should all be 0."""
+        pl_df = pl.DataFrame({
+            "c": pl.Series(["only"] * 10, dtype=pl.Categorical),
+        })
+        pd_df = get_pandas_view_of_polars_df(pl_df)
+        assert isinstance(pd_df["c"].dtype, pd.CategoricalDtype)
+        assert pd_df["c"].cat.codes.tolist() == [0] * 10
+        assert list(pd_df["c"].cat.categories) == ["only"]
+
+    def test_categorical_all_null(self):
+        """All values are null. Pandas Categorical with 0 categories, all -1 codes."""
+        pl_df = pl.DataFrame({
+            "c": pl.Series([None, None, None], dtype=pl.Categorical),
+        })
+        pd_df = get_pandas_view_of_polars_df(pl_df)
+        assert isinstance(pd_df["c"].dtype, pd.CategoricalDtype)
+        assert pd_df["c"].cat.codes.tolist() == [-1, -1, -1]
+        assert pd_df["c"].isna().all()
+
+    def test_categorical_enum_treated_as_categorical(self):
+        """Polars Enum is also emitted as a pyarrow dictionary and must
+        round-trip into pd.Categorical (same path as pl.Categorical)."""
+        enum_dtype = pl.Enum(["low", "mid", "high"])
+        pl_df = pl.DataFrame({
+            "level": pl.Series(["low", "high", "mid", "low"], dtype=enum_dtype),
+        })
+        pd_df = get_pandas_view_of_polars_df(pl_df)
+        assert isinstance(pd_df["level"].dtype, pd.CategoricalDtype)
+        assert pd_df["level"].tolist() == ["low", "high", "mid", "low"]
+        # Enum preserves the declared category order (different from lexicographic)
+        assert list(pd_df["level"].cat.categories) == ["low", "mid", "high"]
+
+    def test_categorical_equality_comparison(self):
+        """Downstream filters frequently do df['c'] == 'A' — verify this still
+        works on the rebuilt Categorical, since that is the API we expose to
+        sklearn/CatBoost/LGB consumers."""
+        pl_df = pl.DataFrame({
+            "c": pl.Series(["A", "B", "A", "C"], dtype=pl.Categorical),
+        })
+        pd_df = get_pandas_view_of_polars_df(pl_df)
+        mask = pd_df["c"] == "A"
+        assert mask.tolist() == [True, False, True, False]
+
+    def test_categorical_mixed_with_numeric(self):
+        """Mixed frame: the numeric columns are untouched and the categorical
+        is rebuilt. Column count, dtypes, and values all match expectations."""
+        pl_df = pl.DataFrame({
+            "num": [1.0, 2.0, 3.0],
+            "cat": pl.Series(["x", "y", "x"], dtype=pl.Categorical),
+            "int": [10, 20, 30],
+        })
+        pd_df = get_pandas_view_of_polars_df(pl_df)
+        assert list(pd_df.columns) == ["num", "cat", "int"]
+        assert pd.api.types.is_float_dtype(pd_df["num"])
+        assert isinstance(pd_df["cat"].dtype, pd.CategoricalDtype)
+        assert pd.api.types.is_integer_dtype(pd_df["int"])
+
+    def test_categorical_tolist_matches_native_pandas(self):
+        """Value equivalence: ``.tolist()`` on the polars-derived Categorical
+        produces the same Python list that a native pd.Categorical built from
+        the same data would produce. Guards against subtle encoding differences."""
+        values = ["a", "b", "a", "c", "b", "a"]
+        pl_df = pl.DataFrame({"c": pl.Series(values, dtype=pl.Categorical)})
+        pd_df = get_pandas_view_of_polars_df(pl_df)
+        native = pd.Categorical(values)
+        assert pd_df["c"].tolist() == native.tolist()
+        assert set(pd_df["c"].cat.categories) == set(native.categories)
+
+    def test_categorical_astype_str_roundtrip(self):
+        """Some consumers expect to coerce the column to plain strings.
+        Categorical.astype(str) must give back the original values."""
+        pl_df = pl.DataFrame({
+            "c": pl.Series(["foo", "bar", "baz"], dtype=pl.Categorical),
+        })
+        pd_df = get_pandas_view_of_polars_df(pl_df)
+        assert pd_df["c"].astype(str).tolist() == ["foo", "bar", "baz"]
+
+    def test_categorical_empty_frame(self):
+        """Empty Polars frame with a Categorical column → empty pd.Categorical,
+        zero categories, zero rows. No IndexError, no crash on from_arrays."""
+        pl_df = pl.DataFrame({
+            "c": pl.Series([], dtype=pl.Categorical),
+        })
+        pd_df = get_pandas_view_of_polars_df(pl_df)
+        assert len(pd_df) == 0
+        assert isinstance(pd_df["c"].dtype, pd.CategoricalDtype)
 
 
 # ================================================================================================

@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-04-17 — Polars→pandas Categorical optimization (no more dict→string cast)
+
+### Changed
+- `get_pandas_view_of_polars_df` in `training/utils.py` now preserves Polars `Categorical` columns as `pd.Categorical` (int32-indexed dictionary) instead of casting dict→string. Polars emits dict arrays with uint32 indices, which pyarrow's `to_pandas` refuses; we rebuild each dict column with int32 indices so the conversion produces a proper `pd.Categorical`.
+
+### Why
+End-to-end benchmark on production-shaped data (CatBoost classifier, 180k × 586 cols, 70 Categorical) via `bench_polars_to_pandas.py`:
+
+| Variant | convert | fit | predict | **total** |
+|---|---|---|---|---|
+| native Polars (CatBoost's own path) | 0.00s | 12.42s | 0.14s | 12.55s |
+| old (dict→string cast) | 1.04s | 15.56s | 0.47s | 17.08s (+37%) |
+| **new (int32-indexed pd.Categorical)** | 0.45s | 11.99s | **0.04s** | **12.49s** (fastest) |
+
+String cast was both slower (CatBoost hashes strings per row during fit and predict) and memory-hungrier (OOMs at 450k+ rows with 70 Categoricals where the new path trains cleanly).
+
+### Tests
+- `test_utils.py::test_categorical_to_string_conversion` renamed to `test_categorical_preserved_as_pd_categorical` and now asserts the `pd.CategoricalDtype` plus the category list, not just the string values.
+- Downstream comment in `core.py` above the `prepare_df_for_catboost` call updated — that call is now usually a no-op but kept for pandas-input safety.
+
 ## 2026-04-17 — Fix metadata pickle failure with duplicate mlframe installs
 
 ### Fixed

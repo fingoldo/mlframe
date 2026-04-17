@@ -1488,9 +1488,11 @@ def train_mlframe_models_suite(
     else:
         train_df_pd, val_df_pd, test_df_pd = _convert_dfs_to_pandas(train_df, val_df, test_df)
 
-    # Prepare categorical features for CatBoost (convert string columns to category dtype).
-    # This is needed because get_pandas_view_of_polars_df converts Polars Categorical to
-    # strings — irrelevant when we skipped the pandas conversion (Polars preserves dtypes).
+    # Ensure categorical features have pandas category dtype for CatBoost.
+    # After the 2026-04-17 optimization, get_pandas_view_of_polars_df already
+    # preserves Polars Categorical as pd.Categorical (int32 dict rebuild), so
+    # this is usually a no-op. The call is kept for safety when pandas frames
+    # come in with plain string columns that still need the category cast.
     if cat_features and not can_skip_pandas_conv:
         if verbose:
             logger.info(f"Preparing {len(cat_features)} categorical features for CatBoost: {cat_features}")

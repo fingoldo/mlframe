@@ -257,8 +257,16 @@ def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
         Zero-copy pandas DataFrame view
 
     Notes:
-        - Numeric, boolean, string columns: zero-copy Arrow view
-        - Categorical (dictionary) columns: converted to string
+        - Numeric, boolean, string columns: zero-copy Arrow view.
+        - Categorical (dictionary) columns: preserved as ``pd.Categorical``
+          (integer codes + categories dict). Polars emits dict arrays with
+          uint32 indices, which pyarrow's ``to_pandas`` refuses; we rebuild
+          each dict column with int32 indices so the conversion produces
+          a proper ``pd.Categorical`` rather than raising.
+        - Earlier versions cast dict→string here. That was ~37% slower
+          end-to-end on CatBoost (string hashing in fit + predict) and
+          OOMed on 450k+ rows with many Categorical columns. Benchmarked
+          2026-04-17 (see ``bench_polars_to_pandas.py``).
     """
     if not isinstance(df, (pl.DataFrame, pl.Series)):
         raise TypeError(f"Input must be a Polars DataFrame or Series, got {type(df).__name__}")
@@ -271,8 +279,13 @@ def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
     fixed_cols = []
     for col in tbl.columns:
         if pa.types.is_dictionary(col.type):
-            # Convert dictionary array to its string representation
-            col = pa.compute.cast(col, pa.string())
+            chunks = []
+            for chunk in col.chunks:
+                indices_i32 = pa.compute.cast(chunk.indices, pa.int32())
+                chunks.append(
+                    pa.DictionaryArray.from_arrays(indices_i32, chunk.dictionary)
+                )
+            col = pa.chunked_array(chunks)
         fixed_cols.append(col)
 
     tbl_fixed = pa.table(fixed_cols, names=tbl.column_names)
