@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-04-17 — Polars→pandas conversion benchmark
+
+### Added
+- `bench_polars_to_pandas.py`: compares our `get_pandas_view_of_polars_df` (whole-table `to_arrow` → `pa.compute.cast` dict→string → `to_pandas`, leverages Arrow's multi-threaded compute kernels) against CatBoost's polars-native per-column approach (Python loop over columns, `rechunk()` per column, `to_physical().to_numpy()` copy for each Categorical, from `_catboost.pyx:3199` / `:3288`). Reports best-of-3 totals plus per-step and per-dtype breakdowns, so the Categorical hotspot becomes visible. Synthesized frame shape matches production dtype mix (default: 200k × 584 cols, 70 Categorical). Tune via `BENCH_N_ROWS` / `BENCH_N_CAT` / `BENCH_N_REPEATS` env vars.
+
 ## 2026-04-17 — Structured phase timing + logging visibility fix
 
 ### Added
