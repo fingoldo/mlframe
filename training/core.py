@@ -13,9 +13,32 @@ Contains the refactored train_mlframe_models_suite function.
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import logging
+import sys
 from timeit import default_timer as timer
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_logging_visible(level: int = logging.INFO) -> None:
+    """Install a stdout handler on the root logger if none exists.
+
+    In Jupyter and bare scripts that never call logging.basicConfig, the root
+    logger defaults to WARNING with no handler, so logger.info() calls from
+    mlframe are silently dropped even when verbose=True. This idempotent
+    helper attaches a minimal handler so users actually see progress logs.
+    """
+    root = logging.getLogger()
+    if not root.handlers:
+        handler = logging.StreamHandler(stream=sys.stdout)
+        handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s %(levelname)s %(name)s: %(message)s",
+                datefmt="%H:%M:%S",
+            )
+        )
+        root.addHandler(handler)
+    if root.level > level or root.level == logging.NOTSET:
+        root.setLevel(level)
 
 
 def _drop_cols_df(df, cols):
@@ -277,6 +300,7 @@ from .models import is_linear_model, LINEAR_MODEL_TYPES
 from .strategies import get_strategy, get_polars_cat_columns, PipelineCache
 from .io import load_mlframe_model
 from .splitting import make_train_test_split
+from .phases import phase, reset_phase_registry, format_phase_summary
 
 # Extractors from new module
 from .extractors import FeaturesAndTargetsExtractor
@@ -1026,6 +1050,11 @@ def train_mlframe_models_suite(
     # 0. INPUT VALIDATION
     # ==================================================================================
 
+    if verbose:
+        _ensure_logging_visible()
+
+    reset_phase_registry()
+
     # Validate df parameter
     if not isinstance(df, (pd.DataFrame, pl.DataFrame, str)):
         raise TypeError(f"df must be pandas DataFrame, polars DataFrame, or path string, " f"got {type(df).__name__}")
@@ -1078,7 +1107,8 @@ def train_mlframe_models_suite(
 
     # Load and prepare dataframe
     t0_phase1 = timer()
-    df = load_and_prepare_dataframe(df, preprocessing_config, verbose=verbose)
+    with phase("load_and_prepare_dataframe"):
+        df = load_and_prepare_dataframe(df, preprocessing_config, verbose=verbose)
     if verbose:
         logger.info(f"  load_and_prepare_dataframe done — {_df_shape_str(df)}, {_elapsed_str(t0_phase1)}")
 
@@ -1140,11 +1170,12 @@ def train_mlframe_models_suite(
     t0_phase2 = timer()
     if verbose:
         logger.info(f"Making train_val_test split...")
-    train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
-        df=df,
-        timestamps=timestamps,
-        **split_config.model_dump(),
-    )
+    with phase("split_data"):
+        train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
+            df=df,
+            timestamps=timestamps,
+            **split_config.model_dump(),
+        )
     if verbose:
         log_ram_usage()
 
@@ -1383,15 +1414,16 @@ def train_mlframe_models_suite(
         log_phase("PHASE 4: Model Training")
 
     # Initialize default values for training parameters
-    (
-        init_common_params,
-        rfecv_models,
-        mrmr_kwargs,
-    ) = _initialize_training_defaults(
-        init_common_params=init_common_params,
-        rfecv_models=rfecv_models,
-        mrmr_kwargs=mrmr_kwargs,
-    )
+    with phase("initialize_training_defaults"):
+        (
+            init_common_params,
+            rfecv_models,
+            mrmr_kwargs,
+        ) = _initialize_training_defaults(
+            init_common_params=init_common_params,
+            rfecv_models=rfecv_models,
+            mrmr_kwargs=mrmr_kwargs,
+        )
 
     # Get pipeline components (category_encoder, imputer, scaler) from params or defaults
     category_encoder, imputer, scaler = _get_pipeline_components(init_common_params, cat_features)
@@ -1400,11 +1432,13 @@ def train_mlframe_models_suite(
     if isinstance(train_df, pl.DataFrame):
         if verbose:
             logger.info("Computing trainset_features_stats on Polars...")
-        trainset_features_stats = get_trainset_features_stats_polars(train_df)
+        with phase("trainset_features_stats", backend="polars"):
+            trainset_features_stats = get_trainset_features_stats_polars(train_df)
     else:
         if verbose:
             logger.info("Computing trainset_features_stats on pandas...")
-        trainset_features_stats = get_trainset_features_stats(train_df)
+        with phase("trainset_features_stats", backend="pandas"):
+            trainset_features_stats = get_trainset_features_stats(train_df)
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Actual training
@@ -1856,9 +1890,10 @@ def train_mlframe_models_suite(
                         )
 
                         t0_model = timer()
-                        trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed = process_model(
-                            **process_model_kwargs
-                        )
+                        with phase("process_model", model=mlframe_model_name, weight=weight_name):
+                            trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed = process_model(
+                                **process_model_kwargs
+                            )
                         if verbose:
                             logger.info(f"  process_model({mlframe_model_name}, w={weight_name}) done — {_elapsed_str(t0_model)}")
 
@@ -2019,6 +2054,9 @@ def train_mlframe_models_suite(
         slug_to_original_target_type=slug_to_original_target_type,
         slug_to_original_target_name=slug_to_original_target_name,
     )
+
+    if verbose:
+        logger.info("[phases] Top phases by wall-clock time:\n" + format_phase_summary())
 
     return dict(models), metadata
 

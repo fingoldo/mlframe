@@ -151,6 +151,55 @@ Run the whole suite in parallel (falls back to rerunning last-failed verbosely):
 pytest tests/ -n auto --maxprocesses=16 --dist loadscope && exit 0 || pytest tests/ -vv --lf
 ```
 
+## Phase timing
+
+`train_mlframe_models_suite` instruments its hot paths with a lightweight
+`PhaseTimer` (see `training/phases.py`). Every wrapped phase emits a `START`
+and `DONE in Xs` line and accumulates into a process-local registry; at the
+end of a verbose suite run, a ranked table of the top phases is logged, e.g.:
+
+```
+[phases] Top phases by wall-clock time:
+phase                           total       calls    avg
+--------------------------------------------------------
+model.fit                       523.41s       1   523.410s
+predict_proba                   187.12s       2    93.560s
+fast_calibration_report          42.03s       2    21.015s
+plot_feature_importances          4.11s       2     2.055s
+load_and_prepare_dataframe        2.88s       1     2.880s
+split_data                        0.91s       1     0.910s
+```
+
+Currently instrumented phases:
+
+- `load_and_prepare_dataframe`, `split_data`, `initialize_training_defaults`,
+  `trainset_features_stats`, `process_model` (suite level)
+- `model.fit` (with `retry=True` on fallback), `pre_pipeline_fit_transform`,
+  `compute_split_metrics` (train/val/test)
+- `report_probabilistic_model_perf`, `report_regression_model_perf`,
+  `predict`, `predict_proba`, `fast_calibration_report`,
+  `plot_feature_importances`, `compute_fairness_metrics`
+
+To instrument a new hotspot:
+
+```python
+from mlframe.training.phases import phase
+
+with phase("my_operation", split="val", n_rows=len(df)):
+    result = expensive_call(...)
+```
+
+The summary is only printed when the suite is called with `verbose=True`,
+but phases are always recorded — inspect them programmatically via
+`phase_snapshot()` or `format_phase_summary()`.
+
+### Logging in Jupyter
+
+If the root logger has no handlers, `train_mlframe_models_suite` installs
+a minimal stdout handler at INFO level when `verbose=True`, so phase logs
+actually appear in notebooks. If you've already called `logging.basicConfig`
+or configured handlers yourself, nothing is touched.
+
 ## Troubleshooting
 
 ### Windows fatal exception / access violation in numba kernels

@@ -82,6 +82,7 @@ from IPython.display import display
 
 from mlframe.metrics import fast_calibration_report, fast_roc_auc, compute_fairness_metrics
 from mlframe.feature_importance import plot_feature_importance
+from mlframe.training.phases import phase
 
 logger = logging.getLogger(__name__)
 
@@ -209,31 +210,44 @@ def report_model_perf(
     )
 
     if is_classifier(model) or type(model).__name__ == "NGBClassifier" or (model is None and probs is not None):
-        preds, probs = report_probabilistic_model_perf(
-            **common_params,
-            use_weights=use_weights,
-            calib_report_ndigits=calib_report_ndigits,
-            classes=classes,
-            probs=probs,
-            target_label_encoder=target_label_encoder,
-            nbins=nbins,
-            custom_ice_metric=custom_ice_metric,
-            custom_rice_metric=custom_rice_metric,
-            group_ids=group_ids,
-        )
+        with phase(
+            "report_probabilistic_model_perf",
+            n_rows=(len(targets) if hasattr(targets, '__len__') else None),
+        ):
+            preds, probs = report_probabilistic_model_perf(
+                **common_params,
+                use_weights=use_weights,
+                calib_report_ndigits=calib_report_ndigits,
+                classes=classes,
+                probs=probs,
+                target_label_encoder=target_label_encoder,
+                nbins=nbins,
+                custom_ice_metric=custom_ice_metric,
+                custom_rice_metric=custom_rice_metric,
+                group_ids=group_ids,
+            )
     else:
-        preds, probs = report_regression_model_perf(**common_params)
+        with phase(
+            "report_regression_model_perf",
+            n_rows=(len(targets) if hasattr(targets, '__len__') else None),
+        ):
+            preds, probs = report_regression_model_perf(**common_params)
 
     if show_fi:
         n_cols = n_features if n_features is not None else (len(columns) if columns else 0)
         nfeatures = f"{n_cols:_}F/" if n_cols > 0 else ""
-        feature_importances = plot_model_feature_importances(
-            model=model,
-            columns=columns,
-            model_name=(report_title + " " + model_name + f" [{nfeatures}{get_human_readable_set_size(len(preds))} rows]").strip(),
-            plot_file=plot_file + "_fiplot.png" if plot_file else "",
-            **fi_kwargs,
-        )
+        with phase(
+            "plot_feature_importances",
+            model=type(model).__name__,
+            n_cols=len(columns) if columns else 0,
+        ):
+            feature_importances = plot_model_feature_importances(
+                model=model,
+                columns=columns,
+                model_name=(report_title + " " + model_name + f" [{nfeatures}{get_human_readable_set_size(len(preds))} rows]").strip(),
+                plot_file=plot_file + "_fiplot.png" if plot_file else "",
+                **fi_kwargs,
+            )
         if metrics is not None:
             metrics.update({"feature_importances": feature_importances})
 
@@ -312,7 +326,8 @@ def report_regression_model_perf(
         (preds, None) - predictions and None (no probabilities for regression).
     """
     if preds is None:
-        preds = model.predict(df)
+        with phase("predict", model=type(model).__name__, n_rows=(len(df) if df is not None else None)):
+            preds = model.predict(df)
 
     if isinstance(targets, pd.Series):
         targets = targets.values
@@ -483,7 +498,8 @@ def report_probabilistic_model_perf(
     """
     if probs is None:
         try:
-            probs = model.predict_proba(df)
+            with phase("predict_proba", model=type(model).__name__, n_rows=(len(df) if df is not None else None)):
+                probs = model.predict_proba(df)
         except (AttributeError, TypeError, NotImplementedError) as e:
             logger.warning(f"predict_proba not available for {type(model).__name__}, using predict() instead: {e}")
             preds_fallback = model.predict(df)
@@ -563,27 +579,28 @@ def report_probabilistic_model_perf(
             class_robust_integral_error = custom_rice_metric(y_true=y_true, y_score=y_score)
             title += f", RICE={class_robust_integral_error:.{calib_report_ndigits}f}"
 
-        brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, precision, recall, f1, metrics_string, *_ = (
-            fast_calibration_report(
-                y_true=y_true,
-                y_pred=y_score,
-                use_weights=use_weights,
-                nbins=nbins,
-                group_ids=group_ids,
-                title=title,
-                figsize=figsize,
-                # NOTE: plot_file and show_perf_chart are intentionally independent.
-                # `plot_file` (derived from `data_dir`) controls whether plots are SAVED
-                # to disk. `show_perf_chart` controls only interactive DISPLAY (plt.show).
-                # Saving plots even when show_perf_chart=False is deliberate — users get
-                # artifacts on disk without GUI popups. The Agg save-only fastpath in
-                # show_calibration_plot handles this case without Qt overhead.
-                plot_file=plot_file + "_perfplot.png" if plot_file else "",
-                show_plots=show_perf_chart,
-                ndigits=calib_report_ndigits,
-                verbose=verbose,
+        with phase("fast_calibration_report", class_id=str_class_name, n_rows=len(y_true)):
+            brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, precision, recall, f1, metrics_string, *_ = (
+                fast_calibration_report(
+                    y_true=y_true,
+                    y_pred=y_score,
+                    use_weights=use_weights,
+                    nbins=nbins,
+                    group_ids=group_ids,
+                    title=title,
+                    figsize=figsize,
+                    # NOTE: plot_file and show_perf_chart are intentionally independent.
+                    # `plot_file` (derived from `data_dir`) controls whether plots are SAVED
+                    # to disk. `show_perf_chart` controls only interactive DISPLAY (plt.show).
+                    # Saving plots even when show_perf_chart=False is deliberate — users get
+                    # artifacts on disk without GUI popups. The Agg save-only fastpath in
+                    # show_calibration_plot handles this case without Qt overhead.
+                    plot_file=plot_file + "_perfplot.png" if plot_file else "",
+                    show_plots=show_perf_chart,
+                    ndigits=calib_report_ndigits,
+                    verbose=verbose,
+                )
             )
-        )
 
         if print_report:
             calibs.append(
@@ -642,14 +659,15 @@ def report_probabilistic_model_perf(
             subgroups_metrics["ROC AUC"] = fast_roc_auc
             metrics_higher_is_better["ROC AUC"] = True
 
-        fairness_report = compute_fairness_metrics(
-            subgroups=subgroups,
-            subset_index=subset_index,
-            y_true=targets,
-            y_pred=probs,
-            metrics=subgroups_metrics,
-            metrics_higher_is_better=metrics_higher_is_better,
-        )
+        with phase("compute_fairness_metrics"):
+            fairness_report = compute_fairness_metrics(
+                subgroups=subgroups,
+                subset_index=subset_index,
+                y_true=targets,
+                y_pred=probs,
+                metrics=subgroups_metrics,
+                metrics_higher_is_better=metrics_higher_is_better,
+            )
         if fairness_report is not None:
             if print_report:
                 display(fairness_report.style.set_caption("ML perf fairness by group"))

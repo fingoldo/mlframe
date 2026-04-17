@@ -91,6 +91,7 @@ from pyutilz.system import clean_ram, ensure_dir_exists, compute_total_gpus_ram,
 
 
 from mlframe.training.utils import maybe_clean_ram_adaptive as _maybe_clean_ram
+from mlframe.training.phases import phase
 from pyutilz.strings import slugify
 from pyutilz.pandaslib import get_df_memory_consumption
 from pyutilz.pythonlib import prefix_dict_elems, get_human_readable_set_size
@@ -547,81 +548,82 @@ def _apply_pre_pipeline_transforms(
     """
     if model is not None and pre_pipeline:
         t0_pre = timer()
-        if skip_pre_pipeline_transform:
-            if verbose:
-                logger.info("Skipping pre_pipeline fit/transform (using cached DFs)")
-        elif skip_preprocessing:
-            # Only run feature selector, skip preprocessing steps (scaler/imputer/encoder)
-            # This is used when polars-ds pipeline already applied scaling/imputation
-            feature_selector = _extract_feature_selector(pre_pipeline)
-            if feature_selector is not None:
-                if _is_fitted(feature_selector):
+        with phase("pre_pipeline_fit_transform"):
+            if skip_pre_pipeline_transform:
+                if verbose:
+                    logger.info("Skipping pre_pipeline fit/transform (using cached DFs)")
+            elif skip_preprocessing:
+                # Only run feature selector, skip preprocessing steps (scaler/imputer/encoder)
+                # This is used when polars-ds pipeline already applied scaling/imputation
+                feature_selector = _extract_feature_selector(pre_pipeline)
+                if feature_selector is not None:
+                    if _is_fitted(feature_selector):
+                        if verbose:
+                            logger.info(f"Using pre-fitted feature selector (transform only): {feature_selector}")
+                        train_df = _passthrough_cols_fit_transform(
+                            feature_selector.transform, train_df,
+                            passthrough_cols=selector_passthrough_cols,
+                        )
+                    else:
+                        if verbose:
+                            logger.info(f"Fitting feature selector: {feature_selector}")
+                        train_df = _passthrough_cols_fit_transform(
+                            feature_selector.fit_transform, train_df,
+                            passthrough_cols=selector_passthrough_cols, fit=True, target=train_target,
+                        )
                     if verbose:
-                        logger.info(f"Using pre-fitted feature selector (transform only): {feature_selector}")
-                    train_df = _passthrough_cols_fit_transform(
-                        feature_selector.transform, train_df,
-                        passthrough_cols=selector_passthrough_cols,
-                    )
-                else:
-                    if verbose:
-                        logger.info(f"Fitting feature selector: {feature_selector}")
-                    train_df = _passthrough_cols_fit_transform(
-                        feature_selector.fit_transform, train_df,
-                        passthrough_cols=selector_passthrough_cols, fit=True, target=train_target,
-                    )
+                        log_ram_usage()
+                    if val_df is not None:
+                        if verbose:
+                            logger.info(f"Transforming val_df via feature selector...")
+                        val_df = _passthrough_cols_fit_transform(
+                            feature_selector.transform, val_df,
+                            passthrough_cols=selector_passthrough_cols,
+                        )
+                        if verbose:
+                            log_ram_usage()
+                elif verbose:
+                    logger.info("No feature selector found in pipeline, skipping all transforms")
+            elif _is_fitted(pre_pipeline):
+                if verbose:
+                    try:
+                        logger.info(f"Using pre-fitted pipeline (transform only): {pre_pipeline}")
+                    except (ValueError, TypeError):
+                        pass
+                train_df = _passthrough_cols_fit_transform(
+                    pre_pipeline.transform, train_df, passthrough_cols=selector_passthrough_cols,
+                )
                 if verbose:
                     log_ram_usage()
                 if val_df is not None:
                     if verbose:
-                        logger.info(f"Transforming val_df via feature selector...")
+                        logger.info(f"Transforming val_df via pre_pipeline...")
                     val_df = _passthrough_cols_fit_transform(
-                        feature_selector.transform, val_df,
-                        passthrough_cols=selector_passthrough_cols,
+                        pre_pipeline.transform, val_df, passthrough_cols=selector_passthrough_cols,
                     )
                     if verbose:
                         log_ram_usage()
-            elif verbose:
-                logger.info("No feature selector found in pipeline, skipping all transforms")
-        elif _is_fitted(pre_pipeline):
-            if verbose:
-                try:
-                    logger.info(f"Using pre-fitted pipeline (transform only): {pre_pipeline}")
-                except (ValueError, TypeError):
-                    pass
-            train_df = _passthrough_cols_fit_transform(
-                pre_pipeline.transform, train_df, passthrough_cols=selector_passthrough_cols,
-            )
-            if verbose:
-                log_ram_usage()
-            if val_df is not None:
+            else:
                 if verbose:
-                    logger.info(f"Transforming val_df via pre_pipeline...")
-                val_df = _passthrough_cols_fit_transform(
-                    pre_pipeline.transform, val_df, passthrough_cols=selector_passthrough_cols,
+                    logger.info(f"Fitting & transforming train_df via pre_pipeline {pre_pipeline}...")
+                train_df = _passthrough_cols_fit_transform(
+                    pre_pipeline.fit_transform, train_df,
+                    passthrough_cols=selector_passthrough_cols, fit=True, target=train_target,
                 )
                 if verbose:
                     log_ram_usage()
-        else:
+                if val_df is not None:
+                    if verbose:
+                        logger.info(f"Transforming val_df via pre_pipeline {pre_pipeline}...")
+                    val_df = _passthrough_cols_fit_transform(
+                        pre_pipeline.transform, val_df, passthrough_cols=selector_passthrough_cols,
+                    )
+                    if verbose:
+                        log_ram_usage()
+            _maybe_clean_ram()
             if verbose:
-                logger.info(f"Fitting & transforming train_df via pre_pipeline {pre_pipeline}...")
-            train_df = _passthrough_cols_fit_transform(
-                pre_pipeline.fit_transform, train_df,
-                passthrough_cols=selector_passthrough_cols, fit=True, target=train_target,
-            )
-            if verbose:
-                log_ram_usage()
-            if val_df is not None:
-                if verbose:
-                    logger.info(f"Transforming val_df via pre_pipeline {pre_pipeline}...")
-                val_df = _passthrough_cols_fit_transform(
-                    pre_pipeline.transform, val_df, passthrough_cols=selector_passthrough_cols,
-                )
-                if verbose:
-                    log_ram_usage()
-        _maybe_clean_ram()
-        if verbose:
-            shape_str = f"{train_df.shape[0]:_}×{train_df.shape[1]}" if hasattr(train_df, "shape") else ""
-            logger.info(f"  pre_pipeline done — train: {shape_str}, {timer() - t0_pre:.1f}s")
+                shape_str = f"{train_df.shape[0]:_}×{train_df.shape[1]}" if hasattr(train_df, "shape") else ""
+                logger.info(f"  pre_pipeline done — train: {shape_str}, {timer() - t0_pre:.1f}s")
 
     return train_df, val_df
 
@@ -866,7 +868,10 @@ def _train_model_with_fallback(
     """
     t0_fit = timer()
     try:
-        model.fit(train_df, train_target, **fit_params)
+        with phase("model.fit", model=model_type_name,
+                   n_rows=(train_df.shape[0] if hasattr(train_df, "shape") else None),
+                   n_cols=(train_df.shape[1] if hasattr(train_df, "shape") else None)):
+            model.fit(train_df, train_target, **fit_params)
     except Exception as e:
         try_again = False
         error_str = str(e)
@@ -903,7 +908,11 @@ def _train_model_with_fallback(
 
         if try_again:
             _maybe_clean_ram()
-            model.fit(train_df, train_target, **fit_params)
+            with phase("model.fit", model=model_type_name,
+                       n_rows=(train_df.shape[0] if hasattr(train_df, "shape") else None),
+                       n_cols=(train_df.shape[1] if hasattr(train_df, "shape") else None),
+                       retry=True):
+                model.fit(train_df, train_target, **fit_params)
         else:
             raise e
 
@@ -1738,8 +1747,10 @@ def train_and_evaluate_model(
         # from concurrent threads races on pyplot's shared state even with Agg backend,
         # producing "Argument must be an image or collection" errors in calibration plots.
         # Sequential path is correct; the earlier _prepare_test_split refactor still stands.
-        val_res = _run_val()
-        test_res = _run_test_metrics()
+        with phase("compute_split_metrics", split="val"):
+            val_res = _run_val()
+        with phase("compute_split_metrics", split="test"):
+            test_res = _run_test_metrics()
 
         if val_res is not None:
             val_preds, val_probs, columns = val_res

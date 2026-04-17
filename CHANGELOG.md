@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-04-17 — Structured phase timing + logging visibility fix
+
+### Added
+- `training/phases.py`: `PhaseTimer` context manager, global registry, `format_phase_summary()` / `phase_snapshot()` / `reset_phase_registry()`. Hotspot wrappers across `core.py`, `trainer.py`, `evaluation.py` cover data load, split, train_stats, `process_model`, `model.fit` (incl. retry), `pre_pipeline_fit_transform`, `compute_split_metrics` (train/val/test), `report_probabilistic_model_perf`, `report_regression_model_perf`, `predict` / `predict_proba`, `fast_calibration_report`, `plot_feature_importances`, `compute_fairness_metrics`. Summary table is logged at the end of verbose `train_mlframe_models_suite` runs so regressions become visible immediately.
+- `_ensure_logging_visible()` in `core.py`: idempotently attaches an INFO-level stdout handler to the root logger when none exists, so `logger.info` calls inside the suite actually appear in Jupyter with `verbose=True`. Does nothing if the user already configured logging.
+
+### Fixed
+- `TrainingControlConfig.verbose` accepts `Union[bool, int]` (was strict `bool`). Passing a verbosity level like `verbose=3` from the suite no longer raises pydantic `bool_parsing` 3 minutes into a training run.
+
 ## 2026-04-16 — Fix all 11 xfailing biz-value tests
 
 ### Fixed
