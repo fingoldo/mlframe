@@ -839,14 +839,21 @@ def _create_initial_metadata(
     Returns:
         Initial metadata dictionary.
     """
+    def _as_dict(cfg):
+        if cfg is None or isinstance(cfg, dict):
+            return cfg
+        if hasattr(cfg, "model_dump"):
+            return cfg.model_dump()
+        return cfg
+
     return {
         "model_name": model_name,
         "target_name": target_name,
         "mlframe_models": mlframe_models,
         "configs": {
-            "preprocessing": preprocessing_config,
-            "pipeline": pipeline_config,
-            "split": split_config,
+            "preprocessing": _as_dict(preprocessing_config),
+            "pipeline": _as_dict(pipeline_config),
+            "split": _as_dict(split_config),
         },
     }
 

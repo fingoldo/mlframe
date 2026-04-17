@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-04-17 — Fix metadata pickle failure with duplicate mlframe installs
+
+### Fixed
+- `_create_initial_metadata`: Pydantic config objects (`preprocessing_config`, `pipeline_config`, `split_config`) are now stored in `metadata["configs"]` as plain dicts via `.model_dump()` instead of raw Pydantic instances. This prevents `_pickle.PicklingError: Can't pickle <class 'mlframe.training.configs.PolarsPipelineConfig'>: it's not the same object as mlframe.training.configs.PolarsPipelineConfig` when two copies of mlframe are reachable via `sys.path` (e.g. a dev checkout plus an older pip install, or Jupyter autoreload duplicating a module). Tests only assert key presence (`"preprocessing" in metadata["configs"]`), so the change is backward compatible.
+
 ## 2026-04-17 — Polars→pandas conversion benchmark
 
 ### Added
