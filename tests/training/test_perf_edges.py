@@ -246,10 +246,13 @@ def test_verbose_bool_true_no_showcase_but_logs(caplog, capsys):
     with caplog.at_level(logging.INFO, logger="mlframe.training.extractors"):
         ex.transform(df)
     captured = capsys.readouterr()
-    # show_processed_data prints "Processed data:" — must NOT appear
+    # show_processed_data prints "Processed data:" to stdout — must NOT appear
     assert "Processed data:" not in captured.out
-    # but show_raw_data (unconditional) prints "Raw data:"
-    assert "Raw data:" in captured.out
+    # show_raw_data now routes through the module logger (not bare print),
+    # so the banner appears in caplog records, not in captured stdout.
+    assert any("Raw data:" in r.message for r in caplog.records), (
+        "show_raw_data must emit a 'Raw data:' log record"
+    )
 
 
 def test_verbose_2_prints_showcase(capsys):

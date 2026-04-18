@@ -105,7 +105,7 @@ def _format_ctx(context: Dict[str, Any]) -> str:
 
 
 @contextmanager
-def phase(name: str, level: int = logging.INFO, **context: Any) -> Iterator[None]:
+def phase(name: str, level: int = logging.DEBUG, **context: Any) -> Iterator[None]:
     """Time a block, log START/DONE, and accumulate into the global registry.
 
     Parameters
@@ -114,8 +114,13 @@ def phase(name: str, level: int = logging.INFO, **context: Any) -> Iterator[None
         Phase label used as the registry key. Keep it stable across calls so
         repeated invocations aggregate.
     level:
-        Logging level for the START/DONE lines. Use ``logging.DEBUG`` for
-        tight inner loops.
+        Logging level for the START/DONE lines. Default is now ``DEBUG`` so
+        the START/DONE pair doesn't duplicate higher-signal INFO lines
+        emitted from the callers themselves (e.g. core.py's
+        "X done — shape, elapsed"). Set to ``INFO`` explicitly when the
+        phase has no caller-side log counterpart. Exception paths
+        (``RAISED ...``) are always logged at WARNING so failures stay
+        visible even with the default verbosity.
     **context:
         Optional key=value metadata appended to the log lines (model name,
         split name, row count, etc.). Not included in the registry key.
@@ -132,7 +137,7 @@ def phase(name: str, level: int = logging.INFO, **context: Any) -> Iterator[None
     finally:
         dt = _timer() - t0
         _registry.record(name, dt)
-        status = f"DONE in {dt:.2f}s"
         if raised is not None:
-            status = f"RAISED {type(raised).__name__} after {dt:.2f}s"
-        logger.log(level, f"[phase] {name} {status} {ctx_str}".rstrip())
+            logger.warning(f"[phase] {name} RAISED {type(raised).__name__} after {dt:.2f}s {ctx_str}".rstrip())
+        else:
+            logger.log(level, f"[phase] {name} DONE in {dt:.2f}s {ctx_str}".rstrip())

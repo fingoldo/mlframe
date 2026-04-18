@@ -123,7 +123,21 @@ def make_train_test_split(
         return train_items, val_items, test_items, val_seq, test_seq
 
     def _build_details(timestamps, idx, sequential_idx, n_shuffled, unit) -> str:
-        """Build detail string for a split set."""
+        """Build a detail string for a split set.
+
+        Format: ``{first_date}/{last_date} +{n_shuffled}{unit}``
+
+        The ``+N<unit>`` suffix means "N extra items, sampled at random from
+        *outside* the sequential date window, mixed into this split." It lets
+        the user know at a glance that the split is not purely contiguous.
+        ``unit`` is a single letter:
+          * ``R`` — ``N`` additional **rows** (row-based splitting)
+          * ``D`` — ``N`` additional **days** (whole-day splitting)
+
+        Example: ``90_000 val rows 2014-01-20/2014-04-05 +45000R`` =
+        45k val rows from outside the Jan-Apr 2014 window were shuffled in
+        on top of the sequential 45k that fell inside the window.
+        """
         if sequential_idx is not None and len(sequential_idx) > 0:
             details = f"{timestamps.iloc[sequential_idx].min():%Y-%m-%d}/{timestamps.iloc[sequential_idx].max():%Y-%m-%d}"
             if n_shuffled > 0:

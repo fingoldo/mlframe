@@ -1,5 +1,90 @@
 # Changelog
 
+## 2026-04-18 — Training-log triage (13 fixes from production run)
+
+A single production run on a 1M × 119 Polars dataset surfaced a cluster of
+papercuts that each individually looked minor but together made debugging
+training runs much harder than necessary. Grouped below by subsystem.
+
+### RAM logging
+- **`get_own_ram_usage` no longer silently reports 0.0 GB** (`helpers.py:112-140`).
+  On Windows / under heavy Arrow frees psutil can momentarily report an
+  implausibly low rss. When the previous reading was substantial and the
+  new one is <0.1 GB we now emit a warning and return the prior value —
+  previously the `RAM usage: 0.0GB.` lines that resulted masked the real
+  usage (the user's log showed this in the middle of a 37.5 GB run).
+
+### Log attribution and formatting
+- **`log_ram_usage` / `log_phase` now attribute to the caller's module**
+  (`training/utils.py`). A new `_caller_logger` helper walks the stack
+  one frame up so log lines emitted by these helpers use the caller's
+  module logger (e.g. `mlframe.training.core`) instead of always saying
+  `mlframe.training.utils` — the old behaviour was misleading when
+  scanning origins.
+- **Separator width reduced from 160 → 80** in `log_phase`. 160 wraps
+  horizontally in most terminals and notebook cells.
+- **No more stacked blank-looking banner**. `log_phase` used to emit a
+  dash-line on both sides of its message. Two consecutive calls produced
+  two adjacent dash-lines with nothing between them. Now only a single
+  top separator is emitted; the next `log_phase` call naturally closes
+  the block with its own separator. Result: `---\nFirst phase msg\n---\nSecond phase msg`.
+- **`phase()` context-manager's `START`/`DONE` are now at `DEBUG` by default**
+  (`training/phases.py`). These duplicated the caller-side INFO lines
+  like `X done — {shape}, {time}`; at INFO they produced two log lines
+  per phase. At DEBUG they're still useful for debugging; `RAISED`
+  status is escalated to WARNING so failures remain visible.
+
+### Stray raw output
+- **`show_raw_data` now routes through the module logger** instead of
+  bare `print(...)` (`training/extractors.py`). The raw `<class 'polars...'>` /
+  `dtypes:` block was previously appearing out of order with the rest
+  of the training log because stdout and the logger stream don't share
+  flush points in Jupyter. Test in `test_perf_edges.py` updated to check
+  caplog records instead of captured stdout.
+
+### Typo
+- **"constant numeric columnss" → "constant numeric columns"** and
+  non-numeric counterpart (`training/utils.py:415`). The original f-string
+  appended a literal `s` to a `kind` that already ended in "columns".
+
+### Phase-3 / Phase-4 visibility
+- **PHASE 3 now logs per-substep timing** (`fit_and_transform_pipeline`
+  and, when non-None, `apply_preprocessing_extensions`). Previously a
+  3+ minute phase was mysteriously black-boxed between the PHASE 3 banner
+  and the "Pipeline done" summary.
+- **PHASE 4 logs elapsed time for `select_target`**. Previously the 2+ min
+  gap between "select_target..." and "process_model START" had no timing
+  context.
+
+### Wasted pandas preparation work
+- **Skip `prepare_df_for_catboost` on the pandas views when the Polars
+  fastpath is active** (`training/core.py`). When
+  `can_skip_pandas_conv=True`, models receive Polars DFs directly;
+  running `prepare_df_for_catboost` on the pandas-view side was ~2
+  minutes of pure waste on 1M × 100 frames. Logged as
+  `"Skipping pandas-side CatBoost prep ... — Polars fastpath receives the DFs natively"`
+  when skipped.
+
+### Feature-type auto-detection promotes text columns out of cat_features
+- **High-cardinality text-like `pl.Categorical` columns are now promoted
+  from `cat_features` to `text_features`** by `_auto_detect_feature_types`
+  (`training/core.py:111+`). Previously the pipeline's schema-based
+  detection in `fit_and_transform_pipeline` would lock in columns like
+  `skills_text` / `ontology_skills_text` as `cat_features` before the
+  text auto-detector had a chance to see them; the auto-detector then
+  skipped them because "already assigned". Now promotion is explicit
+  when `n_unique > cat_text_cardinality_threshold`, and the promoted
+  columns are removed from `cat_features` in place. Frees substantial
+  memory for text-heavy datasets and gives CatBoost the right
+  tokenization path.
+
+### Splitting log
+- **Documented the `+NR` / `+ND` suffix** in `training/splitting.py`
+  (the `_build_details` helper). Example in a user-visible log:
+  `90_000 val rows 2014-01-20/2014-04-05 +45000R` — the `+45000R` means
+  "45 000 extra **rows** (`R`) sampled from outside the sequential date
+  window". `D` is the same for whole-day splitting.
+
 ## 2026-04-18 — Default logger timestamps + CatBoost Polars-fastpath fallback
 
 ### Fixed

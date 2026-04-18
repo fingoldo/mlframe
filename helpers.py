@@ -109,19 +109,38 @@ def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_fil
     return df
 
 
+_GET_OWN_RAM_LAST_GB: float = 0.0
+
+
 def get_own_ram_usage():
+    """Return the current process's resident set size in gigabytes.
+
+    On Windows (and occasionally on Linux under heavy Arrow/Polars frees)
+    psutil has been observed to briefly report an implausibly low rss —
+    sometimes effectively 0 — right after a large buffer release. When
+    that happens and the previous rss was substantial, we emit a
+    warning and return the previously-seen value instead of the bogus
+    near-zero reading. This prevents misleading ``RAM usage: 0.0GB``
+    lines in training logs that otherwise hide real usage.
+    """
+    global _GET_OWN_RAM_LAST_GB
     import psutil
     import os
+    import logging as _logging
 
-    # Get the current process
     process = psutil.Process(os.getpid())
+    rss_gb = process.memory_info().rss / (1024**3)
 
-    # Get memory info
-    mem_info = process.memory_info()
+    if _GET_OWN_RAM_LAST_GB > 1.0 and rss_gb < 0.1:
+        _logging.getLogger(__name__).warning(
+            "psutil reported rss=%.3fGB after previous %.1fGB; likely transient "
+            "reporting glitch, returning previous value to keep the RAM log honest.",
+            rss_gb, _GET_OWN_RAM_LAST_GB,
+        )
+        return _GET_OWN_RAM_LAST_GB
 
-    # Print Resident Set Size (RSS) in bytes (actual RAM used)
-
-    return mem_info.rss / (1024**3)
+    _GET_OWN_RAM_LAST_GB = rss_gb
+    return rss_gb
 
 
 def show_sys_ram_usage():

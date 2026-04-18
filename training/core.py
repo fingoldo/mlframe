@@ -116,10 +116,27 @@ def _auto_detect_feature_types(
 ) -> tuple:
     """Auto-detect text and embedding features from DataFrame schema and cardinality.
 
+    Also *promotes* columns that were initially classified as categorical by the
+    Polars schema (e.g. columns ending in ``_text`` that are ``pl.Categorical``
+    in raw data) up to ``text_features`` when their cardinality exceeds the
+    configured threshold. Previously such columns stayed in ``cat_features``
+    and CatBoost wasted GB of memory on nominal encoding of what are really
+    free-text blobs. The promotion happens iff:
+
+        * user did not explicitly list the column in ``text_features``
+          or ``embedding_features`` already, AND
+        * the column's dtype is ``pl.String``/``pl.Utf8``/``pl.Categorical``
+          (ordered categoricals like ``pl.Enum`` stay nominal), AND
+        * ``n_unique > cat_text_cardinality_threshold``.
+
+    Promoted columns are returned in ``text_features`` and removed from the
+    caller's ``cat_features`` list in place.
+
     Args:
         df: Training DataFrame (Polars or pandas).
         feature_types_config: FeatureTypesConfig with user overrides and threshold.
         cat_features: Already-detected categorical features (from pipeline).
+            MUTATED in place: promoted columns are removed.
         verbose: Whether to log detections.
 
     Returns:
@@ -134,39 +151,50 @@ def _auto_detect_feature_types(
         return text_features, embedding_features
 
     threshold = feature_types_config.cat_text_cardinality_threshold
-    # Already-assigned features skip auto-detection. Include explicit cat_features too
-    # (user-declared cats must not be silently promoted to text features — CatBoost text
-    # tokenization on short categorical strings frequently yields empty dictionaries).
-    already_assigned = set(text_features) | set(embedding_features) | set(cat_features or [])
+    user_assigned = set(text_features) | set(embedding_features)
+    promoted: list = []  # cat_features -> text_features, for in-place removal
 
     if isinstance(df, pl.DataFrame):
         for name, dtype in df.schema.items():
-            if name in already_assigned:
+            if name in user_assigned:
                 continue
             # Embedding: pl.List(pl.Float32/Float64)
             if dtype == pl.List(pl.Float32) or dtype == pl.List(pl.Float64):
-                embedding_features.append(name)
-                already_assigned.add(name)
-            # String/Categorical: split by cardinality
-            elif dtype in (pl.String, pl.Utf8, pl.Categorical):
+                if name not in cat_features:
+                    embedding_features.append(name)
+                continue
+            # String/Categorical — evaluate cardinality to split cat vs text.
+            if dtype in (pl.String, pl.Utf8, pl.Categorical):
                 n_unique = df[name].n_unique()
                 if n_unique > threshold:
                     text_features.append(name)
-                    already_assigned.add(name)
-                # else: leave for existing cat_features pipeline
+                    if name in cat_features:
+                        promoted.append(name)
     else:
         # pandas: only detect high-cardinality text (no reliable embedding auto-detect)
         for col in df.columns:
-            if col in already_assigned:
+            if col in user_assigned:
                 continue
             dtype_name = str(df[col].dtype)
-            if dtype_name.startswith("object") or dtype_name.startswith("string"):
+            if dtype_name.startswith("object") or dtype_name.startswith("string") or dtype_name == "category":
                 n_unique = df[col].nunique()
                 if n_unique > threshold:
                     text_features.append(col)
-                    already_assigned.add(col)
+                    if col in cat_features:
+                        promoted.append(col)
 
-    if verbose and (text_features or embedding_features):
+    # Remove promoted columns from cat_features in place.
+    for name in promoted:
+        try:
+            cat_features.remove(name)
+        except ValueError:
+            pass
+
+    if verbose and (text_features or embedding_features or promoted):
+        if promoted:
+            logger.info(
+                f"  Promoted {len(promoted)} high-cardinality column(s) from cat_features to text_features: {promoted}"
+            )
         logger.info(f"  Auto-detected feature types — text: {text_features or '(none)'}, embedding: {embedding_features or '(none)'}")
 
     return text_features, embedding_features
@@ -1330,6 +1358,7 @@ def train_mlframe_models_suite(
 
     # Pass user-specified text/embedding features to exclude from encoding/scaling.
     # Auto-detection happens later (after pipeline, when cat_features are known).
+    t0_fit_pipeline = timer()
     train_df, val_df, test_df, pipeline, cat_features = fit_and_transform_pipeline(
         train_df=train_df,
         val_df=val_df,
@@ -1340,6 +1369,8 @@ def train_mlframe_models_suite(
         text_features=feature_types_config.text_features,
         embedding_features=feature_types_config.embedding_features,
     )
+    if verbose:
+        logger.info(f"  fit_and_transform_pipeline done in {_elapsed_str(t0_fit_pipeline)}")
 
     # Track if Polars-ds pipeline was applied (to skip redundant pre_pipeline transforms later)
     polars_pipeline_applied = was_polars_input and pipeline_config.use_polarsds_pipeline and pipeline is not None
@@ -1349,9 +1380,12 @@ def train_mlframe_models_suite(
     # Polars-native fastpath is preserved byte-for-byte.
     if preprocessing_extensions is not None and isinstance(preprocessing_extensions, dict):
         preprocessing_extensions = PreprocessingExtensionsConfig(**preprocessing_extensions)
+    t0_ext = timer()
     train_df, val_df, test_df, extensions_pipeline = apply_preprocessing_extensions(
         train_df, val_df, test_df, preprocessing_extensions, verbose=verbose,
     )
+    if verbose and preprocessing_extensions is not None:
+        logger.info(f"  apply_preprocessing_extensions done in {_elapsed_str(t0_ext)}")
     if extensions_pipeline is not None:
         # cat_features are materialised into numeric columns by the sklearn stack.
         cat_features = []
@@ -1510,12 +1544,24 @@ def train_mlframe_models_suite(
     # preserves Polars Categorical as pd.Categorical (int32 dict rebuild), so
     # this is usually a no-op. The call is kept for safety when pandas frames
     # come in with plain string columns that still need the category cast.
+    #
+    # Gate (item 11 of 2026-04-18 log triage): when the Polars fastpath is
+    # active (can_skip_pandas_conv=True) the models receive the Polars DFs
+    # directly — running prepare_df_for_catboost on the *pandas views* that
+    # are built for select_target only is pointless work that shows up as
+    # a 2+ minute blocking step in PHASE 4 on 1M×100 frames. Skip it in
+    # that case.
     if cat_features and not can_skip_pandas_conv:
         if verbose:
             logger.info(f"Preparing {len(cat_features)} categorical features for CatBoost: {cat_features}")
         for df_pd in [train_df_pd, val_df_pd, test_df_pd]:
             if df_pd is not None:
                 prepare_df_for_catboost(df_pd, cat_features)
+    elif cat_features and can_skip_pandas_conv and verbose:
+        logger.info(
+            f"Skipping pandas-side CatBoost prep for {len(cat_features)} categorical "
+            "features — Polars fastpath receives the DFs natively."
+        )
 
     # B2: Release post-pipeline Polars DFs after pandas conversion.
     # Arrow-backed pandas views hold their own Arrow buffer references,
@@ -1639,6 +1685,7 @@ def train_mlframe_models_suite(
                 if verbose:
                     logger.info(f"select_target...")
 
+                t0_select_target = timer()
                 # Build common_params and behavior_config for select_target
                 od_common_params, current_behavior_config = _build_common_params_for_target(
                     init_common_params=init_common_params,
@@ -1679,6 +1726,7 @@ def train_mlframe_models_suite(
                 )
 
             if verbose:
+                logger.info(f"  select_target done in {_elapsed_str(t0_select_target)}")
                 log_ram_usage()
 
             # Build list of pre-pipelines (feature selection methods) to try

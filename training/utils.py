@@ -13,8 +13,24 @@ Functions for RAM management, file I/O, dataframe conversions, and data cleaning
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import logging
+import sys
 
 logger = logging.getLogger(__name__)
+
+
+def _caller_logger() -> logging.Logger:
+    """Return the logger bound to the module that called the public helper
+    which in turn called us. Used so progress lines like "Done. RAM usage:"
+    or the "PHASE N" banner are attributed to the caller's module (e.g.
+    ``mlframe.training.core``) instead of this utils module — matches what
+    a reader expects when scanning log origins.
+    """
+    try:
+        # Stack: [_caller_logger] -> [public helper] -> [real caller]
+        frame = sys._getframe(2)
+        return logging.getLogger(frame.f_globals.get("__name__", __name__))
+    except Exception:
+        return logger
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
@@ -35,8 +51,8 @@ from mlframe.helpers import get_own_ram_usage
 
 
 def log_ram_usage() -> None:
-    """Log current RAM usage."""
-    logger.info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+    """Log current RAM usage, attributed to the caller's module."""
+    _caller_logger().info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
 
 
 # Adaptive clean_ram: skip gc.collect + trim when RSS hasn't grown meaningfully
@@ -186,11 +202,24 @@ def filter_existing(df, cols) -> list:
     return [c for c in cols if c in existing]
 
 
-def log_phase(msg: str, n: int = 160) -> None:
-    """Log a phase separator with message."""
-    logger.info("-" * n)
-    logger.info(msg)
-    logger.info("-" * n)
+def log_phase(msg: str, n: int = 80) -> None:
+    """Log a single separator line followed by the phase message.
+
+    Width 80 reads comfortably on terminals and in notebook cells (was 160 —
+    wrapped horizontally). Only one separator per call: consecutive
+    ``log_phase`` calls render as::
+
+        ---
+        First phase msg
+        ---
+        Second phase msg
+
+    avoiding the "two adjacent dash lines" banner noise the previous
+    top+bottom layout produced.
+    """
+    lg = _caller_logger()
+    lg.info("-" * n)
+    lg.info(msg)
 
 
 def drop_columns_from_dataframe(
@@ -412,7 +441,7 @@ def _process_special_values(
     # Log and handle errors
     if len(errors_df) > 0:
         if verbose:
-            logger.info(f"Found {len(errors_df)} columns with {kind}s out of {ncols} columns:")
+            logger.info(f"Found {len(errors_df)} {kind} out of {ncols} columns:")
             logger.info(f"\n{errors_df}")
 
         if drop_columns:

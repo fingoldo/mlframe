@@ -297,10 +297,15 @@ class FeaturesAndTargetsExtractor:
         return {}
 
     def show_raw_data(self, df: Union[pd.DataFrame, pl.DataFrame]) -> None:
-        """Display information about raw data."""
+        """Display information about raw data.
+
+        Routed through the module logger rather than bare ``print`` so the
+        output interleaves correctly with the rest of the training log
+        (previously appeared out-of-order in Jupyter because stdout flushed
+        separately from the logger stream).
+        """
         info = get_dataframe_info(df)
-        print("Raw data:")
-        print(info)
+        logger.info("Raw data:\n%s", info)
 
     def show_processed_data(
         self, df: Union[pd.DataFrame, pl.DataFrame], target_by_type: dict
