@@ -206,6 +206,135 @@ def test_pandas_text_feature_dtype_is_not_mutated():
 
 
 # ---------------------------------------------------------------------------
+# Huge-dictionary Categorical NaN fill — production MemoryError 2026-04-19
+# ---------------------------------------------------------------------------
+# Production incident: CatBoost Polars fastpath rejected the data
+# ("TypeError: No matching signature found" in
+# _set_features_order_data_polars_categorical_column.process). Fallback
+# converted polars→pandas. A Categorical column arrived with an untrimmed
+# Polars global-string-pool dictionary: 3.3M unique categories, longest
+# string 6133 chars. The NaN-fill path then ran
+#   df[var] = df[var].astype(str).fillna(na_filler).astype("category")
+# pandas' Categorical.astype(str) materialises ``categories._values`` as a
+# fixed-width Unicode array: 3.3M × 6133 × 4B ≈ 75 GiB → MemoryError, the
+# whole 2.5-minute pipeline died one step before fit. Fix operates on
+# integer codes via ``.cat.add_categories + .fillna`` — no dict expansion.
+
+
+def test_cat_nan_fill_does_not_materialize_dictionary_as_strings():
+    """Functional sensor: NaN fill on a Categorical with a huge category
+    dict (many categories NOT present in the row slice — simulates Polars'
+    untrimmed global-string-pool behavior) must succeed without allocating
+    a (n_categories × max_str_len) Unicode array.
+
+    The test uses a Categorical whose dictionary carries 50_000 entries but
+    the actual rows only reference 3 of them. Before the fix, the code
+    expanded all 50_000 via ``.astype(str)`` regardless of row content. We
+    assert both that the call succeeds (pre-fix would crash with MemoryError
+    in prod; here we'd see a slow but finite allocation on a dev box) and
+    that the NaN is filled.
+    """
+    # Build a Categorical with a huge dict but only a handful of unique
+    # values actually present in the rows (simulates untrimmed Polars dict).
+    huge_dict = [f"cat_{i:06d}" for i in range(50_000)]
+    cat_type = pd.CategoricalDtype(categories=huge_dict, ordered=False)
+    df = pd.DataFrame({
+        "x": pd.Categorical(
+            values=["cat_000001", "cat_000002", None, "cat_000001"],
+            dtype=cat_type,
+        ),
+    })
+    # Invariant pre-call: dict is huge, rows are sparse.
+    assert len(df["x"].cat.categories) == 50_000
+    assert df["x"].isna().any()
+
+    cat_features: list = []
+    out = prepare_df_for_catboost(df, cat_features=cat_features, text_features=[])
+
+    # NaN was filled.
+    assert not out["x"].isna().any()
+    # Column was added to cat_features (it's a non-text Categorical).
+    assert "x" in cat_features
+    # na_filler joined the category set; pre-existing huge dict was NOT
+    # thrown away (we don't trim automatically — that's caller responsibility).
+    # Default na_filler is "" in prepare_df_for_catboost.
+    assert "" in out["x"].cat.categories
+
+
+def test_cat_nan_fill_preserves_existing_categories():
+    """The fix must preserve the caller's existing category order — downstream
+    CatBoost Pool indexing depends on stable codes across train/val/test."""
+    cats = ["alpha", "beta", "gamma", "delta"]
+    df = pd.DataFrame({
+        "x": pd.Categorical(
+            values=["alpha", None, "beta", "gamma"],
+            categories=cats,
+            ordered=False,
+        ),
+    })
+    prepare_df_for_catboost(df, cat_features=["x"], text_features=[])
+    # Original categories still present, in original order, plus na_filler.
+    cats_after = list(df["x"].cat.categories)
+    for c in cats:
+        assert c in cats_after
+    # The relative order of original cats is preserved.
+    orig_indices = [cats_after.index(c) for c in cats]
+    assert orig_indices == sorted(orig_indices)
+
+
+def test_cat_nan_fill_idempotent_when_na_filler_already_a_category():
+    """If na_filler (default "") is already in the category list, we must
+    NOT try to re-add it (pandas raises ValueError on duplicate add)."""
+    df = pd.DataFrame({
+        "x": pd.Categorical(
+            values=["a", None, "b", ""],
+            categories=["a", "b", ""],  # "" already present
+            ordered=False,
+        ),
+    })
+    # Must not crash.
+    prepare_df_for_catboost(df, cat_features=["x"], text_features=[])
+    assert not df["x"].isna().any()
+
+
+def test_cat_nan_fill_perf_budget_huge_untrimmed_dict():
+    """Perf-budget sensor for the 2026-04-19 MemoryError incident.
+
+    Simulates the production shape: 100_000-entry untrimmed dictionary,
+    only 5 unique values actually in the rows, 10_000 rows, some NaN.
+    The fixed code operates on int codes (O(n_rows) + O(1) dict growth);
+    the buggy code allocated a (100k × max_str_len × 4B) string array
+    plus copied it. Budget set so the fix passes easily and the bug
+    would blow through by >10x even with small strings.
+    """
+    import time
+
+    huge_dict = [f"cat_value_{i:010d}_with_moderately_long_suffix" for i in range(100_000)]
+    n = 10_000
+    rng = np.random.default_rng(42)
+    values = rng.choice(huge_dict[:5], size=n).tolist()
+    values[::100] = [None] * len(values[::100])  # sprinkle NaN
+    df = pd.DataFrame({
+        "x": pd.Categorical(
+            values=values,
+            categories=huge_dict,
+            ordered=False,
+        ),
+    })
+
+    t0 = time.perf_counter()
+    prepare_df_for_catboost(df, cat_features=[], text_features=[])
+    elapsed = time.perf_counter() - t0
+
+    assert not df["x"].isna().any()
+    assert elapsed < 2.0, (
+        f"prepare_df_for_catboost took {elapsed:.2f}s on a 100k-entry "
+        "untrimmed dict — regression of the 2026-04-19 MemoryError fix "
+        "(likely someone restored the astype(str) path)."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Defensive None-guards (2026-04-19 proactive-exploration findings)
 # ---------------------------------------------------------------------------
 

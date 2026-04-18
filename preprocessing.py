@@ -127,7 +127,22 @@ def prepare_df_for_catboost(
                 continue
             if isinstance(df[var].dtype, pd.CategoricalDtype):
                 if df[var].isna().any():
-                    df[var] = df[var].astype(str).fillna(na_filler).astype("category")
+                    # CRITICAL: never do ``astype(str)`` on a Categorical to
+                    # fill NaN. pandas materializes ``categories._values`` as
+                    # a fixed-width Unicode array sized by
+                    # ``len(categories) × max_str_len × 4``. On columns where
+                    # Polars passed through an untrimmed global string-pool
+                    # dictionary (3.3M unique categories, 6133-char longest
+                    # string seen in prod 2026-04-19), that's a 75+ GiB
+                    # allocation → MemoryError.
+                    #
+                    # Instead, operate on the integer codes: add ``na_filler``
+                    # to the category list (O(1) dict growth) and fillna
+                    # (O(n_rows) code update, no string materialization).
+                    cats = df[var].cat.categories
+                    if na_filler not in cats:
+                        df[var] = df[var].cat.add_categories([na_filler])
+                    df[var] = df[var].fillna(na_filler)
                 if var not in cat_features:
                     if verbose:
                         logging.info(f"{var} appended to cat_features")

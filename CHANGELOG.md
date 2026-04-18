@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-04-19 — MemoryError fix: Categorical NaN-fill no longer materializes the dictionary
+
+### Fixed — 75 GiB allocation in `prepare_df_for_catboost` (`preprocessing.py`)
+Production incident (logs, 2026-04-19 01:55): CatBoost Polars fastpath was rejected with `TypeError: No matching signature found` in `_set_features_order_data_polars_categorical_column.process()`. The pandas fallback kicked in, converted polars→pandas (76 s), then hit `MemoryError: Unable to allocate 75.1 GiB for an array with shape (3287945,) and data type <U6133` inside `prepare_df_for_catboost` → the whole 2.5-minute pipeline died one step before fit.
+
+Root cause: a pandas Categorical column arrived with an **untrimmed Polars global-string-pool dictionary** — 3.3M unique categories, longest string 6133 chars — even though the train slice had only ~810k rows. The NaN-fill path used:
+```python
+df[var] = df[var].astype(str).fillna(na_filler).astype("category")
+```
+`pd.Categorical.astype(str)` internally expands `categories._values` into a **fixed-width Unicode array** sized by `n_categories × max_str_len × 4 bytes` → 3.3M × 6133 × 4 ≈ 75 GiB regardless of how many rows the slice actually holds. The row count is irrelevant to this allocation; only the dictionary size matters.
+
+Fix: operate on the integer codes — `.cat.add_categories([na_filler])` (O(1) dict growth) + `.fillna(na_filler)` (O(n_rows) code update). No string materialization. The original category order is preserved so downstream CatBoost Pool indexing across train/val/test stays stable. Idempotent when `na_filler` is already in the category list.
+
+### Tests
+- `tests/test_preprocessing.py` +4 sensors:
+  - `test_cat_nan_fill_does_not_materialize_dictionary_as_strings` — the functional sensor with a 50k-entry untrimmed dict.
+  - `test_cat_nan_fill_preserves_existing_categories` — CatBoost Pool stability sensor (original order preserved).
+  - `test_cat_nan_fill_idempotent_when_na_filler_already_a_category` — no duplicate-add crash.
+  - `test_cat_nan_fill_perf_budget_huge_untrimmed_dict` — 100k-entry dict × 10k rows < 2 s budget (buggy path would need minutes or OOM).
+
 ## 2026-04-19 — outlier guard + ICE NaN guard + stable configs strict + cache-probe cleanup
 
 ### Fixed — catastrophic outlier-detector misconfiguration (`training/core.py`)
