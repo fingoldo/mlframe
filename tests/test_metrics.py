@@ -941,5 +941,109 @@ class TestICENaNGuards:
         assert np.isfinite(val)
 
 
+class TestPerGroupAUCEdgeCases:
+    """Proactive-probe findings 2026-04-19 (round 5):
+
+    - 1.3: single-sample groups returned ``(0.0, 0.0)`` instead of
+      ``(nan, nan)``. ``compute_mean_aucs_per_group`` filters NaN but
+      treats 0.0 as legitimate data → a fold with many 1-sample groups
+      silently depressed the mean AUC toward 0.
+    - 1.1: the inner njit loop silently returned NaN for single-class or
+      single-sample groups. Operators staring at ``mean_group_roc_auc=nan``
+      had no hint that "most of my groups collapsed" was the cause.
+      Warning added at the Python-level wrapper when ≥50% of groups are
+      NaN.
+    """
+
+    def _build(self, group_ids, y_true, y_score):
+        from mlframe.metrics import fast_aucs_per_group_optimized
+        return fast_aucs_per_group_optimized(
+            y_true=np.asarray(y_true, dtype=np.int8),
+            y_score=np.asarray(y_score, dtype=np.float64),
+            group_ids=np.asarray(group_ids, dtype=np.int64),
+        )
+
+    def test_single_sample_group_returns_nan_not_zero(self):
+        """The fix: group_size==1 -> (nan, nan). Pre-fix: (0.0, 0.0)."""
+        # Group 0: 3 samples (valid). Group 1: 1 sample (degenerate).
+        _, _, per_group = self._build(
+            group_ids=[0, 0, 0, 1],
+            y_true=[0, 1, 0, 1],
+            y_score=[0.1, 0.9, 0.2, 0.5],
+        )
+        assert 1 in per_group
+        roc, pr = per_group[1]
+        assert np.isnan(roc), f"single-sample group must return NaN ROC, got {roc}"
+        assert np.isnan(pr)
+
+    def test_single_sample_group_excluded_from_mean(self):
+        """End-to-end: compute_mean_aucs_per_group must not include the
+        NaN from single-sample groups in the mean (was depressing mean
+        toward 0 when treated as legitimate 0.0 data)."""
+        from mlframe.metrics import compute_mean_aucs_per_group
+        _, _, per_group = self._build(
+            group_ids=[0, 0, 0, 0, 1, 2],  # group 0 valid; 1,2 single-sample
+            y_true=[0, 1, 0, 1, 1, 0],
+            y_score=[0.1, 0.9, 0.2, 0.8, 0.5, 0.5],
+        )
+        mean_roc, mean_pr = compute_mean_aucs_per_group(per_group)
+        # Group 0 should produce a high ROC (~1.0). Pre-fix, groups 1,2
+        # contributed 0.0 and dragged the mean down.
+        assert mean_roc > 0.5, (
+            f"mean ROC should reflect only the valid group ({mean_roc}); "
+            "if this is <0.5, single-sample groups are polluting the mean"
+        )
+
+    def test_single_class_group_returns_nan(self):
+        """Existing behavior: group with all-same-class y_true returns
+        NaN (confirmed pre-fix). Locked in as a regression sensor —
+        the inner njit path at fast_numba_aucs_simple line 739 is
+        load-bearing for the mean-filter contract."""
+        _, _, per_group = self._build(
+            group_ids=[0, 0, 0, 1, 1, 1],
+            y_true=[1, 1, 1, 0, 1, 0],  # group 0: all 1s; group 1: mixed
+            y_score=[0.1, 0.2, 0.3, 0.5, 0.7, 0.4],
+        )
+        roc0, _ = per_group[0]
+        roc1, _ = per_group[1]
+        assert np.isnan(roc0), "all-single-class group must return NaN ROC"
+        assert not np.isnan(roc1), "mixed-class group must compute a valid ROC"
+
+    def test_warning_fires_when_majority_groups_are_nan(self, caplog):
+        """The new observability warning: when ≥50% of groups return NaN
+        (single-class or single-sample), log a single WARNING naming the
+        count and the likely causes."""
+        import logging
+        # 4 groups: 3 single-sample (NaN), 1 valid. 3/4 = 75% NaN.
+        gids = [0, 0, 0, 1, 2, 3]
+        y_true = [0, 1, 0, 1, 0, 1]
+        y_score = [0.1, 0.9, 0.2, 0.5, 0.5, 0.5]
+        with caplog.at_level(logging.WARNING, logger="mlframe.metrics"):
+            self._build(gids, y_true, y_score)
+        msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
+        assert any("groups returned NaN" in m for m in msgs), (
+            f"Expected a WARNING about majority-NaN groups; got: {msgs}"
+        )
+        # The message must name the count and the likely causes.
+        joined = " ".join(msgs)
+        assert "single-class" in joined or "single-sample" in joined
+
+    def test_no_warning_when_minority_groups_are_nan(self, caplog):
+        """False-positive sensor: if only 1 in 10 groups is NaN, no
+        warning should fire — the per-group mean is still trustworthy
+        and noisy logs would drown the signal."""
+        import logging
+        # 10 groups, 9 valid (2-sample each), 1 single-sample -> 10% NaN.
+        gids = sum([[i, i] for i in range(9)], []) + [9]  # groups 0..8 have 2 samples; group 9 has 1
+        y_true = ([0, 1] * 9) + [1]
+        y_score = list(np.linspace(0.1, 0.9, 19))
+        with caplog.at_level(logging.WARNING, logger="mlframe.metrics"):
+            self._build(gids, y_true, y_score)
+        warn_msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
+        assert not any("groups returned NaN" in m for m in warn_msgs), (
+            f"Did not expect a warning for only 10% NaN groups; got: {warn_msgs}"
+        )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

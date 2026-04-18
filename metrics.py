@@ -678,6 +678,25 @@ def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group
         sorted_y_score = y_score[sort_indices]
 
         group_aucs = compute_grouped_group_aucs(sorted_group_ids, sorted_y_true, sorted_y_score)
+
+        # Observability: the inner njit loop silently returns NaN for
+        # single-class groups and single-sample groups. If a majority of
+        # groups is NaN, the per-group mean (and any downstream logic
+        # relying on it) is built on very thin signal. Log ONCE per call
+        # when >=50% of groups are invalid, so operators see "most of my
+        # group AUCs collapsed" instead of staring at NaN numbers.
+        if group_aucs:
+            n_total = len(group_aucs)
+            n_nan_roc = sum(1 for (r, _p) in group_aucs.values() if np.isnan(r))
+            if n_nan_roc and n_nan_roc * 2 >= n_total:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "fast_aucs_per_group_optimized: %d / %d groups returned NaN ROC AUC "
+                    "(single-class or single-sample). Per-group mean is built on %d "
+                    "valid groups; likely causes: target imbalance concentrated in few "
+                    "groups, or group_ids granularity too fine (many 1-sample groups).",
+                    n_nan_roc, n_total, n_total - n_nan_roc,
+                )
     else:
         group_aucs = {}
 
@@ -716,7 +735,12 @@ def compute_grouped_group_aucs(sorted_group_ids: np.ndarray, sorted_y_true: np.n
                 roc_auc, pr_auc = fast_numba_aucs_simple(group_y_true, group_y_score, group_desc_indices)
                 group_aucs[int(current_group)] = (roc_auc, pr_auc)
             else:
-                group_aucs[int(current_group)] = (0.0, 0.0)
+                # Single-sample group: AUC is mathematically undefined.
+                # Return NaN (not 0.0) so compute_mean_aucs_per_group's
+                # NaN filter drops it from the mean. Previously (0.0, 0.0)
+                # was treated as legitimate data and silently depressed
+                # the mean AUC when a fold had many single-sample groups.
+                group_aucs[int(current_group)] = (np.nan, np.nan)
 
             # Move to next group
             if i < n:

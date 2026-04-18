@@ -173,6 +173,72 @@ class TestStoreAveragedCVScores:
         assert np.isclose(final, mean)
 
 
+class TestStoreAveragedCVScoresNaNWarning:
+    """Proactive-probe finding 2026-04-19 (round 5, #2.4):
+
+    A NaN CV fold score (e.g., scorer hit a single-class fold) poisons
+    ``scores_mean`` → ``final_score``. Downstream RFECV compares
+    ``final_score > best_score`` which is always False on NaN — the
+    search eventually terminates via ``max_noimproving_iters`` but
+    spends many CV rounds producing no signal. Same class of bug as
+    the ICE NaN guard (integral_calibration_error_from_metrics) fixed
+    earlier this day. Observability fix: WARN with the NaN-fold count
+    and likely cause on every invocation with a NaN.
+    """
+
+    def _dummy_self(self):
+        class MockSelf:
+            mean_perf_weight = 1.0
+            std_perf_weight = 0.0
+        return MockSelf()
+
+    def test_nan_score_emits_warning(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers"):
+            store_averaged_cv_scores(
+                pos=7,
+                scores=[0.8, float("nan"), 0.82, 0.79],
+                evaluated_scores_mean={},
+                evaluated_scores_std={},
+                self=self._dummy_self(),
+            )
+        msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
+        assert any("NaN" in m and "pos=7" in m for m in msgs), msgs
+        joined = " ".join(msgs)
+        assert "single-class" in joined or "stratified" in joined
+
+    def test_all_finite_scores_no_warning(self, caplog):
+        """False-positive sensor: clean scores must not warn (otherwise
+        every RFECV iteration would spam the log)."""
+        import logging
+        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers"):
+            store_averaged_cv_scores(
+                pos=3,
+                scores=[0.75, 0.80, 0.82, 0.77],
+                evaluated_scores_mean={},
+                evaluated_scores_std={},
+                self=self._dummy_self(),
+            )
+        warns = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert not warns, f"Unexpected warning on clean scores: {[r.message for r in warns]}"
+
+    def test_empty_scores_no_crash(self):
+        """Defensive: calling with zero CV scores (degenerate input) must
+        not crash the NaN-count check even though the downstream
+        ``np.mean([])`` will emit its own RuntimeWarning."""
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            mean, std, final = store_averaged_cv_scores(
+                pos=0,
+                scores=[],
+                evaluated_scores_mean={},
+                evaluated_scores_std={},
+                self=self._dummy_self(),
+            )
+        assert np.isnan(mean)
+
+
 class TestSelectAppropriateFeatureImportances:
     """Tests for select_appropriate_feature_importances function."""
 

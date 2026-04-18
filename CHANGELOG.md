@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-04-19 — proactive probe round 5: per-group AUC + RFECV NaN observability
+
+Subagent-driven probe of `fast_aucs_per_group_optimized`, MRMR, RFECV, and
+`compute_mean_aucs_per_group`. Three findings worth fixing; four more
+documented as correctly-handled false positives (logged in subagent report).
+
+### Fixed — single-sample group NaN sentinel (`metrics.py::compute_grouped_group_aucs`)
+Single-sample groups (group_size == 1) returned ``(0.0, 0.0)`` instead of ``(nan, nan)``. `compute_mean_aucs_per_group` filters NaN but treated 0.0 as legitimate data, so a CV fold with many single-sample groups silently depressed the mean AUC toward 0 — indistinguishable from "model is bad" in operator eyes. Now returns NaN, which the filter drops.
+
+### Added — observability for majority-NaN per-group AUC (`metrics.py::fast_aucs_per_group_optimized`)
+The inner numba loop silently returned NaN for single-class / single-sample groups. When `mean_group_roc_auc` came back as NaN, operators had no hint why. Added a Python-level WARNING: if ≥50% of groups return NaN ROC AUC, log once with the counts and the most common causes (target imbalance concentrated in a few groups, or `group_ids` granularity too fine producing many 1-sample groups). Minority NaN (e.g., 10% of groups) stays silent to avoid log spam — the mean is still trustworthy.
+
+### Added — NaN-in-CV-fold warning (`feature_selection/wrappers.py::store_averaged_cv_scores`)
+Same class of bug as the `integral_calibration_error_from_metrics` NaN guard fixed earlier today. A NaN CV fold score (scorer hit a single-class fold etc.) poisoned `scores_mean` → `final_score`. Downstream `final_score > best_score` with NaN is always False — RFECV's `n_noimproving_iters` counter incremented every iteration and the search eventually terminated via `max_noimproving_iters`, but burnt many full CV rounds producing no signal. WARN with the NaN-fold count and the likely cause on every invocation that has a NaN score. Operators can then switch to stratified CV or fix the scorer instead of staring at silent stagnation.
+
+### Tests
+- `tests/test_metrics.py` +5 (`TestPerGroupAUCEdgeCases`): single-sample-group returns NaN, NaN excluded from mean, single-class group returns NaN (lock-in sensor), majority-NaN emits warning, minority-NaN stays silent.
+- `tests/feature_selection/test_wrappers.py` +3 (`TestStoreAveragedCVScoresNaNWarning`): NaN score emits named WARNING with pos, clean scores silent, empty scores graceful.
+- 142 tests pass across `test_metrics.py` + `test_wrappers.py`.
+
+### False positives documented
+Probe flagged 4 scenarios that turned out to be handled correctly; captured in subagent report for future callers:
+- `group_ids=None` → empty dict, downstream `if group_aucs` guard exists.
+- Extremely imbalanced group (1 pos / 100k samples): the `denom_roc > 0` check at `fast_numba_aucs_simple:775` handles it.
+- NaN in y_score: numpy argsort handles (NaN sinks to tail); not our bug, should be caught upstream.
+- MRMR accepts polars via the `X.to_pandas()` conversion at `filters.py:2859`.
+
 ## 2026-04-19 — CB Polars fastpath diagnostic logging: pl.Enum is the usual culprit
 
 ### Added — `_polars_schema_diagnostic` + `_warn_on_unsupported_polars_dtypes` (`training/trainer.py`)

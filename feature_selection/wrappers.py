@@ -869,6 +869,27 @@ def split_into_train_test(
 def store_averaged_cv_scores(pos: int, scores: list, evaluated_scores_mean: dict, evaluated_scores_std: dict, self: object) -> None:
 
     scores = np.array(scores)
+
+    # Observability: a NaN fold score (e.g., scorer hit a single-class CV
+    # fold and returned NaN) poisons ``scores_mean`` / ``final_score``.
+    # Downstream ``final_score > best_score`` with NaN is always False, so
+    # RFECV's early-stop patience counter (n_noimproving_iters) gets
+    # consumed every iteration — the search eventually terminates via
+    # max_noimproving_iters, but spends many CV rounds producing no
+    # signal. Surface this explicitly so operators can fix the scorer
+    # (e.g., switch to stratified CV) rather than silently eating it.
+    n_nan = int(np.isnan(scores).sum()) if scores.size else 0
+    if n_nan:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "store_averaged_cv_scores @ pos=%d: %d / %d CV fold score(s) are NaN. "
+            "Final score will be NaN and every ``final_score > best_score`` check "
+            "below will be False — RFECV will run until max_noimproving_iters "
+            "without improvement. Likely cause: single-class CV fold (stratified "
+            "split would fix it) or scorer returning NaN on degenerate folds.",
+            pos, n_nan, scores.size,
+        )
+
     scores_mean, scores_std = np.mean(scores), np.std(scores)
     final_score = scores_mean * self.mean_perf_weight - scores_std * self.std_perf_weight
 
