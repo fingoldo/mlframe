@@ -838,6 +838,136 @@ def _maybe_apply_posthoc_calibration(model, fit_params, model_type_name, verbose
     return model
 
 
+def _polars_schema_diagnostic(
+    df: "pl.DataFrame",
+    cat_features: Optional[List[str]] = None,
+    text_features: Optional[List[str]] = None,
+    max_cols_logged: int = 30,
+) -> str:
+    """Render a per-column diagnostic of a Polars DataFrame for CatBoost
+    fastpath incidents.
+
+    CatBoost 1.2.x's `_set_features_order_data_polars_categorical_column`
+    is a Cython fused cpdef with a finite set of compiled dispatch
+    overloads. When a column's dtype variant isn't in the table, it
+    raises the opaque ``TypeError: No matching signature found`` with no
+    indication of which column is at fault. This helper dumps every
+    column's dtype, its role (cat / text / other), and the specific
+    sub-variant that matters for CB's dispatcher:
+
+      - ``pl.Enum`` — CB 1.2.10 has no fastpath overload for Enum. If
+        present among cat_features, that's almost certainly the cause.
+      - ``pl.Categorical`` — dispatch depends on ``ordering`` (lexical vs
+        physical) and whether the column uses the global string cache.
+      - ``pl.List[...]`` — nested types not supported in fastpath.
+
+    Keeps output compact: logs up to ``max_cols_logged`` cat_features
+    verbatim; the rest are summarised by dtype count. Safe to call in
+    error paths — swallows exceptions and returns a note instead.
+    """
+    try:
+        import polars as _pl
+        cat_set = set(cat_features or [])
+        text_set = set(text_features or [])
+        lines: List[str] = []
+        enum_cat_cols: List[str] = []  # the smoking-gun list
+
+        cat_cols = [c for c in df.columns if c in cat_set]
+        # Prioritise cat_features for full logging (they're the usual
+        # culprit); summarise non-cat columns.
+        shown = 0
+        for col in cat_cols[:max_cols_logged]:
+            dt = df.schema.get(col)
+            role = "cat"
+            variant = str(dt)
+            if isinstance(dt, _pl.Enum):
+                variant = f"Enum(n_values={len(dt.categories)})"
+                enum_cat_cols.append(col)
+            elif dt == _pl.Categorical or (
+                hasattr(_pl, "Categorical") and isinstance(dt, type(_pl.Categorical))
+            ):
+                try:
+                    ordering = getattr(dt, "ordering", "?")
+                    variant = f"Categorical(ordering={ordering!r})"
+                except Exception:
+                    variant = "Categorical"
+            try:
+                nu = df[col].n_unique()
+                nn = int(df[col].null_count())
+                lines.append(f"    {col} [{role}]: {variant}, n_unique={nu}, nulls={nn}")
+            except Exception:
+                lines.append(f"    {col} [{role}]: {variant}")
+            shown += 1
+
+        if len(cat_cols) > max_cols_logged:
+            lines.append(f"    ... +{len(cat_cols) - max_cols_logged} more cat_features")
+
+        # Roll-up of everything else by dtype.
+        other_dtype_counts: Dict[str, int] = {}
+        for col in df.columns:
+            if col in cat_set or col in text_set:
+                continue
+            dt_str = str(df.schema.get(col))
+            other_dtype_counts[dt_str] = other_dtype_counts.get(dt_str, 0) + 1
+        if other_dtype_counts:
+            summary = ", ".join(f"{k}:{v}" for k, v in sorted(other_dtype_counts.items()))
+            lines.append(f"    (non-cat, non-text cols by dtype) {summary}")
+
+        if text_set:
+            text_cols_in_df = [c for c in df.columns if c in text_set]
+            text_dt_counts: Dict[str, int] = {}
+            for col in text_cols_in_df:
+                dt_str = str(df.schema.get(col))
+                text_dt_counts[dt_str] = text_dt_counts.get(dt_str, 0) + 1
+            summary = ", ".join(f"{k}:{v}" for k, v in sorted(text_dt_counts.items()))
+            lines.append(f"    (text_features by dtype) {summary}")
+
+        header = f"  Polars schema diagnostic for {df.shape[0]:_}×{df.shape[1]}:"
+        if enum_cat_cols:
+            header += (
+                f"\n  [!] cat_features contain pl.Enum columns: {enum_cat_cols}. "
+                "CatBoost 1.2.x Polars fastpath has no Enum dispatch overload; "
+                "this is the most likely cause of 'No matching signature found'. "
+                "Upstream fix: cast to pl.Categorical or pl.String before fit."
+            )
+        return header + "\n" + "\n".join(lines)
+    except Exception as _diag_err:
+        return f"  (schema diagnostic failed: {_diag_err!r})"
+
+
+def _warn_on_unsupported_polars_dtypes(
+    df: "pl.DataFrame",
+    cat_features: Optional[List[str]] = None,
+    text_features: Optional[List[str]] = None,
+) -> None:
+    """Pre-fit warning: surface known-problematic Polars dtype variants
+    BEFORE the opaque CatBoost TypeError fires.
+
+    Currently flags: ``pl.Enum`` columns declared as cat_features (CB
+    1.2.10 dispatcher misses, see `_polars_schema_diagnostic`). Pure
+    logging — doesn't mutate the DataFrame, caller decides the fix.
+    """
+    try:
+        import polars as _pl
+        if not isinstance(df, _pl.DataFrame):
+            return
+        enum_cat = [
+            c for c in (cat_features or [])
+            if c in df.columns and isinstance(df.schema.get(c), _pl.Enum)
+        ]
+        if enum_cat:
+            logger.warning(
+                "CatBoost cat_features contain pl.Enum columns %s — CB 1.2.x "
+                "Polars fastpath has no Enum dispatch overload and will "
+                "reject with 'No matching signature found'. Cast to "
+                "pl.Categorical or pl.String before fit to avoid the "
+                "2-minute failed attempt + pandas-fallback detour.",
+                enum_cat,
+            )
+    except Exception:
+        pass
+
+
 def _train_model_with_fallback(
     model: Any,
     model_obj: Any,
@@ -872,6 +1002,19 @@ def _train_model_with_fallback(
         (trained_model, best_iteration) where best_iteration may be None.
     """
     t0_fit = timer()
+    # Pre-fit diagnostic: if we're about to hand a Polars DF to CatBoost,
+    # flag known-problematic dtype variants (currently pl.Enum among
+    # cat_features) *before* the opaque TypeError fires. Cheap and
+    # targeted — no DataFrame mutation.
+    if (
+        model_type_name in CATBOOST_MODEL_TYPES
+        and isinstance(train_df, pl.DataFrame)
+    ):
+        _warn_on_unsupported_polars_dtypes(
+            train_df,
+            cat_features=fit_params.get("cat_features"),
+            text_features=fit_params.get("text_features"),
+        )
     try:
         with phase("model.fit", model=model_type_name,
                    n_rows=(train_df.shape[0] if hasattr(train_df, "shape") else None),
@@ -919,10 +1062,22 @@ def _train_model_with_fallback(
             # path: zero-copy Arrow view + `prepare_df_for_catboost` preserves
             # dtypes (post-2026-04-18) and CatBoost's pandas path accepts a wider
             # range of category backings.
+            # Full last-line for the one-line message, plus a structured
+            # schema dump so the NEXT occurrence is diagnosable from the
+            # first log line (prev. we only had the truncated error str,
+            # and for opaque dispatch misses that's useless).
+            last_line = error_str.splitlines()[-1] if error_str else "<empty>"
             logger.warning(
-                f"CatBoost Polars fastpath rejected the data ({error_str.splitlines()[-1][:160]}); "
-                "converting to pandas and retrying."
+                "CatBoost Polars fastpath rejected the data (%s); "
+                "converting to pandas and retrying.",
+                last_line[:240],
             )
+            schema_dump = _polars_schema_diagnostic(
+                train_df,
+                cat_features=fit_params.get("cat_features"),
+                text_features=fit_params.get("text_features"),
+            )
+            logger.warning("CB Polars fastpath failure — schema context:\n%s", schema_dump)
             from mlframe.training.utils import get_pandas_view_of_polars_df
             from mlframe.preprocessing import prepare_df_for_catboost as _prep_cb
 

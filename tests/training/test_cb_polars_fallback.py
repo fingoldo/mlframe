@@ -296,3 +296,132 @@ def test_fallback_retry_failure_propagates(polars_frame_with_text_cats):
             verbose=False,
         )
     assert len(model.calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic logging — pre-fit Enum warning + post-fail schema dump
+# ---------------------------------------------------------------------------
+# 2026-04-19 incident: CatBoost 1.2.10 Polars fastpath raised
+# "TypeError: No matching signature found" in
+# _set_features_order_data_polars_categorical_column.process. The fused
+# cpdef dispatcher has no overload for pl.Enum. With the old one-line
+# warning (truncated to 160 chars, just the error message), operators
+# had NO way to tell which of 9 cat_features was at fault — leading to
+# 2+ minutes of wasted CB attempt + a pandas-fallback detour on every run.
+# The two helpers below surface the culprit in the first log line.
+
+
+def test_warn_on_unsupported_polars_dtypes_flags_enum_cat_features(caplog):
+    """Pre-fit warning must name the Enum column(s) in cat_features."""
+    import logging
+    from mlframe.training.trainer import _warn_on_unsupported_polars_dtypes
+
+    n = 50
+    enum_dt = pl.Enum(["A", "B", "C"])
+    df = pl.DataFrame({
+        "num":  np.arange(n, dtype=np.float32),
+        "good": pl.Series("good", ["A"] * n).cast(pl.Categorical),
+        "bad":  pl.Series("bad",  ["A"] * n, dtype=enum_dt),
+    })
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.trainer"):
+        _warn_on_unsupported_polars_dtypes(df, cat_features=["good", "bad"])
+    msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
+    assert any("bad" in m and "Enum" in m for m in msgs), (
+        f"Expected warning naming 'bad' as an Enum cat_feature; got: {msgs}"
+    )
+    # 'good' is plain Categorical — must NOT be flagged.
+    assert not any("'good'" in m for m in msgs), msgs
+
+
+def test_warn_on_unsupported_polars_dtypes_silent_when_clean(caplog):
+    """No cat_feature is Enum -> no warning. Silent path matters because
+    this helper runs on every CatBoost fit; a false-positive warning
+    would noise up every log run."""
+    import logging
+    df = pl.DataFrame({
+        "num": np.arange(10, dtype=np.float32),
+        "c":   pl.Series("c", ["a", "b"] * 5).cast(pl.Categorical),
+    })
+    from mlframe.training.trainer import _warn_on_unsupported_polars_dtypes
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.trainer"):
+        _warn_on_unsupported_polars_dtypes(df, cat_features=["c"])
+    warn_msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
+    assert not warn_msgs, f"Expected silence on clean Polars cat_features; got: {warn_msgs}"
+
+
+def test_polars_schema_diagnostic_names_enum_culprit():
+    """The post-fail schema dump must highlight any Enum cat_feature in
+    its header (not buried in the per-column list) so the first WARNING
+    line after the CB TypeError immediately points to the culprit."""
+    from mlframe.training.trainer import _polars_schema_diagnostic
+
+    enum_dt = pl.Enum(["red", "green", "blue"])
+    df = pl.DataFrame({
+        "a": np.arange(20, dtype=np.float32),
+        "job_type": pl.Series("job_type", ["red"] * 20, dtype=enum_dt),
+        "category_group": pl.Series("category_group", ["x", "y"] * 10).cast(pl.Categorical),
+    })
+    dump = _polars_schema_diagnostic(
+        df, cat_features=["job_type", "category_group"], text_features=[]
+    )
+    assert "job_type" in dump
+    assert "Enum" in dump
+    assert "No matching signature found" in dump or "Enum dispatch" in dump
+    # category_group must appear as a plain Categorical entry, not flagged.
+    assert "category_group" in dump
+
+
+def test_polars_schema_diagnostic_handles_empty_cat_features():
+    """Schema diagnostic must produce a usable dump even when cat_features
+    is None/empty — operators may need to see it to rule out unexpected
+    dtype mixes on text or numeric columns."""
+    from mlframe.training.trainer import _polars_schema_diagnostic
+    df = pl.DataFrame({
+        "a": np.arange(5, dtype=np.float32),
+        "b": pl.Series("b", ["x", "y", "x", "y", "x"]),
+    })
+    dump = _polars_schema_diagnostic(df, cat_features=None, text_features=None)
+    # Even without any categoricals, the diagnostic must not crash and
+    # must at least report shape.
+    assert "5" in dump or "shape" in dump.lower() or "×" in dump
+
+
+def test_polars_schema_diagnostic_never_raises():
+    """Error path safety: the helper runs inside an `except` block after
+    CB's fit crashed. If the helper itself crashed, the operator would
+    lose the original CB error AND the diagnostic. It must always
+    return a string, even on malformed inputs.
+    """
+    from mlframe.training.trainer import _polars_schema_diagnostic
+    # Nonsense input — passing a pandas DataFrame where polars is expected.
+    bad_input = pd.DataFrame({"a": [1, 2, 3]})
+    out = _polars_schema_diagnostic(bad_input, cat_features=["a"], text_features=[])
+    assert isinstance(out, str)
+    assert len(out) > 0
+
+
+def test_cb_fallback_warning_emits_schema_dump_on_rejection(polars_frame_with_text_cats, caplog):
+    """End-to-end: when the CB Polars fastpath rejects (simulated via
+    FakeCatBoost's first-call TypeError), the fallback path must emit a
+    WARNING containing the schema dump. This is the sensor for the
+    2026-04-19 incident where the old one-line warning was unactionable.
+    """
+    import logging
+    train_df, val_df, cat, text = polars_frame_with_text_cats
+    train_target = np.arange(train_df.height) % 2
+    val_target = np.arange(val_df.height) % 2
+
+    model = FakeCatBoost()
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.trainer"):
+        _train_model_with_fallback(
+            model=model, model_obj=model, model_type_name="CatBoostClassifier",
+            train_df=train_df, train_target=train_target,
+            fit_params={"cat_features": cat, "text_features": text,
+                        "eval_set": (val_df, val_target)},
+            verbose=False,
+        )
+    warn_msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
+    # One warning carries the schema context.
+    assert any("schema context" in m or "Polars schema diagnostic" in m for m in warn_msgs), (
+        f"Expected a WARNING with schema dump; got: {warn_msgs}"
+    )

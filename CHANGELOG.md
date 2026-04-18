@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-04-19 — CB Polars fastpath diagnostic logging: pl.Enum is the usual culprit
+
+### Added — `_polars_schema_diagnostic` + `_warn_on_unsupported_polars_dtypes` (`training/trainer.py`)
+
+Production 2026-04-19: CatBoost 1.2.10's Polars fastpath raised `TypeError: No matching signature found` at `_set_features_order_data_polars_categorical_column.process()`. The old log line was
+```
+CatBoost Polars fastpath rejected the data (TypeError: No matching signature found); converting to pandas and retrying.
+```
+— just the last 160 chars of the error. No way to know which of 13 categorical columns was the culprit, so every debug cycle burned 2+ minutes on a failed fastpath attempt + a ~76-second pandas conversion, and the MemoryError downstream was the one that finally stopped the run.
+
+**Root cause (via subagent reconnaissance):** CatBoost 1.2.10's fastpath is a Cython fused cpdef with dispatch overloads for `pl.Categorical` only. `pl.Enum` (instance-level dtype added in modern Polars) has no matching overload → the fused dispatcher falls through to the generic "No matching signature found" path.
+
+### Changes
+- **Pre-fit warning** (`_warn_on_unsupported_polars_dtypes`): called right before `model.fit()` whenever we're about to hand a Polars DF to CatBoost. If any `cat_features` column is `pl.Enum`, logs a WARNING naming the columns and telling the user to cast to `pl.Categorical` or `pl.String`. Cheap, targeted, no DataFrame mutation — the whole thing is wrapped in `try/except` so a diagnostic failure never blocks a fit.
+- **Post-fail schema dump** (`_polars_schema_diagnostic`): called when the fallback catches the Polars fastpath TypeError. Renders every `cat_features` column with its dtype (Enum vs Categorical with `ordering`), `n_unique`, null count; summarises non-cat/non-text columns by dtype count. If any Enum is found among cat_features, the dump's header explicitly names them as the most likely cause. The dump goes out as a second WARNING line right after the original error message.
+- **Error message detruncated** from 160 → 240 chars; previously useful context (column names in CB's internal message path) was getting clipped.
+
+### Tests
+- `tests/training/test_cb_polars_fallback.py` +6 sensors:
+  - `test_warn_on_unsupported_polars_dtypes_flags_enum_cat_features` — names the Enum column in the WARNING.
+  - `test_warn_on_unsupported_polars_dtypes_silent_when_clean` — no false-positive on plain Categorical (runs on every CB fit).
+  - `test_polars_schema_diagnostic_names_enum_culprit` — Enum columns surface in the dump's header, not buried in the per-column list.
+  - `test_polars_schema_diagnostic_handles_empty_cat_features` — works with None/empty cat_features.
+  - `test_polars_schema_diagnostic_never_raises` — returns a string even on malformed input (it runs inside an `except` block; a crash here would eat the original CB error too).
+  - `test_cb_fallback_warning_emits_schema_dump_on_rejection` — end-to-end: FakeCatBoost raises the prod TypeError, the fallback path emits a WARNING carrying the schema context.
+
+### Follow-up (not in this commit)
+Upstream fix: wherever the 9 production `cat_features` columns acquire their dtype, one of them is arriving as `pl.Enum`. Next run's log will name it explicitly (pre-fit warning). Short-term workaround: cast `pl.Enum → pl.Categorical` in the polars fastpath DF prep. Long-term: CatBoost may add Enum dispatch upstream.
+
 ## 2026-04-19 — MemoryError fix: Categorical NaN-fill no longer materializes the dictionary
 
 ### Fixed — 75 GiB allocation in `prepare_df_for_catboost` (`preprocessing.py`)
