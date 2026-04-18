@@ -957,13 +957,20 @@ def _train_model_with_fallback(
             train_df = get_pandas_view_of_polars_df(train_df)
             logger.info(f"  [fallback] polars→pandas(train) {shape_str} in {timer() - t0:.1f}s")
 
-            t0 = timer()
-            train_df = _prep_cb(train_df, cat_features=cat_feat, text_features=text_feat)
-            logger.info(f"  [fallback] prepare_df_for_catboost(train) in {timer() - t0:.1f}s")
-
+            # IMPORTANT: decategorize text columns BEFORE prepare_df_for_catboost.
+            # Otherwise prep_cb hits the pd.Categorical text columns (auto-promoted
+            # from cat to text earlier) and runs
+            #   df[col].astype(str).fillna("").astype("category")
+            # which on a high-cardinality column like skills_text (81k unique
+            # values over 810k rows) takes many minutes per column — the
+            # production-reproduced hang that motivated this reorder.
             t0 = timer()
             train_df = _decategorize_text_cols(train_df)
             logger.info(f"  [fallback] decategorize text cols(train) in {timer() - t0:.1f}s")
+
+            t0 = timer()
+            train_df = _prep_cb(train_df, cat_features=cat_feat, text_features=text_feat)
+            logger.info(f"  [fallback] prepare_df_for_catboost(train) in {timer() - t0:.1f}s")
 
             # eval_set carries the val split for CB — rewrite it too.
             eval_set = fit_params.get("eval_set")
@@ -975,8 +982,11 @@ def _train_model_with_fallback(
                     X_val, y_val = pair
                     if isinstance(X_val, pl.DataFrame):
                         X_val = get_pandas_view_of_polars_df(X_val)
+                        # Decategorize BEFORE prep_cb (see train_df comment above).
+                        X_val = _decategorize_text_cols(X_val)
                         X_val = _prep_cb(X_val, cat_features=cat_feat, text_features=text_feat)
-                    X_val = _decategorize_text_cols(X_val) if isinstance(X_val, pd.DataFrame) else X_val
+                    else:
+                        X_val = _decategorize_text_cols(X_val) if isinstance(X_val, pd.DataFrame) else X_val
                     new_pairs.append((X_val, y_val))
                 fit_params["eval_set"] = new_pairs if isinstance(eval_set, list) else new_pairs[0]
                 logger.info(f"  [fallback] eval_set rewrite in {timer() - t0_es:.1f}s")

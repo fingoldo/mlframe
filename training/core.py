@@ -150,6 +150,13 @@ def _auto_detect_feature_types(
     if not feature_types_config.auto_detect_feature_types:
         return text_features, embedding_features
 
+    # Defensive: callers sometimes pass ``cat_features=None`` (e.g. after a
+    # model skipped categorical detection). Treat as empty list — the
+    # ``if name in cat_features`` checks below would otherwise crash with
+    # ``TypeError: argument of type 'NoneType' is not iterable``.
+    if cat_features is None:
+        cat_features = []
+
     threshold = feature_types_config.cat_text_cardinality_threshold
     user_assigned = set(text_features) | set(embedding_features)
     promoted: list = []  # cat_features -> text_features, for in-place removal
@@ -164,8 +171,15 @@ def _auto_detect_feature_types(
                 if name not in cat_features:
                     embedding_features.append(name)
                 continue
-            # String/Categorical — evaluate cardinality to split cat vs text.
-            if dtype in (pl.String, pl.Utf8, pl.Categorical):
+            # String/Categorical/Enum — evaluate cardinality to split cat vs text.
+            # pl.Enum is a fixed-domain categorical; it has an instance-level
+            # dtype object (not a class), so it doesn't compare equal to the
+            # class-level check above. Use isinstance() for Enum specifically.
+            is_text_like = (
+                dtype in (pl.String, pl.Utf8, pl.Categorical)
+                or isinstance(dtype, pl.Enum)
+            )
+            if is_text_like:
                 n_unique = df[name].n_unique()
                 if n_unique > threshold:
                     text_features.append(name)
@@ -221,7 +235,15 @@ def _validate_feature_type_exclusivity(
     embedding_features: list,
     cat_features: list,
 ) -> None:
-    """Raise ValueError if any column appears in multiple feature type lists."""
+    """Raise ValueError if any column appears in multiple feature type lists.
+
+    Each argument may be ``None`` (treated as empty) — callers that skipped
+    one of the feature-type detection stages (e.g. models without
+    categorical awareness) pass None rather than ``[]``.
+    """
+    text_features = text_features or []
+    embedding_features = embedding_features or []
+    cat_features = cat_features or []
     overlap_tc = set(text_features) & set(cat_features)
     if overlap_tc:
         raise ValueError(f"Columns cannot be both text_features and cat_features: {overlap_tc}")

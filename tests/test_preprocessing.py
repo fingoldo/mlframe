@@ -117,3 +117,149 @@ def test_polars_no_nulls_skips_cast_entirely():
     })
     out = prepare_df_for_catboost(df.clone(), cat_features=[])
     assert out.dtypes == [pl.Int32, pl.Int64, pl.UInt16]
+
+
+# ---------------------------------------------------------------------------
+# Text-feature invariant (2026-04-19: prevents the production-hang scenario)
+# ---------------------------------------------------------------------------
+# Bug history: text columns auto-promoted from cat_features to text_features
+# keep pd.Categorical dtype after polars->pandas conversion. The pandas path
+# of prepare_df_for_catboost used to iterate ALL columns and, for any
+# pd.Categorical one, run ``astype(str).fillna(...).astype("category")``
+# and append it to cat_features. For skills_text (81k unique × 810k rows) a
+# single such column took ~minutes, and the function also silently
+# reclassified it as cat-feature. Invariant now enforced: columns that appear
+# in the text_features argument are NEVER touched by the cat-prep loop
+# — not added, not rebuilt, not timed.
+
+
+def test_pandas_text_feature_categorical_not_added_to_cat_features():
+    """A column declared as text_feature, even if its dtype is pd.Categorical,
+    must NOT be added to cat_features by prepare_df_for_catboost."""
+    df = pd.DataFrame({
+        "skills_text": pd.Categorical(["a", "b", "a", "c"]),
+        "true_cat":    pd.Categorical(["x", "y", "x", "y"]),
+    })
+    cat_features: list = []
+    prepare_df_for_catboost(df, cat_features=cat_features, text_features=["skills_text"])
+    assert "skills_text" not in cat_features, (
+        "text-declared column must not be auto-added to cat_features"
+    )
+    # The companion 'true_cat' column IS pd.Categorical and NOT declared as
+    # text, so it legitimately should be promoted.
+    assert "true_cat" in cat_features
+
+
+def test_pandas_text_feature_skips_expensive_astype_rebuild():
+    """Perf-budget regression sensor.
+
+    Before the fix a column declared as text_feature would still pass
+    through the ``df[col].astype(str).fillna(...).astype("category")``
+    rebuild inside the cat-prep loop. On a 50_000 × 5_000-unique-value
+    column that dance dominates the function; the budget below is chosen
+    so that the "not-skipped" path would blow through it by >5x but the
+    correct (skipped) path finishes in a few hundred ms on a dev box.
+
+    If this sensor ever fires, the most likely cause is a regression of
+    the text-feature skip logic in ``prepare_df_for_catboost``.
+    """
+    import time
+
+    rng = np.random.default_rng(42)
+    n = 50_000
+    pool = np.array([f"s_{i:05d}" for i in range(5_000)])
+    df = pd.DataFrame({
+        "skills_text": pd.Categorical(pool[rng.integers(0, len(pool), size=n)]),
+        "num": rng.standard_normal(n).astype(np.float32),
+    })
+    # NOTE: no NaN injected. The function's text-feature branch calls
+    # ``df[col].fillna("")`` which on pd.Categorical panics when "" is not a
+    # category (pandas limitation: fillna on Categorical requires the fill
+    # value to already be in categories). In production the caller is
+    # expected to ``_decategorize_text_cols`` first; this unit test focuses
+    # on the cat-loop skip invariant, not the NaN handling contract.
+
+    cat_features: list = []
+    t0 = time.perf_counter()
+    prepare_df_for_catboost(df, cat_features=cat_features, text_features=["skills_text"])
+    elapsed = time.perf_counter() - t0
+
+    assert "skills_text" not in cat_features
+    # Budget: comfortable for the skip path (<~0.3s on Python 3.11 + pandas
+    # 2.x dev box), tight enough that the astype(str).astype("category")
+    # rebuild over 5k categories would breach it easily.
+    assert elapsed < 2.0, (
+        f"prepare_df_for_catboost took {elapsed:.2f}s on a 50k text column — "
+        "the text-feature skip likely regressed"
+    )
+
+
+def test_pandas_text_feature_dtype_is_not_mutated():
+    """The skip must be a true no-op on dtype: a pd.Categorical text column
+    exits with the same dtype it entered with (prepare_df_for_catboost is
+    not responsible for text-column dtype conversion — that's handled by
+    ``_decategorize_text_cols`` in trainer.py earlier in the fallback)."""
+    df = pd.DataFrame({"skills_text": pd.Categorical(["a", "b", "a"])})
+    src_dtype = df["skills_text"].dtype
+    prepare_df_for_catboost(df, cat_features=[], text_features=["skills_text"])
+    assert df["skills_text"].dtype == src_dtype
+
+
+# ---------------------------------------------------------------------------
+# Defensive None-guards (2026-04-19 proactive-exploration findings)
+# ---------------------------------------------------------------------------
+
+
+def test_text_features_none_does_not_crash():
+    """``text_features=None`` must be accepted and treated as empty. Before
+    the 2026-04-19 guard it crashed with
+    ``TypeError: 'NoneType' object is not iterable`` on the
+    ``for var in text_features`` loop. Callers (e.g. model paths that
+    skipped text-feature auto-detection) passed None.
+    """
+    df = pd.DataFrame({"a": [1.0, 2.0, 3.0]})
+    out = prepare_df_for_catboost(df.copy(), cat_features=[], text_features=None)
+    assert "a" in out.columns
+
+
+def test_cat_features_none_does_not_crash():
+    """Symmetric guard for ``cat_features=None``."""
+    df = pd.DataFrame({"a": [1.0, 2.0, 3.0]})
+    out = prepare_df_for_catboost(df.copy(), cat_features=None, text_features=[])
+    assert "a" in out.columns
+
+
+def test_cat_features_both_none_does_not_crash():
+    """Both at once — the most defensive call shape."""
+    df = pd.DataFrame({"a": [1.0, 2.0, 3.0]})
+    out = prepare_df_for_catboost(df.copy(), cat_features=None, text_features=None)
+    assert "a" in out.columns
+
+
+# ---------------------------------------------------------------------------
+# Documented behaviour: cat_features list is mutated in place (accumulated)
+# ---------------------------------------------------------------------------
+
+
+def test_cat_features_list_is_mutated_in_place_across_calls():
+    """``prepare_df_for_catboost`` APPENDS detected categorical columns to
+    the ``cat_features`` argument in place. If a caller reuses the same
+    list across multiple calls the list accumulates state — a silent
+    footgun. This test documents the behaviour so a future refactor that
+    changes it (e.g. returns a fresh list) is visible as a test change.
+    """
+    shared: list = []
+    df1 = pd.DataFrame({"a": pd.Categorical(["x", "y", "x"])})
+    df2 = pd.DataFrame({"b": pd.Categorical(["p", "q", "p"])})
+    prepare_df_for_catboost(df1.copy(), cat_features=shared, text_features=[])
+    assert shared == ["a"]
+    prepare_df_for_catboost(df2.copy(), cat_features=shared, text_features=[])
+    # After the second call the list holds BOTH columns — the second caller
+    # silently inherited 'a' from the first. Code that wants fresh state
+    # must pass a new list each call.
+    assert shared == ["a", "b"], (
+        "cat_features list is mutated in place — if this assertion fails "
+        "it means the API changed to return a fresh list; update callers "
+        "that relied on mutation (core.py::_get_pipeline_components and "
+        "the fit-params plumbing)."
+    )

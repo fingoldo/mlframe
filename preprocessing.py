@@ -35,6 +35,16 @@ def prepare_df_for_catboost(
     """
     is_polars = isinstance(df, pl.DataFrame)
 
+    # Defensive: callers pass ``text_features=None`` / ``cat_features=None``
+    # sometimes (e.g. after an optional feature-type auto-detection that
+    # decided there were none). Treat as empty so the subsequent ``for var
+    # in text_features`` / ``in cat_features`` iterations don't crash with
+    # ``TypeError: 'NoneType' object is not iterable``.
+    if text_features is None:
+        text_features = []
+    if cat_features is None:
+        cat_features = []
+
     if columns_to_drop:
         if is_polars:
             df = df.drop([c for c in columns_to_drop if c in df.columns])
@@ -103,7 +113,18 @@ def prepare_df_for_catboost(
                 if df[var].isna().any():
                     df[var] = df[var].fillna(na_filler)
 
+        # Columns declared as text_features must bypass the cat-preparation
+        # path entirely. Without this skip, a text column that happens to
+        # carry a pd.Categorical dtype (e.g. auto-promoted from cat to text,
+        # then converted from Polars Categorical to pandas) triggers the
+        # O(n_rows) astype(str).astype("category") rebuild below — which on
+        # a high-cardinality text blob (81k unique values over 810k rows)
+        # takes minutes per column and was the root of a hang observed
+        # 2026-04-19 in the CB pandas fallback path.
+        text_feature_set = set(text_features or [])
         for var in tqdmu(cols, desc="Processing categorical features for CatBoost...", leave=False):
+            if var in text_feature_set:
+                continue
             if isinstance(df[var].dtype, pd.CategoricalDtype):
                 if df[var].isna().any():
                     df[var] = df[var].astype(str).fillna(na_filler).astype("category")

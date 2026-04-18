@@ -296,6 +296,21 @@ def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
           end-to-end on CatBoost (string hashing in fit + predict) and
           OOMed on 450k+ rows with many Categorical columns. Benchmarked
           2026-04-17 (see ``bench_polars_to_pandas.py``).
+
+    Tried but reverted (2026-04-19):
+        A ``shared_dict_cache`` parameter was added to share the ``categories``
+        pyarrow Array across sliced train/val/test calls, under the assumption
+        that slicing a Polars DataFrame preserves the source frame's full
+        categorical palette. The benchmark proved otherwise: on every slice
+        Polars re-trims the Categorical dictionary to exactly the values
+        present in that slice, so train/val/test each carry **different**
+        dictionaries (different sets of unique values, different order,
+        different length). The cache's safety check correctly bypassed every
+        cross-call reuse — net speedup was zero. See the 2026-04-19 CHANGELOG
+        entry for the full investigation. If production-grade dict sharing is
+        ever needed, the right primitive is ``pl.Enum`` on the source column
+        (fixed domain preserved across slices), not a post-hoc Arrow-level
+        cache.
     """
     if not isinstance(df, (pl.DataFrame, pl.Series)):
         raise TypeError(f"Input must be a Polars DataFrame or Series, got {type(df).__name__}")

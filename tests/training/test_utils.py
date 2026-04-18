@@ -379,6 +379,80 @@ class TestGetPandasViewOfPolarsDF:
 
 
 # ================================================================================================
+# Polars slice categorical-dictionary behaviour (2026-04-19 regression sensor)
+# ================================================================================================
+
+class TestPolarsSliceDictionaryDiffers:
+    """Documents (and asserts) the Polars behaviour that killed the
+    shared-dict optimisation attempted on 2026-04-19: slicing a Polars
+    DataFrame with Categorical columns trims each slice's dictionary to
+    exactly the values present in that slice, so train/val/test slices of
+    one source carry **different** pyarrow dictionaries.
+
+    Kept as a guard test so a future polars upgrade that changes this
+    behaviour (e.g. starts preserving the parent's full palette across
+    slices) is detected immediately — because then the shared-dict
+    optimisation would become viable again.
+    """
+
+    def test_high_cardinality_conversion_perf_budget(self):
+        """Perf-budget regression sensor on a pl.Categorical column with
+        500k unique values over 500k rows — exactly one value per row,
+        stressing the dict-rebuild path. On a 2026-era dev box this
+        completes in ~0.3 s; a 5 s budget is generous enough that a
+        naive ``astype(str)`` regression would blow through it by 10×.
+        """
+        import time
+        pool = np.array([f"s_{i:06d}" for i in range(500_000)])
+        df = pl.DataFrame({"x": pl.Series("x", pool, dtype=pl.Categorical)})
+
+        t0 = time.perf_counter()
+        out = get_pandas_view_of_polars_df(df)
+        elapsed = time.perf_counter() - t0
+
+        assert out.shape == (500_000, 1)
+        assert elapsed < 5.0, (
+            f"polars→pandas on 500k × 1 Categorical with 500k uniques took "
+            f"{elapsed:.1f}s — dict-rebuild path likely regressed"
+        )
+
+    def test_empty_polars_dataframe(self):
+        """Edge case: empty DF with typed column must round-trip without error."""
+        df = pl.DataFrame({"a": pl.Series("a", [], dtype=pl.Int32)})
+        out = get_pandas_view_of_polars_df(df)
+        assert out.shape == (0, 1)
+
+    def test_zero_column_polars_dataframe(self):
+        """Edge case: 0-column DF (very unusual) must not crash."""
+        df = pl.DataFrame({})
+        out = get_pandas_view_of_polars_df(df)
+        assert out.shape == (0, 0)
+
+    def test_slice_trims_categorical_dictionary(self):
+        rng = np.random.default_rng(0)
+        pool = np.array([f"c_{i}" for i in range(200)])
+        values = pool[rng.integers(0, 200, size=1000)]
+        src = pl.DataFrame({"x": pl.Series("x", values).cast(pl.Categorical)})
+
+        head = src.head(800)
+        tail = src[800:]
+
+        head_dict = head.to_arrow().column(0).chunks[0].dictionary
+        tail_dict = tail.to_arrow().column(0).chunks[0].dictionary
+
+        # Whole-frame dict has the full palette; sliced frames have trimmed
+        # palettes that are strict subsets and — because row subsets
+        # intersect randomly — almost never match each other.
+        full_dict = src.to_arrow().column(0).chunks[0].dictionary
+        assert len(head_dict) < len(full_dict), "slice did not trim dict"
+        assert len(tail_dict) < len(full_dict), "slice did not trim dict"
+        assert not head_dict.equals(tail_dict), (
+            "train and val slice dicts matched — polars behaviour changed, "
+            "the shared-dict optimisation revisit might now be viable"
+        )
+
+
+# ================================================================================================
 # Drop Columns Tests
 # ================================================================================================
 

@@ -108,6 +108,27 @@ def test_exclusivity_text_embedding_overlap():
         _validate_feature_type_exclusivity(["a"], ["a"], [])
 
 
+def test_exclusivity_accepts_none_args():
+    """Regression sensor: validator used to crash with
+    ``TypeError: 'NoneType' object is not iterable`` when any of its
+    three arguments was ``None``. Callers pass None for feature-type
+    lists that were skipped (e.g. a model without categorical support
+    passed None instead of []).
+    """
+    _validate_feature_type_exclusivity(None, None, None)
+    _validate_feature_type_exclusivity(None, [], ["a"])
+    _validate_feature_type_exclusivity(["a"], None, [])
+    _validate_feature_type_exclusivity([], ["b"], None)
+
+
+def test_exclusivity_none_still_catches_real_overlap():
+    """None args must not silence a real overlap — if one list is None
+    and the other two still overlap, the validator must still raise.
+    """
+    with pytest.raises(ValueError, match="text_features and cat_features"):
+        _validate_feature_type_exclusivity(["a"], None, ["a"])
+
+
 # ----- _auto_detect_feature_types -----
 
 def test_auto_detect_disabled_returns_user_lists():
@@ -134,12 +155,134 @@ def test_auto_detect_pandas_high_cardinality_text():
     assert "num" not in t
 
 
-def test_auto_detect_pandas_skips_cat_features():
+def test_auto_detect_pandas_promotes_high_card_cat_to_text():
+    """A column in cat_features with cardinality above the threshold is
+    promoted to text_features AND removed from cat_features in place.
+
+    Behaviour change 2026-04-19: the old semantics ("never touch cat_features")
+    silently left text-blob columns (skills_text with 81k unique values) in
+    the cat list, costing CatBoost GBs of memory on nominal encoding. The
+    promotion now kicks in — verified here.
+    """
     cfg = FeatureTypesConfig(auto_detect_feature_types=True,
                              cat_text_cardinality_threshold=2)
     df = pd.DataFrame({"c": [f"v_{i}" for i in range(20)]})
-    t, e = _auto_detect_feature_types(df, cfg, cat_features=["c"])
+    cat_features = ["c"]
+    t, e = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
+    # Column should be promoted to text_features AND removed from cat_features.
+    assert "c" in t, "high-cardinality column must be promoted to text"
+    assert "c" not in cat_features, (
+        "promoted column must be removed from cat_features in place "
+        "(otherwise CatBoost rejects the combination at fit time)"
+    )
+
+
+def test_auto_detect_pandas_keeps_low_card_cat():
+    """A column in cat_features with cardinality BELOW the threshold stays
+    in cat (is not promoted)."""
+    cfg = FeatureTypesConfig(auto_detect_feature_types=True,
+                             cat_text_cardinality_threshold=100)
+    df = pd.DataFrame({"c": ["red", "green", "blue"] * 10})  # n_unique = 3
+    cat_features = ["c"]
+    t, e = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
     assert "c" not in t
+    assert "c" in cat_features
+
+
+@pytest.mark.parametrize("n_unique, threshold, expected_promoted", [
+    (9,  10, False),   # strictly below  → stays as cat
+    (10, 10, False),   # exactly at     → stays (promotion uses `>` not `>=`)
+    (11, 10, True),    # strictly above  → promoted
+])
+def test_auto_detect_threshold_boundary(n_unique, threshold, expected_promoted):
+    """Exercises the promotion threshold boundary. Catches off-by-one
+    regressions (>= vs >) and accidental strict-vs-non-strict flips.
+    """
+    cfg = FeatureTypesConfig(auto_detect_feature_types=True,
+                             cat_text_cardinality_threshold=threshold)
+    df = pd.DataFrame({"c": [f"v_{i:04d}" for i in range(n_unique)]})
+    cat_features = ["c"]
+    t, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
+    if expected_promoted:
+        assert "c" in t
+        assert "c" not in cat_features
+    else:
+        assert "c" not in t
+        assert "c" in cat_features
+
+
+def test_auto_detect_user_text_wins_over_promotion():
+    """When the user explicitly listed a column in text_features, no
+    promotion logic runs — the user's decision is authoritative.
+    """
+    cfg = FeatureTypesConfig(auto_detect_feature_types=True,
+                             cat_text_cardinality_threshold=2,
+                             text_features=["c"])
+    df = pd.DataFrame({"c": [f"v_{i}" for i in range(20)]})
+    cat_features = ["c"]
+    t, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
+    # The column is in text_features regardless (user declared it so), and
+    # must also NOT be in cat_features — user's text declaration takes
+    # precedence over a pipeline-derived cat classification.
+    assert "c" in t
+    # cat_features is only mutated by the `promoted` loop, which populates
+    # from cardinality scan. User-pre-declared text cols skip the scan via
+    # `already_assigned`, so they never enter `promoted`. Current
+    # implementation therefore leaves cat_features unchanged — document
+    # that fact so a future refactor that silently auto-removes user-text
+    # cols would trip this test.
+    assert "c" in cat_features
+
+
+def test_auto_detect_polars_categorical_promoted_by_cardinality():
+    """Polars ``pl.Categorical`` columns with high cardinality must be
+    promoted to text_features. Production case: ``skills_text`` came in
+    from raw data as ``pl.Categorical`` with 80k+ unique values; before
+    the 2026-04-19 fix it stayed in cat_features and CatBoost wasted
+    gigabytes on nominal encoding.
+    """
+    cfg = FeatureTypesConfig(auto_detect_feature_types=True,
+                             cat_text_cardinality_threshold=10)
+    df = pl.DataFrame({
+        "hc": pl.Series("hc", [f"v_{i}" for i in range(50)]).cast(pl.Categorical),
+    })
+    cat_features = ["hc"]
+    t, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
+    assert "hc" in t
+    assert "hc" not in cat_features
+
+
+def test_auto_detect_polars_enum_promoted_by_cardinality():
+    """``pl.Enum`` is a fixed-domain categorical. Before the 2026-04-19
+    discovery its instance-level dtype object didn't match the
+    class-level ``pl.Categorical`` check, and high-cardinality Enum
+    columns silently stayed in ``cat_features``. Fixed by adding an
+    explicit ``isinstance(dtype, pl.Enum)`` branch; this test is the
+    regression sensor.
+    """
+    enum_t = pl.Enum([f"v_{i:03d}" for i in range(50)])
+    df = pl.DataFrame({
+        "hc": pl.Series("hc", [f"v_{i:03d}" for i in range(50)], dtype=enum_t),
+    })
+    cfg = FeatureTypesConfig(auto_detect_feature_types=True,
+                             cat_text_cardinality_threshold=10)
+    cat_features = ["hc"]
+    t, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
+    assert "hc" in t, "pl.Enum column with high cardinality must be promoted to text_features"
+    assert "hc" not in cat_features
+
+
+def test_auto_detect_accepts_cat_features_none():
+    """Regression sensor: callers sometimes pass ``cat_features=None``
+    (e.g. when a model declared no categoricals). The function must
+    treat that as an empty list, not crash with
+    ``TypeError: argument of type 'NoneType' is not iterable``.
+    """
+    df = pl.DataFrame({"s": [f"v_{i}" for i in range(10)]})
+    cfg = FeatureTypesConfig(auto_detect_feature_types=True,
+                             cat_text_cardinality_threshold=3)
+    t, e = _auto_detect_feature_types(df, cfg, cat_features=None)
+    assert "s" in t
 
 
 def test_auto_detect_polars_embedding():

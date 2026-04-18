@@ -1,5 +1,107 @@
 # Changelog
 
+## 2026-04-19 — Proactive exploratory probes uncovered (and fixed) 3 more latent bugs
+
+### Fixed
+- **`_auto_detect_feature_types` missed `pl.Enum`**: the dtype check `if dtype in (pl.String, pl.Utf8, pl.Categorical)` did not match `pl.Enum` instances (Enum carries instance-level dtype metadata that doesn't compare equal to the class-level entry). Added `isinstance(dtype, pl.Enum)` branch. Without this, a high-cardinality `pl.Enum` text column silently stayed in `cat_features` and CatBoost wasted memory on nominal encoding — same bug class as the `skills_text` case but on a different Polars type.
+- **`_auto_detect_feature_types` crashed on `cat_features=None`**: `if name in cat_features` hit `TypeError: argument of type 'NoneType' is not iterable`. Callers who skipped categorical detection passed None; now treated as empty.
+- **`prepare_df_for_catboost` crashed on `text_features=None` / `cat_features=None`**: the `for var in text_features` / `cat_features` loops can't iterate None. Both arguments now None-guarded at function entry.
+- **`_validate_feature_type_exclusivity` crashed on None lists**: `set(None)` raises. All three arguments now coerce None to empty list before set ops.
+
+### Added (regression sensors)
+- `test_auto_detect_polars_enum_promoted_by_cardinality` — the Enum-specific sensor.
+- `test_auto_detect_accepts_cat_features_none` — None-guard sensor.
+- `test_text_features_none_does_not_crash`, `test_cat_features_none_does_not_crash`, `test_cat_features_both_none_does_not_crash` — prep_cb None-guard sensors.
+- `test_exclusivity_accepts_none_args`, `test_exclusivity_none_still_catches_real_overlap` — validator None-guard sensors (the second one guards the silent-overlap-while-None-guard regression).
+- `test_cat_features_list_is_mutated_in_place_across_calls` — documents the in-place mutation contract so a future refactor that returns a fresh list doesn't silently break callers in `core.py`.
+- `test_high_cardinality_conversion_perf_budget` — `get_pandas_view_of_polars_df` on 500k × 1 Categorical with 500k uniques must finish < 5 s.
+- `test_empty_polars_dataframe` + `test_zero_column_polars_dataframe` — edge-case robustness.
+- `test_fallback_without_eval_set_still_retries`, `test_fallback_retry_failure_propagates` — fallback orchestration cases not covered by the earlier end-to-end tests.
+
+### Process note
+The reactive regression tests added earlier in the day all passed on the first run — comforting but also suspicious, because the bugs they target had already been fixed. Running a round of *proactive* exploratory probes (what-if tests over Enum, None args, empty frames, zero columns, high cardinality, retry failures, eval-set absence) surfaced four real latent bugs that reactive tests would never have caught. Keeping both practices going forward.
+
+## 2026-04-19 — Test-suite expansion: invariants, boundaries, orchestration, perf
+
+### Why
+The string of production bugs over the past two days (cat-to-text promotion side-effects, CB fallback ordering, prep_cb O(n) dance on high-cardinality text columns) all slipped through because our tests exercised **inputs → outputs** on toy data but not:
+
+1. **Behavioural invariants** — "text_features must NEVER flow into cat_features" wasn't asserted anywhere.
+2. **Orchestration flows** — "fastpath raises → pandas fallback → decategorize → prep_cb → retry" was never run end-to-end.
+3. **Boundary conditions** — threshold `>` vs `>=` regressions pass silently when a single mid-range test data point is used.
+4. **Perf budgets** — `astype(str).astype("category")` at O(n_rows × avg_str_len) is fine on 10 rows but kills production at 810k.
+5. **High-cardinality fixtures** — `["A","B","A","C"]` with 3 uniques hides a class of bugs that only bite at 10k+.
+
+### Added
+- **`tests/test_preprocessing.py`** (3 new tests for `prepare_df_for_catboost` invariants):
+  - `test_pandas_text_feature_categorical_not_added_to_cat_features`: the bug-class sensor — a pd.Categorical column declared in `text_features` must NOT be auto-appended to `cat_features`.
+  - `test_pandas_text_feature_skips_expensive_astype_rebuild`: **perf budget** sensor on a 50k × 5k-unique text column. Without the skip, the `astype(str).astype("category")` rebuild blows through 2 s; with the skip it finishes in milliseconds. If this sensor fires, the skip logic regressed.
+  - `test_pandas_text_feature_dtype_is_not_mutated`: declares the function's responsibility boundary — text-column dtype conversion is the caller's job (via `_decategorize_text_cols`), not `prepare_df_for_catboost`'s.
+- **`tests/training/test_untested_core_helpers.py`** (4 new tests for `_auto_detect_feature_types`):
+  - `test_auto_detect_pandas_promotes_high_card_cat_to_text` — the formerly-inverted test now asserts correct semantics (promote AND remove in place).
+  - `test_auto_detect_pandas_keeps_low_card_cat` — negative case.
+  - `test_auto_detect_threshold_boundary` parametrized over `(n_unique=9, 10, 11)` with `threshold=10` — catches `>` vs `>=` regressions.
+  - `test_auto_detect_user_text_wins_over_promotion` — user-declared `text_features` authoritative over the cardinality heuristic.
+  - `test_auto_detect_polars_categorical_promoted_by_cardinality` — `pl.Categorical` columns are eligible for text promotion (was the production `skills_text` path).
+- **`tests/training/test_cb_polars_fallback.py`** (new file, 6 tests): end-to-end tests of the fallback orchestration via a `FakeCatBoost` stub that raises on first fit and succeeds on retry.
+  - `test_fallback_triggers_on_polars_typeerror` — the fallback activates on the exact message production showed.
+  - `test_fallback_converts_train_df_to_pandas` — retry receives pandas, not polars.
+  - `test_fallback_decategorizes_text_columns_before_retry` — regression sensor for the 2026-04-19 morning bug (retry received pd.Categorical → CB rejected).
+  - `test_fallback_rewrites_eval_set_to_pandas` — eval_set X is pandas + text cols decategorized (otherwise CB re-crashes on val).
+  - `test_fallback_passes_when_polars_fastpath_succeeds` — sanity: no fallback when first fit succeeds.
+  - `test_fallback_ignored_for_non_catboost_models` — fallback is CatBoost-specific (XGB/LGB/MLP don't trigger it).
+
+### Fixed
+- **`_auto_detect_feature_types`**: the 2026-04-19 behaviour change (promoting `cat_features` columns to `text_features` when cardinality exceeds threshold) went in without updating `test_auto_detect_pandas_skips_cat_features`. That stale test would have kept passing only because of an incorrect assertion; now replaced with `test_auto_detect_pandas_promotes_high_card_cat_to_text` that asserts the new (correct) contract.
+
+### Lessons captured as sensors
+A future regression of any of the fixed bugs would trip one of the new tests above, with a clear message pointing at the invariant that broke. Specifically:
+- Reintroducing the `astype(str).astype("category")` dance for text columns → perf budget test fails with ``"prepare_df_for_catboost took X.XXs on a 50k text column — the text-feature skip likely regressed"``.
+- Reversing the fallback ordering back to ``decategorize → prep_cb`` ordering → end-to-end test fails with ``"text column X arrived at retry with dtype category; must be object/string"``.
+- `>` flipping to `>=` in the cardinality threshold → boundary test fails on the `n_unique=10, threshold=10` case.
+
+## 2026-04-19 — Fallback hang fix: text features no longer pay the cat-preparation tax
+
+### Fixed
+- **Production hang in the CB Polars-fastpath fallback** (`training/trainer.py` + `preprocessing.py`). A live run (2026-04-19 00:38) showed the fallback reaching ``prepare_df_for_catboost`` and stalling on the "Processing categorical features for CatBoost..." tqdm: for every column with a ``pd.CategoricalDtype`` the function ran
+
+  ```python
+  df[col].astype(str).fillna(na_filler).astype("category")
+  ```
+
+  On the user's ``skills_text`` column (81_575 unique values × 810_000 rows) that re-materialises every row as a Python string then rebuilds a CategoricalIndex — minutes per column, ~tens of minutes total across the four high-cardinality text columns that had been auto-promoted from ``cat_features`` to ``text_features`` earlier in the pipeline. Two complementary fixes:
+
+  1. **Reorder the fallback pipeline to decategorize *before* ``prepare_df_for_catboost``** (`trainer.py::_train_model_with_fallback`). The ``_decategorize_text_cols`` helper was running *after* ``_prep_cb`` — too late, because by then ``_prep_cb`` had already started the expensive dance. Now the order is ``get_pandas_view → decategorize → _prep_cb``. Applied to both ``train_df`` and every ``eval_set`` pair.
+  2. **Skip ``text_features`` columns in ``prepare_df_for_catboost``'s pandas cat-iteration loop** (`preprocessing.py`). A text-feature column that happens to carry ``pd.CategoricalDtype`` must not be auto-added to ``cat_features`` nor pass through the ``astype(str).astype("category")`` rebuild — it's text, not categorical, and the function now makes that invariant explicit via an opt-out set.
+
+  Defence in depth: either fix alone would unblock the production scenario; together they ensure no future code path can re-open the hang.
+
+## 2026-04-19 — Investigated (and ruled out) shared-dict optimisation for polars→pandas
+
+### Investigation summary
+The production PHASE-4 log of 2026-04-18 showed ``get_pandas_view_of_polars_df`` consuming 383 s total across train/val/test on a 1M × 98 frame with 13 Categorical columns (4 high-cardinality text-like). The initial hypothesis: train/val/test are slices of one source DataFrame, so they share a Categorical palette; the per-split pyarrow dict rebuild duplicates O(n_unique) work. A ``shared_dict_cache`` parameter was added along with equivalence checks, plus wiring in ``_convert_dfs_to_pandas``.
+
+A synthetic benchmark disproved both the premise and the premise-of-the-premise:
+
+1. **Polars trims the Categorical dictionary per slice** — each of ``train``, ``val``, ``test`` carries only the categories actually present in its row subset, with different orderings and lengths. The cache's equivalence check correctly rejected every cross-call reuse, so the optimisation became a no-op in practice. A new regression-sensor test (``TestPolarsSliceDictionaryDiffers::test_slice_trims_categorical_dictionary``) documents this and will trip immediately if a future polars upgrade starts preserving parent palettes across slices (which would make the optimisation viable again).
+2. **The function is actually fast on synthetic prod-shaped data.** 1M × 93 with 13 Categoricals (including 4 high-cardinality ones, short strings ~8 chars): **0.45 s total** across the three splits. Switching to 500-char "text-blob" categoricals (closer to production's ``skills_text`` / ``ontology_skills_text``): **0.59 s total**. Production's 383 s is ~650× slower — the per-column work simply doesn't scale that way even with long strings.
+3. An alternative "direct-polars path" (build ``pd.Categorical.from_codes`` skipping the pyarrow round-trip) was **4.24× slower** than the current implementation. Not a win.
+
+### Conclusion
+The 383-s production cost is not inside ``get_pandas_view_of_polars_df`` — it's dominated by something the function can't see: memory pressure at ~37 GB RSS causing OS-level page thrash / swap, or per-process overheads outside the function. No in-function optimisation is possible; future work would need to address memory-ceiling behaviour at the suite level.
+
+### Fixed
+- ``get_pandas_view_of_polars_df`` signature reverted to the pre-2026-04-19 shape (no ``shared_dict_cache`` parameter). The docstring now carries a "Tried but reverted" note so future readers don't reopen the same dead end.
+- ``_convert_dfs_to_pandas`` no longer constructs a shared cache dict per call; the per-split timers stay (they proved useful).
+
+### Tests
+- ``TestSharedDictCache`` removed.
+- ``TestPolarsSliceDictionaryDiffers`` added as a single-test regression sensor documenting Polars' per-slice dict-trimming behaviour.
+
+### Bench scripts
+- ``bench_shared_dict_cache.py`` rewritten as a **per-step profiler** for the conversion (1. ``to_arrow()`` 2. dict rebuild 3. ``to_pandas()``) + direct-polars alternative comparison. Kept for future investigations.
+- ``bench_long_strings.py`` added: measures the effect of Categorical string length on conversion time. Confirms the function is fast even at 500-char strings.
+
 ## 2026-04-19 — Auto-promote cat→text: correctly drop promoted cols + diagnostic + fallback timers
 
 ### Fixed
