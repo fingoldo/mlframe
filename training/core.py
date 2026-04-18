@@ -728,14 +728,26 @@ def _convert_dfs_to_pandas(
     train_df: Union[pd.DataFrame, pl.DataFrame],
     val_df: Optional[Union[pd.DataFrame, pl.DataFrame]],
     test_df: Optional[Union[pd.DataFrame, pl.DataFrame]],
+    verbose: bool = False,
 ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], Optional[pd.DataFrame]]:
     """
     Convert DataFrames to pandas format (zero-copy for Polars).
+
+    Despite the "zero-copy" label, the conversion has real per-column cost
+    when the source Polars DataFrame holds ``pl.Categorical`` columns: the
+    pyarrow round-trip rebuilds each dict with int32 indices (polars' default
+    uint32 indices aren't supported by ``to_pandas()``), and for
+    high-cardinality categoricals that's the slow step. On a 1M × 98 frame
+    with ~13 categoricals (a few of them text-like with 10k+ unique values)
+    this step has been observed to take 5+ minutes with no intermediate
+    logging. Per-split timers are logged here so the next time the step
+    drags it is obvious which split is slow.
 
     Args:
         train_df: Training DataFrame (pandas or polars).
         val_df: Validation DataFrame (pandas or polars) or None.
         test_df: Test DataFrame (pandas or polars) or None.
+        verbose: If truthy, log per-split conversion timing and total elapsed.
 
     Returns:
         Tuple of (train_df_pd, val_df_pd, test_df_pd)
@@ -748,9 +760,23 @@ def _convert_dfs_to_pandas(
         if df is not None and not isinstance(df, (pd.DataFrame, pl.DataFrame)):
             raise TypeError(f"{name} must be pandas DataFrame, polars DataFrame, or None, got {type(df).__name__}")
 
-    train_df_pd = train_df if isinstance(train_df, pd.DataFrame) else get_pandas_view_of_polars_df(train_df)
-    val_df_pd = val_df if val_df is None or isinstance(val_df, pd.DataFrame) else get_pandas_view_of_polars_df(val_df)
-    test_df_pd = test_df if test_df is None or isinstance(test_df, pd.DataFrame) else get_pandas_view_of_polars_df(test_df)
+    def _convert_one(df, name):
+        if df is None or isinstance(df, pd.DataFrame):
+            return df
+        t0 = timer()
+        out = get_pandas_view_of_polars_df(df)
+        if verbose:
+            logger.info(
+                f"  polars→pandas({name}) {df.shape[0]:_}×{df.shape[1]} in {timer() - t0:.1f}s"
+            )
+        return out
+
+    t0_total = timer()
+    train_df_pd = _convert_one(train_df, "train")
+    val_df_pd = _convert_one(val_df, "val")
+    test_df_pd = _convert_one(test_df, "test")
+    if verbose:
+        logger.info(f"  polars→pandas total: {timer() - t0_total:.1f}s")
 
     return train_df_pd, val_df_pd, test_df_pd
 
@@ -1537,7 +1563,7 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info("  Skipped pandas conversion — all models are Polars-native (no outlier_detector)")
     else:
-        train_df_pd, val_df_pd, test_df_pd = _convert_dfs_to_pandas(train_df, val_df, test_df)
+        train_df_pd, val_df_pd, test_df_pd = _convert_dfs_to_pandas(train_df, val_df, test_df, verbose=verbose)
 
     # Ensure categorical features have pandas category dtype for CatBoost.
     # After the 2026-04-17 optimization, get_pandas_view_of_polars_df already
@@ -1827,16 +1853,39 @@ def train_mlframe_models_suite(
                         prepared_val = strategy.prepare_polars_dataframe(tier_polars["val_df"], _cat_features) if tier_polars.get("val_df") is not None else None
                         prepared_test = strategy.prepare_polars_dataframe(tier_polars["test_df"], _cat_features) if tier_polars.get("test_df") is not None else None
 
-                        # Null-fill text features for CatBoost (requires no nulls in text columns)
+                        # Null-fill text features for CatBoost (requires no nulls in text columns).
+                        # Also cast Polars Categorical/Enum to pl.String: CatBoost's Polars
+                        # fastpath for text_features (`_set_features_order_data_polars_text_column`)
+                        # rejects Categorical with
+                        #   "Unsupported data type Categorical for a text feature column".
+                        # This happens whenever a column was auto-promoted from cat_features to
+                        # text_features (done in `_auto_detect_feature_types`) but its backing
+                        # dtype was left as Categorical — CB's text path requires plain string.
                         if text_features and mlframe_model_name == "cb":
                             text_cols_present = filter_existing(prepared_train, text_features)
                             if text_cols_present:
-                                fill_exprs = [pl.col(c).fill_null("") for c in text_cols_present]
-                                prepared_train = prepared_train.with_columns(fill_exprs)
+                                # Determine which of the text columns need a dtype cast.
+                                needs_cast = [
+                                    c for c in text_cols_present
+                                    if prepared_train.schema[c] == pl.Categorical
+                                    or isinstance(prepared_train.schema[c], pl.Enum)
+                                ]
+                                prep_exprs = []
+                                for c in text_cols_present:
+                                    expr = pl.col(c)
+                                    if c in needs_cast:
+                                        expr = expr.cast(pl.String)
+                                    prep_exprs.append(expr.fill_null(""))
+                                prepared_train = prepared_train.with_columns(prep_exprs)
                                 if prepared_val is not None:
-                                    prepared_val = prepared_val.with_columns(fill_exprs)
+                                    prepared_val = prepared_val.with_columns(prep_exprs)
                                 if prepared_test is not None:
-                                    prepared_test = prepared_test.with_columns(fill_exprs)
+                                    prepared_test = prepared_test.with_columns(prep_exprs)
+                                if needs_cast and verbose:
+                                    logger.info(
+                                        f"  Cast {len(needs_cast)} text feature(s) from Polars Categorical to String "
+                                        f"for CatBoost: {needs_cast}"
+                                    )
 
                         polars_fastpath_skip_preprocessing = strategy.requires_encoding
                     else:

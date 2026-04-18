@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-04-18 — CatBoost text-column dtype fix + per-split polars→pandas timing
+
+### Fixed
+- **CatBoostError: "Unsupported data type Categorical for a text feature column"** — exposed by the 2026-04-18 auto-promote-to-text-features change. After `_auto_detect_feature_types` moves high-cardinality columns (e.g. `skills_text`, `category`) from `cat_features` to `text_features`, their backing dtype in the Polars frame remained `pl.Categorical`, but CatBoost's Polars text-column handler (`_set_features_order_data_polars_text_column`) only accepts `pl.String`/`pl.Utf8`. The fix casts every Polars `Categorical`/`Enum` column listed in `text_features` to `pl.String` right before the existing null-fill step in the CB fastpath (`training/core.py`, same block as the text null-fill). A single info line reports which columns were cast.
+- **Broaden CB fallback condition** (`training/trainer.py:_train_model_with_fallback`) — the existing `"Unsupported data type Categorical for a numerical feature column"` fallback now triggers on any `"Unsupported data type Categorical"` substring (both `numerical` and `text` variants). Keeps us safe if future CB versions add more category-rejection sites with similar wording.
+
+### Observability
+- **`_convert_dfs_to_pandas` logs per-split timing** (`training/core.py`) when `verbose=True`. The "Zero-copy conversion to pandas..." step that silently consumed 5+ minutes in production (rebuilding pyarrow dict indices on 1M × 98 with ~13 categoricals, some text-like with 10k+ unique values) is no longer a black box. Sample output:
+  ```
+    polars→pandas(train) 810_000×98 in 3.1s
+    polars→pandas(val)   90_000×98 in 0.4s
+    polars→pandas(test) 100_000×98 in 0.4s
+    polars→pandas total: 3.9s
+  ```
+
 ## 2026-04-18 — Training-log triage (13 fixes from production run)
 
 A single production run on a 1M × 119 Polars dataset surfaced a cluster of

@@ -903,7 +903,13 @@ def _train_model_with_fallback(
             and isinstance(train_df, pl.DataFrame)
             and (
                 "No matching signature found" in error_str
-                or "Unsupported data type Categorical for a numerical feature column" in error_str
+                # Catch *both* "Categorical for a numerical feature column" and
+                # "Categorical for a text feature column" (the latter surfaces
+                # when a column auto-promoted from cat_features -> text_features
+                # is still pl.Categorical in the df). Upstream fix casts those
+                # columns to pl.String before CB.fit; this is a safety net for
+                # any future variant of the same error family.
+                or "Unsupported data type Categorical" in error_str
             )
         ):
             # CatBoost's native-Polars fastpath (_set_features_order_data_polars_*)
