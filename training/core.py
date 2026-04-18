@@ -1563,6 +1563,32 @@ def train_mlframe_models_suite(
         if verbose:
             logger.info("  Skipped pandas conversion — all models are Polars-native (no outlier_detector)")
     else:
+        # Diagnostic: on large high-cardinality frames the polars→pandas
+        # conversion costs minutes (per-column dict rebuild for every split),
+        # so if users assume fastpath is active but see the conversion fire
+        # anyway they need to know *which condition* blocked the skip. Log
+        # the exact reasons instead of the single non-skip signal.
+        if verbose:
+            reasons = []
+            if not was_polars_input:
+                reasons.append("input is not a Polars DataFrame")
+            if not all_models_polars_native:
+                non_native = [
+                    m for m, s in zip(mlframe_models or [], _strategies_for_polars_check)
+                    if not s.supports_polars
+                ]
+                reasons.append(
+                    f"non-Polars-native models requested: {non_native}"
+                    if non_native
+                    else "all_models_polars_native=False (no strategies)"
+                )
+            if recurrent_models:
+                reasons.append(f"recurrent_models={recurrent_models}")
+            if _has_rfecv:
+                reasons.append(f"rfecv_models={rfecv_models}")
+            logger.info(
+                f"  polars→pandas conversion needed because: {'; '.join(reasons) or 'unknown'}"
+            )
         train_df_pd, val_df_pd, test_df_pd = _convert_dfs_to_pandas(train_df, val_df, test_df, verbose=verbose)
 
     # Ensure categorical features have pandas category dtype for CatBoost.

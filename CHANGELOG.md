@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-04-18 — Log-triage part 3: PHASE 3 gc timer + pandas-conv reason
+
+### Observability
+- **`fit_and_transform_pipeline` now logs when the `maybe_clean_ram_adaptive()` step takes >1 s** (`training/pipeline.py`). A 1-minute "silent" gap observed in production between "Detected N categorical features" and "Done. RAM usage:" was tracked down to `gc.collect()` running on a multi-GB Arrow heap right after the raw DataFrame was freed. The step is no longer a black box; exact cost is visible in the log.
+- **`_convert_dfs_to_pandas` path now logs the exact reason when `can_skip_pandas_conv=False`** (`training/core.py`). Previously users running Polars-native-only model sets but still seeing 5-6 minute pandas conversions had no way to diagnose what was forcing the fallback. The new line is verbose and explicit, e.g.:
+  ```
+    polars→pandas conversion needed because: non-Polars-native models requested: ['mlp', 'linear']
+  ```
+  or
+  ```
+    polars→pandas conversion needed because: rfecv_models=['cb_rfecv']
+  ```
+
 ## 2026-04-18 — CatBoost text-column dtype fix + per-split polars→pandas timing
 
 ### Fixed

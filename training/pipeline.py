@@ -433,8 +433,17 @@ def fit_and_transform_pipeline(
     if test_df is not None and len(test_df) == 0:
         test_df = None
 
+    # gc.collect on a 20-30GB heap with Arrow buffers can take a full minute
+    # after a just-freed raw DataFrame. Previously this was the mystery "PHASE 3
+    # black box" — a minute passed between "Detected N categorical features"
+    # and "Done. RAM usage:" with no log. Now wrapped so we can see it and
+    # reason about disabling for polars-fastpath runs.
+    t0_gc = timer()
     maybe_clean_ram_adaptive()
+    gc_elapsed = timer() - t0_gc
     if verbose:
+        if gc_elapsed > 1.0:
+            logger.info(f"  maybe_clean_ram_adaptive took {gc_elapsed:.1f}s (gc + arena trim)")
         log_ram_usage()
 
     return train_df, val_df, test_df, pipeline, cat_features
