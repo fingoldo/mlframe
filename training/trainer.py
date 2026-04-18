@@ -328,7 +328,7 @@ def _validate_target_values(target, subset_name="train"):
         )
 
 
-def _validate_infinity_and_columns(df, train_df, skip_infinity_checks, drop_columns, default_drop_columns):
+def _validate_infinity_and_columns(df, train_df, skip_infinity_checks, drop_columns):
     """Validate DataFrames for infinity values and compute real drop columns."""
     if not skip_infinity_checks:
         if df is not None:
@@ -338,9 +338,9 @@ def _validate_infinity_and_columns(df, train_df, skip_infinity_checks, drop_colu
                 ensure_no_infinity(train_df)
 
     if df is not None:
-        real_drop_columns = filter_existing(df, drop_columns + default_drop_columns)
+        real_drop_columns = filter_existing(df, drop_columns)
     elif train_df is not None:
-        real_drop_columns = filter_existing(train_df, drop_columns + default_drop_columns)
+        real_drop_columns = filter_existing(train_df, drop_columns)
     else:
         real_drop_columns = []
 
@@ -1065,7 +1065,8 @@ def run_confidence_analysis(
     if confidence_model_kwargs is None:
         confidence_model_kwargs = {}
 
-    confidence_model = CatBoostRegressor(verbose=0, eval_fraction=0.1, task_type=("GPU" if CUDA_IS_AVAILABLE else "CPU"), **confidence_model_kwargs)
+    confidence_task_type = "GPU" if CUDA_IS_AVAILABLE else "CPU"
+    confidence_model = CatBoostRegressor(verbose=0, eval_fraction=0.1, task_type=confidence_task_type, **confidence_model_kwargs)
 
     fit_params_copy = {}
     if fit_params:
@@ -1083,7 +1084,19 @@ def run_confidence_analysis(
     confidence_targets = test_probs[np.arange(test_probs.shape[0]), test_target]
 
     _maybe_clean_ram()
-    confidence_model.fit(test_df, confidence_targets, **fit_params_copy)
+    try:
+        confidence_model.fit(test_df, confidence_targets, **fit_params_copy)
+    except Exception as e:
+        # CatBoost reports "Environment for task type [GPU] not found" when the
+        # host has a CUDA device (so CUDA_IS_AVAILABLE=True) but no CatBoost
+        # GPU runtime. Fall back to CPU — the confidence model is small and
+        # CPU-adequate; this keeps training from aborting on mixed environments.
+        if confidence_task_type == "GPU" and "Environment for task type [GPU] not found" in str(e):
+            logger.warning("CatBoost GPU environment unavailable for confidence model; falling back to CPU.")
+            confidence_model = CatBoostRegressor(verbose=0, eval_fraction=0.1, task_type="CPU", **confidence_model_kwargs)
+            confidence_model.fit(test_df, confidence_targets, **fit_params_copy)
+        else:
+            raise
     _maybe_clean_ram()
 
     if use_shap:
@@ -1439,13 +1452,8 @@ def train_and_evaluate_model(
     # ---------------------------------------------------------------------------
     _maybe_clean_ram()
 
-    # default_drop_columns is no longer needed - merged into drop_columns
-    default_drop_columns = []
-
     columns = []
     best_iter = None
-    # Placeholder for future outlier detection functionality (currently unused but part of return API)
-    test_is_inlier = None
 
     _orig_train_df = train_df
     _orig_val_df = val_df
@@ -1456,7 +1464,6 @@ def train_and_evaluate_model(
         train_df=train_df,
         skip_infinity_checks=skip_infinity_checks,
         drop_columns=drop_columns,
-        default_drop_columns=default_drop_columns,
     )
 
     if not custom_ice_metric:
@@ -1523,7 +1530,6 @@ def train_and_evaluate_model(
                 test_preds=None,
                 test_probs=None,
                 test_target=None,
-                test_is_inlier=None,
                 val_preds=None,
                 val_probs=None,
                 val_target=None,
@@ -1608,7 +1614,6 @@ def train_and_evaluate_model(
                             test_preds=None,
                             test_probs=None,
                             test_target=None,
-                            test_is_inlier=None,
                             val_preds=None,
                             val_probs=None,
                             val_target=None,
@@ -1787,7 +1792,6 @@ def train_and_evaluate_model(
             test_preds=test_preds,
             test_probs=test_probs,
             test_target=test_target,
-            test_is_inlier=test_is_inlier,
             val_preds=val_preds,
             val_probs=val_probs,
             val_target=val_target,
@@ -1830,12 +1834,8 @@ def _configure_xgboost_params(
         model = metamodel_func(model_cls(**xgb_configs.XGB_GENERAL_PARAMS))
     else:
         model_cls = flaml_zeroshot.XGBClassifier if use_flaml_zeroshot else XGBClassifier
-        model = model_cls(**xgb_configs.XGB_GENERAL_CLASSIF)
-        if prefer_calibrated_classifiers:
-            try:
-                model._mlframe_posthoc_calibrate = True
-            except Exception:
-                pass
+        xgb_classif_params = xgb_configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else xgb_configs.XGB_GENERAL_CLASSIF
+        model = model_cls(**xgb_classif_params)
 
     return dict(model=model, fit_params=dict(verbose=xgboost_verbose))
 
@@ -1855,16 +1855,12 @@ def _configure_lightgbm_params(
     if use_regression:
         model_cls = flaml_zeroshot.LGBMRegressor if use_flaml_zeroshot else LGBMRegressor
         model = metamodel_func(model_cls(**lgb_configs.LGB_GENERAL_PARAMS))
+        fit_params = {}
     else:
         model_cls = flaml_zeroshot.LGBMClassifier if use_flaml_zeroshot else LGBMClassifier
         model = model_cls(**lgb_configs.LGB_GENERAL_PARAMS)
-        if prefer_calibrated_classifiers:
-            try:
-                model._mlframe_posthoc_calibrate = True
-            except Exception:
-                pass
+        fit_params = dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}
 
-    fit_params = {}
     return dict(model=model, fit_params=fit_params)
 
 
@@ -2208,20 +2204,11 @@ def configure_training_params(
     # Lazy model creation - only create models that are in mlframe_models (or all if None)
     cb_params = None
     if _should_create_model("cb"):
-        # Keep base CB config identical in both modes; posthoc isotonic/sigmoid
-        # calibration runs after fit and is safer than swapping the early-stop
-        # eval_metric (which would silently change the base model in ways that
-        # can either help or hurt Brier). Fix 2026-04-15.
-        _cb_model = (
-            metamodel_func(CatBoostRegressor(**cb_configs.CB_REGR))
-            if use_regression
-            else CatBoostClassifier(**cb_configs.CB_CLASSIF)
-        )
-        if (not use_regression) and prefer_calibrated_classifiers:
-            try:
-                _cb_model._mlframe_posthoc_calibrate = True
-            except Exception:
-                pass
+        if use_regression:
+            _cb_model = metamodel_func(CatBoostRegressor(**cb_configs.CB_REGR))
+        else:
+            _cb_classif_params = cb_configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else cb_configs.CB_CLASSIF
+            _cb_model = CatBoostClassifier(**_cb_classif_params)
         cb_params = dict(
             model=_cb_model,
             fit_params=dict(

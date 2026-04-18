@@ -209,7 +209,15 @@ def report_model_perf(
         n_features=n_features,
     )
 
-    if is_classifier(model) or type(model).__name__ == "NGBClassifier" or (model is None and probs is not None):
+    # sklearn>=1.6 raises AttributeError when is_classifier(None) triggers
+    # get_tags(None) (formerly just returned False). The just_evaluate=True
+    # path passes model=None with pre-computed preds/probs — infer task type
+    # from whether probs were supplied (presence of probs ⇒ classification).
+    if model is None:
+        is_probabilistic = probs is not None
+    else:
+        is_probabilistic = is_classifier(model) or type(model).__name__ == "NGBClassifier"
+    if is_probabilistic:
         with phase(
             "report_probabilistic_model_perf",
             n_rows=(len(targets) if hasattr(targets, '__len__') else None),

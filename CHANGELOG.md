@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-04-18 — Fix `prefer_calibrated_classifiers` no-op regression on base tree models
+
+### Fixed
+- `configure_training_params` (`training/trainer.py` L2210-2217): base CatBoostClassifier now uses `CB_CALIB_CLASSIF` (eval_metric=`ICE(...)`) vs `CB_CLASSIF` (eval_metric=`"AUC"`) according to the flag — previously always took `CB_CLASSIF` after the 2026-04-15 "post-hoc calibration" refactor, making the CB live training plot show ROC AUC instead of ICE.
+- `_configure_xgboost_params` (L1830-1835): base XGBClassifier now uses `XGB_CALIB_CLASSIF` (eval_metric=`final_integral_calibration_error`) vs `XGB_GENERAL_CLASSIF` (eval_metric=`neg_ovr_roc_auc_score`) according to the flag — previously always took `XGB_GENERAL_CLASSIF`.
+- `_configure_lightgbm_params` (L1858-1865): base LGBMClassifier now injects `fit_params={"eval_metric": lgbm_integral_calibration_error}` when flag=True — previously always returned empty `fit_params`.
+- All three fixes restore the pre-2026-04-15 behavior: `eval_metric` is used for CatBoost's built-in live training plot and for early-stopping comparisons.
+
+### Root cause
+2026-04-15 refactor replaced eval-metric-based calibration with a post-hoc `_mlframe_posthoc_calibrate` attribute tag, but the hook that was supposed to consume it (`_maybe_apply_posthoc_calibration`, L817-833) was left as an explicit no-op (`return model` in both branches). The attribute was set on CB/XGB/LGBM models but never read, so all three models trained identically regardless of the flag.
+
+### Removed
+- `_mlframe_posthoc_calibrate=True` attribute setter in three locations (CB base, XGB base, LGBM base) — dead code, consumer hook is a no-op.
+- `test_is_inlier` placeholder (`trainer.py`): declared-but-never-set `None` field on the returned SimpleNamespace, never consumed by any caller. Removed from all 4 sites (local init + 3 SimpleNamespace constructors).
+- `default_drop_columns` local dead variable in `train_and_evaluate_model`: always set to `[]` with a stale "no longer needed" comment, passed to `_validate_infinity_and_columns` which concatenated an empty list. Simplified the helper signature to drop the parameter.
+
+### Retained (see README "TODO")
+- `_PostHocCalibratedModel` class and `_maybe_apply_posthoc_calibration` hook: intentionally retained as scaffolding in case the user revives isotonic post-hoc calibration as an alternative path.
+
+### Tests
+- New `tests/training/test_calibration_flag_propagation.py` (5 tests):
+  - Level 2 (targeted): flipping `prefer_calibrated_classifiers` must produce different `eval_metric` on `XGBClassifier.get_params()`, different `fit_params["eval_metric"]` on LGBM configure helper, and different `eval_metric` on CatBoostClassifier (`ICE(...)` instance vs `"AUC"` string).
+  - Level 2 (sanity): flag does not affect LGBM regression path.
+  - Level 3 (matrix invariant): parametric sweep over `cb`/`xgb`/`lgb` — either the model's own `eval_metric` or the `fit_params["eval_metric"]` must differ between True/False. Catches any future silent no-op regression of the same class.
+
+### Also fixed (collateral, surfaced by the broader test run)
+- `report_model_perf` (`training/evaluation.py` L212-219): sklearn≥1.6 raises `AttributeError` when `is_classifier(None)` triggers `get_tags(None)` (previously returned `False`). The `just_evaluate=True` path legitimately passes `model=None` with pre-computed preds/probs — now task type is inferred from `probs is not None` when `model is None`, and `is_classifier` is skipped in that case. Fixes `tests/training/test_trainer.py::TestTrainAndEvaluateModelEdgeCases::test_model_none_just_evaluate`.
+- `run_confidence_analysis` (`training/trainer.py` L1068-1097): the auxiliary confidence-analysis CatBoost model picked `task_type="GPU"` whenever `CUDA_IS_AVAILABLE` was True, ignoring the `TrainingBehaviorConfig.prefer_gpu_configs` override. On hosts that have a CUDA device but no CatBoost GPU runtime (e.g. CI/dev with `prefer_gpu_configs=False` forced in conftest), CatBoost raised `Environment for task type [GPU] not found`. Added a one-shot CPU fallback: on that specific error, retry fit with `task_type="CPU"` and log a warning. Fixes `tests/training/test_core.py::TestConfidenceAnalysis::test_confidence_analysis_basic`.
+
+### Known pre-existing test failure (NOT caused by this change)
+- `tests/training/test_core_coverage.py::TestSplitting::test_no_artifact_files_when_no_data_dir` fails on `master` even without this patch. Root cause is an sklearn 1.8 compat issue: some fitted sklearn `Pipeline`/`SimpleImputer` in the test flow is unpickled from sklearn 1.7.2 state that is missing the new-in-1.8 `_fill_dtype` attribute, so `SimpleImputer.transform()` raises `AttributeError: 'SimpleImputer' object has no attribute '_fill_dtype'`. Confirmed by `git stash` + rerun on `8d30b9a`. TODO: either refit the imputer on load (detect missing `_fill_dtype`), or invalidate cached artifacts on sklearn version bump. Out of scope for this change.
+
+### Follow-ups documented
+- README gains a "TODO" section with two items:
+  1. Decide to ship or remove `_PostHocCalibratedModel` + post-hoc calibration hook.
+  2. Re-enable CatBoost `custom_metric=tuple(...)` with a clone-safe strategy (set via `model.set_params(...)` on the base path only, leaving RFECV estimators clean).
+
 ## 2026-04-17 — Polars→pandas Categorical optimization (no more dict→string cast)
 
 ### Changed

@@ -217,3 +217,14 @@ find . -name "*.nbi" -delete; find . -name "*.nbc" -delete
 - SQL field names in `experiments.py` are validated against an allowlist.
 
 See `CHANGELOG.md` (2026-04-14 entry) for the full audit/fix history.
+
+## TODO
+
+### Post-hoc isotonic calibration wrapper
+`_PostHocCalibratedModel` ([trainer.py:761-814](mlframe/training/trainer.py#L761-L814)) and the `_maybe_apply_posthoc_calibration` hook ([trainer.py:817-833](mlframe/training/trainer.py#L817-L833)) are currently unused — the hook is a no-op and nothing fits the wrapper. The class/hook are retained because the user may revive post-hoc isotonic calibration on a held-out eval set as an alternative to eval-metric-based early-stopping calibration. Before deleting, decide: (a) ship isotonic fitting on the eval_set predictions at the end of `_train_model_with_fallback`, then wrap the estimator, OR (b) remove all three definitions + the `_mlframe_posthoc_calibrate` attribute (no longer set anywhere after the 2026-04-18 fix).
+
+### CatBoost `custom_metric` support
+`helpers.py:234-244` has a commented-out `custom_metric=tuple(catboost_custom_classif_metrics)` entry for `CB_CLASSIF` / `CB_REGR`. The blocker: CatBoost mutates this parameter in-place post-init, breaking `sklearn.clone()` used by `RFECV`. Proposed fix: keep `CB_CLASSIF` / `CB_CALIB_CLASSIF` / `CB_REGR` clean (RFECV path stays cloneable), and attach `custom_metric` via `_cb_model.set_params(custom_metric=tuple(...))` on the base-path CatBoost instance only (after construction in `configure_training_params`, trainer.py ~L2215). This gives the base training its extra plotted metrics (AUC/BrierScore/PRAUC) without affecting RFECV. Upstream issue to file: https://github.com/catboost/catboost/issues — "sklearn.clone() fails on CatBoostClassifier constructed with custom_metric=tuple".
+
+### sklearn 1.8 `SimpleImputer._fill_dtype` incompatibility
+`tests/training/test_core_coverage.py::TestSplitting::test_no_artifact_files_when_no_data_dir` fails with `AttributeError: 'SimpleImputer' object has no attribute '_fill_dtype'` under sklearn 1.8. A fitted sklearn `Pipeline` stored from sklearn 1.7.2 is restored (see `InconsistentVersionWarning` in the test output) and then `SimpleImputer.transform()` trips on the new-in-1.8 `_fill_dtype` attribute that was never persisted. Fix options: (a) on load, if a `SimpleImputer` has `statistics_` but lacks `_fill_dtype`, compute it from `statistics_.dtype`; (b) invalidate cached fitted artifacts on sklearn version bump. Unrelated to any mlframe logic — reproduces on `master` without the 2026-04-18 change.
