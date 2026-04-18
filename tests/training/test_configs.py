@@ -482,3 +482,46 @@ class TestTypoWarningOnUnknownExtras:
                 f"known 'mae_weight' must NOT appear in the unknown-field list. "
                 f"Unknown portion: {unknown_portion!r}"
             )
+
+
+class TestStrictConfigsRejectUnknownFields:
+    """Hybrid Variant C (2026-04-19): configs with a stable, fully-declared
+    surface use ``extra='forbid'``, so a typo at construction raises loud
+    instead of emitting a warning that could get buried in logs.
+
+    Still-permissive configs (TrainingBehaviorConfig, ModelHyperparamsConfig)
+    keep ``extra='allow'`` with the _warn_on_unknown_extras path because they
+    legitimately forward kwargs to deeper callees.
+    """
+
+    def test_preprocessing_config_typo_raises(self):
+        import pydantic
+        with pytest.raises(pydantic.ValidationError):
+            PreprocessingConfig(fillna_vlue=0.0)  # typo for fillna_value
+
+    def test_preprocessing_config_valid_still_works(self):
+        cfg = PreprocessingConfig(fillna_value=0.0, fix_infinities=False)
+        assert cfg.fillna_value == 0.0
+        assert cfg.fix_infinities is False
+
+    def test_training_split_config_typo_raises(self):
+        import pydantic
+        with pytest.raises(pydantic.ValidationError):
+            TrainingSplitConfig(trainset_agng_limit=0.5)  # typo
+
+    def test_training_split_config_valid_still_works(self):
+        cfg = TrainingSplitConfig(test_size=0.2, trainset_aging_limit=0.5)
+        assert cfg.test_size == 0.2
+        assert cfg.trainset_aging_limit == 0.5
+
+    def test_feature_types_config_typo_raises(self):
+        import pydantic
+        from mlframe.training.configs import FeatureTypesConfig
+        with pytest.raises(pydantic.ValidationError):
+            FeatureTypesConfig(embeding_features=["x"])  # typo
+
+    def test_feature_types_config_valid_still_works(self):
+        from mlframe.training.configs import FeatureTypesConfig
+        cfg = FeatureTypesConfig(text_features=["t"], embedding_features=["e"])
+        assert cfg.text_features == ["t"]
+        assert cfg.embedding_features == ["e"]

@@ -1175,15 +1175,21 @@ def integral_calibration_error_from_metrics(
     avoids jumpy early-stopping curves that could fixate just inside the
     penalty zone when the step was large.
     """
-    res = (
+    # Guard against NaN roc_auc/pr_auc (single-class eval set, zero-variance
+    # scores, etc. — fast_aucs_per_group_optimized returns NaN in those cases).
+    # Without this guard the entire ICE becomes NaN, which silently breaks
+    # early-stopping comparisons (NaN > best is always False, so the trainer
+    # gets stuck on iteration-1 best instead of failing loud).
+    base_loss = (
         brier_loss * brier_loss_weight
         + calibration_mae * mae_weight
         + calibration_std * std_weight
-        - np.abs(roc_auc - 0.5) * roc_auc_weight
-        - pr_auc * pr_auc_weight
     )
+    roc_term = 0.0 if np.isnan(roc_auc) else np.abs(roc_auc - 0.5) * roc_auc_weight
+    pr_term = 0.0 if np.isnan(pr_auc) else pr_auc * pr_auc_weight
+    res = base_loss - roc_term - pr_term
     threshold_width = min_roc_auc - 0.5
-    if threshold_width > 0.0:
+    if threshold_width > 0.0 and not np.isnan(roc_auc):
         deficit = threshold_width - np.abs(roc_auc - 0.5)
         if deficit > 0.0:
             res += (deficit / threshold_width) * roc_auc_penalty

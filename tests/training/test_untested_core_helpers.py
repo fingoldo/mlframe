@@ -157,23 +157,22 @@ def test_auto_detect_pandas_high_cardinality_text():
 
 def test_auto_detect_pandas_promotes_high_card_cat_to_text():
     """A column in cat_features with cardinality above the threshold is
-    promoted to text_features AND removed from cat_features in place.
-
-    Behaviour change 2026-04-19: the old semantics ("never touch cat_features")
-    silently left text-blob columns (skills_text with 81k unique values) in
-    the cat list, costing CatBoost GBs of memory on nominal encoding. The
-    promotion now kicks in — verified here.
+    promoted to text_features. Contract change 2026-04-19: the function
+    no longer mutates ``cat_features``; the caller does the filtering via
+    set-difference (see ``effective_cat_features`` in the suite). Previous
+    in-place mutation was dead code (caller already filtered) but a latent
+    trap for future reuse of a shared list.
     """
     cfg = FeatureTypesConfig(auto_detect_feature_types=True,
                              cat_text_cardinality_threshold=2)
     df = pd.DataFrame({"c": [f"v_{i}" for i in range(20)]})
     cat_features = ["c"]
     t, e = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
-    # Column should be promoted to text_features AND removed from cat_features.
     assert "c" in t, "high-cardinality column must be promoted to text"
-    assert "c" not in cat_features, (
-        "promoted column must be removed from cat_features in place "
-        "(otherwise CatBoost rejects the combination at fit time)"
+    # Contract: input list is NOT mutated. The caller filters separately.
+    assert cat_features == ["c"], (
+        "cat_features must not be mutated in place — that was a latent "
+        "state-leak trap on repeat calls with a shared list"
     )
 
 
@@ -190,9 +189,9 @@ def test_auto_detect_pandas_keeps_low_card_cat():
 
 
 @pytest.mark.parametrize("n_unique, threshold, expected_promoted", [
-    (9,  10, False),   # strictly below  → stays as cat
-    (10, 10, False),   # exactly at     → stays (promotion uses `>` not `>=`)
-    (11, 10, True),    # strictly above  → promoted
+    (9,  10, False),   # strictly below  -> stays as cat
+    (10, 10, False),   # exactly at     -> stays (promotion uses `>` not `>=`)
+    (11, 10, True),    # strictly above  -> promoted
 ])
 def test_auto_detect_threshold_boundary(n_unique, threshold, expected_promoted):
     """Exercises the promotion threshold boundary. Catches off-by-one
@@ -205,10 +204,33 @@ def test_auto_detect_threshold_boundary(n_unique, threshold, expected_promoted):
     t, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
     if expected_promoted:
         assert "c" in t
-        assert "c" not in cat_features
     else:
         assert "c" not in t
-        assert "c" in cat_features
+    # Input list is NEVER mutated regardless of promotion outcome.
+    assert cat_features == ["c"]
+
+
+def test_auto_detect_does_not_mutate_cat_features_across_calls():
+    """Sensor for repeat-call state leak: calling the function twice with
+    the same list as input must produce identical results on the second call.
+    Pre-fix, the first call mutated ``cat_features`` (removing the promoted
+    column), so the second call saw an empty cat list and silently skipped
+    promotion tracking — producing a different ``promoted`` log message
+    and potentially different downstream behavior.
+    """
+    cfg = FeatureTypesConfig(auto_detect_feature_types=True,
+                             cat_text_cardinality_threshold=5)
+    df = pd.DataFrame({"c": [f"v_{i}" for i in range(20)], "low": ["a", "b"] * 10})
+    cat_features = ["c", "low"]
+
+    t1, e1 = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
+    # Snapshot the list after the first call — must be unchanged.
+    assert cat_features == ["c", "low"], "first call must not mutate cat_features"
+
+    t2, e2 = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
+    assert t1 == t2, "second call with identical input must produce identical text_features"
+    assert e1 == e2
+    assert cat_features == ["c", "low"], "second call must also not mutate"
 
 
 def test_auto_detect_user_text_wins_over_promotion():
@@ -249,7 +271,8 @@ def test_auto_detect_polars_categorical_promoted_by_cardinality():
     cat_features = ["hc"]
     t, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
     assert "hc" in t
-    assert "hc" not in cat_features
+    # Input list must NOT be mutated — caller filters via set-difference.
+    assert cat_features == ["hc"]
 
 
 def test_auto_detect_polars_enum_promoted_by_cardinality():
@@ -269,7 +292,8 @@ def test_auto_detect_polars_enum_promoted_by_cardinality():
     cat_features = ["hc"]
     t, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
     assert "hc" in t, "pl.Enum column with high cardinality must be promoted to text_features"
-    assert "hc" not in cat_features
+    # Input list must NOT be mutated — caller filters via set-difference.
+    assert cat_features == ["hc"]
 
 
 def test_auto_detect_accepts_cat_features_none():

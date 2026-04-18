@@ -208,6 +208,9 @@ Probe categories that have caught real bugs in mlframe so far:
 | Silent overlap | same column in two feature-type lists | `_validate_feature_type_exclusivity(None, ...)` failed to validate |
 | Orchestration | A must run before B | fallback `decategorize` after `prep_cb` → minutes-long hang |
 | Retry propagation | errors in retry path swallowed | pandas-retry failure must propagate up |
+| Catastrophic misconfig | detector/threshold discards ~100% of data | `_apply_outlier_detection_global`: contamination too high → 0-row train, 5 min later opaque crash. Now fails loud before fit. |
+| NaN propagation | single-class eval → NaN metric → silent early-stop freeze | `integral_calibration_error_from_metrics(roc_auc=NaN)` poisoned ICE; early-stop compared NaN > best (always False), trainer stuck on iter-1. Guards added. |
+| Strict vs lenient configs | typo silently absorbed by `extra='allow'` | `TrainingSplitConfig(trainset_agng_limit=0.5)` silently ignored. Hybrid Variant C: stable-surface configs switched to `extra='forbid'` (raises loud), research configs keep `allow` + warn. |
 
 When a probe surfaces a real bug:
 

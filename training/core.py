@@ -129,14 +129,19 @@ def _auto_detect_feature_types(
           (ordered categoricals like ``pl.Enum`` stay nominal), AND
         * ``n_unique > cat_text_cardinality_threshold``.
 
-    Promoted columns are returned in ``text_features`` and removed from the
-    caller's ``cat_features`` list in place.
+    Promoted columns are returned in ``text_features``; the caller is
+    responsible for filtering its own ``cat_features`` against the returned
+    ``text_features`` (see ``effective_cat_features`` construction in
+    ``train_mlframe_models_suite``). This function does NOT mutate the
+    ``cat_features`` argument — prior versions did, which created a latent
+    repeat-call state-leak trap whenever a caller reused the same list.
 
     Args:
         df: Training DataFrame (Polars or pandas).
         feature_types_config: FeatureTypesConfig with user overrides and threshold.
         cat_features: Already-detected categorical features (from pipeline).
-            MUTATED in place: promoted columns are removed.
+            Read-only. Used only to decide which auto-detected text columns
+            were "promoted" from cat_features vs newly discovered.
         verbose: Whether to log detections.
 
     Returns:
@@ -159,7 +164,7 @@ def _auto_detect_feature_types(
 
     threshold = feature_types_config.cat_text_cardinality_threshold
     user_assigned = set(text_features) | set(embedding_features)
-    promoted: list = []  # cat_features -> text_features, for in-place removal
+    promoted: list = []  # cat_features -> text_features, tracked for diagnostic log only
     cardinalities: dict = {}  # per auto-detected text col: n_unique (for diagnostic log)
 
     if isinstance(df, pl.DataFrame):
@@ -200,12 +205,12 @@ def _auto_detect_feature_types(
                     if col in cat_features:
                         promoted.append(col)
 
-    # Remove promoted columns from cat_features in place.
-    for name in promoted:
-        try:
-            cat_features.remove(name)
-        except ValueError:
-            pass
+    # Historical note: this function used to mutate ``cat_features`` in place
+    # (calling ``.remove(name)`` for each promoted column). The in-place removal
+    # was redundant — the actual caller filter lives at the call site, where
+    # ``effective_cat_features`` is built via set-difference against
+    # ``text_features``. We removed the mutation so repeat calls with a shared
+    # list don't corrupt the caller's state.
 
     def _fmt_with_cardinality(names):
         """'col1:500, col2:12_345' — makes it obvious *why* a column was
@@ -493,6 +498,20 @@ def _apply_outlier_detection_global(
         logger.info(f"Outlier rejection: {len(train_df):_} train samples -> {train_kept:_} kept.")
         filtered_train_df = _filter_df_by_mask(train_df, train_od_idx)
         filtered_train_idx = train_idx[train_od_idx]
+
+    # Guard against catastrophic outlier-detector misconfiguration where
+    # ~every sample is flagged as an outlier. Previously this silently
+    # produced a 0-row train set and failed 5+ minutes later deep inside
+    # CatBoost/LightGBM with opaque "X is empty" / shape errors. Fail
+    # fast and loud instead.
+    min_keep = max(1, int(len(train_df) * 0.01))  # need >=1% AND >=1 row
+    if train_kept < min_keep:
+        raise ValueError(
+            f"Outlier detector rejected {len(train_df) - train_kept:_} of {len(train_df):_} "
+            f"train samples, leaving only {train_kept:_} rows (< {min_keep:_}, 1% of input). "
+            f"The detector is likely misconfigured (e.g. contamination too high, trained on "
+            f"unrepresentative data, or a sign convention bug). Training cannot proceed."
+        )
 
     # Predict on validation set if requested
     filtered_val_df = val_df

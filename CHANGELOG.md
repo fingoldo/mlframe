@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-04-19 — outlier guard + ICE NaN guard + stable configs strict + cache-probe cleanup
+
+### Fixed — catastrophic outlier-detector misconfiguration (`training/core.py`)
+- `_apply_outlier_detection_global` silently produced a 0-row train frame when the detector (e.g. IsolationForest with `contamination=0.99`, a sign-convention bug, or an untrained pipeline) flagged ~every sample as an outlier. Downstream CatBoost/LightGBM then crashed 5+ minutes later with opaque `X is empty` / shape errors — no signal at the source. Added a loud fail-fast `ValueError` when the kept train rows drop below `max(1, 1% of input)`, naming the most likely causes in the message (contamination too high, unrepresentative fit, sign-convention bug).
+
+### Fixed — ICE metric NaN propagation (`metrics.py`)
+- `integral_calibration_error_from_metrics` used `np.abs(roc_auc - 0.5) * weight` unconditionally; a NaN roc_auc (from `fast_aucs_per_group_optimized` on a single-class eval window) turned the entire ICE into NaN. This silently broke early-stopping comparisons (`NaN > best` is always False), locking the trainer on iteration-1's "best" without surfacing any error. Guarded both `roc_auc` and `pr_auc`: a NaN input now means "skip that term" (0.0 contribution, no penalty ramp). Baseline ICE for callers that pass finite values is unchanged.
+
+### Refactored — killed dead mutation in `_auto_detect_feature_types` (`training/core.py`)
+- The function used to call `cat_features.remove(name)` for each promoted column. The in-place mutation was dead code: the caller in `train_mlframe_models_suite` already filters via a set-difference (`effective_cat_features = [c for c in raw_cat_features if c not in text_emb_set]`). But the mutation was a latent trap for any future caller that reused the list — second call would see the promoted columns already gone and its `"promoted"` diagnostic would be wrong. Removed the mutation; documented the read-only contract in the docstring.
+
+### Changed — Hybrid Variant C: strict validation on stable-surface configs (`training/configs.py`)
+- `PreprocessingConfig`, `TrainingSplitConfig`, `FeatureTypesConfig` switched to `extra="forbid"`. These three have a small, stable, fully-declared surface with no legitimate pass-through kwargs, so a typo (`fillna_vlue`, `trainset_agng_limit`, `embeding_features`) now raises a `ValidationError` at construction instead of silently being absorbed or buried in a WARNING log.
+- `ModelHyperparamsConfig` and `TrainingBehaviorConfig` intentionally keep `extra="allow"` with the existing `_warn_on_unknown_extras` path — they legitimately forward kwargs (ICE weights, scoring configs, robustness params) to deeper callees via `**config_params`.
+
+### Tests (all green)
+- `tests/training/test_untested_fairness_outliers.py` +5: catastrophic-rejection guard sensors (all rejected, <1% kept, polars path, error-message content, single-row rejection still OK).
+- `tests/test_metrics.py` +3 (`TestICENaNGuards`): NaN roc_auc / NaN pr_auc / both-NaN all produce finite ICE.
+- `tests/training/test_untested_core_helpers.py`: updated 3 existing tests to the new no-mutation contract; added `test_auto_detect_does_not_mutate_cat_features_across_calls` to lock the contract in place.
+- `tests/training/test_configs.py` +6 (`TestStrictConfigsRejectUnknownFields`): Hybrid Variant C sensors — typo on each strict config raises, valid fields still construct successfully.
+
+### Documentation
+- `README.md` testing-doctrine table extended: "Catastrophic misconfig", "NaN propagation", and "Strict vs lenient configs" added to the probe-category table with 2026-04-19 examples.
+
 ## 2026-04-19 — splitting + configs probe: validation gaps closed + testing doctrine in README
 
 ### Fixed — `make_train_test_split` (`training/splitting.py`)

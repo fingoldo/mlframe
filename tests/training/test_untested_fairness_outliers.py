@@ -152,3 +152,94 @@ def test_outlier_polars_path():
     )
     assert isinstance(tr, pl.DataFrame)
     assert tr.height == n - 1
+
+
+# ----- Catastrophic-rejection guard -----
+# Sensor for: misconfigured outlier detector (contamination too high, sign
+# convention bug) used to silently filter train_df to 0 rows. Downstream
+# CatBoost/LightGBM then crashed 5+ minutes later with opaque errors.
+# Guard must raise ValueError immediately with a diagnostic message.
+
+
+class _RejectAllOD:
+    """Mock OD that marks every sample as an outlier."""
+    def fit(self, X):
+        self._n = len(X)
+
+    def predict(self, X):
+        return np.full(len(X), -1, dtype=int)
+
+
+class _RejectAllButOneOD:
+    """Mock OD that keeps exactly one sample (below 1% threshold when n>>100)."""
+    def fit(self, X):
+        self._n = len(X)
+
+    def predict(self, X):
+        out = np.full(len(X), -1, dtype=int)
+        out[0] = 1
+        return out
+
+
+def test_outlier_all_rejected_raises():
+    """100% of train flagged as outliers -> loud ValueError."""
+    n = 200
+    df = pd.DataFrame({"a": np.arange(n, dtype=float)})
+    idx = np.arange(n)
+    with pytest.raises(ValueError, match="Outlier detector rejected"):
+        _apply_outlier_detection_global(
+            train_df=df, val_df=None, train_idx=idx, val_idx=None,
+            outlier_detector=_RejectAllOD(), od_val_set=False, verbose=False,
+        )
+
+
+def test_outlier_below_one_percent_raises():
+    """Keeping <1% of rows also trips the guard (not just 0 rows)."""
+    n = 500  # 1% = 5; keeping 1 row is below
+    df = pd.DataFrame({"a": np.arange(n, dtype=float)})
+    idx = np.arange(n)
+    with pytest.raises(ValueError, match="likely misconfigured"):
+        _apply_outlier_detection_global(
+            train_df=df, val_df=None, train_idx=idx, val_idx=None,
+            outlier_detector=_RejectAllButOneOD(), od_val_set=False, verbose=False,
+        )
+
+
+def test_outlier_all_rejected_polars_also_raises():
+    """Polars path must hit the same guard — the check runs before the filter."""
+    n = 300
+    df = pl.DataFrame({"a": list(range(n))})
+    idx = np.arange(n)
+    with pytest.raises(ValueError, match="Outlier detector rejected"):
+        _apply_outlier_detection_global(
+            train_df=df, val_df=None, train_idx=idx, val_idx=None,
+            outlier_detector=_RejectAllOD(), od_val_set=False, verbose=False,
+        )
+
+
+def test_outlier_error_message_includes_numbers():
+    """Diagnostic must name the counts so operators can see the scale."""
+    n = 150
+    df = pd.DataFrame({"a": np.arange(n, dtype=float)})
+    idx = np.arange(n)
+    with pytest.raises(ValueError) as excinfo:
+        _apply_outlier_detection_global(
+            train_df=df, val_df=None, train_idx=idx, val_idx=None,
+            outlier_detector=_RejectAllOD(), od_val_set=False, verbose=False,
+        )
+    msg = str(excinfo.value)
+    assert "150" in msg  # rejected count or input count
+    assert "0" in msg    # kept count
+    assert "contamination" in msg or "misconfigured" in msg
+
+
+def test_outlier_drops_one_row_does_not_trip_guard():
+    """Boundary sanity: normal single-row rejection must NOT raise."""
+    n = 200
+    df = pd.DataFrame({"a": np.arange(n, dtype=float)})
+    idx = np.arange(n)
+    tr, va, tr_i, va_i, tr_m, va_m = _apply_outlier_detection_global(
+        train_df=df, val_df=None, train_idx=idx, val_idx=None,
+        outlier_detector=_MockOD(), od_val_set=False, verbose=False,
+    )
+    assert len(tr) == n - 1  # dropped exactly one; guard did not fire

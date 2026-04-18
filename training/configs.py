@@ -127,7 +127,20 @@ class BaseConfig(BaseModel):
 
 
 class PreprocessingConfig(BaseConfig):
-    """Configuration for data preprocessing."""
+    """Configuration for data preprocessing.
+
+    Strict validation (``extra="forbid"``): this config has a small,
+    stable, well-known surface with no pass-through kwargs. Unknown
+    fields raise immediately so typos like ``fillna_vlue=0`` surface
+    at construction time instead of silently doing nothing.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        validate_assignment=True,
+        protected_namespaces=(),
+    )
 
     fillna_value: Optional[float] = None
     fix_infinities: bool = True
@@ -175,8 +188,23 @@ class TrainingSplitConfig(BaseConfig):
     Raises
     ------
     ValueError
-        If test_size + val_size > 1.0.
+        If test_size + val_size > 1.0, or if an unknown field is passed
+        (strict validation via ``extra="forbid"``).
+
+    Notes
+    -----
+    Strict validation: this config declares all split-related fields
+    explicitly. There is no reason for a pass-through kwarg here, so
+    typos (``trainset_agng_limit``, ``wholeday_spliting``) raise at
+    construction instead of silently doing nothing.
     """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        validate_assignment=True,
+        protected_namespaces=(),
+    )
 
     test_size: float = Field(default=0.1, ge=0.0, le=1.0)
     val_size: float = Field(default=0.1, ge=0.0, le=1.0)
@@ -333,7 +361,20 @@ class FeatureTypesConfig(BaseConfig):
         (existing pipeline). Columns with ``n_unique > threshold`` are treated
         as text features. Only applies when ``auto_detect_feature_types=True``
         (default: 50).
+
+    Notes
+    -----
+    Strict validation (``extra="forbid"``): small, stable surface with
+    no pass-through extras. Typos like ``embeding_features`` or
+    ``cat_txt_cardinality_threshold`` raise at construction.
     """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+        validate_assignment=True,
+        protected_namespaces=(),
+    )
 
     text_features: Optional[List[str]] = None
     embedding_features: Optional[List[str]] = None

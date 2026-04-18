@@ -287,35 +287,13 @@ def run_catboost_end_to_end() -> None:
           f"cat_features={len(cat_cols)}, dropped_datetime={len(dt_cols)}")
 
     # Build pandas-view *once per repeat* to fairly include conversion cost.
+    # Note: pre-2026-04-17 the "mlframe-pandas" path cast dict→string, which
+    # was ~37% slower and OOMed at 450k+ rows. That variant was removed after
+    # the optimization landed in get_pandas_view_of_polars_df.
     timings: Dict[str, Dict[str, List[float]]] = {
         "polars-native":   {"convert": [], "fit": [], "predict": [], "total": []},
         "mlframe-pandas":  {"convert": [], "fit": [], "predict": [], "total": []},
-        "pandas-no-cast":  {"convert": [], "fit": [], "predict": [], "total": []},
     }
-
-    def _pandas_view_preserve_categorical(pl_df: pl.DataFrame):
-        """Like get_pandas_view_of_polars_df, but keeps Categorical columns
-        as pd.Categorical (int codes + categories dict) instead of casting
-        dict→string. Polars emits dictionaries with uint32 indices, which
-        pyarrow's to_pandas does not support; we rebuild each dict column
-        with int32 indices so the conversion produces a pd.Categorical
-        instead of raising ArrowTypeError.
-        """
-        tbl = pl_df.to_arrow()
-        fixed_cols = []
-        for col in tbl.columns:
-            if pa.types.is_dictionary(col.type):
-                # Rebuild dictionary with int32 indices (supported by to_pandas)
-                chunks = []
-                for chunk in col.chunks:
-                    indices_i32 = pc.cast(chunk.indices, pa.int32())
-                    chunks.append(pa.DictionaryArray.from_arrays(
-                        indices_i32, chunk.dictionary
-                    ))
-                col = pa.chunked_array(chunks)
-            fixed_cols.append(col)
-        tbl_fixed = pa.table(fixed_cols, names=tbl.column_names)
-        return tbl_fixed.to_pandas()
 
     def _build_clf() -> "CatBoostClassifier":
         return CatBoostClassifier(
@@ -363,26 +341,6 @@ def run_catboost_end_to_end() -> None:
         print(f"  mlframe-pandas: convert={t_conv:5.2f}s  fit={t_fit:6.2f}s  "
               f"predict={t_pred:6.2f}s  total={total_pd:6.2f}s")
         del clf_pd, train_pd, test_pd
-
-        # Variant C: pandas view without dict→string cast — keeps pd.Categorical
-        # so CatBoost sees int codes, not strings.
-        gc.collect()
-        t_total = timer()
-        t0 = timer()
-        train_pd2 = _pandas_view_preserve_categorical(train_pl)
-        test_pd2 = _pandas_view_preserve_categorical(test_pl)
-        t_conv = timer() - t0
-        clf_pd2 = _build_clf()
-        t0 = timer(); clf_pd2.fit(train_pd2, y_train, cat_features=cat_cols); t_fit = timer() - t0
-        t0 = timer(); _ = clf_pd2.predict_proba(test_pd2); t_pred = timer() - t0
-        total_pd2 = timer() - t_total
-        timings["pandas-no-cast"]["convert"].append(t_conv)
-        timings["pandas-no-cast"]["fit"].append(t_fit)
-        timings["pandas-no-cast"]["predict"].append(t_pred)
-        timings["pandas-no-cast"]["total"].append(total_pd2)
-        print(f"  pandas-no-cast: convert={t_conv:5.2f}s  fit={t_fit:6.2f}s  "
-              f"predict={t_pred:6.2f}s  total={total_pd2:6.2f}s")
-        del clf_pd2, train_pd2, test_pd2
 
     print("\n" + "=" * 72)
     print(f"SUMMARY (best of {N_REPEATS}):")

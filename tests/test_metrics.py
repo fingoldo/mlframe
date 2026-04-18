@@ -904,5 +904,42 @@ class TestICEPenaltyRamp:
         np.testing.assert_allclose(val, 0.2, rtol=1e-10)
 
 
+class TestICENaNGuards:
+    """Sensors for NaN-propagation guard added 2026-04-18.
+
+    Background: fast_aucs_per_group_optimized returns NaN for single-class
+    y_true or zero-variance y_score. Before the guard, those NaN values
+    flowed into `res = ... - np.abs(roc_auc - 0.5) * weight` and made the
+    entire ICE metric NaN, which silently broke early-stopping comparisons
+    (NaN > best is always False, so the trainer locked in iteration-1's
+    "best" and never improved — no visible error, just frozen training).
+    """
+
+    def test_nan_roc_auc_does_not_propagate(self):
+        val = integral_calibration_error_from_metrics(
+            calibration_mae=0.01, calibration_std=0.01, calibration_coverage=1.0,
+            brier_loss=0.25, roc_auc=float("nan"), pr_auc=0.5,
+            roc_auc_penalty=3.0, min_roc_auc=0.6,
+        )
+        assert np.isfinite(val), "NaN roc_auc must not poison ICE"
+        # With roc_term skipped: base_loss = 0.25*0.8 + 0.01*3 + 0.01*2 = 0.25
+        # minus pr_term (0.5 * 0.1 = 0.05) = 0.20. No penalty (guard skipped on NaN).
+        np.testing.assert_allclose(val, 0.20, rtol=1e-10)
+
+    def test_nan_pr_auc_does_not_propagate(self):
+        val = integral_calibration_error_from_metrics(
+            calibration_mae=0.01, calibration_std=0.01, calibration_coverage=1.0,
+            brier_loss=0.25, roc_auc=0.7, pr_auc=float("nan"),
+        )
+        assert np.isfinite(val)
+
+    def test_both_nan_returns_finite(self):
+        val = integral_calibration_error_from_metrics(
+            calibration_mae=0.01, calibration_std=0.01, calibration_coverage=1.0,
+            brier_loss=0.25, roc_auc=float("nan"), pr_auc=float("nan"),
+        )
+        assert np.isfinite(val)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
