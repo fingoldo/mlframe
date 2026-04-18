@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-04-18 — Default logger timestamps + CatBoost Polars-fastpath fallback
+
+### Fixed
+- **`_ensure_logging_visible` (`training/core.py`)**: previously only installed a timestamped stdout handler when the root logger had NO handlers at all. In Jupyter / IPython a basic handler is already registered (with the `LEVEL:name:message` format — no timestamp), so mlframe's progress logs came out without wall-clock markers — making it impossible to see how long each phase actually takes. Extended the helper to also *upgrade* existing handlers whose formatter doesn't contain `%(asctime)s`, replacing their formatter with the timestamped one. Handlers that the user has intentionally configured with a custom asctime are left untouched.
+- **`_train_model_with_fallback` (`training/trainer.py`)**: added a CatBoost × Polars-fastpath fallback. CatBoost's native-Polars entry point (`_set_features_order_data_polars_*`) can reject certain categorical column layouts with opaque messages — either `TypeError: No matching signature found` (fused-cpdef dispatch miss on the column's physical index / value types) or `CatBoostError: Unsupported data type Categorical for a numerical feature column` — abortive on training 1M×100 datasets. On either error, we now convert the Polars DataFrame to pandas via `get_pandas_view_of_polars_df` + `prepare_df_for_catboost`, rewrite the `eval_set` similarly, and retry. The pandas path accepts a broader range of category backings.
+
 ## 2026-04-18 — Stale-cache detection in `process_model`
 
 ### Fixed

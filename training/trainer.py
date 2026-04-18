@@ -898,6 +898,48 @@ def _train_model_with_fallback(
             logger.warning(f"Model {model} skipped due to error 'pandas dtypes must be int, float or bool, got {train_df.dtypes}'")
             return None, None
 
+        elif (
+            model_type_name in CATBOOST_MODEL_TYPES
+            and isinstance(train_df, pl.DataFrame)
+            and (
+                "No matching signature found" in error_str
+                or "Unsupported data type Categorical for a numerical feature column" in error_str
+            )
+        ):
+            # CatBoost's native-Polars fastpath (_set_features_order_data_polars_*)
+            # can reject certain categorical column layouts with opaque messages —
+            # either "No matching signature found" (fused cpdef dispatch miss) or
+            # the categorical/numeric type mismatch above. Fall back to the pandas
+            # path: zero-copy Arrow view + `prepare_df_for_catboost` preserves
+            # dtypes (post-2026-04-18) and CatBoost's pandas path accepts a wider
+            # range of category backings.
+            logger.warning(
+                f"CatBoost Polars fastpath rejected the data ({error_str.splitlines()[-1][:160]}); "
+                "converting to pandas and retrying."
+            )
+            from mlframe.training.utils import get_pandas_view_of_polars_df
+            from mlframe.preprocessing import prepare_df_for_catboost as _prep_cb
+
+            cat_feat = list(fit_params.get("cat_features") or [])
+            text_feat = list(fit_params.get("text_features") or [])
+
+            train_df = get_pandas_view_of_polars_df(train_df)
+            train_df = _prep_cb(train_df, cat_features=cat_feat, text_features=text_feat)
+
+            # eval_set carries the val split for CB — rewrite it too.
+            eval_set = fit_params.get("eval_set")
+            if eval_set is not None:
+                pairs = eval_set if isinstance(eval_set, list) else [eval_set]
+                new_pairs = []
+                for pair in pairs:
+                    X_val, y_val = pair
+                    if isinstance(X_val, pl.DataFrame):
+                        X_val = get_pandas_view_of_polars_df(X_val)
+                        X_val = _prep_cb(X_val, cat_features=cat_feat, text_features=text_feat)
+                    new_pairs.append((X_val, y_val))
+                fit_params["eval_set"] = new_pairs if isinstance(eval_set, list) else new_pairs[0]
+            try_again = True
+
         elif "unexpected keyword argument" in error_str and any(param in error_str for param in ("X_val", "y_val", "eval_set")):
             # Older sklearn versions don't support validation set in HistGradientBoosting
             val_params = ["X_val", "y_val", "eval_set"]

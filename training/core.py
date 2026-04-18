@@ -20,23 +20,34 @@ logger = logging.getLogger(__name__)
 
 
 def _ensure_logging_visible(level: int = logging.INFO) -> None:
-    """Install a stdout handler on the root logger if none exists.
+    """Make mlframe progress logs visible — with timestamps — in Jupyter and
+    plain scripts.
 
-    In Jupyter and bare scripts that never call logging.basicConfig, the root
-    logger defaults to WARNING with no handler, so logger.info() calls from
-    mlframe are silently dropped even when verbose=True. This idempotent
-    helper attaches a minimal handler so users actually see progress logs.
+    Two cases:
+      1. No root handlers at all (bare Python / fresh Jupyter kernel before
+         anyone called `logging.basicConfig`). → install a stdout handler
+         with ``%(asctime)s %(levelname)s %(name)s: %(message)s`` format.
+      2. Root already has handlers but their formatter lacks a timestamp
+         (classic Jupyter/IPython default emits just ``LEVEL:name:message``,
+         which is useless for profiling long training runs). → replace
+         those formatters in place with the timestamped one. Handlers that
+         already format with ``%(asctime)s`` are left untouched so a user
+         who intentionally configured a custom format isn't clobbered.
     """
     root = logging.getLogger()
+    desired_fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    desired_datefmt = "%H:%M:%S"
+    timestamped = logging.Formatter(desired_fmt, datefmt=desired_datefmt)
+
     if not root.handlers:
         handler = logging.StreamHandler(stream=sys.stdout)
-        handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s %(levelname)s %(name)s: %(message)s",
-                datefmt="%H:%M:%S",
-            )
-        )
+        handler.setFormatter(timestamped)
         root.addHandler(handler)
+    else:
+        for h in root.handlers:
+            existing = getattr(h.formatter, "_fmt", None) if h.formatter else None
+            if not existing or "%(asctime)" not in existing:
+                h.setFormatter(timestamped)
     if root.level > level or root.level == logging.NOTSET:
         root.setLevel(level)
 
