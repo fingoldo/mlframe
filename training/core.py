@@ -108,6 +108,66 @@ def _elapsed_str(start: float) -> str:
         return f"{elapsed:.1f}s"
     return f"{elapsed / 60:.1f}min"
 
+
+def _filter_polars_cat_features_by_dtype(
+    df: "pl.DataFrame",
+    cat_features: "List[str]",
+) -> "List[str]":
+    """Defensive filter for CB Polars fastpath ``cat_features``.
+
+    CatBoost 1.2.x's ``_set_features_order_data_polars_categorical_column``
+    is a Cython fused cpdef with dispatch **only** for ``pl.Categorical``
+    (and on some builds ``pl.Enum``). If a caller hands a column to CB
+    via ``cat_features`` but the column's dtype in the DataFrame is
+    ``pl.String``/``pl.Utf8``/numeric/etc, the dispatcher falls through
+    to the opaque ``TypeError: No matching signature found`` — with no
+    hint about which column or why.
+
+    Production incident 2026-04-19: the orchestration in
+    ``train_mlframe_models_suite`` short-circuited to a *stale* pre-promotion
+    cat_features list that still contained 4 columns which had been
+    cast ``pl.Categorical → pl.String`` for the text-features fastpath.
+    CB saw ``cat_features=['category', 'skills_text', ...]`` with those
+    columns being ``pl.String`` and raised "No matching signature found",
+    burning 22 s + a 150 s pandas fallback on every run.
+
+    This helper runs **right before** passing cat_features to
+    ``model.fit()``:
+      - keeps columns whose dtype is ``pl.Categorical`` or ``pl.Enum``
+      - drops columns with any other dtype and logs a WARNING naming
+        them and their observed dtype
+      - silently drops columns missing from the DataFrame (defensive;
+        a missing column would crash CB with a different error anyway)
+
+    Returns the filtered list; empty list if nothing valid remains.
+    """
+    valid: list = []
+    dropped: list = []  # list of (col_name, dtype_str)
+    for c in cat_features or []:
+        if c not in df.columns:
+            continue
+        dt = df.schema[c]
+        is_cat = (dt == pl.Categorical) or (
+            hasattr(pl, "Enum") and isinstance(dt, pl.Enum)
+        )
+        if is_cat:
+            valid.append(c)
+        else:
+            dropped.append((c, str(dt)))
+    if dropped:
+        logger.warning(
+            "Dropping %d column(s) from CB cat_features because their "
+            "Polars dtype is not Categorical/Enum: %s. CatBoost's fastpath "
+            "dispatcher has no overload for those types and would raise "
+            "'No matching signature found'. Most likely cause: the column "
+            "was promoted from cat_features to text_features and cast to "
+            "pl.String, but the caller is still passing the pre-promotion "
+            "list. Fix the caller to use the post-promotion cat_features.",
+            len(dropped), dropped,
+        )
+    return valid
+
+
 def _auto_detect_feature_types(
     df,
     feature_types_config,
@@ -1932,7 +1992,22 @@ def train_mlframe_models_suite(
                     if polars_fastpath_active:
                         if verbose:
                             logger.info(f"  Polars fastpath active for {mlframe_model_name} (strategy={type(strategy).__name__})")
-                        _cat_features = cat_features_polars or cat_features or []
+                        # Use ``cat_features`` (the post-promotion, deduplicated
+                        # list from the Phase 3.5 reassignment at line ~1526) —
+                        # NOT the stale ``cat_features_polars`` captured at the
+                        # start of Phase 3 before auto-detection ran.
+                        # Production 2026-04-19 bug: the old
+                        #   _cat_features = cat_features_polars or cat_features or []
+                        # short-circuit picked the stale 13-column list even
+                        # after text-promotion removed 4 of them. Those 4 were
+                        # later cast Categorical→String for CatBoost's text
+                        # path, so CB saw cat_features=[..., 'skills_text'] with
+                        # skills_text being pl.String — its fused-cpdef
+                        # ``_set_features_order_data_polars_categorical_column``
+                        # has no String overload and raised "No matching
+                        # signature found", burning 22 s + a 150 s pandas
+                        # fallback on every run.
+                        _cat_features = list(cat_features or [])
 
                         # Build tier-specific DFs with text/embedding columns dropped for non-supporting models
                         tier_base = {
@@ -2074,7 +2149,11 @@ def train_mlframe_models_suite(
                         if polars_fastpath_active and mlframe_model_name == "cb" and "fit_params" in current_model_params:
                             extra_fit = {}
                             if _cat_features:
-                                extra_fit["cat_features"] = _cat_features
+                                _valid_cat = _filter_polars_cat_features_by_dtype(
+                                    prepared_train, _cat_features
+                                )
+                                if _valid_cat:
+                                    extra_fit["cat_features"] = _valid_cat
                             if text_features:
                                 cb_text = filter_existing(prepared_train, text_features)
                                 if cb_text:

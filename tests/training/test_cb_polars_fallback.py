@@ -400,6 +400,131 @@ def test_polars_schema_diagnostic_never_raises():
     assert len(out) > 0
 
 
+# ---------------------------------------------------------------------------
+# Stale cat_features regression — 2026-04-19 incident (round 6)
+# ---------------------------------------------------------------------------
+# Production symptom: the Polars fastpath orchestration in
+# `train_mlframe_models_suite` used to build
+#   _cat_features = cat_features_polars or cat_features or []
+# The `cat_features_polars` list was captured early in Phase 3 BEFORE the
+# text-promotion step removed 4 high-cardinality text columns from cats.
+# Those 4 were later cast pl.Categorical -> pl.String for CatBoost's text
+# fastpath. But because of the `or` short-circuit, the stale 13-column
+# cats list was passed to CB.fit(cat_features=...). CatBoost 1.2.10's
+# `_set_features_order_data_polars_categorical_column` is a fused cpdef
+# with NO overload for pl.String, so it raised "No matching signature
+# found" — and the old one-line warning truncated the error, so nobody
+# could tell WHICH column caused it until the new diagnostic landed.
+#
+# Primary fix: use `cat_features` (the post-promotion, dedup'd list) in
+# core.py:1935. Defensive fix: `_filter_polars_cat_features_by_dtype`
+# drops any cat_feature whose runtime dtype in the DF is not Categorical
+# /Enum, so even if someone reintroduces the short-circuit bug, CB won't
+# get a malformed list — the filter drops the mismatch and warns.
+
+
+class TestFilterPolarsCatFeaturesByDtype:
+    """Sensor for the defensive runtime filter that prevents the
+    2026-04-19 'No matching signature found' prod incident from recurring.
+    """
+
+    def test_drops_string_columns_declared_as_cat(self, caplog):
+        """The exact prod shape: a column in cat_features is actually
+        pl.String in the DataFrame (was cast from Categorical for text
+        fastpath). Filter must drop it and WARN."""
+        import logging
+        from mlframe.training.core import _filter_polars_cat_features_by_dtype
+        df = pl.DataFrame({
+            "good_cat":    pl.Series("good_cat", ["a", "b", "a"]).cast(pl.Categorical),
+            "skills_text": pl.Series("skills_text", ["x", "y", "z"]),  # pl.String
+        })
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.core"):
+            out = _filter_polars_cat_features_by_dtype(df, ["good_cat", "skills_text"])
+        assert out == ["good_cat"], (
+            "String-dtype column declared as cat must be dropped — "
+            "CatBoost's Polars dispatcher has no String overload"
+        )
+        warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
+        assert any("skills_text" in m and "String" in m for m in warns), warns
+
+    def test_keeps_categorical_columns(self, caplog):
+        """Happy path: all cat_features are pl.Categorical -> all kept,
+        no warning (runs on every CB fit, false positives would spam)."""
+        import logging
+        from mlframe.training.core import _filter_polars_cat_features_by_dtype
+        df = pl.DataFrame({
+            "a": pl.Series("a", ["x", "y"] * 5).cast(pl.Categorical),
+            "b": pl.Series("b", ["p", "q"] * 5).cast(pl.Categorical),
+        })
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.core"):
+            out = _filter_polars_cat_features_by_dtype(df, ["a", "b"])
+        assert out == ["a", "b"]
+        warns = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert not warns, f"Unexpected warning on clean Categorical cats: {[r.message for r in warns]}"
+
+    def test_keeps_enum_columns(self, caplog):
+        """pl.Enum on some CB builds has a dispatch overload and on others
+        fails the same way as String. We keep Enum in the list (let CB
+        decide) and NOT warn — that's the upstream Enum hypothesis's
+        territory, not ours."""
+        import logging
+        from mlframe.training.core import _filter_polars_cat_features_by_dtype
+        enum_dt = pl.Enum(["A", "B", "C"])
+        df = pl.DataFrame({
+            "e": pl.Series("e", ["A", "B", "C"] * 2, dtype=enum_dt),
+        })
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.core"):
+            out = _filter_polars_cat_features_by_dtype(df, ["e"])
+        assert out == ["e"]
+
+    def test_silently_skips_missing_columns(self):
+        """Defensive: a cat_feature name that's not in the DF columns is
+        silently dropped (not the helper's job to raise — CB would
+        error with a different, clearer message anyway)."""
+        from mlframe.training.core import _filter_polars_cat_features_by_dtype
+        df = pl.DataFrame({"a": pl.Series("a", ["x"] * 3).cast(pl.Categorical)})
+        out = _filter_polars_cat_features_by_dtype(df, ["a", "not_in_df"])
+        assert out == ["a"]
+
+    def test_empty_input_returns_empty(self):
+        """Empty cat_features -> empty output, no crash, no warning."""
+        from mlframe.training.core import _filter_polars_cat_features_by_dtype
+        df = pl.DataFrame({"a": [1, 2, 3]})
+        assert _filter_polars_cat_features_by_dtype(df, []) == []
+        assert _filter_polars_cat_features_by_dtype(df, None) == []
+
+    def test_all_string_returns_empty_not_none(self, caplog):
+        """All cat_features are wrong-dtype -> return empty list
+        (not None). Callers wrap with `if _valid_cat:` so empty is safe
+        but None would crash."""
+        import logging
+        from mlframe.training.core import _filter_polars_cat_features_by_dtype
+        df = pl.DataFrame({
+            "a": pl.Series("a", ["x"] * 3),  # pl.String
+            "b": pl.Series("b", ["y"] * 3),  # pl.String
+        })
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.core"):
+            out = _filter_polars_cat_features_by_dtype(df, ["a", "b"])
+        assert out == []
+        assert out is not None
+
+    def test_numeric_column_in_cat_features_also_dropped(self, caplog):
+        """Same dispatcher miss on numeric — probe the boundary beyond
+        String. If someone mistakenly declares a Float column as a
+        cat_feature, the filter must drop it."""
+        import logging
+        from mlframe.training.core import _filter_polars_cat_features_by_dtype
+        df = pl.DataFrame({
+            "real_cat": pl.Series("real_cat", ["a", "b"] * 3).cast(pl.Categorical),
+            "numeric":  np.arange(6, dtype=np.float32),
+        })
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.core"):
+            out = _filter_polars_cat_features_by_dtype(df, ["real_cat", "numeric"])
+        assert out == ["real_cat"]
+        warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
+        assert any("numeric" in m for m in warns), warns
+
+
 def test_cb_fallback_warning_emits_schema_dump_on_rejection(polars_frame_with_text_cats, caplog):
     """End-to-end: when the CB Polars fastpath rejects (simulated via
     FakeCatBoost's first-call TypeError), the fallback path must emit a

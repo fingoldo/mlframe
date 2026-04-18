@@ -1,5 +1,52 @@
 # Changelog
 
+## 2026-04-19 — ROOT CAUSE: stale cat_features list broke CB Polars fastpath
+
+Diagnostic logging from the earlier commit (`49ba314`) paid off immediately. Next prod run's log now includes the full per-column schema dump. Turns out the Enum hypothesis was WRONG — **no pl.Enum columns in the data**. All 9 cat_features are plain `pl.Categorical(ordering='lexical')`. But 4 columns in the dump show up as `String` dtype while still tagged `[cat]`:
+
+```
+Polars schema diagnostic for 810_000×98:
+    category [cat]: String, n_unique=52, nulls=0
+    occupation [cat]: String, n_unique=100, nulls=0
+    skills_text [cat]: String, n_unique=81575, nulls=0
+    ontology_skills_text [cat]: String, n_unique=2735, nulls=0
+    ...
+```
+
+These 4 were promoted to text_features and cast `pl.Categorical → pl.String` right before fit. But they still ended up in the `cat_features` list that CB received.
+
+### Root cause — stale short-circuit (`training/core.py:1935`)
+
+```python
+_cat_features = cat_features_polars or cat_features or []
+```
+
+`cat_features_polars` is populated at line 1435 (start of Phase 3) via `get_polars_cat_columns(train_df)` — returns all 13 categorical columns from the *raw* Polars schema, BEFORE text-promotion. `cat_features` is reassigned at line 1526 to the post-promotion, dedup'd 9-item list. The `or` short-circuit picked the stale 13-item `cat_features_polars`, passing `['category', 'skills_text', ...]` to CB even though those columns are now `pl.String`.
+
+CatBoost 1.2.10's `_set_features_order_data_polars_categorical_column` is a Cython fused cpdef with dispatch only for `pl.Categorical` — `pl.String` falls through to "No matching signature found". 22 s burnt + 150 s pandas fallback on every run.
+
+### Fixed
+- `training/core.py:1935`: replaced the short-circuit with `_cat_features = list(cat_features or [])` — uses the correct post-promotion list directly. Comment documents the exact prod bug so a future refactor doesn't reintroduce the short-circuit.
+
+### Added — defensive runtime filter `_filter_polars_cat_features_by_dtype` (`training/core.py`)
+
+Last-line defence for the same bug class: checks every cat_feature's runtime dtype in the DataFrame right before `model.fit()`. Drops any column whose dtype isn't `pl.Categorical`/`pl.Enum` and logs a WARNING naming the column and its dtype. Preserves Enum for builds where CB has Enum dispatch (we don't decide that — CB does, via its own error path). If a future orchestration bug ever reintroduces a mismatch between the cat_features list and actual column dtypes, the filter catches it before CB throws the opaque TypeError, and the WARN tells the operator exactly what was wrong.
+
+### Tests (`tests/training/test_cb_polars_fallback.py`)
+7 new sensors in `TestFilterPolarsCatFeaturesByDtype`:
+- `test_drops_string_columns_declared_as_cat` — the exact prod shape, must drop + WARN.
+- `test_keeps_categorical_columns` — happy path, no warning (runs on every fit, no log spam tolerated).
+- `test_keeps_enum_columns` — Enum stays (let CB decide).
+- `test_silently_skips_missing_columns` — defensive, column not in DF dropped silently.
+- `test_empty_input_returns_empty` — None / empty input → empty output, no crash.
+- `test_all_string_returns_empty_not_none` — all-wrong → empty list (not None), so `if out:` stays safe.
+- `test_numeric_column_in_cat_features_also_dropped` — boundary beyond String.
+
+21 total pass in test_cb_polars_fallback.py (14 old + 7 new).
+
+### Follow-up
+The upstream bug in `train_mlframe_models_suite` that assembles `_cat_features` from stale `cat_features_polars` is also fixed above. Future prod runs: no more 22 s + 150 s detour; the Polars fastpath should succeed on the first attempt. If it doesn't, the new schema dump will name the culprit in the first WARNING line.
+
 ## 2026-04-19 — proactive probe round 5: per-group AUC + RFECV NaN observability
 
 Subagent-driven probe of `fast_aucs_per_group_optimized`, MRMR, RFECV, and
