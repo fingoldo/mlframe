@@ -39,6 +39,96 @@ from .configs import (
 from .io import load_mlframe_model, save_mlframe_model
 
 
+logger = logging.getLogger(__name__)
+
+
+def _extract_polars_cat_columns(df) -> List[str]:
+    """Return column names whose dtype is `pl.Categorical` or `pl.Enum`.
+
+    Used by cache-schema validation: if a column is Polars Categorical at
+    predict time but was not registered as a cat_feature at fit time,
+    CatBoost's native-Polars fastpath raises
+    ``CatBoostError: Unsupported data type Categorical for a numerical feature column``.
+    """
+    if df is None or not isinstance(df, pl.DataFrame):
+        return []
+    out: List[str] = []
+    for name, dtype in df.schema.items():
+        if dtype == pl.Categorical or isinstance(dtype, pl.Enum):
+            out.append(name)
+    return out
+
+
+def _validate_cached_model_schema(
+    loaded_model,
+    current_df,
+) -> Optional[str]:
+    """Return a reason string if the cached model's schema is incompatible
+    with the current DataFrame, else None.
+
+    Catches the common stale-cache scenarios where preprocessing or the
+    feature set changed between the saved model and the current run:
+        * the column list or order differs;
+        * a column is Polars Categorical in `current_df` but was not
+          registered as a cat_feature in the saved CatBoost model.
+
+    The latter produces a cryptic
+    ``CatBoostError: Unsupported data type Categorical for a numerical feature column``
+    deep inside CatBoost's pyx layer — this pre-flight check catches it.
+    """
+    m = getattr(loaded_model, "model", None)
+    if m is None:
+        return None
+
+    # 1. Feature-name sequence check (CB / XGB / LGB / sklearn linear).
+    saved_names: Optional[List[str]] = None
+    for attr in ("feature_names_", "feature_names_in_"):
+        if hasattr(m, attr):
+            try:
+                raw = getattr(m, attr)
+                if raw is not None:
+                    saved_names = list(raw)
+                    break
+            except Exception:
+                continue
+    if saved_names is None and hasattr(m, "get_booster"):
+        try:
+            booster_names = m.get_booster().feature_names
+            if booster_names:
+                saved_names = list(booster_names)
+        except Exception:
+            saved_names = None
+
+    if saved_names:
+        current_names = list(current_df.columns) if current_df is not None else []
+        if saved_names != current_names:
+            diff = set(current_names) ^ set(saved_names)
+            if diff:
+                sample = sorted(diff)[:8]
+                return (
+                    f"feature-name mismatch (saved={len(saved_names)}, current={len(current_names)}); "
+                    f"symmetric diff sample={sample}"
+                )
+            return "feature-name order differs between saved model and current df"
+
+    # 2. CatBoost-specific cat_features check. Only meaningful if we have
+    # saved feature names (to resolve indices back to names).
+    if saved_names and hasattr(m, "_get_cat_feature_indices"):
+        try:
+            saved_cat_names = {saved_names[i] for i in m._get_cat_feature_indices() if 0 <= i < len(saved_names)}
+        except Exception:
+            saved_cat_names = None
+        if saved_cat_names is not None:
+            current_pl_cats = set(_extract_polars_cat_columns(current_df))
+            missing = current_pl_cats - saved_cat_names
+            if missing:
+                return (
+                    f"CatBoost cache mismatch: columns {sorted(missing)} are Polars Categorical in "
+                    f"current df but were not trained as cat_features in the saved model"
+                )
+    return None
+
+
 # =============================================================================
 # Constants
 # =============================================================================
@@ -472,17 +562,36 @@ def process_model(
     for key in ["scaler", "imputer", "category_encoder", "rfecv_params", "model_path", "artifact_dir"]:
         effective_common_params.pop(key, None)
 
-    # Check if model exists in cache
-    use_cached_model = bool(fpath and exists(fpath))
+    # Check if model exists in cache.
+    #
+    # Gating: historically this path loaded blindly whenever the .dump
+    # existed. Preserve that as the default (suite-level cache is expected
+    # to "just work"), but now callers can opt out explicitly with
+    # ``init_common_params={"use_cache": False}`` for forced retrain.
+    #
+    # Schema validation: when the cache does load, validate the saved
+    # model's feature list + cat_features against the current preprocessed
+    # DataFrame. A mismatch usually means preprocessing or the feature set
+    # changed between runs — the classic symptom being a cryptic
+    # ``Unsupported data type Categorical for a numerical feature column``
+    # crash deep in CatBoost's Polars fastpath. Invalidate the stale cache
+    # and retrain rather than bubble the opaque backend error.
+    use_cache_flag = bool(common_params.get("use_cache", True))
+    use_cached_model = use_cache_flag and bool(fpath and exists(fpath))
     if use_cached_model:
         if verbose:
             logger.info(f"Loading model from file {fpath}")
         loaded_model = load_mlframe_model(fpath)
         if verbose:
             logger.info(f"Loaded.")
-        model_obj = loaded_model.model
-        pre_pipeline = loaded_model.pre_pipeline
-    else:
+        mismatch = _validate_cached_model_schema(loaded_model, common_params.get("train_df"))
+        if mismatch:
+            logger.warning(f"Invalidating stale cached model at {fpath}: {mismatch}. Retraining.")
+            use_cached_model = False
+        else:
+            model_obj = loaded_model.model
+            pre_pipeline = loaded_model.pre_pipeline
+    if not use_cached_model:
         if "model" not in model_params:
             raise KeyError(f"'model' key missing in model_params. Available keys: {list(model_params.keys())}")
         model_obj = model_params["model"]

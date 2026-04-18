@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-04-18 — Stale-cache detection in `process_model`
+
+### Fixed
+- **`train_eval.py::process_model`**: the suite's cache-load path would unconditionally load a saved `.dump` whenever it existed, even if the feature set or cat_features had changed between runs. Symptom in production: cryptic `CatBoostError: Unsupported data type Categorical for a numerical feature column` deep inside CatBoost's Polars fastpath when a column that used to be numeric is now `pl.Categorical` (or vice versa, or columns were added/reordered). Two complementary fixes:
+  1. **`use_cache` gate**: respect `common_params["use_cache"]` (default: True for backward compat — suite-level caching still "just works"). Callers can now force a retrain via `init_common_params={"use_cache": False}`.
+  2. **Schema validator** (`_validate_cached_model_schema`, new): after loading, verify the saved model's `feature_names_` / `feature_names_in_` / `booster.feature_names` against the current DataFrame's column list. For CatBoost-shaped models additionally cross-check that each Polars `Categorical`/`Enum` column in the current df is in the saved `_get_cat_feature_indices()` set. On mismatch: log a warning with the reason and invalidate the cache (retrain) rather than let the backend crash.
+
+### Tests
+- New `tests/training/test_cache_schema_validation.py` (16 tests):
+  - `_extract_polars_cat_columns`: None df, pandas df (no polars cats), `pl.Categorical` / `pl.Enum` detection.
+  - Feature-names check: exact match, different names, reordered columns, extra column, unknown-type model (no `feature_names_*`).
+  - CatBoost cat_features cross-check: matching case, new Polars Categorical not in saved cat set (the production bug), no-cat model with no Polars cats, out-of-range saved indices (pathological), pandas df never false-positives.
+
 ## 2026-04-18 — ICE penalty ramp + `prepare_df_for_catboost` dtype preservation
 
 ### Fixed
