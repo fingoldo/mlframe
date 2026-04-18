@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-04-19 — splitting + configs probe: validation gaps closed + testing doctrine in README
+
+### Fixed — `make_train_test_split` (`training/splitting.py`)
+- `test_size=1.0` + timestamps crashed with ``NaTType does not support strftime`` because the empty-train-index date-range format hit ``idx.min() == NaT``. Guarded: empty train now yields ``train_details="(empty)"`` in both whole-day and row-timestamp branches.
+- Negative ``test_size`` / ``val_size`` silently no-opped (no Pydantic validator was upstream, function had no self-check). Now rejected at function entry with clear ``ValueError``.
+- ``trainset_aging_limit=0`` silently no-opped via the ``if aging:`` falsy-short-circuit, contradicting the explicit "must be in (0, 1)" validator below it. Now uniformly rejected: only ``None`` means "no aging"; any other value must be strictly in ``(0, 1)``.
+- Silent-empty-split warning: when user requested ``val_size > 0`` but the whole-day split collapsed val (or test) to zero rows (single-date frame, or very small `n*size`), a WARNING now fires naming the likely cause. Previously users silently lost the split.
+
+### Fixed — Pydantic config validators (`training/configs.py`)
+- `ModelHyperparamsConfig.learning_rate` — unvalidated; ``-0.1`` / ``5.0`` were silently accepted and propagated to the tree backends. Now ``Field(gt=0, le=1.0)``.
+- `ModelHyperparamsConfig.iterations` — same; ``-1`` / ``0`` now rejected with ``Field(ge=1)``.
+- `ModelHyperparamsConfig.early_stopping_rounds` — same; ``-1`` / ``0`` rejected with ``Field(ge=1)``. ``None`` (meaning "disable early stopping") still allowed via ``Optional``.
+- `TrainingSplitConfig.trainset_aging_limit` — unvalidated; ``-0.5`` / ``1.5`` / ``0`` silently accepted. Now ``Field(default=None, gt=0, lt=1)`` — None is the only "no aging" signal.
+
+### Added — typo-warning on `extra="allow"` pass-through
+`BaseConfig._warn_on_unknown_extras` model-validator logs a WARNING for every extra field that is not on the subclass's ``_known_extras`` whitelist. Catches the common typo class (``iteratoins`` for ``iterations``, ``prefer_calibrated_classifer`` missing an ``i``) that ``extra="allow"`` used to swallow silently. ``ModelHyperparamsConfig`` declares the legitimate pass-throughs (ICE metric weights, scoring configs, robustness params) so valid kwargs don't noise the log.
+
+### Tests
+- `tests/training/test_splitting_edges.py` (new, 15 tests): validation + NaT guard + silent-empty warning + reproducibility sanity.
+- `tests/training/test_configs.py` expanded (11 new tests): range validators for learning_rate / iterations / early_stopping_rounds / trainset_aging_limit; typo warning on unknown extras; silencing for known pass-throughs.
+
+### Documentation
+- `README.md` gained a "Testing approach: reactive + proactive" section that writes down the doctrine shaken out over the last two days' production bugs. Reactive sensors anchor known fixes; proactive probes explore the neighbourhood around the fix for second-order bugs. Both together → low chance of the same bug class returning. Table in README enumerates probe categories that have paid off so far (None-guard, empty input, boundary, dtype edge, state leak, silent overlap, orchestration, retry propagation) with a one-line recipe for running probes. Separate subsection on perf budgets as a regression-class distinct from functional tests.
+
 ## 2026-04-19 — Proactive exploratory probes uncovered (and fixed) 3 more latent bugs
 
 ### Fixed

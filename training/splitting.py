@@ -65,8 +65,19 @@ def make_train_test_split(
     # Derive a 32-bit int seed for sklearn splitters that need an integer seed.
     sklearn_seed = int(rng.integers(0, 2**32 - 1)) if random_seed is not None else None
 
-    # Validate trainset_aging_limit once at the start (used in multiple branches below)
-    if trainset_aging_limit and not (0 < trainset_aging_limit < 1.0):
+    # Input validation (2026-04-19 proactive probe pass).
+    # Previously negative ``val_size``/``test_size`` silently produced
+    # empty splits; ``trainset_aging_limit=0`` silently no-op'd despite
+    # the non-zero-only validator below contradicting that behaviour.
+    if not (0.0 <= test_size <= 1.0):
+        raise ValueError(f"test_size must be in [0, 1], got {test_size}")
+    if not (0.0 <= val_size <= 1.0):
+        raise ValueError(f"val_size must be in [0, 1], got {val_size}")
+    # trainset_aging_limit: None = no-aging; otherwise must be strictly in (0, 1).
+    # 0 is rejected explicitly because it would mean "keep zero of training
+    # data", which is unusable and used to silently fall through the
+    # ``if trainset_aging_limit:`` falsy short-circuit.
+    if trainset_aging_limit is not None and not (0 < trainset_aging_limit < 1.0):
         raise ValueError(f"trainset_aging_limit must be in (0, 1), got {trainset_aging_limit}")
 
     def _calculate_split_sizes(total_size, target_size, shuffle, sequential_fraction):
@@ -204,8 +215,12 @@ def make_train_test_split(
         val_seq_idx = _dates_to_idx(val_dates_seq)
         test_seq_idx = _dates_to_idx(test_dates_seq)
 
-        # Build detail strings
-        train_details = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
+        # Build detail strings. ``.min()`` on empty index yields NaT, which
+        # then crashes the ``:%Y-%m-%d`` formatter. Guard for empty train.
+        if len(train_idx) > 0:
+            train_details = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
+        else:
+            train_details = "(empty)"
 
         val_details = _build_details(timestamps, val_idx, val_seq_idx, n_val_shuf, "D")
         test_details = _build_details(timestamps, test_idx, test_seq_idx, n_test_shuf, "D")
@@ -221,8 +236,11 @@ def make_train_test_split(
         if trainset_aging_limit:
             train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)):]
 
-        # Build detail strings
-        train_details = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
+        # Build detail strings (same NaT-on-empty guard as above).
+        if len(train_idx) > 0:
+            train_details = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
+        else:
+            train_details = "(empty)"
         val_details = _build_details(timestamps, val_idx, val_idx_seq, n_val_shuf, "R")
         test_details = _build_details(timestamps, test_idx, test_idx_seq, n_test_shuf, "R")
 
@@ -249,6 +267,24 @@ def make_train_test_split(
             train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)):]
 
         train_details, val_details, test_details = "", "", ""
+
+    # Silent-empty-split warning: user requested a non-zero val/test fraction
+    # but wound up with 0 rows. Happens in practice when wholeday_splitting=True
+    # and all rows share a single date (n_unique_days=1, int(1*0.1)=0), or
+    # when val_size*test_size was small enough to round to 0 at low n.
+    # Emit a WARNING so the user notices instead of silently losing splits.
+    if val_size > 0 and len(val_idx) == 0:
+        logger.warning(
+            "val_size=%s requested but val split is empty (possibly because "
+            "wholeday_splitting collapsed to a single date, or n_rows*val_size<1).",
+            val_size,
+        )
+    if test_size > 0 and len(test_idx) == 0:
+        logger.warning(
+            "test_size=%s requested but test split is empty (possibly because "
+            "wholeday_splitting collapsed to a single date, or n_rows*test_size<1).",
+            test_size,
+        )
 
     logger.info(
         f"{len(train_idx):_} train rows {train_details}, "

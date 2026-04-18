@@ -5,7 +5,7 @@ Uses Pydantic for validation while supporting dict-like instantiation for backwa
 All config classes support lenient validation - inputs are normalized to canonical forms.
 """
 
-from typing import Optional, Dict, Any, List, Callable, Tuple, Literal, Union
+from typing import Optional, Dict, Any, List, Callable, Tuple, Literal, Union, ClassVar, FrozenSet
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, ConfigDict, model_validator, field_validator
@@ -77,7 +77,16 @@ class TargetTypes(StrEnum):
 
 
 class BaseConfig(BaseModel):
-    """Base configuration class with flexible dict support."""
+    """Base configuration class with flexible dict support.
+
+    Uses ``extra="allow"`` so user-supplied kwargs flow through to downstream
+    callees (e.g. ``hyperparams_config={"mae_weight": 1.0}`` is not declared
+    on ``ModelHyperparamsConfig`` but is consumed by ``get_training_configs``
+    via ``**config_params``). Downside: typos like ``iteratoins=100`` get
+    silently absorbed. The ``_warn_on_unknown_extras`` validator below issues
+    a WARNING so typos are noticed (unless a subclass sets the
+    ``_known_extras`` class attribute to list the legitimate extras).
+    """
 
     model_config = ConfigDict(
         extra="allow",  # Allow extra fields for flexibility
@@ -85,6 +94,36 @@ class BaseConfig(BaseModel):
         validate_assignment=True,
         protected_namespaces=(),  # Allow model_ prefix for field names
     )
+
+    #: Subclasses may list extra kwargs that are legitimately consumed
+    #: downstream (e.g. ``ModelHyperparamsConfig`` -> ICE metric weights
+    #: ``mae_weight`` / ``std_weight`` / ...). Entries here do not emit
+    #: the "unknown extra" warning. Declared on the subclass like:
+    #:     _known_extras: ClassVar[FrozenSet[str]] = frozenset({"mae_weight", ...})
+    _known_extras: "ClassVar[FrozenSet[str]]" = frozenset()
+
+    @model_validator(mode="after")
+    def _warn_on_unknown_extras(self) -> "BaseConfig":
+        """Log a WARNING for each extra field that is not a known pass-through.
+
+        Catches the common typo class (``iteratoins`` for ``iterations``,
+        ``prefer_calibrated_classifer`` missing an ``i``, etc.) that
+        ``extra="allow"`` otherwise swallows without feedback.
+        """
+        extras = self.model_extra or {}
+        if not extras:
+            return self
+        known = type(self)._known_extras
+        unknown = [k for k in extras if k not in known]
+        if unknown:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "%s received unknown field(s) %s — these are accepted (extra='allow') "
+                "but NOT declared on the model. If this is a typo for a real field, "
+                "the value will have no effect. Known pass-through extras: %s",
+                type(self).__name__, sorted(unknown), sorted(known) or "(none declared)",
+            )
+        return self
 
 
 class PreprocessingConfig(BaseConfig):
@@ -145,7 +184,11 @@ class TrainingSplitConfig(BaseConfig):
     shuffle_test: bool = False
     val_sequential_fraction: float = Field(default=0.5, ge=0.0, le=1.0)
     test_sequential_fraction: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    trainset_aging_limit: Optional[float] = None
+    # ``None`` = no aging. When set, must be strictly in (0, 1). Previously
+    # this field was unvalidated, letting -0.5 / 1.5 / 0 propagate silently
+    # to make_train_test_split (which now rejects them too, but the earlier
+    # the better).
+    trainset_aging_limit: Optional[float] = Field(default=None, gt=0.0, lt=1.0)
     wholeday_splitting: bool = True
     random_seed: int = DEFAULT_RANDOM_SEED
 
@@ -643,10 +686,35 @@ class ModelHyperparamsConfig(BaseConfig):
         Extra NGBoost constructor kwargs.
     """
 
+    # Legitimate pass-through extras consumed by ``get_training_configs``
+    # via ``**config_params``. Adding a name here silences the
+    # "unknown field" warning from BaseConfig when users pass it through
+    # ``hyperparams_config={"mae_weight": 2.0, ...}``.
+    _known_extras: ClassVar[FrozenSet[str]] = frozenset({
+        # ICE-metric weights (see metrics.integral_calibration_error_from_metrics)
+        "mae_weight", "std_weight", "roc_auc_weight", "pr_auc_weight",
+        "brier_loss_weight", "min_roc_auc", "roc_auc_penalty",
+        # Robustness / integral-error bin config
+        "robustness_num_ts_splits", "robustness_std_coeff",
+        "robustness_greater_is_better",
+        "nbins", "cont_nbins", "method", "use_weighted_calibration",
+        "weight_by_class_npositives",
+        # Scoring + metric defaults
+        "def_classif_metric", "def_regr_metric",
+        # Training infra knobs
+        "validation_fraction", "use_explicit_early_stopping",
+        "random_seed", "verbose",
+        # Non-classif extras
+        "catboost_custom_regr_metrics",
+    })
+
     has_time: bool = False
-    learning_rate: float = 0.2
-    iterations: int = 700
-    early_stopping_rounds: Optional[int] = 100
+    # Range validators added 2026-04-19 — previously any garbage
+    # (learning_rate=-0.1, iterations=0, etc.) propagated silently to the
+    # tree backends and surfaced as confusing errors much later.
+    learning_rate: float = Field(default=0.2, gt=0.0, le=1.0)
+    iterations: int = Field(default=700, ge=1)
+    early_stopping_rounds: Optional[int] = Field(default=100, ge=1)
     catboost_custom_classif_metrics: Optional[List[str]] = None
     rfecv_kwargs: Dict[str, Any] = Field(default_factory=lambda: {
         "max_runtime_mins": DEFAULT_RFECV_MAX_RUNTIME_MINS,

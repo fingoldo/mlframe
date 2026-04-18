@@ -151,6 +151,96 @@ Run the whole suite in parallel (falls back to rerunning last-failed verbosely):
 pytest tests/ -n auto --maxprocesses=16 --dist loadscope && exit 0 || pytest tests/ -vv --lf
 ```
 
+## Testing approach: reactive + proactive
+
+Every non-trivial bug fixed in mlframe should land with two kinds of tests,
+not just one. They catch different classes of regressions and together
+approximate "this bug cannot come back nor spawn a sibling nearby".
+
+### Reactive sensors — "don't break what's already fixed"
+
+Classical regression tests: a concrete scenario that used to fail now
+passes. Anchored to a specific commit / issue / production symptom.
+
+Examples in this repo:
+- `tests/training/test_cb_polars_fallback.py::test_fallback_decategorizes_text_columns_before_retry` — a pd.Categorical text column must not arrive at the CatBoost retry (otherwise CB raises "dtype 'category' but not in cat_features list"). The assertion message names the exact backend error.
+- `tests/training/test_splitting_edges.py::test_test_size_1_with_timestamps_does_not_crash_on_empty_train` — `test_size=1.0` + timestamps used to hit `NaTType does not support strftime` on the empty-train date-range format.
+- `tests/test_preprocessing.py::test_pandas_text_feature_skips_expensive_astype_rebuild` — perf budget sensor: prep_cb on a 50 k × 5 k-unique text column must finish in < 2 s (the pre-fix `astype(str).astype("category")` dance took minutes).
+
+Rules of thumb for reactive sensors:
+- **Name the production symptom in the docstring.** A future regression is easier to diagnose when the test title and error message name the exact user-visible error.
+- **Keep the dataset small and deterministic.** Seed RNGs; avoid `tmp_path`-sensitive fixtures unless the bug is file-IO-specific.
+- **Include a perf budget** when the bug was "this was slow / hung".
+
+### Proactive probes — "what else looks wrong in this neighbourhood?"
+
+After the reactive tests pass, spend ~10 minutes running what-if
+experiments around the modified surface. This is where most of the
+second-order bugs are caught.
+
+Pattern: write a one-shot Python snippet that stresses edge cases
+nobody wrote a test for yet:
+
+```python
+# adapt to the module under review
+def check(name, fn):
+    try: fn(); print(f"[{name}] OK")
+    except Exception as e: print(f"[{name}] CRASH: {type(e).__name__}: {e}")
+
+check("None arg",       lambda: f(None))
+check("empty list",     lambda: f([]))
+check("negative size",  lambda: f(-0.1))
+check("threshold edge", lambda: f(threshold=10, n_unique=10))  # strict vs non-strict
+check("overlap",        lambda: f(cat=['a'], text=['a']))
+check("huge input",     lambda: f(n=1_000_000))  # perf sanity + memory
+# ... etc.
+```
+
+Probe categories that have caught real bugs in mlframe so far:
+
+| Category | What it surfaces | Example finding (2026-04-19) |
+|---|---|---|
+| None-guard | `if x in arg` / `for x in arg` crash on `None` | `_auto_detect_feature_types(cat_features=None)` → TypeError |
+| Empty input | `.min()` on empty → `NaT`; `/ len(x)` → ZeroDiv | `make_train_test_split(test_size=1.0, timestamps=ts)` → NaT strftime |
+| Boundary | `>` vs `>=`; sizes at 0 / 1 / threshold | `cat_text_cardinality_threshold` `>` is correct, regression to `>=` caught |
+| Dtype edge | `pl.Enum` ≠ `pl.Categorical` for `dtype in (...)` | `pl.Enum` high-cardinality columns never promoted to text |
+| State leak | in-place mutation of shared arg | `prepare_df_for_catboost(cat_features=list)` appends across calls |
+| Silent overlap | same column in two feature-type lists | `_validate_feature_type_exclusivity(None, ...)` failed to validate |
+| Orchestration | A must run before B | fallback `decategorize` after `prep_cb` → minutes-long hang |
+| Retry propagation | errors in retry path swallowed | pandas-retry failure must propagate up |
+
+When a probe surfaces a real bug:
+
+1. Fix it.
+2. Add a reactive sensor under `tests/**/` with the production symptom in the docstring.
+3. Keep the probe snippet in the commit message or in a `bench_*.py` file if it's reusable (e.g. perf benches in `bench_shared_dict_cache.py`, `bench_long_strings.py`).
+
+### Why both matter
+
+Reactive-only: comforting but narrow — the bugs they target have already
+been fixed, so they pass on first run and give a false sense of coverage.
+The string of production bugs on 2026-04-18/19 all slipped through
+reactive-only testing.
+
+Proactive-only: unbounded — the number of "what if" probes is infinite,
+and without a concrete anchor you can't tell "done".
+
+Together: reactive guards the fixed spots, proactive finds new spots, and
+every finding from proactive graduates to a reactive sensor.
+
+### Perf budgets
+
+Sensors that assert `elapsed < X s` or `RSS < Y MB` catch whole classes
+of regressions that functional tests can't:
+
+- `get_pandas_view_of_polars_df` on 500 k × 1 Categorical with 500 k uniques must finish < 5 s (`tests/training/test_utils.py::TestPolarsSliceDictionaryDiffers::test_high_cardinality_conversion_perf_budget`).
+- `prepare_df_for_catboost` on a 50 k × 5 k-unique text column declared as text_feature must finish < 2 s (the pre-fix path hit minutes).
+- `_convert_dfs_to_pandas` per-split timing is logged; a future regression that silently doubles conversion time would show up in the suite log diff.
+
+Budgets should be generous (3–5× realistic time on a dev box) so CI
+machine variance doesn't flake, but tight enough that a return to
+O(n·k) from O(n) trips them.
+
 ## Phase timing
 
 `train_mlframe_models_suite` instruments its hot paths with a lightweight

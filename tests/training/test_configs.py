@@ -340,7 +340,7 @@ class TestModelHyperparamsConfigHypothesis:
     @given(
         iterations=st.integers(1, 10000),
         learning_rate=st.floats(0.001, 1.0, allow_nan=False, allow_infinity=False),
-        early_stopping_rounds=st.integers(0, 1000),
+        early_stopping_rounds=st.integers(1, 1000),  # >=1 after 2026-04-19 range validator
     )
     @settings(max_examples=50, deadline=None)
     def test_round_trip_through_model_dump(self, iterations, learning_rate, early_stopping_rounds):
@@ -366,3 +366,119 @@ class TestTrainingBehaviorConfigHypothesis:
         restored = TrainingBehaviorConfig(**dumped)
         assert restored.nbins == nbins
         assert restored.cont_nbins == cont_nbins
+
+
+# ---------------------------------------------------------------------------
+# Range validators (added 2026-04-19 after a proactive Pydantic probe)
+# ---------------------------------------------------------------------------
+
+from mlframe.training.configs import ModelHyperparamsConfig
+
+
+class TestModelHyperparamsRangeValidators:
+    """Before 2026-04-19 these fields had no ``Field(ge=..., le=...)``
+    constraints; any garbage silently propagated to CatBoost / LightGBM /
+    XGBoost where it surfaced as confusing fit-time errors. These tests
+    are the regression sensors.
+    """
+
+    @pytest.mark.parametrize("lr", [-0.5, 0.0, 1.1, 10.0])
+    def test_learning_rate_out_of_range_raises(self, lr):
+        with pytest.raises(ValidationError, match="learning_rate"):
+            ModelHyperparamsConfig(learning_rate=lr)
+
+    @pytest.mark.parametrize("lr", [0.001, 0.1, 1.0])
+    def test_learning_rate_in_range_accepted(self, lr):
+        cfg = ModelHyperparamsConfig(learning_rate=lr)
+        assert cfg.learning_rate == lr
+
+    @pytest.mark.parametrize("it", [-1, 0])
+    def test_iterations_must_be_positive(self, it):
+        with pytest.raises(ValidationError, match="iterations"):
+            ModelHyperparamsConfig(iterations=it)
+
+    @pytest.mark.parametrize("esr", [-1, 0])
+    def test_early_stopping_rounds_must_be_positive(self, esr):
+        with pytest.raises(ValidationError, match="early_stopping_rounds"):
+            ModelHyperparamsConfig(early_stopping_rounds=esr)
+
+    def test_early_stopping_rounds_none_allowed(self):
+        """None explicitly means "no early stopping"."""
+        cfg = ModelHyperparamsConfig(early_stopping_rounds=None)
+        assert cfg.early_stopping_rounds is None
+
+
+class TestTrainingSplitAgingValidator:
+    """``trainset_aging_limit`` used to accept -0.5, 1.5, 0 silently."""
+
+    @pytest.mark.parametrize("val", [-0.5, 0.0, 1.0, 1.5])
+    def test_out_of_range_rejected(self, val):
+        with pytest.raises(ValidationError, match="trainset_aging_limit"):
+            TrainingSplitConfig(trainset_aging_limit=val)
+
+    @pytest.mark.parametrize("val", [0.01, 0.5, 0.99])
+    def test_in_range_accepted(self, val):
+        cfg = TrainingSplitConfig(trainset_aging_limit=val)
+        assert cfg.trainset_aging_limit == val
+
+    def test_none_is_noop_signal(self):
+        cfg = TrainingSplitConfig(trainset_aging_limit=None)
+        assert cfg.trainset_aging_limit is None
+
+
+class TestTypoWarningOnUnknownExtras:
+    """``extra='allow'`` is kept for legitimate pass-through kwargs
+    (ICE-metric weights, scoring configs, etc.). Typos like
+    ``iteratoins=100`` used to be silently swallowed; the new
+    ``_warn_on_unknown_extras`` validator emits a WARNING so a typo
+    is at least visible in the log.
+    """
+
+    def test_typo_on_behavior_config_warns(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.configs"):
+            from mlframe.training.configs import TrainingBehaviorConfig
+            TrainingBehaviorConfig(iteratoins=100)  # typo: iterations
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert any("iteratoins" in r.message for r in warnings), (
+            "typo 'iteratoins' must produce a WARNING about unknown field"
+        )
+
+    def test_known_extras_dont_warn(self, caplog):
+        """``ModelHyperparamsConfig`` accepts ICE-metric weights as
+        legitimate pass-through; they must NOT trigger the warning."""
+        import logging
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.configs"):
+            ModelHyperparamsConfig(mae_weight=2.0, std_weight=0.5,
+                                    brier_loss_weight=1.0)
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert not warnings, (
+            f"known ICE-weight extras must not warn, got: {[r.message for r in warnings]}"
+        )
+
+    def test_mixed_known_and_typo(self, caplog):
+        """If user passes one valid extra + one typo, the warning must
+        list the typo as unknown but NOT the valid extra. The warning
+        message format is:
+            "... received unknown field(s) ['mea_weight'] — these are ..."
+        We check that ``mea_weight`` appears in the unknown-list
+        portion (before the em-dash) and ``mae_weight`` does not.
+        """
+        import logging
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.configs"):
+            ModelHyperparamsConfig(mae_weight=2.0, mea_weight=3.0)
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert warnings, "typo must produce a warning"
+
+        for w in warnings:
+            # The part before the em-dash is the "unknown field(s) [...]"
+            # list; everything after lists the *known* extras.
+            unknown_portion = w.message.split("—")[0] if "—" in w.message else w.message
+            assert "mea_weight" in unknown_portion, (
+                f"typo 'mea_weight' must appear in the unknown-field list. "
+                f"Unknown portion: {unknown_portion!r}"
+            )
+            assert "mae_weight" not in unknown_portion, (
+                f"known 'mae_weight' must NOT appear in the unknown-field list. "
+                f"Unknown portion: {unknown_portion!r}"
+            )
