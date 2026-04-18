@@ -337,10 +337,12 @@ class TestGPUSupport:
         assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     @pytest.mark.parametrize("model_name", ["cb", "xgb"])
-    def test_gpu_configuration(self, model_name, sample_regression_data, temp_data_dir, check_gpu_available, common_init_params, fast_iterations):
+    def test_gpu_configuration(self, model_name, sample_regression_data, temp_data_dir, check_gpu_available, check_catboost_gpu_available, common_init_params, fast_iterations):
         """Test GPU configuration for cb and xgb (if GPU available)."""
         if not check_gpu_available:
             pytest.skip("GPU not available")
+        if model_name == "cb" and not check_catboost_gpu_available:
+            pytest.skip("CatBoost GPU runtime not installed on this host")
 
         df, feature_names, y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
@@ -1120,10 +1122,12 @@ class TestPredictionValidation:
 class TestGPUUsageVerification:
     """Verify GPU is actually used when configured."""
 
-    def test_catboost_gpu_training_params(self, sample_regression_data, temp_data_dir, check_gpu_available, common_init_params, fast_iterations):
+    def test_catboost_gpu_training_params(self, sample_regression_data, temp_data_dir, check_gpu_available, check_catboost_gpu_available, common_init_params, fast_iterations):
         """Test CatBoost GPU configuration is properly applied."""
         if not check_gpu_available:
             pytest.skip("GPU not available")
+        if not check_catboost_gpu_available:
+            pytest.skip("CatBoost GPU runtime not installed on this host")
 
         df, feature_names, y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)

@@ -298,6 +298,23 @@ def check_gpu_available():
         return False
 
 
+@pytest.fixture
+def check_catboost_gpu_available():
+    """Check whether CatBoost specifically can use GPU.
+
+    `check_gpu_available` is too permissive — it only verifies that *some*
+    CUDA device exists via numba. CatBoost ships its own GPU runtime that
+    may not be installed on all dev boxes (error observed:
+    ``Environment for task type [GPU] not found``). Gate CatBoost-GPU tests
+    on this check instead.
+    """
+    try:
+        from catboost.utils import get_gpu_device_count
+        return get_gpu_device_count() > 0
+    except Exception:
+        return False
+
+
 @pytest.fixture(scope="session")
 def common_init_params():
     """Common init_common_params to suppress matplotlib figures in tests."""

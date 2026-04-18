@@ -373,8 +373,13 @@ def _setup_model_info_and_paths(model, model_name, model_name_prefix, plot_file,
     if model_type_name not in model_name:
         model_name = model_type_name + " " + model_name
 
-    ensure_dir_exists(join(data_dir, models_subdir))
-    model_file_name = join(data_dir, models_subdir, f"{model_name}.dump")
+    # Falsy guard: avoid creating a relative `./models/` leak when data_dir="".
+    # See also `_setup_model_directories` in core.py.
+    if data_dir and models_subdir:
+        ensure_dir_exists(join(data_dir, models_subdir))
+        model_file_name = join(data_dir, models_subdir, f"{model_name}.dump")
+    else:
+        model_file_name = ""
 
     return model_obj, model_type_name, model_name, plot_file, model_file_name
 

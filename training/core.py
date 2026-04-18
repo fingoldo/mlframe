@@ -463,13 +463,19 @@ def _setup_model_directories(
     """
     parts = slugify(target_name), slugify(model_name), slugify(target_type.lower()), slugify(cur_target_name)
 
-    if data_dir is not None and save_charts:
+    # Falsy check (not `is not None`) — an empty string `data_dir=""` means "no
+    # persistence", same as `None`. Treating "" as truthy would create a
+    # relative "./charts" / "./models" leak in the CWD. Old artifacts from such
+    # leaks can even be loaded back from disk on subsequent runs, which caused
+    # a hard-to-diagnose sklearn 1.8 `SimpleImputer._fill_dtype` missing crash
+    # when the leaked pickle was from sklearn 1.7.
+    if data_dir and save_charts:
         plot_file = join(data_dir, "charts", *parts) + os.path.sep
         ensure_dir_exists(plot_file)
     else:
         plot_file = None
 
-    if data_dir is not None and models_dir is not None:
+    if data_dir and models_dir:
         model_file = join(data_dir, models_dir, *parts) + os.path.sep
         ensure_dir_exists(model_file)
     else:

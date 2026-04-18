@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-04-18 — Full test suite green; `data_dir=""` no longer leaks artifacts to CWD
+
+### Fixed
+- `_setup_model_directories` (`training/core.py` L466-478): switched from `data_dir is not None` to truthy check. Previously, passing `data_dir=""` satisfied `data_dir is not None`, causing the code to `join("", "charts"/"models", ...)` which produced **relative** `./charts/` and `./models/` paths. Artifacts were written to the **current working directory** — the mlframe repo root when tests were invoked from there. This had a subtle cascading effect: on a subsequent test run with a newer sklearn version, `train_mlframe_models_suite` would find and load these stale pickles, surfacing as `AttributeError: 'SimpleImputer' object has no attribute '_fill_dtype'` (sklearn 1.7→1.8 attribute that didn't exist in the pickled state). That's the failure mode previously documented in the README TODO as an "sklearn 1.8 compat issue" — actually an mlframe-side leak, not a sklearn bug.
+- `_setup_model_info_and_paths` (`training/trainer.py` L376-381): same falsy guard. Avoids a second relative `./models/` leak path when only the inner function is called.
+
+### Test infrastructure
+- Added `check_catboost_gpu_available` fixture in `tests/training/conftest.py`: checks `catboost.utils.get_gpu_device_count() > 0`. The existing `check_gpu_available` only verifies a CUDA device exists via numba, but CatBoost ships its own GPU runtime that may not be installed (error: `Environment for task type [GPU] not found`). Use this new fixture in CatBoost-specific GPU tests.
+- `tests/training/test_all_models.py::TestGPUSupport::test_gpu_configuration[cb]` and `TestGPUUsageVerification::test_catboost_gpu_training_params`: skip when CatBoost GPU runtime is absent (was: hard-fail on dev hosts).
+- `tests/training/test_bizvalue_preproc_transformers.py::test_dim_reducer_umap_optional`: gracefully skips on the UMAP×sklearn 1.8 incompatibility (UMAP still calls deprecated `check_array(force_all_finite=...)` — renamed to `ensure_all_finite` in sklearn 1.8). Third-party compat issue, not mlframe.
+
+### Test suite status
+Full `pytest tests/` passes end-to-end: **1994 passed, 40 skipped, 1 xfailed, 0 failed** (43:44). The previously-documented `test_no_artifact_files_when_no_data_dir` failure is gone — it was a symptom of the `data_dir=""` leak fixed above.
+
+### Notes for Windows runs
+- Before a full run, clear stale numba JIT caches: `find . -name "*.nbi" -delete; find . -name "*.nbc" -delete`. Stale caches trigger `Windows fatal exception: access violation` in `compute_numaggs` / similar kernels. This is documented in README "Troubleshooting".
+
 ## 2026-04-18 — Fix `prefer_calibrated_classifiers` no-op regression on base tree models
 
 ### Fixed
