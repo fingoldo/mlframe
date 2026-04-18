@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-04-19 — Auto-promote cat→text: correctly drop promoted cols + diagnostic + fallback timers
+
+### Fixed
+- **`cat_features` list was not updated after auto-promotion of high-cardinality columns to `text_features`** (`training/core.py`, around line 1456). `_auto_detect_feature_types` returned the promoted set, and local `effective_cat_features` was computed with promoted columns removed — but the suite-level `cat_features` binding was never rebound, so `select_target` / `strategy.build_pipeline` / the CatBoost pandas-fallback path all kept receiving the **original** unfiltered list (including the just-promoted `category`, `skills_text`, etc.). Result: CatBoost's pandas path rejected the run with `"column 'category' has dtype 'category' but is not in cat_features list"` — the column was pd.Categorical (preserved from the source Polars schema) AND listed in `text_features`, so CB's Pool refused to accept the combination. Fix: `cat_features = effective_cat_features` right after the auto-detect call, so every downstream user sees the deduplicated list via the single binding.
+- **`_train_model_with_fallback` now de-categorizes text columns after the Polars→pandas conversion** (`training/trainer.py`). Without this, columns that were auto-promoted from cat→text still arrived at CatBoost with pd.Categorical dtype; CB then complained "dtype 'category' but not in cat_features". New local `_decategorize_text_cols` helper casts every text-feature column with `pd.CategoricalDtype` to plain object (with `fillna("")`). Applied to both `train_df` and every `eval_set` pair.
+
+### Observability
+- **Promotion log now includes per-column cardinality** (`_auto_detect_feature_types`). Old line was opaque:
+  ```
+    Promoted 4 high-cardinality column(s) from cat_features to text_features: ['category', 'occupation', 'skills_text', 'ontology_skills_text']
+  ```
+  New output shows the threshold AND the actual per-column unique counts, so it's immediately obvious WHY each column was promoted:
+  ```
+    Promoted 4 high-cardinality column(s) from cat_features to text_features (threshold>100): [category:12_345, occupation:3_211, skills_text:52_480, ontology_skills_text:4_890]
+  ```
+  Same format reused for the "Auto-detected feature types — text: ..." summary.
+
+- **Per-step timing inside the CB Polars-fallback path** (`training/trainer.py`). A production run hit the fallback and spent >1 hour between the "converting to pandas and retrying" warning and the eventual CB retry (which itself was just 37 s). No intermediate log meant diagnosing what consumed that 65 minutes was impossible. New `[fallback]` lines break it down per sub-step:
+  ```
+    [fallback] polars→pandas(train) 810_000×98 in ...s
+    [fallback] prepare_df_for_catboost(train) in ...s
+    [fallback] decategorize text cols(train) in ...s
+    [fallback] eval_set rewrite in ...s
+    [fallback] total pandas prep for CB in ...s
+  ```
+  The next fallback run will show which step is the real bottleneck and inform the decision on whether `get_pandas_view_of_polars_df` needs a shared-dict optimization or whether the cost lives somewhere else (e.g. `prepare_df_for_catboost`'s pandas-side per-column loops).
+
 ## 2026-04-18 — Log-triage part 3: PHASE 3 gc timer + pandas-conv reason
 
 ### Observability

@@ -153,6 +153,7 @@ def _auto_detect_feature_types(
     threshold = feature_types_config.cat_text_cardinality_threshold
     user_assigned = set(text_features) | set(embedding_features)
     promoted: list = []  # cat_features -> text_features, for in-place removal
+    cardinalities: dict = {}  # per auto-detected text col: n_unique (for diagnostic log)
 
     if isinstance(df, pl.DataFrame):
         for name, dtype in df.schema.items():
@@ -168,6 +169,7 @@ def _auto_detect_feature_types(
                 n_unique = df[name].n_unique()
                 if n_unique > threshold:
                     text_features.append(name)
+                    cardinalities[name] = n_unique
                     if name in cat_features:
                         promoted.append(name)
     else:
@@ -180,6 +182,7 @@ def _auto_detect_feature_types(
                 n_unique = df[col].nunique()
                 if n_unique > threshold:
                     text_features.append(col)
+                    cardinalities[col] = n_unique
                     if col in cat_features:
                         promoted.append(col)
 
@@ -190,12 +193,25 @@ def _auto_detect_feature_types(
         except ValueError:
             pass
 
+    def _fmt_with_cardinality(names):
+        """'col1:500, col2:12_345' — makes it obvious *why* a column was
+        promoted vs the configured threshold."""
+        parts = []
+        for n in names:
+            nu = cardinalities.get(n)
+            parts.append(f"{n}:{nu:_}" if nu is not None else n)
+        return "[" + ", ".join(parts) + "]"
+
     if verbose and (text_features or embedding_features or promoted):
         if promoted:
             logger.info(
-                f"  Promoted {len(promoted)} high-cardinality column(s) from cat_features to text_features: {promoted}"
+                f"  Promoted {len(promoted)} high-cardinality column(s) from cat_features to text_features "
+                f"(threshold>{threshold}): {_fmt_with_cardinality(promoted)}"
             )
-        logger.info(f"  Auto-detected feature types — text: {text_features or '(none)'}, embedding: {embedding_features or '(none)'}")
+        logger.info(
+            f"  Auto-detected feature types — text: {_fmt_with_cardinality(text_features) if text_features else '(none)'}, "
+            f"embedding: {embedding_features or '(none)'}"
+        )
 
     return text_features, embedding_features
 
@@ -1455,6 +1471,18 @@ def train_mlframe_models_suite(
     text_emb_set = set(text_features) | set(embedding_features)
     effective_cat_features = [c for c in raw_cat_features if c not in text_emb_set]
     _validate_feature_type_exclusivity(text_features, embedding_features, effective_cat_features)
+
+    # CRITICAL: downstream code (select_target, strategy.build_pipeline, the CB
+    # pandas-fallback path in _train_model_with_fallback, etc.) must see the
+    # *deduplicated* list. Before this reassignment the unfiltered ``cat_features``
+    # still contained text-promoted columns like 'category' / 'skills_text', and
+    # CatBoost's pandas path then rejected the run with
+    #   "column 'category' has dtype 'category' but is not in cat_features list"
+    # — the column was pd.Categorical in the pandas view (preserved from the
+    # original Polars schema) AND listed in text_features, so CB's Pool
+    # refused to accept it. Reassigning here flows the correct set to every
+    # downstream user via the single ``cat_features`` binding.
+    cat_features = effective_cat_features
 
     # One-time Polars string→Categorical cast (shared across all models in the loop).
     # XGBoost's arrow bridge rejects pl.Utf8/large_string ("KeyError: DataType(large_string)");

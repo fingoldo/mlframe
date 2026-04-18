@@ -929,12 +929,46 @@ def _train_model_with_fallback(
             cat_feat = list(fit_params.get("cat_features") or [])
             text_feat = list(fit_params.get("text_features") or [])
 
+            def _decategorize_text_cols(df):
+                """CatBoost's pandas path rejects columns that are pd.Categorical
+                but not in cat_features with "column 'X' has dtype 'category' but
+                is not in cat_features list". Columns auto-promoted from
+                cat_features → text_features keep a pd.Categorical dtype after
+                the Polars→pandas zero-copy conversion. Cast those to plain
+                object to keep CB happy (and preserve the string content).
+                """
+                if not text_feat:
+                    return df
+                for col in text_feat:
+                    if col in df.columns and isinstance(df[col].dtype, pd.CategoricalDtype):
+                        df[col] = df[col].astype("object").fillna("")
+                return df
+
+            # Per-step timing for the fallback: a production run showed this
+            # entire path consumed >1 hour on a 1M × 98 frame with 4
+            # high-cardinality text columns — without timing it was impossible
+            # to tell which step (Polars→pandas vs. prep_cb vs. decategorize)
+            # was responsible. The timer log writes to the trainer logger so
+            # the lines interleave with surrounding INFO output.
+            t0_fb = timer()
+            shape_str = f"{train_df.shape[0]:_}×{train_df.shape[1]}" if hasattr(train_df, "shape") else "?"
+
+            t0 = timer()
             train_df = get_pandas_view_of_polars_df(train_df)
+            logger.info(f"  [fallback] polars→pandas(train) {shape_str} in {timer() - t0:.1f}s")
+
+            t0 = timer()
             train_df = _prep_cb(train_df, cat_features=cat_feat, text_features=text_feat)
+            logger.info(f"  [fallback] prepare_df_for_catboost(train) in {timer() - t0:.1f}s")
+
+            t0 = timer()
+            train_df = _decategorize_text_cols(train_df)
+            logger.info(f"  [fallback] decategorize text cols(train) in {timer() - t0:.1f}s")
 
             # eval_set carries the val split for CB — rewrite it too.
             eval_set = fit_params.get("eval_set")
             if eval_set is not None:
+                t0_es = timer()
                 pairs = eval_set if isinstance(eval_set, list) else [eval_set]
                 new_pairs = []
                 for pair in pairs:
@@ -942,8 +976,12 @@ def _train_model_with_fallback(
                     if isinstance(X_val, pl.DataFrame):
                         X_val = get_pandas_view_of_polars_df(X_val)
                         X_val = _prep_cb(X_val, cat_features=cat_feat, text_features=text_feat)
+                    X_val = _decategorize_text_cols(X_val) if isinstance(X_val, pd.DataFrame) else X_val
                     new_pairs.append((X_val, y_val))
                 fit_params["eval_set"] = new_pairs if isinstance(eval_set, list) else new_pairs[0]
+                logger.info(f"  [fallback] eval_set rewrite in {timer() - t0_es:.1f}s")
+
+            logger.info(f"  [fallback] total pandas prep for CB in {timer() - t0_fb:.1f}s")
             try_again = True
 
         elif "unexpected keyword argument" in error_str and any(param in error_str for param in ("X_val", "y_val", "eval_set")):
