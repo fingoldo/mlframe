@@ -48,7 +48,7 @@ import polars as pl, pandas as pd, numpy as np
 from pyutilz.system import tqdmu
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
-from .training import report_model_perf
+from .training.evaluation import report_model_perf
 
 import netcal, pycalib
 from pycalib import models  # must be
