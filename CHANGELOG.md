@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-04-18 — ICE penalty ramp + `prepare_df_for_catboost` dtype preservation
+
+### Fixed
+- **`integral_calibration_error_from_metrics` (`metrics.py:1146-1178`)**: the `roc_auc_penalty` sub-threshold mechanism was a step cliff — `if |auc-0.5| < min_roc_auc-0.5: res += roc_auc_penalty`. That discontinuity could trap CatBoost/XGB/LGBM early stopping just inside the penalty zone (pick the first iter with `auc≈0.5` that has trivially-good calibration, refuse to cross the cliff). Replaced with a **linear ramp**: penalty contribution is `roc_auc_penalty * deficit / threshold_width`, where `deficit = threshold_width - |auc-0.5|` for points inside the zone and 0 outside. **Knob semantics preserved** — `roc_auc_penalty=X` still gives `X` at the worst case `auc==0.5`, and fades smoothly to 0 at `auc==min_roc_auc`. Callers that relied on the step (typically `roc_auc_penalty=0` default) are unaffected.
+- **`prepare_df_for_catboost` (`preprocessing.py:58-66`, `preprocessing.py:117-139`)**: the function was silently widening narrow-precision columns to float64. Two offenders:
+  - **Pandas branch**: bare `astype(float)` on any extension-array dtype — `pd.Float32Dtype` → `float64`, `pd.Int8/16/32Dtype` → `float64`, `pd.BooleanDtype` → `float64`. Cost: 2× memory and 2× GPU bandwidth on users who had deliberately picked narrow precision.
+  - **Polars branch**: every nullable int/bool → `Float64`, regardless of width. Cost: same as above.
+
+  Replaced with precision-preserving/narrowing logic:
+  - `pd.Float32Dtype` → `np.float32` (was `float64`)
+  - `pd.Float64Dtype` → `np.float64` (unchanged)
+  - `pd.Int8/16/32Dtype`, `pd.UInt8/16/32Dtype`, `pd.BooleanDtype` → `np.float32` (values fit exactly, was `float64`)
+  - `pd.Int64Dtype` / `pd.UInt64Dtype` → `np.float64` (>~2**24 loses precision in float32, unchanged)
+  - Polars: same pattern mirrored via `pl.Float32` / `pl.Float64`. Columns **without** nulls are no longer touched at all (micro-opt).
+
+  Non-nullable `np.float32` columns were never touched and still aren't.
+
+### Tests
+- New `tests/test_metrics.py::TestICEPenaltyRamp` (8 tests): ramp is zero outside zone, max `=roc_auc_penalty` at `auc=0.5`, linear interior, symmetric about 0.5 (inverted rankers), **continuous across threshold** (regression sensor against re-introducing the step cliff — max adjacent-sample delta bounded by the Lipschitz constant), monotonic below threshold, respects `roc_auc_penalty=0`, guard against `min_roc_auc<=0.5` (no penalty zone), and the no-opt default-args path.
+- New `tests/test_preprocessing.py` (39 parametrised tests): dtype preservation/narrowing across all pandas extension dtypes, non-nullable `np.float32` passthrough, end-to-end null-fill for `pd.Float32Dtype`, all polars int/uint/bool/float widths both with and without nulls, and a micro-opt guard that no-null int columns aren't cast at all.
+
 ## 2026-04-18 — Full test suite green; `data_dir=""` no longer leaks artifacts to CWD
 
 ### Fixed

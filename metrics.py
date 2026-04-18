@@ -1159,8 +1159,21 @@ def integral_calibration_error_from_metrics(
     roc_auc_penalty: float = 0.00,
 ) -> float:
     """Compute Integral Calibration Error (ICE) from base ML metrics.
-    ICE is a weighted sum of baseline losses-"roc_auc goodness over 0.5".
-    If roc_auc is not good enough, it incurs additional penalty.
+
+    ICE is a weighted sum of baseline losses minus rewards for sharp ranking
+    (roc_auc, pr_auc). When ``roc_auc`` is weaker than ``min_roc_auc``, a
+    penalty smoothly ramps up from 0 at the threshold to ``roc_auc_penalty``
+    at the worst case ``roc_auc == 0.5`` (complete random). The ramp is
+    linear in the deficit and symmetric about 0.5 (so an inverted ranker at
+    e.g. 0.45 is penalised the same as one at 0.55-epsilon, matching the
+    symmetric reward term ``-|roc_auc-0.5|*roc_auc_weight``).
+
+    Keeping ``roc_auc_penalty`` as the "max penalty" knob preserves the
+    prior semantics: old callers that set e.g. 3.0 still get a 3.0 bump at
+    auc=0.5. What changed: the penalty now tapers smoothly to 0 as auc
+    approaches ``min_roc_auc`` instead of dropping off a step cliff — this
+    avoids jumpy early-stopping curves that could fixate just inside the
+    penalty zone when the step was large.
     """
     res = (
         brier_loss * brier_loss_weight
@@ -1169,8 +1182,11 @@ def integral_calibration_error_from_metrics(
         - np.abs(roc_auc - 0.5) * roc_auc_weight
         - pr_auc * pr_auc_weight
     )
-    if np.abs(roc_auc - 0.5) < (min_roc_auc - 0.5):
-        res += roc_auc_penalty
+    threshold_width = min_roc_auc - 0.5
+    if threshold_width > 0.0:
+        deficit = threshold_width - np.abs(roc_auc - 0.5)
+        if deficit > 0.0:
+            res += (deficit / threshold_width) * roc_auc_penalty
     return res
 
 

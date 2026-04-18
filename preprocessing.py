@@ -14,7 +14,7 @@ from typing import *
 
 from .config import *
 
-import pandas as pd, polars as pl
+import numpy as np, pandas as pd, polars as pl
 from pyutilz.system import tqdmu
 
 
@@ -52,16 +52,22 @@ def prepare_df_for_catboost(
         if text_exprs:
             df = df.with_columns(text_exprs)
 
-        # Cast nullable integer/boolean columns to Float64 so that to_pandas() produces
-        # numpy float64 with np.nan instead of nullable Int64/boolean with pd.NA,
-        # which CatBoost cannot handle.
-        _NULLABLE_INT_BOOL = (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64, pl.Boolean)
+        # Cast nullable integer/boolean columns to Float* so that to_pandas() produces
+        # numpy floats with np.nan instead of nullable Int*/boolean with pd.NA, which
+        # CatBoost cannot handle. Preserve precision — Int8/16/32 and Boolean fit
+        # exactly into Float32, only Int64/UInt64 need Float64 to avoid silent loss
+        # beyond ~2**24.
+        _INT_BOOL_TO_F32 = (pl.Int8, pl.Int16, pl.Int32, pl.UInt8, pl.UInt16, pl.UInt32, pl.Boolean)
+        _INT_TO_F64 = (pl.Int64, pl.UInt64)
         numeric_exprs = []
         for var in cols:
             if var not in cat_features and var not in text_features:
                 dtype = df[var].dtype
-                if dtype in _NULLABLE_INT_BOOL and df[var].is_null().any():
-                    numeric_exprs.append(pl.col(var).cast(pl.Float64))
+                if df[var].is_null().any():
+                    if dtype in _INT_BOOL_TO_F32:
+                        numeric_exprs.append(pl.col(var).cast(pl.Float32))
+                    elif dtype in _INT_TO_F64:
+                        numeric_exprs.append(pl.col(var).cast(pl.Float64))
         if numeric_exprs:
             df = df.with_columns(numeric_exprs)
 
@@ -116,9 +122,24 @@ def prepare_df_for_catboost(
                             logger.warning(f"Could not convert column {var} to categorical.")
                 elif pd.api.types.is_extension_array_dtype(df[var].dtype):
                     # Nullable extension dtypes (Int64, Float64, boolean, etc.) use pd.NA,
-                    # which CatBoost cannot handle — convert to numpy float64 (pd.NA → np.nan)
+                    # which CatBoost cannot handle — convert to numpy floats so pd.NA → np.nan.
+                    # Preserve precision: Float32Dtype must stay float32 (callers explicitly
+                    # chose narrow precision for memory/GPU); Int8/16/32 and Boolean fit
+                    # exactly into float32, only Int64/UInt64/Float64 need float64.
                     try:
-                        df[var] = df[var].astype(float)
+                        src = df[var].dtype
+                        if isinstance(src, pd.Float32Dtype):
+                            target = np.float32
+                        elif isinstance(src, pd.Float64Dtype):
+                            target = np.float64
+                        elif isinstance(src, (pd.Int8Dtype, pd.Int16Dtype, pd.Int32Dtype,
+                                              pd.UInt8Dtype, pd.UInt16Dtype, pd.UInt32Dtype,
+                                              pd.BooleanDtype)):
+                            target = np.float32
+                        else:
+                            # Int64 / UInt64 / unknown extension: widen to float64.
+                            target = np.float64
+                        df[var] = df[var].astype(target)
                     except Exception:
                         pass
 

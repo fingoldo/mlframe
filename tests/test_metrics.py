@@ -39,6 +39,7 @@ from mlframe.metrics import (
     cb_logits_to_probs_binary,
     cb_logits_to_probs_multiclass,
     maximum_absolute_percentage_error,
+    integral_calibration_error_from_metrics,
 )
 
 
@@ -799,6 +800,108 @@ class TestRegression:
         result = brier_score_loss(y_true, y_prob)
 
         np.testing.assert_allclose(result, expected, rtol=1e-10)
+
+
+# =============================================================================
+# ICE — roc_auc_penalty linear ramp
+# =============================================================================
+
+class TestICEPenaltyRamp:
+    """Tests for the sub-threshold ramp in integral_calibration_error_from_metrics.
+
+    Contract:
+        - penalty contribution = 0 when |auc - 0.5| >= min_roc_auc - 0.5
+        - penalty contribution = roc_auc_penalty at auc == 0.5 (deepest deficit)
+        - linear in the deficit (not a step)
+        - symmetric about 0.5 (inverted ranker punished same as barely-positive)
+        - zero when roc_auc_penalty == 0
+        - no-op when min_roc_auc <= 0.5 (empty penalty zone)
+    """
+
+    @staticmethod
+    def _ice_with_zero_rest(auc, min_roc_auc, roc_auc_penalty):
+        """Run the ICE formula with all base weights zeroed so the result
+        is exactly the penalty contribution — isolates the thing under test.
+        """
+        return integral_calibration_error_from_metrics(
+            calibration_mae=0.0,
+            calibration_std=0.0,
+            calibration_coverage=1.0,
+            brier_loss=0.0,
+            roc_auc=auc,
+            pr_auc=0.0,
+            mae_weight=0.0,
+            std_weight=0.0,
+            roc_auc_weight=0.0,
+            pr_auc_weight=0.0,
+            brier_loss_weight=0.0,
+            min_roc_auc=min_roc_auc,
+            roc_auc_penalty=roc_auc_penalty,
+        )
+
+    def test_penalty_zero_outside_zone(self):
+        # auc=0.60 is above min_roc_auc=0.55 → outside → penalty 0
+        assert self._ice_with_zero_rest(0.60, 0.55, 3.0) == 0.0
+        # exactly at threshold → penalty ~0 (deficit rounds to FP noise, not a real penalty)
+        np.testing.assert_allclose(self._ice_with_zero_rest(0.55, 0.55, 3.0), 0.0, atol=1e-12)
+
+    def test_penalty_max_at_perfect_random(self):
+        # At auc=0.5 the deficit equals the full threshold_width → full penalty
+        penalty = self._ice_with_zero_rest(0.5, 0.55, 3.0)
+        np.testing.assert_allclose(penalty, 3.0, rtol=1e-10)
+
+    def test_penalty_linear_interior(self):
+        # Midway between 0.5 and 0.55 → half the penalty
+        penalty = self._ice_with_zero_rest(0.525, 0.55, 3.0)
+        np.testing.assert_allclose(penalty, 1.5, rtol=1e-10)
+
+    def test_penalty_symmetric_about_half(self):
+        # Inverted rankers (auc<0.5) feel the same ramp as barely-positive ones
+        left = self._ice_with_zero_rest(0.45, 0.55, 2.0)  # deficit=0.0, at boundary
+        np.testing.assert_allclose(left, 0.0, atol=1e-12)
+        left_inside = self._ice_with_zero_rest(0.47, 0.55, 2.0)  # deficit=0.02
+        right_inside = self._ice_with_zero_rest(0.53, 0.55, 2.0)  # deficit=0.02
+        np.testing.assert_allclose(left_inside, right_inside, rtol=1e-10)
+        # And both equal (0.02 / 0.05) * 2.0 = 0.8
+        np.testing.assert_allclose(left_inside, 0.8, rtol=1e-10)
+
+    def test_penalty_continuous_across_threshold(self):
+        # The replacement fixes the pre-existing step cliff. Sample a dense
+        # grid across the threshold and assert adjacent samples differ by
+        # at most the expected linear step — no jumps.
+        min_roc_auc, penalty = 0.55, 5.0
+        aucs = np.linspace(0.49, 0.60, 221)
+        vals = np.array([self._ice_with_zero_rest(a, min_roc_auc, penalty) for a in aucs])
+        steps = np.abs(np.diff(vals))
+        # Per-step max deficit change = 0.11 / 220 ≈ 5e-4 → max ICE delta ≈ 5e-4/0.05 * 5 = 0.05
+        assert steps.max() < 0.06, f"Step cliff regressed: max delta = {steps.max():.4f}"
+
+    def test_penalty_monotonic_below_threshold(self):
+        # Penalty grows as we move from threshold toward 0.5
+        penalties = [self._ice_with_zero_rest(a, 0.55, 3.0) for a in [0.55, 0.54, 0.53, 0.52, 0.51, 0.50]]
+        # Strictly non-decreasing, strictly increasing inside the interior
+        assert all(penalties[i] <= penalties[i + 1] + 1e-12 for i in range(len(penalties) - 1))
+        assert penalties[0] == 0.0
+        assert penalties[-1] > penalties[0]
+
+    def test_penalty_zero_when_knob_zero(self):
+        assert self._ice_with_zero_rest(0.5, 0.55, 0.0) == 0.0
+        assert self._ice_with_zero_rest(0.52, 0.55, 0.0) == 0.0
+
+    def test_no_penalty_when_min_roc_auc_at_half(self):
+        # threshold_width = 0 → guard prevents div-by-zero, penalty disabled
+        assert self._ice_with_zero_rest(0.50, 0.50, 5.0) == 0.0
+        assert self._ice_with_zero_rest(0.49, 0.50, 5.0) == 0.0
+
+    def test_default_args_produce_no_penalty(self):
+        # Defaults: roc_auc_penalty=0.0 → pure behaviour unchanged for callers
+        # that never opted into the penalty mechanism.
+        val = integral_calibration_error_from_metrics(
+            calibration_mae=0.01, calibration_std=0.01, calibration_coverage=1.0,
+            brier_loss=0.25, roc_auc=0.50, pr_auc=0.5,
+        )
+        # With penalty knob=0, ICE = 0.25*0.8 + 0.01*3 + 0.01*2 - |0|*1.5 - 0.5*0.1 = 0.2 + 0.03 + 0.02 - 0 - 0.05 = 0.2
+        np.testing.assert_allclose(val, 0.2, rtol=1e-10)
 
 
 if __name__ == "__main__":
