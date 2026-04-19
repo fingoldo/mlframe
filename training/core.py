@@ -2146,61 +2146,63 @@ def train_mlframe_models_suite(
 
                         # ROOT CAUSE of the 2026-04-19 CB Polars fastpath
                         # rejection (diagnosed correctly only at round 11
-                        # after two earlier misdiagnoses):
+                        # after three earlier misdiagnoses — see CHANGELOG):
                         # CatBoost 1.2.10's
                         # ``_set_features_order_data_polars_categorical_column``
                         # (Cython fused cpdef) has no dispatch signature for
                         # a Polars Categorical column carrying a validity
                         # bitmap — i.e. ``null_count > 0`` anywhere in any
-                        # cat_feature. A single null is enough to raise
-                        # ``TypeError: No matching signature found`` (see
-                        # ``bench_polars_cb_nullfrac.py`` sweep). Each
-                        # failed attempt burns 20–50 s per method call
-                        # (fit + predict_proba(val) + predict_proba(test))
-                        # before the pandas fallback kicks in, plus a
-                        # redundant polars→pandas conversion each time.
+                        # cat_feature. A single null raises
+                        # ``TypeError: No matching signature found``.
+                        # Verified in bench_polars_cb_nullfrac.py:
+                        #   null_frac=0.0 → OK
+                        #   null_frac=0.1 → FAIL
                         #
-                        # Proactive bypass: check nulls in cat_features
-                        # upfront. If any are present, flip
-                        # ``polars_fastpath_active`` to False now and let
-                        # the pandas path run — CB's pandas handler is
-                        # robust to NaN/None, and the conversion happens
-                        # once (shared by fit + predict_proba(val+test))
-                        # instead of thrice.
+                        # Fix: in-place ``fill_null`` with the string sentinel
+                        # ``"__MISSING__"`` on every Categorical cat_feature
+                        # that has nulls. Polars auto-extends the category
+                        # dictionary with the new value, the column loses
+                        # its validity bitmap, and CB's fastpath dispatcher
+                        # matches the non-nullable Categorical signature.
+                        # Keeps the fastpath alive — the alternative bypass
+                        # (route through pandas) cost the full 18-minute
+                        # CB fit on the 810k × 98 prod frame; the
+                        # fill-on-the-fly approach preserves the native
+                        # Polars fit.
                         #
-                        # Prior misdiagnoses (documented so we don't chase
-                        # them again): pl.Enum (round 7 — irrelevant, the
-                        # prod schema had no Enums), stale cat_features_polars
-                        # list (round 10 — genuine bug, but orthogonal;
-                        # fastpath still failed even after fix), Polars 1.x
-                        # large_string Arrow export (round 11 first attempt
-                        # — null-free Categorical works fine despite
-                        # large_string, disproved in bench_polars_largestring_cb_xgb.py).
+                        # Semantics: "__MISSING__" becomes its own category,
+                        # which is what CatBoost would do internally anyway
+                        # if we passed nulls through the pandas path
+                        # (``prepare_df_for_catboost`` fills with ``""``
+                        # there — same intent, different sentinel string).
                         from mlframe.training.trainer import _polars_df_has_null_in_categorical
-                        if _polars_df_has_null_in_categorical(prepared_train, cat_features=_cat_features):
+                        if mlframe_model_name == "cb" and _polars_df_has_null_in_categorical(
+                            prepared_train, cat_features=_cat_features
+                        ):
+                            nullable_cats = [
+                                c for c in (_cat_features or [])
+                                if c in prepared_train.columns
+                                and prepared_train[c].null_count() > 0
+                            ]
                             if verbose:
-                                logger.warning(
-                                    "  Polars fastpath pre-emptively disabled for %s: at least one "
-                                    "cat_feature has null values and CB 1.2.x's Polars "
-                                    "_set_features_order_data_polars_categorical_column fused cpdef "
-                                    "has no dispatch signature for nullable Categorical. Routing "
-                                    "through pandas — avoids 20–50s wasted fastpath attempts × 3 "
-                                    "methods (fit + predict_proba(val) + predict_proba(test)) and "
-                                    "2× redundant polars→pandas conversions.",
-                                    mlframe_model_name,
+                                logger.info(
+                                    "  CB Polars fastpath: filling nulls with '__MISSING__' in %d "
+                                    "nullable cat_feature(s) %s. CB 1.2.x's fastpath dispatcher "
+                                    "rejects Categorical columns with validity bitmaps; filling "
+                                    "keeps the fastpath alive (avoids the ~18-minute pandas-path "
+                                    "detour).",
+                                    len(nullable_cats), nullable_cats,
                                 )
-                            polars_fastpath_active = False
-                            # Build tier_pandas now since we skipped the else branch's build.
-                            tier_pandas = _build_tier_dfs(
-                                {"train_df": common_params.get("train_df"),
-                                 "val_df": common_params.get("val_df"),
-                                 "test_df": common_params.get("test_df")},
-                                strategy, text_features, embedding_features, tier_dfs_cache,
-                                verbose=verbose,
-                            )
-                            polars_fastpath_skip_preprocessing = False
-                        else:
-                            polars_fastpath_skip_preprocessing = strategy.requires_encoding
+                            fill_exprs = [
+                                pl.col(c).fill_null("__MISSING__") for c in nullable_cats
+                            ]
+                            prepared_train = prepared_train.with_columns(fill_exprs)
+                            if prepared_val is not None:
+                                prepared_val = prepared_val.with_columns(fill_exprs)
+                            if prepared_test is not None:
+                                prepared_test = prepared_test.with_columns(fill_exprs)
+
+                        polars_fastpath_skip_preprocessing = strategy.requires_encoding
                     else:
                         polars_fastpath_skip_preprocessing = False
 

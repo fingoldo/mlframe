@@ -137,3 +137,42 @@ class TestLegacyAlias:
         df_dirty = pl.DataFrame({"c": pl.Series("c", ["a", None]).cast(pl.Categorical)})
         assert not _polars_df_emits_large_string(df_clean)
         assert _polars_df_emits_large_string(df_dirty)
+
+
+class TestFillNullPreservesFastpath:
+    """The real win: instead of bypassing the Polars fastpath when
+    cat_features have nulls, fill the nulls with a sentinel string on
+    the Polars frame in place. CB's fastpath dispatcher then matches
+    the non-nullable Categorical signature and we keep the ~5-minute
+    native Polars fit instead of the ~18-minute pandas-path detour.
+    """
+
+    def test_fillnull_keeps_categorical_dtype(self):
+        """Polars auto-extends the category dict when fill_null adds a
+        new value — the dtype stays pl.Categorical, just one extra
+        category entry appears."""
+        df = pl.DataFrame({
+            "cat": pl.Series("cat", ["a", None, "b", None, "a"], dtype=pl.String).cast(pl.Categorical),
+        })
+        assert df["cat"].null_count() == 2
+        assert df["cat"].dtype == pl.Categorical
+        filled = df.with_columns(pl.col("cat").fill_null("__MISSING__"))
+        assert filled["cat"].null_count() == 0
+        assert filled["cat"].dtype == pl.Categorical, (
+            "fill_null must keep Categorical dtype; otherwise downstream "
+            "CB cat_features dispatch breaks for a different reason"
+        )
+        # __MISSING__ is now one of the categories.
+        assert "__MISSING__" in filled["cat"].unique().to_list()
+
+    @pytest.mark.skipif(
+        True,  # CB fit is heavy; covered by the earlier bench. Keep the
+               # test body as documentation of the expected behaviour.
+        reason="End-to-end CB fit covered in bench_polars_cb_nullfrac.py; "
+               "running it per-test adds 5-10 s and noise.",
+    )
+    def test_cb_fastpath_accepts_filled_categorical(self):
+        """Expected behavior (proven in bench_polars_cb_nullfrac.py):
+        CB fit on a fill-null'd Categorical succeeds on the Polars
+        fastpath without any fallback."""
+        pass

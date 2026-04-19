@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-04-19 — probe round 11 — SWITCHED from bypass to in-place null-fill
+
+User pointed out the obvious: `prepare_df_for_catboost` on the pandas path already does `fill_null("")` on categoricals, so why not do the same thing on the Polars path and **keep the fastpath alive** instead of bypassing?
+
+Direct test (``bench_polars_cb_repro.py`` additions):
+```
+raw (nulls in Categorical):       FAIL  TypeError: No matching signature found
+filled (.fill_null("__MISSING__")): OK
+```
+
+Polars auto-extends the category dict when `fill_null` adds a new value. The column keeps `pl.Categorical` dtype, just loses its validity bitmap — which is exactly what CB 1.2.x's Cython dispatcher needs.
+
+### Fix (CORRECTED again — see misdiagnosis log below)
+
+`training/core.py` inside the CB polars-fastpath block now does:
+1. Detect cat_features with `null_count > 0` via `_polars_df_has_null_in_categorical`.
+2. If any, apply `pl.col(c).fill_null("__MISSING__")` on every such column in `prepared_train` / `prepared_val` / `prepared_test`.
+3. Stay on the fastpath. No bypass, no pandas detour.
+
+Cost of the fix: O(n_cat_features × n_rows) one-time pass — tens of ms on 810k × 98. Wins back the ~15 minutes the pandas-path detour was costing per CB fit.
+
+Semantics parity: `"__MISSING__"` becomes its own category in the fitted model. This is exactly the pattern `prepare_df_for_catboost` uses on the pandas path (with `""` as the sentinel) — same intent, different string.
+
+### Sensors added
+- `TestFillNullPreservesFastpath::test_fillnull_keeps_categorical_dtype` — verifies Polars auto-extends the category dict on fill_null and the dtype stays Categorical.
+- End-to-end CB-fit sensor kept as a skip-marked doc-only test, since `bench_polars_cb_nullfrac.py` already covers that ground and adding it to the pytest suite would add 5-10 s per run.
+
+### The misdiagnosis cascade (retained for the probe doctrine)
+
+| Round | Hypothesis | How disproved |
+|---|---|---|
+| 7 | `pl.Enum` trips CB dispatch | Prod schema had no Enums; my diagnostic dump confirmed. |
+| 10 | Stale `cat_features_polars` list passes String as cats | Genuine bug, shipped fix; orthogonal to the real cause. |
+| 11a | `pa.large_string()` Arrow export | Standalone bench: null-free Categorical fits cleanly despite large_string. |
+| 11b | Null in Categorical → bypass to pandas | Correct root cause, but the fix was too aggressive — we can stay on Polars by filling. |
+| 11c (this) | Null in Categorical → fill with sentinel, keep fastpath | **Correct**, confirmed by direct fit bench. |
+
 ## 2026-04-19 — probe round 11 AMENDED: the real root cause is null-in-Categorical
 
 Earlier today I claimed (`32f94bf`) that the CB Polars fastpath failures traced to `pa.large_string()` Arrow emission in Polars 1.x. User correctly pushed back and asked for a direct verification test. Running `bench_polars_largestring_cb_xgb.py` **disproved that hypothesis**: CB and XGB both fit cleanly on a Polars DataFrame with `Dictionary<uint32, large_string>` Categorical columns. The large_string representation is not the trigger.
