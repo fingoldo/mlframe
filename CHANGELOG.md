@@ -1,5 +1,40 @@
 # Changelog
 
+## 2026-04-19 — thinc/pytest-randomly seed-overflow session corruption (test-infra)
+
+**The weirdest bug of the day.** After round-10 landed, rerunning previously-green sensor files started returning patterns like `4 passed, 20 errors` on `tests/training/**`. Disabling pytest-randomly (`-p no:randomly`) made everything green again. Running a single test in isolation passed. Running the file with `--randomly-seed=42` passed all 14; with `--randomly-seed=310986334` failed mid-file with `ValueError: Seed must be between 0 and 2**32 - 1` cascading into `previous item was not torn down properly`.
+
+### Root cause (`thinc.util.fix_random_seed`)
+
+`thinc` (a spaCy/explosion.ai dependency, transitively pulled by anyone with spacy/transformers installed) registers itself as a `pytest_randomly.random_seeder` entry point:
+```python
+# thinc/util.py:96
+def fix_random_seed(seed: int = 0) -> None:
+    random.seed(seed)
+    numpy.random.seed(seed)   # <-- no % 2**32
+```
+
+pytest-randomly's own `_reseed` correctly applies `seed % 2**32` when calling `np_random.seed(...)`. But it ALSO iterates every registered entry point:
+```python
+for reseed in entrypoint_reseeds:
+    reseed(seed)
+```
+…passing the **un-clamped** `seed = randomly_seed_option + crc32(test_nodeid) % 2**32` which regularly overflows 2**32 when the base seed is already large. Thinc's seeder then hits numpy's MT19937 bounds check and raises, breaking the fixture chain. pytest flags the next test with the generic "previous item was not torn down properly" — diagnosis was near-impossible without the full traceback.
+
+### Fix (`tests/conftest.py::_patch_thinc_fix_random_seed_for_pytest_randomly_compat`)
+
+Session-scoped autouse fixture that monkey-patches `thinc.util.fix_random_seed` to `lambda seed: original(int(seed) % (2**32))`. Also walks pytest-randomly's cached `entrypoint_reseeds` list (if already materialized) to swap the reference so live hooks pick up the shim. Teardown restores the original. Conditional — skipped silently if `thinc` isn't installed.
+
+### Tests (`tests/test_thinc_pytest_randomly_clamp.py`, new file, +4 sensors)
+
+- `test_fix_random_seed_accepts_large_seed`: calls `fix_random_seed(4_414_703_545)` (the exact value observed in prod) — must not raise.
+- `test_fix_random_seed_normal_seed_still_works` + `_zero_still_works`: false-positive sensors — the clamp must not break normal seeds.
+- `test_shim_is_wrapper_not_original`: checks `__closure__` is set (our wrapper has one, thinc's bare function doesn't) — trips immediately if someone refactors the shim out.
+
+### Verification
+- `tests/training/test_untested_fairness_outliers.py --randomly-seed=310986334`: 4 passed, 20 errors → **14 passed**
+- `tests/training/test_round9_probe_fixes.py + test_round10_deferred_fixes.py --randomly-seed=310986334`: previously failing → **21 passed**
+
 ## 2026-04-19 — probe round 10: closing the 4 deferred round-9 findings
 
 All four items marked "deferred" in round 9 are addressed. Investigation during the fix also flagged several probe claims as already-handled false positives.

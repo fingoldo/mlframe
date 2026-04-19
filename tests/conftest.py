@@ -98,6 +98,62 @@ def fast_mode() -> bool:
     return is_fast_mode()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _patch_thinc_fix_random_seed_for_pytest_randomly_compat():
+    """Clamp thinc.util.fix_random_seed(seed) to ``seed % 2**32``.
+
+    Root cause traced 2026-04-19: thinc (spacy/explosion.ai dep) ships a
+    ``pytest_randomly.random_seeder`` entry point pointing at
+    ``thinc.util.fix_random_seed``. That function calls
+    ``numpy.random.seed(seed)`` WITHOUT the ``% 2**32`` clamp that
+    pytest-randomly itself applies in its own ``_reseed``. pytest-randomly
+    invokes every registered random_seeder entry point with
+    ``seed = randomly_seed_option + crc32(nodeid_offset)`` — their sum
+    easily exceeds 2**32. Result: random-order test runs cascade
+    ``ValueError: Seed must be between 0 and 2**32 - 1`` from thinc,
+    which fails the fixture setup and trips pytest's downstream
+    ``previous item was not torn down properly`` assertion for every
+    subsequent test in the session.
+
+    Symptom: ``4 passed, 20 errors`` (or similar) for any
+    ``tests/training/`` run unless ``-p no:randomly`` is used.
+
+    Fix: shim ``thinc.util.fix_random_seed`` at session start to apply
+    ``% 2**32`` before delegating. Also update pytest-randomly's cached
+    ``entrypoint_reseeds`` list if it's already been materialized, so
+    the next hook invocation picks up the shim.
+    """
+    try:
+        import thinc.util as _thinc_util
+    except ImportError:
+        yield
+        return
+
+    _original_fix = _thinc_util.fix_random_seed
+
+    def _clamped_fix_random_seed(seed: int = 0) -> None:
+        return _original_fix(int(seed) % (2**32))
+
+    _thinc_util.fix_random_seed = _clamped_fix_random_seed
+
+    # pytest-randomly caches the resolved entry points on first use.
+    # If it was already cached, swap the reference so live hooks pick
+    # up our wrapper. (If not yet cached, entry_points will resolve to
+    # the updated attribute on first access.)
+    try:
+        import pytest_randomly as _pr
+        if getattr(_pr, "entrypoint_reseeds", None):
+            _pr.entrypoint_reseeds = [
+                _clamped_fix_random_seed if r is _original_fix else r
+                for r in _pr.entrypoint_reseeds
+            ]
+    except Exception:
+        pass
+
+    yield
+    _thinc_util.fix_random_seed = _original_fix
+
+
 @pytest.fixture(autouse=True)
 def _reset_global_rng_state():
     import random as _random
