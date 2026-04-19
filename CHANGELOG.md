@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-04-19 — probe round 9: preprocessing extensions + strategies + feature_engineering
+
+Three parallel subagent probes of areas not previously deeply covered. Each returned multiple findings; three HIGH/MEDIUM fixed this batch, the remainder documented for follow-up.
+
+### Fixed — TF-IDF val/test column-parity invariant (`training/pipeline.py::apply_preprocessing_extensions`)
+
+The TF-IDF block iterated over `config.tfidf_columns`, skipped a column when it was missing from train (typo path), but when a column was present in train and **missing from val/test**, it TF-IDF-expanded only train. Downstream sklearn Pipeline, fit on train with e.g. 5050 columns, then called `pipe.transform(val_with_50_cols)` → opaque shape mismatch that traced back to the scaler, not the upstream TF-IDF. Trigger: sparse splits where a text column exists in train only.
+
+Now: before the loop, each tfidf column is classified as usable (present in all available splits), skipped-typo (missing from train), or skipped-split-mismatch (missing from val or test). Separate WARNs for each skip category. The loop only expands usable columns — all splits stay column-aligned.
+
+### Fixed — `is_polars_categorical` missed `pl.Enum` (`training/strategies.py`)
+
+Same class of bug as the 2026-04-19 early-morning fix in `_auto_detect_feature_types`: `pl.Enum` is an instance-level dtype, so `dtype in (pl.Categorical, pl.Utf8, pl.String)` returned False. Downstream `HGBStrategy.prepare_polars_dataframe` then silently treated Enum columns as numeric, breaking categorical semantics. Now: `isinstance(dtype, pl.Enum)` is also checked, so every Strategy subclass inherits correct detection.
+
+### Fixed — category_encoder=None + requires_encoding=True silent no-op (`training/strategies.py::build_pipeline`)
+
+`if self.requires_encoding and cat_features and category_encoder is not None:` — when the encoder wasn't provided, the step silently vanished. Downstream sklearn LinearRegression/MLP/etc. then raised opaquely on raw string categoricals deep inside `fit`. Now: if the first two conditions hold but encoder is None, WARN naming the strategy class and the cat count. Operator sees the missing dependency at pipeline-build time instead of model-fit time. Doesn't raise — some callers legitimately pre-encode cats upstream.
+
+### Tests
+- `tests/training/test_round9_probe_fixes.py` (new file, +11 sensors):
+  - **TestTfidfSplitColumnParity (3)**: all-splits happy path, missing-val triggers WARN+skip, typo triggers different WARN.
+  - **TestIsPolarsCategoricalEnum (4)**: Categorical/Utf8/String detected, Enum detected, numeric not detected, get_polars_cat_columns includes Enum.
+  - **TestBuildPipelineEncoderMissingWarn (4)**: HGB warn on encoder=None, silent when encoder provided, silent when no cats, TreeModelStrategy silent regardless (requires_encoding=False).
+
+### Documented — deferred findings (not fixed this batch)
+
+- **`prepare_df_for_xgboost` contract problem** (`preprocessing.py:185-202`, MEDIUM): declares `df: object`, returns `None`, only handles pandas; crashes on polars. Needs a small refactor — deferred for scope.
+- **Target-encoder leakage in `feature_engineering/bruteforce.py:126`** (HIGH): `encoder.fit_transform(df, target)` on the full sample before any CV split — classic target leak. Deferred because bruteforce FE isn't in the active production pipeline.
+- **Shared `cache_key="tree"` across CB/LGB/XGB** (`training/strategies.py` + `core.py::PipelineCache`, HIGH-pending-verify): CB supports text/embedding features, LGB/XGB don't, but all three share `cache_key="tree"`. The polars fastpath doesn't use pipeline_cache (only the pandas path does); needs targeted test with mixed CB+LGB+XGB on text-heavy data to confirm the trigger fires.
+- **Numerical `LARGE_CONST=1e3` sentinel + financial/MPS div-by-zero** (multiple, HIGH-MEDIUM): market-data-specific code paths, not in the active `prod_jobsdetails` pipeline.
+
 ## 2026-04-19 — probe round 8: closing the 4 deferred findings
 
 Continuation of round 7. The four items marked "documented but not fixed this batch" all landed together:

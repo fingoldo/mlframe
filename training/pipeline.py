@@ -157,12 +157,60 @@ def apply_preprocessing_extensions(
 
     # TF-IDF preflight: vectorize declared text columns and replace them with
     # numeric features before downstream sklearn steps (which expect numeric).
+    #
+    # Column-parity invariant (2026-04-19 round-9 probe): train, val, and
+    # test MUST emerge from TF-IDF with the same column set. Pre-fix the
+    # code only TF-IDF-expanded train and left val/test untouched when
+    # the text column happened to be missing from val/test (sparse splits,
+    # user typo in ``tfidf_columns`` matching only train's schema). Then
+    # the downstream sklearn Pipeline, fit on train with e.g. 5050
+    # columns, tried ``pipe.transform(val_with_50_cols)`` and raised a
+    # shape-mismatch error that traced back to the scaler — not TF-IDF.
+    # Now: if a tfidf_column is missing from val/test, we skip it on
+    # train too (WARN with the consequence) so all three splits stay
+    # aligned. If it's a user typo, the typo WARN fires instead.
     tfidf_pipes = {}
     if config.tfidf_columns:
         from sklearn.feature_extraction.text import TfidfVectorizer
+
+        # Precompute where each tfidf column lives.
+        train_has = set(train.columns)
+        val_has = set(val.columns) if val is not None else None
+        test_has = set(test.columns) if test is not None else None
+        usable_cols, skipped_typo, skipped_split_mismatch = [], [], []
         for col in config.tfidf_columns:
-            if col not in train.columns:
+            if col not in train_has:
+                skipped_typo.append(col)
                 continue
+            # If val/test exist and one of them lacks the column, we can't
+            # produce aligned TF-IDF features across splits. Skip the col
+            # entirely rather than silently diverge.
+            if val is not None and val_has is not None and col not in val_has:
+                skipped_split_mismatch.append((col, "val"))
+                continue
+            if test is not None and test_has is not None and col not in test_has:
+                skipped_split_mismatch.append((col, "test"))
+                continue
+            usable_cols.append(col)
+
+        if skipped_typo:
+            logger.warning(
+                "TF-IDF: %d column(s) listed in config.tfidf_columns not found "
+                "in train DataFrame: %s. Possibly a typo in config vs the "
+                "upstream feature-extraction schema.",
+                len(skipped_typo), skipped_typo,
+            )
+        if skipped_split_mismatch:
+            logger.warning(
+                "TF-IDF: %d column(s) present in train but missing from a "
+                "non-train split (val/test) — skipping entirely to keep "
+                "splits column-aligned for downstream sklearn transforms: "
+                "%s. If these columns should be universally present, fix "
+                "the upstream split so all three frames share the schema.",
+                len(skipped_split_mismatch), skipped_split_mismatch,
+            )
+
+        for col in usable_cols:
             vec = TfidfVectorizer(
                 max_features=config.tfidf_max_features,
                 ngram_range=tuple(config.tfidf_ngram_range),
@@ -174,7 +222,9 @@ def apply_preprocessing_extensions(
             tfidf_train_df = pd.DataFrame(tfidf_train.toarray(), columns=new_cols, index=train.index)
             train = train.drop(columns=[col]).join(tfidf_train_df)
             for split_name, split_df in (("val", val), ("test", test)):
-                if split_df is not None and col in split_df.columns:
+                if split_df is not None:
+                    # Column presence was verified above in `usable_cols`
+                    # filtering; this branch is now guaranteed safe.
                     text_arr = split_df[col].fillna("").astype(str).values
                     tfidf_arr = vec.transform(text_arr).toarray()
                     new_split_df = pd.DataFrame(tfidf_arr, columns=new_cols, index=split_df.index)

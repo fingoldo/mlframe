@@ -37,8 +37,24 @@ def _polars_categorical_dtypes():
     return (pl.Categorical, pl.Utf8, pl.String)
 
 def is_polars_categorical(dtype) -> bool:
-    """Check whether a Polars dtype is categorical/string."""
-    return dtype in _polars_categorical_dtypes()
+    """Check whether a Polars dtype is categorical/string.
+
+    Also accepts ``pl.Enum`` — a fixed-domain categorical type whose
+    instance-level dtype object doesn't compare equal to the class-level
+    entry in ``_polars_categorical_dtypes()``. Round-9 probe (2026-04-19)
+    found this gap: HGBStrategy's cardinality cast branch was keyed off
+    ``dtype == pl.Categorical`` and silently skipped Enum columns,
+    treating them as numeric and breaking categorical semantics
+    downstream. Same class of bug we already fixed once in
+    ``_auto_detect_feature_types`` (round 4). Fix it at the source here
+    so every Strategy subclass inherits the correct detection.
+    """
+    if dtype in _polars_categorical_dtypes():
+        return True
+    import polars as pl
+    if hasattr(pl, "Enum") and isinstance(dtype, pl.Enum):
+        return True
+    return False
 
 def get_polars_cat_columns(df: "pl.DataFrame") -> list:
     """Detect categorical/string columns from a Polars DataFrame schema."""
@@ -161,9 +177,30 @@ class ModelPipelineStrategy(ABC):
         if base_pipeline is not None and is_feature_selector:
             steps.append(("pre", base_pipeline))
 
-        # Add category encoding if required and categorical features exist
-        if self.requires_encoding and cat_features and category_encoder is not None:
-            steps.append(("ce", category_encoder))
+        # Add category encoding if required and categorical features exist.
+        # Observability guard (2026-04-19 round-9 probe): if the strategy
+        # declares ``requires_encoding=True`` AND there are cat_features
+        # in the data BUT the caller passed ``category_encoder=None``,
+        # silently skipping the step meant unbounded categorical string
+        # values fed to a model that expected numeric — sklearn then
+        # raised opaquely inside ``LinearRegression.fit`` / etc. Now: WARN
+        # so operators see the missing dependency at the source. We don't
+        # raise because some tests/callers legitimately pre-encode cats
+        # upstream and pass encoder=None; the WARN is enough signal.
+        if self.requires_encoding and cat_features:
+            if category_encoder is not None:
+                steps.append(("ce", category_encoder))
+            else:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "%s.build_pipeline: requires_encoding=True and %d "
+                    "categorical feature(s) present, but category_encoder "
+                    "is None. Encoding step skipped — downstream model.fit "
+                    "may raise on raw string categoricals. Supply a "
+                    "category_encoder (e.g. sklearn.preprocessing."
+                    "OrdinalEncoder) or pre-encode cats upstream.",
+                    type(self).__name__, len(cat_features),
+                )
 
         # Add imputation if required
         if self.requires_imputation and imputer is not None:
