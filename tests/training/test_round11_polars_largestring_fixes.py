@@ -126,19 +126,6 @@ class TestPolarsDfHasNullInCategoricalDetector:
         )
 
 
-class TestLegacyAlias:
-    """The round-11 first-iteration name _polars_df_emits_large_string
-    survives as a deprecated alias to avoid breaking in-flight callers
-    during the renaming transition."""
-
-    def test_alias_delegates_to_null_detector(self):
-        from mlframe.training.trainer import _polars_df_emits_large_string
-        df_clean = pl.DataFrame({"c": pl.Series("c", ["a", "b"]).cast(pl.Categorical)})
-        df_dirty = pl.DataFrame({"c": pl.Series("c", ["a", None]).cast(pl.Categorical)})
-        assert not _polars_df_emits_large_string(df_clean)
-        assert _polars_df_emits_large_string(df_dirty)
-
-
 class TestPolarsNullableCategoricalColsDetector:
     """The column-list variant of the detector — returns the actual
     column names for the fill expression builder, not just a boolean.

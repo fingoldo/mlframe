@@ -1045,16 +1045,6 @@ def _polars_df_has_null_in_categorical(df: Any, cat_features: Optional[List[str]
     return bool(_polars_nullable_categorical_cols(df, cat_features=cat_features))
 
 
-# Deprecated alias (round 11a name). The round-11a hypothesis —
-# ``large_string`` Arrow export — was disproved by
-# ``bench_polars_largestring_cb_xgb.py``; the real trigger is
-# null-in-Categorical. Kept as alias to avoid breaking in-flight
-# branches.
-def _polars_df_emits_large_string(df: Any) -> bool:
-    """Deprecated alias — use ``_polars_df_has_null_in_categorical``."""
-    return _polars_df_has_null_in_categorical(df)
-
-
 def _polars_fill_null_in_categorical(
     df: Any,
     nullable_cat_cols: "List[str]",

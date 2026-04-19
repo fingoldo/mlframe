@@ -1,5 +1,47 @@
 # Changelog
 
+## 2026-04-19 — round 11e: alias removal + upstream-handoff audit
+
+### Removed `_polars_df_emits_large_string` deprecated alias (`training/trainer.py`)
+
+The round-11a name survived as a delegating wrapper to avoid breaking in-flight callers during the renaming transition. All known call sites have been updated; the only remaining references were:
+- CHANGELOG entries (history, not live code)
+- `TestLegacyAlias` sensor (kept the alias alive, not a real invariant)
+
+Both the alias function and the sensor class are now gone. `_polars_nullable_categorical_cols` and `_polars_df_has_null_in_categorical` are the only public detector names.
+
+### Audited polars → upstream handoffs (`bench_polars_null_in_cat_xgb_hgb.py`)
+
+Three `.supports_polars = True` strategies in the codebase (CatBoost, XGBoost, sklearn HGB). Run each on:
+- Clean Polars DF (null-free Categorical)
+- Dirty Polars DF (10% nulls in Categorical)
+
+Result:
+
+| Strategy | Clean | Dirty |
+|---|---|---|
+| CatBoost 1.2.10 | OK | **FAIL** (`TypeError: No matching signature found` — our known bug) |
+| XGBoost 3.2.0 | OK | **OK** |
+| sklearn HGB 1.8.0 | OK | **OK** |
+
+Conclusion: **null-in-Categorical is a CatBoost 1.2.x-specific dispatch bug**. XGB and HGB handle it natively.
+
+The round-11d upstream fill applied to the base `train_df_polars` / `val_df_polars` / `test_df_polars` therefore:
+- **Load-bearing for CB** — without it, fastpath fails and we pay the 15-min pandas-path detour.
+- **Harmless no-op for XGB and HGB** — they don't care, but the sentinel category doesn't confuse them either (the extra "__MISSING__" entry just becomes another categorical value).
+
+Audit also covered other `model.fit(polars_df, ...)` sites in the training flow:
+- `_train_model_with_fallback` (the main CB/XGB/HGB fit) — covered ✓
+- `confidence_model.fit(test_df, ...)` in `_run_confidence_analysis` — test_df comes from the same `test_df_polars` chain, so covered ✓
+- `meta_model.fit(...)` — takes numpy arrays, not Polars, irrelevant ✓
+- sklearn Pipeline transform on Polars — covered by `_warn_on_schema_drift` + upstream fill ✓
+
+No additional handoff points need separate treatment. The round-11d upstream fill is the single correct mitigation point.
+
+### Tests
+- `test_round11_polars_largestring_fixes.py`: 18 passed + 1 skipped (`TestLegacyAlias` class removed, 1 test gone).
+- New bench: `bench_polars_null_in_cat_xgb_hgb.py` in repo root (part of the bench-first doctrine artifacts).
+
 ## 2026-04-19 — round 11d polish: fill upstream, single-pass detector, doctrine doc
 
 Three follow-ups to round 11c. Each motivated by the user's pushback — "why do X per-model when you can do it once?" and "can you detect in a single pass?".
