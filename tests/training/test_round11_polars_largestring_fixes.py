@@ -1,91 +1,139 @@
-"""Round 11 sensors for the TRUE root cause of CB/XGB Polars fastpath
-failures with Polars 1.x (diagnosed 2026-04-19 after rounds 7-10).
+"""Round 11 sensors for the TRUE root cause of CB Polars fastpath
+failures (verified 2026-04-19 via direct repro in
+``bench_polars_cb_nullfrac.py``, after 3 earlier misdiagnoses).
 
-Root cause: Polars 1.x + pyarrow 15+ exports
-  - ``pl.String`` → ``pa.large_string()`` (64-bit offsets)
-  - ``pl.Categorical`` → ``Dictionary<uint32, large_string>``
+Root cause: CatBoost 1.2.10's
+``_set_features_order_data_polars_categorical_column`` Cython fused
+cpdef has no dispatch signature for a Polars Categorical column
+carrying a validity bitmap (``null_count > 0``). A single null
+anywhere in any cat_feature is enough to trip ``TypeError: No
+matching signature found``. Null-free Categoricals fit cleanly.
 
-CatBoost 1.2.10's ``_set_features_order_data_polars_categorical_column``
-Cython fused cpdef has no dispatch signature for large_string variant
-→ ``TypeError: No matching signature found`` + 20-50 s wasted per
-failed attempt + 3× redundant polars→pandas conversions (fit, val
-predict, test predict).
+Null-fraction sweep from the bench:
+    0.0   → OK
+    0.1   → FAIL  (TypeError: No matching signature found)
+    0.5   → FAIL
+    0.99  → FAIL
+    1.0   → FAIL
 
-XGBoost 3.x's ``xgboost.data._arrow_dtype`` maps only numeric types;
-plain large_string columns hit ``KeyError: DataType(large_string)``
-inside ``_wrap_evaluation_matrices`` killing the entire suite.
+In the 2026-04-19 prod schema, 6 of 9 cat_features had nulls
+(from 0.15% to 100%) — all 9 got routed through a failing fastpath
+attempt before pandas fallback.
 
-Fix: ``_polars_df_emits_large_string`` in trainer.py detects the
-issue via ``head(0).to_arrow()`` schema check. Called from
-core.py's polars-fastpath block — if True, ``polars_fastpath_active``
-flips to False BEFORE the fit, the pandas tier DF is built now,
-and the rest of training uses pandas end-to-end. Same code path
-handles both CB (would hit the TypeError) and XGB (would hit the
-KeyError) — they share the detection + bypass.
+Misdiagnoses that this round CLEARED (kept for the record so we
+don't chase them again):
+- pl.Enum (round 7): the prod schema had no Enums. Harmless WARN.
+- stale cat_features_polars (round 10): genuine bug but orthogonal;
+  fastpath still failed after the fix.
+- Polars 1.x large_string Arrow export (round 11 first attempt):
+  null-free Categorical works fine despite the large_string Arrow
+  type, proved by ``bench_polars_largestring_cb_xgb.py``.
 
-Note on the XGB ``_arrow_dtype`` monkey-patch: an earlier iteration
-tried to wrap ``xgboost.data._arrow_dtype`` to map ``large_string``
-→ ``'c'``. Direct repro showed this only moves the crash deeper —
-from a KeyError in ``_arrow_feature_info`` to a ``ValueError: too
-many values to unpack`` in the downstream dictionary-handling code.
-XGB really does require a Dictionary-encoded column (not plain
-``large_string``) for the 'c' code to work. The proactive bypass
-above avoids the issue entirely by never handing a large-string
-Arrow frame to XGB — reverted the shim in favour of that.
+Fix: ``_polars_df_has_null_in_categorical(df, cat_features=...)``
+detector in trainer.py. Called from core.py's polars-fastpath block
+before fit. If True, ``polars_fastpath_active`` flips to False
+BEFORE the fit attempt, the pandas tier DF is built now, and
+training + prediction uses pandas end-to-end.
 """
 from __future__ import annotations
 
 import numpy as np
 import polars as pl
-import pyarrow as pa
 import pytest
 
 
-# =============================================================================
-# Fix — _polars_df_emits_large_string detector
-# =============================================================================
+class TestPolarsDfHasNullInCategoricalDetector:
 
+    def test_detects_single_null_in_categorical(self):
+        """ONE null is enough — the trigger isn't 'mostly null', it's
+        'has any null at all' in a Categorical."""
+        from mlframe.training.trainer import _polars_df_has_null_in_categorical
+        vals = ["a", "b", "c", None, "a"]
+        df = pl.DataFrame({"c": pl.Series("c", vals, dtype=pl.String).cast(pl.Categorical)})
+        assert _polars_df_has_null_in_categorical(df)
 
-class TestPolarsDfEmitsLargeStringDetector:
+    def test_null_free_categorical_returns_false(self):
+        """Clean case: CB fastpath actually works for null-free
+        Categorical, so the detector must NOT flip True here."""
+        from mlframe.training.trainer import _polars_df_has_null_in_categorical
+        df = pl.DataFrame({"c": pl.Series("c", ["a", "b", "c"]).cast(pl.Categorical)})
+        assert not _polars_df_has_null_in_categorical(df)
 
-    def test_detects_plain_string_column(self):
-        from mlframe.training.trainer import _polars_df_emits_large_string
-        df = pl.DataFrame({"s": ["a", "b", "c"]})
-        assert _polars_df_emits_large_string(df)
-
-    def test_detects_categorical_with_large_string_values(self):
-        """The production-common case: pl.Categorical columns become
-        Dictionary<uint32, large_string> in the Arrow export. CB's
-        fused cpdef doesn't dispatch on this shape; XGB's arrow
-        handler chokes on the inner large_string too."""
-        from mlframe.training.trainer import _polars_df_emits_large_string
-        df = pl.DataFrame({"c": pl.Series("c", ["x", "y", "z"]).cast(pl.Categorical)})
-        assert _polars_df_emits_large_string(df)
-
-    def test_numeric_only_df_returns_false(self):
-        """False-positive sensor: purely numeric DFs should NOT trip the
-        detector (those work fine with the polars fastpath)."""
-        from mlframe.training.trainer import _polars_df_emits_large_string
+    def test_null_in_non_cat_column_ignored(self):
+        """A null in a Float or Boolean column does NOT trigger CB's
+        dispatcher miss — only nullable Categorical does. The detector
+        must be specific."""
+        from mlframe.training.trainer import _polars_df_has_null_in_categorical
         df = pl.DataFrame({
-            "num": np.arange(5, dtype=np.float32),
-            "i": np.arange(5, dtype=np.int16),
-            "b": [True, False, True, False, True],
+            "num": [1.0, None, 3.0, 4.0],
+            "c":   pl.Series("c", ["a", "b", "a", "b"]).cast(pl.Categorical),
         })
-        assert not _polars_df_emits_large_string(df)
+        assert not _polars_df_has_null_in_categorical(df)
 
-    def test_empty_df_does_not_crash(self):
-        """head(0) call should work even on already-empty DFs."""
-        from mlframe.training.trainer import _polars_df_emits_large_string
-        df = pl.DataFrame({"s": pl.Series("s", [], dtype=pl.String)})
-        # Even empty, the *schema* still has large_string, so detector
-        # returns True.
-        assert _polars_df_emits_large_string(df)
+    def test_cat_features_scope(self):
+        """When ``cat_features`` list is passed, only those columns
+        are inspected. A null in some OTHER Categorical column not
+        listed as a cat_feature shouldn't trigger the bypass."""
+        from mlframe.training.trainer import _polars_df_has_null_in_categorical
+        df = pl.DataFrame({
+            "good_cat":    pl.Series("good_cat",    ["a", "b", "a"]).cast(pl.Categorical),
+            "null_cat":    pl.Series("null_cat",    ["a", None, "b"]).cast(pl.Categorical),
+        })
+        # null_cat has a null but we only check good_cat → False
+        assert not _polars_df_has_null_in_categorical(df, cat_features=["good_cat"])
+        # null_cat in scope → True
+        assert _polars_df_has_null_in_categorical(df, cat_features=["null_cat"])
+
+    def test_all_cat_columns_checked_when_cat_features_none(self):
+        """Default (cat_features=None): ANY Categorical with nulls
+        triggers. Useful when the caller doesn't have the explicit
+        cat_features list at hand."""
+        from mlframe.training.trainer import _polars_df_has_null_in_categorical
+        df = pl.DataFrame({
+            "clean": pl.Series("clean", ["a", "b"]).cast(pl.Categorical),
+            "dirty": pl.Series("dirty", ["a", None]).cast(pl.Categorical),
+        })
+        assert _polars_df_has_null_in_categorical(df)
 
     def test_non_polars_input_returns_false(self):
-        """Defensive: pandas DF / ndarray / None → returns False rather
-        than crashing. Callers don't need to pre-check."""
-        from mlframe.training.trainer import _polars_df_emits_large_string
+        """Defensive: pandas DF / None / ndarray → False, no crash."""
         import pandas as pd
-        assert not _polars_df_emits_large_string(pd.DataFrame({"a": [1, 2]}))
-        assert not _polars_df_emits_large_string(None)
-        assert not _polars_df_emits_large_string(np.arange(5))
+        from mlframe.training.trainer import _polars_df_has_null_in_categorical
+        assert not _polars_df_has_null_in_categorical(pd.DataFrame({"a": [1]}))
+        assert not _polars_df_has_null_in_categorical(None)
+        assert not _polars_df_has_null_in_categorical(np.arange(3))
+
+    def test_empty_df_returns_false(self):
+        """Empty DataFrame has no nulls by definition."""
+        from mlframe.training.trainer import _polars_df_has_null_in_categorical
+        df = pl.DataFrame({"c": pl.Series("c", [], dtype=pl.Categorical)})
+        assert not _polars_df_has_null_in_categorical(df)
+
+    def test_prod_shape_multiple_nullable_categoricals(self):
+        """Matches the 2026-04-19 prod shape: several cat_features
+        with varying null counts from 0.1% to 100%. Any one of them
+        must trip the detector."""
+        from mlframe.training.trainer import _polars_df_has_null_in_categorical
+        n = 200
+        df = pl.DataFrame({
+            "job_type":      pl.Series("job_type", np.random.choice(["a", "b"], size=n)).cast(pl.Categorical),
+            "category_grp":  pl.Series("category_grp",
+                ([None] * 2 + ["x"] * (n - 2)), dtype=pl.String).cast(pl.Categorical),
+            "hourly_budget": pl.Series("hourly_budget", [None] * n, dtype=pl.String).cast(pl.Categorical),
+        })
+        assert _polars_df_has_null_in_categorical(
+            df, cat_features=["job_type", "category_grp", "hourly_budget"]
+        )
+
+
+class TestLegacyAlias:
+    """The round-11 first-iteration name _polars_df_emits_large_string
+    survives as a deprecated alias to avoid breaking in-flight callers
+    during the renaming transition."""
+
+    def test_alias_delegates_to_null_detector(self):
+        from mlframe.training.trainer import _polars_df_emits_large_string
+        df_clean = pl.DataFrame({"c": pl.Series("c", ["a", "b"]).cast(pl.Categorical)})
+        df_dirty = pl.DataFrame({"c": pl.Series("c", ["a", None]).cast(pl.Categorical)})
+        assert not _polars_df_emits_large_string(df_clean)
+        assert _polars_df_emits_large_string(df_dirty)

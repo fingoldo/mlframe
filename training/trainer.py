@@ -968,52 +968,80 @@ def _warn_on_unsupported_polars_dtypes(
         pass
 
 
-def _polars_df_emits_large_string(df: Any) -> bool:
-    """Detect Polars DataFrames whose Arrow export uses ``large_string``.
+def _polars_df_has_null_in_categorical(df: Any, cat_features: Optional[List[str]] = None) -> bool:
+    """Detect Polars DataFrames whose cat_features contain ANY nulls —
+    which breaks CatBoost 1.2.x's Polars fastpath dispatcher.
 
-    Polars 1.x + pyarrow 15+ switched the default export dtype for
-    string-bearing columns from ``pa.string()`` to ``pa.large_string()``:
-      - ``pl.String``/``pl.Utf8`` → ``large_string`` (64-bit offsets)
-      - ``pl.Categorical`` → ``Dictionary<uint32, large_string>``
+    Root cause (verified 2026-04-19 via direct repro in
+    bench_polars_cb_nullfrac.py): CatBoost 1.2.10's
+    ``_set_features_order_data_polars_categorical_column`` (Cython
+    fused cpdef) has no dispatch signature for a Polars Categorical
+    column carrying a validity bitmap — i.e. one with ``null_count > 0``.
+    The dispatch table covers only the non-nullable variant. Null-free
+    Categorical columns fit fine; a single null anywhere in any one
+    cat_feature trips ``TypeError: No matching signature found``.
 
-    Downstream dispatchers that were compiled against the earlier
-    (pa.string) ABI silently miss these columns:
-      - CatBoost 1.2.x ``_set_features_order_data_polars_categorical_column``
-        Cython fused cpdef has no signature for ``Dictionary<*, large_string>``
-        → ``TypeError: No matching signature found``.
-      - XGBoost 3.x ``xgboost.data._arrow_dtype`` dict is missing
-        ``pa.large_string()`` → ``KeyError: DataType(large_string)``.
+    Verification sweep (null_frac → outcome):
+        0.0   → OK
+        0.1   → FAIL  TypeError: No matching signature found
+        0.5   → FAIL
+        0.99  → FAIL
+        1.0   → FAIL
 
-    We detect this BEFORE calling ``model.fit()`` so we can bypass the
-    Polars fastpath proactively and avoid the 20-50s failed-fit
-    detour plus redundant polars→pandas conversions per model method
-    (fit + predict_proba(val) + predict_proba(test) = 3× redundant
-    70–80s conversions in the 2026-04-19 prod log).
+    Earlier hypotheses (``large_string`` Arrow export, ``pl.Enum``)
+    were disproved by isolated benches. The null-in-Categorical
+    trigger explains every prior symptom:
+      - prod log schema dump showed cat_features with null counts
+        ranging from 1219 (category_group) to 810000 (hourly_budget_type).
+      - null-free test DFs never triggered the failure.
 
-    Uses a head(0) schema-only to_arrow() call so there's no data
-    copy; the call is O(n_cols). Returns True if any column's Arrow
-    type is ``large_string``/``large_utf8``/``large_binary`` OR is a
-    Dictionary wrapping one of those. Returns False on any exception
-    (defensive — we'd rather try the fastpath than block it wrongly).
+    Used proactively before CB polars fastpath fit: if True, flip
+    ``polars_fastpath_active`` to False and route through the
+    pandas path (where CB's pandas handler is robust to NaN/None).
+    Saves 20-50s wasted fit attempts × 3 methods (fit + predict_proba
+    val + predict_proba test) plus the redundant polars→pandas
+    conversion each of those fallbacks would do anyway.
+
+    Args:
+        df: Polars DataFrame to inspect.
+        cat_features: Column names to check. If None, checks all
+            Categorical/Enum columns in the DataFrame.
+
+    Returns True if any checked column has null_count > 0.
+    Returns False on any exception (defensive — rather try the
+    fastpath than wrongly block it).
     """
     try:
         import polars as _pl
-        import pyarrow as _pa
         if not isinstance(df, _pl.DataFrame):
             return False
-        # head(0) avoids copying data; only schema matters here.
-        tbl = df.head(0).to_arrow()
-        for col in tbl.columns:
-            t = col.type
-            if _pa.types.is_large_string(t) or _pa.types.is_large_unicode(t) or _pa.types.is_large_binary(t):
+        if cat_features:
+            cols_to_check = [c for c in cat_features if c in df.columns]
+        else:
+            cols_to_check = [
+                name for name, dtype in df.schema.items()
+                if dtype == _pl.Categorical or (hasattr(_pl, "Enum") and isinstance(dtype, _pl.Enum))
+            ]
+        for col in cols_to_check:
+            dt = df.schema.get(col)
+            is_cat = dt == _pl.Categorical or (hasattr(_pl, "Enum") and isinstance(dt, _pl.Enum))
+            if not is_cat:
+                continue
+            if df[col].null_count() > 0:
                 return True
-            if _pa.types.is_dictionary(t):
-                vt = t.value_type
-                if _pa.types.is_large_string(vt) or _pa.types.is_large_unicode(vt) or _pa.types.is_large_binary(vt):
-                    return True
         return False
     except Exception:
         return False
+
+
+# Legacy alias for the misnamed earlier detector — kept during the
+# transition so any in-flight branches or external callers don't
+# immediately break. The name describes what we THOUGHT the trigger
+# was (large_string Arrow export); the actual trigger is null-in-
+# Categorical per bench_polars_cb_nullfrac.py.
+def _polars_df_emits_large_string(df: Any) -> bool:
+    """Deprecated alias — use _polars_df_has_null_in_categorical instead."""
+    return _polars_df_has_null_in_categorical(df)
 
 
 def _recover_cb_feature_names(model: Any) -> Tuple[List[str], List[str]]:

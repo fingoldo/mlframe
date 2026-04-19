@@ -2145,34 +2145,48 @@ def train_mlframe_models_suite(
                                     )
 
                         # ROOT CAUSE of the 2026-04-19 CB Polars fastpath
-                        # rejection (diagnosed correctly only at round 11):
-                        # Polars 1.x + pyarrow 15+ exports pl.String as
-                        # pa.large_string() and pl.Categorical as
-                        # Dictionary<uint32, large_string>. CatBoost 1.2.10's
-                        # fused cpdef dispatcher has no signature for the
-                        # large_string variant → TypeError: No matching
-                        # signature found. Each failed fastpath attempt
-                        # burns 20–50 s PER invocation (fit + predict_proba(val)
-                        # + predict_proba(test) = 3× wasted per model)
-                        # before the pandas fallback kicks in. Also the
-                        # fallback converts polars→pandas redundantly
-                        # for each method instead of once.
+                        # rejection (diagnosed correctly only at round 11
+                        # after two earlier misdiagnoses):
+                        # CatBoost 1.2.10's
+                        # ``_set_features_order_data_polars_categorical_column``
+                        # (Cython fused cpdef) has no dispatch signature for
+                        # a Polars Categorical column carrying a validity
+                        # bitmap — i.e. ``null_count > 0`` anywhere in any
+                        # cat_feature. A single null is enough to raise
+                        # ``TypeError: No matching signature found`` (see
+                        # ``bench_polars_cb_nullfrac.py`` sweep). Each
+                        # failed attempt burns 20–50 s per method call
+                        # (fit + predict_proba(val) + predict_proba(test))
+                        # before the pandas fallback kicks in, plus a
+                        # redundant polars→pandas conversion each time.
                         #
-                        # Proactive bypass: detect large_string in the
-                        # prepared frame. If present, turn off the
-                        # polars fastpath now and let the pandas path
-                        # (tier_pandas) run. One conversion, predict
-                        # path is already pandas — no redundant work.
-                        from mlframe.training.trainer import _polars_df_emits_large_string
-                        if _polars_df_emits_large_string(prepared_train):
+                        # Proactive bypass: check nulls in cat_features
+                        # upfront. If any are present, flip
+                        # ``polars_fastpath_active`` to False now and let
+                        # the pandas path run — CB's pandas handler is
+                        # robust to NaN/None, and the conversion happens
+                        # once (shared by fit + predict_proba(val+test))
+                        # instead of thrice.
+                        #
+                        # Prior misdiagnoses (documented so we don't chase
+                        # them again): pl.Enum (round 7 — irrelevant, the
+                        # prod schema had no Enums), stale cat_features_polars
+                        # list (round 10 — genuine bug, but orthogonal;
+                        # fastpath still failed even after fix), Polars 1.x
+                        # large_string Arrow export (round 11 first attempt
+                        # — null-free Categorical works fine despite
+                        # large_string, disproved in bench_polars_largestring_cb_xgb.py).
+                        from mlframe.training.trainer import _polars_df_has_null_in_categorical
+                        if _polars_df_has_null_in_categorical(prepared_train, cat_features=_cat_features):
                             if verbose:
                                 logger.warning(
-                                    "  Polars fastpath pre-emptively disabled for %s: the prepared "
-                                    "DataFrame produces large_string Arrow types (Polars 1.x default) "
-                                    "which CB 1.2.x / XGB 3.x fastpath dispatchers don't match. "
-                                    "Falling back to the pandas path before fit — avoids 20–50s "
-                                    "wasted fastpath attempts and 2× redundant polars→pandas "
-                                    "conversions at predict time.",
+                                    "  Polars fastpath pre-emptively disabled for %s: at least one "
+                                    "cat_feature has null values and CB 1.2.x's Polars "
+                                    "_set_features_order_data_polars_categorical_column fused cpdef "
+                                    "has no dispatch signature for nullable Categorical. Routing "
+                                    "through pandas — avoids 20–50s wasted fastpath attempts × 3 "
+                                    "methods (fit + predict_proba(val) + predict_proba(test)) and "
+                                    "2× redundant polars→pandas conversions.",
                                     mlframe_model_name,
                                 )
                             polars_fastpath_active = False

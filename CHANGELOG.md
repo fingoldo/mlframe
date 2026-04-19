@@ -1,5 +1,55 @@
 # Changelog
 
+## 2026-04-19 — probe round 11 AMENDED: the real root cause is null-in-Categorical
+
+Earlier today I claimed (`32f94bf`) that the CB Polars fastpath failures traced to `pa.large_string()` Arrow emission in Polars 1.x. User correctly pushed back and asked for a direct verification test. Running `bench_polars_largestring_cb_xgb.py` **disproved that hypothesis**: CB and XGB both fit cleanly on a Polars DataFrame with `Dictionary<uint32, large_string>` Categorical columns. The large_string representation is not the trigger.
+
+Further isolation via `bench_polars_cb_repro.py` and `bench_polars_cb_nullfrac.py` pinned the actual trigger: **CatBoost 1.2.10's `_set_features_order_data_polars_categorical_column` (Cython fused cpdef) has no dispatch signature for a Polars Categorical column carrying a validity bitmap — i.e. `null_count > 0`**. A single null anywhere in any one cat_feature raises `TypeError: No matching signature found`. Null-free Categoricals fit fine.
+
+Null-fraction sweep:
+```
+null_frac=0.0   OK
+null_frac=0.1   FAIL  TypeError: No matching signature found
+null_frac=0.5   FAIL
+null_frac=0.99  FAIL
+null_frac=1.0   FAIL
+```
+
+In the 2026-04-19 prod schema, 6 of 9 cat_features had nulls (0.15% to 100%) — any one of them blows the fastpath.
+
+### Fixed — `_polars_df_has_null_in_categorical` detector (`training/trainer.py`)
+
+Replaces the round-11-first-iteration `_polars_df_emits_large_string` with a narrower, correct check: scan the provided `cat_features` (or all Categorical/Enum columns if not specified) for `null_count > 0`. Called from `core.py`'s polars-fastpath block before CB's fit attempt. If True, `polars_fastpath_active` flips to False now, the pandas tier DF is built, and training + prediction runs through the pandas path (where CB's pandas handler is robust to NaN/None).
+
+The old detector name `_polars_df_emits_large_string` is kept as a deprecated alias delegating to the new function, so any in-flight callers or branches don't immediately break.
+
+### Reverted: XGB `_arrow_dtype` monkey-patch (already reverted in `32f94bf`)
+
+The separate XGB monkey-patch approach was still broken for the reason explained in the previous CHANGELOG entry — moves the crash one layer deeper. Not reinstated. The proactive bypass here handles XGB too: if the prepared DF has nulls in its cat_features, both CB and XGB route through pandas.
+
+### Misdiagnosis log (for the probe doctrine)
+
+Three previous hypotheses, each falsified before pinning the real trigger:
+
+| Round | Hypothesis | How disproved |
+|---|---|---|
+| 7 | `pl.Enum` cat_features trip CB dispatch | Prod schema diagnostic dump showed no `pl.Enum` columns — only plain `Categorical(ordering='lexical')`. Harmless WARN retained. |
+| 10 | Stale `cat_features_polars` list passed String columns as cats | Genuine bug, shipped fix (`545c472`). Orthogonal to the real cause — CB fastpath still failed after it. |
+| 11a | Polars 1.x emits `pa.large_string()` that CB Cython doesn't dispatch | Standalone bench showed CB fits cleanly on `Dictionary<uint32, large_string>` when the column has no nulls. Large_string is NOT the trigger. |
+| 11b | null_count > 0 in any cat_feature | Binary-searched null_frac, confirmed threshold is literally >0. Matches prod schema perfectly. |
+
+Takeaway for future probes: **when an upstream error is opaque, build a 20-line isolated repro and binary-search the variable.** My first three round-11 fixes were "plausible-sounding diagnostic code" but not actual root cause because I never isolated the hypothesis with a direct bench. The final fix landed in one iteration after writing the 30-line null-frac sweep.
+
+### Tests (`tests/training/test_round11_polars_largestring_fixes.py`, +9 sensors)
+
+- `TestPolarsDfHasNullInCategoricalDetector` (8): single null triggers, null-free Categorical doesn't, null in non-cat column ignored, `cat_features` scope parameter respected, default scans all cat columns, non-Polars input defensive, empty DF safe, multi-cat prod-shape sensor.
+- `TestLegacyAlias` (1): the deprecated `_polars_df_emits_large_string` still works via alias.
+
+### Benches kept for reproducibility
+- `bench_polars_largestring_cb_xgb.py` — the standalone that disproved the large_string hypothesis.
+- `bench_polars_cb_repro.py` — feature-by-feature sweep (Int16, Boolean, many Categoricals, text_features, all-null cat) isolating which shape triggers.
+- `bench_polars_cb_nullfrac.py` — null_fraction binary search proving ANY null triggers.
+
 ## 2026-04-19 — probe round 11: TRUE root cause of the CB/XGB Polars fastpath failures
 
 Rounds 4, 7, and 10 each added diagnostic instrumentation and defensive fallbacks around the CatBoost Polars fastpath `TypeError: No matching signature found`. Those fixes were useful (diagnostic schema dump, per-method pandas fallback, dedup'd cache keys by feature_tier), but I misidentified the upstream cause twice (`pl.Enum`, then stale `cat_features_polars`). Today's prod log shipped a 35-minute CB run plus an `XGBoostClassifier` `KeyError: DataType(large_string)` mid-suite. Direct repro in a one-liner finally pinned the real cause.
