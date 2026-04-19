@@ -290,9 +290,26 @@ def _auto_detect_feature_types(
         cat_features = []
 
     threshold = feature_types_config.cat_text_cardinality_threshold
+    # Minimum non-null count required to promote a string/categorical column
+    # to text_features. CatBoost's text feature estimator builds a TF-IDF
+    # vocabulary from the column's non-null content; with too few non-null
+    # samples the ``occurrence_lower_bound`` filter prunes everything and
+    # the estimator raises
+    #   ``catboost/.../text_feature_estimators.cpp:89:
+    #     Dictionary size is 0, check out data or try to decrease
+    #     occurrence_lower_bound parameter``
+    # (observed 2026-04-19 on ``_raw_countries`` and ``job_post_source``
+    # in prod — both ``n_unique > 50`` but >99.9% null, yielding 6-20
+    # non-null strings total and an empty dictionary after occurrence
+    # filtering). Default 100 is conservative — anything below it cannot
+    # support even a minimal n-gram vocabulary.
+    min_non_null_for_text = getattr(
+        feature_types_config, "min_non_null_for_text_promotion", 100
+    )
     user_assigned = set(text_features) | set(embedding_features)
     promoted: list = []  # cat_features -> text_features, tracked for diagnostic log only
     cardinalities: dict = {}  # per auto-detected text col: n_unique (for diagnostic log)
+    skipped_low_non_null: list = []  # (name, n_unique, non_null_count) — blocked by guard
 
     if isinstance(df, pl.DataFrame):
         for name, dtype in df.schema.items():
@@ -314,6 +331,13 @@ def _auto_detect_feature_types(
             if is_text_like:
                 n_unique = df[name].n_unique()
                 if n_unique > threshold:
+                    # Non-null count guard — block promotion if too few
+                    # actual text samples; keeps CB's text estimator from
+                    # producing an empty TF-IDF dictionary.
+                    non_null = int(df[name].count())
+                    if non_null < min_non_null_for_text:
+                        skipped_low_non_null.append((name, n_unique, non_null))
+                        continue
                     text_features.append(name)
                     cardinalities[name] = n_unique
                     if name in cat_features:
@@ -327,6 +351,10 @@ def _auto_detect_feature_types(
             if dtype_name.startswith("object") or dtype_name.startswith("string") or dtype_name == "category":
                 n_unique = df[col].nunique()
                 if n_unique > threshold:
+                    non_null = int(df[col].notna().sum())
+                    if non_null < min_non_null_for_text:
+                        skipped_low_non_null.append((col, n_unique, non_null))
+                        continue
                     text_features.append(col)
                     cardinalities[col] = n_unique
                     if col in cat_features:
@@ -357,6 +385,27 @@ def _auto_detect_feature_types(
         logger.info(
             f"  Auto-detected feature types — text: {_fmt_with_cardinality(text_features) if text_features else '(none)'}, "
             f"embedding: {embedding_features or '(none)'}"
+        )
+
+    # Always log the skipped-by-non-null-guard set, even at verbose=False
+    # — this is a load-bearing diagnostic: columns that would otherwise
+    # have been promoted and crashed CatBoost with "Dictionary size is 0"
+    # are silently kept as cat_features. The operator needs to know so
+    # they can either (a) fix the upstream feature-extraction to produce
+    # more non-null samples, or (b) accept the lower-quality cat usage
+    # of these columns.
+    if skipped_low_non_null:
+        formatted = ", ".join(
+            f"{name}:{n_unique:_} (non_null={nn:_})"
+            for name, n_unique, nn in skipped_low_non_null
+        )
+        logger.warning(
+            "  Auto-detection: %d column(s) had n_unique>%d (would be "
+            "promoted to text_features) but non_null<%d — kept as "
+            "cat_features to avoid CatBoost's 'Dictionary size is 0' "
+            "error on sparse text columns: %s",
+            len(skipped_low_non_null), threshold, min_non_null_for_text,
+            formatted,
         )
 
     return text_features, embedding_features

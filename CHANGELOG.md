@@ -1,5 +1,67 @@
 # Changelog
 
+## 2026-04-19 — round 12: text-promotion non-null guard + Dictionary-size-0 fallback
+
+### Prod result from round 11d/e
+
+Confirmed round 11c/d fix works:
+- `Pre-fit fill_null('__MISSING__') on 11 nullable Polars Categorical cat_feature(s)` log emitted
+- CB Polars fastpath: **no TypeError, no polars→pandas fallback**, CB fit succeeded on Polars DF natively (898.5 s ≈ 15 min, was 1015 s + 154 s pandas prep before)
+- predict_proba(val) and predict_proba(test) succeeded on Polars DF — no predict-time fastpath rejection either
+
+### New error surface: CB text feature estimator on sparse-non-null columns
+
+After CB succeeded, training suite failed in the XGB branch (or CB itself in the newer run) with:
+
+```
+catboost/private/libs/feature_estimator/text_feature_estimators.cpp:89:
+Dictionary size is 0, check out data or try to decrease
+occurrence_lower_bound parameter
+```
+
+Schema change: the source data moved from `Categorical(24)` to `Categorical(18) + String(6)` between runs (different time range: splits now through 2026-04-16). `_auto_detect_feature_types` promoted 6 columns to text_features based on `n_unique > threshold=50`. Two of them (`_raw_countries:2196`, `job_post_source:71`) carried sparse non-null rows — CatBoost's TF-IDF estimator then applied its `occurrence_lower_bound` filter and left an empty vocabulary.
+
+### Fixed — non-null guard in `_auto_detect_feature_types` (`training/core.py`)
+
+Added `min_non_null_for_text_promotion` guard (default 100). A column still needs `n_unique > threshold` to be considered for promotion; it additionally needs `non_null_count >= min_floor` to actually get promoted. Columns that pass unique but fail non-null stay in `cat_features` — they can still be useful low-signal categorical inputs without risking CatBoost's text pipeline.
+
+WARN-level log lists every skipped column with `(n_unique, non_null)` so the operator sees exactly what's happening:
+
+```
+Auto-detection: 2 column(s) had n_unique>50 (would be promoted to
+text_features) but non_null<100 — kept as cat_features to avoid
+CatBoost's 'Dictionary size is 0' error on sparse text columns:
+_raw_countries:2_196 (non_null=6), job_post_source:71 (non_null=17)
+```
+
+### Fixed — defensive `Dictionary size is 0` catch in `_train_model_with_fallback` (`training/trainer.py`)
+
+Last-line safety net if the proactive guard is somehow bypassed (e.g., user explicitly declares a sparse column as a text_feature via `FeatureTypesConfig.text_features`). On the exact CatBoost error:
+- drop `text_features` from `fit_params`
+- WARN with the column list and the upstream-guard reference
+- retry without text processing
+
+CB then fits using only cat_features + numeric — no native-text capabilities on those columns, but training completes.
+
+### Tests (`tests/training/test_round12_text_promotion_guard.py`, new, +5 sensors)
+
+`TestMinNonNullTextPromotionGuard`:
+- sparse column with n_unique=80 + non_null=80 → blocked
+- dense column with n_unique=80 + non_null=800 → promoted
+- WARN log fires on skipped column with name + non_null count
+- pandas path also guarded
+- boundary at default threshold (99 blocked, 100 passes)
+
+### What to watch for in the next prod run
+
+Expected:
+- `Pre-fit fill_null('__MISSING__') on N cat_features` — CB null-in-cat guard (round 11d)
+- `Auto-detection: K column(s) had n_unique>50 but non_null<100 — kept as cat_features` — the new round-12 guard, if sparse columns exist
+- CB fit + predict on Polars with no fastpath rejection
+- XGB fit + predict on Polars with no KeyError
+
+If the defensive fallback path fires (Dictionary-size-0), operator sees the exact columns and can fix upstream.
+
 ## 2026-04-19 — round 11e: alias removal + upstream-handoff audit
 
 ### Removed `_polars_df_emits_large_string` deprecated alias (`training/trainer.py`)

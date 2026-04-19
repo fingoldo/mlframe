@@ -1269,6 +1269,43 @@ def _train_model_with_fallback(
 
         elif (
             model_type_name in CATBOOST_MODEL_TYPES
+            and "Dictionary size is 0" in error_str
+        ):
+            # CatBoost's text feature estimator failed to build a TF-IDF
+            # vocabulary — the column's non-null samples, after the
+            # occurrence_lower_bound filter, leave an empty dictionary.
+            # Root cause (seen 2026-04-19 in prod): columns auto-promoted
+            # to text_features that have >99.9% null rows (e.g.
+            # _raw_countries, job_post_source with 6-20 non-null
+            # strings out of 810_000). Proactive guard in
+            # _auto_detect_feature_types now blocks these at promotion
+            # time, but this is the defensive fallback: on the exact
+            # CB error, drop text_features from fit_params and retry
+            # without text processing. The columns stay in the frame
+            # (CB will treat them as plain categorical-by-name or
+            # ignore).
+            text_feat = fit_params.get("text_features") or []
+            if text_feat:
+                logger.warning(
+                    "CatBoost raised 'Dictionary size is 0' on text_features %s — "
+                    "the column(s) have too few non-null samples for CB's TF-IDF "
+                    "estimator to build a vocabulary. Dropping text_features from "
+                    "fit_params and retrying. Fix upstream: block promotion of "
+                    "sparse columns in _auto_detect_feature_types (see the "
+                    "min_non_null_for_text_promotion guard), or increase "
+                    "non-null coverage of these columns in your feature "
+                    "extraction.",
+                    text_feat,
+                )
+                fit_params = {k: v for k, v in fit_params.items() if k != "text_features"}
+                try_again = True
+            else:
+                # Raise — same error without text_features in params is
+                # an unexpected variant, not our problem.
+                pass
+
+        elif (
+            model_type_name in CATBOOST_MODEL_TYPES
             and isinstance(train_df, pl.DataFrame)
             and (
                 "No matching signature found" in error_str
