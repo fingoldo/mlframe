@@ -1,5 +1,46 @@
 # Changelog
 
+## 2026-04-19 — symmetric pandas fallback at predict time (`_predict_with_fallback`)
+
+Follow-up to `545c472`. Same prod log revealed a second, independent dispatcher miss: after `fit` fell back to pandas and succeeded (14 min), `predict_proba` on the Polars val_df hit the **same** `_set_features_order_data_polars_categorical_column` TypeError. The existing except block in `evaluation.py:513` caught it and retried with `model.predict(df)` **on the same `pl.DataFrame`** — another dispatch miss. Not a fallback; a retry into the same hole, burning 48 s total before raising.
+
+With `545c472` shipped, fit succeeds on the first attempt and predict gets a consistent shape, so this chain shouldn't trigger. But it's a latent trap: if fit ever falls back to pandas for a different reason, predict still breaks.
+
+### Added — `_predict_with_fallback` + `_recover_cb_feature_names` (`training/trainer.py`)
+
+Symmetric wrapper to `_train_model_with_fallback`. On a `TypeError` with "No matching signature found", a CatBoost model, and a `pl.DataFrame` input, the helper:
+  1. Converts polars → pandas via the zero-copy Arrow view
+  2. Recovers cat/text feature names from the fitted model via `_get_cat_feature_indices()` / `_get_text_feature_indices()` / `feature_names_` — callers (evaluation code) don't need to track these
+  3. Decategorizes pd.Categorical text columns (same ordering as fit's fallback — avoids prep_cb rebuilding them)
+  4. Runs `prepare_df_for_catboost` with the recovered feature lists
+  5. Retries the original method on the pandas DF
+
+Non-CB models, non-polars inputs, and unrelated TypeErrors **propagate unchanged** — the wrapper is targeted at exactly one failure mode. AttributeError also propagates so the outer `predict_proba → predict` fallback in evaluation keeps working for models without `predict_proba`.
+
+### Wired into `training/evaluation.py`
+Two call sites:
+- `report_regression_model_perf`: `model.predict(df)` → `_predict_with_fallback(model, df, method="predict")`
+- `report_probabilistic_model_perf`: both the `predict_proba(df)` call AND the outer `model.predict(df)` fallback now go through the wrapper. Lazy import breaks the `trainer ↔ evaluation` circular.
+
+### Tests (`tests/training/test_cb_polars_fallback.py`)
+10 new sensors across 2 test classes:
+
+`TestRecoverCBFeatureNames` (3):
+  - name recovery from indices + feature_names_
+  - empty return on unfitted model (no crash)
+  - invalid indices silently skipped (not raised)
+
+`TestPredictWithFallback` (7):
+  - polars TypeError → pandas retry → success (2 calls)
+  - both `predict` and `predict_proba` wrapped
+  - happy path: no error, single call, no log noise
+  - non-CB model TypeError propagates (don't swallow real bugs)
+  - non-polars input TypeError propagates
+  - unrelated TypeError text (e.g. shape mismatch) propagates
+  - AttributeError propagates (outer fallback needs it)
+
+31 tests total in `test_cb_polars_fallback.py` (21 pre-existing + 10 new).
+
 ## 2026-04-19 — ROOT CAUSE: stale cat_features list broke CB Polars fastpath
 
 Diagnostic logging from the earlier commit (`49ba314`) paid off immediately. Next prod run's log now includes the full per-column schema dump. Turns out the Enum hypothesis was WRONG — **no pl.Enum columns in the data**. All 9 cat_features are plain `pl.Categorical(ordering='lexical')`. But 4 columns in the dump show up as `String` dtype while still tagged `[cat]`:

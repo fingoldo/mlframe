@@ -968,6 +968,129 @@ def _warn_on_unsupported_polars_dtypes(
         pass
 
 
+def _recover_cb_feature_names(model: Any) -> Tuple[List[str], List[str]]:
+    """Extract (cat_features, text_features) as column-name lists from a
+    fitted CatBoost model.
+
+    At predict time we don't have the original Python-side cat_features /
+    text_features lists — the caller is evaluation code with no knowledge
+    of how the model was trained. CatBoost exposes its internal
+    per-feature metadata via:
+      - ``_get_cat_feature_indices()``  — integer indices into feature_names_
+      - ``_get_text_feature_indices()`` — ditto
+      - ``feature_names_``              — list of column names
+
+    Returns ``([], [])`` on any failure (e.g. non-fitted model, non-CB
+    estimator, older CB builds without those private hooks) — callers
+    wrap the fallback so missing names just means a less-specific prep
+    path, not a crash.
+    """
+    try:
+        feat_names = list(getattr(model, "feature_names_", []) or [])
+        cat_idx = getattr(model, "_get_cat_feature_indices", lambda: [])() or []
+        text_idx = getattr(model, "_get_text_feature_indices", lambda: [])() or []
+        if not feat_names:
+            return [], []
+        cat_feat = [feat_names[i] for i in cat_idx if 0 <= i < len(feat_names)]
+        text_feat = [feat_names[i] for i in text_idx if 0 <= i < len(feat_names)]
+        return cat_feat, text_feat
+    except Exception:
+        return [], []
+
+
+def _predict_with_fallback(
+    model: Any,
+    X: Any,
+    method: str = "predict_proba",
+    verbose: bool = False,
+) -> np.ndarray:
+    """Call ``model.{method}(X)`` with automatic Polars → pandas fallback
+    on CatBoost's Polars-fastpath dispatcher misses.
+
+    Symmetric to ``_train_model_with_fallback``. CatBoost 1.2.x's Polars
+    fastpath in ``_set_features_order_data_polars_categorical_column`` is
+    a Cython fused cpdef; certain column-dtype combinations raise the
+    opaque ``TypeError: No matching signature found``. When training
+    already hit this and fell back to pandas for fit, predict time
+    gets the same treatment: CB's stored cat-feature indices dispatch
+    back through the Polars fastpath when we hand it a pl.DataFrame
+    for prediction, and it fails the same way.
+
+    Prior behavior: the caller's ``except (AttributeError, TypeError,
+    NotImplementedError)`` block caught the predict_proba failure and
+    retried with ``model.predict(X)`` on the SAME pl.DataFrame — which
+    hit the same dispatcher and raised again. Not a fallback; a retry
+    into the same hole. (2026-04-19 prod log.)
+
+    This helper closes the loop: on a Polars fastpath TypeError with
+    a CatBoost model and a pl.DataFrame input, convert the DF to
+    pandas (using cat/text feature names recovered from the fitted
+    model), run ``prepare_df_for_catboost``, and retry. Non-CatBoost
+    TypeErrors and non-Polars inputs propagate unchanged.
+    """
+    fn = getattr(model, method)
+    n_rows = len(X) if hasattr(X, "__len__") else None
+    try:
+        with phase(method, model=type(model).__name__, n_rows=n_rows):
+            return fn(X)
+    except TypeError as e:
+        model_type_name = type(model).__name__
+        err_str = str(e)
+        # Only catch the specific Polars fastpath dispatch miss on a CB
+        # model with a pl.DataFrame input. Everything else bubbles up
+        # — otherwise we'd mask real type bugs.
+        if (
+            model_type_name not in CATBOOST_MODEL_TYPES
+            or not isinstance(X, pl.DataFrame)
+            or "No matching signature found" not in err_str
+        ):
+            raise
+
+        logger.warning(
+            "CatBoost %s Polars fastpath rejected the data (%s); "
+            "converting to pandas and retrying.",
+            method, err_str.splitlines()[-1][:240],
+        )
+
+        # Recover cat/text feature names from the fitted model so
+        # prepare_df_for_catboost can keep dtypes consistent with fit.
+        cat_feat, text_feat = _recover_cb_feature_names(model)
+        if verbose or not (cat_feat or text_feat):
+            logger.info(
+                "  [predict fallback] recovered from model: cat=%d, text=%d",
+                len(cat_feat), len(text_feat),
+            )
+
+        from mlframe.training.utils import get_pandas_view_of_polars_df
+        from mlframe.preprocessing import prepare_df_for_catboost as _prep_cb
+
+        t0 = timer()
+        shape_str = f"{X.shape[0]:_}×{X.shape[1]}" if hasattr(X, "shape") else "?"
+        X_pd = get_pandas_view_of_polars_df(X)
+        logger.info(
+            "  [predict fallback] polars→pandas(%s) %s in %.1fs",
+            method, shape_str, timer() - t0,
+        )
+
+        # Decategorize text columns BEFORE prepare_df_for_catboost
+        # (same ordering as _train_model_with_fallback — prep_cb would
+        # otherwise hit the CategoricalDtype text cols and either rebuild
+        # them via the slow astype path or reject them outright).
+        if text_feat:
+            for col in text_feat:
+                if col in X_pd.columns and isinstance(X_pd[col].dtype, pd.CategoricalDtype):
+                    X_pd[col] = X_pd[col].astype("object").fillna("")
+
+        t0 = timer()
+        X_pd = _prep_cb(X_pd, cat_features=list(cat_feat), text_features=list(text_feat))
+        logger.info(
+            "  [predict fallback] prepare_df_for_catboost(%s) in %.1fs",
+            method, timer() - t0,
+        )
+
+        return fn(X_pd)
+
+
 def _train_model_with_fallback(
     model: Any,
     model_obj: Any,

@@ -334,8 +334,14 @@ def report_regression_model_perf(
         (preds, None) - predictions and None (no probabilities for regression).
     """
     if preds is None:
-        with phase("predict", model=type(model).__name__, n_rows=(len(df) if df is not None else None)):
-            preds = model.predict(df)
+        # Wrap in _predict_with_fallback so CatBoost's Polars fastpath
+        # dispatcher misses ("No matching signature found") trigger a
+        # symmetric pandas fallback — same pattern as fit. Without this
+        # wrap, a polars val/test DF + a CB model whose fit path fell
+        # back to pandas would crash at predict time with the identical
+        # opaque TypeError (2026-04-19 prod incident).
+        from mlframe.training.trainer import _predict_with_fallback
+        preds = _predict_with_fallback(model, df, method="predict")
 
     if isinstance(targets, pd.Series):
         targets = targets.values
@@ -505,12 +511,21 @@ def report_probabilistic_model_perf(
         (preds, probs) - class predictions and probability arrays.
     """
     if probs is None:
+        # Lazy import avoids circular: trainer.py already imports from
+        # evaluation.py at module level.
+        from mlframe.training.trainer import _predict_with_fallback
         try:
-            with phase("predict_proba", model=type(model).__name__, n_rows=(len(df) if df is not None else None)):
-                probs = model.predict_proba(df)
+            # _predict_with_fallback handles the CatBoost Polars-fastpath
+            # dispatcher miss ("No matching signature found") symmetrically
+            # with fit's fallback. Any OTHER error (model has no
+            # predict_proba, returns NotImplemented, or a non-CB TypeError)
+            # bubbles to the outer except and hits the predict() fallback
+            # path below — with the same Polars fallback wrapping so we
+            # don't retry into the same dispatcher miss (2026-04-19 bug).
+            probs = _predict_with_fallback(model, df, method="predict_proba")
         except (AttributeError, TypeError, NotImplementedError) as e:
             logger.warning(f"predict_proba not available for {type(model).__name__}, using predict() instead: {e}")
-            preds_fallback = model.predict(df)
+            preds_fallback = _predict_with_fallback(model, df, method="predict")
 
             if hasattr(model, "classes_"):
                 n_classes = len(model.classes_)

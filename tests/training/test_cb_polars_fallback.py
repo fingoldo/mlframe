@@ -525,6 +525,215 @@ class TestFilterPolarsCatFeaturesByDtype:
         assert any("numeric" in m for m in warns), warns
 
 
+# ---------------------------------------------------------------------------
+# _predict_with_fallback — symmetric Polars → pandas fallback at predict time
+# ---------------------------------------------------------------------------
+# Production 2026-04-19 log: after fit fell back to pandas and succeeded,
+# predict_proba(val_polars_df) hit the SAME
+# ``_set_features_order_data_polars_categorical_column`` dispatcher miss.
+# The old fallback in evaluation.py:513 caught the TypeError and retried
+# with model.predict(df) — on the same pl.DataFrame. Not a fallback; a
+# retry into the same hole.
+#
+# Fix: _predict_with_fallback wraps predict/predict_proba with a proper
+# polars→pandas retry on CB Polars-fastpath dispatcher miss. Non-CB
+# models, non-polars inputs, and unrelated TypeErrors propagate unchanged.
+
+
+class _FakeCBPredict:
+    """CatBoost-like model that rejects pl.DataFrame with the exact prod
+    TypeError but succeeds on pd.DataFrame. Records every call so tests
+    can count retries."""
+    def __init__(self, feature_names=None, cat_idx=None, text_idx=None):
+        self._feat_names = feature_names or []
+        self._cat_idx = cat_idx or []
+        self._text_idx = text_idx or []
+        self.calls: List[Dict[str, Any]] = []
+
+    # CatBoost exposes these as private-but-stable helpers.
+    feature_names_ = property(lambda self: self._feat_names)
+    def _get_cat_feature_indices(self): return list(self._cat_idx)
+    def _get_text_feature_indices(self): return list(self._text_idx)
+
+    def predict(self, X):
+        self.calls.append({"method": "predict", "X_type": type(X).__name__})
+        if isinstance(X, pl.DataFrame):
+            raise TypeError("No matching signature found")
+        n = len(X)
+        return np.zeros(n, dtype=np.int64)
+
+    def predict_proba(self, X):
+        self.calls.append({"method": "predict_proba", "X_type": type(X).__name__})
+        if isinstance(X, pl.DataFrame):
+            raise TypeError("No matching signature found")
+        n = len(X)
+        out = np.zeros((n, 2), dtype=np.float64)
+        out[:, 1] = 1.0
+        return out
+
+
+def _make_predict_polars_df(n=20):
+    cats = ["a", "b"] * (n // 2)
+    return pl.DataFrame({
+        "c1": pl.Series("c1", cats).cast(pl.Categorical),
+        "c2": pl.Series("c2", ["x", "y"] * (n // 2)),  # String (text feat after decat)
+    })
+
+
+class TestRecoverCBFeatureNames:
+    """_recover_cb_feature_names extracts cat/text feature column names
+    from the fitted CB model so _predict_with_fallback can call
+    prepare_df_for_catboost with matching args — without the caller
+    (evaluation code) having to know them."""
+
+    def test_recovers_names_from_indices(self):
+        from mlframe.training.trainer import _recover_cb_feature_names
+        m = _FakeCBPredict(
+            feature_names=["a", "b", "c", "d"],
+            cat_idx=[0, 2],
+            text_idx=[3],
+        )
+        cat, text = _recover_cb_feature_names(m)
+        assert cat == ["a", "c"]
+        assert text == ["d"]
+
+    def test_empty_on_unfitted_model(self):
+        from mlframe.training.trainer import _recover_cb_feature_names
+        class Bare:
+            pass
+        cat, text = _recover_cb_feature_names(Bare())
+        assert cat == []
+        assert text == []
+
+    def test_silently_skips_invalid_indices(self):
+        """Defensive: if stored indices point beyond feature_names_
+        (shouldn't happen, but possible with a partially-loaded model),
+        return what we can — don't raise."""
+        from mlframe.training.trainer import _recover_cb_feature_names
+        m = _FakeCBPredict(
+            feature_names=["a", "b"],
+            cat_idx=[0, 99],  # 99 is out of range
+            text_idx=[-1],    # negative also rejected
+        )
+        cat, text = _recover_cb_feature_names(m)
+        assert cat == ["a"]  # 99 skipped
+        assert text == []    # -1 skipped
+
+
+class TestPredictWithFallback:
+    """Sensor suite for _predict_with_fallback.
+
+    The prod incident (2026-04-19): after fit pandas-fallback succeeded,
+    predict_proba on a Polars val_df hit the same dispatcher miss and
+    the existing except block retried with predict() on the same
+    pl.DataFrame — another dispatch miss. Tests below lock in the
+    correct behavior:
+    1. Polars TypeError → pandas fallback → retry succeeds
+    2. Non-polars TypeError → propagate unchanged
+    3. Non-CB model TypeError → propagate unchanged
+    4. Unrelated TypeError text → propagate unchanged
+    5. AttributeError (no predict_proba) → propagate (evaluation caller
+       handles it with its own predict() fallback)
+    6. Happy path: no error → single call, no fallback
+    """
+
+    def test_polars_typeerror_triggers_pandas_retry(self, caplog):
+        import logging
+        from mlframe.training.trainer import _predict_with_fallback
+        m = _FakeCBPredict(feature_names=["c1", "c2"], cat_idx=[0], text_idx=[1])
+        m.__class__.__name__ = "CatBoostClassifier"
+        df = _make_predict_polars_df()
+
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.trainer"):
+            out = _predict_with_fallback(m, df, method="predict_proba")
+
+        assert out.shape == (20, 2)
+        assert len(m.calls) == 2, f"expected 2 calls (polars-fail + pandas-retry), got {m.calls}"
+        assert m.calls[0]["X_type"] == "DataFrame"  # polars DataFrame (class name)
+        assert m.calls[1]["X_type"] == "DataFrame"  # pandas DataFrame (same class name)
+        warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
+        assert any("Polars fastpath rejected" in m for m in warns), warns
+
+    def test_predict_method_also_gets_fallback(self):
+        """Same wrap for .predict() as for .predict_proba() — the 2026-04-19
+        bug manifested in both methods."""
+        from mlframe.training.trainer import _predict_with_fallback
+        m = _FakeCBPredict(feature_names=["c1", "c2"], cat_idx=[0], text_idx=[1])
+        m.__class__.__name__ = "CatBoostClassifier"
+        df = _make_predict_polars_df()
+
+        out = _predict_with_fallback(m, df, method="predict")
+        assert out.shape == (20,)
+        assert len(m.calls) == 2
+
+    def test_happy_path_no_fallback(self):
+        """Clean pandas input, no error → single call, no log noise."""
+        from mlframe.training.trainer import _predict_with_fallback
+        m = _FakeCBPredict(feature_names=["c1", "c2"], cat_idx=[0], text_idx=[1])
+        m.__class__.__name__ = "CatBoostClassifier"
+        df = pd.DataFrame({
+            "c1": pd.Categorical(["a", "b"] * 10),
+            "c2": (["x", "y"] * 10),
+        })
+        out = _predict_with_fallback(m, df, method="predict_proba")
+        assert out.shape == (20, 2)
+        assert len(m.calls) == 1
+
+    def test_non_catboost_typeerror_propagates(self):
+        """A TypeError from a non-CB model is a real bug, not a dispatch
+        miss — must bubble up, not be swallowed by the CB-specific
+        fallback path."""
+        from mlframe.training.trainer import _predict_with_fallback
+        class OtherModel:
+            def predict(self, X):
+                raise TypeError("No matching signature found")
+        m = OtherModel()
+        df = _make_predict_polars_df()
+        with pytest.raises(TypeError, match="No matching signature"):
+            _predict_with_fallback(m, df, method="predict")
+
+    def test_non_polars_input_typeerror_propagates(self):
+        """TypeError on a non-Polars input is not the dispatcher miss —
+        bubble up (otherwise we'd spuriously retry on unrelated type bugs)."""
+        from mlframe.training.trainer import _predict_with_fallback
+        class CBLike:
+            def predict(self, X):
+                raise TypeError("No matching signature found")
+        m = CBLike()
+        m.__class__.__name__ = "CatBoostClassifier"
+        df = pd.DataFrame({"a": [1, 2, 3]})  # pandas, not polars
+        with pytest.raises(TypeError, match="No matching signature"):
+            _predict_with_fallback(m, df, method="predict")
+
+    def test_unrelated_typeerror_propagates(self):
+        """A TypeError from CB on a polars DF but with a different
+        message (e.g. schema shape mismatch) is NOT the dispatcher miss
+        — must propagate unchanged."""
+        from mlframe.training.trainer import _predict_with_fallback
+        class CBLike2:
+            def predict(self, X):
+                raise TypeError("shape mismatch in eval set")
+        m = CBLike2()
+        m.__class__.__name__ = "CatBoostClassifier"
+        df = _make_predict_polars_df()
+        with pytest.raises(TypeError, match="shape mismatch"):
+            _predict_with_fallback(m, df, method="predict")
+
+    def test_attributeerror_propagates_for_outer_fallback(self):
+        """The outer evaluation.py fallback relies on AttributeError (model
+        without predict_proba) propagating, so it can retry via predict().
+        The wrapper must NOT eat AttributeError."""
+        from mlframe.training.trainer import _predict_with_fallback
+        class NoProba:
+            def predict(self, X):
+                return np.zeros(len(X))
+        m = NoProba()
+        m.__class__.__name__ = "CatBoostClassifier"
+        df = pd.DataFrame({"a": [1, 2, 3]})
+        with pytest.raises(AttributeError):
+            _predict_with_fallback(m, df, method="predict_proba")
+
+
 def test_cb_fallback_warning_emits_schema_dump_on_rejection(polars_frame_with_text_cats, caplog):
     """End-to-end: when the CB Polars fastpath rejects (simulated via
     FakeCatBoost's first-call TypeError), the fallback path must emit a
