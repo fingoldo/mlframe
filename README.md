@@ -231,6 +231,52 @@ and without a concrete anchor you can't tell "done".
 Together: reactive guards the fixed spots, proactive finds new spots, and
 every finding from proactive graduates to a reactive sensor.
 
+### Lessons from the 2026-04-18/19 campaign (13 commits, ~170 sensors)
+
+Recurring bug patterns the campaign surfaced — probe for these explicitly
+on any new code path:
+
+| Pattern | Representative example |
+|---|---|
+| NaN-in-comparison silently breaks early-stop | `ICE metric`, `RFECV score`, `per-fold importances` all had NaN that made `x > best` always False, trainer stalled with no visible error |
+| Stale/shared cache keys | `PipelineCache` used `cache_key="tree"` for CB/LGB/XGB; CB cached frame with text cols, LGB retrieved same cache → polars fastpath broke. Fix: include `feature_tier()` in key |
+| pl.Enum is NOT pl.Categorical | Instance-level dtype; `dtype == pl.Categorical` and tuple-membership checks return False. Fixed in 3 places over the campaign |
+| Magic-number sentinel in ratio features | `LARGE_CONST=1e3` when denominator=0 — domain-specific decision; document or accept |
+| Global-pool Polars Categorical dictionary | `Categorical.astype(str)` materializes a `(n_categories × max_str_len × 4B)` Unicode array — 75 GiB OOM observed in prod |
+| Div-by-zero in ratio features | Mitigated by `pllib.clean_numeric(…)` when wrapped; raw `a / b` returns inf/NaN silently |
+| Silent column overwrite | `create_date_features` clobbered user-engineered `date_year`. Fix: collision WARN |
+| Target-encoder leakage | `fit_transform` on full sample before CV split. Classic ML antipattern |
+| Degenerate classification target | All-one-class → ROC AUC=NaN → NaN-in-comparison breaks downstream |
+| Schema drift train→val/test | Missing/extra cols or dtype change at transform time. Add WARN before the transform |
+| Concurrent file write | `joblib.dump` without atomic rename → corruption on parallel runs |
+| Entry-point third-party bugs | `thinc.util.fix_random_seed` passed un-clamped seed to numpy via pytest-randomly → session cascades |
+
+### Observability discipline
+
+WARN must fire on the *pathological* case, not normal operation. We audited
+the 17 WARN-sites added across the campaign and only one (the
+`get_pandas_view_of_polars_df` nested-type WARN) was noise-prone — it
+fires per bridge call with the same schema. Fix: module-level dedup
+cache keyed on `(col, dtype)` tuple. When adding a new WARN:
+
+1. Can it fire on a clean default-config run with representative data? If yes → downgrade to INFO or gate.
+2. Does the same WARN fire N times per run? If yes → dedup by shape.
+3. Does the WARN name the trigger column/value? If no → add it, else the operator can't act.
+
+### Test-infrastructure fixes
+
+Third-party `pytest_randomly.random_seeder` entry points can break the
+test session when their seed-setters don't clamp to `2**32`. Known
+offenders:
+
+- `thinc.util.fix_random_seed` (spaCy/explosion.ai dep). Symptom: `4
+  passed, 20 errors` with `previous item was not torn down properly`
+  in `tests/training/`. Root cause: pytest-randomly passes
+  `randomly_seed + crc32(test_nodeid)` un-clamped. Fix: session-scoped
+  autouse shim in `tests/conftest.py::_patch_thinc_fix_random_seed_for_pytest_randomly_compat`
+  that wraps the callable with `% 2**32`. Verified with known-bad
+  `--randomly-seed=310986334`.
+
 ### Perf budgets
 
 Sensors that assert `elapsed < X s` or `RSS < Y MB` catch whole classes

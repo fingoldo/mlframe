@@ -98,60 +98,53 @@ def fast_mode() -> bool:
     return is_fast_mode()
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _patch_thinc_fix_random_seed_for_pytest_randomly_compat():
-    """Clamp thinc.util.fix_random_seed(seed) to ``seed % 2**32``.
+# ===========================================================================
+# thinc / pytest-randomly seed-overflow compat shim (2026-04-19)
+# ===========================================================================
+# Root cause: thinc (spacy/explosion.ai dep) ships a
+# ``pytest_randomly.random_seeder`` entry point pointing at
+# ``thinc.util.fix_random_seed``. That function calls
+# ``numpy.random.seed(seed)`` WITHOUT the ``% 2**32`` clamp that
+# pytest-randomly itself applies in its own ``_reseed``. pytest-randomly
+# invokes every registered random_seeder entry point with
+# ``seed = randomly_seed_option + crc32(nodeid_offset)`` — their sum
+# easily exceeds 2**32. Result: random-order test runs cascade
+# ``ValueError: Seed must be between 0 and 2**32 - 1`` from thinc,
+# which fails the fixture setup and trips pytest's downstream
+# ``previous item was not torn down properly`` assertion for every
+# subsequent test in the session.
+#
+# Why module-level not session fixture (2026-04-19 round 11):
+# pytest-randomly's ``pytest_runtest_setup`` hook fires BEFORE
+# session-scope autouse fixtures activate on the first test of the
+# session. By the time our fixture ran, thinc's bare seeder had
+# already been invoked with the overflowing seed. Module-level
+# patching in conftest.py runs at conftest import time — which is
+# BEFORE any pytest hook fires — so by the time pytest-randomly
+# resolves its entry points via ``e.load()``, ``thinc.util.fix_random_seed``
+# is already our wrapper.
+try:
+    import thinc.util as _thinc_util  # noqa: E402
+    _thinc_original_fix = _thinc_util.fix_random_seed
 
-    Root cause traced 2026-04-19: thinc (spacy/explosion.ai dep) ships a
-    ``pytest_randomly.random_seeder`` entry point pointing at
-    ``thinc.util.fix_random_seed``. That function calls
-    ``numpy.random.seed(seed)`` WITHOUT the ``% 2**32`` clamp that
-    pytest-randomly itself applies in its own ``_reseed``. pytest-randomly
-    invokes every registered random_seeder entry point with
-    ``seed = randomly_seed_option + crc32(nodeid_offset)`` — their sum
-    easily exceeds 2**32. Result: random-order test runs cascade
-    ``ValueError: Seed must be between 0 and 2**32 - 1`` from thinc,
-    which fails the fixture setup and trips pytest's downstream
-    ``previous item was not torn down properly`` assertion for every
-    subsequent test in the session.
+    def _thinc_clamped_fix_random_seed(seed: int = 0) -> None:
+        return _thinc_original_fix(int(seed) % (2**32))
 
-    Symptom: ``4 passed, 20 errors`` (or similar) for any
-    ``tests/training/`` run unless ``-p no:randomly`` is used.
+    _thinc_util.fix_random_seed = _thinc_clamped_fix_random_seed
 
-    Fix: shim ``thinc.util.fix_random_seed`` at session start to apply
-    ``% 2**32`` before delegating. Also update pytest-randomly's cached
-    ``entrypoint_reseeds`` list if it's already been materialized, so
-    the next hook invocation picks up the shim.
-    """
+    # If pytest-randomly already populated its cache (e.g. another
+    # conftest loaded before us), swap in the wrapper.
     try:
-        import thinc.util as _thinc_util
-    except ImportError:
-        yield
-        return
-
-    _original_fix = _thinc_util.fix_random_seed
-
-    def _clamped_fix_random_seed(seed: int = 0) -> None:
-        return _original_fix(int(seed) % (2**32))
-
-    _thinc_util.fix_random_seed = _clamped_fix_random_seed
-
-    # pytest-randomly caches the resolved entry points on first use.
-    # If it was already cached, swap the reference so live hooks pick
-    # up our wrapper. (If not yet cached, entry_points will resolve to
-    # the updated attribute on first access.)
-    try:
-        import pytest_randomly as _pr
+        import pytest_randomly as _pr  # noqa: E402
         if getattr(_pr, "entrypoint_reseeds", None):
             _pr.entrypoint_reseeds = [
-                _clamped_fix_random_seed if r is _original_fix else r
+                _thinc_clamped_fix_random_seed if r is _thinc_original_fix else r
                 for r in _pr.entrypoint_reseeds
             ]
-    except Exception:
+    except Exception:  # pragma: no cover
         pass
-
-    yield
-    _thinc_util.fix_random_seed = _original_fix
+except ImportError:  # pragma: no cover
+    pass
 
 
 @pytest.fixture(autouse=True)

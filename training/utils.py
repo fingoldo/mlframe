@@ -275,6 +275,14 @@ def drop_columns_from_dataframe(
 # Use: from .io import save_mlframe_model, load_mlframe_model
 
 
+_NESTED_DTYPE_WARN_SEEN: set = set()
+"""Module-level dedup cache for ``get_pandas_view_of_polars_df``'s nested-
+dtypes WARN. Keeps the bridge quiet on repeated calls with the same
+embedding-column schema while still surfacing novel shapes. Cleared
+implicitly on process exit; tests that need fresh state can clear it
+explicitly via ``_NESTED_DTYPE_WARN_SEEN.clear()``."""
+
+
 def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
     """
     Return a zero-copy (Arrow-backed) pandas DataFrame view of a Polars DataFrame.
@@ -325,6 +333,12 @@ def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
     # raise or auto-cast — the bridge is a general-purpose helper and
     # other callers (logging, post-hoc analysis) legitimately want
     # list-typed columns pass-through.
+    #
+    # Noise-dedupe (2026-04-19 round-11): the bridge is called many
+    # times per training run (train / val / test × per-model), and a
+    # frame with embedding features would emit the same WARN every call.
+    # Fire at most once per unique (column-name, dtype-str) tuple set
+    # observed in the process — repeated identical schemas stay quiet.
     if isinstance(df, pl.DataFrame):
         nested_cols = []
         for name, dt in df.schema.items():
@@ -334,17 +348,21 @@ def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
             ):
                 nested_cols.append((name, type_str))
         if nested_cols:
-            logger.warning(
-                "get_pandas_view_of_polars_df: %d column(s) have nested "
-                "Polars dtypes that pyarrow materializes as pandas object "
-                "dtype with Python list/dict elements: %s. Downstream "
-                "numeric consumers (CatBoost embedding_features fastpath, "
-                "sklearn estimators) may reject these with opaque errors. "
-                "If these columns are embedding_features, keep them as "
-                "pl.List in the Polars fastpath; if they need to hit the "
-                "pandas path, pre-cast to fixed-width numpy arrays.",
-                len(nested_cols), nested_cols,
-            )
+            key = tuple(nested_cols)
+            if key not in _NESTED_DTYPE_WARN_SEEN:
+                _NESTED_DTYPE_WARN_SEEN.add(key)
+                logger.warning(
+                    "get_pandas_view_of_polars_df: %d column(s) have nested "
+                    "Polars dtypes that pyarrow materializes as pandas object "
+                    "dtype with Python list/dict elements: %s. Downstream "
+                    "numeric consumers (CatBoost embedding_features fastpath, "
+                    "sklearn estimators) may reject these with opaque errors. "
+                    "If these columns are embedding_features, keep them as "
+                    "pl.List in the Polars fastpath; if they need to hit the "
+                    "pandas path, pre-cast to fixed-width numpy arrays. "
+                    "(This warning fires at most once per unique schema.)",
+                    len(nested_cols), nested_cols,
+                )
 
     tbl = df.to_arrow()
 

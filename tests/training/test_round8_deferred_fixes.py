@@ -128,8 +128,12 @@ class TestPolarsBridgeNestedTypesWarn:
     def test_list_float_column_triggers_warning(self, caplog):
         """pl.List[pl.Float32] embedding column must produce a WARN
         naming it — downstream CatBoost fastpath rejects object dtype
-        with list elements."""
-        from mlframe.training.utils import get_pandas_view_of_polars_df
+        with list elements. Round-11 added dedup, so we clear the
+        module-level seen-set before the test to guarantee the WARN
+        fires (otherwise another test earlier in the session might
+        have primed the cache)."""
+        from mlframe.training.utils import get_pandas_view_of_polars_df, _NESTED_DTYPE_WARN_SEEN
+        _NESTED_DTYPE_WARN_SEEN.clear()
         df = pl.DataFrame({
             "num": np.arange(5, dtype=np.float32),
             "emb": [[1.0, 2.0, 3.0]] * 5,
@@ -138,6 +142,45 @@ class TestPolarsBridgeNestedTypesWarn:
             get_pandas_view_of_polars_df(df)
         warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
         assert any("emb" in m and "List" in m for m in warns), warns
+
+    def test_repeated_calls_with_same_schema_only_warn_once(self, caplog):
+        """Dedup sensor (round 11): bridge is called many times per
+        training run — a WARN per call would spam. Fire at most once
+        per unique (col, dtype) schema tuple."""
+        from mlframe.training.utils import get_pandas_view_of_polars_df, _NESTED_DTYPE_WARN_SEEN
+        _NESTED_DTYPE_WARN_SEEN.clear()
+        df = pl.DataFrame({
+            "emb": [[1.0, 2.0]] * 3,
+        }).with_columns(pl.col("emb").cast(pl.List(pl.Float32)))
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.utils"):
+            get_pandas_view_of_polars_df(df)  # first call WARNs
+            get_pandas_view_of_polars_df(df)  # repeat — must stay silent
+            get_pandas_view_of_polars_df(df)  # repeat — must stay silent
+        warns = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warns) == 1, (
+            f"expected exactly one WARN across 3 identical-schema calls; got {len(warns)}:\n"
+            f"{[r.message for r in warns]}"
+        )
+
+    def test_different_schema_fires_again(self, caplog):
+        """Dedup must key on the schema, not be global: a different
+        nested-column set triggers its own WARN even if we've seen
+        a different one before."""
+        from mlframe.training.utils import get_pandas_view_of_polars_df, _NESTED_DTYPE_WARN_SEEN
+        _NESTED_DTYPE_WARN_SEEN.clear()
+        df1 = pl.DataFrame({"emb1": [[1.0, 2.0]] * 3}).with_columns(
+            pl.col("emb1").cast(pl.List(pl.Float32))
+        )
+        df2 = pl.DataFrame({"emb2": [[3.0, 4.0, 5.0]] * 3}).with_columns(
+            pl.col("emb2").cast(pl.List(pl.Float32))
+        )
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.utils"):
+            get_pandas_view_of_polars_df(df1)
+            get_pandas_view_of_polars_df(df2)
+        warns = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warns) == 2, (
+            f"expected one WARN per unique schema; got {len(warns)}"
+        )
 
     def test_no_warning_on_flat_schema(self, caplog):
         """Clean numeric+string+categorical must be silent — the warn
