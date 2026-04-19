@@ -61,17 +61,20 @@ def plot_feature_importance(
         df = df[df.fi > 0.0]
 
     if plot_file or show_plots:
-        fig = plt.figure(figsize=figsize)
+        figs = []
+        fig_top = plt.figure(figsize=figsize)
+        figs.append(fig_top)
         ax = plt.gca()  # visible=True
         ax.barh(range(len(sorted_idx[-n:])), feature_importances[sorted_idx[-n:]], align="center")
         ax.set(yticks=range(len(sorted_idx[-n:])), yticklabels=sorted_columns[-n:])
         ax.set_title(f"{kind} feature importances")
 
         if plot_file:
-            fig.savefig(plot_file)
+            fig_top.savefig(plot_file)
 
         if not positive_fi_only and feature_importances[sorted_idx[0]] < 0:
-            fig = plt.figure(figsize=figsize)
+            fig_bot = plt.figure(figsize=figsize)
+            figs.append(fig_bot)
             ax = plt.gca()  # visible=True
             ax.barh(range(len(sorted_idx[:n])), feature_importances[sorted_idx[:n]], align="center")
             ax.set(yticks=range(len(sorted_idx[:n])), yticklabels=sorted_columns[:n])
@@ -81,7 +84,10 @@ def plot_feature_importance(
             plt.ion()
             plt.show()
         else:
-            plt.close(fig)
+            # Previously only the last-assigned fig was closed — the
+            # top-FI figure leaked whenever the BOTTOM branch also fired.
+            for f in figs:
+                plt.close(f)
 
     return df
 

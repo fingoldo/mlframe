@@ -1754,6 +1754,25 @@ def train_mlframe_models_suite(
     if verbose and (text_features or embedding_features):
         logger.info(f"  Feature types — text: {text_features}, embedding: {embedding_features}, cat: {cat_features or '(none)'}")
 
+    # Pre-train cardinality snapshot: without this, a native XGB/CB
+    # crash on high-cardinality categoricals leaves us guessing at the
+    # input. Log n_unique for every categorical/text/embedding feature
+    # before the first .fit() so the log captures the state the model
+    # actually saw. Use the already-prepared ``train_df``.
+    if verbose:
+        all_cat_cols = list(cat_features or []) + list(text_features or []) + list(embedding_features or [])
+        if all_cat_cols and train_df is not None:
+            try:
+                if isinstance(train_df, pl.DataFrame):
+                    pairs = [(c, train_df[c].n_unique()) for c in all_cat_cols if c in train_df.columns]
+                else:
+                    pairs = [(c, int(train_df[c].nunique(dropna=False))) for c in all_cat_cols if c in train_df.columns]
+                pairs.sort(key=lambda x: -x[1])
+                summary = ", ".join(f"{c}:{n:_}" for c, n in pairs)
+                logger.info(f"  Categorical cardinalities (train, n_unique, desc): {summary}")
+            except Exception as _e:
+                logger.warning(f"  Failed to compute categorical cardinalities for logging: {_e}")
+
     metadata["text_features"] = text_features
     metadata["embedding_features"] = embedding_features
 

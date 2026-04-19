@@ -99,9 +99,18 @@ def prewarm_numba_cache():
 
         # Scoring functions
         _ = brier_score_loss(y_true, y_pred)
+        _ = fast_brier_score_loss(y_true, y_pred)
         _ = fast_log_loss(y_true, y_pred)
         _ = maximum_absolute_percentage_error(y_true, y_pred)
         _ = probability_separation_score(y_true, y_pred)
+
+        # calibration_metrics_from_freqs: consumes the output of
+        # fast_calibration_binning. Prewarm with matching dtype.
+        freqs_p, freqs_t, hits = fast_calibration_binning(y_true, y_pred, nbins=10)
+        _ = calibration_metrics_from_freqs(
+            freqs_predicted=freqs_p, freqs_true=freqs_t, hits=hits,
+            nbins=10, array_size=len(y_true), use_weights=True,
+        )
 
     # Classification functions need integer class labels
     for dtype in [np.int32, np.int64]:
@@ -976,6 +985,35 @@ def fast_calibration_report(
     return brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, precision, recall, f1, metrics_string, fig
 
 
+def fast_ice_only(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    nbins: int = 10,
+    use_weights: bool = True,
+    **ice_kwargs,
+) -> float:
+    """Compute only the ICE scalar from y_true/y_pred, skipping the
+    log_loss / precision-recall-f1 / title / plotting work that
+    ``fast_calibration_report`` does for its reporting callers.
+
+    Bit-exact equivalent of ``fast_calibration_report(...)[6]``. Used by
+    the fairness fan-out hot path — verified 1.1-1.7x faster per call
+    (bench_ice_only.py, 2026-04-19) with ICE drift < 1e-9.
+    """
+    if len(y_true) == 0:
+        return 1.0
+    brier_loss = fast_brier_score_loss(y_true=y_true, y_prob=y_pred)
+    freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
+    cal_mae, cal_std, cal_cov = calibration_metrics_from_freqs(
+        freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, array_size=len(y_true), use_weights=use_weights,
+    )
+    roc_auc, pr_auc, _ = fast_aucs_per_group_optimized(y_true=y_true, y_score=y_pred, group_ids=None)
+    return integral_calibration_error_from_metrics(
+        calibration_mae=cal_mae, calibration_std=cal_std, calibration_coverage=cal_cov,
+        brier_loss=brier_loss, roc_auc=roc_auc, pr_auc=pr_auc, **ice_kwargs,
+    )
+
+
 def predictions_time_instability(preds: pd.Series) -> float:
     """Computes how stable are true values or predictions over time.
     It's hard to use predictions that change upside down from point to point.
@@ -1051,34 +1089,35 @@ def compute_probabilistic_multiclass_error(
         elif isinstance(correct_class, pl.Series):
             correct_class = correct_class.cast(pl.Int8).to_numpy()
 
-        # Compute detailed classification metrics
-
-        if (method in ("multicrit", "brier_score")) or verbose:
-            brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, *_, metrics_string, fig = fast_calibration_report(
-                y_true=correct_class,
-                y_pred=y_pred,
-                use_weights=use_weighted_calibration,
-                nbins=nbins,
-                #
-                show_plots=False,
-                verbose=False,
-                mae_weight=mae_weight,
-                std_weight=std_weight,
-                brier_loss_weight=brier_loss_weight,
-                roc_auc_weight=roc_auc_weight,
-                pr_auc_weight=pr_auc_weight,
-                min_roc_auc=min_roc_auc,
-                roc_auc_penalty=roc_auc_penalty,
-            )
-            if verbose:
-                logger.info(f"\t class_id={class_id}, {metrics_string}")
-
-        # Find class error
+        # Compute class error. When verbose=False (the fairness fan-out
+        # hot path), take the ICE-only / brier-only fastpath and skip the
+        # log_loss + precision/recall/f1 + title work that
+        # fast_calibration_report does for its reporting callers.
+        # Bit-exact equivalent — see bench_ice_only.py (2026-04-19).
 
         if method == "multicrit":
-            class_error = ice
+            if verbose:
+                brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, *_, metrics_string, fig = fast_calibration_report(
+                    y_true=correct_class, y_pred=y_pred, use_weights=use_weighted_calibration, nbins=nbins,
+                    show_plots=False, verbose=False,
+                    mae_weight=mae_weight, std_weight=std_weight, brier_loss_weight=brier_loss_weight,
+                    roc_auc_weight=roc_auc_weight, pr_auc_weight=pr_auc_weight,
+                    min_roc_auc=min_roc_auc, roc_auc_penalty=roc_auc_penalty,
+                )
+                logger.info(f"\t class_id={class_id}, {metrics_string}")
+                class_error = ice
+            else:
+                class_error = fast_ice_only(
+                    y_true=correct_class, y_pred=y_pred, nbins=nbins, use_weights=use_weighted_calibration,
+                    mae_weight=mae_weight, std_weight=std_weight, brier_loss_weight=brier_loss_weight,
+                    roc_auc_weight=roc_auc_weight, pr_auc_weight=pr_auc_weight,
+                    min_roc_auc=min_roc_auc, roc_auc_penalty=roc_auc_penalty,
+                )
         elif method == "brier_score":
-            class_error = brier_loss
+            # Only brier_loss is used — skip binning/AUC/ICE entirely.
+            class_error = fast_brier_score_loss(y_true=correct_class, y_prob=y_pred)
+            if verbose:
+                logger.info(f"\t class_id={class_id}, brier_loss={class_error:.{ndigits}f}")
         elif method == "precision":
             class_error = fast_precision(y_true=correct_class, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0)
 
