@@ -144,7 +144,20 @@ def compute_area_profits(prices, positions):
 
     # For last index n-1 (no position interval), profit = 0
     profits[n - 1] = 0.0
-    return profits / prices
+
+    # Safe division: ``profits / prices`` previously produced inf/NaN on
+    # any zero-price bar (2026-04-19 round-9 probe finding). Zero prices
+    # appear in synthetic/test data and corrupted feeds. Returning
+    # inf/NaN silently poisons downstream ML features.
+    # Guard: compute ratio only where price > 0; zero-price bars
+    # contribute 0 (no directional profit is meaningful without a
+    # valid denominator).
+    out = np.zeros_like(profits)
+    for i in range(n):
+        if prices[i] > 0:
+            out[i] = profits[i] / prices[i]
+        # else: out[i] stays 0
+    return out
 
 
 @numba.njit(fastmath=FASTMATH)

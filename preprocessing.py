@@ -183,23 +183,53 @@ def prepare_df_for_catboost(
 
 
 def prepare_df_for_xgboost(
-    df: object,
-    cat_features: Sequence = [],
+    df: pd.DataFrame,
+    cat_features: Optional[Sequence] = None,
     ensure_categorical: bool = True,
-) -> None:
+) -> pd.DataFrame:
+    """Ensure categorical columns are pd.CategoricalDtype for XGBoost.
+
+    Contract (fixed 2026-04-19 round 9):
+      - Input must be a pandas DataFrame. Polars is NOT accepted; caller
+        must convert first (use ``get_pandas_view_of_polars_df``). Pre-fix
+        the signature declared ``df: object`` and the function crashed
+        with AttributeError on polars input — misleading silent failure.
+      - ``cat_features`` is mutated in place (existing contract, kept for
+        back-compat) AND the DataFrame is also returned so callers can
+        chain calls symmetrically with ``prepare_df_for_catboost``.
+      - ``cat_features=None`` is now accepted (coerced to empty list);
+        pre-fix hit TypeError on ``var not in None``.
+
+    Args:
+        df: pandas DataFrame (polars is rejected with a clear TypeError).
+        cat_features: List of known categorical column names, MUTATED in
+            place to append auto-detected pd.CategoricalDtype columns.
+        ensure_categorical: If True, cast any column in cat_features that
+            isn't yet pd.CategoricalDtype to ``category`` dtype.
+
+    Returns:
+        The same DataFrame (modified in place for dtype casts).
+
+    Raises:
+        TypeError: if ``df`` is a Polars DataFrame or Series.
     """
-    Xgboost needs categorical be of category dtype.
-    """
+    if isinstance(df, (pl.DataFrame, pl.Series)):
+        raise TypeError(
+            f"prepare_df_for_xgboost requires a pandas DataFrame, got "
+            f"{type(df).__name__}. Convert via get_pandas_view_of_polars_df() first."
+        )
+    if cat_features is None:
+        cat_features = []
     cols = set(df.columns)
     for var in tqdmu(cols, desc="Processing categorical features for XGBoost...", leave=False):
         if isinstance(df[var].dtype, pd.CategoricalDtype):
             if var not in cat_features:
-                logging.info(f"{var} appended to cat_features")
-                # df[var] = df[var].astype(str) #(?)
+                logger.info(f"{var} appended to cat_features")
                 cat_features.append(var)
         else:
             if var in cat_features and ensure_categorical:
                 df[var] = df[var].astype("category")
+    return df
 
 
 def pack_val_set_into_fit_params(model: object, X_val: pd.DataFrame, y_val: pd.DataFrame, early_stopping_rounds: int, cat_features: list = None) -> dict:

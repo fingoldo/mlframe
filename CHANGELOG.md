@@ -1,5 +1,50 @@
 # Changelog
 
+## 2026-04-19 — probe round 10: closing the 4 deferred round-9 findings
+
+All four items marked "deferred" in round 9 are addressed. Investigation during the fix also flagged several probe claims as already-handled false positives.
+
+### Fixed — PipelineCache collision across CB/LGB/XGB (`training/core.py`)
+
+Verified the shared-`cache_key` concern from the round-9 strategies probe. CatBoostStrategy, XGBoostStrategy, and TreeModelStrategy (LGB parent) all inherit `cache_key = "tree"`. But they differ in `feature_tier()`:
+- CB: `(supports_text=True, supports_embedding=True)` → `(True, True)`
+- LGB, XGB (base): `(False, False)`
+
+Models sort tier-desc before the loop, so CB runs first. In the pandas path, CB's `process_model` caches a DataFrame *with* text/embedding columns under `"tree"`. LGB then retrieves it via `cached_train_df` which overrides `common_params["train_df"]` at `train_eval.py:584-589` — so LGB trains on CB's tier-inappropriate DF with columns it can't handle.
+
+Fix: append `feature_tier()` to the effective cache key in `core.py:2056`. Models with matching tiers still share the cache (intended); mismatched tiers get separate entries.
+
+### Fixed — `prepare_df_for_xgboost` polars contract (`preprocessing.py`)
+
+Signature declared `df: object`, returned `None`, only handled pandas. A Polars DataFrame passed by a caller assuming symmetry with `prepare_df_for_catboost` crashed with a cryptic AttributeError on `df[var].dtype`. Now:
+- Explicit `TypeError` on Polars input naming the conversion helper (`get_pandas_view_of_polars_df`).
+- `cat_features=None` accepted (coerced to empty list — pre-fix hit `var not in None`).
+- Returns the DataFrame so callers can chain.
+- Signature properly typed as `df: pd.DataFrame` with `Optional[Sequence]` for `cat_features`.
+
+### Fixed — Bruteforce target-encoder leakage observability (`feature_engineering/bruteforce.py`)
+
+`CatBoostEncoder.fit_transform(df, target)` on the full sample — classic supervised-encoding leak. A proper fix requires OOF/KFold encoding refactor (API change, reproducibility impact). Minimal defensive fix: loud `warnings.warn` + `logger.warning` at call time naming the encoded columns. Operators see the risk before using the returned PySR formula. Existing behavior preserved for back-compat; this is bruteforce FE path, not in the active production pipeline.
+
+### Fixed — MPS `compute_area_profits` zero-price guard (`feature_engineering/mps.py`)
+
+`return profits / prices` — zero-price bars (synthetic data, corrupted feeds) produced inf/NaN silently that downstream ML poisoned. Guard: `numba.njit` loop computes ratio only where `price > 0`; zero-price bars contribute 0 (no meaningful directional profit without a valid denominator). All-zero-prices returns all-zeros, no inf/NaN.
+
+### Documented — probe claims that turned out to be **false positives**
+
+Investigation during the fix pass disproved several round-9 findings:
+
+- **financial.py ratio divisions** (round-9 flagged 4 HIGH findings): every ratio is wrapped in `pllib.clean_numeric(..., nans_filler=0.0)`, which per `pyutilz/data/polarslib.py:60` does `expr.replace([inf, -inf, nan], nans_filler)`. The +inf / -inf / NaN cases are already caught. Severity over-stated by the probe.
+- **numerical.py `LARGE_CONST=1e3` sentinel** (round-9 flagged MEDIUM): reviewing the code and naming, this is an intentional design choice for ratio features when the denominator is 0 (tree models tolerate extreme values; the sentinel is named and explicit). Not a bug.
+- **financial.py `add_talib_indicators` fill_null(0.0)**: intentional domain tradeoff — talib's input contract requires no NaN, and 0-fill is a commonly accepted (if imperfect) way to satisfy it. Not a silent bug.
+
+### Tests
+- `tests/training/test_round10_deferred_fixes.py` (new file, +12 sensors):
+  - **TestCacheKeyIncludesFeatureTier (2)**: CB vs LGB produce different effective keys; same-tier strategies still share.
+  - **TestPrepareDfForXgboostContract (4)**: polars raises TypeError, pandas returns df, cat_features=None accepted, existing auto-add contract preserved.
+  - **TestBruteforceTargetEncoderWarn (1)**: WARN fires on categorical-encoding path (PySR stubbed).
+  - **TestMpsComputeAreaProfitsZeroPriceGuard (3)**: zero-price bar → 0 (no inf), no-zero-prices path unchanged, all-zero boundary.
+
 ## 2026-04-19 — probe round 9: preprocessing extensions + strategies + feature_engineering
 
 Three parallel subagent probes of areas not previously deeply covered. Each returned multiple findings; three HIGH/MEDIUM fixed this batch, the remainder documented for follow-up.

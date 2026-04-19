@@ -119,9 +119,43 @@ def run_pysr_feature_engineering(
                 warnings.warn(f"Dropping string column '{col}' with {unique_vals} unique values.")
             tmp_df.drop(columns=[col], inplace=True)
 
-    # Encode or drop categoricals
+    # Encode or drop categoricals.
+    #
+    # Target-encoding leakage caveat (2026-04-19 round-9 probe):
+    # CatBoostEncoder.fit_transform is called on the ENTIRE sample with
+    # the target visible — a classic supervised-encoding leak. Any
+    # downstream CV / holdout evaluation on this encoded frame will
+    # overestimate performance because each row's categorical code was
+    # derived using that row's own target.
+    #
+    # CatBoostEncoder has **internal** per-row ordering smoothing
+    # (online mean encoding) that partially mitigates this for its
+    # native CatBoost use case, but PySR here fits a symbolic regressor
+    # on the post-encode frame with NO further CV structure — any
+    # leakage surfaces directly in the returned model's "best" formula.
+    #
+    # This is bruteforce FE (not in the active prod pipeline). Keeping
+    # the existing fit_transform call but surfacing the risk with a
+    # WARN so operators see the trade-off. A proper fix would require
+    # OOF/KFold encoding, which changes the API shape and downstream
+    # reproducibility — out of scope for a defensive observability pass.
     cat_cols = tmp_df.select_dtypes(include=["category"]).columns.tolist()
     if encode_categoricals and cat_cols:
+        warnings.warn(
+            f"run_pysr_feature_engineering: CatBoostEncoder is fit_transform'd "
+            f"on the full sample with target visible — this is a SUPERVISED "
+            f"TARGET-ENCODING LEAK. Columns encoded this way: {cat_cols}. "
+            f"Any downstream holdout metric on the returned PySR formula "
+            f"will be optimistically biased. For a leakage-free setup, "
+            f"split train/val upstream and call this function on train only.",
+            stacklevel=2,
+        )
+        logger.warning(
+            "run_pysr_feature_engineering: target-encoding leak risk — %d "
+            "categorical column(s) encoded with CatBoostEncoder.fit_transform "
+            "on full sample. See warnings.warn for details.",
+            len(cat_cols),
+        )
         encoder = CatBoostEncoder(cols=cat_cols, return_df=True)
         tmp_df[cat_cols] = encoder.fit_transform(tmp_df[cat_cols], target)
         if verbose > 0:

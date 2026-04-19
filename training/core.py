@@ -2052,8 +2052,22 @@ def train_mlframe_models_suite(
                         imputer=imputer,
                         scaler=scaler,
                     )
-                    # Include pre_pipeline_name in cache key to differentiate MRMR vs RFECV etc.
-                    cache_key = f"{strategy.cache_key}_{pre_pipeline_name}" if pre_pipeline_name else strategy.cache_key
+                    # Cache key composition (2026-04-19 round-9 verify):
+                    #   1. strategy.cache_key (e.g. "tree", "hgb", "neural")
+                    #   2. pre_pipeline_name (MRMR vs RFECV vs ordinary)
+                    #   3. feature_tier() — CRITICAL: CB/LGB/XGB all inherit
+                    #      cache_key="tree", but CB has tier=(True,True) while
+                    #      LGB/XGB have tier=(False,False). Without tier in the
+                    #      key, CB (running first by tier-desc sort) cached its
+                    #      polars DF with text/embedding cols under "tree";
+                    #      LGB/XGB then retrieved that cache and received cols
+                    #      they can't handle (either polars when they need
+                    #      pandas, or text cols they don't support). Adding
+                    #      feature_tier() partitions the cache so same-tier
+                    #      models still share, different-tier models don't
+                    #      collide.
+                    _tier_suffix = f"_tier{strategy.feature_tier()}"
+                    cache_key = f"{strategy.cache_key}_{pre_pipeline_name}{_tier_suffix}" if pre_pipeline_name else f"{strategy.cache_key}{_tier_suffix}"
 
                     # Polars fastpath: substitute original Polars DataFrames for models
                     # that support native Polars input (e.g. CatBoost >= 1.2.7, HGB).
