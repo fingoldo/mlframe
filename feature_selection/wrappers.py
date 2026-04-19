@@ -918,6 +918,29 @@ def get_feature_importances(
 
     if len(res) != len(current_features):
         raise ValueError(f"Feature importances length {len(res)} doesn't match current_features length {len(current_features)}")
+
+    # Observability for degenerate folds (2026-04-19 probe finding).
+    # When a model fits on a single-class / all-constant CV fold, its
+    # ``feature_importances_`` attribute can legitimately contain NaN
+    # (e.g. CatBoost on a single-class target, LightGBM on constant y).
+    # Downstream ``get_actual_features_ranking`` then folds NaN into
+    # the per-feature aggregate, poisoning the rank for every feature
+    # that appeared in that fold — silent, indistinguishable from "zero
+    # importance". We already warn on NaN scoring; pair it here.
+    try:
+        res_arr = np.asarray(res, dtype=float)
+        n_nan = int(np.isnan(res_arr).sum()) if res_arr.size else 0
+    except (TypeError, ValueError):
+        n_nan = 0  # non-numeric result; let downstream raise on use
+    if n_nan:
+        logger.warning(
+            "get_feature_importances: %d / %d importance value(s) are NaN "
+            "from %s. Likely cause: degenerate CV fold (single-class target, "
+            "zero-variance features). Downstream RFECV ranking aggregation "
+            "will fold these NaNs in, silently poisoning the rank for the "
+            "affected features.",
+            n_nan, res_arr.size, type(model).__name__,
+        )
     return {feature_index: feature_importance for feature_index, feature_importance in zip(current_features, res)}
 
 

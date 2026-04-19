@@ -299,6 +299,73 @@ def create_polarsds_pipeline(
     return pipeline
 
 
+def _warn_on_schema_drift(
+    train_schema: "Dict[str, object]",
+    other_df: "pl.DataFrame",
+    split_name: str,
+) -> None:
+    """Warn when a non-train split (val / test) schema differs from train.
+
+    Before this check (2026-04-19 probe finding): ``pipeline.transform()``
+    was called on val/test with no schema validation. Three failure
+    modes silently propagated:
+      - Missing column: polars-ds pipeline errored deep inside with an
+        opaque traceback (column lookup failure).
+      - Extra column: silently kept or dropped depending on pipeline
+        internals; downstream shape mismatch at model.fit/predict.
+      - Dtype change (e.g. train had pl.Int32, val has pl.Int64):
+        silent coercion that may introduce NaN on bounds overflow
+        or downcast truncation.
+
+    This helper emits one WARN per failing category with the column
+    names and diff. Does NOT raise — some callers intentionally drop
+    derived columns that the pipeline reconstructs. The WARN lets
+    operators trace opaque downstream errors back here.
+    """
+    try:
+        other_schema = dict(other_df.schema)
+    except Exception:
+        return  # not a polars frame or schema unavailable — skip silently
+
+    train_cols = set(train_schema.keys())
+    other_cols = set(other_schema.keys())
+
+    missing_in_other = train_cols - other_cols
+    extra_in_other = other_cols - train_cols
+
+    if missing_in_other:
+        logger.warning(
+            "Schema drift: %s split is missing %d column(s) that were "
+            "present at fit time: %s. Polars-ds pipeline.transform() will "
+            "likely raise deep inside with an opaque error; the column "
+            "list above is the upstream cause.",
+            split_name, len(missing_in_other), sorted(missing_in_other),
+        )
+
+    if extra_in_other:
+        logger.warning(
+            "Schema drift: %s split has %d extra column(s) not seen at "
+            "fit time: %s. The pipeline may silently drop or keep them "
+            "depending on step internals; downstream model.fit/predict "
+            "shape mismatches usually trace back here.",
+            split_name, len(extra_in_other), sorted(extra_in_other),
+        )
+
+    dtype_mismatches = []
+    for col in train_cols & other_cols:
+        if train_schema[col] != other_schema[col]:
+            dtype_mismatches.append((col, str(train_schema[col]), str(other_schema[col])))
+    if dtype_mismatches:
+        logger.warning(
+            "Schema drift: %s split has %d column(s) with dtype different "
+            "from fit-time: %s. Polars will silently coerce at transform "
+            "time, potentially introducing NaN on bounds overflow or "
+            "truncating precision. Align upstream extraction to match "
+            "train dtypes.",
+            split_name, len(dtype_mismatches), dtype_mismatches,
+        )
+
+
 def fit_and_transform_pipeline(
     train_df: Union[pd.DataFrame, pl.DataFrame],
     val_df: Optional[Union[pd.DataFrame, pl.DataFrame]],
@@ -343,6 +410,14 @@ def fit_and_transform_pipeline(
             if verbose:
                 logger.info(f"Applying Polars-ds pipeline...")
 
+            # Capture train schema BEFORE the fit-time transform so we
+            # can compare val/test schemas against it below (2026-04-19
+            # schema-drift probe finding: pipeline.transform(val_df) was
+            # called without any schema validation; missing/extra cols
+            # or dtype mismatches silently propagated either to a
+            # downstream sklearn shape-error or garbage output).
+            _train_schema_snapshot = dict(train_df.schema)
+
             t0_transform = timer()
             # Transform all splits and ensure float32 dtypes
             train_df = pipeline.transform(train_df)
@@ -350,11 +425,13 @@ def fit_and_transform_pipeline(
                 train_df = ensure_dataframe_float32_convertability(train_df)
 
             if val_df is not None and len(val_df) > 0:
+                _warn_on_schema_drift(_train_schema_snapshot, val_df, "val")
                 val_df = pipeline.transform(val_df)
                 if ensure_float32:
                     val_df = ensure_dataframe_float32_convertability(val_df)
 
             if test_df is not None and len(test_df) > 0:
+                _warn_on_schema_drift(_train_schema_snapshot, test_df, "test")
                 test_df = pipeline.transform(test_df)
                 if ensure_float32:
                     test_df = ensure_dataframe_float32_convertability(test_df)

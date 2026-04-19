@@ -1,5 +1,39 @@
 # Changelog
 
+## 2026-04-19 — probe round 8: closing the 4 deferred findings
+
+Continuation of round 7. The four items marked "documented but not fixed this batch" all landed together:
+
+### Fixed — atomic metadata / model writes (`training/io.py::atomic_write_bytes`)
+New helper: write to ``<target>.<random>.tmp`` in the same directory, then ``os.replace()`` for an atomic rename (works on both POSIX and Windows since Python 3.3). On any write-time exception, the temp file is cleaned up and the pre-existing target remains untouched.
+
+Wired into two sites that the round-7 probe flagged as concurrency-unsafe:
+- ``training/core.py::_finalize_and_save_metadata`` — ``metadata.joblib`` dump
+- ``training/io.py::save_mlframe_model`` — zstd-compressed dill dump of the fitted model
+
+Before: two parallel training runs writing to the same target race-corrupted each other; the loader raised opaque ``UnpicklingError`` / ``EOFError``. Now: a reader sees either the complete pre-write file or the complete post-write one, never a partial mix.
+
+### Fixed — polars→pandas bridge: nested-types warning (`training/utils.py::get_pandas_view_of_polars_df`)
+Columns with ``pl.List[pl.Float32]`` (embedding features), ``pl.Struct``, or ``pl.Array`` survived the Arrow conversion as ``pd.object`` dtype with Python list elements. Downstream CatBoost's embedding_features fastpath then rejected them with an opaque "expected numeric" error from deep inside the CB internals. The bridge now emits one WARNING per call naming the affected columns and their dtypes. Doesn't raise or auto-cast — the bridge is a general helper and non-training callers (logging, post-hoc analysis) legitimately want list-typed pass-through.
+
+### Fixed — per-fold NaN importances observability (`feature_selection/wrappers.py::get_feature_importances`)
+When a CV fold was degenerate (single-class target, zero-variance features), the fitted model's ``feature_importances_`` legitimately contained NaN (observed with both CatBoost and LightGBM). Previously silent: NaN was folded into the per-feature aggregate ranking downstream, indistinguishable from "zero importance" and poisoning the rank of every feature touched by that fold. Now: WARN with the NaN count, model type, and likely cause. Pairs with the round-5 NaN-score warning in ``store_averaged_cv_scores``.
+
+### Fixed — fit_and_transform_pipeline schema-drift validation (`training/pipeline.py::_warn_on_schema_drift`)
+``pipeline.transform(val_df)`` / ``pipeline.transform(test_df)`` were called with no validation that val/test schemas matched train. Three silent failure modes:
+  - Missing column at val/test → polars-ds errored deep inside with an opaque lookup failure traceback.
+  - Extra column at val/test → silently kept or dropped depending on pipeline step internals.
+  - Dtype change (e.g. train Int32 → val Int64) → silent coercion, potentially introducing NaN on bounds overflow.
+
+Now: a snapshot of the train schema is captured before fit-time transform, and each val/test split is checked before its own transform. Separate WARN lines for missing / extra / dtype-mismatched columns with the full column list. Doesn't raise — some callers legitimately drop derived columns that the pipeline reconstructs.
+
+### Tests
+- `tests/training/test_round8_deferred_fixes.py` (new file, +13 sensors):
+  - **TestAtomicWriteBytes (5)**: writes target atomically, overwrites existing, no tmp leak on failure, joblib round-trip, pre-existing target preserved on write fail.
+  - **TestPolarsBridgeNestedTypesWarn (2)**: pl.List triggers warn, flat schema silent.
+  - **TestGetFeatureImportancesNaNWarn (2)**: NaN importance WARN with count, all-finite silent.
+  - **TestPipelineSchemaDriftWarn (4)**: missing column WARN, extra column WARN, dtype mismatch WARN, identical schema silent.
+
 ## 2026-04-19 — probe round 7: MRMR patience + phases log truncation + metadata validation
 
 Three parallel subagent probes covered: (a) `training/phases.py` + `training/pipeline.py`, (b) `feature_selection/filters.py` (MRMR) + `feature_importance.py`, (c) `training/utils.py::get_pandas_view_of_polars_df` + `helpers.py::get_own_ram_usage` + persistence layer. Seven candidate findings; three fixed this batch, four documented for future rounds (below).

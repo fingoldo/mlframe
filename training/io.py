@@ -7,14 +7,60 @@ zstandard compression and dill serialization.
 
 import logging
 import os
+import tempfile
 import warnings
 from types import SimpleNamespace
-from typing import Optional, Dict, Any
+from typing import Callable, Optional, Dict, Any
 
 import dill
 import zstandard as zstd
 
 logger = logging.getLogger(__name__)
+
+
+def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None]) -> None:
+    """Atomically write to ``target_path`` via write-tmp-then-rename.
+
+    Previous implementation (2026-04-19 probe finding): callers used
+    ``with open(target_path, "wb") as f: ...`` directly. Two parallel
+    training runs writing to the same metadata.joblib / model file
+    could truncate each other mid-write — subsequent load raised an
+    opaque ``UnpicklingError`` / ``EOFError``, with no way to tell
+    corruption from a legitimate version mismatch.
+
+    This helper:
+      1. Creates a temp file in the SAME directory (``os.replace``
+         across filesystems isn't atomic; same-FS is).
+      2. Invokes ``writer_fn(fileobj)`` — the caller owns the bytes.
+      3. ``os.replace()`` atomically renames tmp → target (works on
+         both POSIX and Windows since Python 3.3; ``os.rename`` on
+         Windows would fail when target exists).
+      4. Cleans up the tmp file on any exception so a failed write
+         doesn't leak a ``metadata.joblib.xyz.tmp`` alongside the
+         real file.
+
+    The atomicity guarantee: a concurrent reader either sees the
+    complete pre-write file or the complete post-write file, never
+    a partial one. Concurrent writers still race (last writer wins),
+    but neither produces corruption.
+    """
+    target_dir = os.path.dirname(target_path) or "."
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=os.path.basename(target_path) + ".",
+        suffix=".tmp",
+        dir=target_dir,
+    )
+    try:
+        with os.fdopen(fd, "wb") as f:
+            writer_fn(f)
+        os.replace(tmp_path, target_path)
+    except Exception:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        raise
 
 
 # Allowlist of module prefixes for safe unpickling.
@@ -91,7 +137,9 @@ def save_mlframe_model(
             threads=-1,
         )
     try:
-        with open(file, "wb") as f:
+        # Atomic write prevents corruption when two train runs save to
+        # the same file concurrently (2026-04-19 probe finding).
+        def _writer(f):
             compressor = zstd.ZstdCompressor(**zstd_kwargs)
             with compressor.stream_writer(f) as zf:
                 # Note: BufferedWriter wrapping (64KB/256KB/1MB/4MB) was benchmarked
@@ -99,6 +147,8 @@ def save_mlframe_model(
                 # all sizes landed within ±5% of the direct write (high variance).
                 # Direct write retained.
                 dill.dump(model, zf)
+
+        atomic_write_bytes(file, _writer)
         if verbose > 0:
             size_mb = os.path.getsize(file) / (1024 * 1024)
             logger.info(f"Model saved successfully to {file}. Size: {size_mb:.2f} Mb")

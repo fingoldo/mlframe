@@ -315,6 +315,37 @@ def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
     if not isinstance(df, (pl.DataFrame, pl.Series)):
         raise TypeError(f"Input must be a Polars DataFrame or Series, got {type(df).__name__}")
 
+    # Diagnostic: warn on nested Polars types that pyarrow's default
+    # ``to_pandas()`` materializes as ``object`` dtype with Python list/
+    # dict elements (2026-04-19 probe finding). Downstream CatBoost's
+    # embedding_features fastpath expects numeric vectors, not object
+    # dtype with list elements, and fails at model.fit() with an opaque
+    # "expected numeric" error. Warn here so the operator traces back
+    # to the bridge step rather than CatBoost internals. We don't
+    # raise or auto-cast — the bridge is a general-purpose helper and
+    # other callers (logging, post-hoc analysis) legitimately want
+    # list-typed columns pass-through.
+    if isinstance(df, pl.DataFrame):
+        nested_cols = []
+        for name, dt in df.schema.items():
+            type_str = str(dt)
+            if any(
+                marker in type_str for marker in ("List", "Struct", "Array", "Object")
+            ):
+                nested_cols.append((name, type_str))
+        if nested_cols:
+            logger.warning(
+                "get_pandas_view_of_polars_df: %d column(s) have nested "
+                "Polars dtypes that pyarrow materializes as pandas object "
+                "dtype with Python list/dict elements: %s. Downstream "
+                "numeric consumers (CatBoost embedding_features fastpath, "
+                "sklearn estimators) may reject these with opaque errors. "
+                "If these columns are embedding_features, keep them as "
+                "pl.List in the Polars fastpath; if they need to hit the "
+                "pandas path, pre-cast to fixed-width numpy arrays.",
+                len(nested_cols), nested_cols,
+            )
+
     tbl = df.to_arrow()
 
     # Note: short-circuit on "no dictionary columns" was benchmarked 2026-04-14 and

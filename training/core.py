@@ -1196,11 +1196,17 @@ def _finalize_and_save_metadata(
     if slug_to_original_target_name:
         metadata["slug_to_original_target_name"] = slug_to_original_target_name
 
-    # Save metadata
+    # Save metadata.
+    # Atomic write: joblib.dump → temp file in same dir → os.replace.
+    # Prevents metadata.joblib corruption when two train runs race on
+    # the same target (2026-04-19 probe finding). Load path then sees
+    # either the complete old file or the complete new one, never a
+    # partial write that surfaces as an opaque UnpicklingError.
     if data_dir and models_dir:
         metadata_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), "metadata.joblib")
         try:
-            joblib.dump(metadata, metadata_file)
+            from mlframe.training.io import atomic_write_bytes
+            atomic_write_bytes(metadata_file, lambda f: joblib.dump(metadata, f))
             if verbose:
                 logger.info(f"Saved metadata to {metadata_file}")
         except (OSError, IOError) as e:
