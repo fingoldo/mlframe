@@ -1,5 +1,47 @@
 # Changelog
 
+## 2026-04-19 — round 11d polish: fill upstream, single-pass detector, doctrine doc
+
+Three follow-ups to round 11c. Each motivated by the user's pushback — "why do X per-model when you can do it once?" and "can you detect in a single pass?".
+
+### Moved null-fill upstream (`training/core.py`)
+
+Round 11c applied `fill_null("__MISSING__")` inside the CB-specific branch of the per-model loop. XGB and HGB would hit the same Polars DFs with the same null-in-Categorical bug and only discover it when (if) their dispatchers also crashed.
+
+Fixed: the fill now runs **once, at Phase-4 start, on the base `train_df_polars` / `val_df_polars` / `test_df_polars`**, right after OD-filtering. Every polars-capable strategy (CB, XGB, HGB, future ones) sees the same pre-filled frame via `tier_polars` → `prepared_train`. No per-model duplication, no "did we fill for this model?" branching.
+
+Sentinel consistency across splits is automatic because we derive the nullable-column list once from the train frame and apply the same fill expression set to val and test. Train's `"__MISSING__"` code stays aligned with val's and test's.
+
+Per-model CB-specific fill block removed from the inner loop.
+
+### Single-pass null detection (`training/trainer.py`)
+
+The round-11c detector iterated cat_features in a Python loop calling `df[c].null_count()` per column. On the prod 810k × 98 frame with 9 cat_features, that was 9 separate polars queries.
+
+Replaced with `df.select(candidate).null_count()` — one query, one scan, polars computes all per-column null counts in parallel internally. The helper is now called `_polars_nullable_categorical_cols` and returns the list directly so callers don't re-detect after the boolean answer:
+
+```python
+nullable = _polars_nullable_categorical_cols(df, cat_features=cats)
+if nullable:
+    df = _polars_fill_null_in_categorical(df, nullable)
+```
+
+The old boolean wrapper `_polars_df_has_null_in_categorical` is kept, delegating to the list version (cheap — same single-pass). `_polars_df_emits_large_string` remains as deprecated alias from round 11a.
+
+New helper `_polars_fill_null_in_categorical(df, cols, sentinel="__MISSING__")` builds the fill expressions once so the same expression set applies across train / val / test atomically.
+
+### Doctrine doc (`docs/DEBUGGING_UPSTREAM_ERRORS.md`)
+
+New 1-page field guide summarizing the lesson from round 11's four iterations: **when an upstream library throws an opaque error, do not reason about the fix from the traceback — build a minimal repro first, change one variable at a time, and trust reproducible failure over reproducible success**. Includes the full misdiagnosis table, a checklist, and links to the three in-repo benches (`bench_polars_largestring_cb_xgb.py`, `bench_polars_cb_repro.py`, `bench_polars_cb_nullfrac.py`) that disproved hypothesis 11a and pinned 11b-c.
+
+### Sensors (+10)
+
+- `TestPolarsNullableCategoricalColsDetector` (4): list-only-nullable-cats, cat_features order preserved, single-pass pattern still in source (performance regression sensor), empty input returns `[]`.
+- `TestPolarsFillNullInCategorical` (5): fills nulls with sentinel, empty col list is no-op (return df unchanged), non-polars input unchanged, custom sentinel, same sentinel across splits gives consistent categories.
+- `TestFillNullPreservesFastpath` (1 + 1 skipped): the core behavioural test and the skip-marked end-to-end CB fit (covered by bench).
+
+20 tests in test_round11_polars_largestring_fixes.py total (19 passed + 1 intentional skip).
+
 ## 2026-04-19 — probe round 11 — SWITCHED from bypass to in-place null-fill
 
 User pointed out the obvious: `prepare_df_for_catboost` on the pandas path already does `fill_null("")` on categoricals, so why not do the same thing on the Polars path and **keep the fastpath alive** instead of bypassing?

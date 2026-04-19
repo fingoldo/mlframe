@@ -968,80 +968,117 @@ def _warn_on_unsupported_polars_dtypes(
         pass
 
 
-def _polars_df_has_null_in_categorical(df: Any, cat_features: Optional[List[str]] = None) -> bool:
-    """Detect Polars DataFrames whose cat_features contain ANY nulls —
-    which breaks CatBoost 1.2.x's Polars fastpath dispatcher.
+def _polars_nullable_categorical_cols(df: Any, cat_features: Optional[List[str]] = None) -> "List[str]":
+    """Return cat_feature column names with ``null_count > 0`` — the
+    set of columns that trigger CatBoost 1.2.x's Polars fastpath
+    dispatch miss.
 
     Root cause (verified 2026-04-19 via direct repro in
-    bench_polars_cb_nullfrac.py): CatBoost 1.2.10's
+    ``bench_polars_cb_nullfrac.py``): CatBoost 1.2.10's
     ``_set_features_order_data_polars_categorical_column`` (Cython
     fused cpdef) has no dispatch signature for a Polars Categorical
-    column carrying a validity bitmap — i.e. one with ``null_count > 0``.
-    The dispatch table covers only the non-nullable variant. Null-free
-    Categorical columns fit fine; a single null anywhere in any one
-    cat_feature trips ``TypeError: No matching signature found``.
+    column carrying a validity bitmap. A single null anywhere in any
+    cat_feature raises ``TypeError: No matching signature found``.
+    Fix: ``pl.col(c).fill_null("__MISSING__")`` before fit — Polars
+    auto-extends the category dict, the column loses its validity
+    bitmap, CB's fastpath matches the non-nullable signature.
 
-    Verification sweep (null_frac → outcome):
-        0.0   → OK
-        0.1   → FAIL  TypeError: No matching signature found
-        0.5   → FAIL
-        0.99  → FAIL
-        1.0   → FAIL
+    Null-fraction sweep:
+        0.0   → OK        0.5   → FAIL
+        0.1   → FAIL      0.99  → FAIL
+                          1.0   → FAIL
 
-    Earlier hypotheses (``large_string`` Arrow export, ``pl.Enum``)
-    were disproved by isolated benches. The null-in-Categorical
-    trigger explains every prior symptom:
-      - prod log schema dump showed cat_features with null counts
-        ranging from 1219 (category_group) to 810000 (hourly_budget_type).
-      - null-free test DFs never triggered the failure.
-
-    Used proactively before CB polars fastpath fit: if True, flip
-    ``polars_fastpath_active`` to False and route through the
-    pandas path (where CB's pandas handler is robust to NaN/None).
-    Saves 20-50s wasted fit attempts × 3 methods (fit + predict_proba
-    val + predict_proba test) plus the redundant polars→pandas
-    conversion each of those fallbacks would do anyway.
+    Performance: uses ``df.select(cat_cols).null_count()`` which runs a
+    SINGLE polars query — one scan over the selected columns, polars
+    computes per-column null counts in parallel. The previous
+    per-column implementation (``df[c].null_count()`` in a Python loop)
+    cost N separate queries and showed up in prod profiling on
+    810k-row frames.
 
     Args:
-        df: Polars DataFrame to inspect.
-        cat_features: Column names to check. If None, checks all
-            Categorical/Enum columns in the DataFrame.
+        df: Polars DataFrame.
+        cat_features: Column names to consider. If None, inspects all
+            ``pl.Categorical`` / ``pl.Enum`` columns in the schema.
 
-    Returns True if any checked column has null_count > 0.
-    Returns False on any exception (defensive — rather try the
-    fastpath than wrongly block it).
+    Returns:
+        List of nullable Categorical column names (order-preserving
+        against ``cat_features`` when provided). Empty list on any
+        exception or non-Polars input — callers can use the list's
+        truthiness directly, so the function doubles as a boolean
+        detector without requiring a separate wrapper.
     """
     try:
         import polars as _pl
         if not isinstance(df, _pl.DataFrame):
-            return False
+            return []
+
+        schema = df.schema
         if cat_features:
-            cols_to_check = [c for c in cat_features if c in df.columns]
-        else:
-            cols_to_check = [
-                name for name, dtype in df.schema.items()
-                if dtype == _pl.Categorical or (hasattr(_pl, "Enum") and isinstance(dtype, _pl.Enum))
+            candidate = [
+                c for c in cat_features
+                if c in schema and (
+                    schema[c] == _pl.Categorical
+                    or (hasattr(_pl, "Enum") and isinstance(schema[c], _pl.Enum))
+                )
             ]
-        for col in cols_to_check:
-            dt = df.schema.get(col)
-            is_cat = dt == _pl.Categorical or (hasattr(_pl, "Enum") and isinstance(dt, _pl.Enum))
-            if not is_cat:
-                continue
-            if df[col].null_count() > 0:
-                return True
-        return False
+        else:
+            candidate = [
+                name for name, dtype in schema.items()
+                if dtype == _pl.Categorical
+                or (hasattr(_pl, "Enum") and isinstance(dtype, _pl.Enum))
+            ]
+        if not candidate:
+            return []
+
+        # SINGLE-PASS: df.select([...]).null_count() returns a 1-row DF
+        # with per-column counts. All cat_features' null counts computed
+        # in one scan. Previous per-column loop was N separate queries.
+        counts_row = df.select(candidate).null_count().row(0)
+        return [c for c, n in zip(candidate, counts_row) if n > 0]
     except Exception:
-        return False
+        return []
 
 
-# Legacy alias for the misnamed earlier detector — kept during the
-# transition so any in-flight branches or external callers don't
-# immediately break. The name describes what we THOUGHT the trigger
-# was (large_string Arrow export); the actual trigger is null-in-
-# Categorical per bench_polars_cb_nullfrac.py.
+def _polars_df_has_null_in_categorical(df: Any, cat_features: Optional[List[str]] = None) -> bool:
+    """Boolean wrapper around ``_polars_nullable_categorical_cols`` —
+    kept for callers that only need the yes/no answer."""
+    return bool(_polars_nullable_categorical_cols(df, cat_features=cat_features))
+
+
+# Deprecated alias (round 11a name). The round-11a hypothesis —
+# ``large_string`` Arrow export — was disproved by
+# ``bench_polars_largestring_cb_xgb.py``; the real trigger is
+# null-in-Categorical. Kept as alias to avoid breaking in-flight
+# branches.
 def _polars_df_emits_large_string(df: Any) -> bool:
-    """Deprecated alias — use _polars_df_has_null_in_categorical instead."""
+    """Deprecated alias — use ``_polars_df_has_null_in_categorical``."""
     return _polars_df_has_null_in_categorical(df)
+
+
+def _polars_fill_null_in_categorical(
+    df: Any,
+    nullable_cat_cols: "List[str]",
+    sentinel: str = "__MISSING__",
+) -> Any:
+    """Apply ``pl.col(c).fill_null(sentinel)`` across the listed
+    Categorical columns on a Polars DataFrame.
+
+    Separated out so the same expression set can be reused across
+    train / val / test (same sentinel → same category code across
+    splits) without rebuilding the expr list per split.
+
+    Returns df unchanged if ``nullable_cat_cols`` is empty or df is
+    not a Polars DataFrame — caller can unconditionally wrap
+    train/val/test without pre-checking.
+    """
+    try:
+        import polars as _pl
+        if not nullable_cat_cols or not isinstance(df, _pl.DataFrame):
+            return df
+        fill_exprs = [_pl.col(c).fill_null(sentinel) for c in nullable_cat_cols]
+        return df.with_columns(fill_exprs)
+    except Exception:
+        return df
 
 
 def _recover_cb_feature_names(model: Any) -> Tuple[List[str], List[str]]:

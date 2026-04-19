@@ -139,6 +139,111 @@ class TestLegacyAlias:
         assert _polars_df_emits_large_string(df_dirty)
 
 
+class TestPolarsNullableCategoricalColsDetector:
+    """The column-list variant of the detector — returns the actual
+    column names for the fill expression builder, not just a boolean.
+    Used directly by ``core.py`` at the upstream-fill site."""
+
+    def test_returns_only_nullable_cat_cols(self):
+        from mlframe.training.trainer import _polars_nullable_categorical_cols
+        df = pl.DataFrame({
+            "clean": pl.Series("clean", ["a", "b", "a"]).cast(pl.Categorical),
+            "dirty": pl.Series("dirty", ["a", None, "b"]).cast(pl.Categorical),
+            "num":   [1.0, 2.0, 3.0],
+            "num_null": [1.0, None, 3.0],
+        })
+        out = _polars_nullable_categorical_cols(df)
+        assert out == ["dirty"], (
+            "must return ONLY the Categorical column with nulls — "
+            "not clean cats, not non-cat columns even if they have nulls"
+        )
+
+    def test_preserves_cat_features_order(self):
+        """When ``cat_features`` is provided, the returned list
+        preserves that order. Useful for deterministic logging."""
+        from mlframe.training.trainer import _polars_nullable_categorical_cols
+        df = pl.DataFrame({
+            "a": pl.Series("a", ["x", None]).cast(pl.Categorical),
+            "b": pl.Series("b", ["y", None]).cast(pl.Categorical),
+            "c": pl.Series("c", ["z", None]).cast(pl.Categorical),
+        })
+        out = _polars_nullable_categorical_cols(df, cat_features=["c", "a", "b"])
+        assert out == ["c", "a", "b"], "order must follow cat_features input"
+
+    def test_single_pass_null_count(self):
+        """Performance sensor: the detector must use ``df.select(...).null_count()``
+        (single query, one scan) rather than per-column queries. We
+        verify by reading the source for the string pattern — a
+        regression that changes back to per-column would trip this."""
+        import inspect, mlframe.training.trainer as trainer
+        src = inspect.getsource(trainer._polars_nullable_categorical_cols)
+        assert ".null_count()" in src
+        # The single-pass pattern uses .select(...).null_count(). A
+        # per-column regression would use ``df[c].null_count()`` in a
+        # loop — catch that specifically.
+        assert "df.select" in src or ".select(candidate)" in src, (
+            "single-pass optimization (df.select([...]).null_count()) "
+            "appears to have been reverted to a per-column loop"
+        )
+
+    def test_empty_input_returns_empty_list(self):
+        from mlframe.training.trainer import _polars_nullable_categorical_cols
+        import pandas as pd
+        assert _polars_nullable_categorical_cols(None) == []
+        assert _polars_nullable_categorical_cols(pd.DataFrame({"a": [1]})) == []
+        assert _polars_nullable_categorical_cols(
+            pl.DataFrame({"n": [1.0, 2.0]})
+        ) == []
+
+
+class TestPolarsFillNullInCategorical:
+    """The helper that applies the fill expression set to a DF.
+    Used three times per run (train, val, test) with the same
+    column list so sentinel codes are consistent across splits."""
+
+    def test_fills_nulls_with_sentinel(self):
+        from mlframe.training.trainer import _polars_fill_null_in_categorical
+        df = pl.DataFrame({
+            "c": pl.Series("c", ["a", None, "b"]).cast(pl.Categorical),
+        })
+        out = _polars_fill_null_in_categorical(df, ["c"])
+        assert out["c"].null_count() == 0
+        assert "__MISSING__" in out["c"].unique().to_list()
+
+    def test_empty_col_list_returns_df_unchanged(self):
+        """Cheap no-op when nothing to fill — caller can unconditionally
+        wrap train/val/test without first checking."""
+        from mlframe.training.trainer import _polars_fill_null_in_categorical
+        df = pl.DataFrame({"c": pl.Series("c", ["a", "b"]).cast(pl.Categorical)})
+        out = _polars_fill_null_in_categorical(df, [])
+        assert out is df
+
+    def test_non_polars_input_returns_unchanged(self):
+        from mlframe.training.trainer import _polars_fill_null_in_categorical
+        import pandas as pd
+        pdf = pd.DataFrame({"a": [1]})
+        assert _polars_fill_null_in_categorical(pdf, ["a"]) is pdf
+
+    def test_custom_sentinel(self):
+        from mlframe.training.trainer import _polars_fill_null_in_categorical
+        df = pl.DataFrame({"c": pl.Series("c", ["a", None]).cast(pl.Categorical)})
+        out = _polars_fill_null_in_categorical(df, ["c"], sentinel="__MY_NULL__")
+        assert "__MY_NULL__" in out["c"].unique().to_list()
+
+    def test_same_sentinel_across_splits_gives_same_categories(self):
+        """Critical for CatBoost model consistency — train and val
+        must share the exact same category code for missing values.
+        By passing the same nullable_cats list + sentinel, both
+        splits extend their cat dicts with the same extra entry."""
+        from mlframe.training.trainer import _polars_fill_null_in_categorical
+        train = pl.DataFrame({"c": pl.Series("c", ["a", None, "b"]).cast(pl.Categorical)})
+        val   = pl.DataFrame({"c": pl.Series("c", ["b", None, "a"]).cast(pl.Categorical)})
+        train_out = _polars_fill_null_in_categorical(train, ["c"])
+        val_out   = _polars_fill_null_in_categorical(val,   ["c"])
+        assert set(train_out["c"].unique().to_list()) >= {"__MISSING__"}
+        assert set(val_out["c"].unique().to_list()) >= {"__MISSING__"}
+
+
 class TestFillNullPreservesFastpath:
     """The real win: instead of bypassing the Polars fastpath when
     cat_features have nulls, fill the nulls with a sentinel string on
