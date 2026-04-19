@@ -109,6 +109,73 @@ def _elapsed_str(start: float) -> str:
     return f"{elapsed / 60:.1f}min"
 
 
+def _validate_input_columns_against_metadata(
+    df,
+    metadata: "Dict[str, Any]",
+    verbose: bool = False,
+):
+    """Validate inference-time DataFrame columns against model metadata.
+
+    Before this helper (inline in ``predict_mlframe_models_suite`` /
+    ``predict_from_models`` up to 2026-04-19), the logic was:
+      - WARN on missing columns, then proceed
+      - Drop extra columns if any
+
+    Problem: if a missing column was a load-bearing ``cat_features`` /
+    ``text_features`` / ``embedding_features`` member, the pipeline
+    transform + model predict ran on a shape-mismatched frame and
+    either (a) crashed deep inside sklearn with ``X has N features,
+    expected M``, or (b) produced garbage predictions. The WARN alone
+    was not actionable.
+
+    Now: columns are partitioned by severity:
+      - Missing load-bearing features (cat/text/embedding): **raise
+        ValueError** with a diagnostic naming them. These cannot be
+        safely dropped — the pipeline was fitted with them.
+      - Other missing columns: WARN + proceed. Some callers drop
+        derived columns that the pipeline reconstructs; that's OK.
+      - Extra columns: dropped silently (or logged at verbose=True).
+
+    Returns the df (possibly with extra columns filtered out).
+    """
+    columns = metadata.get("columns", [])
+    if not columns:
+        return df
+
+    missing_cols = set(columns) - set(df.columns)
+    extra_cols = set(df.columns) - set(columns)
+
+    if missing_cols:
+        meta_cat = set(metadata.get("cat_features") or [])
+        meta_text = set(metadata.get("text_features") or [])
+        meta_emb = set(metadata.get("embedding_features") or [])
+        critical_missing = missing_cols & (meta_cat | meta_text | meta_emb)
+        if critical_missing:
+            raise ValueError(
+                f"Input DataFrame is missing {len(critical_missing)} "
+                f"load-bearing feature column(s) that the model was "
+                f"trained on: {sorted(critical_missing)}. These are "
+                f"declared in metadata as cat/text/embedding features; "
+                f"the pipeline + model cannot run correctly without "
+                f"them. Either restore the upstream extraction that "
+                f"produced these columns, or retrain the model on the "
+                f"current feature set."
+            )
+        logger.warning(
+            "Missing columns in input: %s. The pipeline will attempt "
+            "to proceed — downstream errors about shape mismatches "
+            "usually trace back here.",
+            sorted(missing_cols),
+        )
+
+    if extra_cols:
+        if verbose:
+            logger.info(f"Dropping extra columns: {sorted(extra_cols)}")
+        df = df[filter_existing(df, columns)]
+
+    return df
+
+
 def _filter_polars_cat_features_by_dtype(
     df: "pl.DataFrame",
     cat_features: "List[str]",
@@ -2445,16 +2512,7 @@ def predict_mlframe_models_suite(
     if isinstance(df, pl.DataFrame):
         df = get_pandas_view_of_polars_df(df)
 
-    # Ensure columns match training columns
-    if columns:
-        missing_cols = set(columns) - set(df.columns)
-        extra_cols = set(df.columns) - set(columns)
-        if missing_cols:
-            logger.warning(f"Missing columns in input: {missing_cols}")
-        if extra_cols:
-            if verbose:
-                logger.info(f"Dropping extra columns: {extra_cols}")
-            df = df[filter_existing(df, columns)]
+    df = _validate_input_columns_against_metadata(df, metadata, verbose=verbose)
 
     # Apply pipeline transformation if available
     if pipeline is not None:
@@ -2652,16 +2710,7 @@ def predict_from_models(
     # Get expected columns from metadata
     columns = metadata.get("columns", [])
 
-    # Ensure columns match training columns
-    if columns:
-        missing_cols = set(columns) - set(df.columns)
-        extra_cols = set(df.columns) - set(columns)
-        if missing_cols:
-            logger.warning(f"Missing columns in input: {missing_cols}")
-        if extra_cols:
-            if verbose:
-                logger.info(f"Dropping extra columns: {extra_cols}")
-            df = df[filter_existing(df, columns)]
+    df = _validate_input_columns_against_metadata(df, metadata, verbose=verbose)
 
     # Apply main pipeline transformation if available
     pipeline = metadata.get("pipeline")

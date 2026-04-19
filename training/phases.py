@@ -93,14 +93,29 @@ def format_phase_summary(top: int = 30) -> str:
     return "\n".join(lines)
 
 
-def _format_ctx(context: Dict[str, Any]) -> str:
+def _format_ctx(context: Dict[str, Any], max_val_len: int = 120) -> str:
+    """Format phase-context kwargs for log output with value truncation.
+
+    Truncation rationale (added 2026-04-19): callers may pass large
+    objects as context kwargs — e.g. ``phase("fit", eval_set=huge_list)``
+    or a debugger accidentally passing a 10k-row DataFrame. Without
+    truncation the log line grows to MB+ per phase START/DONE pair,
+    which blows past log rotation, breaks structured log aggregation
+    (newline injection), and wastes disk on no useful signal. Only the
+    *value* side is truncated; the key stays intact so the line is
+    still greppable by field name. Truncation uses ``repr`` so quotes/
+    commas don't get interpreted as separators downstream.
+    """
     if not context:
         return ""
     parts = []
     for k, v in context.items():
         if v is None:
             continue
-        parts.append(f"{k}={v}")
+        s = str(v)
+        if len(s) > max_val_len:
+            s = s[: max_val_len - 3] + "..."
+        parts.append(f"{k}={s}")
     return " ".join(parts)
 
 

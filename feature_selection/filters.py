@@ -1533,6 +1533,16 @@ def screen_predictors(
     selected_vars = []  # stores just indices. can't use set 'cause the order is important for efficient computing
     predictors = []  # stores more details.
 
+    # Observability flag — true if the inner confirmation loop hit the
+    # ``max_consec_unconfirmed`` patience threshold at least once. Prior
+    # to 2026-04-19, patience-triggered early exits only logged at
+    # verbose>=1; at default verbosity, MRMR silently returned a
+    # potentially-truncated feature set and callers had no signal that
+    # the stopping condition was "gave up confirming" rather than
+    # "natural gain threshold reached". Summary log at function exit
+    # now surfaces this unconditionally.
+    patience_triggered: bool = False
+
     cached_MIs = dict()
     # cached_cond_MIs = dict()
     cached_confident_MIs = dict()
@@ -2003,6 +2013,7 @@ def screen_predictors(
                             nconsec_unconfirmed += 1
                             total_disproved += 1
                             if max_consec_unconfirmed and (nconsec_unconfirmed > max_consec_unconfirmed):
+                                patience_triggered = True
                                 if verbose:
                                     logger.info(f"Maximum consecutive confirmation failures reached.")
                                 break  # out of best candidates confirmation, to finish the level
@@ -2028,6 +2039,7 @@ def screen_predictors(
                     else:
                         best_gain = min_relevance_gain - 1
                         if max_consec_unconfirmed and (nconsec_unconfirmed > max_consec_unconfirmed):
+                            patience_triggered = True
                             break  # exit confirmation while loop
                         else:
                             pass  # retry all cands evaluation
@@ -2070,6 +2082,32 @@ def screen_predictors(
     # print(caching_hits_xyz, caching_hits_z, caching_hits_xz, caching_hits_yz)
     if verbose >= 2:
         logger.info(f"Finished.")
+
+    # Termination-reason summary (always emitted, even at verbose=0).
+    # Two distinct termination modes:
+    #   patience_triggered=True — ``max_consec_unconfirmed`` hit; MRMR
+    #     gave up confirming more candidates. Returned set may be smaller
+    #     than what a more patient search would have found.
+    #   patience_triggered=False — natural exhaustion: remaining
+    #     candidates fell below ``min_relevance_gain`` threshold. This is
+    #     the "done" case, not an early stop.
+    # Operators tuning MRMR on noisy data need to distinguish the two —
+    # if patience keeps tripping, they need a higher ``max_consec_unconfirmed``
+    # or smoother relevance signals, not a higher feature budget.
+    if patience_triggered:
+        logger.warning(
+            "screen_predictors terminated early via max_consec_unconfirmed=%d "
+            "patience (at least one level exhausted). Returned %d selected "
+            "feature(s). If you expected more, increase max_consec_unconfirmed "
+            "or reduce the relevance-gain threshold.",
+            max_consec_unconfirmed, len(selected_vars),
+        )
+    else:
+        logger.info(
+            "screen_predictors finished naturally (no patience trip). "
+            "Returned %d selected feature(s).",
+            len(selected_vars),
+        )
 
     any_influencing = set()
     for vars_combination, (bootstrapped_gain, confidence) in cached_confident_MIs.items():

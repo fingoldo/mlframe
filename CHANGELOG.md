@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-04-19 — probe round 7: MRMR patience + phases log truncation + metadata validation
+
+Three parallel subagent probes covered: (a) `training/phases.py` + `training/pipeline.py`, (b) `feature_selection/filters.py` (MRMR) + `feature_importance.py`, (c) `training/utils.py::get_pandas_view_of_polars_df` + `helpers.py::get_own_ram_usage` + persistence layer. Seven candidate findings; three fixed this batch, four documented for future rounds (below).
+
+### Fixed — MRMR patience termination was silent (`feature_selection/filters.py::screen_predictors`)
+
+`max_consec_unconfirmed` patience-triggered exits only logged at `verbose>=1`. At default verbosity (production), MRMR silently returned a potentially-truncated feature set; operators had no way to distinguish "done — no more gains above threshold" from "gave up confirming on noisy data — try higher patience." Added a termination-reason summary emitted unconditionally at function exit:
+- **Patience-triggered** → `WARNING` with the count and actionable tuning hint.
+- **Natural threshold exit** → `INFO` with the count.
+
+Same observability pattern as the ICE-NaN / RFECV-NaN warnings from earlier today.
+
+### Fixed — phase-context kwargs blew up log lines (`training/phases.py::_format_ctx`)
+
+The bare f-string `f"{k}={v}"` didn't truncate value `str()`. A caller passing a large object (e.g. `phase("fit", eval_set=val_df)` with a 1M-row DataFrame as context kwarg) turned one START/DONE pair into MB+ log lines — breaks log rotation and structured-log aggregation (newline injection from `repr`). Values now truncated to 120 chars via `…` suffix, keys stay intact so the line is still greppable by field name.
+
+### Fixed — critical-column validation at predict time (`training/core.py`)
+
+Previously `predict_mlframe_models_suite` only WARN'd on missing columns and proceeded. If a missing column was a load-bearing feature (cat/text/embedding), the pipeline transform + model predict ran on a shape-mismatched frame and either crashed opaquely deep inside sklearn (`X has N features, expected M`) or produced garbage predictions with no visible signal. Extracted the check into `_validate_input_columns_against_metadata` and split by severity:
+- **Missing cat/text/embedding features** → `raise ValueError` with a diagnostic listing all missing load-bearing columns and suggesting the two corrective paths (restore upstream extraction or retrain).
+- **Other missing columns** → WARN + proceed (some callers drop derived columns that the pipeline reconstructs; that's legitimate).
+- **Extra columns** → drop silently (unchanged behavior).
+
+Deduped the logic that had two identical copies in `predict_mlframe_models_suite` and `predict_from_models`.
+
+### Tests
+- `tests/training/test_phases_and_metadata_validation.py` (new, +14 sensors): truncation of long strings / huge lists / null handling / max_val_len customization; metadata validation happy path, extra-column drop, missing-cat raises, missing-text raises, missing-embedding raises, non-critical missing warns, error-message lists-all-critical, empty-columns no-op.
+- `tests/feature_selection/test_filters.py` (+1 sensor, `TestScreenPredictorsPatienceObservability`): termination-reason summary fires unconditionally (catches removal/regression of the new summary log). A second sensor for the WARN-level patience path was considered but dropped as too data-dependent to keep green; docstring explains.
+
+### Documented but not fixed this batch
+Captured in subagent reports for future rounds:
+- **Polars bridge nested types** (utils.py:324–333): `pl.List[pl.Float32]` embeddings silently become `object` dtype. Needs design decision (warn vs raise vs convert).
+- **fit_and_transform_pipeline schema drift**: no validation of val/test schema vs train after fit. Tightening may break legitimate callers; needs scoped design.
+- **Concurrent joblib dump** (core.py:1136, io.py:101): no atomic rename; parallel train runs can corrupt metadata.joblib. Clear refactor; deferred for scope.
+- **Per-fold NaN importances** (wrappers.py:881): NaN CV scores already warn; NaN importances from the same fold silently poison aggregate ranking. Needs reproduction first.
+
 ## 2026-04-19 — probe round 6: extractors + select_target + create_date_features
 
 Subagent probe of `training/extractors.py`, `training/train_eval.py::select_target`, and `feature_engineering/basic.py::create_date_features`. Three HIGH-severity findings fixed.
