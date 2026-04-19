@@ -2748,9 +2748,10 @@ class TestPolarsNativeFastpath:
         n = 200
         # Cast string cols to pl.Categorical so they're treated as categorical features.
         # Without the cast, mlframe's auto_detect_feature_types promotes any pl.String
-        # column above cat_text_cardinality_threshold (50) to a CatBoost text feature —
-        # which on tiny train sets (n=200, 100 unique values for cat_high) raises
-        # "Dictionary size is 0" inside CatBoost's text feature estimator.
+        # column above cat_text_cardinality_threshold (default 300 as of round 12,
+        # was 50 previously) to a CatBoost text feature — which on tiny train sets
+        # (n=200, 100 unique values for cat_high) raises "Dictionary size is 0"
+        # inside CatBoost's text feature estimator.
         pl_df = pl.DataFrame({
             "num_feat": np.random.randn(n),
             "cat_low": np.random.choice(["a", "b"], size=n),

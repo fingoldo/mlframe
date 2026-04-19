@@ -290,22 +290,35 @@ def _auto_detect_feature_types(
         cat_features = []
 
     threshold = feature_types_config.cat_text_cardinality_threshold
-    # Minimum non-null count required to promote a string/categorical column
-    # to text_features. CatBoost's text feature estimator builds a TF-IDF
-    # vocabulary from the column's non-null content; with too few non-null
-    # samples the ``occurrence_lower_bound`` filter prunes everything and
-    # the estimator raises
+    # Minimum non-null FRACTION required to promote a string/categorical
+    # column to text_features. CatBoost's text feature estimator builds
+    # a TF-IDF vocabulary from the column's non-null content; with too
+    # few non-null samples the ``occurrence_lower_bound`` filter prunes
+    # everything and the estimator raises
     #   ``catboost/.../text_feature_estimators.cpp:89:
     #     Dictionary size is 0, check out data or try to decrease
     #     occurrence_lower_bound parameter``
     # (observed 2026-04-19 on ``_raw_countries`` and ``job_post_source``
-    # in prod — both ``n_unique > 50`` but >99.9% null, yielding 6-20
-    # non-null strings total and an empty dictionary after occurrence
-    # filtering). Default 100 is conservative — anything below it cannot
-    # support even a minimal n-gram vocabulary.
-    min_non_null_for_text = getattr(
-        feature_types_config, "min_non_null_for_text_promotion", 100
+    # in prod — both ``n_unique > 50`` but >99.9% null, yielding a
+    # handful of non-null strings total and an empty dictionary after
+    # occurrence filtering).
+    #
+    # Using a FRACTION (not absolute count) so the guard scales with
+    # dataset size: a 50-row test DF with 50 non-null rows (fraction 1.0)
+    # passes, while an 810k-row prod DF with 6 non-null (fraction 7e-6)
+    # fails. Default 0.01 = 1%: anything below that in a typical
+    # many-hundred-row+ frame is a sparse column that CB's TF-IDF
+    # cannot build a vocabulary from.
+    min_non_null_frac = getattr(
+        feature_types_config, "min_non_null_fraction_for_text_promotion", 0.01
     )
+    # Total row count — denominator for the fraction. For pandas this
+    # is len(df); for polars, df.height.
+    total_rows = df.height if hasattr(df, "height") else len(df)
+    # Translate the fraction back to an absolute count for the guard —
+    # avoids per-column float division inside the loop and reuses the
+    # same floor for every column on this DF.
+    min_non_null_abs = max(1, int(round(total_rows * min_non_null_frac)))
     user_assigned = set(text_features) | set(embedding_features)
     promoted: list = []  # cat_features -> text_features, tracked for diagnostic log only
     cardinalities: dict = {}  # per auto-detected text col: n_unique (for diagnostic log)
@@ -331,11 +344,12 @@ def _auto_detect_feature_types(
             if is_text_like:
                 n_unique = df[name].n_unique()
                 if n_unique > threshold:
-                    # Non-null count guard — block promotion if too few
-                    # actual text samples; keeps CB's text estimator from
-                    # producing an empty TF-IDF dictionary.
+                    # Non-null FRACTION guard — block promotion if the
+                    # column is sparse relative to total rows; keeps
+                    # CB's text estimator from producing an empty
+                    # TF-IDF dictionary.
                     non_null = int(df[name].count())
-                    if non_null < min_non_null_for_text:
+                    if non_null < min_non_null_abs:
                         skipped_low_non_null.append((name, n_unique, non_null))
                         continue
                     text_features.append(name)
@@ -352,7 +366,7 @@ def _auto_detect_feature_types(
                 n_unique = df[col].nunique()
                 if n_unique > threshold:
                     non_null = int(df[col].notna().sum())
-                    if non_null < min_non_null_for_text:
+                    if non_null < min_non_null_abs:
                         skipped_low_non_null.append((col, n_unique, non_null))
                         continue
                     text_features.append(col)
@@ -396,15 +410,17 @@ def _auto_detect_feature_types(
     # of these columns.
     if skipped_low_non_null:
         formatted = ", ".join(
-            f"{name}:{n_unique:_} (non_null={nn:_})"
+            f"{name}:{n_unique:_} (non_null={nn:_}/{total_rows:_})"
             for name, n_unique, nn in skipped_low_non_null
         )
         logger.warning(
             "  Auto-detection: %d column(s) had n_unique>%d (would be "
-            "promoted to text_features) but non_null<%d — kept as "
-            "cat_features to avoid CatBoost's 'Dictionary size is 0' "
-            "error on sparse text columns: %s",
-            len(skipped_low_non_null), threshold, min_non_null_for_text,
+            "promoted to text_features) but non_null<%d (%.1f%% of %d rows, "
+            "below the %.2f%% floor) — kept as cat_features to avoid "
+            "CatBoost's 'Dictionary size is 0' error on sparse text "
+            "columns: %s",
+            len(skipped_low_non_null), threshold, min_non_null_abs,
+            min_non_null_frac * 100, total_rows, min_non_null_frac * 100,
             formatted,
         )
 

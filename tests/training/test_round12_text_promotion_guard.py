@@ -70,27 +70,28 @@ class TestMinNonNullTextPromotionGuard:
             "sparse_text": pl.Series("sparse_text", vals, dtype=pl.String),
         })
 
-    def test_sparse_column_not_promoted_above_threshold(self):
-        """80 unique values (>threshold=50) each occurring once = 80
-        non-null rows (<floor=100). Guard blocks: column stays as
-        cat_feature."""
+    def test_sparse_fraction_not_promoted(self):
+        """Prod-shape: n=100_000, 60 unique each once = 60 non-null
+        rows (0.06% fraction, below default 1% floor). Guard blocks:
+        column stays as cat_feature."""
         np.random.seed(42)
-        df = self._build_df_polars(n=1000, non_null_count=80, each_unique_occurs=1)
+        df = self._build_df_polars(n=100_000, non_null_count=60, each_unique_occurs=1)
         cfg = FeatureTypesConfig(
             auto_detect_feature_types=True,
             cat_text_cardinality_threshold=50,
         )
         text, emb = _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
         assert "sparse_text" not in text, (
-            "n_unique=80>50 but non_null=80<100 — must stay as cat_feature "
-            "to avoid CatBoost 'Dictionary size is 0'"
+            "n_unique=60>50 but non_null_fraction=0.06%<1% floor — "
+            "must stay as cat_feature to avoid CatBoost 'Dictionary size is 0'"
         )
 
-    def test_dense_column_still_promoted(self):
-        """Same n_unique (80) but 800 non-null rows — above the
-        min_non_null floor, promotion proceeds."""
+    def test_dense_fraction_still_promoted(self):
+        """Same n_unique (60) but 60% non-null fraction — well above
+        the 1% floor, promotion proceeds."""
         np.random.seed(42)
-        df = self._build_df_polars(n=1000, non_null_count=800, each_unique_occurs=10)
+        # 60 uniques × 10 repeats each = 600 non-null / 1000 total = 60%
+        df = self._build_df_polars(n=1000, non_null_count=600, each_unique_occurs=10)
         cfg = FeatureTypesConfig(
             auto_detect_feature_types=True,
             cat_text_cardinality_threshold=50,
@@ -98,11 +99,31 @@ class TestMinNonNullTextPromotionGuard:
         text, emb = _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
         assert "sparse_text" in text
 
+    def test_tiny_df_not_blocked_by_fraction(self):
+        """The fraction guard scales with dataset size: a 50-row DF
+        with 60 unique — wait that can't happen; use a 50-row DF with
+        50 non-null (fraction 100%) and n_unique > threshold. Tiny
+        DFs don't trip the guard spuriously — critical for small test
+        datasets in the rest of the test suite."""
+        np.random.seed(42)
+        # 50 unique values each once in a 50-row df — fraction 100%
+        df = self._build_df_polars(n=50, non_null_count=50, each_unique_occurs=1)
+        cfg = FeatureTypesConfig(
+            auto_detect_feature_types=True,
+            cat_text_cardinality_threshold=10,
+        )
+        text, emb = _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
+        assert "sparse_text" in text, (
+            "tiny DF with 100% non-null fraction must still promote — "
+            "the guard is relative, not absolute"
+        )
+
     def test_warn_on_skipped_column(self, caplog):
         """When the guard blocks promotion, a WARN fires naming the
-        column and its non-null count — operator gets actionable info."""
+        column and its non-null count/total — operator gets actionable
+        info."""
         np.random.seed(42)
-        df = self._build_df_polars(n=1000, non_null_count=80, each_unique_occurs=1)
+        df = self._build_df_polars(n=100_000, non_null_count=60, each_unique_occurs=1)
         cfg = FeatureTypesConfig(
             auto_detect_feature_types=True,
             cat_text_cardinality_threshold=50,
@@ -111,16 +132,17 @@ class TestMinNonNullTextPromotionGuard:
             _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
         msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
         assert any(
-            "sparse_text" in m and "non_null=80" in m
+            "sparse_text" in m and "non_null=60" in m
             for m in msgs
-        ), f"expected a WARN naming sparse_text and non_null=80; got: {msgs}"
+        ), f"expected a WARN naming sparse_text and non_null=60; got: {msgs}"
 
     def test_pandas_path_also_guarded(self):
-        """Same guard applies when input is pandas."""
+        """Same fraction guard applies when input is pandas."""
         np.random.seed(42)
         n_unique = 60
+        n_total = 100_000
         vals = [f"x_{i}" for i in range(n_unique)]  # each once, 60 non-null
-        vals += [None] * (500 - n_unique)
+        vals += [None] * (n_total - n_unique)
         np.random.shuffle(vals)
         df = pd.DataFrame({"sparse": pd.Series(vals, dtype="object")})
         cfg = FeatureTypesConfig(
@@ -130,21 +152,24 @@ class TestMinNonNullTextPromotionGuard:
         text, emb = _auto_detect_feature_types(df, cfg, cat_features=["sparse"])
         assert "sparse" not in text
 
-    def test_boundary_at_default_threshold(self):
-        """Default min_non_null_for_text_promotion=100. Column with
-        99 non-null is blocked; 100 passes."""
+    def test_boundary_at_default_fraction(self):
+        """Default min_non_null_fraction_for_text_promotion=0.01 (1%).
+        Below 1% → blocked; at 1% → promoted. On 10_000 rows that's
+        99 blocked vs 100 passed."""
         np.random.seed(42)
         cfg = FeatureTypesConfig(
             auto_detect_feature_types=True,
             cat_text_cardinality_threshold=50,
         )
 
-        # 99 unique values each once → n_unique=99>50, non_null=99<100
+        # 99 non-null / 10_000 = 0.99% < 1% → block
         df_just_below = self._build_df_polars(n=10_000, non_null_count=99, each_unique_occurs=1)
         text_below, _ = _auto_detect_feature_types(df_just_below, cfg, cat_features=["sparse_text"])
         assert "sparse_text" not in text_below
 
-        # 100 unique each once → n_unique=100>50, non_null=100>=100
+        # 100 non-null / 10_000 = 1.0% → promote (absolute threshold
+        # from round(10_000 * 0.01) = 100; guard is non_null < 100 → block,
+        # so 100 is the boundary pass)
         df_just_above = self._build_df_polars(n=10_000, non_null_count=100, each_unique_occurs=1)
         text_above, _ = _auto_detect_feature_types(df_just_above, cfg, cat_features=["sparse_text"])
         assert "sparse_text" in text_above

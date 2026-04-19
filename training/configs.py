@@ -360,7 +360,24 @@ class FeatureTypesConfig(BaseConfig):
         String columns with ``n_unique <= threshold`` are treated as categorical
         (existing pipeline). Columns with ``n_unique > threshold`` are treated
         as text features. Only applies when ``auto_detect_feature_types=True``
-        (default: 50).
+        (default: 300).
+
+        Default raised from 50 → 300 on 2026-04-19 after a prod incident
+        (round 12): two columns with ``n_unique`` just above the old
+        50 floor (``job_post_source:71``, ``_raw_countries:2196``) got
+        promoted to text_features, crashing CatBoost's TF-IDF estimator
+        (``Dictionary size is 0``). CatBoost's text pipeline only pays
+        off on actual free-text blobs (hundreds to thousands of tokens
+        like ``skills_text``), not on 50-300-cardinality enumerations
+        like country codes or source categories. Setting the floor at
+        300 keeps the common "enum-like" columns as cat_features where
+        CB handles them efficiently via its native categorical split
+        logic, and reserves text_features for columns where the text
+        estimator's TF-IDF / n-gram extractors actually add signal.
+
+        If you have a genuinely mid-cardinality column you want treated
+        as text (100-300 unique tokens with repetitive content), override
+        per-call via ``FeatureTypesConfig(cat_text_cardinality_threshold=100)``.
 
     Notes
     -----
@@ -379,7 +396,7 @@ class FeatureTypesConfig(BaseConfig):
     text_features: Optional[List[str]] = None
     embedding_features: Optional[List[str]] = None
     auto_detect_feature_types: bool = True
-    cat_text_cardinality_threshold: int = Field(default=50, ge=1)
+    cat_text_cardinality_threshold: int = Field(default=300, ge=1)
 
 
 class FeatureSelectionConfig(BaseConfig):
