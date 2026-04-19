@@ -2144,7 +2144,49 @@ def train_mlframe_models_suite(
                                         f"for CatBoost: {needs_cast}"
                                     )
 
-                        polars_fastpath_skip_preprocessing = strategy.requires_encoding
+                        # ROOT CAUSE of the 2026-04-19 CB Polars fastpath
+                        # rejection (diagnosed correctly only at round 11):
+                        # Polars 1.x + pyarrow 15+ exports pl.String as
+                        # pa.large_string() and pl.Categorical as
+                        # Dictionary<uint32, large_string>. CatBoost 1.2.10's
+                        # fused cpdef dispatcher has no signature for the
+                        # large_string variant → TypeError: No matching
+                        # signature found. Each failed fastpath attempt
+                        # burns 20–50 s PER invocation (fit + predict_proba(val)
+                        # + predict_proba(test) = 3× wasted per model)
+                        # before the pandas fallback kicks in. Also the
+                        # fallback converts polars→pandas redundantly
+                        # for each method instead of once.
+                        #
+                        # Proactive bypass: detect large_string in the
+                        # prepared frame. If present, turn off the
+                        # polars fastpath now and let the pandas path
+                        # (tier_pandas) run. One conversion, predict
+                        # path is already pandas — no redundant work.
+                        from mlframe.training.trainer import _polars_df_emits_large_string
+                        if _polars_df_emits_large_string(prepared_train):
+                            if verbose:
+                                logger.warning(
+                                    "  Polars fastpath pre-emptively disabled for %s: the prepared "
+                                    "DataFrame produces large_string Arrow types (Polars 1.x default) "
+                                    "which CB 1.2.x / XGB 3.x fastpath dispatchers don't match. "
+                                    "Falling back to the pandas path before fit — avoids 20–50s "
+                                    "wasted fastpath attempts and 2× redundant polars→pandas "
+                                    "conversions at predict time.",
+                                    mlframe_model_name,
+                                )
+                            polars_fastpath_active = False
+                            # Build tier_pandas now since we skipped the else branch's build.
+                            tier_pandas = _build_tier_dfs(
+                                {"train_df": common_params.get("train_df"),
+                                 "val_df": common_params.get("val_df"),
+                                 "test_df": common_params.get("test_df")},
+                                strategy, text_features, embedding_features, tier_dfs_cache,
+                                verbose=verbose,
+                            )
+                            polars_fastpath_skip_preprocessing = False
+                        else:
+                            polars_fastpath_skip_preprocessing = strategy.requires_encoding
                     else:
                         polars_fastpath_skip_preprocessing = False
 

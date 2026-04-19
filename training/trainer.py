@@ -968,6 +968,54 @@ def _warn_on_unsupported_polars_dtypes(
         pass
 
 
+def _polars_df_emits_large_string(df: Any) -> bool:
+    """Detect Polars DataFrames whose Arrow export uses ``large_string``.
+
+    Polars 1.x + pyarrow 15+ switched the default export dtype for
+    string-bearing columns from ``pa.string()`` to ``pa.large_string()``:
+      - ``pl.String``/``pl.Utf8`` → ``large_string`` (64-bit offsets)
+      - ``pl.Categorical`` → ``Dictionary<uint32, large_string>``
+
+    Downstream dispatchers that were compiled against the earlier
+    (pa.string) ABI silently miss these columns:
+      - CatBoost 1.2.x ``_set_features_order_data_polars_categorical_column``
+        Cython fused cpdef has no signature for ``Dictionary<*, large_string>``
+        → ``TypeError: No matching signature found``.
+      - XGBoost 3.x ``xgboost.data._arrow_dtype`` dict is missing
+        ``pa.large_string()`` → ``KeyError: DataType(large_string)``.
+
+    We detect this BEFORE calling ``model.fit()`` so we can bypass the
+    Polars fastpath proactively and avoid the 20-50s failed-fit
+    detour plus redundant polars→pandas conversions per model method
+    (fit + predict_proba(val) + predict_proba(test) = 3× redundant
+    70–80s conversions in the 2026-04-19 prod log).
+
+    Uses a head(0) schema-only to_arrow() call so there's no data
+    copy; the call is O(n_cols). Returns True if any column's Arrow
+    type is ``large_string``/``large_utf8``/``large_binary`` OR is a
+    Dictionary wrapping one of those. Returns False on any exception
+    (defensive — we'd rather try the fastpath than block it wrongly).
+    """
+    try:
+        import polars as _pl
+        import pyarrow as _pa
+        if not isinstance(df, _pl.DataFrame):
+            return False
+        # head(0) avoids copying data; only schema matters here.
+        tbl = df.head(0).to_arrow()
+        for col in tbl.columns:
+            t = col.type
+            if _pa.types.is_large_string(t) or _pa.types.is_large_unicode(t) or _pa.types.is_large_binary(t):
+                return True
+            if _pa.types.is_dictionary(t):
+                vt = t.value_type
+                if _pa.types.is_large_string(vt) or _pa.types.is_large_unicode(vt) or _pa.types.is_large_binary(vt):
+                    return True
+        return False
+    except Exception:
+        return False
+
+
 def _recover_cb_feature_names(model: Any) -> Tuple[List[str], List[str]]:
     """Extract (cat_features, text_features) as column-name lists from a
     fitted CatBoost model.

@@ -1,5 +1,46 @@
 # Changelog
 
+## 2026-04-19 — probe round 11: TRUE root cause of the CB/XGB Polars fastpath failures
+
+Rounds 4, 7, and 10 each added diagnostic instrumentation and defensive fallbacks around the CatBoost Polars fastpath `TypeError: No matching signature found`. Those fixes were useful (diagnostic schema dump, per-method pandas fallback, dedup'd cache keys by feature_tier), but I misidentified the upstream cause twice (`pl.Enum`, then stale `cat_features_polars`). Today's prod log shipped a 35-minute CB run plus an `XGBoostClassifier` `KeyError: DataType(large_string)` mid-suite. Direct repro in a one-liner finally pinned the real cause.
+
+### Root cause: Polars 1.x Arrow export → `large_string`
+
+Polars 1.35.2 + pyarrow 22.0 exports:
+  - `pl.String` / `pl.Utf8` → `pa.large_string()` (64-bit offsets)
+  - `pl.Categorical` → `Dictionary<uint32, large_string>`
+
+Both CatBoost 1.2.10 and XGBoost 3.x were compiled against the older `pa.string()` API:
+  - **CatBoost**: `_set_features_order_data_polars_categorical_column` is a Cython fused cpdef with no signature for the `large_string` dictionary variant. Every fit call wastes 20-50 s on the failed attempt, then falls back to pandas. Every `predict_proba` call repeats the same dance. A 3-split evaluation (fit + predict_proba(val) + predict_proba(test)) pays the penalty 3× plus 3 redundant polars→pandas conversions (70-80 s each on 810k × 98).
+  - **XGBoost 3.x**: `xgboost.data._arrow_dtype()` returns a dict of numeric types only. A plain `large_string` column (from `pl.String` in the tier-dropped polars DF) hits `KeyError: DataType(large_string)` inside `_wrap_evaluation_matrices` and kills the whole suite.
+
+### Fixed — proactive CB fastpath bypass (`training/trainer.py` + `training/core.py`)
+
+New helper `_polars_df_emits_large_string(df)` does a `head(0).to_arrow()` schema probe (no data copy) and returns True if any column is `large_string` / `large_utf8` / `large_binary` or a Dictionary wrapping one of those. Called right before the CB fastpath would fire; if True, `polars_fastpath_active` flips to False, the pandas tier DF is built now, and the rest of the CB model training uses pandas end-to-end — saving:
+  - 20–50 s wasted `model.fit` attempt (the one that always failed)
+  - 20–50 s wasted `predict_proba(val)` attempt
+  - 20–50 s wasted `predict_proba(test)` attempt
+  - 2× redundant polars→pandas conversions at predict time (fit's conversion is now reused)
+
+Logged as a WARNING at fastpath-setup time so the operator sees the bypass clearly.
+
+### Attempted-and-reverted: XGB `_arrow_dtype` monkey-patch
+
+An earlier iteration in this round tried to wrap `xgboost.data._arrow_dtype` to map `large_string`/`large_utf8`/`large_binary` → `'c'` at `trainer.py` import time. Direct repro showed the shim only moves the crash one layer deeper — from `KeyError: DataType(large_string)` in `_arrow_feature_info` to `ValueError: too many values to unpack` in XGB's downstream dictionary-handling code. XGB really does require a `DictionaryType` column (not plain `large_string`) for the `'c'` code to work. **Reverted the shim** in favour of the proactive bypass above, which covers XGB too: the detector fires on `Dictionary<uint32, large_string>` just as it does on plain `large_string`, so XGB hits the pandas path before the crash window.
+
+### Tests (`tests/training/test_round11_polars_largestring_fixes.py`, new file, +5 sensors)
+
+`TestPolarsDfEmitsLargeStringDetector`: plain string column → True, Categorical → True (the prod-common case), numeric-only → False, empty DF no crash, non-Polars input → False (defensive). The proactive-bypass code path in `core.py` is exercised by the existing CB-fallback sensors in `tests/training/test_cb_polars_fallback.py` — those now cover both the "fastpath fails and falls back" scenario (round 4-7) and the "fastpath gets bypassed before it can fail" scenario (round 11).
+
+### Context for the rounds 4/7/10 fixes
+
+Those fixes remain correct and useful:
+- The round-4 diagnostic schema dump (`_polars_schema_diagnostic`) is what made today's root-cause analysis tractable — the operator can see the per-column dtype breakdown the moment CB rejects.
+- The round-7 `_predict_with_fallback` still handles the case where large_string detection misses (defensive lower tier).
+- The round-10 `cache_key` partitioning by `feature_tier()` prevents CB's cached DF from being served to LGB/XGB even if we ever re-enable the fastpath.
+
+None are redundant; they're each mitigations at different layers. The round-11 proactive bypass is the one that makes the common case FAST instead of just observable.
+
 ## 2026-04-19 — thinc/pytest-randomly seed-overflow session corruption (test-infra)
 
 **The weirdest bug of the day.** After round-10 landed, rerunning previously-green sensor files started returning patterns like `4 passed, 20 errors` on `tests/training/**`. Disabling pytest-randomly (`-p no:randomly`) made everything green again. Running a single test in isolation passed. Running the file with `--randomly-seed=42` passed all 14; with `--randomly-seed=310986334` failed mid-file with `ValueError: Seed must be between 0 and 2**32 - 1` cascading into `previous item was not torn down properly`.
