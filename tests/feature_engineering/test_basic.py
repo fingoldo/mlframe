@@ -131,3 +131,55 @@ def test_create_date_features_dtypes(df_lib):
     assert result['date_day'].dtype == expected_dtype
     assert result['date_weekday'].dtype == expected_dtype
     assert result['date_month'].dtype == expected_dtype
+
+
+# -----------------------------------------------------------------
+# 2026-04-19 — silent column-overwrite WARN sensor
+# -----------------------------------------------------------------
+# Pre-fix: create_date_features did `df[col + "_" + method] = ...`
+# with no collision check. A user column `date_year` (say, fiscal
+# year engineered upstream) got silently overwritten with calendar
+# year. No warning, no log line — data corruption.
+
+
+def test_create_date_features_warns_on_column_clash_pandas(caplog):
+    import logging
+    from datetime import datetime
+    dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(5)]
+    df = pd.DataFrame({
+        'date': dates,
+        'date_day': [999, 999, 999, 999, 999],  # user's column, will clash
+    })
+    with caplog.at_level(logging.WARNING, logger="mlframe.feature_engineering.basic"):
+        create_date_features(df, ['date'])
+    warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
+    assert any("date_day" in m and ("OVERWRITTEN" in m or "overwritten" in m.lower()) for m in warns), (
+        f"Expected WARN naming 'date_day' as overwritten; got: {warns}"
+    )
+
+
+def test_create_date_features_warns_on_column_clash_polars(caplog):
+    import logging
+    from datetime import datetime
+    dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(5)]
+    df = pl.DataFrame({
+        'date': dates,
+        'date_month': [99, 99, 99, 99, 99],
+    })
+    with caplog.at_level(logging.WARNING, logger="mlframe.feature_engineering.basic"):
+        create_date_features(df, ['date'])
+    warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
+    assert any("date_month" in m for m in warns), warns
+
+
+def test_create_date_features_no_warn_without_clash(caplog):
+    """False-positive sensor: clean input must not warn (this runs on
+    every pipeline; false positives would spam logs)."""
+    import logging
+    from datetime import datetime
+    dates = [datetime(2023, 1, 1) + timedelta(days=i) for i in range(5)]
+    df = pd.DataFrame({'date': dates, 'other_feature': [1.0] * 5})
+    with caplog.at_level(logging.WARNING, logger="mlframe.feature_engineering.basic"):
+        create_date_features(df, ['date'])
+    warns = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert not warns, f"Clean input must not warn; got: {[r.message for r in warns]}"

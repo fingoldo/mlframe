@@ -311,6 +311,36 @@ def select_target(
         else:
             perc = vlcnts.loc[1] if 1 in vlcnts.index else 0
         model_name += f" BT={perc*100:.0f}%"
+
+        # Degenerate-target guard: classification with a single class
+        # (all 0s or all 1s after the target-building threshold) makes
+        # ROC AUC / PR AUC undefined, the scorer returns NaN, and
+        # early-stopping / ICE / RFECV all silently break in downstream
+        # layers (some of which we already added NaN observability for).
+        # Better to WARN loud right here so the operator can fix the
+        # threshold or data selection. We do NOT abort — in rare cases
+        # (sanity runs, debugging) training a model on a single-class
+        # target is intentional, and a hard raise would regress
+        # legitimate callers.
+        if 0.0 < perc < 1.0:
+            # Also flag extreme imbalance (<0.1% or >99.9%) because
+            # even with both classes present the signal is near-zero.
+            if perc < 1e-3 or perc > (1.0 - 1e-3):
+                logger.warning(
+                    "select_target: extreme class imbalance for '%s' "
+                    "(positive rate %.4f%%). Training may converge on "
+                    "the majority class; AUC metrics will be noisy.",
+                    model_name, perc * 100,
+                )
+        else:
+            logger.warning(
+                "select_target: degenerate classification target '%s' "
+                "has only one class (positive rate=%.0f%%). ROC AUC / "
+                "PR AUC are undefined; scorer will return NaN and "
+                "early-stopping will stall. Fix the target threshold or "
+                "pre-filter the data upstream.",
+                model_name, perc * 100,
+            )
     logger.debug(f"select_target: model_name={model_name}")
 
     # Ensure configs have defaults

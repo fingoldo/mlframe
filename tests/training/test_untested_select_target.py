@@ -108,6 +108,96 @@ def test_select_target_binary_no_positives(mock_configure):
     assert "BT=0%" in mock_configure[0][1]["model_name"]
 
 
+# -----------------------------------------------------------------
+# 2026-04-19 — degenerate-class + extreme-imbalance WARN sensors
+# -----------------------------------------------------------------
+# Pre-fix: select_target silently proceeded on all-same-class targets.
+# ROC AUC / PR AUC returned NaN downstream, early-stopping stalled
+# via the 2026-04-19 morning bug class. select_target now WARNs —
+# still proceeds (sanity runs are legitimate), but the operator
+# sees the signal at the source instead of staring at NaN metrics.
+
+
+def test_select_target_warns_on_all_zeros(mock_configure, caplog):
+    import logging
+    df = pd.DataFrame({"x": np.arange(10)})
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.train_eval"):
+        select_target(
+            model_name="always_zero",
+            target=pd.Series([0] * 10),
+            target_type=TargetTypes.BINARY_CLASSIFICATION,
+            df=df,
+        )
+    warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
+    assert any("degenerate classification target" in m and "always_zero" in m for m in warns), (
+        f"Expected WARN naming 'always_zero' as degenerate; got: {warns}"
+    )
+
+
+def test_select_target_warns_on_all_ones(mock_configure, caplog):
+    import logging
+    df = pd.DataFrame({"x": np.arange(10)})
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.train_eval"):
+        select_target(
+            model_name="always_one",
+            target=pd.Series([1] * 10),
+            target_type=TargetTypes.BINARY_CLASSIFICATION,
+            df=df,
+        )
+    warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
+    assert any("degenerate classification target" in m for m in warns), warns
+
+
+def test_select_target_warns_on_extreme_imbalance(mock_configure, caplog):
+    """<0.1% positive rate gets an extreme-imbalance WARN (not the
+    degenerate-target one — both classes present, just rare)."""
+    import logging
+    # 1 positive, 9999 negatives -> 0.01% positive rate
+    y = pd.Series([1] + [0] * 9999)
+    df = pd.DataFrame({"x": np.arange(len(y))})
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.train_eval"):
+        select_target(
+            model_name="rare_positive",
+            target=y,
+            target_type=TargetTypes.BINARY_CLASSIFICATION,
+            df=df,
+        )
+    warns = [r.message for r in caplog.records if r.levelname == "WARNING"]
+    assert any("extreme class imbalance" in m and "rare_positive" in m for m in warns), warns
+
+
+def test_select_target_no_warn_on_balanced(mock_configure, caplog):
+    """False-positive sensor: runs on every classification call —
+    30/70 must stay silent or logs would drown in noise."""
+    import logging
+    df = pd.DataFrame({"x": np.arange(100)})
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.train_eval"):
+        select_target(
+            model_name="balanced",
+            target=pd.Series([1] * 30 + [0] * 70),
+            target_type=TargetTypes.BINARY_CLASSIFICATION,
+            df=df,
+        )
+    warns = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert not warns, f"Balanced target must not warn; got: {[r.message for r in warns]}"
+
+
+def test_select_target_regression_no_warn(mock_configure, caplog):
+    """Regression targets have no class concept — the warning path
+    must never trigger for TargetTypes.REGRESSION."""
+    import logging
+    df = pd.DataFrame({"x": np.arange(10)})
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.train_eval"):
+        select_target(
+            model_name="regr_all_zero",
+            target=pd.Series(np.zeros(10)),  # all zeros — for regression, that's fine
+            target_type=TargetTypes.REGRESSION,
+            df=df,
+        )
+    warns = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert not warns
+
+
 def test_select_target_rejects_unsupported_type():
     df = pd.DataFrame({"x": [1, 2]})
     with pytest.raises(TypeError, match="np.ndarray, pd.Series, or pl.Series"):

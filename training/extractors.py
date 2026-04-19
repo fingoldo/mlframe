@@ -84,7 +84,24 @@ def get_sample_weights_by_recency(
 ) -> np.ndarray:
     """Compute sample weights based on recency.
 
-    More recent samples get higher weights.
+    More recent samples get higher weights. The formula is log-linear
+    in days-from-most-recent so that very old samples don't vanish
+    entirely while the newest samples get the highest weight.
+
+    Bug fix 2026-04-19: the previous implementation applied
+    ``np.log((max - date).days)`` directly. For the single most-recent
+    sample (where ``max - date == 0 days``), ``np.log(0) = -inf``, so
+    the weight evaluated to ``+inf``. Training-time weighted loss was
+    then dominated by that single row (CatBoost/sklearn treat +inf
+    weights by clamping or NaN-ing the sample, producing silent fit
+    bias that was invisible in the training curve). Also: if all dates
+    are identical (``span == 0``), ``np.log(0) → -inf`` produces an
+    all-NaN weight array.
+
+    Now: days-from-max is clipped to ``>= 1`` before the log so the
+    newest sample gets a *large finite* weight (floor at
+    ``min_weight + max_drop``), and a zero-span series returns uniform
+    ``min_weight`` for every row (log-span itself is clipped too).
 
     Args:
         date_series: Series of datetime values.
@@ -92,15 +109,22 @@ def get_sample_weights_by_recency(
         weight_drop_per_year: How much weight drops per year of age.
 
     Returns:
-        Array of sample weights.
+        Array of sample weights (all finite, no NaN / +inf).
     """
-    span = (date_series.max() - date_series.min()).days
-    max_drop = np.log(span) * weight_drop_per_year
+    span_days = (date_series.max() - date_series.min()).days
+    # Zero-span guard: all dates equal → uniform weighting. No log needed.
+    if span_days <= 0:
+        return np.full(len(date_series), float(min_weight))
+
+    # Clip to >= 1 so log never hits 0. One-day resolution is the
+    # finest datetime arithmetic exposes for this column anyway.
+    days_from_max = np.maximum((date_series.max() - date_series).dt.days, 1).to_numpy()
+    max_drop = np.log(span_days) * weight_drop_per_year
 
     sample_weight = (
         min_weight
         + max_drop
-        - np.log((date_series.max() - date_series).dt.days) * weight_drop_per_year
+        - np.log(days_from_max) * weight_drop_per_year
     )
 
     return sample_weight

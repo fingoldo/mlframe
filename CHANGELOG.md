@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-04-19 — probe round 6: extractors + select_target + create_date_features
+
+Subagent probe of `training/extractors.py`, `training/train_eval.py::select_target`, and `feature_engineering/basic.py::create_date_features`. Three HIGH-severity findings fixed.
+
+### Fixed — `+inf` recency weights on every production run (`training/extractors.py`)
+
+`get_sample_weights_by_recency` computed `np.log((max - date).dt.days) * weight_drop_per_year`. For the most-recent sample, `(max - date).days == 0`, so `np.log(0) = -inf`, and the weight evaluated to `+inf`. Training-time weighted loss was then dominated by that single row — CatBoost/sklearn clamp or NaN-out `+inf` weights in different ways, silently biasing the fit toward one example with no visible signal in the loss curve.
+
+Also: when all timestamps were identical (`span_days == 0`) — e.g., a single-batch backfill or hourly aggregated data — `np.log(0)` on the span itself produced an all-NaN weight array.
+
+Now: days-from-max is clipped to `>= 1` before the log (finest datetime resolution for this column anyway), and a zero-span series returns uniform `min_weight` for every row. All outputs are finite, no NaN, no +inf.
+
+### Added — degenerate-class / extreme-imbalance WARN in `select_target` (`training/train_eval.py`)
+
+`select_target` proceeded silently on all-zeros / all-ones classification targets. ROC AUC / PR AUC then returned NaN downstream, early-stopping stalled via the same class of bug we fixed earlier today (ICE NaN, RFECV NaN-score). Now:
+- **Single-class target** (positive rate == 0% or 100%): WARN naming the target and the undefined-metric consequence. Does NOT abort — sanity runs with degenerate targets are legitimate.
+- **Extreme imbalance** (positive rate < 0.1% or > 99.9%): separate WARN about noisy AUC; both classes present but signal is near-zero.
+- **Balanced (0.1%–99.9%)**: silent (runs on every classification call, false positives would drown the log).
+
+### Added — column-clash WARN in `create_date_features` (`feature_engineering/basic.py`)
+
+`create_date_features(df, ['date'])` generated `date_year`, `date_month`, etc. via `df[new_name] = ...` without checking whether `new_name` already existed. A user-engineered column (e.g., a fiscal-year `date_year`) got silently overwritten with calendar year — data corruption, no log line. Now: collision detection runs before writing; any pre-existing derived name triggers a WARN naming all clashing columns. Does NOT raise (overwrite-on-rerun is a legitimate use case), but the operator sees the signal.
+
+### Tests
+- `tests/training/test_extractors.py` +4 (`TestGetSampleWeightsByRecency`): no +inf on newest sample, no NaN on identical timestamps, monotone non-decreasing by date, length invariant across span/size combos.
+- `tests/training/test_untested_select_target.py` +5: all-zeros WARN, all-ones WARN, extreme-imbalance WARN, balanced-target silent, regression-target silent (no class concept).
+- `tests/feature_engineering/test_basic.py` +3: pandas clash WARN, polars clash WARN, no-clash silent.
+
+### Probe hygiene
+Subagent also flagged `intize_targets` (crash on object-dtype with None) and `group_ids` length-alignment — not fixed this batch because they're loud-crash paths (vs. silent-wrong), and the reporting is already reasonable. Documented in subagent report for future rounds.
+
 ## 2026-04-19 — symmetric pandas fallback at predict time (`_predict_with_fallback`)
 
 Follow-up to `545c472`. Same prod log revealed a second, independent dispatcher miss: after `fit` fell back to pandas and succeeded (14 min), `predict_proba` on the Polars val_df hit the **same** `_set_features_order_data_polars_categorical_column` TypeError. The existing except block in `evaluation.py:513` caught it and retried with `model.predict(df)` **on the same `pl.DataFrame`** — another dispatch miss. Not a fallback; a retry into the same hole, burning 48 s total before raising.

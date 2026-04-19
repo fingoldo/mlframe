@@ -175,6 +175,57 @@ class TestGetSampleWeightsByRecency:
         weights = get_sample_weights_by_recency(date_series)
         assert len(weights) == 1, "Should return single weight"
 
+    # -----------------------------------------------------------------
+    # Sensors for the 2026-04-19 recency-weight +inf / NaN incident
+    # -----------------------------------------------------------------
+    # Pre-fix symptom: the most-recent sample had (max - date).days == 0
+    # and np.log(0) = -inf, so its weight came out as +inf. Downstream
+    # weighted loss was dominated by that single row and training
+    # silently biased to fit one example. Also: if all dates were
+    # identical (span_days == 0), np.log(0) on the span itself produced
+    # an all-NaN weight array.
+
+    def test_no_inf_on_most_recent_sample(self):
+        """The max-date sample must get a FINITE weight, not +inf."""
+        dates = pd.date_range('2023-01-01', periods=100, freq='D')
+        weights = get_sample_weights_by_recency(pd.Series(dates))
+        # The most recent sample (last index) was the bug site.
+        assert np.isfinite(weights).all(), (
+            f"all weights must be finite, got {weights[~np.isfinite(weights)]}"
+        )
+        assert weights[-1] == np.max(weights), "most-recent must be the highest"
+
+    def test_no_nan_on_identical_timestamps(self):
+        """All-identical timestamps -> zero span -> pre-fix returned NaN.
+        Now: returns uniform min_weight."""
+        same = pd.Series([pd.Timestamp('2023-06-15')] * 50)
+        weights = get_sample_weights_by_recency(same, min_weight=1.5)
+        assert np.all(np.isfinite(weights))
+        np.testing.assert_allclose(weights, 1.5)
+
+    def test_weights_are_monotone_non_decreasing(self):
+        """Weights must be non-decreasing along sorted-ascending dates.
+        Catches sign-flip regressions in the log formula."""
+        dates = pd.date_range('2020-01-01', periods=500, freq='D')
+        weights = get_sample_weights_by_recency(pd.Series(dates))
+        # Within numerical tolerance of log quantisation, weights should
+        # never decrease as we move toward the most recent sample.
+        diffs = np.diff(weights)
+        assert np.all(diffs >= -1e-9), (
+            "weights must be monotone non-decreasing by date; "
+            f"found {(diffs < 0).sum()} decreasing transitions"
+        )
+
+    def test_weights_length_matches_input(self):
+        """Defensive: length invariant must hold for every span/size combo."""
+        for n in (1, 2, 100, 1000):
+            for span_days in (0, 1, 365, 3650):
+                dates = pd.date_range('2020-01-01', periods=n, freq=f'{span_days // max(n-1, 1) + 1}D') if n > 1 else pd.Series([pd.Timestamp('2020-01-01')])
+                s = pd.Series(dates)
+                w = get_sample_weights_by_recency(s)
+                assert len(w) == len(s), f"length mismatch for n={n}"
+                assert np.all(np.isfinite(w))
+
 
 # =============================================================================
 # FeaturesAndTargetsExtractor Base Class Tests

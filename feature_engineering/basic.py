@@ -63,6 +63,24 @@ def create_date_features(
         np.int64: pl.Int64,
     }
 
+    # Collision detection: if a user-defined column already exists with
+    # the exact derived name (e.g. user has an engineered `date_year`
+    # that's their fiscal year, not calendar year), silent overwrite
+    # would destroy their data with no log line. Warn once and let
+    # create_date_features proceed — raising would regress legitimate
+    # re-runs on the same frame.
+    existing_cols = set(df.columns)
+    derived_names = [f"{col}_{method}" for col in cols for method in methods.keys()]
+    clashes = [n for n in derived_names if n in existing_cols]
+    if clashes:
+        logger.warning(
+            "create_date_features: %d derived column name(s) already exist "
+            "in the DataFrame and will be OVERWRITTEN: %s. If any of these "
+            "are user-engineered features, rename either them or the "
+            "``methods`` dict keys to disambiguate.",
+            len(clashes), clashes,
+        )
+
     if is_pandas:
         for col in cols:
             obj = df[col].dt
