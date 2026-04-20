@@ -2050,19 +2050,46 @@ def train_mlframe_models_suite(
             _polars_nullable_categorical_cols,
             _polars_fill_null_in_categorical,
         )
-        nullable_cats = _polars_nullable_categorical_cols(
+        # Detect nullable cats in train AND val AND test — union the
+        # sets. Previously we only inspected ``train_df_polars``, which
+        # missed a class of bug: a column with 0 nulls in train but 100+
+        # in val (common on time-ordered splits where new records
+        # introduce new null-paradigms) was NOT filled, leaving val
+        # with nulls in a Polars Categorical → CB/XGB native crash at
+        # val-DMatrix construction. Union ensures fill applies if ANY
+        # split has nulls; ``__MISSING__`` sentinel then consistently
+        # lands in train/val/test's category dicts.
+        train_null_cats = set(_polars_nullable_categorical_cols(
             train_df_polars, cat_features=cat_features,
-        )
+        ))
+        val_null_cats = set(_polars_nullable_categorical_cols(
+            val_df_polars, cat_features=cat_features,
+        )) if val_df_polars is not None else set()
+        test_null_cats = set(_polars_nullable_categorical_cols(
+            test_df_polars, cat_features=cat_features,
+        )) if test_df_polars is not None else set()
+        nullable_cats = sorted(train_null_cats | val_null_cats | test_null_cats)
         if nullable_cats:
+            # Spotlight columns where val/test have nulls but train doesn't —
+            # that's the exact scenario that used to escape the pre-fill.
+            val_only = sorted((val_null_cats | test_null_cats) - train_null_cats)
             if verbose:
                 logger.info(
                     "  Pre-fit fill_null('__MISSING__') on %d nullable Polars "
-                    "Categorical cat_feature(s): %s. "
+                    "Categorical cat_feature(s) [union train/val/test]: %s. "
                     "Keeps CB 1.2.x's Polars fastpath alive (avoids the "
                     "~15-min pandas-path detour) and gives XGB/HGB the "
                     "same pre-filled frame.",
                     len(nullable_cats), nullable_cats,
                 )
+                if val_only:
+                    logger.warning(
+                        "  val/test introduced nulls in %d cat_feature(s) that "
+                        "train never had: %s. Without pre-fill these would "
+                        "slip into the model's val DMatrix as raw nulls and "
+                        "crash CB/XGB native layer.",
+                        len(val_only), val_only,
+                    )
             train_df_polars = _polars_fill_null_in_categorical(train_df_polars, nullable_cats)
             if val_df_polars is not None:
                 val_df_polars = _polars_fill_null_in_categorical(val_df_polars, nullable_cats)
