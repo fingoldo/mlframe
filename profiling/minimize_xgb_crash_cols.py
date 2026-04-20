@@ -1,31 +1,37 @@
 r"""Minimize the reproducer: find the smallest subset of columns that
 still triggers the XGB silent kill on prod data.
 
+Uses the FULL production pipeline (not just cast): load, Float64→32,
+Utf8→Categorical, sort, datetime features, target extract, drop
+user-drop cols, text-promotion drops, keep culprit+numerics,
+fill_null('__MISSING__'), time-ordered split, slice to ROW_LIMIT.
+
+The ``fill_null`` step is the one that re-resolves ``category``'s
+physical codes through the global StringCache (confirmed 2026-04-20
+by ``trace_category_codes.py``). Without it, codes stay compact.
+
 Two axes:
 
 **Phase 1 — string columns (cache-pollution sources).**
-  Prod casts many Utf8 columns to pl.Categorical simultaneously.
-  The non-``category`` string columns are then dropped before XGB —
-  their only purpose is to pollute the polars StringCache, giving
-  ``category`` sparse physical codes. We bisect: which are actually
-  needed? Criterion = ``category``'s ``physical_codes_range[1]``
-  stays above a sparseness threshold (default 10_000). No XGB
-  involvement — fast, in-process.
+  Bisect the set of Utf8/Categorical columns whose presence during
+  the Utf8→Categorical cast produces the ``[103, 3_287_945]``-style
+  sparse codes on ``category`` after fill_null. Check in-process,
+  no XGB.
 
 **Phase 2 — numeric columns (fit inputs).**
-  With the minimal string set fixed, we bisect the numerics.
-  Criterion = XGB still silently kills. Each trial runs in a
-  subprocess to isolate the crash.
+  With the minimal string set fixed, bisect numeric columns by
+  running XGB.fit in a subprocess (silent kill-tolerant). Find the
+  minimum set that still crashes.
 
-Final output: minimum ``{string cols, numeric cols}`` pair. Together
-with ``category`` and ~200k rows this should be the smallest
-attachable reproducer for an xgboost issue.
+Final output: minimum ``{string cols to cast, numeric cols to keep}``
+pair. Together with ``category``, fill_null, and ~211k rows this is
+the smallest attachable reproducer for an xgboost issue.
 
 Usage:
     python -m mlframe.profiling.minimize_xgb_crash_cols --parquet "R:\\..\\jobs_details.parquet"
 
-Approximate runtime on prod box (128GB): 5-10 min Phase 1 (in-process,
-just frame inspection), 30-60 min Phase 2 (subprocess XGB fits).
+Approximate runtime on 128GB prod box: 10-20 min Phase 1 (in-process
+full pipeline), 30-90 min Phase 2 (subprocess XGB fits).
 """
 from __future__ import annotations
 
@@ -37,7 +43,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 if sys.platform == "win32":
     import ctypes
@@ -50,57 +56,139 @@ TARGET_COLUMN = "cl_act_total_hired"
 TARGET_THRESHOLD = 1
 TIMESTAMP_COLUMN = "job_posted_at"
 CULPRIT_CAT = "category"
-DEFAULT_DROP_COLUMNS = [
-    "uid", "job_posted_at", "job_status", "cl_id",
-]
+# "Drop cols" = user-specified drops (uid/cl_id/job_status/etc); NOT
+# the candidate strings — those we're bisecting.
+USER_DROP_COLUMNS = ["uid", "job_posted_at", "job_status", "cl_id"]
 ROW_LIMIT = 211_168
-SPARSENESS_THRESHOLD = 10_000  # Phase 1 OK if max physical code > this
+
+# Phase 1 criterion: category's max physical code after the full
+# pipeline must stay above this. Prod crash was at max=3_287_945;
+# 10_000 is two orders of magnitude clear of the ~500 compact baseline.
+SPARSENESS_THRESHOLD = 10_000
 
 
 # ---------------------------------------------------------------------------
-# Phase 1 — in-process check of category's physical_codes_range
+# Shared pipeline: full prep mimicking prod, minus the Utf8 columns we
+# choose to exclude from the simultaneous cast.
 # ---------------------------------------------------------------------------
 
-def category_codes_max(parquet_path: str, string_cols_to_cast: Sequence[str]) -> int:
-    """Load parquet, cast all specified string-like cols + ``category`` via
-    ``.cast(pl.String).cast(pl.Categorical)`` in a single ``.with_columns()``
-    so they all participate in a shared cache. Report max physical code
-    for ``category``. Returns -1 on error.
+def prepare_frame(
+    parquet_path: str,
+    strings_to_cast: Sequence[str],
+    keep_numeric: Optional[Sequence[str]] = None,
+):
+    """Return (train, val, y_train, y_val). Applies full prod pipeline.
 
-    The double cast (`→ String → Categorical`) is needed when ``category``
-    is ALREADY Categorical in the parquet — a straight
-    ``.cast(pl.Categorical)`` on an already-Categorical column is a
-    no-op that keeps the original per-Series dict. Routing through
-    String forces polars to re-materialise the Categorical alongside
-    the other columns in the shared-cache batch.
+    - ``strings_to_cast``: Utf8/Categorical columns routed through
+      ``.cast(String).cast(Categorical)`` in the SAME with_columns()
+      call as ``category``. This puts them in a shared-cache batch
+      so ``category`` can get scattered codes after fill_null.
+    - ``keep_numeric``: if None, keep all numerics. If provided, keep
+      only the named subset.
+
+    Columns NOT in strings_to_cast and NOT in keep_numeric are dropped
+    before any preprocessing (keeps memory down for big parquets).
     """
     import polars as pl
+    import numpy as np
+
+    df = pl.read_parquet(parquet_path)
+
+    # Identify columns we need: user drops + target + timestamp + category
+    # + strings_to_cast + (keep_numeric or all numerics).
+    reserved = set(USER_DROP_COLUMNS) | {TARGET_COLUMN, TIMESTAMP_COLUMN, CULPRIT_CAT}
+    reserved |= set(strings_to_cast)
+
+    # Determine numeric cols (everything not String-like, not reserved).
+    numeric_dtypes = (
+        pl.Float32, pl.Float64, pl.Int8, pl.Int16, pl.Int32, pl.Int64,
+        pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64, pl.Boolean,
+    )
+    all_numerics = [c for c, dt in df.schema.items()
+                    if dt in numeric_dtypes and c not in reserved]
+    if keep_numeric is None:
+        kept_numerics = all_numerics
+    else:
+        kept_numerics = [c for c in keep_numeric if c in all_numerics]
+
+    keep_all = list(reserved | set(kept_numerics))
+    keep_existing = [c for c in keep_all if c in df.columns]
+    df = df.select(keep_existing)
+
+    # Prod prep begins.
+    df = df.with_columns(pl.col(pl.Float64).cast(pl.Float32))
+    # Cast selected string-like columns + category through String to force
+    # shared-cache re-materialization.
+    cast_set = set(strings_to_cast) | {CULPRIT_CAT}
+    existing_cast = [c for c, dt in df.schema.items()
+                     if c in cast_set and dt in (pl.Utf8, pl.String, pl.Categorical)]
+    if existing_cast:
+        df = df.with_columns([
+            pl.col(c).cast(pl.String).cast(pl.Categorical) for c in existing_cast
+        ])
+
+    df = df.sort(TIMESTAMP_COLUMN)
+    df = df.with_columns([
+        pl.col(TIMESTAMP_COLUMN).dt.hour().cast(pl.Int8).alias("hour"),
+        pl.col(TIMESTAMP_COLUMN).dt.day().cast(pl.Int8).alias("day"),
+        pl.col(TIMESTAMP_COLUMN).dt.weekday().cast(pl.Int8).alias("weekday"),
+        pl.col(TIMESTAMP_COLUMN).dt.month().cast(pl.Int8).alias("month"),
+    ])
+    target = (df[TARGET_COLUMN].fill_null(0) >= TARGET_THRESHOLD).cast(pl.Int8).to_numpy()
+
+    # Drop user-drop cols.
+    to_drop = [c for c in USER_DROP_COLUMNS if c in df.columns]
+    df = df.drop(to_drop)
+
+    # Text-promotion drops: any remaining Categorical with n_unique > 300.
+    HIGH_CARD = 300
+    to_drop_text = [c for c, dt in df.schema.items()
+                    if dt in (pl.Categorical, pl.Utf8) and df[c].n_unique() > HIGH_CARD]
+    if to_drop_text:
+        df = df.drop(to_drop_text)
+
+    # Drop other Categoricals (non-culprit) — XGB only sees category + numerics.
+    other_cats = [c for c, dt in df.schema.items()
+                  if dt == pl.Categorical and c != CULPRIT_CAT]
+    if other_cats:
+        df = df.drop(other_cats)
+
+    # Round-17 fill_null — THIS is what re-resolves category's codes.
+    if CULPRIT_CAT in df.columns and df[CULPRIT_CAT].null_count() > 0:
+        df = df.with_columns(pl.col(CULPRIT_CAT).fill_null("__MISSING__"))
+
+    # Split 80/10/10 time-ordered.
+    n = df.height
+    n_test = int(n * 0.10); n_val = int(n * 0.10); n_train = n - n_val - n_test
+    train = df[:n_train][:ROW_LIMIT]
+    val   = df[n_train : n_train + n_val]
+    y_tr = target[:n_train][:ROW_LIMIT]
+    y_v  = target[n_train : n_train + n_val]
+    return train, val, y_tr, y_v
+
+
+def category_max_code(parquet_path: str, strings_to_cast: Sequence[str]) -> int:
+    """Run full pipeline, return category's physical_codes_max in train."""
     try:
-        df = pl.read_parquet(parquet_path)
-        df = df.with_columns(pl.col(pl.Float64).cast(pl.Float32))
-        to_cast = list(set(string_cols_to_cast) | {CULPRIT_CAT})
-        existing = [c for c, dt in df.schema.items()
-                    if c in to_cast and dt in (pl.Utf8, pl.String, pl.Categorical)]
-        if existing:
-            df = df.with_columns([
-                pl.col(c).cast(pl.String).cast(pl.Categorical) for c in existing
-            ])
-        if CULPRIT_CAT not in df.columns:
+        train, _, _, _ = prepare_frame(parquet_path, strings_to_cast)
+        if CULPRIT_CAT not in train.columns:
             return -1
-        return int(df[CULPRIT_CAT].to_physical().max())
+        return int(train[CULPRIT_CAT].to_physical().max())
     except Exception as e:
         print(f"  [codes_max] error: {e}", flush=True)
         return -1
 
 
+# ---------------------------------------------------------------------------
+# Phase 1 — string cols bisection
+# ---------------------------------------------------------------------------
+
 def enumerate_string_cols(parquet_path: str) -> List[str]:
-    """Return all Utf8/String/Categorical columns except 'category' (we
-    ALWAYS include category). Includes existing Categoricals because
-    round-through-String casts them with the shared-cache batch."""
+    """Return all Utf8/String/Categorical columns except 'category'."""
     import polars as pl
     df = pl.read_parquet(parquet_path, n_rows=1000)
     out = []
-    print(f"  parquet schema scan:", flush=True)
+    print(f"  parquet schema scan (string-like cols):", flush=True)
     for c, dt in df.schema.items():
         if dt in (pl.Utf8, pl.String, pl.Categorical):
             print(f"    {c}: {dt}", flush=True)
@@ -110,20 +198,20 @@ def enumerate_string_cols(parquet_path: str) -> List[str]:
 
 
 def bisect_string_cols(parquet_path: str, all_strings: Sequence[str]) -> List[str]:
-    """Binary-bisect: find minimum set of string cols whose cache pollution
-    keeps category's max physical code above SPARSENESS_THRESHOLD."""
     print(f"\n=== Phase 1: bisecting {len(all_strings)} string columns ===",
           flush=True)
-    baseline = category_codes_max(parquet_path, all_strings)
-    print(f"  baseline max code with all {len(all_strings)} strings: {baseline}",
+    t0 = time.perf_counter()
+    baseline = category_max_code(parquet_path, all_strings)
+    print(f"  baseline max code with all {len(all_strings)} strings "
+          f"(FULL pipeline incl fill_null): {baseline}  ({time.perf_counter()-t0:.1f}s)",
           flush=True)
     if baseline < SPARSENESS_THRESHOLD:
-        print(f"  baseline below threshold {SPARSENESS_THRESHOLD} — no sparseness "
-              f"to preserve, skipping phase 1", flush=True)
+        print(f"  baseline below threshold {SPARSENESS_THRESHOLD} — nothing "
+              f"sparse to bisect. Phase 1 returns all strings unchanged.", flush=True)
         return list(all_strings)
-    # Also check with zero string cols: should give compact code (cat only).
-    zero = category_codes_max(parquet_path, [])
-    print(f"  zero-string baseline: max code={zero} (compact target)", flush=True)
+    zero = category_max_code(parquet_path, [])
+    print(f"  zero-strings max code: {zero} (compact target if near 0)",
+          flush=True)
 
     current = list(all_strings)
     while len(current) > 1:
@@ -131,52 +219,49 @@ def bisect_string_cols(parquet_path: str, all_strings: Sequence[str]) -> List[st
         left = current[:mid]
         right = current[mid:]
         t0 = time.perf_counter()
-        left_max = category_codes_max(parquet_path, left)
-        print(f"  [left  half={len(left)}] max code={left_max}  "
+        left_max = category_max_code(parquet_path, left)
+        print(f"  [left  {len(left)}] max code={left_max}  "
               f"({time.perf_counter()-t0:.1f}s)", flush=True)
         if left_max >= SPARSENESS_THRESHOLD:
             current = left
             continue
         t0 = time.perf_counter()
-        right_max = category_codes_max(parquet_path, right)
-        print(f"  [right half={len(right)}] max code={right_max}  "
+        right_max = category_max_code(parquet_path, right)
+        print(f"  [right {len(right)}] max code={right_max}  "
               f"({time.perf_counter()-t0:.1f}s)", flush=True)
         if right_max >= SPARSENESS_THRESHOLD:
             current = right
             continue
-        # Neither half alone is enough — the scatter comes from interaction.
-        # We'd need multiple string cols together. Combine halves via LOO:
-        # remove one col at a time, keep if still above threshold.
-        print(f"  interaction: neither half alone enough; entering LOO prune",
-              flush=True)
+        # Interaction: neither half alone. Pivot to leave-one-out.
+        print(f"  interaction: neither half alone; LOO-pruning over "
+              f"{len(current)} cols", flush=True)
         return loo_prune_strings(parquet_path, current)
-    # Down to 1 — check it's still enough.
-    if category_codes_max(parquet_path, current) >= SPARSENESS_THRESHOLD:
-        print(f"  SINGLE STRING CULPRIT: {current}", flush=True)
+    # Single col — verify.
+    m = category_max_code(parquet_path, current)
+    print(f"  single col {current[0]!r} gives max code={m}", flush=True)
     return current
 
 
 def loo_prune_strings(parquet_path: str, cols: List[str]) -> List[str]:
-    """Leave-one-out pruning: remove cols that aren't needed for sparseness."""
     current = list(cols)
     i = 0
     while i < len(current):
         candidate = current[:i] + current[i+1:]
         t0 = time.perf_counter()
-        mx = category_codes_max(parquet_path, candidate)
-        if mx >= SPARSENESS_THRESHOLD:
-            print(f"  LOO prune: {current[i]!r} unneeded (max={mx})  "
+        m = category_max_code(parquet_path, candidate)
+        if m >= SPARSENESS_THRESHOLD:
+            print(f"  LOO drop {current[i]!r} (without: max={m})  "
                   f"({time.perf_counter()-t0:.1f}s)", flush=True)
             current = candidate
         else:
-            print(f"  LOO keep:  {current[i]!r} needed (without={mx})  "
+            print(f"  LOO keep {current[i]!r} (without: max={m})  "
                   f"({time.perf_counter()-t0:.1f}s)", flush=True)
             i += 1
     return current
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 — subprocess XGB fit bisection over numeric cols
+# Phase 2 — subprocess-isolated XGB fit bisection over numeric cols
 # ---------------------------------------------------------------------------
 
 OUTCOME_PASSED = "passed"
@@ -197,59 +282,20 @@ def worker(state_file: str) -> int:
     except Exception:
         pass
 
-    import polars as pl
-    import numpy as np
-    from xgboost import XGBClassifier
-
     with open(state_file, "rb") as f:
         state = pickle.load(f)
 
-    parquet_path = state["parquet"]
-    string_cols  = state["string_cols"]
-    numeric_cols = state["numeric_cols"]
-
     t0 = time.perf_counter()
-    df = pl.read_parquet(parquet_path)
-    df = df.with_columns(pl.col(pl.Float64).cast(pl.Float32))
-    # Route through String so Categoricals join the shared-cache batch.
-    to_cast = list(set(string_cols) | {CULPRIT_CAT})
-    existing = [c for c, dt in df.schema.items()
-                if c in to_cast and dt in (pl.Utf8, pl.String, pl.Categorical)]
-    if existing:
-        df = df.with_columns([
-            pl.col(c).cast(pl.String).cast(pl.Categorical) for c in existing
-        ])
-    df = df.sort(TIMESTAMP_COLUMN)
-    # Datetime features.
-    df = df.with_columns([
-        pl.col(TIMESTAMP_COLUMN).dt.hour().cast(pl.Int8).alias("hour"),
-        pl.col(TIMESTAMP_COLUMN).dt.day().cast(pl.Int8).alias("day"),
-        pl.col(TIMESTAMP_COLUMN).dt.weekday().cast(pl.Int8).alias("weekday"),
-        pl.col(TIMESTAMP_COLUMN).dt.month().cast(pl.Int8).alias("month"),
-    ])
-    target = (df[TARGET_COLUMN].fill_null(0) >= TARGET_THRESHOLD).cast(pl.Int8).to_numpy()
+    train, val, y_tr, y_v = prepare_frame(
+        state["parquet"], state["strings"], state["numerics"],
+    )
+    print(f"[worker] prep in {time.perf_counter()-t0:.1f}s, "
+          f"train={train.shape}, val={val.shape}", flush=True)
+    if CULPRIT_CAT in train.columns:
+        mx = int(train[CULPRIT_CAT].to_physical().max())
+        print(f"[worker] category physical_codes_max={mx}", flush=True)
 
-    # Keep ONLY: category + specified numeric cols + datetime features.
-    dt_feats = ["hour", "day", "weekday", "month"]
-    keep = [CULPRIT_CAT] + list(numeric_cols) + [c for c in dt_feats if c in df.columns]
-    keep_existing = [c for c in keep if c in df.columns]
-    df = df.select(keep_existing)
-
-    # Fill_null on category.
-    if df[CULPRIT_CAT].null_count() > 0:
-        df = df.with_columns(pl.col(CULPRIT_CAT).fill_null("__MISSING__"))
-
-    n = df.height
-    n_test = int(n * 0.10); n_val = int(n * 0.10); n_train = n - n_val - n_test
-    train = df[:n_train][:ROW_LIMIT]
-    val   = df[n_train : n_train + n_val]
-    y_tr = target[:n_train][:ROW_LIMIT]
-    y_v  = target[n_train : n_train + n_val]
-
-    mx = int(train[CULPRIT_CAT].to_physical().max())
-    print(f"[worker] shape={train.shape}, category physical_codes_max={mx}, "
-          f"prep={time.perf_counter()-t0:.1f}s", flush=True)
-
+    from xgboost import XGBClassifier
     model = XGBClassifier(
         n_estimators=5, enable_categorical=True, tree_method="hist",
         device="cpu", n_jobs=-1, verbosity=1,
@@ -263,14 +309,15 @@ def worker(state_file: str) -> int:
     return 0
 
 
-def run_trial(parquet: str, string_cols: Sequence[str],
-              numeric_cols: Sequence[str], timeout: int = 900,
-              log_prefix: str = "") -> str:
+def run_trial(
+    parquet: str, strings: Sequence[str], numerics: Sequence[str],
+    timeout: int = 900, log_prefix: str = "",
+) -> str:
     with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False, mode="wb") as f:
         pickle.dump({
             "parquet": parquet,
-            "string_cols": list(string_cols),
-            "numeric_cols": list(numeric_cols),
+            "strings": list(strings),
+            "numerics": list(numerics),
         }, f)
         state_file = f.name
     cmd = [sys.executable, __file__, "--worker", state_file]
@@ -283,17 +330,17 @@ def run_trial(parquet: str, string_cols: Sequence[str],
         os.unlink(state_file)
         return OUTCOME_TIMEOUT
     os.unlink(state_file)
-    out = proc.stdout + "\n" + proc.stderr
+    out = (proc.stdout or "") + "\n" + (proc.stderr or "")
     elapsed = time.perf_counter() - t0
     if proc.returncode == 0 and "FIT_OK" in out:
         outcome = OUTCOME_PASSED
-    elif "Traceback" in out or "Error" in out.split("\n")[-5:][0] if out.split("\n") else "":
+    elif "Traceback" in out:
         outcome = OUTCOME_RAISED
     elif proc.returncode != 0:
         outcome = OUTCOME_CRASHED
     else:
         outcome = OUTCOME_PASSED
-    print(f"{log_prefix}trial strings={len(string_cols)}, numerics={len(numeric_cols)} "
+    print(f"{log_prefix}trial strings={len(strings)}, numerics={len(numerics)} "
           f"-> {outcome} (rc={proc.returncode}) in {elapsed:.1f}s", flush=True)
     return outcome
 
@@ -301,39 +348,40 @@ def run_trial(parquet: str, string_cols: Sequence[str],
 def enumerate_numeric_cols(parquet_path: str) -> List[str]:
     import polars as pl
     df = pl.read_parquet(parquet_path, n_rows=1000)
-    # Consider numeric = everything except strings, target, timestamp, and drop cols.
     numeric_dtypes = (pl.Float32, pl.Float64, pl.Int8, pl.Int16, pl.Int32, pl.Int64,
                       pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64, pl.Boolean)
-    excluded = set([TARGET_COLUMN, TIMESTAMP_COLUMN, CULPRIT_CAT] + DEFAULT_DROP_COLUMNS)
+    excluded = set([TARGET_COLUMN, TIMESTAMP_COLUMN, CULPRIT_CAT] + USER_DROP_COLUMNS)
     return [c for c, dt in df.schema.items()
             if dt in numeric_dtypes and c not in excluded]
 
 
-def bisect_numeric_cols(parquet: str, strings: Sequence[str],
-                        all_numerics: Sequence[str]) -> List[str]:
-    """Binary-bisect numerics keeping strings fixed. Find minimum set
-    that still crashes (outcome = OUTCOME_CRASHED)."""
-    print(f"\n=== Phase 2: bisecting {len(all_numerics)} numeric columns ===",
-          flush=True)
-    base = run_trial(parquet, strings, all_numerics, log_prefix="[base]   ")
+def bisect_numeric_cols(
+    parquet: str, strings: Sequence[str], all_numerics: Sequence[str],
+    trial_timeout: int,
+) -> List[str]:
+    print(f"\n=== Phase 2: bisecting {len(all_numerics)} numeric columns "
+          f"(full prod pipeline in subprocess) ===", flush=True)
+    base = run_trial(parquet, strings, all_numerics, timeout=trial_timeout,
+                     log_prefix="[base]   ")
     if base != OUTCOME_CRASHED:
-        print(f"  baseline did not crash (got {base}) — cannot bisect numerics",
-              flush=True)
+        print(f"  baseline did not crash ({base}) — cannot bisect", flush=True)
         return list(all_numerics)
     current = list(all_numerics)
     while len(current) > 1:
         mid = len(current) // 2
         left = current[:mid]; right = current[mid:]
-        left_r = run_trial(parquet, strings, left, log_prefix="  [left]  ")
-        if left_r == OUTCOME_CRASHED:
+        lr = run_trial(parquet, strings, left,  timeout=trial_timeout,
+                       log_prefix="  [left]  ")
+        if lr == OUTCOME_CRASHED:
             current = left
             continue
-        right_r = run_trial(parquet, strings, right, log_prefix="  [right] ")
-        if right_r == OUTCOME_CRASHED:
+        rr = run_trial(parquet, strings, right, timeout=trial_timeout,
+                       log_prefix="  [right] ")
+        if rr == OUTCOME_CRASHED:
             current = right
             continue
-        print(f"  interaction: neither half of numerics alone crashes; "
-              f"keeping {len(current)}: {current}", flush=True)
+        print(f"  interaction: neither numeric half alone crashes; returning "
+              f"{len(current)}: {current}", flush=True)
         return current
     print(f"=== SINGLE NUMERIC CULPRIT: {current} ===", flush=True)
     return current
@@ -347,24 +395,21 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--parquet", required=True, type=str)
-    ap.add_argument("--phase1-only", action="store_true",
-                    help="Skip phase 2; just report minimum string cols.")
+    ap.add_argument("--phase1-only", action="store_true")
     ap.add_argument("--strings", nargs="*", default=None,
-                    help="Pre-specified string cols (skip phase 1).")
+                    help="Override phase 1; use these strings in phase 2.")
     ap.add_argument("--trial-timeout", type=int, default=900)
     args = ap.parse_args()
 
     all_strings = enumerate_string_cols(args.parquet)
-    print(f"Found {len(all_strings)} string columns (excluding 'category'): "
+    print(f"Found {len(all_strings)} string-like columns (excluding 'category'): "
           f"{all_strings}", flush=True)
     all_numerics = enumerate_numeric_cols(args.parquet)
-    print(f"Found {len(all_numerics)} numeric columns: {all_numerics}",
-          flush=True)
+    print(f"Found {len(all_numerics)} numeric columns", flush=True)
 
-    # Phase 1.
+    # Phase 1
     if args.strings is not None:
-        print(f"\n=== Skipping Phase 1, using provided strings: {args.strings} ===",
-              flush=True)
+        print(f"\n=== Skipping Phase 1, using provided strings ===", flush=True)
         min_strings = args.strings
     else:
         min_strings = bisect_string_cols(args.parquet, all_strings)
@@ -375,17 +420,20 @@ def main():
     if args.phase1_only:
         return
 
-    # Phase 2.
-    min_numerics = bisect_numeric_cols(args.parquet, min_strings, all_numerics)
+    # Phase 2
+    min_numerics = bisect_numeric_cols(args.parquet, min_strings, all_numerics,
+                                       trial_timeout=args.trial_timeout)
     print(f"\n=== Phase 2 result: {len(min_numerics)} numeric cols needed ===",
           flush=True)
     print(f"  {min_numerics}", flush=True)
 
     print(f"\n=== FINAL MINIMAL REPRODUCER SHAPE ===", flush=True)
     print(f"  Parquet: {args.parquet}", flush=True)
-    print(f"  Cast these Utf8 cols to Categorical together:  "
-          f"{min_strings + [CULPRIT_CAT]}", flush=True)
-    print(f"  After cast, keep only:  category + {min_numerics}", flush=True)
+    print(f"  Cast through String then Categorical together: "
+          f"{sorted(set(min_strings) | {CULPRIT_CAT})}", flush=True)
+    print(f"  Keep only in XGB frame:  category + {min_numerics}", flush=True)
+    print(f"  Apply fill_null('__MISSING__') on category (re-resolves codes)",
+          flush=True)
     print(f"  Row slice: first {ROW_LIMIT:_} rows (time-ordered)", flush=True)
 
 
