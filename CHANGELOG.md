@@ -1,5 +1,53 @@
 # Changelog
 
+## 2026-04-20 — round 16: cat-drift diagnostic for XGB silent-crash triage
+
+### Problem
+
+On prod_jobsdetails (9M rows × 20 cat features), ``train_mlframe_models_suite``
+crashed silently — Jupyter kernel died with no traceback — during XGB's
+val IterativeDMatrix construction. The timing window was tight:
+
+    [T+~4min] train IterativeDMatrix: (7304969, 114, 577004772) built OK
+    [T+~5min] kernel dies (no further log, no exception)
+
+Expected next log line would have been ``Finished constructing the
+IterativeDMatrix: (811663, 114, ...)`` for val. That line never
+appeared. Removing ALL 20 categorical features bypassed the crash, so
+one of them is the trigger.
+
+Hypothesis: a categorical column has **values in val that don't exist
+in train** (time-ordered split, ~20-year train / 1-year val, new
+category codes appeared in the later period). XGB 3.x on Windows
+mishandles the unseen category during val-DMatrix construction and
+the process dies via native abort that faulthandler can't catch.
+
+### scripts/diagnose_cat_drift.py
+
+Per-categorical drift diagnostic that compares train / val / test
+splits of a parquet file. For each feature, reports:
+
+  * cardinality in train / val / test
+  * ``val_minus_train`` — categories in val **absent** from train
+    (the hypothesized crash trigger)
+  * ``test_minus_train`` — same for test
+  * null fraction per split
+  * skew (most-common-value fraction) per split
+  * ``drift_score`` — ``2 * val_drift + test_drift``, normalized by
+    train cardinality; sorts the report so the top suspects surface
+    first.
+
+Usage:
+
+    python -m mlframe.scripts.diagnose_cat_drift \\
+        --parquet prod.parquet \\
+        --timestamp-col job_posted_at \\
+        --val-size 0.09 --test-size 0.10 \\
+        --cat-features job_type category ... job_local_flexibility
+
+Verified on synthetic data where a deliberately drifting feature is
+correctly ranked first and a stable feature scores 0.0.
+
 ## 2026-04-20 — round 15: parametric frame fuzzing (polars.testing.parametric wrapper)
 
 ### Motivation
