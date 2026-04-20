@@ -366,6 +366,15 @@ def bisect_numeric_cols(
     if base != OUTCOME_CRASHED:
         print(f"  baseline did not crash ({base}) — cannot bisect", flush=True)
         return list(all_numerics)
+
+    # Short-circuit: maybe no numerics are needed at all.
+    empty = run_trial(parquet, strings, [], timeout=trial_timeout,
+                      log_prefix="[empty]  ")
+    if empty == OUTCOME_CRASHED:
+        print(f"  ZERO numerics needed — category alone + fill_null triggers "
+              f"the crash. Returning []", flush=True)
+        return []
+
     current = list(all_numerics)
     while len(current) > 1:
         mid = len(current) // 2
@@ -383,7 +392,16 @@ def bisect_numeric_cols(
         print(f"  interaction: neither numeric half alone crashes; returning "
               f"{len(current)}: {current}", flush=True)
         return current
-    print(f"=== SINGLE NUMERIC CULPRIT: {current} ===", flush=True)
+    # Down to 1 — check if even fewer (zero additional) also crashes.
+    # We already tested empty above, so if we got here via bisection,
+    # current[0] alone might still not crash — verify.
+    one_r = run_trial(parquet, strings, current, timeout=trial_timeout,
+                     log_prefix="  [one]   ")
+    if one_r == OUTCOME_CRASHED:
+        print(f"=== SINGLE NUMERIC CULPRIT: {current} ===", flush=True)
+    else:
+        print(f"  single-numeric trial did NOT crash ({one_r}); "
+              f"falling back to larger set. Interaction-driven.", flush=True)
     return current
 
 
