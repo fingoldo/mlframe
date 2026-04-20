@@ -71,51 +71,81 @@ def main():
 
     rng = np.random.default_rng(args.seed)
 
-    # Build the full (unsliced) frame.
-    n_full = args.n_train + args.n_val + 100_000  # margin for slicing
-    skills_pool = [f"skill_{i:07d}" for i in range(args.n_skills_uniques)]
-    category_pool = [f"cat_{i:03d}" for i in range(args.n_category_uniques)]
+    # Mimic prod sequence EXACTLY:
+    #   (1) parquet-load: category arrives as Categorical with a
+    #       per-Series dict (compact codes 0..N). Simulated by casting
+    #       category first, BEFORE the cache has any skills entries.
+    #   (2) ``.cast(pl.Utf8).cast(pl.Categorical)`` over other string
+    #       columns: skills_text gets 2M values added to the global
+    #       cache. category is already Categorical — no recast here.
+    #   (3) fill_null('__MISSING__') on category: this is the step
+    #       that re-resolves category's values through the NOW-polluted
+    #       cache. Compact codes -> scattered. THIS is the trigger
+    #       sequence we need to reproduce.
 
+    # STEP 1: Interleaved cache pollution.
+    # To mimic prod's parquet-write state (cache has been populated by
+    # many string columns in a specific interleaved order), we cast a
+    # Series that contains ~N skill strings + the category strings
+    # interleaved at ~even intervals. This assigns each category
+    # string a SCATTERED physical code somewhere inside the skills
+    # code range, instead of a contiguous block at the end.
     t0 = time.perf_counter()
-    skills_col = rng.choice(skills_pool, size=n_full).tolist()
-    # Force all unique skill values into the sample so cardinality matches.
-    # (rng.choice on 2M pool with 400k draws won't visit all entries.)
-    # We overwrite first N rows with each unique skill to guarantee coverage.
-    for i in range(min(args.n_skills_uniques, n_full)):
-        skills_col[i] = skills_pool[i]
-    rng.shuffle(skills_col)
+    n_skills = args.n_skills_uniques
+    n_cats = args.n_category_uniques
+    category_pool = [f"cat_{i:03d}" for i in range(n_cats)]
+    skills_pool = [f"skill_{i:07d}" for i in range(n_skills)]
+    # Build mixed list: after every ``step`` skills, inject one category.
+    step = max(1, n_skills // (n_cats + 1))
+    mixed = []
+    cat_idx = 0
+    for i, s in enumerate(skills_pool):
+        mixed.append(s)
+        if i > 0 and i % step == 0 and cat_idx < n_cats:
+            mixed.append(category_pool[cat_idx])
+            cat_idx += 1
+    # Any categories we didn't inject go at the tail.
+    while cat_idx < n_cats:
+        mixed.append(category_pool[cat_idx])
+        cat_idx += 1
+    _ = pl.Series("cache_primer", mixed, dtype=pl.Categorical)
+    print(f"step 1 (interleaved cache pollution: "
+          f"{n_skills:_} skills + {n_cats} cats): {time.perf_counter()-t0:.1f}s",
+          flush=True)
+    # Verify scatter: each category string should now have a scattered
+    # physical code in [step, 2*step, 3*step, ...].
+    probe = pl.Series("probe", category_pool, dtype=pl.Categorical)
+    probe_codes = sorted(probe.to_physical().to_list())
+    print(f"  category values now have codes: "
+          f"first3={probe_codes[:3]}, last3={probe_codes[-3:]}, "
+          f"max={probe_codes[-1]}", flush=True)
 
+    # STEP 2: Build the category Series. Values are already in the
+    # cache at scattered codes, so the Series inherits those codes.
+    t0 = time.perf_counter()
+    n_full = args.n_train + args.n_val + 100_000
     category_col = rng.choice(category_pool, size=n_full).tolist()
-    # Inject a few nulls in category so fill_null has something to do.
     null_mask = rng.random(n_full) < 0.01
     category_col = [None if m else v for v, m in zip(category_col, null_mask)]
+    category_series = pl.Series("category", category_col, dtype=pl.Categorical)
+    cc = category_series.to_physical().drop_nulls().unique().to_list()
+    print(f"step 2 (build category Series): max code "
+          f"{max(cc) if cc else 'empty'}, distinct {len(cc)}  "
+          f"({time.perf_counter()-t0:.1f}s)", flush=True)
 
-    df = pl.DataFrame({"skills_text": skills_col, "category": category_col})
-    print(f"built raw strings in {time.perf_counter()-t0:.1f}s, shape={df.shape}",
+    # STEP 3a: Wrap into DataFrame and prepare for fill_null.
+    df = pl.DataFrame({"category": category_series})
+    before = df["category"].to_physical().drop_nulls().max()
+    print(f"step 3a (before fill_null): category max code = {before}",
           flush=True)
 
-    # Cast both together — shared cache batch.
-    t0 = time.perf_counter()
-    df = df.with_columns([
-        pl.col("skills_text").cast(pl.Categorical),
-        pl.col("category").cast(pl.Categorical),
-    ])
-    print(f"cast both to Categorical in {time.perf_counter()-t0:.1f}s",
-          flush=True)
-    mx = df["category"].to_physical().max()
-    print(f"  category physical_codes_max after cast: {mx}", flush=True)
-
-    # Critical: fill_null on category. This is the step that re-resolves
-    # category's codes through the global StringCache, scattering them.
+    # STEP 3b: fill_null — the trigger.
     before = df["category"].to_physical().max()
     df = df.with_columns(pl.col("category").fill_null("__MISSING__"))
     after = df["category"].to_physical().max()
-    print(f"  category physical_codes_max: before fill_null={before}, "
-          f"after fill_null={after}", flush=True)
-
-    # Drop skills_text — XGB never sees it. Its only purpose was to
-    # pollute the cache during the co-cast step.
-    df = df.drop("skills_text")
+    print(f"step 3b (fill_null): category max code "
+          f"{before} -> {after}  "
+          f"({'JUMP' if after > before * 2 else 'no-jump'})", flush=True)
 
     if args.fix_enum:
         print("  APPLYING WORKAROUND: cast category to pl.Enum(sorted uniques)",
