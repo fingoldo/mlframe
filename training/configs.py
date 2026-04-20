@@ -833,10 +833,11 @@ class TrainingBehaviorConfig(BaseConfig):
     use_flaml_zeroshot : bool
         Use FLAML zero-shot models for XGBoost/LightGBM.
     enable_crash_reporting : bool
-        At suite start, enable faulthandler (SIGSEGV/SIGABRT → Python
-        traceback) and on Windows suppress the "Python has stopped
-        working" WER popup so Jupyter kernels exit cleanly instead of
-        hanging. No-op if already enabled in the process.
+        Default True. At suite start, enable faulthandler (SIGSEGV /
+        SIGABRT → Python traceback) and on Windows suppress the
+        "Python has stopped working" WER popup so Jupyter kernels exit
+        cleanly instead of hanging. No-op if already enabled in the
+        process.
     continue_on_model_failure : bool
         If True, catch exceptions from individual per-model training
         (e.g. XGBoost ``bad_malloc`` on too-large frames) and continue
@@ -864,7 +865,13 @@ class TrainingBehaviorConfig(BaseConfig):
     callback_params: Optional[Dict[str, Any]] = None
     cb_fit_params: Optional[Dict[str, Any]] = None
     use_flaml_zeroshot: bool = False
-    enable_crash_reporting: bool = False
+    # Default True: faulthandler + Windows WER suppression are pure
+    # diagnostics — they don't change training behavior, only replace
+    # the "Python has stopped working" modal with a Python traceback.
+    # Users who rely on the WER popup (rare) can opt out.
+    enable_crash_reporting: bool = True
+    # Default False: silently skipping a failed model is a semantic
+    # shift that users must opt into explicitly.
     continue_on_model_failure: bool = False
 
 
