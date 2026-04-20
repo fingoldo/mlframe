@@ -98,37 +98,69 @@ CARDINALITIES = [
 ]
 
 
-def build_frame(n_rows: int, seed: int, dtype_mode: str) -> pl.DataFrame:
-    """Build a frame with the shared pool per column. ``dtype_mode``
-    selects the Polars categorical representation:
-      - ``categorical`` = ``pl.Categorical`` (per-Series auto dict)
-      - ``enum``        = ``pl.Enum(pool)`` (shared dict, deterministic)
+def build_frame(
+    n_rows: int, seed: int, dtype_mode: str,
+    n_numeric: int = 1, fill_null_rate: float = 0.0,
+) -> pl.DataFrame:
+    """Build a frame with the shared pool per column.
+
+    ``dtype_mode``     : ``categorical`` (pl.Categorical, per-Series auto
+                         dict) or ``enum`` (pl.Enum(pool), shared dict).
+    ``n_numeric``      : number of extra Float32 columns to add. Prod uses
+                         ~95 numerics; the original probe used 1. Bumping
+                         this matters because XGB histogram buffers scale
+                         with n_features.
+    ``fill_null_rate`` : if > 0, inject nulls into each categorical at
+                         this rate, then ``fill_null('__MISSING__')``.
+                         Polars auto-extends the Arrow dict with the
+                         sentinel, producing a potentially-pathological
+                         dict state that mlframe's round-17 fill does
+                         in production (but the original probe skipped).
     """
     rng = np.random.default_rng(seed)
     cols = {}
     for name, k in CARDINALITIES:
         pool = [f"{name}_v{i:04d}" for i in range(k)]
         vals = rng.choice(pool, size=n_rows).tolist()
+        # Optionally inject nulls to exercise the fill_null path.
+        if fill_null_rate > 0 and dtype_mode == "categorical":
+            # Cannot inject None into pl.Enum (must be a declared category);
+            # for Categorical this is fine, Polars represents it via the
+            # validity bitmap.
+            null_mask = rng.random(n_rows) < fill_null_rate
+            vals = [None if m else v for v, m in zip(vals, null_mask)]
         if dtype_mode == "categorical":
-            cols[name] = pl.Series(name, vals, dtype=pl.Categorical)
+            s = pl.Series(name, vals, dtype=pl.Categorical)
+            if fill_null_rate > 0:
+                # This mirrors mlframe's round-17 fill: extends the dict
+                # with the sentinel, drops the validity bitmap.
+                s = s.fill_null("__MISSING__")
+            cols[name] = s
         elif dtype_mode == "enum":
             cols[name] = pl.Series(name, vals, dtype=pl.Enum(pool))
         else:
             raise ValueError(f"dtype_mode must be 'categorical' or 'enum', got {dtype_mode!r}")
-    cols["num_f"] = rng.standard_normal(n_rows).astype(np.float32)
+    # Extra numeric columns — default 1 matches original probe for
+    # backward-compat. Pass --n-numeric 95 for prod-scale width.
+    for i in range(n_numeric):
+        cols[f"num_f{i}"] = rng.standard_normal(n_rows).astype(np.float32)
     return pl.DataFrame(cols)
 
 
-def run(n_train: int, n_val: int, dtype_mode: str) -> None:
+def run(n_train: int, n_val: int, dtype_mode: str,
+        n_numeric: int = 1, fill_null_rate: float = 0.0) -> None:
     import xgboost, polars
     print(f"env: python {sys.version.split()[0]}, polars {polars.__version__}, "
           f"xgboost {xgboost.__version__}, platform {sys.platform}")
-    print(f"\n=== n_train={n_train:_}, n_val={n_val:_}, dtype_mode={dtype_mode} ===")
+    print(f"\n=== n_train={n_train:_}, n_val={n_val:_}, dtype_mode={dtype_mode}, "
+          f"n_numeric={n_numeric}, fill_null_rate={fill_null_rate} ===")
 
     t0 = time.perf_counter()
-    tr = build_frame(n_train, seed=42, dtype_mode=dtype_mode)
-    va = build_frame(n_val, seed=43, dtype_mode=dtype_mode)
-    print(f"  built frames in {time.perf_counter()-t0:.1f}s")
+    tr = build_frame(n_train, seed=42, dtype_mode=dtype_mode,
+                     n_numeric=n_numeric, fill_null_rate=fill_null_rate)
+    va = build_frame(n_val, seed=43, dtype_mode=dtype_mode,
+                     n_numeric=n_numeric, fill_null_rate=fill_null_rate)
+    print(f"  built frames in {time.perf_counter()-t0:.1f}s, shape={tr.shape}")
     print(f"  train sample dtype ({CARDINALITIES[0][0]}): {tr[CARDINALITIES[0][0]].dtype}")
 
     # Sanity — confirm no drift exists between splits (same pool used).
@@ -168,7 +200,17 @@ def run(n_train: int, n_val: int, dtype_mode: str) -> None:
 
 
 if __name__ == "__main__":
-    mode = sys.argv[1] if len(sys.argv) > 1 else "categorical"
-    n_train = int(sys.argv[2]) if len(sys.argv) > 2 else 2_000_000
-    n_val = int(sys.argv[3]) if len(sys.argv) > 3 else 200_000
-    run(n_train, n_val, mode)
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("mode", nargs="?", default="categorical",
+                    choices=("categorical", "enum"))
+    ap.add_argument("n_train", nargs="?", type=int, default=2_000_000)
+    ap.add_argument("n_val",   nargs="?", type=int, default=200_000)
+    ap.add_argument("--n-numeric", type=int, default=1,
+                    help="Extra Float32 columns. Use 95 to match prod_jobsdetails width.")
+    ap.add_argument("--fill-null-rate", type=float, default=0.0,
+                    help="If >0, inject nulls at this rate into each Categorical "
+                         "then fill_null('__MISSING__'). Matches mlframe's round-17 fill.")
+    args = ap.parse_args()
+    run(args.n_train, args.n_val, args.mode,
+        n_numeric=args.n_numeric, fill_null_rate=args.fill_null_rate)
