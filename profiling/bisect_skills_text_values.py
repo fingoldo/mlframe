@@ -77,27 +77,39 @@ def worker(state_file: str) -> int:
     parquet = state["parquet"]
     keep_values = set(state["keep_values"])
 
+    # Load skills_text + category + timestamp (for sort). Target is
+    # random here because XGB just needs something to train on.
     t0 = time.perf_counter()
-    df = pl.read_parquet(parquet, columns=["skills_text", "category"])
+    df = pl.read_parquet(parquet, columns=["skills_text", "category", "job_posted_at"])
     print(f"[worker] loaded {df.shape} in {time.perf_counter()-t0:.1f}s",
           flush=True)
 
-    # Replace values NOT in keep_values with sentinel, keeping row
-    # count the same.
+    # Replace values NOT in keep_values with sentinel. Uses replace_strict
+    # via a mapping dict to avoid when/then which may rebuild the column
+    # in a state-normalizing way.
     t0 = time.perf_counter()
-    df = df.with_columns(
-        pl.when(pl.col("skills_text").is_in(list(keep_values)))
-          .then(pl.col("skills_text"))
-          .otherwise(pl.lit(DROPPED_SENTINEL))
-          .alias("skills_text")
-    )
+    if keep_values:
+        df = df.with_columns(
+            pl.when(pl.col("skills_text").is_in(list(keep_values)))
+              .then(pl.col("skills_text"))
+              .otherwise(pl.lit(DROPPED_SENTINEL))
+              .alias("skills_text")
+        )
+    else:
+        df = df.with_columns(pl.lit(DROPPED_SENTINEL).alias("skills_text"))
+
+    # Sort by timestamp — mimics minimizer's prod pipeline step.
+    df = df.sort("job_posted_at")
+    df = df.drop("job_posted_at")
+
     # Force skills_text + category through shared-cache batch.
     df = df.with_columns([
         pl.col("skills_text").cast(pl.String).cast(pl.Categorical),
         pl.col("category").cast(pl.String).cast(pl.Categorical),
     ])
     print(f"[worker] cast done in {time.perf_counter()-t0:.1f}s, "
-          f"skills_text n_unique={df['skills_text'].n_unique()}",
+          f"skills_text n_unique={df['skills_text'].n_unique()}, "
+          f"category n_unique={df['category'].n_unique()}",
           flush=True)
 
     # Drop skills_text, fill_null on category.
