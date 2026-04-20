@@ -349,6 +349,17 @@ After changing `NUMBA_NJIT_PARAMS` flags (e.g. `cache=True`, `nogil=True`), stal
 find . -name "*.nbi" -delete; find . -name "*.nbc" -delete
 ```
 
+### XGBoost silent kernel death / 50× slow MakeCuts on large Polars frames
+
+On large Polars frames (observed at ~7M rows × ~15+ `pl.Categorical` cat_features on Windows), XGB 3.2 with `enable_categorical=True` either:
+
+- silently kills the Jupyter kernel between train- and val-IterativeDMatrix construction, or
+- at smaller scales just runs ~50× slower in MakeCuts (0.9s vs 0.018s without cats).
+
+Mitigation is on by default: `TrainingBehaviorConfig.align_polars_categorical_dicts=True` casts every `pl.Categorical` / `pl.Enum` cat_feature across train/val/test to a shared `pl.Enum(sorted(union_of_categories))` before XGB sees the frames. Shared Enum dict → consistent physical codes across Series → XGB takes a fast numeric-like path for categoricals, and the silent kill disappears.
+
+Mechanism not fully isolated yet (see TODO). Disable the default via `behavior_config.align_polars_categorical_dicts=False` to reproduce the original behavior.
+
 ## Security notes
 
 - `joblib.load` / `dill.load` in `inference.py`, `pipelines.py`, `training/io.py` are gated by a `trusted_root` path check and (for dill) a `_SafeUnpickler` allowlist. Never load pickle/joblib artifacts from untrusted sources.
@@ -364,4 +375,16 @@ See `CHANGELOG.md` (2026-04-14 entry) for the full audit/fix history.
 
 ### CatBoost `custom_metric` support
 `helpers.py:234-244` has a commented-out `custom_metric=tuple(catboost_custom_classif_metrics)` entry for `CB_CLASSIF` / `CB_REGR`. The blocker: CatBoost mutates this parameter in-place post-init, breaking `sklearn.clone()` used by `RFECV`. Proposed fix: keep `CB_CLASSIF` / `CB_CALIB_CLASSIF` / `CB_REGR` clean (RFECV path stays cloneable), and attach `custom_metric` via `_cb_model.set_params(custom_metric=tuple(...))` on the base-path CatBoost instance only (after construction in `configure_training_params`, trainer.py ~L2215). This gives the base training its extra plotted metrics (AUC/BrierScore/PRAUC) without affecting RFECV. Upstream issue to file: https://github.com/catboost/catboost/issues — "sklearn.clone() fails on CatBoostClassifier constructed with custom_metric=tuple".
+
+### Investigate `pl.Categorical` → `pl.Enum` cast as a general XGBoost speedup
+
+Prod observation 2026-04-20 on a 7.3M × 114 frame (19 Categorical cat_features): casting every `pl.Categorical` to a shared `pl.Enum(union_of_categories)` before XGB fit drops `MakeCuts` wall-clock from **0.901962s to 0.018451s — ~50×** (the latter matches the no-categoricals baseline of 0.014539s). XGB appears to take a fast numeric-like bucketing path for `pl.Enum` but a slow per-chunk dict-reconciliation path for `pl.Categorical`.
+
+Currently wired into the suite as `TrainingBehaviorConfig.align_polars_categorical_dicts=True` (default) primarily as a crash-avoidance measure. Beyond MakeCuts the end-to-end impact hasn't been measured, and the same pattern may apply to CatBoost, LightGBM, and HGB paths that also touch categoricals. Proposed work:
+
+1. Benchmark `Categorical` vs `Enum` end-to-end training time for XGB / CB / LGB / HGB on a prod-shaped frame — is the 50× local win visible in total wall-clock or only during DMatrix construction?
+2. If CB / LGB / HGB also benefit, push the Enum cast upstream of all strategies (currently only runs when mlframe knows the column is a cat_feature; could generalize to any Polars Categorical in the schema).
+3. File upstream issues: xgboost (why is per-chunk Categorical 50× slower than Enum?) and polars (optional: can `pl.DataFrame` expose a cheap `.rechunk_and_consolidate_categoricals()` helper?).
+
+Until (1) and (2) land the speedup is a pleasant side effect of the crash fix rather than a first-class optimization.
 
