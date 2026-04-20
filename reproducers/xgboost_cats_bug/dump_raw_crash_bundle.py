@@ -226,10 +226,6 @@ def main() -> None:
     skills_uniques.write_parquet(out_skills)
     slice_df.write_parquet(out_slice)
 
-    # legacy name kept for backward compat
-    out_parquet = out_dir / "crash_data.parquet"
-    slice_df.write_parquet(out_parquet)
-
     out_repro = out_dir / "reproduce.py"
     out_repro.write_text(REPRO_SCRIPT, encoding="utf-8")
 
