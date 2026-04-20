@@ -389,7 +389,10 @@ def main():
         pl.col("job_posted_at").dt.weekday().cast(pl.Int8).alias("weekday"),
         pl.col("job_posted_at").dt.month().cast(pl.Int8).alias("month"),
     ])
-    target = (df["cl_act_total_hired"] >= 1).cast(pl.Int8).to_numpy()
+    # fill_null(0) before threshold — matches what the bisector does
+    # in load_and_prepare(). Otherwise null propagates to NaN and XGB
+    # raises 'Label contains NaN' instead of the real crash.
+    target = (df["cl_act_total_hired"].fill_null(0) >= 1).cast(pl.Int8).to_numpy()
     df = df.drop([c for c in DROP_COLS if c in df.columns])
 
     # Keep only culprit cat columns + all numerics.
