@@ -181,9 +181,13 @@ def main() -> None:
         print("loading primer parquet and priming StringCache...", flush=True)
         t0 = time.perf_counter()
         skills = pl.read_parquet(primer_path)
-        _ = skills["skills_text"].cast(pl.Categorical)
-        del skills, _
-        print(f"  StringCache primed in {time.perf_counter()-t0:.1f}s", flush=True)
+        # Keep primer_cat alive until after XGB fit — polars 1.33+ permanently
+        # retains StringCache entries as long as at least one Categorical series
+        # holds a reference (in 1.40+ entries are evicted when last ref is dropped).
+        primer_cat = skills["skills_text"].cast(pl.Categorical)
+        del skills
+        print(f"  StringCache primed ({primer_cat.n_unique():_} entries) "
+              f"in {time.perf_counter()-t0:.1f}s", flush=True)
 
         # ---- Step 3: build category column through polluted cache ----------
         rng_np = np.random.default_rng(args.seed)
@@ -231,6 +235,7 @@ def main() -> None:
         t0 = time.perf_counter()
         try:
             m.fit(train, y_tr, eval_set=[(val, y_v)], verbose=False)
+            del primer_cat  # noqa: keep alive until after fit
             print(f"FIT_OK in {time.perf_counter()-t0:.1f}s -- bug did NOT reproduce",
                   flush=True)
         except BaseException as e:
