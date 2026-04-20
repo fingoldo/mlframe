@@ -358,7 +358,11 @@ def select_target(
     # continue-on-failure are consumed directly by
     # train_mlframe_models_suite, not passed down the stack).
     defined_behavior_fields = set(TrainingBehaviorConfig.model_fields.keys())
-    _SUITE_LEVEL_FLAGS = {"enable_crash_reporting", "continue_on_model_failure"}
+    _SUITE_LEVEL_FLAGS = {
+        "enable_crash_reporting",
+        "continue_on_model_failure",
+        "align_polars_categorical_dicts",
+    }
     effective_behavior_params = {
         k: v for k, v in behavior_config.model_dump(exclude_none=True).items()
         if k in defined_behavior_fields and k not in _SUITE_LEVEL_FLAGS

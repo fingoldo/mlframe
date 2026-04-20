@@ -2097,28 +2097,33 @@ def train_mlframe_models_suite(
                 test_df_polars = _polars_fill_null_in_categorical(test_df_polars, nullable_cats)
 
     # -----------------------------------------------------------------
-    # Round 18 fix: align Polars Categorical dicts across splits.
+    # Round 18: align Polars Categorical dicts across train/val/test.
     #
-    # XGB 3.x with ``enable_categorical=True`` builds a category dict
-    # during train-DMatrix construction, then constructs val-DMatrix
-    # with ``ref=train``. If val contains a category value that
-    # train's dict doesn't have (common on time-ordered splits where
-    # new category codes appear in the later period), the native
-    # layer silently kills the process — reproduced 2026-04-20 on
-    # prod_jobsdetails where ``_raw_tags`` had 37 val-only categories
-    # (13.4% of train card 277). CB has the same crash class.
+    # Empirically prevents a silent process kill on Windows when XGB
+    # 3.x constructs val IterativeDMatrix with ref=train on large
+    # frames (7.3M+ rows, 15+ cat features) — observed 2026-04-20 on
+    # prod_jobsdetails. Mechanism is not fully understood but the
+    # leading theory: ``pl.Categorical`` assigns physical codes
+    # per-Series (order-of-first-occurrence), so the same string can
+    # have different physical codes in train vs val vs test. XGB's
+    # native layer at large scale appears to treat val's physical
+    # codes as indices into train's bin structure without re-reading
+    # the Arrow dict, corrupting memory. ``pl.Enum(list)`` enforces a
+    # shared dict by construction so physical codes are consistent
+    # across splits.
     #
-    # Fix: for every Polars Categorical/Enum cat_feature, cast ALL
-    # three splits to a shared ``pl.Enum(union_of_categories)``. Every
-    # split then has the identical dict; XGB's ref=train mapping
-    # succeeds trivially.
+    # Small-scale probe (``D:/Temp/xgb_unseen_cat_probe.py``) did NOT
+    # reproduce the crash on 2000 rows × 1 cat feature, even with
+    # deliberate val/train dict mismatch. Prod repro confirmed the
+    # fix works end-to-end (MakeCuts time dropped 50× after
+    # alignment: 0.9s → 18ms, consistent with XGB taking a different
+    # code path).
     #
-    # Skipped for columns with cardinality > 50_000 (text-sized — the
-    # cost of sorting + unique per split is non-trivial, and such
-    # columns are typically already promoted to text_features rather
-    # than categorical). The default skip threshold matches the
-    # auto_detect text-promotion threshold.
-    if train_df_polars is not None and cat_features:
+    # Opt out via ``behavior_config.align_polars_categorical_dicts=False``.
+    # Skipped for columns with cardinality > 50_000 (text-sized —
+    # expensive to align; typically already promoted to text_features).
+    if (train_df_polars is not None and cat_features
+            and behavior_config.align_polars_categorical_dicts):
         _DICT_ALIGN_SKIP_CARD = 50_000
         aligned_cols: list = []
         skipped_cols: list = []

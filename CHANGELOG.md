@@ -1,5 +1,79 @@
 # Changelog
 
+## 2026-04-20 — round 18: align Polars Categorical dicts across splits (opt-in)
+
+### Symptom
+
+On prod_jobsdetails (9M rows, 19 cat features, Windows/Jupyter),
+``train_mlframe_models_suite`` silently killed the kernel between
+train IterativeDMatrix construction and val IterativeDMatrix
+construction. No Python traceback, no WER dialog, just kernel
+restart. Removing ALL categorical features bypassed it.
+
+### Fix
+
+Before handing frames to model strategies, cast every
+``pl.Categorical`` / ``pl.Enum`` cat_feature across train/val/test to
+``pl.Enum(sorted union of all unique values)``. All three splits
+then carry the **identical dict**. Empirically prevents the crash
+at prod scale (verified 2026-04-20).
+
+### Mechanism — honestly not fully understood
+
+A small-scale probe (``D:/Temp/xgb_unseen_cat_probe.py``, 2000 rows ×
+1 cat with deliberate train/val dict mismatch) did **not** crash —
+XGB 3.2.0 passed both the same-dict and unseen-val-cat scenarios.
+So the bug is not the naive "XGB crashes on unseen val categories"
+claim I initially asserted (and was called out on).
+
+Leading theory: ``pl.Categorical`` assigns physical codes per-Series
+in order-of-first-occurrence (documented polars behaviour). The
+same string can have different physical codes in train vs val vs
+test. XGB's native layer at large scale (7M+ rows × 15+ cats)
+appears to treat val's physical codes as indices into train's bin
+structure without re-reading the Arrow dict, corrupting memory.
+``pl.Enum(list)`` enforces a shared dict where physical codes are
+consistent across Series by construction.
+
+Supporting empirical evidence (from prod logs before / after fix):
+
+  MakeCuts time with cats, no alignment:  0.901962s   <-- slow
+  MakeCuts time with cats, Enum-aligned:  0.018451s   <-- ~50x faster
+  MakeCuts time without any cats:         0.014539s   <-- baseline
+
+The aligned time matches the no-cats baseline to within noise.
+Whatever XGB is doing for categoricals without alignment is not
+just slower, it's a different code path — one that breaks at prod
+scale.
+
+### Opt-in
+
+Exposed as ``TrainingBehaviorConfig.align_polars_categorical_dicts``
+(default **True** — the prod crash is real enough to justify the
+safe default). Set to False to reproduce the original behavior or
+skip the alignment cost (O(n_rows) per cat column, plus a cast).
+High-cardinality columns (>50_000 uniques) are skipped regardless —
+those are typically text-promoted rather than categorical.
+
+A standalone reproducer for the xgboost project is at
+``D:/Temp/xgb_polars_categorical_scale_crash.py`` — depends only on
+``polars`` + ``xgboost`` + ``numpy``, supports ``--scale prod|small``
+and ``--mode crash|workaround``.
+
+## 2026-04-20 — round 17: fill nullable Categoricals detected in train OR val OR test
+
+Previously ``_polars_nullable_categorical_cols`` was called only on
+``train_df_polars``. A cat column with 0 nulls in train but 100+ in
+val (common on time-ordered splits where new null-paradigms appear
+in the later period) was NOT pre-filled. The null slipped into val's
+Polars Categorical, reached CB/XGB native layer, and contributed to
+the silent crash class addressed in round 18.
+
+Fix: detect nullable cats on train AND val AND test separately,
+union the sets, apply ``fill_null`` to all three splits on the
+union. Log a WARN listing columns where val/test introduced nulls
+that train never had.
+
 ## 2026-04-20 — round 16: in-suite category drift warning
 
 ### Problem

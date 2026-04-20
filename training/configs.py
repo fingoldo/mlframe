@@ -873,6 +873,22 @@ class TrainingBehaviorConfig(BaseConfig):
     # Default False: silently skipping a failed model is a semantic
     # shift that users must opt into explicitly.
     continue_on_model_failure: bool = False
+    # Default True: align Polars Categorical dicts across
+    # train/val/test via shared pl.Enum(union_of_categories) before
+    # model training. Mechanism not fully understood but empirically
+    # prevents a silent process kill on Windows when XGB constructs
+    # val IterativeDMatrix with ref=train on large frames (7.3M+ rows,
+    # 15+ cat features) — observed 2026-04-20 on prod_jobsdetails.
+    # Theory: pl.Categorical assigns physical codes per-Series
+    # (order-of-first-occurrence), so the same string can have
+    # different physical codes in train vs val vs test. XGB's native
+    # layer at scale appears to treat val's physical codes as indices
+    # into train's bin structure without re-reading the dict,
+    # corrupting memory. pl.Enum(list) enforces a shared dict
+    # by construction so physical codes are consistent across splits.
+    # Disable to reproduce the pre-fix behavior or if the alignment
+    # cost (O(n_rows) per cat column) is prohibitive.
+    align_polars_categorical_dicts: bool = True
 
 
 class TrainingConfig(BaseConfig):
