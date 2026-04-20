@@ -91,9 +91,9 @@ print(f"  category codes post-fill_null: max="
       f"distinct={df['category'].to_physical().n_unique()}")
 
 train = df[:1]
-val = df[1:101]
+val = df[1:2]
 y_tr = np.array([0], dtype=np.int8)
-y_v = np.random.default_rng(42).integers(0, 2, 100).astype(np.int8)
+y_v  = np.array([1], dtype=np.int8)
 print(f"train={train.shape}, val={val.shape}")
 print("fitting XGB — expect silent kill exit 3221226505")
 
