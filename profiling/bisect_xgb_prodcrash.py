@@ -80,8 +80,14 @@ def load_and_prepare(parquet_path: str, drop_cols: Sequence[str]):
         pl.col(TIMESTAMP_COLUMN).dt.month().cast(pl.Int8).alias("month"),
     ])
 
-    # Extract target before dropping its column.
-    target = (df[TARGET_COLUMN] >= TARGET_THRESHOLD).cast(pl.Int8).to_numpy()
+    # Extract target before dropping its column. cl_act_total_hired can
+    # be null — comparing null with >= 1 returns null, which propagates
+    # through cast(Int8) and ends up as NaN in numpy, which makes XGB
+    # choke with "Invalid classes ... got [0. 1. nan]". mlframe's
+    # extractor handles this via classification_lower_thresholds; here
+    # we fill_null(0) so null is treated as below-threshold = 0.
+    target_series = df[TARGET_COLUMN].fill_null(0) >= TARGET_THRESHOLD
+    target = target_series.cast(pl.Int8).to_numpy()
 
     to_drop = [c for c in drop_cols if c in df.columns]
     df = df.drop(to_drop)
@@ -266,10 +272,20 @@ def bisect_columns(
     outcome, tail = run_trial(parquet, drop_cols, all_cat_cols,
                               log_prefix="[baseline] ")
     if outcome != OUTCOME_CRASHED:
-        print(f"[baseline] expected CRASHED, got {outcome!r}. "
-              f"Cannot bisect. Tail:\n{tail}", flush=True)
+        print(f"[baseline] expected CRASHED (silent kill), got {outcome!r}.",
+              flush=True)
+        print(f"[baseline] tail of trial stdout/stderr:\n{tail}", flush=True)
         if outcome == OUTCOME_RAISED:
-            return list(all_cat_cols)  # still return for reproducer
+            print(f"[baseline] trial raised a Python exception — this is "
+                  f"NOT the silent kernel death we're trying to reproduce. "
+                  f"Either (a) the bisector's data prep diverges from "
+                  f"mlframe's, or (b) the bug surfaces as a Python exception "
+                  f"in a subprocess context (different from the notebook "
+                  f"context where it silently kills). Fix (a) before "
+                  f"continuing.", flush=True)
+        else:
+            print(f"[baseline] trial passed — no crash to bisect.",
+                  flush=True)
         return []
 
     current = sorted(all_cat_cols)
