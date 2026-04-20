@@ -147,21 +147,86 @@ def build_frame(
     return pl.DataFrame(cols)
 
 
+def build_frame_prod_dtypes(
+    n_rows: int, seed: int, dtype_mode: str,
+    fill_null_rate: float = 0.0,
+) -> pl.DataFrame:
+    """Prod-matched dtype mix: 15 Boolean, 38 Float32, 35 Int16, 2 Int32,
+    2 Int64, 2 UInt32, plus the 19 Categoricals from CARDINALITIES.
+
+    This variant exists because the basic ``build_frame(..., n_numeric=95)``
+    didn't reproduce the silent kill at 7M on the prod box. Next
+    hypothesis: the trigger is dtype-mix-specific — XGB's hist path
+    with a non-float-only dtype mix allocates / iterates differently
+    and hits the bug only when multiple numpy-width dtypes coexist.
+    """
+    rng = np.random.default_rng(seed)
+    cols = {}
+    # Categoricals (shared pool — no drift).
+    for name, k in CARDINALITIES:
+        pool = [f"{name}_v{i:04d}" for i in range(k)]
+        vals = rng.choice(pool, size=n_rows).tolist()
+        if fill_null_rate > 0 and dtype_mode == "categorical":
+            null_mask = rng.random(n_rows) < fill_null_rate
+            vals = [None if m else v for v, m in zip(vals, null_mask)]
+        if dtype_mode == "categorical":
+            s = pl.Series(name, vals, dtype=pl.Categorical)
+            if fill_null_rate > 0:
+                s = s.fill_null("__MISSING__")
+            cols[name] = s
+        elif dtype_mode == "enum":
+            cols[name] = pl.Series(name, vals, dtype=pl.Enum(pool))
+        else:
+            raise ValueError(dtype_mode)
+    # 15 Boolean
+    for i in range(15):
+        cols[f"bool_{i}"] = (rng.random(n_rows) > 0.5).astype(bool)
+    # 38 Float32
+    for i in range(38):
+        cols[f"num_f32_{i}"] = rng.standard_normal(n_rows).astype(np.float32)
+    # 35 Int16
+    for i in range(35):
+        cols[f"num_i16_{i}"] = rng.integers(-1000, 1000, size=n_rows).astype(np.int16)
+    # 2 Int32
+    for i in range(2):
+        cols[f"num_i32_{i}"] = rng.integers(0, 1_000_000, size=n_rows).astype(np.int32)
+    # 2 Int64
+    for i in range(2):
+        cols[f"num_i64_{i}"] = rng.integers(0, 10_000_000, size=n_rows).astype(np.int64)
+    # 2 UInt32
+    for i in range(2):
+        cols[f"num_u32_{i}"] = rng.integers(0, 1_000_000, size=n_rows).astype(np.uint32)
+    return pl.DataFrame(cols)
+
+
 def run(n_train: int, n_val: int, dtype_mode: str,
-        n_numeric: int = 1, fill_null_rate: float = 0.0) -> None:
+        n_numeric: int = 1, fill_null_rate: float = 0.0,
+        prod_dtypes: bool = False) -> None:
     import xgboost, polars
     print(f"env: python {sys.version.split()[0]}, polars {polars.__version__}, "
           f"xgboost {xgboost.__version__}, platform {sys.platform}")
     print(f"\n=== n_train={n_train:_}, n_val={n_val:_}, dtype_mode={dtype_mode}, "
-          f"n_numeric={n_numeric}, fill_null_rate={fill_null_rate} ===")
+          f"n_numeric={n_numeric}, fill_null_rate={fill_null_rate}, "
+          f"prod_dtypes={prod_dtypes} ===")
 
     t0 = time.perf_counter()
-    tr = build_frame(n_train, seed=42, dtype_mode=dtype_mode,
-                     n_numeric=n_numeric, fill_null_rate=fill_null_rate)
-    va = build_frame(n_val, seed=43, dtype_mode=dtype_mode,
-                     n_numeric=n_numeric, fill_null_rate=fill_null_rate)
+    if prod_dtypes:
+        tr = build_frame_prod_dtypes(n_train, seed=42, dtype_mode=dtype_mode,
+                                     fill_null_rate=fill_null_rate)
+        va = build_frame_prod_dtypes(n_val, seed=43, dtype_mode=dtype_mode,
+                                     fill_null_rate=fill_null_rate)
+    else:
+        tr = build_frame(n_train, seed=42, dtype_mode=dtype_mode,
+                         n_numeric=n_numeric, fill_null_rate=fill_null_rate)
+        va = build_frame(n_val, seed=43, dtype_mode=dtype_mode,
+                         n_numeric=n_numeric, fill_null_rate=fill_null_rate)
     print(f"  built frames in {time.perf_counter()-t0:.1f}s, shape={tr.shape}")
-    print(f"  train sample dtype ({CARDINALITIES[0][0]}): {tr[CARDINALITIES[0][0]].dtype}")
+    # Count dtypes to confirm mix.
+    dt_counts = {}
+    for dt in tr.dtypes:
+        key = str(dt).split("(")[0]
+        dt_counts[key] = dt_counts.get(key, 0) + 1
+    print(f"  dtype counts: {dt_counts}")
 
     # Sanity — confirm no drift exists between splits (same pool used).
     for name, _ in CARDINALITIES[:3]:
@@ -211,6 +276,10 @@ if __name__ == "__main__":
     ap.add_argument("--fill-null-rate", type=float, default=0.0,
                     help="If >0, inject nulls at this rate into each Categorical "
                          "then fill_null('__MISSING__'). Matches mlframe's round-17 fill.")
+    ap.add_argument("--prod-dtypes", action="store_true",
+                    help="Use prod dtype mix (15 Bool, 38 Float32, 35 Int16, 2 Int32, "
+                         "2 Int64, 2 UInt32, plus 19 Categorical). Overrides --n-numeric.")
     args = ap.parse_args()
     run(args.n_train, args.n_val, args.mode,
-        n_numeric=args.n_numeric, fill_null_rate=args.fill_null_rate)
+        n_numeric=args.n_numeric, fill_null_rate=args.fill_null_rate,
+        prod_dtypes=args.prod_dtypes)
