@@ -1,5 +1,113 @@
 # Changelog
 
+## 2026-04-20 — round 15: parametric frame fuzzing (polars.testing.parametric wrapper)
+
+### Motivation
+
+Round 11 (null-in-Categorical → CB fastpath crash) and round 12
+(sparse-null column promoted to text → CB "Dictionary size is 0")
+both slipped through because the test suite built frames by hand with
+``pl.DataFrame({"c": [1, 2, 3]})`` — every fixture was shape-uniform,
+dtype-uniform, null-free. Neither bug was discoverable from the test
+zoo we had.
+
+### Module: ``mlframe/testing/parametric.py``
+
+Thin wrapper over ``polars.testing.parametric`` (built-in to Polars
+1.35+; native Hypothesis integration). Purpose: isolate the project
+from API churn (``null_probability`` → ``allow_null`` deprecation,
+"currently unstable" label) and provide pathology-shaped helpers.
+
+Primitives:
+
+- ``categorical_column(name, categories, null_rate=0.05, use_enum=True)``
+  — ``pl.Enum(categories)`` with real masked nulls at the specified
+  rate. Round 11's exact shape.
+- ``inf_heavy_float_column(name, specials_rate=0.02)`` — float with
+  weighted ``+inf``/``-inf``/``NaN`` that survive Hypothesis shrinking.
+- ``constant_column``, ``id_column``, ``high_card_text_column``,
+  ``sparse_null_column`` — round 12's shape.
+- ``adversarial_frame(...)`` — layered pathologies for "pipeline
+  survives any frame" fuzzing.
+- ``prod_like_frame(...)`` — schema-matched prod_jobsdetails miniature.
+
+Key implementation note: polars 1.35's ``null_probability`` kwarg is
+silently coerced to ``bool(rate)`` — the float is discarded. We bypass
+by splicing nulls into the per-cell strategy via weighted
+``st.integers().flatmap(...)`` with inverted direction (small shrink-
+preferred i → value, large i → None) so shrinking converges to "no
+nulls" as the minimal counterexample.
+
+### Hypothesis profiles
+
+Auto-registered at import: ``mlframe-fast`` (max_examples=10, default),
+``mlframe-ci`` (50), ``mlframe-nightly`` (500). Selectable via env var
+``MLFRAME_HYP_PROFILE``. All profiles suppress ``too_slow``,
+``data_too_large``, ``filter_too_much``, ``large_base_example``
+health checks since frame-gen is inherently heavy.
+
+### Test file: ``tests/training/test_parametric_robustness.py``
+
+Fuzz-tests for pipeline functions that promise "any frame":
+``_auto_detect_feature_types``, ``XGBoostStrategy.prepare_polars_dataframe``,
+``CatBoostStrategy.prepare_polars_dataframe``. Asserts only on
+invariants (types, shape preservation, schema integrity), never on
+specific values — pinned-data regression tests (``test_round11_*``,
+``test_round12_*``) stay separate and continue to guard exact shapes.
+
+## 2026-04-20 — round 14: opt-in crash reporting + continue-on-model-failure
+
+Two new ``TrainingBehaviorConfig`` flags for Windows/Jupyter survival:
+
+- **``enable_crash_reporting`` (default True).** At suite start,
+  install ``faulthandler.enable()`` and (on Windows) call
+  ``SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX)`` so
+  fatal signals produce Python tracebacks instead of WER modals.
+  Jupyter kernel exits cleanly on bad_alloc / SEGV instead of hanging
+  on "Python has stopped working".
+- **``continue_on_model_failure`` (default False).** Wraps per-model
+  ``process_model`` in try/except; logs failure + appends to
+  ``metadata["failed_models"]`` and continues with the next
+  model/weighting. KeyboardInterrupt still aborts; native SIGSEGV that
+  kills the process at OS level still kills the suite (subprocess
+  isolation is explicitly out of scope).
+
+14a: flipped ``enable_crash_reporting`` default to True (pure
+diagnostic, no behavior change).
+
+14b: fixed regressions — TrainingBehaviorConfig's two new flags leaked
+through ``**effective_behavior_params`` into ``configure_training_params``
+(TypeError). Also ``faulthandler.enable(file=sys.stderr)`` failed in
+Jupyter (OutStream without ``fileno()``); fall back to OS stderr fd 2.
+
+14c: ``xgb_kwargs={"tree_method": "approx"}`` and similar user kwargs
+crashed helpers.py with "dict() got multiple values for keyword
+argument" because dtype was hardcoded in the default dict and the user
+value came via ``**xgb_kwargs``. Switched all five model config
+builders (CB, HGB, XGB, LGB, NGB) from ``**kwargs``-splat to
+``defaults.update(user_kwargs)`` so any default is overridable.
+
+## 2026-04-19 — round 13: ICE-only fastpath + FI figure leak + cat cardinality logging
+
+Profile-driven optimisations from ``profile_metrics_blocks.py``
+(230.5 s total on 100k × 103 cb+xgb × 2 targets):
+
+- ``fast_calibration_report`` was 1708× called (43.6 s cumulative,
+  19% of run). 212× fan-out per split via
+  ``compute_fairness_metrics`` → per-bin ``custom_ice_metric``. Added
+  ``fast_ice_only()`` that skips the ``fast_log_loss`` +
+  ``compute_pr_recall_f1_metrics`` + title/plot work that
+  ``compute_probabilistic_multiclass_error`` discards on the fairness
+  path. Bit-exact (drift < 1e-9), 1.18-1.78× per-call speedup.
+- ``plot_feature_importance``: close leaked top-FI figure when the
+  bottom-FI branch also fired. Memory accumulates otherwise.
+- Pre-train cardinality log: log ``n_unique`` per
+  categorical/text/embedding feature before Phase 4 so native XGB/CB
+  crashes leave a record of what the model saw.
+- Numba prewarm: added ``fast_brier_score_loss`` and
+  ``calibration_metrics_from_freqs`` (both ``@njit``, both previously
+  missed).
+
 ## 2026-04-19 — round 12: text-promotion non-null guard + Dictionary-size-0 fallback
 
 ### Prod result from round 11d/e
