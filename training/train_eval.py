@@ -352,11 +352,16 @@ def select_target(
     # Convert Pydantic configs to dicts for configure_training_params
     # exclude_none=True: downstream functions handle missing keys with their own defaults
     effective_config_params = hyperparams_config.model_dump(exclude_none=True)
-    # Only include defined fields — exclude any extra fields (e.g. _precomputed_fairness_subgroups)
+    # Only include defined fields — exclude any extra fields (e.g. _precomputed_fairness_subgroups).
+    # Also exclude suite-level meta-flags that have no meaning to
+    # configure_training_params (crash reporting + per-model
+    # continue-on-failure are consumed directly by
+    # train_mlframe_models_suite, not passed down the stack).
     defined_behavior_fields = set(TrainingBehaviorConfig.model_fields.keys())
+    _SUITE_LEVEL_FLAGS = {"enable_crash_reporting", "continue_on_model_failure"}
     effective_behavior_params = {
         k: v for k, v in behavior_config.model_dump(exclude_none=True).items()
-        if k in defined_behavior_fields
+        if k in defined_behavior_fields and k not in _SUITE_LEVEL_FLAGS
     }
     # Pass _precomputed_fairness_subgroups explicitly if present (set by _build_common_params_for_target)
     precomputed_fairness = (behavior_config.model_extra or {}).get("_precomputed_fairness_subgroups")

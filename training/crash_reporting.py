@@ -61,11 +61,22 @@ def enable_crash_reporting(file=None, all_threads: bool = True) -> bool:
 
     ok = True
 
-    # Step 1: faulthandler — works on all platforms.
+    # Step 1: faulthandler. Jupyter wraps sys.stderr in an OutStream
+    # object that has no .fileno() — faulthandler needs a real OS file
+    # descriptor, so we must check for one and fall back to the
+    # process-level stderr fd (2) otherwise. On a real terminal
+    # sys.stderr.fileno() returns 2 anyway, so no regression.
     try:
-        import faulthandler
+        import faulthandler, io
         stream = file if file is not None else sys.stderr
-        faulthandler.enable(file=stream, all_threads=all_threads)
+        try:
+            stream.fileno()
+            faulthandler.enable(file=stream, all_threads=all_threads)
+        except (io.UnsupportedOperation, AttributeError, OSError):
+            # Jupyter path: write directly to the OS stderr fd (2).
+            # The traceback still lands in the notebook cell output
+            # because Jupyter captures fd 2.
+            faulthandler.enable(file=2, all_threads=all_threads)
     except Exception as e:
         logger.warning(f"faulthandler.enable() failed: {e}")
         ok = False
