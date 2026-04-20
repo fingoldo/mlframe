@@ -127,55 +127,68 @@ def run_trial(parquet: str, n_train: int, n_val: int,
     return outcome
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--parquet", required=True)
-    ap.add_argument("--start-train", type=int, default=211_168,
-                    help="Upper bound for binary search (must crash).")
-    ap.add_argument("--floor",       type=int, default=1_000,
-                    help="Lower bound for the search.")
-    ap.add_argument("--val-fraction", type=float, default=0.5,
-                    help="n_val = max(100, n_train * fraction). Default 0.5.")
-    ap.add_argument("--trial-timeout", type=int, default=600)
-    args = ap.parse_args()
+def bisect_axis(parquet: str, fixed_other: int, vary_param: str,
+                start: int, floor: int, timeout: int) -> int:
+    """Bisect either ``n_train`` or ``n_val`` while keeping the other fixed.
 
-    def n_val_for(n_train):
-        return max(100, int(n_train * args.val_fraction))
+    Returns the smallest value of ``vary_param`` that still crashes, or
+    floor if even floor crashes.
+    """
+    def trial(value: int, prefix: str) -> str:
+        if vary_param == "n_train":
+            return run_trial(parquet, value, fixed_other,
+                             timeout=timeout, log_prefix=prefix)
+        else:
+            return run_trial(parquet, fixed_other, value,
+                             timeout=timeout, log_prefix=prefix)
 
-    # Confirm baseline crashes.
-    base = run_trial(args.parquet, args.start_train, n_val_for(args.start_train),
-                     timeout=args.trial_timeout, log_prefix="[base] ")
+    base = trial(start, f"[base {vary_param}] ")
     if base != OUTCOME_CRASHED:
-        print(f"\nBaseline at n_train={args.start_train} did not crash ({base}). "
-              f"Cannot bisect. Try a larger --start-train.", flush=True)
-        return
-
-    # Try the floor — maybe even tiny crashes (would short-circuit).
-    floor = run_trial(args.parquet, args.floor, n_val_for(args.floor),
-                      timeout=args.trial_timeout, log_prefix="[floor]")
-    if floor == OUTCOME_CRASHED:
-        print(f"\nFloor at n_train={args.floor} ALREADY crashes. The trigger "
-              f"holds at very small row counts. Reporting floor as the minimum.",
+        print(f"baseline {vary_param}={start} did not crash ({base}). Abort axis.",
               flush=True)
-        print(f"\n=== MIN CRASHING n_train: <= {args.floor} ===", flush=True)
-        return
+        return start
+    fl = trial(floor, f"[floor {vary_param}] ")
+    if fl == OUTCOME_CRASHED:
+        print(f"floor {vary_param}={floor} ALREADY crashes — minimum <= {floor}",
+              flush=True)
+        return floor
 
-    # Binary search between floor (passes) and start (crashes).
-    # Invariant: lo passes, hi crashes. Narrow until hi - lo small.
-    lo = args.floor
-    hi = args.start_train
-    while hi - lo > max(500, hi // 50):
+    lo, hi = floor, start
+    while hi - lo > max(2, hi // 50):
         mid = (lo + hi) // 2
-        r = run_trial(args.parquet, mid, n_val_for(mid),
-                      timeout=args.trial_timeout, log_prefix="  [mid] ")
+        r = trial(mid, f"  [mid {vary_param}] ")
         if r == OUTCOME_CRASHED:
             hi = mid
         else:
             lo = mid
-
-    print(f"\n=== MIN CRASHING n_train ~= {hi:_} (lower bound passes at {lo:_}) ===",
+    print(f"=== MIN CRASHING {vary_param} ~= {hi} (passes at {lo}) ===",
           flush=True)
-    print(f"  Use this as ROW_LIMIT in the upstream reproducer.", flush=True)
+    return hi
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--parquet", required=True)
+    ap.add_argument("--start-train", type=int, default=211_168)
+    ap.add_argument("--floor-train", type=int, default=1)
+    ap.add_argument("--start-val",   type=int, default=100)
+    ap.add_argument("--floor-val",   type=int, default=1)
+    ap.add_argument("--trial-timeout", type=int, default=600)
+    args = ap.parse_args()
+
+    print(f"\n=== Phase 1: bisect n_train (n_val fixed at {args.start_val}) ===",
+          flush=True)
+    min_train = bisect_axis(args.parquet, args.start_val, "n_train",
+                            args.start_train, args.floor_train, args.trial_timeout)
+
+    print(f"\n=== Phase 2: bisect n_val (n_train fixed at {min_train}) ===",
+          flush=True)
+    min_val = bisect_axis(args.parquet, min_train, "n_val",
+                          args.start_val, args.floor_val, args.trial_timeout)
+
+    print(f"\n=== FINAL MIN CRASHING SHAPE ===", flush=True)
+    print(f"  n_train = {min_train}", flush=True)
+    print(f"  n_val   = {min_val}", flush=True)
 
 
 if __name__ == "__main__":
