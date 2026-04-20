@@ -1,12 +1,13 @@
 # Changelog
 
-## 2026-04-20 — round 16: cat-drift diagnostic for XGB silent-crash triage
+## 2026-04-20 — round 16: in-suite category drift warning
 
 ### Problem
 
-On prod_jobsdetails (9M rows × 20 cat features), ``train_mlframe_models_suite``
-crashed silently — Jupyter kernel died with no traceback — during XGB's
-val IterativeDMatrix construction. The timing window was tight:
+On prod_jobsdetails (9M rows × 20 cat features),
+``train_mlframe_models_suite`` crashed silently — Jupyter kernel died
+with no traceback — during XGB's val IterativeDMatrix construction.
+The timing window was tight:
 
     [T+~4min] train IterativeDMatrix: (7304969, 114, 577004772) built OK
     [T+~5min] kernel dies (no further log, no exception)
@@ -22,31 +23,28 @@ category codes appeared in the later period). XGB 3.x on Windows
 mishandles the unseen category during val-DMatrix construction and
 the process dies via native abort that faulthandler can't catch.
 
-### scripts/diagnose_cat_drift.py
+### Fix
 
-Per-categorical drift diagnostic that compares train / val / test
-splits of a parquet file. For each feature, reports:
+Drift detection is now inlined into
+``train_mlframe_models_suite``'s pre-training phase, immediately after
+the existing cardinality-snapshot log. For every categorical / text
+/ embedding feature with cardinality <= 100k (text-sized columns are
+skipped — anti-join is too expensive and the semantics differ), the
+suite computes:
 
-  * cardinality in train / val / test
-  * ``val_minus_train`` — categories in val **absent** from train
-    (the hypothesized crash trigger)
-  * ``test_minus_train`` — same for test
-  * null fraction per split
-  * skew (most-common-value fraction) per split
-  * ``drift_score`` — ``2 * val_drift + test_drift``, normalized by
-    train cardinality; sorts the report so the top suspects surface
-    first.
+  * ``val_only`` — categories in val **absent** from train (polars
+    anti-join, fast)
+  * ``test_only`` — same for test
 
-Usage:
+Emits one INFO line summarising all non-zero-drift columns, plus one
+WARNING per suspect (``val_only >= 5`` OR ``val_only / card_train >= 5%``)
+so the operator sees the trigger column BEFORE XGB's native layer
+crashes the kernel.
 
-    python -m mlframe.scripts.diagnose_cat_drift \\
-        --parquet prod.parquet \\
-        --timestamp-col job_posted_at \\
-        --val-size 0.09 --test-size 0.10 \\
-        --cat-features job_type category ... job_local_flexibility
-
-Verified on synthetic data where a deliberately drifting feature is
-correctly ranked first and a stable feature scores 0.0.
+Verified on inline synthetic: a stable 3-category column correctly
+reports 0 drift; a deliberately drifting column (4 val-only categories
+in a 3-category train) is flagged as crash suspect with severity
+percentage.
 
 ## 2026-04-20 — round 15: parametric frame fuzzing (polars.testing.parametric wrapper)
 

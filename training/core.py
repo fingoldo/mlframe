@@ -1762,24 +1762,82 @@ def train_mlframe_models_suite(
     if verbose and (text_features or embedding_features):
         logger.info(f"  Feature types — text: {text_features}, embedding: {embedding_features}, cat: {cat_features or '(none)'}")
 
-    # Pre-train cardinality snapshot: without this, a native XGB/CB
-    # crash on high-cardinality categoricals leaves us guessing at the
-    # input. Log n_unique for every categorical/text/embedding feature
-    # before the first .fit() so the log captures the state the model
-    # actually saw. Use the already-prepared ``train_df``.
+    # Pre-train cardinality + val/test drift snapshot.
+    #
+    # Cardinality: without this, a native XGB/CB crash on
+    # high-cardinality categoricals leaves us guessing at the input.
+    #
+    # Drift: for time-ordered splits (the common case here), val and
+    # test can contain category values that never appeared in train —
+    # XGB 3.x on Windows crashes silently during val IterativeDMatrix
+    # construction when this happens (observed 2026-04-20 on
+    # prod_jobsdetails). We compute ``val_minus_train`` /
+    # ``test_minus_train`` unseen-category counts here and emit a
+    # WARNING for any column with non-trivial drift, so the operator
+    # sees which column is the crash suspect BEFORE the kernel dies.
+    #
+    # Skip if cardinality > 100k (text-sized columns): the anti-join
+    # is expensive and unseen-category semantics don't cleanly apply
+    # to free-text columns (CB handles them via TF-IDF, XGB drops them).
     if verbose:
         all_cat_cols = list(cat_features or []) + list(text_features or []) + list(embedding_features or [])
         if all_cat_cols and train_df is not None:
             try:
-                if isinstance(train_df, pl.DataFrame):
-                    pairs = [(c, train_df[c].n_unique()) for c in all_cat_cols if c in train_df.columns]
-                else:
-                    pairs = [(c, int(train_df[c].nunique(dropna=False))) for c in all_cat_cols if c in train_df.columns]
+                _DRIFT_SKIP_CARD = 100_000
+                is_polars = isinstance(train_df, pl.DataFrame)
+                pairs = []
+                for c in all_cat_cols:
+                    if c not in train_df.columns:
+                        continue
+                    if is_polars:
+                        n_unique = train_df[c].n_unique()
+                    else:
+                        n_unique = int(train_df[c].nunique(dropna=False))
+                    pairs.append((c, n_unique))
                 pairs.sort(key=lambda x: -x[1])
                 summary = ", ".join(f"{c}:{n:_}" for c, n in pairs)
                 logger.info(f"  Categorical cardinalities (train, n_unique, desc): {summary}")
+
+                # Drift log: val/test categories not seen in train.
+                if is_polars and val_df is not None and test_df is not None and val_df.height > 0:
+                    drift_rows = []
+                    for c, card_train in pairs:
+                        if card_train > _DRIFT_SKIP_CARD:
+                            continue  # text-sized, anti-join is expensive
+                        if c not in val_df.columns or c not in test_df.columns:
+                            continue
+                        # Polars anti-join gives count of uniques in {val|test} missing from train.
+                        tr_uniq = train_df.select(pl.col(c).drop_nulls().unique().alias(c))
+                        v_uniq  = val_df.select(pl.col(c).drop_nulls().unique().alias(c))
+                        te_uniq = test_df.select(pl.col(c).drop_nulls().unique().alias(c))
+                        val_only  = v_uniq.join(tr_uniq, on=c, how="anti").height
+                        test_only = te_uniq.join(tr_uniq, on=c, how="anti").height
+                        drift_rows.append((c, card_train, val_only, test_only))
+
+                    # Log all drift stats compactly; WARN on anything non-trivial.
+                    if drift_rows:
+                        drift_rows.sort(key=lambda x: -x[2])  # sort by val_only desc
+                        drift_summary = ", ".join(
+                            f"{c}:val_only={v},test_only={t}"
+                            for c, _, v, t in drift_rows if v > 0 or t > 0
+                        ) or "(none)"
+                        logger.info(f"  Category drift (val/test values missing from train): {drift_summary}")
+
+                        # WARN for anything where val_only is a non-trivial
+                        # fraction of train cardinality — suspect for XGB
+                        # val-DMatrix native crash.
+                        for c, card_tr, v_only, t_only in drift_rows:
+                            if v_only == 0 and t_only == 0:
+                                continue
+                            v_frac = v_only / max(card_tr, 1)
+                            if v_only >= 5 or v_frac >= 0.05:
+                                logger.warning(
+                                    f"  Category drift suspect: {c} — val has {v_only} categories "
+                                    f"({v_frac:.1%} of train card {card_tr:_}) that train never saw. "
+                                    f"XGB/CB may crash when constructing val DMatrix with ref=train."
+                                )
             except Exception as _e:
-                logger.warning(f"  Failed to compute categorical cardinalities for logging: {_e}")
+                logger.warning(f"  Failed to compute categorical cardinality/drift: {_e}")
 
     metadata["text_features"] = text_features
     metadata["embedding_features"] = embedding_features
