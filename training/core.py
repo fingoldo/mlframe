@@ -1417,6 +1417,14 @@ def train_mlframe_models_suite(
     hyperparams_config = _ensure_config(hyperparams_config, ModelHyperparamsConfig, {})
     behavior_config = _ensure_config(behavior_config, TrainingBehaviorConfig, {})
 
+    # Opt-in: install SIGSEGV/SIGABRT handler + suppress Windows WER
+    # popup so native crashes (e.g. XGBoost bad_malloc on too-large
+    # frames) surface as Python tracebacks in Jupyter instead of hanging
+    # the kernel on a modal dialog.
+    if behavior_config.enable_crash_reporting:
+        from mlframe.training.crash_reporting import enable_crash_reporting as _enable_crash_reporting
+        _enable_crash_reporting()
+
     # Default models
     if mlframe_models is None:
         mlframe_models = ["cb", "lgb", "xgb", "mlp", "linear"]
@@ -2406,10 +2414,32 @@ def train_mlframe_models_suite(
                         )
 
                         t0_model = timer()
-                        with phase("process_model", model=mlframe_model_name, weight=weight_name):
-                            trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed = process_model(
-                                **process_model_kwargs
+                        try:
+                            with phase("process_model", model=mlframe_model_name, weight=weight_name):
+                                trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed = process_model(
+                                    **process_model_kwargs
+                                )
+                        except Exception as model_err:
+                            # Skip-and-continue only when the caller explicitly opted in.
+                            # KeyboardInterrupt is intentionally NOT caught — Ctrl-C must
+                            # still abort the run. A native SIGSEGV that kills the process
+                            # also won't be caught here; only Python-level exceptions
+                            # (XGBoostError, CatBoostError, MemoryError, ...) are.
+                            if not behavior_config.continue_on_model_failure:
+                                raise
+                            logger.error(
+                                f"  process_model({mlframe_model_name}, w={weight_name}) FAILED after "
+                                f"{_elapsed_str(t0_model)} — {type(model_err).__name__}: {model_err}. "
+                                f"continue_on_model_failure=True → skipping and moving on.",
+                                exc_info=True,
                             )
+                            metadata.setdefault("failed_models", []).append({
+                                "model": mlframe_model_name,
+                                "weighting": weight_name,
+                                "error_type": type(model_err).__name__,
+                                "error_message": str(model_err),
+                            })
+                            continue  # next weight_name in the inner loop
                         if verbose:
                             logger.info(f"  process_model({mlframe_model_name}, w={weight_name}) done — {_elapsed_str(t0_model)}")
 

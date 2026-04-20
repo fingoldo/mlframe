@@ -832,6 +832,19 @@ class TrainingBehaviorConfig(BaseConfig):
         Extra kwargs passed to CatBoost .fit() (e.g. early_stopping_rounds, custom callbacks).
     use_flaml_zeroshot : bool
         Use FLAML zero-shot models for XGBoost/LightGBM.
+    enable_crash_reporting : bool
+        At suite start, enable faulthandler (SIGSEGV/SIGABRT → Python
+        traceback) and on Windows suppress the "Python has stopped
+        working" WER popup so Jupyter kernels exit cleanly instead of
+        hanging. No-op if already enabled in the process.
+    continue_on_model_failure : bool
+        If True, catch exceptions from individual per-model training
+        (e.g. XGBoost ``bad_malloc`` on too-large frames) and continue
+        the suite with the next model/weighting instead of aborting
+        the whole run. Crashes that kill the process at the OS level
+        (access violation in a worker thread that faulthandler can't
+        catch) will still terminate — for true isolation use subprocess
+        training, which this flag does NOT provide.
     """
 
     prefer_gpu_configs: bool = True
@@ -851,6 +864,8 @@ class TrainingBehaviorConfig(BaseConfig):
     callback_params: Optional[Dict[str, Any]] = None
     cb_fit_params: Optional[Dict[str, Any]] = None
     use_flaml_zeroshot: bool = False
+    enable_crash_reporting: bool = False
+    continue_on_model_failure: bool = False
 
 
 class TrainingConfig(BaseConfig):
