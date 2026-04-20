@@ -126,10 +126,19 @@ def load_and_prep(parquet_path: str, *, rechunk: bool, cast_via_parquet: bool,
         tmp = Path("_inmem_rt_train.parquet"); tmpv = Path("_inmem_rt_val.parquet")
         train.write_parquet(tmp); val.write_parquet(tmpv)
         train = pl.read_parquet(tmp); val = pl.read_parquet(tmpv)
-        tmp.unlink(); tmpv.unlink()
+        # Windows keeps a file lock after read; swallow cleanup errors
+        # so we still get to the fit. Leftover files next to cwd are harmless.
+        for p in (tmp, tmpv):
+            try:
+                p.unlink()
+            except (OSError, PermissionError) as _e:
+                print(f"  (cleanup skipped for {p.name}: {_e})", flush=True)
         for c in CULPRIT_CATS:
             print(f"  after parquet rt: train[{c}].n_chunks={train[c].n_chunks()}, "
-                  f"n_unique={train[c].n_unique()}", flush=True)
+                  f"n_unique={train[c].n_unique()}, "
+                  f"physical_codes_range=[{train[c].to_physical().min()}, "
+                  f"{train[c].to_physical().max()}]",
+                  flush=True)
 
     if to_enum:
         print("  TOGGLE: cast culprit cats to pl.Enum(union)", flush=True)
