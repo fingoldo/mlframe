@@ -85,18 +85,30 @@ def main():
           f"platform={sys.platform}, using_string_cache={pl.using_string_cache()}",
           flush=True)
 
+    # Step 1: load ALL unique skills_text values and cast to Categorical.
+    # This primes the StringCache with ~2.5M entries — the cache-pollution
+    # step that makes subsequent category codes land at sparse positions.
+    skills_path = HERE / "skills_text_uniques.parquet"
+    if not skills_path.exists():
+        # fallback for old bundles that have crash_data.parquet with skills_text
+        skills_path = HERE / "crash_data.parquet"
     t0 = time.perf_counter()
-    df = pl.read_parquet(HERE / "crash_data.parquet")
-    print(f"loaded {df.shape} in {time.perf_counter()-t0:.1f}s", flush=True)
-    print(f"  skills_text n_unique={df['skills_text'].n_unique():_}, "
-          f"category n_unique={df['category'].n_unique()}", flush=True)
-
-    # Step 1: cast skills_text FIRST to pollute the StringCache.
-    df = df.with_columns(pl.col("skills_text").cast(pl.Categorical))
-    print(f"  after skills_text cast: cache size ~ {df['skills_text'].n_unique():_}",
+    skills = pl.read_parquet(skills_path, columns=["skills_text"])
+    print(f"priming StringCache with {skills.height:_} unique skills_text values...",
           flush=True)
+    _ = skills["skills_text"].cast(pl.Categorical)
+    print(f"  done in {time.perf_counter()-t0:.1f}s, "
+          f"using_string_cache={pl.using_string_cache()}", flush=True)
 
-    # Step 2: cast category through the now-polluted cache.
+    # Step 2: load the crash slice (category only) and cast through polluted cache.
+    slice_path = HERE / "crash_slice.parquet"
+    if not slice_path.exists():
+        slice_path = HERE / "crash_data.parquet"
+    t0 = time.perf_counter()
+    df = pl.read_parquet(slice_path)
+    print(f"loaded crash_slice {df.shape} in {time.perf_counter()-t0:.1f}s", flush=True)
+    print(f"  category n_unique={df['category'].n_unique()}", flush=True)
+
     df = df.with_columns(pl.col("category").cast(pl.String).cast(pl.Categorical))
     print(f"  after category cast: "
           f"n_unique={df['category'].n_unique()}, "
@@ -116,9 +128,6 @@ def main():
         df = df.with_columns(pl.col("category").cast(pl.Enum(uniques)))
         print(f"  codes_max after Enum cast: {df['category'].to_physical().max()}",
               flush=True)
-
-    # Drop skills_text — XGB only receives category.
-    df = df.drop("skills_text")
 
     n_train = __import__("builtins").min(211_168, int(df.height * 0.8))
     n_val   = __import__("builtins").min(100_000, df.height - n_train)
@@ -170,52 +179,63 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Loading {args.parquet} ...", flush=True)
-    df = pl.read_parquet(args.parquet)
+    if "skills_text" not in pl.read_parquet(args.parquet, n_rows=1).columns:
+        sys.exit("ERROR: 'skills_text' column not found in parquet.")
+    if "category" not in pl.read_parquet(args.parquet, n_rows=1).columns:
+        sys.exit("ERROR: 'category' column not found in parquet.")
+
+    df = pl.read_parquet(args.parquet, columns=["skills_text", "category",
+                                                 TIMESTAMP_COLUMN])
     print(f"  loaded {df.shape}", flush=True)
 
     # Sort by timestamp to match original pipeline ordering.
     if TIMESTAMP_COLUMN in df.columns:
-        df = df.sort(TIMESTAMP_COLUMN)
+        df = df.sort(TIMESTAMP_COLUMN).drop(TIMESTAMP_COLUMN)
 
-    # Keep only the two columns that matter for the crash + enough rows.
+    # --- skills_text_uniques: ALL unique values from full dataset -----------
+    # The cache-pollution mechanism requires ~2.5M unique strings to be cast
+    # to Categorical before category is resolved. We deduplicate across the
+    # full dataset so reproduce.py can prime the StringCache correctly even
+    # though it only fits XGB on 311k rows.
+    skills_uniques = (
+        df["skills_text"]
+        .drop_nulls()
+        .unique()
+        .cast(pl.String)
+        .to_frame("skills_text")
+    )
+    print(f"  skills_text n_unique={skills_uniques.height:_} "
+          f"(from full {df.height:_}-row dataset)", flush=True)
+
+    # --- crash_slice: only the rows needed for the XGB fit -----------------
     needed = args.n_train + args.n_val
     if df.height < needed:
         print(f"WARNING: parquet has only {df.height:,} rows, need {needed:,}. "
               f"Using all rows.", flush=True)
         needed = df.height
 
-    df = df[:needed]
+    slice_df = df[:needed].select(
+        pl.col("category").cast(pl.String)
+    )
+    print(f"  crash_slice: {slice_df.shape}, "
+          f"category n_unique={slice_df['category'].n_unique()}, "
+          f"nulls={slice_df['category'].null_count()}", flush=True)
 
-    # Retain skills_text as String (NOT cast to Categorical — that happens
-    # in reproduce.py to replicate the exact cache-pollution sequence).
-    keep = []
-    if "skills_text" in df.columns:
-        keep.append(pl.col("skills_text").cast(pl.String))
-    else:
-        sys.exit("ERROR: 'skills_text' column not found in parquet.")
+    out_skills  = out_dir / "skills_text_uniques.parquet"
+    out_slice   = out_dir / "crash_slice.parquet"
+    skills_uniques.write_parquet(out_skills)
+    slice_df.write_parquet(out_slice)
 
-    if "category" in df.columns:
-        keep.append(pl.col("category").cast(pl.String))
-    else:
-        sys.exit("ERROR: 'category' column not found in parquet.")
-
-    df = df.select(keep)
-
-    print(f"  slice: {df.shape}", flush=True)
-    print(f"  skills_text n_unique={df['skills_text'].n_unique():_}", flush=True)
-    print(f"  category n_unique={df['category'].n_unique()}, "
-          f"nulls={df['category'].null_count()}", flush=True)
-
+    # legacy name kept for backward compat
     out_parquet = out_dir / "crash_data.parquet"
-    df.write_parquet(out_parquet)
+    slice_df.write_parquet(out_parquet)
 
     out_repro = out_dir / "reproduce.py"
     out_repro.write_text(REPRO_SCRIPT, encoding="utf-8")
 
-    sz_parquet = out_parquet.stat().st_size / 1e6
     print(f"\nBundle written to {out_dir}/", flush=True)
-    print(f"  crash_data.parquet : {sz_parquet:.1f} MB", flush=True)
-    print(f"  reproduce.py", flush=True)
+    for f in sorted(out_dir.iterdir()):
+        print(f"  {f.name}: {f.stat().st_size/1e6:.1f} MB", flush=True)
     print(f"\nVerify crash:", flush=True)
     print(f"    cd {out_dir}", flush=True)
     print(f"    python reproduce.py", flush=True)
