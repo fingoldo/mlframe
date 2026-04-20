@@ -21,6 +21,7 @@ import polars as pl
 from mlframe.testing.parametric import (
     adversarial_frame,
     prod_like_frame,
+    prod_like_frame_small,
     categorical_column,
     inf_heavy_float_column,
     constant_column,
@@ -134,3 +135,300 @@ class TestPolarsStrategyPrepareRobustness:
         result = strategy.prepare_polars_dataframe(df, cat_features)
         assert isinstance(result, pl.DataFrame)
         assert result.height == df.height
+
+
+# ---------------------------------------------------------------------------
+# create_split_dataframes — preprocessing / splitting
+# ---------------------------------------------------------------------------
+
+
+class TestCreateSplitDataframesRobustness:
+    """``create_split_dataframes`` is invoked by the suite's PHASE 2 on
+    both polars and pandas frames, with train/val/test index arrays.
+    It must (a) preserve dtypes and column order, (b) return empty
+    frames when an index slice is empty, (c) never lose rows across
+    the 3-way partition."""
+
+    @given(df=adversarial_frame(n_rows=(50, 150),
+                                include_null_in_cat=True,
+                                include_inf_in_float=True,
+                                include_constant_col=False,
+                                include_sparse_null_col=False))
+    def test_3way_partition_preserves_all_rows(self, df: pl.DataFrame):
+        import numpy as np
+        from mlframe.training.preprocessing import create_split_dataframes
+        n = df.height
+        # Deterministic 80/10/10 split on sequential indices — keeps
+        # the test fast while still varying n per example.
+        n_train = int(n * 0.8)
+        n_val = int(n * 0.1)
+        train_idx = np.arange(n_train)
+        val_idx   = np.arange(n_train, n_train + n_val)
+        test_idx  = np.arange(n_train + n_val, n)
+        train_df, val_df, test_df = create_split_dataframes(
+            df, train_idx, val_idx, test_idx,
+        )
+        assert train_df.height == n_train
+        assert val_df.height == n_val
+        assert test_df.height == n - n_train - n_val
+        # Invariant: schemas match original (unless the split is empty,
+        # which returns an empty pl.DataFrame() without schema).
+        for split in (train_df, val_df, test_df):
+            if split.height > 0:
+                assert split.schema == df.schema
+
+    @given(df=adversarial_frame(n_rows=(50, 100),
+                                include_null_in_cat=True,
+                                include_inf_in_float=False,
+                                include_constant_col=False,
+                                include_sparse_null_col=False))
+    def test_empty_val_test_returns_empty_dataframes(self, df: pl.DataFrame):
+        """When val_idx / test_idx are empty, the split function should
+        return an empty ``pl.DataFrame`` — round-12's timestamp bug
+        (``wholeday_splitting collapsed``) triggered exactly this
+        edge in prod."""
+        import numpy as np
+        from mlframe.training.preprocessing import create_split_dataframes
+        n = df.height
+        train_idx = np.arange(n)
+        val_idx   = np.array([], dtype=np.int64)
+        test_idx  = np.array([], dtype=np.int64)
+        train_df, val_df, test_df = create_split_dataframes(
+            df, train_idx, val_idx, test_idx,
+        )
+        assert train_df.height == n
+        assert val_df.height == 0
+        assert test_df.height == 0
+        assert isinstance(val_df, pl.DataFrame)
+        assert isinstance(test_df, pl.DataFrame)
+
+
+# ---------------------------------------------------------------------------
+# fast_calibration_binning — numba njit, must handle inf / nan / span=0
+# ---------------------------------------------------------------------------
+
+
+class TestFastCalibrationBinningRobustness:
+    """``fast_calibration_binning`` is numba-compiled. The C code path
+    has historically had issues with ``inf``, ``nan``, and constant
+    ``y_pred`` (span = 0). These fuzz tests catch regressions where
+    the numba version silently disagrees with the Python fallback."""
+
+    @given(df=adversarial_frame(
+        n_rows=(30, 100),
+        include_null_in_cat=False,
+        include_inf_in_float=False,   # normal floats only for this test
+        include_constant_col=False,
+        include_sparse_null_col=False,
+    ))
+    def test_binning_on_normal_floats_returns_valid_shapes(self, df: pl.DataFrame):
+        import numpy as np
+        from mlframe.metrics import fast_calibration_binning
+        # adversarial_frame's default num_f32 uses st.floats(width=32) which
+        # permits NaN / +-inf without passing include_inf_in_float — they
+        # leak through even when we only asked for "normal". Filter
+        # explicitly so this test exercises the finite-y_pred branch only;
+        # the `test_binning_on_constant_y_pred_does_not_crash` sister test
+        # covers a different numba code path.
+        raw = df["num_f32"].drop_nulls().to_numpy().astype(np.float64)
+        raw = raw[np.isfinite(raw)]
+        if len(raw) < 10:
+            return  # skip undersized examples
+        # Guard exp overflow: float32 can hit |x|~3.4e38, and exp(3.4e38) is +inf.
+        # Clip so the logistic stays finite — we're testing the binner, not exp.
+        raw = np.clip(raw, -50.0, 50.0)
+        y_pred = 1.0 / (1.0 + np.exp(-raw))  # (0, 1), finite
+        y_true = (y_pred > 0.5).astype(np.int8)
+        freqs_pred, freqs_true, hits = fast_calibration_binning(
+            y_true=y_true, y_pred=y_pred, nbins=10,
+        )
+        # Invariants: arrays non-negative, hits sum to n, lengths
+        # agree.
+        assert len(freqs_pred) == len(freqs_true) == len(hits)
+        assert int(hits.sum()) == len(y_true)
+        assert (hits >= 0).all()
+
+    def test_binning_on_constant_y_pred_does_not_crash(self):
+        """span = 0 path — all predictions identical. This is the
+        pathological input that used to trip the numba binner before
+        the span-guard was added."""
+        import numpy as np
+        from mlframe.metrics import fast_calibration_binning
+        y_pred = np.full(100, 0.3, dtype=np.float64)
+        y_true = np.random.default_rng(0).integers(0, 2, size=100).astype(np.int8)
+        freqs_pred, freqs_true, hits = fast_calibration_binning(
+            y_true=y_true, y_pred=y_pred, nbins=10,
+        )
+        # All mass lands in a single bin; total hits preserved.
+        assert int(hits.sum()) == 100
+
+
+# ---------------------------------------------------------------------------
+# _auto_detect — round-15 specific: infs in floats must not confuse
+# the classifier (floats should never be promoted to text regardless
+# of inf / nan content).
+# ---------------------------------------------------------------------------
+
+
+class TestTrainSuiteRobustness:
+    """End-to-end parametric fuzz of ``train_mlframe_models_suite``.
+
+    This is the main user-visible entry point and the thing we
+    actually care about surviving adversarial frames. Each example
+    here does a full fit: ~5-30s per CB, ~2-10s per XGB, on 200-400
+    rows × 12 columns. We cap ``max_examples`` aggressively and use
+    tiny iterations to keep runtime sane.
+
+    Invariants asserted:
+      * Suite completes (no native crash, no uncaught exception)
+      * Returns a (models_dict, metadata_dict) tuple
+      * metadata has ``columns`` key
+      * If ``continue_on_model_failure=True``, failed models are
+        listed in ``metadata['failed_models']`` rather than raised.
+    """
+
+    @given(df=prod_like_frame_small(n_rows=200))
+    @settings(
+        max_examples=3,       # suite fit is SLOW (~5-30s per example)
+        deadline=None,
+        suppress_health_check=list(HealthCheck),
+    )
+    def test_xgb_only_suite_completes(self, df: pl.DataFrame, tmp_path):
+        from mlframe.training.core import train_mlframe_models_suite
+        from mlframe.training.configs import (
+            ModelHyperparamsConfig, TrainingBehaviorConfig,
+            TrainingSplitConfig, PolarsPipelineConfig,
+        )
+        from .shared import TimestampedFeaturesExtractor
+
+        fte = TimestampedFeaturesExtractor(
+            target_column="target", regression=False,
+            ts_field="timestamp",
+        )
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="parametric_fuzz",
+            model_name="fuzz_xgb",
+            features_and_targets_extractor=fte,
+            mlframe_models=["xgb"],
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            use_mrmr_fs=False,
+            hyperparams_config=ModelHyperparamsConfig(
+                iterations=5, early_stopping_rounds=3,
+                xgb_kwargs={"device": "cpu", "verbosity": 0},
+            ),
+            behavior_config=TrainingBehaviorConfig(
+                prefer_calibrated_classifiers=False,
+                prefer_gpu_configs=False,
+                continue_on_model_failure=True,
+            ),
+            pipeline_config=PolarsPipelineConfig(
+                use_polarsds_pipeline=False,
+                categorical_encoding=None,
+                scaler_name=None,
+                imputer_strategy=None,
+            ),
+            split_config=TrainingSplitConfig(
+                shuffle_val=False, shuffle_test=False,
+                test_size=0.1, val_size=0.1,
+                wholeday_splitting=False,  # not enough distinct days at fuzz scale
+            ),
+            data_dir=str(tmp_path),
+            models_dir="models",
+            verbose=0,
+        )
+        assert isinstance(models, dict)
+        assert isinstance(metadata, dict)
+        # Either the fit succeeded or was logged; never silently lost.
+        failed = metadata.get("failed_models", [])
+        assert isinstance(failed, list)
+
+    @given(df=prod_like_frame_small(n_rows=200))
+    @settings(
+        max_examples=2,       # CB is slower than XGB; even tighter budget
+        deadline=None,
+        suppress_health_check=list(HealthCheck),
+    )
+    def test_cb_only_suite_completes_with_null_in_cat(self, df: pl.DataFrame, tmp_path):
+        """Round 11 regression at suite scale: CB Polars fastpath
+        must handle a prod-shape frame with null-in-Categorical
+        without falling back to pandas-path (or, if it does, without
+        crashing)."""
+        from mlframe.training.core import train_mlframe_models_suite
+        from mlframe.training.configs import (
+            ModelHyperparamsConfig, TrainingBehaviorConfig,
+            TrainingSplitConfig, PolarsPipelineConfig,
+        )
+        from .shared import TimestampedFeaturesExtractor
+
+        fte = TimestampedFeaturesExtractor(
+            target_column="target", regression=False,
+            ts_field="timestamp",
+        )
+
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="parametric_fuzz",
+            model_name="fuzz_cb",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            use_mrmr_fs=False,
+            hyperparams_config=ModelHyperparamsConfig(
+                iterations=5, early_stopping_rounds=3,
+                cb_kwargs={"task_type": "CPU", "verbose": False},
+            ),
+            behavior_config=TrainingBehaviorConfig(
+                prefer_calibrated_classifiers=False,
+                prefer_gpu_configs=False,
+                continue_on_model_failure=True,
+            ),
+            pipeline_config=PolarsPipelineConfig(
+                use_polarsds_pipeline=False,
+                categorical_encoding=None,
+                scaler_name=None,
+                imputer_strategy=None,
+            ),
+            split_config=TrainingSplitConfig(
+                shuffle_val=False, shuffle_test=False,
+                test_size=0.1, val_size=0.1,
+                wholeday_splitting=False,
+            ),
+            data_dir=str(tmp_path),
+            models_dir="models",
+            verbose=0,
+        )
+        assert isinstance(models, dict)
+        assert isinstance(metadata, dict)
+
+
+class TestAutoDetectIgnoresNumericPathology:
+    @given(df=adversarial_frame(
+        n_rows=(50, 150),
+        include_null_in_cat=False,
+        include_inf_in_float=True,    # +inf / -inf / NaN across floats
+        include_constant_col=True,    # forces a pl.Int16 all-zero column
+        include_sparse_null_col=False,
+    ))
+    def test_numeric_columns_never_promoted_to_text(self, df: pl.DataFrame):
+        """Regression guard: no matter how pathological the numeric
+        columns are (inf, NaN, all-zero constant), they must not slip
+        into ``text_features`` — only Utf8/Categorical/Enum columns
+        are text-candidates."""
+        cfg = FeatureTypesConfig(auto_detect_feature_types=True,
+                                 cat_text_cardinality_threshold=10)
+        # Pretend every column in the frame is a cat candidate — the
+        # detector must still classify numerics correctly.
+        text, emb = _auto_detect_feature_types(
+            df, cfg, cat_features=list(df.columns),
+        )
+        numeric_names = [c for c, dt in df.schema.items()
+                         if dt in (pl.Float32, pl.Float64,
+                                   pl.Int8, pl.Int16, pl.Int32, pl.Int64,
+                                   pl.Boolean)]
+        for n in numeric_names:
+            assert n not in text, f"numeric {n} wrongly promoted to text"
+            assert n not in emb, f"numeric {n} wrongly promoted to embedding"

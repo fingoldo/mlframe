@@ -380,6 +380,39 @@ def prod_like_frame(
     return dataframes(cols, min_size=min_size, max_size=max_size)
 
 
+def prod_like_frame_small(
+    n_rows: Union[int, Tuple[int, int]] = 200,
+):
+    """Minimal prod-like frame for suite-level end-to-end fuzzing.
+
+    Used by ``TestTrainSuiteRobustness`` where each example fits CB/XGB
+    end-to-end — 200 rows is the sweet spot where a model can actually
+    train but frame generation is fast. ``prod_like_frame`` (10 columns
+    x 300-500 rows) is too heavy for the hypothesis healthcheck.
+    """
+    import datetime as dt
+    cols = [
+        categorical_column("category", ["a", "b", "c", "d", "__MISSING__"], null_rate=0.05),
+        column("num_f0", dtype=pl.Float32,
+               strategy=st.floats(width=32, allow_nan=False, allow_infinity=False),
+               allow_null=False),
+        column("num_f1", dtype=pl.Float32,
+               strategy=st.floats(width=32, allow_nan=False, allow_infinity=False),
+               allow_null=False),
+        column("timestamp", dtype=pl.Datetime,
+               strategy=st.datetimes(
+                   min_value=dt.datetime(2024, 1, 1),
+                   max_value=dt.datetime(2024, 2, 1),  # 1 month, enough for wholeday disabled
+               ),
+               allow_null=False),
+        column("target", dtype=pl.Int8,
+               strategy=st.sampled_from([0, 1]),
+               allow_null=False),
+    ]
+    min_size, max_size = _size_tuple(n_rows)
+    return dataframes(cols, min_size=min_size, max_size=max_size)
+
+
 __all__ = [
     "register_profiles",
     "categorical_column",
@@ -390,4 +423,5 @@ __all__ = [
     "sparse_null_column",
     "adversarial_frame",
     "prod_like_frame",
+    "prod_like_frame_small",
 ]
