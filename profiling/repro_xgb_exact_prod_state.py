@@ -124,7 +124,8 @@ DICT_PAIRS = [
     (2_526_058, '__MISSING__'),
 ]
 TRAIN_CODE = 16  # 'Desktop Application Development'
-VAL_CODE = 8     # 'Web Development'
+VAL_CODE = 16    # SAME as train -- avoids XGB's 'unseen category' guard
+                 # so we can probe the pure bin-allocation crash path.
 
 
 def main():
