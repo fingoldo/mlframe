@@ -60,25 +60,39 @@ sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 def build_sparse_categorical(
     n_rows: int, n_used: int, padding_uniques: int, seed: int,
 ) -> pl.Series:
-    """Build a pl.Categorical with sparse physical codes.
+    """Build a pl.Categorical with SCATTERED physical codes (not just
+    shifted — actually spread across the 0..padding_uniques range).
 
-    Strategy: create a big Series where the first ``padding_uniques``
-    rows are unique padding strings (so they consume physical codes
-    0..padding_uniques-1 in the polars string cache), then the
-    remaining ``n_rows`` rows use only ``n_used`` actually-wanted
-    strings (which then get codes ``padding_uniques..padding_uniques+n_used-1``).
-    Slicing off the padding leaves a Series with physical codes in the
-    upper range — sparse from XGB's perspective.
+    Strategy: preamble alternates groups of padding strings with
+    individual used-value strings. After Categorical cast, used
+    values get physical codes at positions ``K, 2K+1, 3K+2, ...``
+    where K = padding_uniques / n_used. The resulting codes span
+    the full range [K, padding_uniques] with ~K gaps between them —
+    matching the user's real production pattern of codes in
+    [2, 3_287_945] with only 49 distinct.
     """
     rng = np.random.default_rng(seed)
-    padding = [f"__pad_{i}" for i in range(padding_uniques)]
     used = [f"c_{i:03d}" for i in range(n_used)]
+    per_slot = max(1, padding_uniques // (n_used + 1))
+
+    preamble: list[str] = []
+    pad_idx = 0
+    for i in range(n_used):
+        for _ in range(per_slot):
+            preamble.append(f"__pad_{pad_idx}")
+            pad_idx += 1
+        preamble.append(used[i])
+    while pad_idx < padding_uniques:
+        preamble.append(f"__pad_{pad_idx}")
+        pad_idx += 1
+
     data = rng.choice(used, size=n_rows).tolist()
-    full = padding + data
-    # One cast-to-Categorical assigns physical codes order-of-first-occurrence:
-    # padding gets codes 0..padding_uniques-1, used gets codes above that.
+    full = preamble + data
     ser = pl.Series("category", full, dtype=pl.Categorical)
-    return ser[padding_uniques:]  # slice off padding — dict is preserved
+    # Slice off preamble — dict is preserved; the returned Series
+    # references only ``used`` strings but their physical codes are
+    # scattered because they were assigned during the preamble scan.
+    return ser[len(preamble):]
 
 
 def build_compact_categorical(
