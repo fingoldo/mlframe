@@ -220,16 +220,20 @@ def get_training_configs(
     def neg_ovr_roc_auc_score(*args, **kwargs):
         return -roc_auc_score(*args, **kwargs, multi_class="ovr")
 
+    # Build defaults, then let caller's kwargs override any of them
+    # via .update(). Using **cb_kwargs for merge crashes when the
+    # caller passes a key that's already in the defaults dict
+    # (TypeError: got multiple values).
     CB_GENERAL_PARAMS = dict(
         iterations=iterations,
         has_time=has_time,
         learning_rate=learning_rate,
         eval_fraction=(0.0 if use_explicit_early_stopping else validation_fraction),
-        task_type=cb_kwargs.pop("task_type", "GPU" if has_gpu else "CPU"),  # Pop from kwargs if present
+        task_type="GPU" if has_gpu else "CPU",
         early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
-        **cb_kwargs,
     )
+    CB_GENERAL_PARAMS.update(cb_kwargs)
 
     CB_CLASSIF = CB_GENERAL_PARAMS.copy()
     CB_CLASSIF.update({"eval_metric": def_classif_metric})
@@ -251,8 +255,8 @@ def get_training_configs(
         n_iter_no_change=early_stopping_rounds,
         categorical_features="from_dtype",
         random_state=random_seed,
-        **hgb_kwargs,
     )
+    HGB_GENERAL_PARAMS.update(hgb_kwargs)
 
     XGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
@@ -261,12 +265,12 @@ def get_training_configs(
         max_cat_to_onehot=1,
         max_cat_threshold=100,  # affects model size heavily when high cardinality cat features r present!
         tree_method="hist",
-        device=xgb_kwargs.pop("device", "cuda" if has_gpu else "cpu"),  # Pop from kwargs if present
+        device="cuda" if has_gpu else "cpu",
         n_jobs=psutil.cpu_count(logical=False),
         early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
-        **xgb_kwargs,
     )
+    XGB_GENERAL_PARAMS.update(xgb_kwargs)
 
     XGB_GENERAL_CLASSIF = XGB_GENERAL_PARAMS.copy()
     XGB_GENERAL_CLASSIF.update({"objective": "binary:logistic", "eval_metric": neg_ovr_roc_auc_score})
@@ -460,17 +464,17 @@ def get_training_configs(
     LGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
         early_stopping_rounds=early_stopping_rounds,
-        device_type=lgb_kwargs.pop("device_type", "cuda" if has_gpu else "cpu"),  # Pop from kwargs if present
+        device_type="cuda" if has_gpu else "cpu",
         random_state=random_seed,
         # histogram_pool_size=16384,
-        **lgb_kwargs,
     )
+    LGB_GENERAL_PARAMS.update(lgb_kwargs)
 
     NGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
         learning_rate=learning_rate,
-        **ngb_kwargs,
     )
+    NGB_GENERAL_PARAMS.update(ngb_kwargs)
 
     mlp_trainer_params: dict = dict(
         devices=1,  # Always use single device by default to avoid multi-GPU complexity
