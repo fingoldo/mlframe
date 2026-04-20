@@ -62,20 +62,29 @@ SPARSENESS_THRESHOLD = 10_000  # Phase 1 OK if max physical code > this
 # ---------------------------------------------------------------------------
 
 def category_codes_max(parquet_path: str, string_cols_to_cast: Sequence[str]) -> int:
-    """Load parquet, cast ONLY the specified string cols (plus ``category``)
-    to pl.Categorical simultaneously, then report the max physical code
-    for ``category``. Returns -1 on error."""
+    """Load parquet, cast all specified string-like cols + ``category`` via
+    ``.cast(pl.String).cast(pl.Categorical)`` in a single ``.with_columns()``
+    so they all participate in a shared cache. Report max physical code
+    for ``category``. Returns -1 on error.
+
+    The double cast (`→ String → Categorical`) is needed when ``category``
+    is ALREADY Categorical in the parquet — a straight
+    ``.cast(pl.Categorical)`` on an already-Categorical column is a
+    no-op that keeps the original per-Series dict. Routing through
+    String forces polars to re-materialise the Categorical alongside
+    the other columns in the shared-cache batch.
+    """
     import polars as pl
     try:
         df = pl.read_parquet(parquet_path)
-        # Apply user's prod preprocessing sequence.
         df = df.with_columns(pl.col(pl.Float64).cast(pl.Float32))
-        # Cast the specified Utf8 columns + category (if present).
-        to_cast = set(string_cols_to_cast) | {CULPRIT_CAT}
-        existing_str = [c for c, dt in df.schema.items()
-                        if c in to_cast and dt in (pl.Utf8, pl.String)]
-        if existing_str:
-            df = df.with_columns([pl.col(c).cast(pl.Categorical) for c in existing_str])
+        to_cast = list(set(string_cols_to_cast) | {CULPRIT_CAT})
+        existing = [c for c, dt in df.schema.items()
+                    if c in to_cast and dt in (pl.Utf8, pl.String, pl.Categorical)]
+        if existing:
+            df = df.with_columns([
+                pl.col(c).cast(pl.String).cast(pl.Categorical) for c in existing
+            ])
         if CULPRIT_CAT not in df.columns:
             return -1
         return int(df[CULPRIT_CAT].to_physical().max())
@@ -85,11 +94,19 @@ def category_codes_max(parquet_path: str, string_cols_to_cast: Sequence[str]) ->
 
 
 def enumerate_string_cols(parquet_path: str) -> List[str]:
-    """Return all Utf8/String columns except 'category' (we ALWAYS keep category)."""
+    """Return all Utf8/String/Categorical columns except 'category' (we
+    ALWAYS include category). Includes existing Categoricals because
+    round-through-String casts them with the shared-cache batch."""
     import polars as pl
     df = pl.read_parquet(parquet_path, n_rows=1000)
-    return [c for c, dt in df.schema.items()
-            if dt in (pl.Utf8, pl.String) and c != CULPRIT_CAT]
+    out = []
+    print(f"  parquet schema scan:", flush=True)
+    for c, dt in df.schema.items():
+        if dt in (pl.Utf8, pl.String, pl.Categorical):
+            print(f"    {c}: {dt}", flush=True)
+            if c != CULPRIT_CAT:
+                out.append(c)
+    return out
 
 
 def bisect_string_cols(parquet_path: str, all_strings: Sequence[str]) -> List[str]:
@@ -194,12 +211,14 @@ def worker(state_file: str) -> int:
     t0 = time.perf_counter()
     df = pl.read_parquet(parquet_path)
     df = df.with_columns(pl.col(pl.Float64).cast(pl.Float32))
-    # Cast the designated string cols + category to Categorical together.
-    to_cast = set(string_cols) | {CULPRIT_CAT}
-    existing_str = [c for c, dt in df.schema.items()
-                    if c in to_cast and dt in (pl.Utf8, pl.String)]
-    if existing_str:
-        df = df.with_columns([pl.col(c).cast(pl.Categorical) for c in existing_str])
+    # Route through String so Categoricals join the shared-cache batch.
+    to_cast = list(set(string_cols) | {CULPRIT_CAT})
+    existing = [c for c, dt in df.schema.items()
+                if c in to_cast and dt in (pl.Utf8, pl.String, pl.Categorical)]
+    if existing:
+        df = df.with_columns([
+            pl.col(c).cast(pl.String).cast(pl.Categorical) for c in existing
+        ])
     df = df.sort(TIMESTAMP_COLUMN)
     # Datetime features.
     df = df.with_columns([
