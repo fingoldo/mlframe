@@ -1462,19 +1462,41 @@ def _train_model_with_fallback(
     return model, best_iter
 
 
-def _filter_categorical_features(fit_params, train_df):
-    """Filter cat_features to only include actual categorical columns in the DataFrame."""
+def _filter_categorical_features(fit_params, train_df, val_df=None, test_df=None):
+    """Filter cat_features to only include actual categorical columns.
+
+    Uses the UNION of categorical columns across train / val / test
+    rather than train alone. Rationale: ``eval_set`` contains val
+    (already registered into fit_params at this point). If val has a
+    categorical dtype in a column that train doesn't — e.g. upstream
+    pipeline cast train but val slipped through a different code path
+    — then CB raises
+    ``column 'X' has dtype 'category' but is not in cat_features``
+    because we pruned X out of cat_features.
+
+    Union-based detection keeps every column that IS categorical in
+    ANY split, matching how CB / XGB expect cat_features to be
+    declared (a superset list is fine; a subset causes the error).
+    """
     if "cat_features" not in fit_params:
         return
 
+    cat_columns: set = set()
     if isinstance(train_df, pd.DataFrame):
         from .strategies import PANDAS_CATEGORICAL_DTYPES
-        cat_columns = set(train_df.select_dtypes(list(PANDAS_CATEGORICAL_DTYPES)).columns)
-        fit_params["cat_features"] = [col for col in fit_params["cat_features"] if col in cat_columns]
+        _pd_cats = list(PANDAS_CATEGORICAL_DTYPES)
+        for split in (train_df, val_df, test_df):
+            if isinstance(split, pd.DataFrame):
+                cat_columns.update(split.select_dtypes(_pd_cats).columns)
     elif isinstance(train_df, pl.DataFrame):
         from .strategies import get_polars_cat_columns
-        cat_columns = set(get_polars_cat_columns(train_df))
-        fit_params["cat_features"] = [col for col in fit_params["cat_features"] if col in cat_columns]
+        for split in (train_df, val_df, test_df):
+            if isinstance(split, pl.DataFrame):
+                cat_columns.update(get_polars_cat_columns(split))
+    else:
+        return
+
+    fit_params["cat_features"] = [col for col in fit_params["cat_features"] if col in cat_columns]
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -2082,7 +2104,7 @@ def train_and_evaluate_model(
         _disable_xgboost_early_stopping_if_needed(model_type_name, model_obj)
 
     if model is not None and fit_params:
-        _filter_categorical_features(fit_params, train_df)
+        _filter_categorical_features(fit_params, train_df, val_df=val_df, test_df=test_df)
 
     if model is not None:
         if (not use_cache) or (not exists(model_file_name)):

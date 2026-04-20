@@ -2096,6 +2096,93 @@ def train_mlframe_models_suite(
             if test_df_polars is not None:
                 test_df_polars = _polars_fill_null_in_categorical(test_df_polars, nullable_cats)
 
+    # -----------------------------------------------------------------
+    # Round 18 fix: align Polars Categorical dicts across splits.
+    #
+    # XGB 3.x with ``enable_categorical=True`` builds a category dict
+    # during train-DMatrix construction, then constructs val-DMatrix
+    # with ``ref=train``. If val contains a category value that
+    # train's dict doesn't have (common on time-ordered splits where
+    # new category codes appear in the later period), the native
+    # layer silently kills the process — reproduced 2026-04-20 on
+    # prod_jobsdetails where ``_raw_tags`` had 37 val-only categories
+    # (13.4% of train card 277). CB has the same crash class.
+    #
+    # Fix: for every Polars Categorical/Enum cat_feature, cast ALL
+    # three splits to a shared ``pl.Enum(union_of_categories)``. Every
+    # split then has the identical dict; XGB's ref=train mapping
+    # succeeds trivially.
+    #
+    # Skipped for columns with cardinality > 50_000 (text-sized — the
+    # cost of sorting + unique per split is non-trivial, and such
+    # columns are typically already promoted to text_features rather
+    # than categorical). The default skip threshold matches the
+    # auto_detect text-promotion threshold.
+    if train_df_polars is not None and cat_features:
+        _DICT_ALIGN_SKIP_CARD = 50_000
+        aligned_cols: list = []
+        skipped_cols: list = []
+        for col in cat_features:
+            if col not in train_df_polars.columns:
+                continue
+            dt = train_df_polars.schema[col]
+            # Only align Categorical/Enum (string-like) columns.
+            is_cat_like = (
+                dt == pl.Categorical
+                or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum))
+            )
+            if not is_cat_like:
+                continue
+            try:
+                # Collect unique values from each split (drop nulls —
+                # fill_null above already handled them; nulls mustn't
+                # enter an Enum's category list).
+                tr_u = train_df_polars.select(pl.col(col).drop_nulls().unique())[col]
+                v_u  = val_df_polars.select(pl.col(col).drop_nulls().unique())[col] if val_df_polars is not None else None
+                te_u = test_df_polars.select(pl.col(col).drop_nulls().unique())[col] if test_df_polars is not None else None
+                # Union + stable-sorted for reproducibility.
+                union = set(tr_u.to_list())
+                if v_u is not None:
+                    union |= set(v_u.to_list())
+                if te_u is not None:
+                    union |= set(te_u.to_list())
+                if len(union) > _DICT_ALIGN_SKIP_CARD:
+                    skipped_cols.append((col, len(union)))
+                    continue
+                union_sorted = sorted(union)
+                enum_dt = pl.Enum(union_sorted)
+                train_df_polars = train_df_polars.with_columns(pl.col(col).cast(enum_dt))
+                if val_df_polars is not None:
+                    val_df_polars = val_df_polars.with_columns(pl.col(col).cast(enum_dt))
+                if test_df_polars is not None:
+                    test_df_polars = test_df_polars.with_columns(pl.col(col).cast(enum_dt))
+                aligned_cols.append((col, len(union_sorted)))
+            except Exception as _e:
+                logger.warning(
+                    "  Failed to align category dict for %s: %s. "
+                    "XGB/CB may crash on val-DMatrix if val has "
+                    "unseen categories.",
+                    col, _e,
+                )
+
+        if verbose and aligned_cols:
+            aligned_summary = ", ".join(f"{c}:{n}" for c, n in aligned_cols)
+            logger.info(
+                "  Aligned Categorical dicts across train/val/test for %d "
+                "cat_feature(s) via pl.Enum(union): %s. Prevents XGB/CB "
+                "native crash on val-DMatrix construction when val has "
+                "categories absent from train.",
+                len(aligned_cols), aligned_summary,
+            )
+        if verbose and skipped_cols:
+            skipped_summary = ", ".join(f"{c}:{n}" for c, n in skipped_cols)
+            logger.warning(
+                "  Skipped dict alignment for %d high-cardinality "
+                "cat_feature(s) (union > %d): %s. These columns are "
+                "still at risk of XGB/CB val-DMatrix crash.",
+                len(skipped_cols), _DICT_ALIGN_SKIP_CARD, skipped_summary,
+            )
+
     # Save metadata EARLY (before training loops) so that if training is interrupted,
     # already-trained models are still usable with the saved pipeline/preprocessing
     _finalize_and_save_metadata(
