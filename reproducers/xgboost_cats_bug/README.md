@@ -4,8 +4,9 @@
 **Platform:** Windows 10 Pro 10.0.19045, 128 GB RAM, 237 GB pagefile
 **Symptom:** process exits silently with code `3221226505` (`0xC0000005`,
 `STATUS_ACCESS_VIOLATION`). No Python traceback, no C++ exception, no stderr.
-**Confirmed on Linux:** same over-allocation occurs, process does not crash
-(glibc commits pages lazily), but RAM usage explodes and bin indexing is wrong.
+**Expected on Linux (not tested):** same over-allocation occurs per C++ analysis,
+but glibc commits pages lazily so the process likely survives; RAM usage would
+explode and bin values may be wrong.
 
 ---
 
@@ -107,8 +108,8 @@ to a page-guard region; a subsequent `push_back` overruns it and SEH fires
 `0xC0000005`. No Python-level exception is raised — the OS kills the process
 instantly.
 
-On Linux glibc the over-allocated mapping is committed lazily. The process
-survives but wastes ~10 MB of heap per categorical feature and may produce
+On Linux (not tested) glibc commits pages lazily, so the process likely
+survives, but wastes ~10 MB of heap per categorical feature and may produce
 wrong predictions if histogram bins are indexed past the legitimate range.
 
 ### 2.3 Why the crash is machine-dependent
