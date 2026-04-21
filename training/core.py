@@ -286,25 +286,41 @@ def _validate_input_columns_against_metadata(
                 continue
             expected_idx = {entry["name"]: entry for entry in expected_schema}
             # Classify diffs by severity.
+            # Trained snapshot is POST-pipeline (what fit() actually saw);
+            # live snapshot is PRE-pipeline (raw serving df). For cat / text /
+            # embedding columns the dtype/role is user-declared and stable
+            # across train<->serve, so family changes there ARE critical
+            # (silent drift in label encoding / tokenizer vocab / etc.). For
+            # numeric-role columns the pipeline internally casts and encodes
+            # (OHE of object, label-encoding, float32 downcast, etc.), so
+            # family changes are expected and must be soft-warned.
             critical_removed: list = []
             family_changes: list = []
             role_changes: list = []
             soft_width_changes: list = []
+            soft_family_changes: list = []
             for col, e in expected_idx.items():
                 if col not in live_schema_idx:
                     if e["role"] in ("cat", "text", "embedding"):
                         critical_removed.append(col)
                     continue
                 l = live_schema_idx[col]
+                role_critical = e["role"] in ("cat", "text", "embedding") or l["role"] in ("cat", "text", "embedding")
                 if l["role"] != e["role"]:
-                    role_changes.append(f"    {col}: trained role={e['role']} serving role={l['role']}")
+                    if role_critical:
+                        role_changes.append(f"    {col}: trained role={e['role']} serving role={l['role']}")
                 if l["dtype"] != e["dtype"]:
                     ef = _dtype_family(e["dtype"])
                     lf = _dtype_family(l["dtype"])
                     if ef != lf:
-                        family_changes.append(
-                            f"    {col}: trained={e['dtype']!r} ({ef}) serving={l['dtype']!r} ({lf})"
-                        )
+                        if role_critical:
+                            family_changes.append(
+                                f"    {col}: trained={e['dtype']!r} ({ef}) serving={l['dtype']!r} ({lf})"
+                            )
+                        else:
+                            soft_family_changes.append(
+                                f"    {col}: trained={e['dtype']!r} ({ef}) serving={l['dtype']!r} ({lf}) (numeric role)"
+                            )
                     else:
                         soft_width_changes.append(
                             f"    {col}: trained={e['dtype']!r} serving={l['dtype']!r} (same family={lf})"
@@ -334,15 +350,19 @@ def _validate_input_columns_against_metadata(
                     "the trained-time layout, or retrain the model against the "
                     "current serving frame."
                 )
-            if soft_width_changes:
+            if soft_width_changes or soft_family_changes:
+                lines = []
+                if soft_width_changes:
+                    lines.extend(s.strip() for s in soft_width_changes)
+                if soft_family_changes:
+                    lines.extend(s.strip() for s in soft_family_changes)
                 logger.warning(
-                    "Input-schema dtype width drift for %s — %d column(s) "
-                    "differ in dtype width only (trained vs serving within "
-                    "the same family). Downstream pipeline should cast "
-                    "transparently; accepting: %s",
+                    "Input-schema drift for %s (pipeline-internal casts on "
+                    "numeric-role columns and/or width-only changes). "
+                    "Accepting; trained pipeline is responsible for "
+                    "casting the serving df: %s",
                     model_file_name,
-                    len(soft_width_changes),
-                    "; ".join(s.strip() for s in soft_width_changes),
+                    "; ".join(lines),
                 )
 
     return df
