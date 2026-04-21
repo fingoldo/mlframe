@@ -31,29 +31,31 @@ before building the cut-values buffer. See section 4 and
 
 ## 1. How sparse codes arise in polars
 
-This is not a contrived edge case. The exact production sequence:
+This is not a contrived edge case. The exact production state (extracted from
+process memory via `extract_crash_state.py` on 2026-04-20):
 
 1. `polars >= 1.19` makes the global `StringCache` permanently enabled —
    `disable_string_cache()` is a no-op in 1.33+. The cache assigns a physical
    code to every new unique string, incrementing a global counter.
-2. Casting a high-cardinality string column (`skills_text`, ~2.5 M unique
-   values) to `pl.Categorical` fills the cache with codes `0..2_525_991`.
-3. A low-cardinality neighbour column `category` (50 distinct strings) is cast
-   to `pl.Categorical` next. Its strings land at codes `2_525_992..2_526_041`.
-4. `fill_null("__MISSING__")` on `category` registers one more string —
-   `"__MISSING__"` — at code `2_526_058`.
+2. By the time the ML pipeline runs, the `category` column (89 distinct
+   strings, loaded from parquet) holds compact codes `0..87`.
+3. Casting `skills_text` (~2.5 M unique strings) to `pl.Categorical` fills the
+   cache with ~2.5 M additional entries, advancing the global code counter to
+   ~2 526 057.
+4. `fill_null("__MISSING__")` on `category` registers the new string
+   `"__MISSING__"` in the polluted cache at code `2_526_058`.
 
-End state for the `category` column:
+End state for the `category` column (verbatim from `extract_crash_state.py`):
 
 | physical code | string |
 |---|---|
-| 2_525_992 | `Digital Marketing` |
-| 2_525_993 | `Virtual Assistance` |
-| ... | 48 other category strings |
+| 0 | `Digital Marketing` |
+| 1 | `Virtual Assistance` |
+| ... | 86 other real strings at codes 2..87 |
 | **2_526_058** | `__MISSING__` |
 
-`n_unique = 51`. `max_physical_code = 2_526_058`.
-XGBoost receives this column and calls `AddCategories` with a set of 51 floats
+`n_unique = 89`. `max_physical_code = 2_526_058`.
+XGBoost receives this column and calls `AddCategories` with a set of 89 floats
 whose maximum value is `2_526_058`. The bug then fires.
 
 ---
@@ -79,12 +81,12 @@ were observed. With `max_cat = 2_526_058` and `n_unique = 51`:
 
 | quantity | value |
 |---|---|
-| `categories.size()` | 51 |
+| `categories.size()` | 89 |
 | `max_cat` | 2 526 058 |
 | loop iterations | 2 526 059 |
 | bytes pushed | `2 526 059 × 4` ≈ **9.64 MB** |
-| bytes needed | `51 × 4` = **204 B** |
-| over-allocation factor | **~47 000×** |
+| bytes needed | `89 × 4` = **356 B** |
+| over-allocation factor | **~28 000×** |
 
 ### 2.1 Why the existing guard does not help
 
@@ -102,11 +104,11 @@ a 400 KB buffer for 51 categories, still 8 000× waste.
 
 ### 2.2 Why Windows crashes and Linux does not
 
-On Windows with `IterativeDMatrix` the ~10 MB allocation occurs repeatedly
-across sketch-merge batches. The allocator places a cut-values buffer adjacent
-to a page-guard region; a subsequent `push_back` overruns it and SEH fires
-`0xC0000005`. No Python-level exception is raised — the OS kills the process
-instantly.
+On Windows the ~10 MB allocation, combined with the heap state produced by
+loading the large Arrow buffers, triggers SEH `0xC0000005`. No Python-level
+exception is raised — the OS kills the process instantly. The exact allocator
+mechanism (page-guard placement, heap fragmentation pattern) was not
+instrumented; the crash is confirmed empirically.
 
 On Linux (not tested) glibc commits pages lazily, so the process likely
 survives, but wastes ~10 MB of heap per categorical feature and may produce
@@ -157,7 +159,7 @@ With `--workaround` the script casts `category` to `pl.Enum(sorted_uniques)`
 after `fill_null`. Physical codes collapse to `[0..50]`, XGBoost allocates
 204 bytes instead of 10 MB, fit completes normally.
 
-Generation takes ~115 s on a 16-core machine. The temp parquet is deleted
+Generation took ~116 s on the prod Windows machine (exact core count unknown). The temp parquet is deleted
 afterwards; use `--keep-parquet` to reuse it on subsequent runs.
 
 ### 3.2 Real-data bundle (requires production parquet)
@@ -220,7 +222,7 @@ for (float cat : categories) {           // std::set is sorted
 }
 ```
 
-Memory impact on this bug's trigger case: `9.64 MB → 204 B` per feature.
+Memory impact on this bug's trigger case: `9.64 MB → 356 B` per feature.
 
 Impact on well-formed inputs (compact codes `[0..k-1]`): `code_to_rank[i] == i`
 for all `i` — identity mapping, no behavioural change, saved models remain
