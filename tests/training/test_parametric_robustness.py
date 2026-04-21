@@ -287,7 +287,15 @@ class TestTrainSuiteRobustness:
         listed in ``metadata['failed_models']`` rather than raised.
     """
 
-    @given(df=prod_like_frame_small(n_rows=200))
+    # 2026-04-21 fix 9.9: shrunk n_rows 200 -> 50. At n=200 the composite
+    # 5-column generator (floats + datetime + sampled_from int target +
+    # Enum category) rejected ~97% of hypothesis examples silently
+    # upstream in polars.testing.parametric.dataframes (verified on
+    # installed hypothesis 6.147.0 + polars 1.40.0). At n=50 the same
+    # schema generates cleanly and CB/XGB can still fit; the test still
+    # exercises the exact suite code path for Polars-native models on a
+    # prod-like schema.
+    @given(df=prod_like_frame_small(n_rows=50))
     @settings(
         max_examples=3,       # suite fit is SLOW (~5-30s per example)
         deadline=None,
@@ -345,7 +353,9 @@ class TestTrainSuiteRobustness:
         failed = metadata.get("failed_models", [])
         assert isinstance(failed, list)
 
-    @given(df=prod_like_frame_small(n_rows=200))
+    # 2026-04-21 fix 9.9: shrunk n_rows 200 -> 50, same rationale as
+    # test_xgb_only_suite_completes above.
+    @given(df=prod_like_frame_small(n_rows=50))
     @settings(
         max_examples=2,       # CB is slower than XGB; even tighter budget
         deadline=None,

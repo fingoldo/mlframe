@@ -17,6 +17,10 @@ from typing import *
 import warnings
 from os.path import exists
 import pandas as pd, numpy as np
+try:
+    import polars as _pl
+except ImportError:  # pragma: no cover
+    _pl = None  # type: ignore[assignment]
 from contextlib import nullcontext
 
 import textwrap
@@ -239,7 +243,14 @@ class RFECV(BaseEstimator, TransformerMixin):
         # Compute inputs/outputs signature
         # ----------------------------------------------------------------------------------------------------------------------------
 
-        signature = (X.shape, y.shape)
+        # Shape alone is not sufficient — two datasets with identical (n, p) but
+        # different column identities must trigger a retrain; otherwise
+        # `self.support_` silently applies stale column selections.
+        if isinstance(X, pd.DataFrame):
+            columns_key = tuple(map(str, X.columns.tolist()))
+        else:
+            columns_key = ("__ndarray__", int(X.shape[1]))
+        signature = (X.shape, y.shape, columns_key)
         if self.skip_retraining_on_same_shape:
             if signature == self.signature:
                 if self.verbose:
@@ -700,6 +711,16 @@ class RFECV(BaseEstimator, TransformerMixin):
         )
 
         self.signature = signature
+
+        # Cache resolved column list so transform() avoids per-call reconstruction.
+        self._selected_cols_cache = None
+        support = getattr(self, "support_", None)
+        if support is not None and len(support) > 0:
+            if isinstance(support[0], (bool, np.bool_)):
+                self._selected_cols_cache = [col for col, selected in zip(self.feature_names_in_, support) if selected]
+            else:
+                self._selected_cols_cache = [self.feature_names_in_[i] for i in support]
+
         return self
 
     def select_optimal_nfeatures_(
@@ -829,13 +850,12 @@ class RFECV(BaseEstimator, TransformerMixin):
             if ENSURE_ARROW_DF_SUPPORT:
                 # Use column names to support Arrow-backed DataFrames (from polars zero-copy conversion).
                 # Arrow-backed DFs don't support .iloc[:, integer_array] reliably.
-                # Handle both boolean masks and integer indices for support_
-                if len(self.support_) > 0 and isinstance(self.support_[0], (bool, np.bool_)):
-                    # Boolean mask - use column names where mask is True
-                    selected_cols = [col for col, selected in zip(self.feature_names_in_, self.support_) if selected]
-                else:
-                    # Integer indices - convert to column names
-                    selected_cols = [self.feature_names_in_[i] for i in self.support_]
+                selected_cols = getattr(self, "_selected_cols_cache", None)
+                if selected_cols is None:
+                    if len(self.support_) > 0 and isinstance(self.support_[0], (bool, np.bool_)):
+                        selected_cols = [col for col, selected in zip(self.feature_names_in_, self.support_) if selected]
+                    else:
+                        selected_cols = [self.feature_names_in_[i] for i in self.support_]
                 return X[selected_cols]
             else:
                 return X.iloc[:, self.support_]
@@ -849,19 +869,59 @@ def split_into_train_test(
     """Split X & y according to indices & dtypes. Basically this accounts for diffeent dtypes (pd.DataFrame, np.ndarray) to perform the same."""
 
     if isinstance(X, pd.DataFrame):
-        X_train, y_train = (X.iloc[train_index, :] if features_indices is None else X.iloc[train_index, :][features_indices]), (
-            y.iloc[train_index, :] if isinstance(y, pd.DataFrame) else (y.iloc[train_index] if isinstance(y, pd.Series) else y[train_index])
-        )
-        X_test, y_test = (X.iloc[test_index, :] if features_indices is None else X.iloc[test_index, :][features_indices]), (
-            y.iloc[test_index, :] if isinstance(y, pd.DataFrame) else (y.iloc[test_index] if isinstance(y, pd.Series) else y[test_index])
-        )
+        # Single-shot row+column selection avoids the intermediate row-sliced
+        # DataFrame that ``X.iloc[idx, :][cols]`` builds, cutting memory and time
+        # on wide tables with large fold indices.
+        if features_indices is None:
+            X_train = X.iloc[train_index, :]
+            X_test = X.iloc[test_index, :]
+        else:
+            X_train = X.iloc[train_index].loc[:, features_indices] if not isinstance(features_indices[0], (int, np.integer)) else X.iloc[np.asarray(train_index), :].iloc[:, list(features_indices)]
+            X_test = X.iloc[test_index].loc[:, features_indices] if not isinstance(features_indices[0], (int, np.integer)) else X.iloc[np.asarray(test_index), :].iloc[:, list(features_indices)]
+        y_train = y.iloc[train_index, :] if isinstance(y, pd.DataFrame) else (y.iloc[train_index] if isinstance(y, pd.Series) else y[train_index])
+        y_test = y.iloc[test_index, :] if isinstance(y, pd.DataFrame) else (y.iloc[test_index] if isinstance(y, pd.Series) else y[test_index])
+    elif _pl is not None and isinstance(X, _pl.DataFrame):
+        # Polars branch (2026-04-21 fix 9.8): the generic numpy path below
+        # used ``X[np.ix_(rows, cols)]``, which passes a 2-D ndarray to
+        # ``polars.DataFrame.__getitem__`` and raises
+        # ``TypeError: multi-dimensional NumPy arrays not supported as
+        # index`` at polars/_utils/getitem.py. Polars selects rows+cols in
+        # two steps: ``df[rows_seq]`` or ``df[rows_seq, cols]`` requires
+        # 1-D row index + columns list.
+        tr_idx = list(np.asarray(train_index))
+        te_idx = list(np.asarray(test_index))
+        if features_indices is None:
+            X_train = X[tr_idx]
+            X_test = X[te_idx]
+        else:
+            fi = np.asarray(features_indices)
+            if fi.dtype.kind in ("i", "u"):
+                cols_sel = [X.columns[int(i)] for i in fi]
+            else:
+                cols_sel = [str(c) for c in fi]
+            # ``df.select(cols)[rows]`` = column-first then row-slice; avoids
+            # materialising an (n_rows × n_all_cols) intermediate.
+            X_train = X.select(cols_sel)[tr_idx]
+            X_test = X.select(cols_sel)[te_idx]
+        # y for polars CV usually arrives as numpy already, but handle
+        # pl.Series defensively.
+        if hasattr(y, "to_numpy") and not isinstance(y, np.ndarray):
+            y_np = y.to_numpy()
+        else:
+            y_np = y
+        y_train = y_np[train_index, :] if hasattr(y_np, "shape") and len(y_np.shape) > 1 else y_np[train_index]
+        y_test = y_np[test_index, :] if hasattr(y_np, "shape") and len(y_np.shape) > 1 else y_np[test_index]
     else:
-        X_train, y_train = (X[train_index, :] if features_indices is None else X[train_index, :][:, features_indices]), (
-            y[train_index, :] if len(y.shape) > 1 else y[train_index]
-        )
-        X_test, y_test = (X[test_index, :] if features_indices is None else X[test_index, :][:, features_indices]), (
-            y[test_index, :] if len(y.shape) > 1 else y[test_index]
-        )
+        if features_indices is None:
+            X_train = X[train_index, :]
+            X_test = X[test_index, :]
+        else:
+            # One-shot fancy indexing via np.ix_; avoids the intermediate row slab.
+            fi = np.asarray(features_indices)
+            X_train = X[np.ix_(np.asarray(train_index), fi)]
+            X_test = X[np.ix_(np.asarray(test_index), fi)]
+        y_train = y[train_index, :] if len(y.shape) > 1 else y[train_index]
+        y_test = y[test_index, :] if len(y.shape) > 1 else y[test_index]
 
     return X_train, y_train, X_test, y_test
 

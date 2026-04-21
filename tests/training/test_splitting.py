@@ -302,21 +302,31 @@ class TestMakeTrainTestSplitAgingLimit:
         assert train_timestamps.max() > train_timestamps.min(), "Should have a range of dates"
 
     def test_invalid_aging_limit_raises_error(self):
-        """Test that invalid aging limit values raise errors."""
+        """Test that invalid aging limit values raise errors.
+
+        Contract (see ``splitting.py`` ~line 80): ``trainset_aging_limit``
+        must be in the OPEN interval (0, 1). Both boundary values reject
+        deliberately:
+          * 0.0 means "keep zero of training data" — unusable
+          * 1.0 means "keep all training data" — indistinguishable from
+            passing None, but the explicit None path is preferred so the
+            rejection forces the caller to be explicit.
+        This test was previously in the test's "no-op" branch (pre
+        2026-04-21); aligned with code on that date.
+        """
         df = pd.DataFrame({'feature': np.arange(100)})
         timestamps = pd.Series(pd.date_range('2023-01-01', periods=100, freq='1h'))
 
-        # Test with aging_limit=0.0 (should effectively not filter due to short-circuit)
-        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1,
-            timestamps=timestamps,
-            trainset_aging_limit=0.0,
-            random_seed=42
-        )
-        # With 0.0 aging limit, should still produce valid splits
-        assert len(train_idx) > 0, "Should have train samples"
+        # Test with aging_limit=0.0 — must raise (boundary, invalid).
+        with pytest.raises(ValueError, match="trainset_aging_limit must be in"):
+            make_train_test_split(
+                df, test_size=0.2, val_size=0.1,
+                timestamps=timestamps,
+                trainset_aging_limit=0.0,
+                random_seed=42
+            )
 
-        # Test with aging_limit=1.0 (should raise error - must be in (0, 1))
+        # Test with aging_limit=1.0 — must raise (boundary, invalid).
         with pytest.raises(ValueError, match="trainset_aging_limit must be in"):
             make_train_test_split(
                 df, test_size=0.2, val_size=0.1,
@@ -324,6 +334,15 @@ class TestMakeTrainTestSplitAgingLimit:
                 trainset_aging_limit=1.0,
                 random_seed=42
             )
+
+        # Sanity: a valid in-range value (e.g. 0.5) must produce splits.
+        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
+            df, test_size=0.2, val_size=0.1,
+            timestamps=timestamps,
+            trainset_aging_limit=0.5,
+            random_seed=42,
+        )
+        assert len(train_idx) > 0
 
 
 class TestMakeTrainTestSplitEdgeCases:

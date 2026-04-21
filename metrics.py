@@ -12,8 +12,6 @@ logger = logging.getLogger(__name__)
 
 from typing import *
 
-# from pyutilz.pythonlib import ensure_installed;ensure_installed("numba numpy pandas scipy plotly")
-
 import numba
 from math import floor
 from scipy.special import expit
@@ -292,17 +290,35 @@ def fast_classification_report(y_true: np.ndarray, y_pred: np.ndarray, nclasses:
 
     # main calcs
     accuracy = hits.sum() / len(y_true)
-    balanced_accuracy = np.nan_to_num(hits / supports, copy=True, nan=zero_division).mean()
+
+    # Balanced accuracy: classes absent from y_true (supports==0) are EXCLUDED from
+    # the mean rather than contributing zero_division. sklearn.metrics.balanced_accuracy_score
+    # computes mean recall over present classes only — matching that semantics.
+    present_mask = supports > 0
+    if present_mask.any():
+        per_class_recall = np.empty(nclasses, dtype=np.float64)
+        for c in range(nclasses):
+            per_class_recall[c] = hits[c] / supports[c] if supports[c] > 0 else 0.0
+        balanced_accuracy = per_class_recall[present_mask].mean()
+    else:
+        balanced_accuracy = 0.0
 
     recalls = hits / supports
     precisions = hits / allpreds
     f1s = 2 * (precisions * recalls) / (precisions + recalls)
 
+    # Weighted averages must divide by supports.sum() (== number of labeled samples with
+    # in-range class ids), NOT len(y_true): out-of-range labels were dropped above, so
+    # dividing by the raw length under-reports the weighted mean proportionally to the
+    # OOB fraction.
+    support_total = supports.sum()
+    weight_denom = support_total if support_total > 0 else 1
+
     # fix nans & compute averages
     i = 0
     for arr in (precisions, recalls, f1s):
         np.nan_to_num(arr, copy=False, nan=zero_division)
-        weighted_averages[i] = (arr * supports).sum() / len(y_true)
+        weighted_averages[i] = (arr * supports).sum() / weight_denom
         macro_averages[i] = arr.mean()
         i += 1
 
@@ -505,10 +521,31 @@ def show_calibration_plot(
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def maximum_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+def _max_abs_pct_error_kernel(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[float, int]:
+    """Returns (max MAPE value, count of y_true==0 entries encountered).
+
+    The zero-count is surfaced so the Python wrapper can emit a warning — silently
+    swallowing y_true==0 hides the fact that the epsilon fallback dominates the ratio
+    and the "percentage" becomes meaningless.
+    """
     epsilon = np.finfo(np.float64).eps
+    n_zero = 0
+    for i in range(len(y_true)):
+        if y_true[i] == 0.0:
+            n_zero += 1
     mape = np.abs(y_pred - y_true) / np.maximum(np.abs(y_true), epsilon)
-    return np.nanmax(mape)
+    return np.nanmax(mape), n_zero
+
+
+def maximum_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    value, n_zero = _max_abs_pct_error_kernel(y_true, y_pred)
+    if n_zero > 0:
+        logger.warning(
+            "maximum_absolute_percentage_error: %d of %d y_true entries are zero; "
+            "the epsilon fallback makes those ratios dominate the result.",
+            n_zero, len(y_true),
+        )
+    return value
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -541,7 +578,13 @@ def calibration_metrics_from_freqs(
             else:
                 weights = hits.astype(np.float64)
 
-            weights /= weights.sum() + 1e-6
+            # Normalize weights to sum to 1. The previous +1e-6 constant was arbitrary and
+            # mattered whenever weights.sum() was small (few bins, low hits counts) — it
+            # biased the weighted MAE toward zero. Guard against the only legitimate zero
+            # case explicitly instead.
+            w_sum = weights.sum()
+            if w_sum > 0:
+                weights /= w_sum
 
             calibration_mae = np.sum(diffs * weights)
             calibration_std = np.sqrt(np.sum(((diffs - calibration_mae) ** 2) * weights))
@@ -671,6 +714,14 @@ def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group
     """
     More memory-efficient version that groups data by group first.
     Better for cases with many groups and reasonable group sizes.
+
+    Upfront filter (2026-04-21): groups with <2 samples OR single-class
+    y_true are NaN-bound by the underlying formula. We precompute per-group
+    (count, pos_count) once, drop sample rows belonging to doomed groups
+    before calling the numba inner loop, and emit the NaNs directly. On
+    production workloads where 95 %+ of groups are single-sample
+    (fine-grained group_ids), this slashes the per-group sort + iteration
+    to only the valid-group subset.
     """
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
@@ -681,19 +732,40 @@ def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group
 
     # By group very efficiently
     if group_ids is not None:
-        sort_indices = np.argsort(group_ids)
-        sorted_group_ids = group_ids[sort_indices]
-        sorted_y_true = y_true[sort_indices]
-        sorted_y_score = y_score[sort_indices]
+        # One pass over (group_id -> sample count, pos_count). np.bincount is
+        # ~2-3x faster than np.add.at for the pos-count accumulation.
+        unique_groups, inverse, counts = np.unique(group_ids, return_inverse=True, return_counts=True)
+        pos_counts = np.bincount(inverse, weights=y_true, minlength=len(unique_groups))
+        valid_mask = (counts >= 2) & (pos_counts > 0) & (pos_counts < counts)
 
-        group_aucs = compute_grouped_group_aucs(sorted_group_ids, sorted_y_true, sorted_y_score)
+        group_aucs: Dict[int, Tuple[float, float]] = {}
+        # Emit NaN entries for all doomed groups up front — preserves the
+        # full output contract so downstream (compute_mean_aucs_per_group +
+        # the >=50 % NaN warning below) sees the same dict keys as before.
+        invalid_group_ids = unique_groups[~valid_mask]
+        for gid in invalid_group_ids:
+            group_aucs[int(gid)] = (np.nan, np.nan)
 
-        # Observability: the inner njit loop silently returns NaN for
-        # single-class groups and single-sample groups. If a majority of
-        # groups is NaN, the per-group mean (and any downstream logic
-        # relying on it) is built on very thin signal. Log ONCE per call
-        # when >=50% of groups are invalid, so operators see "most of my
-        # group AUCs collapsed" instead of staring at NaN numbers.
+        if valid_mask.any():
+            # Mask samples belonging to valid groups only (typically 5 % of
+            # input when single-sample granularity dominates) and pass the
+            # subset to the JIT loop.
+            sample_valid = valid_mask[inverse]
+            sub_y_true = y_true[sample_valid]
+            sub_y_score = y_score[sample_valid]
+            sub_group_ids = group_ids[sample_valid]
+
+            sort_indices = np.argsort(sub_group_ids)
+            sorted_group_ids = sub_group_ids[sort_indices]
+            sorted_y_true = sub_y_true[sort_indices]
+            sorted_y_score = sub_y_score[sort_indices]
+
+            valid_group_aucs = compute_grouped_group_aucs(sorted_group_ids, sorted_y_true, sorted_y_score)
+            group_aucs.update(valid_group_aucs)
+
+        # Observability preserved: log once per call when >=50 % of groups
+        # collapsed to NaN, so operators still see "most of my group AUCs
+        # are single-sample" without reading every entry.
         if group_aucs:
             n_total = len(group_aucs)
             n_nan_roc = sum(1 for (r, _p) in group_aucs.values() if np.isnan(r))
@@ -1044,12 +1116,17 @@ def compute_probabilistic_multiclass_error(
     nbins: int = 10,
     verbose: bool = False,
     ndigits: int = 4,
+    multilabel: bool = False,
     **kwargs,  # as scorer can pass kwargs of this kind: {'needs_proba': True, 'needs_threshold': False}
 ):
     """Given a sequence of per-class probabilities (predicted by some model), and ground truth targets,
     computes weighted sum of per-class errors.
     Supports several error estimation methods: "multicrit", "brier_score", "precision".
     If number of classes is only 2, skips class 0 as it's fully complementary to class 1.
+
+    ``multilabel=True``: y_true is a 2D (n_samples, n_classes) indicator matrix, each column
+    treated as an independent binary target. Single-label (``y_true == class_id``) comparison
+    is wrong for multilabel data because a sample can carry multiple positives simultaneously.
     """
 
     assert method in ("multicrit", "brier_score", "precision")
@@ -1068,18 +1145,27 @@ def compute_probabilistic_multiclass_error(
             y_score = np.vstack([1 - y_score, y_score]).T
         probs = [y_score[:, i] for i in range(y_score.shape[1])]
 
+    # Auto-detect multilabel from shape: a 2D y_true with width matching probs count is
+    # an indicator matrix; caller can also set ``multilabel=True`` explicitly.
+    if not multilabel and isinstance(y_true, np.ndarray) and y_true.ndim == 2 and y_true.shape[1] == len(probs):
+        multilabel = True
+        logger.debug("compute_probabilistic_multiclass_error: detected multilabel y_true shape, enabling multilabel mode.")
+
     total_error = 0.0
     weights_sum = 0
 
     for class_id in range(len(probs)):
 
-        if len(probs) == 2 and class_id == 0:
+        if len(probs) == 2 and class_id == 0 and not multilabel:
             continue
 
         # Get prediction and ground truth
 
         y_pred = probs[class_id]
-        if labels is not None:
+        if multilabel:
+            # Indicator column for this class; each row is an independent binary label.
+            correct_class = y_true[:, class_id]
+        elif labels is not None:
             correct_class = y_true == labels[class_id]
         else:
             correct_class = y_true == class_id
@@ -1131,7 +1217,13 @@ def compute_probabilistic_multiclass_error(
         total_error += class_error * weight
         weights_sum += weight
 
-    total_error /= weights_sum
+    # Guard against div-by-zero when every per-class weight was 0 (e.g. weight_by_class_npositives
+    # with all-negative y_true, or empty probs). Previously propagated 0/0 → NaN silently.
+    if weights_sum > 0:
+        total_error /= weights_sum
+    else:
+        logger.warning("compute_probabilistic_multiclass_error: sum of per-class weights is 0; returning NaN.")
+        total_error = float("nan")
 
     if verbose:
         logger.info(f"method={method}, data size={len(correct_class):_} mean_class_error={total_error:.{ndigits}f}")

@@ -46,13 +46,12 @@ import pandas as pd
 import polars as pl
 import pyarrow as pa
 import polars.selectors as cs
-from pyutilz.system import clean_ram
-from mlframe.helpers import get_own_ram_usage
+from pyutilz.system import clean_ram, get_own_memory_usage
 
 
 def log_ram_usage() -> None:
     """Log current RAM usage, attributed to the caller's module."""
-    _caller_logger().info(f"Done. RAM usage: {get_own_ram_usage():.1f}GB.")
+    _caller_logger().info(f"Done. RAM usage: {get_own_memory_usage():.1f}GB.")
 
 
 # Adaptive clean_ram: skip gc.collect + trim when RSS hasn't grown meaningfully
@@ -281,6 +280,118 @@ dtypes WARN. Keeps the bridge quiet on repeated calls with the same
 embedding-column schema while still surfacing novel shapes. Cleared
 implicitly on process exit; tests that need fresh state can clear it
 explicitly via ``_NESTED_DTYPE_WARN_SEEN.clear()``."""
+
+
+def _dtype_family(dtype_str: str) -> str:
+    """Map a canonical dtype string to a coarse family token.
+
+    Fix 8 load-time diff uses this to distinguish BENIGN width drift
+    (float32 <-> float64, int32 <-> int64) from FAMILY mismatches
+    (string -> numeric, numeric -> categorical) that will actually
+    break inference. String values are produced by ``_canonical_dtype_str``
+    and pandas ``str(dtype)``.
+    """
+    s = str(dtype_str).lower()
+    if s in ("string", "str", "object", "utf8", "categorical") or s.startswith("enum") or s == "category":
+        return "string-or-cat"
+    if any(tok in s for tok in ("float", "decimal", "double")):
+        return "float"
+    if any(tok in s for tok in ("int", "uint")):
+        return "int"
+    if "bool" in s:
+        return "bool"
+    if "date" in s or "time" in s:
+        return "datetime"
+    if s.startswith("list"):
+        return "list"  # embedding-family
+    return s
+
+
+def _canonical_dtype_str(dtype) -> str:
+    """Canonicalise a Polars or pandas dtype into a stable string form for
+    hashing. Aliases collapse (pl.Utf8 / pl.String -> 'String'), and pl.Enum
+    records both the token and the sorted category tuple so category drift
+    is detectable (val-set with a new category yields a different hash).
+
+    Intentionally strict: two runs on the same column with different
+    category palettes (e.g. union vs partial) produce different hashes —
+    that's the correct signal for Fix 8's fingerprint, since CatBoost's
+    internal dict ordering depends on the category list.
+    """
+    s = str(dtype)
+    # pl.String is an alias for pl.Utf8 as of polars 1.x; collapse.
+    if s in ("Utf8", "String"):
+        return "String"
+    # pl.Enum(categories=['a','b','c']) — include categories in canonical form
+    # so val-drift with new categories invalidates cached models.
+    if s.startswith("Enum("):
+        try:
+            cats = list(dtype.categories) if hasattr(dtype, "categories") else []
+            return "Enum[" + ",".join(sorted(str(c) for c in cats)) + "]"
+        except Exception:
+            return s
+    return s
+
+
+def compute_model_input_fingerprint(
+    df_at_fit,
+    cat_features: Optional[list] = None,
+    text_features: Optional[list] = None,
+    embedding_features: Optional[list] = None,
+) -> "tuple[str, list]":
+    """Compute a 10-char SHA256 fingerprint of a model's fit-time input
+    schema (column names + canonical dtypes + roles).
+
+    Returns:
+        (schema_hash, input_schema) where input_schema is the
+        order-stable list of ``{"name": str, "dtype": str, "role":
+        cat|text|embedding|numeric}`` records used to build the hash.
+
+    Rationale (Fix 8): hashes behaviour — the realised data layout the
+    model saw at fit time — not the config flags that produced it. Two
+    runs with different config flags (e.g. ``use_text_features=True``
+    vs ``False`` for LGB) that yield the same final schema at fit time
+    share the same hash, which is the right caching semantics. Changes
+    that DO affect the model's input (new column, different dtype,
+    dtype-alias swap, role promotion) produce a different hash so the
+    cached file isn't silently overwritten.
+
+    Canonical JSON via ``json.dumps(..., sort_keys=True)`` — required by
+    the user's memory rule ``feedback_json_hash_sort_keys`` so the hash
+    is deterministic across Python builds with different dict orderings.
+    """
+    import hashlib
+    import json as _json
+
+    if df_at_fit is None:
+        return "__nodf_____", []
+
+    cat_set = set(cat_features or [])
+    text_set = set(text_features or [])
+    emb_set = set(embedding_features or [])
+
+    schema = []
+    for col in sorted(df_at_fit.columns):
+        try:
+            if isinstance(df_at_fit, pl.DataFrame):
+                dt = df_at_fit.schema[col]
+            else:
+                dt = df_at_fit[col].dtype
+        except Exception:
+            dt = "?"
+        if col in cat_set:
+            role = "cat"
+        elif col in text_set:
+            role = "text"
+        elif col in emb_set:
+            role = "embedding"
+        else:
+            role = "numeric"
+        schema.append({"name": col, "dtype": _canonical_dtype_str(dt), "role": role})
+
+    canonical = _json.dumps(schema, sort_keys=True)
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:10]
+    return digest, schema
 
 
 def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:

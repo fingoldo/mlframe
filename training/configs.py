@@ -147,6 +147,12 @@ class PreprocessingConfig(BaseConfig):
     ensure_float32_dtypes: bool = True
     skip_infinity_checks: bool = True
     drop_columns: Optional[List[str]] = None
+    # 2026-04-21: promoted from implicit always-on behaviour to an
+    # explicit toggle. Default True preserves the pre-flag behaviour
+    # (constant columns dropped during preprocess_dataframe). Set False
+    # to keep constant columns — useful for downstream consumers that
+    # rely on a fixed column layout across train/val/test splits.
+    remove_constant_columns: bool = True
     n_rows: Optional[int] = Field(
         default=None,
         ge=1,
@@ -356,6 +362,17 @@ class FeatureTypesConfig(BaseConfig):
         Whether to auto-detect text and embedding features from DataFrame schema
         (default: True). Embeddings detected via ``pl.List(pl.Float32/64)``.
         Text vs categorical split by cardinality threshold.
+    use_text_features : bool
+        Master opt-out for text-feature routing (default: True). When False,
+        auto-detection never promotes any column to text_features regardless
+        of cardinality, and any explicit ``text_features`` list is also
+        cleared before downstream consumption. All high-cardinality string
+        columns stay as cat_features (for models that support them) or are
+        dropped by models that don't. Useful when CB's text-feature TF-IDF
+        pipeline is the training bottleneck (e.g. ``skills_text`` with 2M
+        unique values) and the user prefers cat-feature treatment across
+        the whole suite. Same caveat as other flags: changing this between
+        runs invalidates cached models — see Fix 8 schema fingerprint.
     cat_text_cardinality_threshold : int
         String columns with ``n_unique <= threshold`` are treated as categorical
         (existing pipeline). Columns with ``n_unique > threshold`` are treated
@@ -396,6 +413,7 @@ class FeatureTypesConfig(BaseConfig):
     text_features: Optional[List[str]] = None
     embedding_features: Optional[List[str]] = None
     auto_detect_feature_types: bool = True
+    use_text_features: bool = True
     cat_text_cardinality_threshold: int = Field(default=300, ge=1)
 
 
@@ -889,6 +907,14 @@ class TrainingBehaviorConfig(BaseConfig):
     # Disable to reproduce the pre-fix behavior or if the alignment
     # cost (O(n_rows) per cat column) is prohibitive.
     align_polars_categorical_dicts: bool = True
+
+    # Fix 8 (2026-04-21): append a per-model input-schema fingerprint
+    # (``__sch_<10 hex>``) to model filenames so two runs with different
+    # feature-type configs (text vs cat promotion, encoding, alignment)
+    # don't silently overwrite each other. Default True. Set False to
+    # restore the pre-2026-04-21 naming scheme (``{model}_{weight}.dump``);
+    # load-time schema verification is also skipped for those artefacts.
+    model_file_hash_suffix: bool = True
 
 
 class TrainingConfig(BaseConfig):

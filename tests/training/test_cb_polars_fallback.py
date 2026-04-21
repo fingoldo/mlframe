@@ -299,76 +299,56 @@ def test_fallback_retry_failure_propagates(polars_frame_with_text_cats):
 
 
 # ---------------------------------------------------------------------------
-# Diagnostic logging — pre-fit Enum warning + post-fail schema dump
+# Post-fail schema-dump diagnostic
 # ---------------------------------------------------------------------------
-# 2026-04-19 incident: CatBoost 1.2.10 Polars fastpath raised
-# "TypeError: No matching signature found" in
-# _set_features_order_data_polars_categorical_column.process. The fused
-# cpdef dispatcher has no overload for pl.Enum. With the old one-line
-# warning (truncated to 160 chars, just the error message), operators
-# had NO way to tell which of 9 cat_features was at fault — leading to
-# 2+ minutes of wasted CB attempt + a pandas-fallback detour on every run.
-# The two helpers below surface the culprit in the first log line.
+# 2026-04-19 incident: CB 1.2.10 Polars fastpath raised "TypeError: No
+# matching signature found". Root cause (verified 2026-04-21 on CB 1.2.10
+# + polars 1.40): nullable Categorical cat_features trigger the dispatch
+# miss; pl.Enum WITHOUT nulls fits the fastpath just fine. The pre-fit
+# "Enum will crash CB" warning was removed on 2026-04-21 as empirically
+# incorrect; only the post-fail schema dump remains.
 
 
-def test_warn_on_unsupported_polars_dtypes_flags_enum_cat_features(caplog):
-    """Pre-fit warning must name the Enum column(s) in cat_features."""
-    import logging
-    from mlframe.training.trainer import _warn_on_unsupported_polars_dtypes
+def test_polars_schema_diagnostic_flags_nullable_cat_culprit():
+    """The post-fail schema dump must surface nullable cat_features (the
+    actual culprit for CB 1.2.10's 'No matching signature found') in its
+    header, not buried in the per-column list."""
+    from mlframe.training.trainer import _polars_schema_diagnostic
 
-    n = 50
-    enum_dt = pl.Enum(["A", "B", "C"])
     df = pl.DataFrame({
-        "num":  np.arange(n, dtype=np.float32),
-        "good": pl.Series("good", ["A"] * n).cast(pl.Categorical),
-        "bad":  pl.Series("bad",  ["A"] * n, dtype=enum_dt),
+        "a": np.arange(20, dtype=np.float32),
+        "with_nulls": pl.Series(
+            "with_nulls", ["red", None, "green", "blue"] * 5
+        ).cast(pl.Categorical),
+        "category_group": pl.Series("category_group", ["x", "y"] * 10).cast(pl.Categorical),
     })
-    with caplog.at_level(logging.WARNING, logger="mlframe.training.trainer"):
-        _warn_on_unsupported_polars_dtypes(df, cat_features=["good", "bad"])
-    msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
-    assert any("bad" in m and "Enum" in m for m in msgs), (
-        f"Expected warning naming 'bad' as an Enum cat_feature; got: {msgs}"
+    dump = _polars_schema_diagnostic(
+        df, cat_features=["with_nulls", "category_group"], text_features=[]
     )
-    # 'good' is plain Categorical — must NOT be flagged.
-    assert not any("'good'" in m for m in msgs), msgs
+    assert "with_nulls" in dump
+    assert "null" in dump.lower() or "fill_null" in dump
+    # category_group has no nulls -> must NOT be in the culprit header.
+    header_line = dump.split("\n", 2)[0] + "\n" + dump.split("\n", 2)[1] if "\n" in dump else dump
+    assert "category_group" not in header_line or "cat_features with null" not in header_line
 
 
-def test_warn_on_unsupported_polars_dtypes_silent_when_clean(caplog):
-    """No cat_feature is Enum -> no warning. Silent path matters because
-    this helper runs on every CatBoost fit; a false-positive warning
-    would noise up every log run."""
-    import logging
-    df = pl.DataFrame({
-        "num": np.arange(10, dtype=np.float32),
-        "c":   pl.Series("c", ["a", "b"] * 5).cast(pl.Categorical),
-    })
-    from mlframe.training.trainer import _warn_on_unsupported_polars_dtypes
-    with caplog.at_level(logging.WARNING, logger="mlframe.training.trainer"):
-        _warn_on_unsupported_polars_dtypes(df, cat_features=["c"])
-    warn_msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
-    assert not warn_msgs, f"Expected silence on clean Polars cat_features; got: {warn_msgs}"
-
-
-def test_polars_schema_diagnostic_names_enum_culprit():
-    """The post-fail schema dump must highlight any Enum cat_feature in
-    its header (not buried in the per-column list) so the first WARNING
-    line after the CB TypeError immediately points to the culprit."""
+def test_polars_schema_diagnostic_enum_reported_but_not_flagged():
+    """pl.Enum without nulls is compatible with CB 1.2.10 fastpath
+    (verified empirically). Dump should mention it for visibility but
+    NOT claim it's the cause of the dispatch miss."""
     from mlframe.training.trainer import _polars_schema_diagnostic
 
     enum_dt = pl.Enum(["red", "green", "blue"])
     df = pl.DataFrame({
         "a": np.arange(20, dtype=np.float32),
         "job_type": pl.Series("job_type", ["red"] * 20, dtype=enum_dt),
-        "category_group": pl.Series("category_group", ["x", "y"] * 10).cast(pl.Categorical),
     })
-    dump = _polars_schema_diagnostic(
-        df, cat_features=["job_type", "category_group"], text_features=[]
-    )
+    dump = _polars_schema_diagnostic(df, cat_features=["job_type"], text_features=[])
     assert "job_type" in dump
     assert "Enum" in dump
-    assert "No matching signature found" in dump or "Enum dispatch" in dump
-    # category_group must appear as a plain Categorical entry, not flagged.
-    assert "category_group" in dump
+    # Must NOT claim Enum is the cause.
+    assert "most likely cause" not in dump
+    assert "visibility" in dump or "compatible" in dump
 
 
 def test_polars_schema_diagnostic_handles_empty_cat_features():

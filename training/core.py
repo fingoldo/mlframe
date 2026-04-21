@@ -109,6 +109,83 @@ def _elapsed_str(start: float) -> str:
     return f"{elapsed / 60:.1f}min"
 
 
+def _detect_dataset_reuse_capabilities() -> "Dict[str, bool]":
+    """Feature-detect which GBDT sklearn wrappers can accept a pre-built
+    dataset as ``X``, enabling label/weight reuse across fits without
+    rebuilding the native data structure.
+
+    Matrix of capability keys:
+
+    - ``cb_pool_set_label``: ``catboost.Pool.set_label`` callable.
+    - ``cb_pool_set_weight``: ``catboost.Pool.set_weight`` callable.
+    - ``cb_pool_label_swap``: both of the above AND
+      ``CatBoostClassifier.fit(X=Pool)`` short-circuits the rebuild
+      (verified via ``_build_train_pool`` code path in the installed
+      catboost build).
+    - ``xgb_dmatrix_set_label`` / ``xgb_dmatrix_set_weight``: ``DMatrix``
+      exposes both mutators (true in every 3.x release).
+    - ``xgb_sklearn_accepts_dmatrix``: ``XGBClassifier.fit(X=DMatrix)``
+      short-circuits — empirically False in 3.2.0 (upstream FR pending).
+    - ``lgb_dataset_set_label`` / ``lgb_dataset_set_weight``: ``Dataset``
+      exposes both mutators (true in every 4.x release).
+    - ``lgb_sklearn_accepts_dataset``: ``LGBMClassifier.fit(X=Dataset)``
+      short-circuits — empirically False in 4.6.0 (upstream FR pending).
+
+    Only the capability set produced here gates Fix 9.4.3 reuse; the
+    upstream-pending items stay False until the libraries ship the
+    short-circuit and a user upgrades.
+    """
+    caps: "Dict[str, bool]" = {}
+
+    # CatBoost
+    try:
+        import catboost as _cb
+        _pool_cls = getattr(_cb, "Pool", None)
+        caps["cb_pool_set_label"] = callable(getattr(_pool_cls, "set_label", None))
+        caps["cb_pool_set_weight"] = callable(getattr(_pool_cls, "set_weight", None))
+        # Short-circuit check: CatBoostClassifier.fit(X=Pool) is supported
+        # in every CB >= 1.0 via ``_build_train_pool`` (``isinstance(X,
+        # Pool)`` return). The label-swap variant lands with the PR that
+        # made Pool.set_label callable — gate the reuse on BOTH.
+        caps["cb_pool_label_swap"] = (
+            caps["cb_pool_set_label"] and caps["cb_pool_set_weight"]
+        )
+    except ImportError:
+        caps["cb_pool_set_label"] = False
+        caps["cb_pool_set_weight"] = False
+        caps["cb_pool_label_swap"] = False
+
+    # XGBoost
+    try:
+        import xgboost as _xgb
+        _dm = getattr(_xgb, "DMatrix", None)
+        caps["xgb_dmatrix_set_label"] = callable(getattr(_dm, "set_label", None))
+        caps["xgb_dmatrix_set_weight"] = callable(getattr(_dm, "set_weight", None))
+        # Upstream wrapper does NOT short-circuit yet (verified 2026-04-21
+        # on xgboost 3.2.0 — ``_create_dmatrix`` rebuilds unconditionally).
+        # Mark False until an upstream PR lands.
+        caps["xgb_sklearn_accepts_dmatrix"] = False
+    except ImportError:
+        caps["xgb_dmatrix_set_label"] = False
+        caps["xgb_dmatrix_set_weight"] = False
+        caps["xgb_sklearn_accepts_dmatrix"] = False
+
+    # LightGBM
+    try:
+        import lightgbm as _lgb
+        _ds = getattr(_lgb, "Dataset", None)
+        caps["lgb_dataset_set_label"] = callable(getattr(_ds, "set_label", None))
+        caps["lgb_dataset_set_weight"] = callable(getattr(_ds, "set_weight", None))
+        # Same story as XGBoost — verified 2026-04-21 on lightgbm 4.6.0.
+        caps["lgb_sklearn_accepts_dataset"] = False
+    except ImportError:
+        caps["lgb_dataset_set_label"] = False
+        caps["lgb_dataset_set_weight"] = False
+        caps["lgb_sklearn_accepts_dataset"] = False
+
+    return caps
+
+
 def _validate_input_columns_against_metadata(
     df,
     metadata: "Dict[str, Any]",
@@ -172,6 +249,101 @@ def _validate_input_columns_against_metadata(
         if verbose:
             logger.info(f"Dropping extra columns: {sorted(extra_cols)}")
         df = df[filter_existing(df, columns)]
+
+    # Fix 8f (2026-04-21, v2): per-model input-schema diff reporting.
+    # ``metadata['model_schemas']`` (if present) maps model_file_name to
+    # ``{schema_hash, input_schema, mlframe_model, weight_name}`` — the
+    # exact realised layout each fitted model saw at training time.
+    #
+    # Severity rules at load time:
+    #   HARD-FAIL (ValueError) on changes sklearn / CB / XGB / LGB will
+    #   silently produce wrong predictions for:
+    #     * removed columns that were cat/text/embedding features
+    #     * role changes (cat -> text, text -> numeric, etc.)
+    #     * dtype FAMILY changes (string -> numeric, numeric -> categorical)
+    #   SOFT-WARN on benign differences the downstream pipeline casts
+    #   transparently:
+    #     * float32 <-> float64, int32 <-> int64 (width-only)
+    #     * added columns (caller superset — already filtered to the
+    #       trained subset above)
+    # Silent pass on old metadata files that predate Fix 8.
+    model_schemas = metadata.get("model_schemas")
+    if model_schemas:
+        from mlframe.training.utils import compute_model_input_fingerprint, _dtype_family
+        live_hash, live_schema = compute_model_input_fingerprint(
+            df,
+            cat_features=metadata.get("cat_features") or [],
+            text_features=metadata.get("text_features") or [],
+            embedding_features=metadata.get("embedding_features") or [],
+        )
+        live_schema_idx = {entry["name"]: entry for entry in live_schema}
+        for model_file_name, rec in model_schemas.items():
+            expected_hash = rec.get("schema_hash")
+            expected_schema = rec.get("input_schema") or []
+            if expected_hash is None or not expected_schema:
+                continue
+            if expected_hash == live_hash:
+                continue
+            expected_idx = {entry["name"]: entry for entry in expected_schema}
+            # Classify diffs by severity.
+            critical_removed: list = []
+            family_changes: list = []
+            role_changes: list = []
+            soft_width_changes: list = []
+            for col, e in expected_idx.items():
+                if col not in live_schema_idx:
+                    if e["role"] in ("cat", "text", "embedding"):
+                        critical_removed.append(col)
+                    continue
+                l = live_schema_idx[col]
+                if l["role"] != e["role"]:
+                    role_changes.append(f"    {col}: trained role={e['role']} serving role={l['role']}")
+                if l["dtype"] != e["dtype"]:
+                    ef = _dtype_family(e["dtype"])
+                    lf = _dtype_family(l["dtype"])
+                    if ef != lf:
+                        family_changes.append(
+                            f"    {col}: trained={e['dtype']!r} ({ef}) serving={l['dtype']!r} ({lf})"
+                        )
+                    else:
+                        soft_width_changes.append(
+                            f"    {col}: trained={e['dtype']!r} serving={l['dtype']!r} (same family={lf})"
+                        )
+            hard_fail = bool(critical_removed or family_changes or role_changes)
+            if hard_fail:
+                diff_lines = []
+                if critical_removed:
+                    diff_lines.append(
+                        f"  - critical missing (cat/text/embedding): {sorted(critical_removed)}"
+                    )
+                if family_changes:
+                    diff_lines.append("  dtype FAMILY changes (trained -> serving):")
+                    diff_lines.extend(family_changes)
+                if role_changes:
+                    diff_lines.append("  role changes (cat/text/embedding/numeric):")
+                    diff_lines.extend(role_changes)
+                if soft_width_changes:
+                    diff_lines.append("  (soft) dtype width-only changes:")
+                    diff_lines.extend(soft_width_changes)
+                raise ValueError(
+                    "Model input-schema mismatch at load time for "
+                    f"{model_file_name!r} "
+                    f"(trained hash={expected_hash}, serving hash={live_hash}):\n"
+                    + "\n".join(diff_lines) + "\n"
+                    "Either restore the upstream feature pipeline that produced "
+                    "the trained-time layout, or retrain the model against the "
+                    "current serving frame."
+                )
+            if soft_width_changes:
+                logger.warning(
+                    "Input-schema dtype width drift for %s — %d column(s) "
+                    "differ in dtype width only (trained vs serving within "
+                    "the same family). Downstream pipeline should cast "
+                    "transparently; accepting: %s",
+                    model_file_name,
+                    len(soft_width_changes),
+                    "; ".join(s.strip() for s in soft_width_changes),
+                )
 
     return df
 
@@ -279,6 +451,15 @@ def _auto_detect_feature_types(
     text_features = list(feature_types_config.text_features or [])
     embedding_features = list(feature_types_config.embedding_features or [])
 
+    # Master switch ``use_text_features`` only gates AUTO-PROMOTION (the
+    # cardinality-based heuristic below). User-supplied explicit
+    # ``text_features`` list is honored regardless — if the user passed it,
+    # they intend those columns routed as text_features. (2026-04-21
+    # refinement: earlier version cleared the explicit list too, which
+    # broke ``test_non_catboost_drops_text_columns`` / auto-detection
+    # tests that pass an explicit list AND expect no auto-promotion on
+    # top. The ``promote_text`` flag below is the real gate.)
+
     if not feature_types_config.auto_detect_feature_types:
         return text_features, embedding_features
 
@@ -323,6 +504,10 @@ def _auto_detect_feature_types(
     promoted: list = []  # cat_features -> text_features, tracked for diagnostic log only
     cardinalities: dict = {}  # per auto-detected text col: n_unique (for diagnostic log)
     skipped_low_non_null: list = []  # (name, n_unique, non_null_count) — blocked by guard
+    # Master-switch short-circuits the text-promotion branches (embedding
+    # detection still runs). Cheaper than threading the flag through every
+    # append site; one flag read per schema iteration at worst.
+    promote_text = feature_types_config.use_text_features
 
     if isinstance(df, pl.DataFrame):
         for name, dtype in df.schema.items():
@@ -341,7 +526,7 @@ def _auto_detect_feature_types(
                 dtype in (pl.String, pl.Utf8, pl.Categorical)
                 or isinstance(dtype, pl.Enum)
             )
-            if is_text_like:
+            if is_text_like and promote_text:
                 n_unique = df[name].n_unique()
                 if n_unique > threshold:
                     # Non-null FRACTION guard — block promotion if the
@@ -362,7 +547,7 @@ def _auto_detect_feature_types(
             if col in user_assigned:
                 continue
             dtype_name = str(df[col].dtype)
-            if dtype_name.startswith("object") or dtype_name.startswith("string") or dtype_name == "category":
+            if (dtype_name.startswith("object") or dtype_name.startswith("string") or dtype_name == "category") and promote_text:
                 n_unique = df[col].nunique()
                 if n_unique > threshold:
                     non_null = int(df[col].notna().sum())
@@ -528,7 +713,7 @@ import scipy.stats as stats
 from collections import defaultdict
 from os.path import join, exists
 import glob
-from pyutilz.system import clean_ram, tqdmu
+from pyutilz.system import clean_ram, tqdmu, tqdmu_lazy_start
 from pyutilz.strings import slugify
 from sklearn.base import clone
 from sklearn.pipeline import Pipeline
@@ -568,6 +753,7 @@ from .utils import (
     get_process_rss_mb,
     maybe_clean_ram_and_gpu,
     filter_existing,
+    compute_model_input_fingerprint,
 )
 from .helpers import get_trainset_features_stats_polars, get_trainset_features_stats
 from .models import is_linear_model, LINEAR_MODEL_TYPES
@@ -1425,6 +1611,38 @@ def train_mlframe_models_suite(
         from mlframe.training.crash_reporting import enable_crash_reporting as _enable_crash_reporting
         _enable_crash_reporting()
 
+    # Fix 9.4.2: report dataset-reuse capability of the installed GBDT
+    # libraries. CB Pool.set_label/set_weight + CB wrapper's Pool-as-X
+    # short-circuit enable reuse across weight schemas and same-type
+    # targets. XGB/LGB sklearn wrappers currently lack the equivalent
+    # (upstream FRs pending) — only the per-build logging applies there.
+    _dataset_reuse_caps = _detect_dataset_reuse_capabilities()
+    logger.info(f"Dataset-reuse capabilities: {_dataset_reuse_caps}")
+    if not _dataset_reuse_caps.get("cb_pool_label_swap"):
+        logger.warning(
+            "  CatBoost Pool.set_label/set_weight not available in installed build — "
+            "mlframe will fall back to rebuilding the Pool on every weight schema and "
+            "same-type target. Upgrade CatBoost to pick up the Pool label-swap PR."
+        )
+
+    # Fix 9.4.3: clear the process-wide CB Pool cache at every suite
+    # entry. The cache is keyed on ``id(train_df)`` + column/shape
+    # signature; across independent suite invocations (e.g. successive
+    # pytest tests that each build their own train_df) Python can reuse
+    # ids after GC, and if a later frame happens to have the same
+    # columns + shape, we'd wrongly reuse a stale Pool built from
+    # different underlying data. Clearing per-suite gives us per-run
+    # locality without threading a session token through every strategy.
+    try:
+        from mlframe.training.trainer import (
+            _CB_POOL_CACHE as _cb_cache,
+            _CB_VAL_POOL_CACHE as _cb_val_cache,
+        )
+        _cb_cache.clear()
+        _cb_val_cache.clear()
+    except Exception:
+        pass
+
     # Default models
     if mlframe_models is None:
         mlframe_models = ["cb", "lgb", "xgb", "mlp", "linear"]
@@ -1906,14 +2124,55 @@ def train_mlframe_models_suite(
     # where X is indexed via integer positional slicing internally — pandas-only path.
     # Force pandas conversion whenever any RFECV variant is requested.
     _has_rfecv = bool(rfecv_models)
+    # Fix 1 (2026-04-21): when the ONLY blockers for the Polars fastpath are
+    # non-native strategies (LGB, sklearn, linear), defer upfront conversion
+    # and let the per-strategy lazy conversion at the non-polars-fastpath
+    # branch of the training loop do it just-in-time. recurrent_models and
+    # rfecv still trigger upfront conversion — those paths use pandas-only
+    # internals that predate Polars support. Savings on the user's 2026-04-21
+    # run: 661 s polars→pandas + 70 GB RAM held across the 6-hour CB fit.
+    _has_non_native_mlframe_strategy = was_polars_input and not all_models_polars_native
     can_skip_pandas_conv = (
-        was_polars_input and all_models_polars_native
+        was_polars_input
         and not recurrent_models and not _has_rfecv
+        and (all_models_polars_native or _has_non_native_mlframe_strategy)
     )
+
+    # Pre-conversion size capture (Fix 3B): polars .estimated_size() is O(cols),
+    # microseconds. Computing it now — BEFORE any pandas conversion — avoids the
+    # pathological pandas memory_usage(deep=True) scan downstream in
+    # configure_training_params (3 min on a 75 GB frame with millions of unique
+    # object-column strings). Only used if the frame is polars here; when it's
+    # already pandas (unusual entry), the downstream fallback stays on
+    # get_df_memory_consumption(deep=False).
+    train_df_size_bytes_cached: Optional[float] = None
+    val_df_size_bytes_cached: Optional[float] = None
+    if was_polars_input:
+        try:
+            if isinstance(train_df, pl.DataFrame):
+                train_df_size_bytes_cached = float(train_df.estimated_size())
+            if val_df is not None and isinstance(val_df, pl.DataFrame):
+                val_df_size_bytes_cached = float(val_df.estimated_size())
+        except Exception:
+            # Any failure here is non-fatal — downstream get_df_memory_consumption
+            # fallback remains correct (just slower).
+            train_df_size_bytes_cached = None
+            val_df_size_bytes_cached = None
+
     if can_skip_pandas_conv:
         train_df_pd, val_df_pd, test_df_pd = train_df, val_df, test_df
         if verbose:
-            logger.info("  Skipped pandas conversion — all models are Polars-native (no outlier_detector)")
+            if all_models_polars_native:
+                logger.info("  Skipped pandas conversion — all models are Polars-native")
+            else:
+                non_native = [
+                    m for m, s in zip(mlframe_models or [], _strategies_for_polars_check)
+                    if not s.supports_polars
+                ]
+                logger.info(
+                    f"  Deferred pandas conversion — Polars-native models run on the fastpath; "
+                    f"non-native {non_native} will convert lazily at their strategy branch."
+                )
     else:
         # Diagnostic: on large high-cardinality frames the polars→pandas
         # conversion costs minutes (per-column dict rebuild for every split),
@@ -2208,12 +2467,12 @@ def train_mlframe_models_suite(
     slug_to_original_target_type = {}
     slug_to_original_target_name = {}
 
-    for target_type, targets in tqdmu(target_by_type.items(), desc="target type"):
+    for target_type, targets in tqdmu_lazy_start(target_by_type.items(), desc="target type"):
         # Store original target_type mapping
         slug_to_original_target_type[slugify(str(target_type).lower())] = target_type
 
         # !TODO ! optimize for creation of inner feature matrices of cb,lgb,xgb here. They should be created once per featureset, not once per target.
-        for cur_target_name, cur_target_values in tqdmu(targets.items(), desc="target"):
+        for cur_target_name, cur_target_values in tqdmu_lazy_start(targets.items(), desc="target"):
             # Store original cur_target_name mapping
             slug_to_original_target_name[slugify(cur_target_name)] = cur_target_name
             # Initialize rfecv_models_params before conditional to avoid NameError if mlframe_models is empty
@@ -2285,6 +2544,14 @@ def train_mlframe_models_suite(
                     common_params=od_common_params,
                     mlframe_models=mlframe_models,
                     linear_model_config=linear_model_config,
+                    # Fix 3B: forward pre-conversion Polars-side size so
+                    # configure_training_params skips the 3-min pandas
+                    # memory_usage(deep=...) scan on frames with high-
+                    # cardinality object columns. Slight approximation
+                    # acceptable (only feeds GPU-RAM-fit heuristic);
+                    # outlier-filter shrinkage is small vs total size.
+                    train_df_size_bytes=train_df_size_bytes_cached,
+                    val_df_size_bytes=val_df_size_bytes_cached,
                 )
 
             if verbose:
@@ -2306,7 +2573,7 @@ def train_mlframe_models_suite(
             # for ordinary models and all custom pipelines with the same model type (linear, tree, etc).
             pipeline_cache = PipelineCache()
 
-            for pre_pipeline, pre_pipeline_name in tqdmu(zip(pre_pipelines, pre_pipeline_names), desc="pre_pipeline", total=len(pre_pipelines)):
+            for pre_pipeline, pre_pipeline_name in tqdmu_lazy_start(zip(pre_pipelines, pre_pipeline_names), desc="pre_pipeline", total=len(pre_pipelines)):
                 # Skip CatBoost RFECV pipeline with metamodel_func due to sklearn clone issue
                 if _should_skip_catboost_metamodel(pre_pipeline_name.strip(), target_type, behavior_config):
                     continue
@@ -2342,7 +2609,7 @@ def train_mlframe_models_suite(
                 tier_dfs_cache = {}  # feature_tier -> {train_df, val_df, test_df}
                 prev_tier = None
 
-                for mlframe_model_name in tqdmu(sorted_models, desc="mlframe model"):
+                for mlframe_model_name in tqdmu_lazy_start(sorted_models, desc="mlframe model"):
                     # Skip CatBoost model with metamodel_func due to sklearn clone issue
                     if _should_skip_catboost_metamodel(mlframe_model_name, target_type, behavior_config):
                         continue
@@ -2465,6 +2732,32 @@ def train_mlframe_models_suite(
                     else:
                         polars_fastpath_skip_preprocessing = False
 
+                        # Fix 1 (2026-04-21): non-Polars-native strategies (LGB,
+                        # sklearn, linear, ...) REQUIRE pandas at fit time. If
+                        # the upfront conversion was skipped OR its copies got
+                        # collected between Polars-native strategies and this
+                        # one, common_params may still hold Polars frames —
+                        # convert them just-in-time (in-place on common_params).
+                        # The user's 2026-04-21 crash trace showed LGB 4.6.0
+                        # receiving non-pandas X, hitting sklearn 1.8's
+                        # validate_data which can't set LGB's read-only
+                        # ``feature_names_in_`` property. Guaranteeing pandas
+                        # here makes LGB's own ``isinstance(X, pd_DataFrame)``
+                        # short-circuit the sklearn-validate crash path.
+                        # Idempotent: once converted, subsequent strategies see
+                        # pandas already and the isinstance check is a no-op.
+                        _logged_lazy_conv = False
+                        for df_key in ("train_df", "val_df", "test_df"):
+                            df_ = common_params.get(df_key)
+                            if isinstance(df_, pl.DataFrame):
+                                if not _logged_lazy_conv and verbose:
+                                    logger.info(
+                                        f"  Lazy pandas conversion triggered by non-Polars-native strategy "
+                                        f"{type(strategy).__name__} for {mlframe_model_name}"
+                                    )
+                                    _logged_lazy_conv = True
+                                common_params[df_key] = get_pandas_view_of_polars_df(df_)
+
                         # For non-Polars models, build tier DFs from pandas common_params
                         tier_pandas = _build_tier_dfs(
                             {"train_df": common_params.get("train_df"), "val_df": common_params.get("val_df"), "test_df": common_params.get("test_df")},
@@ -2472,7 +2765,7 @@ def train_mlframe_models_suite(
                         )
 
                     # --- WEIGHT SCHEMA LOOP: Train with each sample weighting ---
-                    for weight_name, weight_values in tqdmu(weight_schemas.items(), desc="weighting schema"):
+                    for weight_name, weight_values in tqdmu_lazy_start(weight_schemas.items(), desc="weighting schema"):
                         # Create model name with weight suffix
                         model_name_with_weight = common_params["model_name"]
                         model_file_name=f"{mlframe_model_name}"
@@ -2497,6 +2790,25 @@ def train_mlframe_models_suite(
                                 current_common_params["val_df"] = tier_pandas["val_df"]
                             if tier_pandas.get("test_df") is not None:
                                 current_common_params["test_df"] = tier_pandas["test_df"]
+
+                        # Fix 8: compute per-model input-schema fingerprint and
+                        # append to model_file_name so two runs with different
+                        # feature-type configs don't silently overwrite each
+                        # other. Hashes realised schema (sorted cols + canonical
+                        # dtypes + roles) of the DF just assigned above — the
+                        # actual DF the strategy feeds to model.fit(). Uses the
+                        # outer cat/text/embedding lists because the per-model
+                        # fit_params are built later (see extra_fit near the CB
+                        # branch) and the roles at the DF level are stable across
+                        # strategies for a given DataFrame.
+                        _schema_hash, _input_schema = compute_model_input_fingerprint(
+                            current_common_params.get("train_df"),
+                            cat_features=cat_features,
+                            text_features=text_features,
+                            embedding_features=embedding_features,
+                        )
+                        if getattr(behavior_config, "model_file_hash_suffix", True):
+                            model_file_name += f"__sch_{_schema_hash}"
 
                         # Append weight_name to plot_file for non-uniform weights
                         if weight_name != "uniform" and current_common_params.get("plot_file"):
@@ -2620,6 +2932,18 @@ def train_mlframe_models_suite(
                         if verbose:
                             logger.info(f"  process_model({mlframe_model_name}, w={weight_name}) done — {_elapsed_str(t0_model)}")
 
+                        # Fix 8: record this model's input-schema fingerprint
+                        # in metadata so load-time can verify or at least diff
+                        # against the serving data. Keyed by the final
+                        # model_file_name (already includes weight + hash), so
+                        # repeat weights don't collide.
+                        metadata.setdefault("model_schemas", {})[model_file_name] = {
+                            "schema_hash": _schema_hash,
+                            "input_schema": _input_schema,
+                            "mlframe_model": mlframe_model_name,
+                            "weight_name": weight_name,
+                        }
+
                         # Cache the transformed DataFrames if not already cached
                         if cached_dfs is None:
                             pipeline_cache.set(cache_key, train_df_transformed, val_df_transformed, test_df_transformed)
@@ -2681,7 +3005,7 @@ def train_mlframe_models_suite(
         )
 
         # Train recurrent models
-        for recurrent_model_name in tqdmu(recurrent_models, desc="recurrent model"):
+        for recurrent_model_name in tqdmu_lazy_start(recurrent_models, desc="recurrent model"):
             model_name_lower = recurrent_model_name.lower()
             if model_name_lower not in recurrent_params:
                 logger.warning(f"Recurrent model {recurrent_model_name} not configured, skipping...")

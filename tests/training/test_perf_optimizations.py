@@ -148,20 +148,33 @@ class TestSkipPandasConversion:
         assert counter["n"] == 0, "pandas conversion fired despite all-Polars-native models"
 
     def test_pandas_conversion_when_mixed_models(self, temp_data_dir, common_init_params, monkeypatch):
-        """cb+ridge → ridge forces pandas conversion."""
+        """cb+ridge -> ridge must receive a pandas DataFrame at fit time.
+
+        Post-2026-04-21 Fix 1: upfront ``_convert_dfs_to_pandas`` is no
+        longer called for cb+ridge — ridge's strategy branch lazily
+        converts via ``get_pandas_view_of_polars_df`` just before its fit.
+        We assert that the conversion happened at least once (via the
+        lazy path) so ridge receives pandas, not Polars.
+        """
         pytest.importorskip("catboost")
         from .shared import SimpleFeaturesAndTargetsExtractor
         from mlframe.training.core import train_mlframe_models_suite
         import mlframe.training.core as core_mod
 
-        counter = {"n": 0}
-        orig = core_mod._convert_dfs_to_pandas
+        counter = {"lazy": 0, "upfront": 0}
+        orig_lazy = core_mod.get_pandas_view_of_polars_df
+        orig_upfront = core_mod._convert_dfs_to_pandas
 
-        def _spy(*a, **kw):
-            counter["n"] += 1
-            return orig(*a, **kw)
+        def _lazy_spy(*a, **kw):
+            counter["lazy"] += 1
+            return orig_lazy(*a, **kw)
 
-        monkeypatch.setattr(core_mod, "_convert_dfs_to_pandas", _spy)
+        def _upfront_spy(*a, **kw):
+            counter["upfront"] += 1
+            return orig_upfront(*a, **kw)
+
+        monkeypatch.setattr(core_mod, "get_pandas_view_of_polars_df", _lazy_spy)
+        monkeypatch.setattr(core_mod, "_convert_dfs_to_pandas", _upfront_spy)
 
         df = _make_simple_polars_df()
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
@@ -175,7 +188,10 @@ class TestSkipPandasConversion:
             use_ordinary_models=True, use_mlframe_ensembles=False,
             data_dir=temp_data_dir, verbose=0,
         )
-        assert counter["n"] >= 1, "ridge must force pandas conversion"
+        assert counter["lazy"] + counter["upfront"] >= 1, (
+            "ridge must have received pandas — either upfront or lazily. Neither "
+            f"call fired: lazy={counter['lazy']}, upfront={counter['upfront']}"
+        )
 
 
 # ======================================================================

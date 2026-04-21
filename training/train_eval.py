@@ -21,9 +21,8 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from pyutilz.system import clean_ram
+from pyutilz.system import clean_ram, get_own_memory_usage
 from mlframe.training.utils import maybe_clean_ram_adaptive
-from mlframe.helpers import get_own_ram_usage
 
 from .configs import (
     TargetTypes,
@@ -225,6 +224,8 @@ def select_target(
     sample_weight: Optional[np.ndarray] = None,
     mlframe_models: Optional[List[str]] = None,
     linear_model_config: Optional[LinearModelConfig] = None,
+    train_df_size_bytes: Optional[float] = None,
+    val_df_size_bytes: Optional[float] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     """Configure model parameters for a specific target variable.
 
@@ -362,6 +363,9 @@ def select_target(
         "enable_crash_reporting",
         "continue_on_model_failure",
         "align_polars_categorical_dicts",
+        # 2026-04-21 Fix 8: save-time filename policy; not consumed by
+        # configure_training_params, so mask from the downstream kwarg set.
+        "model_file_hash_suffix",
     }
     effective_behavior_params = {
         k: v for k, v in behavior_config.model_dump(exclude_none=True).items()
@@ -404,6 +408,8 @@ def select_target(
         use_regression=target_type == TargetTypes.REGRESSION,
         mlframe_models=mlframe_models,
         linear_model_config=linear_model_config,
+        train_df_size_bytes=train_df_size_bytes,
+        val_df_size_bytes=val_df_size_bytes,
         **effective_behavior_params,
     )
 
@@ -644,7 +650,7 @@ def process_model(
         model_type_name = type(model_obj).__name__
         logger.info(
             f"Starting train_and_evaluate {model_type_name} on {target_type} {pipeline_label} {model_name.strip()}"
-            f", RAM usage {get_own_ram_usage():.1f}GBs...".replace("  ", " ")
+            f", RAM usage {get_own_memory_usage():.1f}GBs...".replace("  ", " ")
         )
 
     model, train_df_transformed, val_df_transformed, test_df_transformed = _call_train_evaluate_with_configs(
@@ -668,7 +674,7 @@ def process_model(
     if not use_cached_model:
         end = timer()
         if verbose:
-            logger.info(f"Finished training, took {(end-start)/60:.1f} min. RAM usage {get_own_ram_usage():.1f}GBs...")
+            logger.info(f"Finished training, took {(end-start)/60:.1f} min. RAM usage {get_own_memory_usage():.1f}GBs...")
         if fpath:
             save_mlframe_model(model, fpath)
 

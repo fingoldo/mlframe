@@ -72,8 +72,17 @@ def test_remove_constant_keeps_varying(values):
     # Construct a DataFrame with one varying column and one all-equal column.
     arr = np.array(values, dtype=np.float32)
     varying = arr.copy()
-    # Force variation: flip sign on second half unless values are all zeros / NaN.
-    if np.all(np.isnan(arr)) or np.nanstd(arr) == 0:
+    # Force variation IFF the input IS constant under the same semantics the
+    # code-under-test uses — ``min == max`` (with NaNs, ``np.nanmin`` /
+    # ``np.nanmax`` skipped). Previously this branch used ``nanstd == 0``,
+    # which diverges from ``min == max`` on float32 values with small
+    # dynamic range but large magnitude: e.g. ``[29605196.0]*3`` has
+    # ``nanstd == 2.0`` (precision loss in ``mean``) but ``min == max``.
+    # Hypothesis found that counterexample in 2026-04-21.
+    varying_is_nan_only = np.all(np.isnan(arr))
+    finite = arr[np.isfinite(arr)]
+    varying_is_constant = finite.size > 0 and np.nanmin(arr) == np.nanmax(arr)
+    if varying_is_nan_only or varying_is_constant:
         varying = np.linspace(0, 1, len(arr), dtype=np.float32)
     constant = np.full_like(arr, 7.0, dtype=np.float32)
 

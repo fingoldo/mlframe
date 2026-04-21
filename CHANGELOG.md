@@ -1,5 +1,565 @@
 # Changelog
 
+## 2026-04-21 — Training-overhead fixes (plan: `jolly-wishing-deer`)
+
+Addresses ~14 min of avoidable overhead and one blocking crash observed on
+a 9 018 479 x 118 production run (mlframe_models=["cb", "xgb", "lgb"]).
+Full plan: `C:/Users/TheLocalCommander/.claude/plans/jolly-wishing-deer.md`.
+
+### Fixed
+
+- **LGB crash on non-pandas `X` (Fix 4)**. LGB 4.6.0 exposes
+  `feature_names_in_` as a read-only property; sklearn 1.8's
+  `validate_data` (triggered whenever LGB's `fit()` receives a non-pandas
+  input such as Polars or numpy) calls `self.feature_names_in_ = ...` and
+  raises `AttributeError`. `mlframe/training/trainer.py` now installs a
+  no-op setter on `lightgbm.sklearn.LGBMModel.feature_names_in_` at module
+  import (`_patch_lgb_feature_names_in_setter`, idempotent). Defence-in-depth
+  behind Fix 1 — if a non-pandas `X` ever reaches LGB, the setter catches
+  the value into `_mlframe_feature_names_in_override` instead of crashing.
+- **Deleted stale `_warn_on_unsupported_polars_dtypes` (Fix 2)**. The
+  pre-fit warning predicted a 2-min pandas fallback on every aligned
+  `pl.Enum` frame fed to CatBoost. Empirically false on CB 1.2.10 +
+  polars 1.40 (verified 2026-04-21 by direct repro: Enum+filled+eval_set
+  fit succeeds on the fastpath). Keeping the warning motivates unsafe
+  Enum→Categorical casts which reintroduce the XGBoost sparse-code bug
+  documented in `reproducers/xgboost_cats_bug/`. The post-fail
+  `_polars_schema_diagnostic` dump is kept but now flags nullable
+  Categorical cat_features (the real CB dispatch gap) as the likely
+  culprit and reports Enum only for visibility.
+
+### Added
+
+- **Lazy per-strategy pandas conversion (Fix 1)**. `mlframe/training/core.py`
+  defers the upfront polars→pandas conversion when the ONLY blockers for
+  the Polars fastpath are non-native strategies (LGB, sklearn, linear).
+  Polars-native strategies (CB, XGB, HGB) now consume the aligned Enum
+  Polars frame directly; non-native strategies convert just-in-time via
+  a sentinel-memoized path inside the strategy loop
+  (`_pandas_converted_for_non_native` on `common_params`). Saves 661 s
+  polars→pandas + ~70 GB RAM on the user's reference workload, and also
+  guarantees LGB receives a pandas DataFrame so `lightgbm/sklearn.py:948`
+  short-circuits sklearn's crash-prone validate path.
+- **`deep: bool = True` kwarg on `pyutilz.pandaslib.get_df_memory_consumption`
+  (Fix 3A)**. Default preserves existing behaviour. `deep=False` delegates
+  to `df.memory_usage(deep=False).sum()` — O(cols), milliseconds — instead
+  of the pathological O(rows * avg_str_len) deep scan on high-cardinality
+  object columns. mlframe's `configure_training_params` now passes
+  `deep=False` for the GPU-RAM-fit heuristic (byte precision unnecessary).
+- **Polars-side size cache (Fix 3B)**. `mlframe/training/core.py` computes
+  `train_df.estimated_size()` / `val_df.estimated_size()` (O(cols),
+  microseconds) BEFORE any pandas conversion and threads the values into
+  `select_target` / `configure_training_params` as new kwargs
+  (`train_df_size_bytes`, `val_df_size_bytes`). When cached, skips the
+  `get_df_memory_consumption` call entirely. Eliminates the ~3 min
+  `select_target` step on 75 GB pandas frames.
+- **Upfront group filter in `fast_aucs_per_group_optimized` (Fix 5)**.
+  `mlframe/metrics.py` now precomputes per-group `(count, pos_count)` in
+  one `np.unique` + `np.bincount` pass, drops sample rows belonging to
+  single-sample or single-class groups BEFORE the per-group sort + numba
+  inner loop, and emits NaN entries directly. On the user's 95 %-NaN-group
+  workload this slashes the inner-loop work (500k-row synthetic bench:
+  ~9x speedup). Output dict is bit-identical to the pre-filter path.
+- **`use_text_features: bool = True` toggle on `FeatureTypesConfig`
+  (Fix 6)**. Master opt-out for text_features. When False,
+  `_auto_detect_feature_types` returns empty text/embedding lists AND
+  clears any explicit `text_features` list before downstream consumers
+  see it. Default True preserves today's behaviour. Use case: CB's
+  text-feature TF-IDF pipeline was the training bottleneck
+  (`skills_text` with 2M unique) on the user's 9M-row run; turning it
+  off routes those columns through the cat-feature path for all
+  strategies. Caveat: changes the realised schema → see Fix 8.
+- **`tqdmu_lazy_start` helper in `pyutilz.system` (Fix 7)**. Drop-in
+  replacement for `tqdmu(iterable, **kwargs)` that resets the bar's
+  elapsed counter at the FIRST iteration, not at bar construction. Fixes
+  the stale-timer artefact where the user saw `target type: 0/1
+  [6:27:44<?]` after a long preprocessing phase. All 6 `tqdmu(...)` call
+  sites in `mlframe/training/core.py` converted to `tqdmu_lazy_start`.
+- **Per-model input-schema fingerprint in filename + metadata (Fix 8)**.
+  `mlframe/training/utils.py` new `compute_model_input_fingerprint(df,
+  cat_features, text_features, embedding_features) -> (hash, schema)`
+  computes a 10-char SHA256 of the realised fit-time schema (sorted
+  columns + canonical dtype + role). Model files now save as
+  `{model}_{weight}__sch_{hash}.dump` and metadata records
+  `model_schemas[model_file_name] = {schema_hash, input_schema,
+  mlframe_model, weight_name}`. Two runs with different
+  `use_text_features` / `cat_text_cardinality_threshold` / scaler /
+  encoding / Enum-alignment settings no longer silently overwrite each
+  other. Hash keys on BEHAVIOUR (realised schema), not config flags —
+  e.g. LGB's fingerprint is identical whether the user sets
+  `use_text_features=True` or `False`, because LGB drops text columns
+  either way at tier build. `pl.Utf8` and `pl.String` aliases collapse;
+  `pl.Enum(categories)` includes the sorted category set so val-drift
+  with new categories is detected. Opt-out via
+  `TrainingBehaviorConfig(model_file_hash_suffix=False)`. Backward-compat:
+  the existing `load_mlframe_suite` glob (`**/*.dump`) still finds files
+  regardless of suffix presence; only save-side naming changed.
+
+### Changed
+
+- `_polars_schema_diagnostic` (`mlframe/training/trainer.py`): header
+  copy updated — nullable cat_features (the empirically-verified CB
+  1.2.10 dispatch miss) are now named as the likely culprit; Enum is
+  reported for visibility only.
+- `FeatureTypesConfig` (`configs.py`): new field `use_text_features`.
+- `TrainingBehaviorConfig` (`configs.py`): new field
+  `model_file_hash_suffix`.
+
+### Fixed (2026-04-21 round 3)
+
+- **Fix 9.4.4 — Cross-target label swap on CB Pool**. Pool labels are
+  now cast to ``float32`` at construction in ``_maybe_get_or_build_cb_pool``
+  (``trainer.py``). CatBoost's C++ ``SetNumericTarget`` validator
+  rejects ``ERawTargetType::Integer`` on subsequent ``set_label`` calls —
+  a latent UX gotcha in the upstream PR that's invisible until you try
+  label reuse across classification targets. By always storing float32
+  upfront, subsequent ``set_label(y_new)`` swaps succeed for both
+  classification and regression targets within the same feature matrix.
+  Verified: 4 fits (cls→cls→cls→reg) = 1 Pool build.
+- **Fix 8f — Load-time schema verification with two-tier diff**.
+  ``_validate_input_columns_against_metadata`` (``core.py``) now consumes
+  ``metadata['model_schemas']`` and produces a structured diff when
+  input-schema hash mismatches. Hard-fail on removed cat/text/embedding
+  columns, dtype FAMILY changes (string↔numeric, numeric↔categorical),
+  or role changes. Soft-warn on dtype WIDTH changes
+  (float32↔float64, int32↔int64) — downstream pipelines cast
+  transparently. New helper ``_dtype_family`` (``utils.py``) classifies
+  dtype strings into {string-or-cat, float, int, bool, datetime, list}
+  families.
+- **Orch-1 — CatBoost val Pool reuse across weight schemas**.
+  ``_maybe_rewrite_eval_set_as_cb_pool`` (``trainer.py``) rewrites
+  ``fit_params['eval_set']`` entries from ``(val_df, val_target)`` to a
+  cached ``catboost.Pool`` when the train-side reuse fast-path is
+  active. Separate ``_CB_VAL_POOL_CACHE`` cleared at suite entry in
+  ``core.py`` parallel to ``_CB_POOL_CACHE``. Verified: 3 weight-only
+  fits = 1 train Pool + 1 val Pool build (pre-Orch-1: 6 total).
+- **`_auto_detect_feature_types` refinement (2026-04-21)**.
+  ``use_text_features=False`` now gates AUTO-PROMOTION only; user-supplied
+  explicit ``text_features`` list is honored regardless. Earlier version
+  cleared the explicit list too, which broke ``test_non_catboost_drops_text_columns``
+  / auto-detection tests.
+- **`test_user_declared_polars_categorical_not_promoted_to_text` xfail**
+  (``test_core.py``). Test's assertion ("user-cast pl.Categorical NOT
+  promoted by cardinality") contradicts
+  ``test_auto_detect_polars_categorical_promoted_by_cardinality`` in
+  ``test_untested_core_helpers.py`` ("pl.Categorical IS promoted when
+  cardinality exceeds threshold"). Resolving requires a finer
+  distinguishing signal (e.g. per-column ``honor_user_dtype`` flag on
+  FeatureTypesConfig) — out of scope for 2026-04-21. Current code
+  honors the promote-by-cardinality contract.
+
+### Orchestration review (2026-04-21)
+
+Audit of ``train_mlframe_models_suite`` nested loop structure produced
+7 improvement candidates; outcomes:
+
+- **Orch-1** (val Pool reuse across weights): IMPLEMENTED — see above.
+- **Orch-2** (hoist ``clone()`` out of weight-schema loop): REJECTED.
+  Authors' explicit ``# DO NOT OPTIMIZE BY MOVING CLONE OUTSIDE THE LOOP!``
+  banner documents the correctness reason — each weight iteration
+  produces a distinct trained model state that downstream in-memory
+  ``model.predict()`` relies on. Clone cost is negligible vs training.
+- **Orch-3** (cache ``prepare_polars_dataframe`` across targets):
+  SKIPPED. Operation is ~ms (String→Categorical cast); ROI doesn't
+  justify new cache layer.
+- **Orch-4** (widen ``pipeline_cache`` scope from
+  ``(target_type, target)`` to ``(target_type)``): REJECTED — unsafe
+  for target-dependent pre_pipelines (MRMR, RFECV). Selecting features
+  by target-1 labels and reusing for target-2 would be a silent
+  correctness bug.
+- **Orch-5** (concurrent model training within weight iteration):
+  REJECTED by user (GPU/RAM contention risk, gain unclear).
+- **Orch-6** (parallel level-2 stacking across folds): REJECTED by
+  user (out of scope).
+- **Orch-7** (skip ``eval_set`` rebuild when val_df unchanged):
+  COVERED for CatBoost by Orch-1. XGB/LGB sklearn wrappers rebuild
+  internally — blocked by upstream FRs drafted in
+  ``reproducers/upstream_feature_requests/``.
+
+### CatBoost upstream PR feedback (set_label)
+
+Two concrete shortcomings in the ``Pool.set_label`` PR at
+``D:\Machine Learning\catboost\``:
+
+1. **UX-trap on int64 labels**. ``Pool(X, label=y_int64)`` stores
+   target as ``ERawTargetType::Integer``; subsequent
+   ``pool.set_label(y_new)`` fails in C++ ``SetNumericTarget``
+   validator ("requires numeric or unset target type, got Integer").
+   All PR tests pre-cast via ``.astype(np.float32)`` — but that
+   requirement is undocumented and surprises natural users.
+2. **Incoherent API surface**. ``Pool(label=int64)`` succeeds but
+   subsequent ``pool.set_label(int64)`` fails on the same pool. Two
+   entry points, divergent behaviour on the same input.
+
+Recommendations for upstream:
+- (a) In Python-level ``_set_label`` (``_catboost.pyx:4804``),
+   unconditionally cast ``label → float32`` before
+   ``SetNumericTarget``. Removes the UX trap; no semantic change
+   (storage is already float32).
+- (b) OR in C++ ``ValidateSetNumericTargetPreconditions``, allow
+   ``Integer → Float`` transition. The storage rewrite on line 762
+   already assigns ``TargetType = Float`` — the validator simply
+   contradicts the actual write behaviour.
+- (c) Add regression test
+   ``test_pool_built_with_int_label_set_label_works``.
+
+### Fixed (2026-04-21 round 2)
+
+- **Fix 9.4.3 — CatBoost Pool reuse across weight schemas**.
+  `mlframe/training/trainer.py` now intercepts `model.fit()` for CB
+  models via `_maybe_get_or_build_cb_pool` (process-wide cache cleared
+  at every `train_mlframe_models_suite` entry). Cache key: `(id(df),
+  columns, shape, cat/text/embedding features)`. Cache-hit + same label:
+  `pool.set_weight(new_weight)` — no rebuild. Cache-hit + new label:
+  `pool.set_label(new_label)` + `set_weight`, but CatBoost 1.2.10 C++
+  rejects `set_label` on classification Pools (numeric-target-only
+  path), so that case falls through to rebuild cleanly. Weight-only
+  swap between fits is the fast path that actually hits in the user's
+  multi-weight workload. Feature-detect gate
+  (`_cb_reuse_capable`) keeps older CB builds on the rebuild-every-fit
+  path with a WARN at suite start.
+- **Fix 9.4.1 — Per-build logging of Pool / DMatrix / Dataset**.
+  Idempotent module-level patches at `trainer.py` import wrap
+  `catboost.Pool.__init__`, `xgboost.{DMatrix,QuantileDMatrix,DeviceQuantileDMatrix}.__init__`,
+  and `lightgbm.Dataset.__init__`. Each construction emits
+  `[dataset-build] <cls> shape=RxC took=<s>s site=<module:line>` at
+  INFO. Marker is checked on `cls.__dict__` (not inherited) so
+  `QuantileDMatrix` extending `DMatrix` still gets its own wrapper.
+- **Fix 9.4.2 — Dataset-reuse capability check at suite start**.
+  `train_mlframe_models_suite` logs `Dataset-reuse capabilities: {...}`
+  with boolean flags for
+  `cb_pool_label_swap` / `xgb_sklearn_accepts_dmatrix` /
+  `lgb_sklearn_accepts_dataset`. CB flag tracks the installed build's
+  `Pool.set_label` / `set_weight` availability; XGB/LGB flags are
+  currently pinned False (upstream sklearn wrappers don't accept
+  pre-built datasets — upstream FR drafts saved in
+  `mlframe/reproducers/upstream_feature_requests/` for the user to
+  post).
+- **Fix 9.7 — `test_mrmr_with_text_column` / `_embedding_column` state
+  leak fixed**. Root cause: CatBoost's sklearn wrapper raises
+  `ValueError: 'feat' is not in list` from
+  `_get_cat_feature_indices` when `cat_features` contains a name not
+  in the trimmed MRMR frame columns. mlframe's CB fit path now filters
+  `cat_features` / `text_features` / `embedding_features` to the
+  intersection with `train_df.columns` in `_maybe_get_or_build_cb_pool`
+  (in-place on `fit_params`, so the sklearn-rebuild fallback also sees
+  the filtered list). Tests pass without re-ordering tricks.
+- **Fix 9.8 — `test_rfecv_with_polars` multi-dim index**.
+  `mlframe/feature_selection/wrappers.py::split_into_train_test` now
+  has a Polars branch alongside pandas / numpy. The generic numpy path
+  used `X[np.ix_(rows, cols)]`, which passes a 2-D ndarray to
+  `polars.DataFrame.__getitem__` and raises `TypeError: multi-dimensional
+  NumPy arrays not supported as index`. Polars branch uses `df.select(cols)[rows_list]`.
+- **Fix 9.9 — `prod_like_frame_small(n_rows=50)` parametric tests
+  unskipped**. Earlier-marked skip-with-reason was replaced by shrinking
+  `n_rows` 200 → 50. At n=200 the composite 5-column generator rejected
+  ~97 % of hypothesis examples silently upstream in
+  `polars.testing.parametric.dataframes` on installed hypothesis 6.147.0
+  + polars 1.40.0. At n=50 the same schema generates cleanly and CB/XGB
+  still fit end-to-end.
+- **Fix 3A correction**: library default in
+  `pyutilz.pandaslib.get_df_memory_consumption` stays `deep=True`
+  (back-compat preserved for every caller that predates Fix 3A).
+  mlframe's heuristic-only call site in
+  `trainer.configure_training_params` passes `deep=False` explicitly.
+
+### Tests
+
+- **New: `tests/training/test_jolly_wishing_deer_fixes.py`** — 21
+  integration tests covering Fixes 2, 3A, 3B, 4, 5, 6, 7, 8. Key
+  additions: Polars + numpy input to LGB proves the shim works (would
+  have caught the 2026-04-21 crash if this file had existed then);
+  Fix-8 role-sensitivity + Enum-category-drift + Utf8/String alias
+  collapse tests.
+- **Updated: `tests/training/test_cb_polars_fallback.py`** — two tests
+  on the removed pre-fit warning deleted; new tests verify the schema
+  dump now flags null-valued cat_features (real culprit) and treats
+  Enum as informational.
+- **Skipped (pre-existing, unrelated)**:
+  `tests/training/test_parametric_robustness.py::TestTrainSuiteRobustness::test_xgb_only_suite_completes`
+  and `::test_cb_only_suite_completes_with_null_in_cat`. Both verified
+  failing on a clean master checkout with the same
+  `hypothesis.errors.Unsatisfiable: 977 of 1000 examples failed a
+  .filter()/assume()` — a hypothesis-generator issue in
+  `prod_like_frame_small` / `polars.testing.parametric.dataframes`, not
+  a regression from the fixes above. Skipped with an explanatory marker
+  so the rest of the parametric fuzz tests (which DO pass) remain
+  visible and runnable.
+- **Updated: `tests/training/test_perf_optimizations.py::TestSkipPandasConversion::test_pandas_conversion_when_mixed_models`**
+  — was asserting `_convert_dfs_to_pandas` fires when `cb+ridge` is
+  requested, which no longer holds after Fix 1 defers the upfront
+  conversion. New assertion accepts either the upfront path OR the
+  lazy per-strategy path (`get_pandas_view_of_polars_df`), maintaining
+  the behavioural contract ("ridge receives pandas") without locking in
+  the specific implementation detail.
+
+## 2026-04-21 — Infra/Ops audit (agent #9) follow-up
+
+Applied all fixes from `plans/mlframe_audit/09_infra_ops.md` except the explicit
+"delete `early_stopping.py` demo" item (demo is retained but guarded behind
+`if __name__ == "__main__":` so it no longer trains + prints on import).
+
+### Security
+
+- **`inference.py`**: `read_trained_models` now (a) loads a JSON features
+  sidecar (`features.dump.json` or `features.json`) in preference to the joblib
+  dump — orjson when available, stdlib `json` as fallback; (b) refuses to
+  `joblib.load` any file whose extension isn't in an allow-list (`.dump`,
+  `.joblib`, `.pkl`, `.pickle`; override via `allowed_extensions=`); (c)
+  verifies an optional `<file>.sha256` sidecar before loading and skips with a
+  logged error on mismatch. Existing `trusted_root` path-traversal guard kept.
+- **`pipelines.py`**: `replay_cv_results` verifies `<dump>.sha256` sidecar when
+  present before `joblib.load`.
+- **`mlflowlib.py`**:
+  - `embed_website_to_mlflow` now `html.escape`s the user-supplied `url`,
+    casts `width`/`height` through `int()`, and opens the sidecar with
+    `encoding="utf-8"`. Extension-suffix check fixed
+    (`fname.lower().endswith(extension.lower())` instead of the previous
+    prefix comparison that was always False and produced `url.html.html`).
+  - `get_or_create_mlflow_run` scrubs `scheme://user:pass@` from every mlflow
+    exception before logging (`_strip_userinfo` / `_USERINFO_RE`), escapes
+    the run-name / parent-run-id before inlining them into the mlflow filter
+    DSL, and no longer has a dead `raise(e)` hiding the
+    `'already active'` recovery branch.
+
+### Import-time side effects
+
+- **`early_stopping.py`**: load_iris + `fit()` + `print(accuracy)` demo block
+  moved under `if __name__ == "__main__":` (no longer runs on import). Also
+  initialized `self.best_score_ = -np.inf`, `self.best_model_ = None`,
+  `self.no_improvement_count_ = 0` at the top of `fit()` so the first
+  iteration no longer raises `AttributeError`.
+- **`keras.py`**: top-level `import tensorflow as tf` removed; TF now imported
+  lazily via `_tf()` only when `create_multiinput__keras_model()` is called.
+  `matplotlib` also deferred into `plot_learning_curve`.
+- **`explainability.py`**: top-level `import shap`, `from catboost import ...`,
+  `from imblearn.pipeline import Pipeline` all deferred inside
+  `compute_shap_on_cv` and `init_model_instance` — the module is now importable
+  without shap/catboost/imblearn installed.
+
+### sklearn contract
+
+- **`keras.py::KerasDictConverter.__init__`** no longer reads
+  `self.tokenizer.model_max_length` to populate `self.tokenizer_kwargs`. Every
+  constructor parameter is now stored verbatim (so `sklearn.clone()` works);
+  the max-length default is resolved lazily in `_effective_tokenizer_kwargs()`
+  called from `fit`/`transform`. Fitted attributes renamed to trailing-
+  underscore form (`dimensions_`, `fit_just_made_`) per sklearn convention.
+
+### Architecture
+
+- **Wildcard `from .config import *` eliminated** from `__init__.py`,
+  `feature_cleaning.py`, `preprocessing.py`, `postcalibration.py`, and
+  `legacy/training_old.py`. Each replaced with an explicit import of only the
+  names that module actually references. `postcalibration.py` referenced none
+  of them — the import was dropped outright. `legacy/training_old.py` used
+  `from .config` which never resolved against `mlframe.legacy` anyway;
+  switched to the absolute `from mlframe.config import TABNET_MODEL_TYPES`.
+
+### Performance finding (NOT applied)
+
+Agent #9 recommended replacing the pandas-level `np.isinf(df).any()` in
+`ensure_no_infinity_pd` with `np.isinf(df[num_cols].to_numpy()).any(axis=0)`.
+Benchmarked on pandas 2.3.3 / numpy 2.2.6:
+
+| case                              | current   | vectorized | speedup |
+|-----------------------------------|-----------|------------|---------|
+| 5M x 50 float64 (homogeneous)     |  323.8 ms |  324.2 ms  |  1.00×  |
+| 1M x 200 float64 (homogeneous)    |  204.2 ms |  177.4 ms  |  1.15×  |
+| 10M x 20 float64 (homogeneous)    |  417.7 ms |  394.6 ms  |  1.06×  |
+| 100k x 500 float64 (homogeneous)  |   45.4 ms |   47.9 ms  |  0.95×  |
+| 2M x 40 **mixed** f64/f32/i64     |   51.8 ms |  268.7 ms  |  0.19×  |
+
+Homogeneous all-numeric frames are break-even (±15%, within noise);
+mixed-dtype frames — which also hit this branch when `num_cols_only=False`
+or every col happens to be numeric — are **5× slower** because `.to_numpy()`
+has to upcast and copy all blocks. Kept existing implementation. Benchmark
+harness is checked in at `D:/Temp/bench_isinf.py`.
+
+## 2026-04-21 — remove `ensure_installed` from all library modules
+
+All `pyutilz.pythonlib.ensure_installed(...)` imports and calls (both active and commented)
+removed from every `.py` module under `mlframe/`. Dependencies are declared in `requirements.txt`
+and installed by the package manager rather than triggered at import time as a pip side effect.
+
+### Removed active calls
+
+- **`baselines.py`**: dropped the `for _install_attempt in range(3): try/except` import loop
+  wrapped around numpy/pandas/sklearn — plain `import` now.
+- **`custom_estimators.py`**: same retry-wrapper pattern removed.
+- **`optimization.py`**: `while True: try/except` wrapper removed; imports are now flat.
+- **`explainability.py`**: top-level `ensure_installed("shap numpy")` removed.
+- **`outliers.py`**: top-level `ensure_installed("imbalanced-learn scikit-learn")` removed.
+- **`inference.py`**: top-level `ensure_installed("numpy pandas numba scipy sklearn antropy")`
+  removed.
+- **`feature_engineering/hurst.py`**: `ensure_hurst_dependencies()` opt-in probe and its entry
+  in `__all__` removed (no callers).
+
+### Removed dead imports + commented probes
+
+- `calibration.py`, `eda.py`, `ewma.py`, `evaluation.py`, `feature_cleaning.py`, `stats.py`,
+  `tuning.py`, `feature_engineering/categorical.py`, `feature_engineering/timeseries.py`:
+  unused `from pyutilz.pythonlib import ensure_installed` import and the adjacent commented
+  `# ensure_installed(...)` line stripped, along with the now-empty `# Packages` section header.
+- `feature_engineering/numerical.py`, `feature_selection/filters.py`, `legacy/training_old.py`,
+  `metrics.py`: stale inline `# ensure_installed(...)` comments deleted.
+
+### `requirements.txt` coverage verified
+
+Every package named in a removed `ensure_installed(...)` call is already listed in
+`requirements.txt`: numpy, pandas, scikit-learn, shap, numba, scipy, antropy, expiringdict,
+imbalanced-learn, properscoring, psutil, joblib, catboost, astropy, entropy-estimators,
+lightgbm, xgboost, plotly, pywavelets. No additions needed.
+
+## 2026-04-21 — audit 05 fixes: Models / estimators / custom_estimators / ensembling / baselines
+
+Pass over the bugs surfaced by audit 05 (`.claude/plans/mlframe_audit/05_models_estimators.md`).
+Dead/broken legacy modules moved to `mlframe/legacy/` rather than deleted, per user direction.
+
+### Moves
+
+- **`Models.py` → `mlframe/legacy/Models.py`**. Depended on `sklearn.externals.joblib` (removed
+  0.23), `from numpy import *`, and ~470 LOC of script-body with undefined globals (`y_up`,
+  `pipe_up`, `K`, `tf`, `my_class_weight`). Only importers were already-dead modules. Header
+  docstring added pointing readers to the salvaged API. `legacy/OldEnsembling.py` imports
+  re-pointed to `mlframe.legacy.Models`.
+
+### New
+
+- **`mlframe/scoring.py`**: salvaged `rmse_loss`, `rmsle_loss`, `rmse_score`, `rmsle_score`,
+  `log_uniform`, and `ProbaScoreProxy` from the retired `Models.py`. Cleaned up the helpers
+  (no star-imports, scoped `uniform`, docstrings).
+
+### Fixes
+
+- **`baselines.py`**: unbounded `while True: try/except ensure_installed` replaced with
+  bounded `for _ in range(3)` + `for/else: raise ImportError` — matches the pattern already
+  in `custom_estimators.py`. `get_best_dummy_score` now raises `TypeError` when the estimator
+  is neither a classifier nor a regressor (previously silently returned `-LARGE_CONST`).
+- **`ensembling.py`**: inline `"arimean,quadmean,qubmean,geomean,harmmean".split(",")` promoted
+  to module-level `_MEANS_COLS`. `.values` → `.to_numpy()` on the four target-series conversions
+  before the `Parallel(loky=True)` section. Added a pickle-roundtrip pre-check on
+  `custom_ice_metric` / `custom_rice_metric` / `**kwargs` that falls back to sequential with a
+  clear warning if something (closure, lambda) can't cross the loky process boundary.
+
+### Tests added (audit 05 §7)
+
+- **`tests/test_scoring.py`** (9 tests): exercises `rmse_loss`, `rmsle_loss`, `log_uniform`
+  bounds / reproducibility / scalar path, `ProbaScoreProxy` column selection, and the
+  `greater_is_better=False` flag on the make_scorer wrappers.
+- **`tests/test_custom_estimators.py`** (~18 tests, 3 xfailed by design):
+  - T1: hypothesis property test — `ArithmAvgClassifier` / `GeomAvgClassifier` `predict_proba`
+    rows sum to 1.
+  - T2: parametrized fit/predict smoke across `(n_samples, n_cols)` and `(n_samples, n_classes)`
+    shapes; asserts `predict` returns values drawn from `classes_`, not argmax indices.
+  - T3: `check_estimator` exercised via `xfail` — documents that averager classifiers expect
+    pre-computed probability columns as features, so the generic sklearn smoke suite doesn't
+    apply.
+  - Pickle-roundtrip for all three averager classifiers.
+  - Regression for `MyDecorrelator` attribute-name consistency (`correlated_features_`).
+  - `PureRandomClassifier.random_state` reproducibility.
+- **`tests/test_estimators.py`** (6 tests): T4 pickle roundtrip for both
+  `ClassifierWithEarlyStopping` and `RegressorWithEarlyStopping`; covers the non-catboost
+  fallback path and the `decision_function` proxy error on wrapped estimators without one.
+- **`tests/test_baselines.py`** (3 tests): T6 — `get_best_dummy_score` on classifier and
+  regressor paths, plus `TypeError` on a `KMeans` estimator.
+
+### Prior state note
+
+Several audit H-items (H2 logger in `estimators.py`, H3 proxy methods, H4 module-level
+PowerTransformer, H5/H6/H7/H8 averager/discretizer/identity fixes, M6 attribute mismatch) were
+already applied in-tree before this pass. The tests added here lock those behaviours in place.
+
+## 2026-04-21 — audit 03 fixes: feature_engineering / FeatureEngineering.py / Features.py / feature_cleaning.py
+
+Pass over the bugs surfaced by audit 03 (`.claude/plans/mlframe_audit/03_feature_engineering.md`).
+No tests added for `Features.py` / `FeatureEngineering.py` (per user direction) — bugs fixed in place.
+
+### Critical bug fixes
+
+- **`Features.py:mode`**: was `np.percentile(q=50)` → returned the *median*, not the mode. Every
+  `_MODE_` rolling column produced by `EnrichTSDatasetWithRollingStats` was silently a duplicate
+  of `_MEDIAN_`. Replaced with `np.unique(...)` + `argmax(counts)`.
+- **`Features.py`** (pure_funcs drop): columns had already been renamed via `StringOrFuncName` to
+  `pure_funcs_real`, so `agg.drop(pure_funcs, inplace=True)` either no-op'd or raised. Now drops
+  `columns=pure_funcs_real` (and drops `inplace` since that was the buggy kwarg order).
+- **`Features.py:MyCustomColumnSelector.fit_transform`**: called `self.transform(self, X, y)` —
+  bound-method call already passes self, so this mis-routed `self` into the `x` parameter.
+- **`Features.py`**: replaced `from numpy import *` with explicit imports; switched function-bodies
+  to `np.*` references so the module no longer leaks 500+ names into callers' globals.
+- **`Features.py` EnrichTSDatasetWithRollingStats**: added `assert lag > 0` (negative lags are a
+  silent look-ahead leakage vector).
+- **`FeatureEngineering.py:CalculateNumericalStatsPandas`**: `r.mad()` was removed in pandas 2.0 →
+  replaced with `(r - r.mean()).abs().mean()`. `r.mode().values[0]` IndexError'd on empty input →
+  replaced with length-guarded `mode_series.iloc[0]`.
+- **`FeatureEngineering.py:get_domain_suffixes`**: `requests.get(...)` had no timeout (caller
+  could hang indefinitely) → added `timeout=10`. Fallback `open("public_suffix_list.dat")` was
+  CWD-relative → now resolves to the copy shipped next to the module. Fixed downstream
+  `res.text.split` which crashed when the fallback branch returned a plain string.
+- **`FeatureEngineering.py`**: `charstats_buffer`, `oov_buffer`, `oov_tokens_buffer` were only
+  initialized by `flush_text_stats_caches()` (called from `init_nlp`). Calling text features
+  before `init_nlp` raised NameError → initialized at module load.
+- **`FeatureEngineering.py`**: `from random import randint, random` was buried inside
+  `CalculateCategoricalStatsNumpy`'s dead code path → moved to module top.
+- **`feature_engineering/timeseries.py:create_windowed_features`**: `create_features_names=` now
+  explicitly wrapped in `bool(...)` (defensive vs. the historical `create_features_names=targets`
+  bug where a list was used as a boolean flag). Added clarifying comments around the
+  `window_features=None if targets_creation_fcn else row_targets` semantics so the intent is
+  visible to future readers.
+
+### High-severity fixes
+
+- **`feature_engineering/numerical.py:compute_simple_stats_numba`** and
+  **`compute_numerical_aggregates_numba`**: `elif next_value > maxval` meant a sample equal to
+  min could never update max → produced inconsistent `argmin`/`argmax` on flat arrays. Split into
+  independent `if` branches.
+- **`feature_engineering/numerical.py`**: integer detection via `next_value % 1` was fragile for
+  negative floats/denormals → replaced with `np.floor(next_value) == next_value`.
+- **`feature_engineering/hurst.py:compute_hurst_exponent`**: unguarded `np.log10(rs)` on
+  non-positive `rs` poisoned the least-squares fit → added guard returning `(nan, nan)` on any
+  `rs <= 0` or `window_sizes <= 0`.
+- **`feature_engineering/hurst.py`**: moved `ensure_installed(...)` off the module import path
+  (was a supply-chain footgun: importing the module silently ran pip). Exposed as opt-in
+  `ensure_hurst_dependencies()` helper.
+- **`feature_engineering/financial.py:add_ohlcv_ratios_rlags`**: added explicit negative/zero
+  shift guard — negative shifts leak future prices into the current row.
+
+### Medium-severity fixes
+
+- **`feature_engineering/basic.py:create_date_features`**: pandas branch mutated the caller in
+  place while the polars branch returned a new frame → asymmetric API. Pandas branch now works
+  on a shallow copy and returns a fresh frame.
+- **`feature_engineering/basic.py:run_pysr_fe`**: `col.replace("=","_").replace(".","_")` could
+  collapse distinct column names into the same sanitized key. Now deduplicates with an
+  incrementing `__N` suffix on collision.
+- **`feature_engineering/bruteforce.py`**: polars branch now clamps `sample_size` with
+  `min(sample_size, len(df))` (parity with pandas branch); redundant trailing `.copy()` removed.
+- **`feature_cleaning.py:_get_nunique`**: `~np.isnan(unique_vals)` raised TypeError on object
+  dtype → dispatches on dtype kind (use `pd.isna` for non-float).
+- **`feature_cleaning.py:_update_sub_df_col`**: replaced probe of private `sub_df._is_view` with
+  a public-API substitute (`values.base is not None`).
+- **`feature_cleaning.py:_clean_cat_and_obj_columns`**: category cleaning used per-row `.apply()`
+  → now uses `cat.rename_categories(...)` (O(#levels) vs O(#rows)). Object-column cleaning
+  switched from `.apply` to `.map`.
+
+### Low / housekeeping
+
+- Replaced module-level `warnings.simplefilter(...)` calls at
+  `feature_engineering/numerical.py`, `categorical.py`, `basic.py` with scoped
+  `_suppress_*_warnings()` context managers. Module import no longer mutates global warning
+  filters for the whole process.
+- Added `__all__` to `feature_engineering/{basic,bruteforce,categorical,financial,hurst,mps,numerical,timeseries}.py`.
+- `timeseries.compute_splitting_stats`: reduced two `.sum()` passes over the same column to
+  `col_sum - pre_sum`.
+
+### Not changed (deferred)
+
+- Architectural recommendation to retire `FeatureEngineering.py` / `Features.py` into
+  `mlframe/legacy/` — deferred per user direction (fix bugs, don't touch tests or reorganize).
+- Drawdown recursive-call alignment at `numerical.py:409-460` reviewed — current slicing keeps
+  `weights[1:]` aligned with `pos_dds[1:]` (both index-for-index over `arr`), so the audit's
+  misalignment note does not appear to hold under current code. Left as-is.
+
 ## 2026-04-20 — round 18: align Polars Categorical dicts across splits (opt-in)
 
 ### Symptom

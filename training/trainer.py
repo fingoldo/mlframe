@@ -58,6 +58,177 @@ try:
     from lightgbm import LGBMClassifier, LGBMRegressor
 except ImportError:  # pragma: no cover
     LGBMClassifier = LGBMRegressor = None  # type: ignore[assignment]
+
+
+def _patch_lgb_feature_names_in_setter() -> None:
+    """Install a no-op setter for ``LGBMModel.feature_names_in_``.
+
+    Fix 4 defense-in-depth (2026-04-21). LightGBM >=4.6.0 exposes
+    ``feature_names_in_`` as a read-only property. sklearn >=1.8's
+    ``validate_data`` path (triggered whenever ``fit()`` receives a
+    non-pandas input such as a Polars DataFrame or numpy array) calls
+    ``self.feature_names_in_ = X.columns``, which raises
+    ``AttributeError: property 'feature_names_in_' of 'LGBMClassifier'
+    object has no setter`` — aborting the run 5 seconds in.
+
+    The primary fix is Fix 1 (ensure LGB receives pandas → sklearn path
+    skipped at ``lightgbm/sklearn.py:948``). This setter patch is a
+    belt-and-braces guard for cases where a future code path slips a
+    non-pandas input past the lazy-conversion hook. Storing the value in
+    a private attribute makes it recoverable if anything downstream
+    introspects it.
+
+    Idempotent: safe to call multiple times (module re-import).
+    """
+    if LGBMClassifier is None:
+        return
+    import lightgbm.sklearn as _lgbm_sk
+    _model_cls = _lgbm_sk.LGBMModel
+    prop = _model_cls.__dict__.get("feature_names_in_")
+    # Only patch if the property exists and has no setter. Avoids clobbering
+    # a future upstream fix that might add one.
+    if prop is None or not isinstance(prop, property) or prop.fset is not None:
+        return
+    if getattr(_model_cls, "_mlframe_feature_names_setter_installed", False):
+        return
+
+    def _set_feature_names_in(self, value):
+        object.__setattr__(self, "_mlframe_feature_names_in_override", value)
+
+    patched = property(
+        fget=prop.fget,
+        fset=_set_feature_names_in,
+        fdel=prop.fdel,
+        doc=prop.__doc__,
+    )
+    _model_cls.feature_names_in_ = patched
+    _model_cls._mlframe_feature_names_setter_installed = True
+
+
+_patch_lgb_feature_names_in_setter()
+
+
+def _patch_dataset_constructors_with_logging() -> None:
+    """Wrap ``catboost.Pool.__init__`` / ``xgboost.DMatrix.__init__`` /
+    ``lightgbm.Dataset.__init__`` so every construction emits one INFO
+    log line with shape + duration + callsite. Fix 9.4.1 (2026-04-21).
+
+    Purpose: make rebuild-vs-reuse visible in the log. Without this the
+    sklearn-wrapper rebuilds silently inside ``fit()`` and the operator
+    has no way to tell whether the inner weight/target loop is paying
+    N-times the construction cost.
+
+    Idempotent: marker attr ``_mlframe_build_logger_installed`` on each
+    wrapped class; subsequent calls are no-ops.
+    """
+    import time as _time
+    import sys as _sys
+
+    def _infer_shape(args, kwargs):
+        # First positional or the ``data`` kwarg is the payload; try shape.
+        payload = kwargs.get("data")
+        if payload is None and args:
+            payload = args[0]
+        if payload is None:
+            return None
+        try:
+            shp = getattr(payload, "shape", None)
+            if shp is not None and len(shp) >= 1:
+                rows = int(shp[0])
+                cols = int(shp[1]) if len(shp) > 1 else -1
+                return (rows, cols)
+        except Exception:
+            pass
+        try:
+            return (len(payload), -1)
+        except Exception:
+            return None
+
+    def _infer_callsite() -> str:
+        # Walk up to find the first frame outside the library internals.
+        try:
+            frame = _sys._getframe(2)
+            for _ in range(8):
+                if frame is None:
+                    break
+                mod = frame.f_globals.get("__name__", "?")
+                if not (
+                    mod.startswith("catboost.")
+                    or mod.startswith("xgboost.")
+                    or mod.startswith("lightgbm.")
+                ):
+                    return f"{mod}:{frame.f_lineno}"
+                frame = frame.f_back
+            return (
+                f"{frame.f_globals.get('__name__', '?')}:{frame.f_lineno}"
+                if frame
+                else "?"
+            )
+        except Exception:
+            return "?"
+
+    def _wrap_init(cls, label: str):
+        if cls is None:
+            return
+        # Check the marker on ``cls.__dict__`` specifically — a subclass
+        # (e.g. ``xgboost.QuantileDMatrix`` extending ``DMatrix``) inherits
+        # its parent's marker via attribute lookup, which would otherwise
+        # cause us to skip wrapping the subclass and log only the parent's
+        # build events. Checking the own-dict guarantees each concrete
+        # class gets its own wrapper.
+        if cls.__dict__.get("_mlframe_build_logger_installed", False):
+            return
+        orig_init = cls.__init__
+
+        def _logged_init(self, *args, **kwargs):
+            t0 = _time.perf_counter()
+            try:
+                orig_init(self, *args, **kwargs)
+            finally:
+                elapsed = _time.perf_counter() - t0
+                shape = _infer_shape(args, kwargs)
+                callsite = _infer_callsite()
+                if shape and shape[1] >= 0:
+                    shape_str = f"{shape[0]}x{shape[1]}"
+                elif shape:
+                    shape_str = f"{shape[0]}x?"
+                else:
+                    shape_str = "?x?"
+                logger.info(
+                    f"[dataset-build] {label} shape={shape_str} took={elapsed:.3f}s site={callsite}"
+                )
+
+        _logged_init.__wrapped__ = orig_init  # type: ignore[attr-defined]
+        cls.__init__ = _logged_init
+        cls._mlframe_build_logger_installed = True
+
+    # CatBoost Pool
+    try:
+        import catboost as _cb
+        _wrap_init(getattr(_cb, "Pool", None), "catboost.Pool")
+    except ImportError:
+        pass
+
+    # XGBoost DMatrix family. QuantileDMatrix inherits from DMatrix in
+    # recent XGB; wrap each concrete class separately so subclass-level
+    # __init__ overrides still see logging.
+    try:
+        import xgboost as _xgb
+        for _name in ("DMatrix", "QuantileDMatrix", "DeviceQuantileDMatrix"):
+            _wrap_init(getattr(_xgb, _name, None), f"xgboost.{_name}")
+    except ImportError:
+        pass
+
+    # LightGBM Dataset
+    try:
+        import lightgbm as _lgb
+        _wrap_init(getattr(_lgb, "Dataset", None), "lightgbm.Dataset")
+    except ImportError:
+        pass
+
+
+_patch_dataset_constructors_with_logging()
+
 try:
     from xgboost import XGBClassifier, XGBRegressor
     from xgboost.callback import TrainingCallback as XGBTrainingCallback
@@ -855,10 +1026,14 @@ def _polars_schema_diagnostic(
     column's dtype, its role (cat / text / other), and the specific
     sub-variant that matters for CB's dispatcher:
 
-      - ``pl.Enum`` — CB 1.2.10 has no fastpath overload for Enum. If
-        present among cat_features, that's almost certainly the cause.
-      - ``pl.Categorical`` — dispatch depends on ``ordering`` (lexical vs
-        physical) and whether the column uses the global string cache.
+      - ``pl.Categorical`` with a validity bitmap (``null_count > 0``)
+        — verified 2026-04-19 culprit: CB 1.2.10 has no dispatch overload
+        for nullable Categorical. `_polars_nullable_categorical_cols` +
+        `fill_null` is the fix.
+      - ``pl.Enum`` without nulls — empirically works on the CB 1.2.10
+        fastpath (reproduced 2026-04-21 — fit + eval_set succeed). Still
+        reported in the dump for visibility, but not automatically
+        flagged as the culprit.
       - ``pl.List[...]`` — nested types not supported in fastpath.
 
     Keeps output compact: logs up to ``max_cols_logged`` cat_features
@@ -922,50 +1097,28 @@ def _polars_schema_diagnostic(
             summary = ", ".join(f"{k}:{v}" for k, v in sorted(text_dt_counts.items()))
             lines.append(f"    (text_features by dtype) {summary}")
 
-        header = f"  Polars schema diagnostic for {df.shape[0]:_}×{df.shape[1]}:"
-        if enum_cat_cols:
+        nullable_cat_cols = [
+            c for c in cat_cols
+            if c in df.columns and int(df[c].null_count()) > 0
+        ]
+        header = f"  Polars schema diagnostic for {df.shape[0]:_}x{df.shape[1]}:"
+        if nullable_cat_cols:
             header += (
-                f"\n  [!] cat_features contain pl.Enum columns: {enum_cat_cols}. "
-                "CatBoost 1.2.x Polars fastpath has no Enum dispatch overload; "
-                "this is the most likely cause of 'No matching signature found'. "
-                "Upstream fix: cast to pl.Categorical or pl.String before fit."
+                f"\n  [!] cat_features with null values: {nullable_cat_cols}. "
+                "CatBoost 1.2.x Polars fastpath has no dispatch overload for "
+                "Categorical with a validity bitmap; this is the most common "
+                "cause of 'No matching signature found'. Fix: "
+                "fill_null('__MISSING__') before fit."
+            )
+        elif enum_cat_cols:
+            header += (
+                f"\n  (info) cat_features contain pl.Enum columns: {enum_cat_cols}. "
+                "Empirically compatible with CB 1.2.10 fastpath when nulls are "
+                "filled; reported for visibility only."
             )
         return header + "\n" + "\n".join(lines)
     except Exception as _diag_err:
         return f"  (schema diagnostic failed: {_diag_err!r})"
-
-
-def _warn_on_unsupported_polars_dtypes(
-    df: "pl.DataFrame",
-    cat_features: Optional[List[str]] = None,
-    text_features: Optional[List[str]] = None,
-) -> None:
-    """Pre-fit warning: surface known-problematic Polars dtype variants
-    BEFORE the opaque CatBoost TypeError fires.
-
-    Currently flags: ``pl.Enum`` columns declared as cat_features (CB
-    1.2.10 dispatcher misses, see `_polars_schema_diagnostic`). Pure
-    logging — doesn't mutate the DataFrame, caller decides the fix.
-    """
-    try:
-        import polars as _pl
-        if not isinstance(df, _pl.DataFrame):
-            return
-        enum_cat = [
-            c for c in (cat_features or [])
-            if c in df.columns and isinstance(df.schema.get(c), _pl.Enum)
-        ]
-        if enum_cat:
-            logger.warning(
-                "CatBoost cat_features contain pl.Enum columns %s — CB 1.2.x "
-                "Polars fastpath has no Enum dispatch overload and will "
-                "reject with 'No matching signature found'. Cast to "
-                "pl.Categorical or pl.String before fit to avoid the "
-                "2-minute failed attempt + pandas-fallback detour.",
-                enum_cat,
-            )
-    except Exception:
-        pass
 
 
 def _polars_nullable_categorical_cols(df: Any, cat_features: Optional[List[str]] = None) -> "List[str]":
@@ -1194,6 +1347,348 @@ def _predict_with_fallback(
         return fn(X_pd)
 
 
+# Fix 9.4.3 + Fix Orch-1: process-wide CatBoost Pool cache. Keys: tuple
+# of (id(df), cols, shape, sorted cat/text/embedding features). Values:
+# the Pool object whose label/weight we mutate in place between fits.
+# The train-side cache survives weight schemas and same-type targets;
+# the val-side cache adds ~2× on top (val eval_set is rebuilt on every
+# fit by _setup_eval_set). Entries stay valid as long as the Python df
+# reference is alive; the next train_mlframe_models_suite call produces
+# fresh dfs with new id()s and the cache naturally evolves (also
+# explicitly cleared at suite entry in core.py). Deliberate plain dict
+# (not WeakValueDictionary) so transient GC between weight iterations
+# doesn't flush the Pool we're about to reuse.
+_CB_POOL_CACHE: "Dict[tuple, Any]" = {}
+_CB_VAL_POOL_CACHE: "Dict[tuple, Any]" = {}
+_CB_POOL_CACHE_MAX_ENTRIES = 16  # hard cap per cache; ring-buffer eviction oldest-first
+
+
+def _cb_reuse_capable() -> bool:
+    """True iff installed CatBoost Pool exposes both set_label and
+    set_weight (the two mutators we rely on for in-place label/weight
+    swap between fits)."""
+    try:
+        from catboost import Pool as _Pool
+    except ImportError:
+        return False
+    return callable(getattr(_Pool, "set_label", None)) and callable(
+        getattr(_Pool, "set_weight", None)
+    )
+
+
+def _maybe_get_or_build_cb_pool(
+    model_type_name: str,
+    model: Any,
+    train_df: Any,
+    train_target: Any,
+    fit_params: Dict[str, Any],
+) -> Optional[Any]:
+    """Return a cached/freshly-built ``catboost.Pool`` when the CB reuse
+    fast-path applies; return None otherwise (caller falls back to
+    ``model.fit(train_df, y, **fit_params)``).
+
+    Fast-path activation requires ALL of:
+      * ``model_type_name in CATBOOST_MODEL_TYPES``
+      * installed CatBoost has Pool.set_label/set_weight
+      * train_df is a recognised input type (polars/pandas/numpy)
+
+    Cache-hit: swap label + weight in place, return the cached Pool.
+    Cache-miss: build a new Pool, store, return it.
+    """
+    if model_type_name not in CATBOOST_MODEL_TYPES:
+        return None
+
+    # Filter cat/text/embedding features to only those actually present
+    # in train_df. Motivation: MRMR and similar selectors can drop columns
+    # AFTER fit_params was built, leaving stale feature lists that CB's
+    # Pool rejects with ``ValueError: 'feat' is not in list`` from the
+    # sklearn-wrapper's ``_get_cat_feature_indices`` (observed 2026-04-21
+    # on ``test_mrmr_with_text_column`` / ``_embedding_column``). Applied
+    # to CB only — XGB/LGB have their own handling for missing cols.
+    try:
+        _df_cols = set(train_df.columns) if hasattr(train_df, "columns") else None
+    except Exception:
+        _df_cols = None
+    def _filter_to_df(feats):
+        raw = fit_params.get(feats) or []
+        if _df_cols is None:
+            return tuple(sorted(raw))
+        return tuple(sorted(c for c in raw if c in _df_cols))
+    cat_features = _filter_to_df("cat_features")
+    text_features = _filter_to_df("text_features")
+    embedding_features = _filter_to_df("embedding_features")
+    # Update fit_params in place so the fallback sklearn path (when reuse
+    # is disabled or Pool construction fails) also sees the filtered
+    # lists. Callers may rely on the same fit_params dict downstream; we
+    # only narrow, never widen.
+    if _df_cols is not None:
+        if "cat_features" in fit_params and fit_params["cat_features"]:
+            fit_params["cat_features"] = list(cat_features)
+        if "text_features" in fit_params and fit_params["text_features"]:
+            fit_params["text_features"] = list(text_features)
+        if "embedding_features" in fit_params and fit_params["embedding_features"]:
+            fit_params["embedding_features"] = list(embedding_features)
+
+    if not _cb_reuse_capable():
+        return None
+    try:
+        from catboost import Pool as _Pool
+    except ImportError:
+        return None
+
+    sample_weight = fit_params.get("sample_weight")
+
+    # Cache key: id(df) alone is unsafe because Python reuses ids after
+    # GC. Two tests in the same process that each build a fresh frame
+    # may land on the same ``id(train_df)`` value — hitting a cache entry
+    # built for a DIFFERENT frame with DIFFERENT cat_features/columns.
+    # Include a content signature (columns tuple) so collisions with
+    # distinct data produce a miss instead of a corrupted reuse.
+    try:
+        _cols = tuple(train_df.columns) if hasattr(train_df, "columns") else None
+    except Exception:
+        _cols = None
+    try:
+        _shape = getattr(train_df, "shape", None)
+        _shape_sig = (int(_shape[0]), int(_shape[1])) if _shape and len(_shape) >= 2 else None
+    except Exception:
+        _shape_sig = None
+    key = (id(train_df), _cols, _shape_sig, cat_features, text_features, embedding_features)
+
+    cached = _CB_POOL_CACHE.get(key)
+    if cached is not None:
+        # Installed CatBoost 1.2.10 rejects ``Pool.set_label`` on a
+        # classification Pool (target type ``Integer``) — the C++
+        # ``SetNumericTarget`` path only accepts numeric / unset targets.
+        # That means we can only reuse across WEIGHT swaps, not label
+        # swaps, for classification pools. Strategy: skip ``set_label``
+        # unless the caller actually supplied a different target (by id
+        # against the last target we stored). Always mutate weight —
+        # ``set_weight`` has no target-type restriction.
+        last_target_id = getattr(cached, "_mlframe_last_target_id", None)
+        try:
+            if last_target_id is None or id(train_target) != last_target_id:
+                # Label swap. Cast to float32 — the Pool was built with a
+                # float32 label (see build path below), and CB's C++
+                # ``SetNumericTarget`` rejects anything but Float/None. If
+                # rejection happens anyway, fall through to rebuild.
+                try:
+                    _label_for_swap = np.asarray(train_target)
+                    if _label_for_swap.dtype != np.float32:
+                        _label_for_swap = _label_for_swap.astype(np.float32)
+                except Exception:
+                    _label_for_swap = train_target
+                cached.set_label(_label_for_swap)
+                cached._mlframe_last_target_id = id(train_target)
+            if sample_weight is not None:
+                cached.set_weight(sample_weight)
+            logger.info(
+                f"[cb-pool-reuse] hit key=(id={key[0]},cat={len(cat_features)},"
+                f"text={len(text_features)},emb={len(embedding_features)}) "
+                f"swapped weight{' + label' if last_target_id != id(train_target) else ''} without rebuild"
+            )
+            return cached
+        except Exception as exc:
+            # Drop the stale entry and fall through to rebuild. Typical
+            # trigger: classification Pool + set_label on Integer target
+            # raises "SetNumericTarget requires numeric or unset target
+            # type". Rebuild is safe.
+            logger.info(
+                f"[cb-pool-reuse] swap path not usable ({type(exc).__name__}: "
+                f"{str(exc).splitlines()[0][:120]}); rebuilding Pool."
+            )
+            _CB_POOL_CACHE.pop(key, None)
+
+    # Simple FIFO eviction — unlikely to hit during normal runs (<= N
+    # models × N tiers entries), but keeps the cache from growing
+    # unboundedly across long-running sessions.
+    while len(_CB_POOL_CACHE) >= _CB_POOL_CACHE_MAX_ENTRIES:
+        _CB_POOL_CACHE.pop(next(iter(_CB_POOL_CACHE)))
+
+    # Cast label to float32 at build time. CatBoost stores the label's
+    # raw type on the Pool (Integer vs Float) and later ``Pool.set_label``
+    # validates ``ERawTargetType == Float or None`` inside C++
+    # ``SetNumericTarget`` — if we built with Integer labels, subsequent
+    # label swaps across classification targets would raise
+    # ``SetNumericTarget requires numeric or unset target type, got
+    # Integer``. Building with float32 pins the Pool's target type to
+    # Float upfront; the user's upstream PR's classification tests all
+    # pre-cast to float32 for exactly this reason. get_label() still
+    # round-trips integer dtype via the Python-level ``target_type``
+    # shadow on the Pool.
+    try:
+        _label_for_pool = np.asarray(train_target)
+        if _label_for_pool.dtype.kind in ("i", "u", "b"):
+            _label_for_pool = _label_for_pool.astype(np.float32)
+        elif _label_for_pool.dtype != np.float32 and _label_for_pool.dtype.kind == "f":
+            _label_for_pool = _label_for_pool.astype(np.float32)
+    except Exception:
+        _label_for_pool = train_target
+
+    try:
+        pool = _Pool(
+            data=train_df,
+            label=_label_for_pool,
+            weight=sample_weight,
+            cat_features=list(cat_features) or None,
+            text_features=list(text_features) or None,
+            embedding_features=list(embedding_features) or None,
+        )
+    except Exception as exc:
+        # If Pool rejects the input (e.g. unsupported dtype combo),
+        # fall back to the sklearn-wrapper path by returning None. The
+        # operator sees the build-logger line above; we don't cache a
+        # failed attempt.
+        logger.warning(
+            f"[cb-pool-reuse] Pool construction failed ({type(exc).__name__}: {exc}); "
+            f"falling back to rebuild-every-fit sklearn path."
+        )
+        return None
+
+    pool._mlframe_last_target_id = id(train_target)
+    _CB_POOL_CACHE[key] = pool
+    logger.info(
+        f"[cb-pool-reuse] miss; stored fresh Pool (cache size={len(_CB_POOL_CACHE)})"
+    )
+    return pool
+
+
+def _maybe_rewrite_eval_set_as_cb_pool(fit_params: Dict[str, Any]) -> None:
+    """Fix Orch-1 (2026-04-21): for CatBoost, rewrite
+    ``fit_params['eval_set']`` from ``[(val_df, val_target)]`` /
+    ``(val_df, val_target)`` to a cached ``catboost.Pool`` in place.
+
+    Cache key mirrors the train-side cache (id(val_df) + cols + shape +
+    cat/text/embedding features). On a cache hit, swap label + weight on
+    the cached Pool; on miss, build a fresh Pool with float32-cast label
+    (for CB set_label compatibility across classification targets).
+
+    Called from ``_train_model_with_fallback`` AFTER the train-side
+    reuse decision and AFTER ``_setup_eval_set`` has populated
+    fit_params['eval_set']. Idempotent per fit: if eval_set already
+    contains a Pool, leave it alone.
+    """
+    if not _cb_reuse_capable():
+        return
+    try:
+        from catboost import Pool as _Pool
+    except ImportError:
+        return
+
+    es = fit_params.get("eval_set")
+    if es is None:
+        return
+
+    # Normalise to a list of (df, target) tuples.
+    if isinstance(es, tuple) and len(es) == 2:
+        es = [es]
+    elif isinstance(es, list):
+        pass
+    else:
+        return
+
+    rewritten: list = []
+    changed = False
+    cat_features = tuple(sorted(fit_params.get("cat_features") or []))
+    text_features = tuple(sorted(fit_params.get("text_features") or []))
+    embedding_features = tuple(sorted(fit_params.get("embedding_features") or []))
+
+    for entry in es:
+        if isinstance(entry, _Pool):
+            rewritten.append(entry)
+            continue
+        if not (isinstance(entry, tuple) and len(entry) == 2):
+            rewritten.append(entry)
+            continue
+        val_df, val_target = entry
+        if val_df is None or val_target is None:
+            rewritten.append(entry)
+            continue
+
+        try:
+            _cols = tuple(val_df.columns) if hasattr(val_df, "columns") else None
+        except Exception:
+            _cols = None
+        try:
+            _shape = getattr(val_df, "shape", None)
+            _shape_sig = (int(_shape[0]), int(_shape[1])) if _shape and len(_shape) >= 2 else None
+        except Exception:
+            _shape_sig = None
+        key = (id(val_df), _cols, _shape_sig, cat_features, text_features, embedding_features)
+
+        cached = _CB_VAL_POOL_CACHE.get(key)
+        if cached is not None:
+            last_target_id = getattr(cached, "_mlframe_last_target_id", None)
+            try:
+                if last_target_id != id(val_target):
+                    try:
+                        _lab = np.asarray(val_target)
+                        if _lab.dtype != np.float32:
+                            _lab = _lab.astype(np.float32)
+                    except Exception:
+                        _lab = val_target
+                    cached.set_label(_lab)
+                    cached._mlframe_last_target_id = id(val_target)
+                logger.info(
+                    f"[cb-val-pool-reuse] hit key=(id={key[0]},cat={len(cat_features)},"
+                    f"text={len(text_features)},emb={len(embedding_features)}) "
+                    f"swapped{' label' if last_target_id != id(val_target) else ''} without rebuild"
+                )
+                rewritten.append(cached)
+                changed = True
+                continue
+            except Exception as exc:
+                logger.info(
+                    f"[cb-val-pool-reuse] swap failed ({type(exc).__name__}: "
+                    f"{str(exc).splitlines()[0][:120]}); rebuilding val Pool."
+                )
+                _CB_VAL_POOL_CACHE.pop(key, None)
+
+        # Miss: build fresh val Pool with float32-cast label.
+        while len(_CB_VAL_POOL_CACHE) >= _CB_POOL_CACHE_MAX_ENTRIES:
+            _CB_VAL_POOL_CACHE.pop(next(iter(_CB_VAL_POOL_CACHE)))
+
+        try:
+            _lab_build = np.asarray(val_target)
+            if _lab_build.dtype.kind in ("i", "u", "b"):
+                _lab_build = _lab_build.astype(np.float32)
+            elif _lab_build.dtype.kind == "f" and _lab_build.dtype != np.float32:
+                _lab_build = _lab_build.astype(np.float32)
+        except Exception:
+            _lab_build = val_target
+
+        try:
+            val_pool = _Pool(
+                data=val_df,
+                label=_lab_build,
+                cat_features=list(cat_features) or None,
+                text_features=list(text_features) or None,
+                embedding_features=list(embedding_features) or None,
+            )
+        except Exception as exc:
+            logger.info(
+                f"[cb-val-pool-reuse] Pool build failed ({type(exc).__name__}: {exc}); "
+                f"leaving eval_set entry as (df, target) tuple for sklearn-wrapper rebuild."
+            )
+            rewritten.append(entry)
+            continue
+
+        val_pool._mlframe_last_target_id = id(val_target)
+        _CB_VAL_POOL_CACHE[key] = val_pool
+        rewritten.append(val_pool)
+        changed = True
+        logger.info(
+            f"[cb-val-pool-reuse] miss; stored fresh val Pool (cache size={len(_CB_VAL_POOL_CACHE)})"
+        )
+
+    if changed:
+        # Preserve original shape — single-tuple or list.
+        if len(rewritten) == 1 and not isinstance(es, list):
+            fit_params["eval_set"] = rewritten[0]
+        else:
+            fit_params["eval_set"] = rewritten
+
+
 def _train_model_with_fallback(
     model: Any,
     model_obj: Any,
@@ -1228,24 +1723,51 @@ def _train_model_with_fallback(
         (trained_model, best_iteration) where best_iteration may be None.
     """
     t0_fit = timer()
-    # Pre-fit diagnostic: if we're about to hand a Polars DF to CatBoost,
-    # flag known-problematic dtype variants (currently pl.Enum among
-    # cat_features) *before* the opaque TypeError fires. Cheap and
-    # targeted — no DataFrame mutation.
-    if (
-        model_type_name in CATBOOST_MODEL_TYPES
-        and isinstance(train_df, pl.DataFrame)
-    ):
-        _warn_on_unsupported_polars_dtypes(
-            train_df,
-            cat_features=fit_params.get("cat_features"),
-            text_features=fit_params.get("text_features"),
-        )
+    # Fix 9.4.3 (CB only, 2026-04-21): reuse a single ``catboost.Pool``
+    # across weight schemas and same-target_type targets by mutating the
+    # Pool's label/weight in place instead of letting the sklearn wrapper
+    # rebuild from X on every fit. Gated on:
+    #   * model is CatBoost-family;
+    #   * installed CatBoost exposes ``Pool.set_label`` and
+    #     ``Pool.set_weight`` (callable);
+    #   * ``CatBoostClassifier.fit(X=Pool)`` is the idiomatic native path
+    #     (short-circuits rebuild in ``_build_train_pool``).
+    # XGB/LGB are not covered this round — their sklearn wrappers don't
+    # accept pre-built DMatrix/Dataset yet (upstream FRs drafted in
+    # ``reproducers/upstream_feature_requests/``). Only the per-build
+    # logging from Fix 9.4.1 makes their rebuild cost visible.
+    _cb_pool = _maybe_get_or_build_cb_pool(
+        model_type_name=model_type_name,
+        model=model,
+        train_df=train_df,
+        train_target=train_target,
+        fit_params=fit_params,
+    )
+    # Fix Orch-1 (2026-04-21): also reuse the val Pool across fits.
+    # Rewrites fit_params['eval_set'] from (val_df, val_target) to a
+    # cached Pool so CB's sklearn wrapper short-circuits the val-side
+    # rebuild too. Only fires when _cb_pool is active (train-side reuse
+    # succeeded) — otherwise the mixed-container path (train=df,
+    # eval_set=pool) confuses CB's fit signature.
+    if _cb_pool is not None and model_type_name in CATBOOST_MODEL_TYPES:
+        _maybe_rewrite_eval_set_as_cb_pool(fit_params)
     try:
         with phase("model.fit", model=model_type_name,
                    n_rows=(train_df.shape[0] if hasattr(train_df, "shape") else None),
                    n_cols=(train_df.shape[1] if hasattr(train_df, "shape") else None)):
-            model.fit(train_df, train_target, **fit_params)
+            if _cb_pool is not None:
+                # Reuse path: X=Pool, y omitted (label already on the Pool).
+                # fit_params still carries sample_weight, which CB's wrapper
+                # ignores when X is a Pool (the Pool already has weight).
+                # Filter it explicitly so downstream assertion paths don't
+                # flag a "sample_weight with Pool" mismatch.
+                _reuse_fit_params = {
+                    k: v for k, v in fit_params.items()
+                    if k not in ("sample_weight", "cat_features", "text_features", "embedding_features")
+                }
+                model.fit(_cb_pool, **_reuse_fit_params)
+            else:
+                model.fit(train_df, train_target, **fit_params)
     except Exception as e:
         try_again = False
         error_str = str(e)
@@ -2614,6 +3136,8 @@ def configure_training_params(
     mlframe_models: list = None,
     linear_model_config: "LinearModelConfig" = None,
     callback_params: dict = None,
+    train_df_size_bytes: Optional[float] = None,
+    val_df_size_bytes: Optional[float] = None,
 ):
     """Configure training parameters for all model types.
 
@@ -2625,6 +3149,14 @@ def configure_training_params(
     linear_model_config : LinearModelConfig, optional
         Configuration for linear models. If provided, applies shared settings
         to all linear model types.
+    train_df_size_bytes : float, optional
+        Precomputed RAM usage of train_df in bytes (e.g. from Polars
+        ``.estimated_size()`` taken BEFORE pandas conversion). When
+        provided, skips the pandas ``memory_usage`` call entirely. The
+        value only feeds GPU-RAM-fit heuristics; Polars estimated_size
+        is accurate enough and O(cols).
+    val_df_size_bytes : float, optional
+        Same as ``train_df_size_bytes`` for the validation split.
     """
 
     def _identity(x):
@@ -2686,8 +3218,23 @@ def configure_training_params(
     cpu_configs = get_training_configs(has_gpu=False, subgroups=indexed_subgroups, **config_params)
     gpu_configs = get_training_configs(has_gpu=None, subgroups=indexed_subgroups, **config_params)
 
-    train_df_size = get_df_memory_consumption(train_df)
-    val_df_size = get_df_memory_consumption(val_df) if val_df is not None else 0
+    # Prefer caller-supplied size (typically computed on the Polars frame
+    # BEFORE pandas conversion via .estimated_size() — O(cols), microseconds).
+    # Fall back to get_df_memory_consumption with deep=False — O(cols) for
+    # pandas too. Explicit deep=False avoids the O(rows) deep scan that used
+    # to block this site for 3 minutes on frames with millions of unique
+    # object-column strings. pyutilz default stays deep=True (back-compat);
+    # mlframe opts out at this specific heuristic-only call site.
+    if train_df_size_bytes is not None:
+        train_df_size = float(train_df_size_bytes)
+    else:
+        train_df_size = get_df_memory_consumption(train_df, deep=False)
+    if val_df_size_bytes is not None:
+        val_df_size = float(val_df_size_bytes)
+    elif val_df is not None:
+        val_df_size = get_df_memory_consumption(val_df, deep=False)
+    else:
+        val_df_size = 0
     data_size_gb = (train_df_size + val_df_size) / (1024**3)
 
     # Skip expensive GPU probe (nvidia-smi subprocess ~0.5s) when GPU configs

@@ -129,8 +129,9 @@ def preprocess_dataframe(
     """
     original_shape = df.shape
 
-    # Remove constant columns
-    df = remove_constant_columns(df, verbose=verbose)
+    # Remove constant columns (2026-04-21: gated on config flag; default True).
+    if getattr(config, "remove_constant_columns", True):
+        df = remove_constant_columns(df, verbose=verbose)
 
     # Ensure float32 dtypes if requested (works for both pandas and Polars)
     if config.ensure_float32_dtypes:
