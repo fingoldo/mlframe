@@ -205,7 +205,7 @@ byte-compatible.
 
 Full patch with unit tests, serialisation notes, and a list of the ~6
 downstream indexing sites that need a one-line update is in
-`upstream/fix_add_categories_compact.cc` (this repo).
+`upstream/fix_add_categories_compact.cc.txt` (attach to issue as-is).
 
 Three options were considered:
 
