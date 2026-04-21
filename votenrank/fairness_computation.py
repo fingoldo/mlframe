@@ -1,4 +1,4 @@
-from tqdm.notebook import tqdm, trange
+from pyutilz.system import tqdmu as tqdm
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 import torch
 import numpy as np

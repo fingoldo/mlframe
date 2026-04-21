@@ -1,4 +1,4 @@
-from tqdm.auto import tqdm
+from pyutilz.system import tqdmu as tqdm
 import pandas as pd
 import numpy as np
 

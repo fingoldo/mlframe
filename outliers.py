@@ -9,22 +9,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------------------------------------------------------------------
-# Packages
-# ----------------------------------------------------------------------------------------------------------------------------
-
-from pyutilz.pythonlib import ensure_installed
-
-ensure_installed("imbalanced-learn scikit-learn")
-
-
-from sklearn.ensemble import IsolationForest
-
-
-# ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
 from typing import *
+
+from sklearn.ensemble import IsolationForest
 
 # imblearn is optional at module import time — older installations are often
 # broken against new sklearn (parse_version moved). `reject_outliers` imports

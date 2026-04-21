@@ -66,30 +66,30 @@ class GroupTimeSeriesSplit(_BaseKFold):
         n_samples = _num_samples(X)
         n_splits = self.n_splits
         n_folds = n_splits + 1
-        group_dict = {}
         u, ind = np.unique(groups, return_index=True)
         unique_groups = u[np.argsort(ind)]
-        n_samples = _num_samples(X)
         n_groups = _num_samples(unique_groups)
-        for idx in np.arange(n_samples):
-            if groups[idx] in group_dict:
-                group_dict[groups[idx]].append(idx)
+        group_dict = {}
+        for idx in range(n_samples):
+            g = groups[idx]
+            if g in group_dict:
+                group_dict[g].append(idx)
             else:
-                group_dict[groups[idx]] = [idx]
+                group_dict[g] = [idx]
         if n_folds > n_groups:
             raise ValueError(("Cannot have number of folds={0} greater than" " the number of groups={1}").format(n_folds, n_groups))
         group_test_size = n_groups // n_folds
         group_test_starts = range(n_groups - n_splits * group_test_size, n_groups, group_test_size)
         for group_test_start in group_test_starts:
-            train_array = []
-            test_array = []
+            train_buf = []
             for train_group_idx in unique_groups[:group_test_start]:
-                train_array_tmp = group_dict[train_group_idx]
-                train_array = np.sort(np.unique(np.concatenate((train_array, train_array_tmp)), axis=None), axis=None)
+                train_buf.extend(group_dict[train_group_idx])
+            train_array = np.array(sorted(set(train_buf)), dtype=np.int64)
             train_end = train_array.size
             if self.max_train_size and self.max_train_size < train_end:
                 train_array = train_array[train_end - self.max_train_size : train_end]
+            test_buf = []
             for test_group_idx in unique_groups[group_test_start : group_test_start + group_test_size]:
-                test_array_tmp = group_dict[test_group_idx]
-                test_array = np.sort(np.unique(np.concatenate((test_array, test_array_tmp)), axis=None), axis=None)
-            yield [int(i) for i in train_array], [int(i) for i in test_array]
+                test_buf.extend(group_dict[test_group_idx])
+            test_array = np.array(sorted(set(test_buf)), dtype=np.int64)
+            yield train_array.tolist(), test_array.tolist()

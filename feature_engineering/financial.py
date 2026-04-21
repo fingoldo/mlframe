@@ -1,5 +1,14 @@
 """Features for financial modelling."""
 
+__all__ = [
+    "add_ohlcv_ratios_rlags",
+    "add_fast_rolling_stats",
+    "apply_ta_indicator",
+    "add_ohlcv_ta_indicators",
+    "create_ohlcv_wholemarket_features",
+    "merge_perticker_and_wholemarket_features",
+]
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # LOGGING
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -52,6 +61,18 @@ def add_ohlcv_ratios_rlags(
         lags: list = [1]
     if crossbar_ratios_lags is None:
         crossbar_ratios_lags: list = [1]
+
+    # Negative/zero shifts are a silent look-ahead leakage vector in downstream ML: a negative lag
+    # pulls *future* prices into the current row. Guard explicitly rather than letting the
+    # polars expression succeed and the training set quietly poison itself.
+    for _lag in lags:
+        if _lag <= 0:
+            raise ValueError(f"add_ohlcv_ratios_rlags: lag must be > 0, got {_lag} (negative/zero lags cause look-ahead leakage)")
+    for _lag in crossbar_ratios_lags:
+        if _lag <= 0:
+            raise ValueError(
+                f"add_ohlcv_ratios_rlags: crossbar_ratios_lag must be > 0, got {_lag} (negative/zero lags cause look-ahead leakage)"
+            )
     if not market_action_prefixes:
         market_action_prefixes: list = [""]
     if not ohlcv_fields_mapping:

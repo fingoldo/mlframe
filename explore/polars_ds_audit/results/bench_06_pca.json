@@ -1,0 +1,50 @@
+{
+  "api": "PCA",
+  "rows": {
+    "10000": {
+      "polars_ds": {
+        "name": "polars_ds.pca",
+        "peak_mem_mb": 0.028402328491210938,
+        "result_hash": null,
+        "seconds": 0.07328820001566783
+      },
+      "sklearn": {
+        "name": "sklearn.PCA",
+        "peak_mem_mb": 71.19309616088867,
+        "result_hash": null,
+        "seconds": 0.006854199978988618
+      },
+      "speedup_vs_sklearn": 0.09352392305341516
+    },
+    "200000": {
+      "polars_ds": {
+        "name": "polars_ds.pca",
+        "peak_mem_mb": 0.022123336791992188,
+        "result_hash": null,
+        "seconds": 0.10137320001376793
+      },
+      "sklearn": {
+        "name": "sklearn.PCA",
+        "peak_mem_mb": 7.70440673828125,
+        "result_hash": null,
+        "seconds": 0.03392560000065714
+      },
+      "speedup_vs_sklearn": 0.3346604427605083
+    },
+    "50000": {
+      "polars_ds": {
+        "name": "polars_ds.pca",
+        "peak_mem_mb": 0.028542518615722656,
+        "result_hash": null,
+        "seconds": 0.023031099990475923
+      },
+      "sklearn": {
+        "name": "sklearn.PCA",
+        "peak_mem_mb": 1.9824943542480469,
+        "result_hash": null,
+        "seconds": 0.012721900013275445
+      },
+      "speedup_vs_sklearn": 0.5523791750518363
+    }
+  }
+}

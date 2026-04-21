@@ -1,0 +1,50 @@
+{
+  "api": "WoE encode",
+  "rows": {
+    "10000": {
+      "category_encoders": {
+        "name": "category_encoders.WOEEncoder",
+        "peak_mem_mb": 73.92223644256592,
+        "result_hash": null,
+        "seconds": 0.1735750999650918
+      },
+      "polars_ds": {
+        "name": "polars_ds.woe_encode",
+        "peak_mem_mb": 0.04338550567626953,
+        "result_hash": null,
+        "seconds": 0.0068666000152006745
+      },
+      "speedup_vs_ce": 25.27817254257515
+    },
+    "200000": {
+      "category_encoders": {
+        "name": "category_encoders.WOEEncoder",
+        "peak_mem_mb": 35.762027740478516,
+        "result_hash": null,
+        "seconds": 0.5745844999910332
+      },
+      "polars_ds": {
+        "name": "polars_ds.woe_encode",
+        "peak_mem_mb": 0.013588905334472656,
+        "result_hash": null,
+        "seconds": 0.03260129998670891
+      },
+      "speedup_vs_ce": 17.624588596935805
+    },
+    "50000": {
+      "category_encoders": {
+        "name": "category_encoders.WOEEncoder",
+        "peak_mem_mb": 9.154598236083984,
+        "result_hash": null,
+        "seconds": 0.23087919998215511
+      },
+      "polars_ds": {
+        "name": "polars_ds.woe_encode",
+        "peak_mem_mb": 0.05294609069824219,
+        "result_hash": null,
+        "seconds": 0.011692499974742532
+      },
+      "speedup_vs_ce": 19.745922641085066
+    }
+  }
+}

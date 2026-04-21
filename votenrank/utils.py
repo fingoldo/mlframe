@@ -1,7 +1,7 @@
 import scipy.stats as stats
 import os
 import pandas as pd
-from tqdm.notebook import tqdm
+from pyutilz.system import tqdmu as tqdm
 
 
 def ranking2top(ranking):

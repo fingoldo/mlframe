@@ -13,11 +13,22 @@ from sklearn.utils import shuffle
 from datetime import datetime
 from copy import deepcopy
 import numpy as np
-from numpy import *
+from numpy import arange, argsort
+
 
 # Feature engineering
 def mode(x):
-    return np.percentile(a=x, q=50)
+    """Statistical mode (most frequent value) of a 1D array.
+
+    Prior implementation returned `np.percentile(a=x, q=50)` which is the MEDIAN, not the mode —
+    so every `_MODE_` rolling column in EnrichTSDatasetWithRollingStats was silently a duplicate
+    of the `_MEDIAN_` column.
+    """
+    x = np.asarray(x)
+    if x.size == 0:
+        return np.nan
+    vals, counts = np.unique(x, return_counts=True)
+    return vals[np.argmax(counts)]
 
 
 def StringOrFuncName(the_list, feature, MA, pure_funcs):
@@ -87,7 +98,9 @@ def EnrichTSDatasetWithRollingStats(ds, MAs=[5, 10], lags=[], exclude_features=[
                     if normalize == 'ratio':
                         if len(pure_funcs_real) > 0:
                             pure_agg = agg[pure_funcs_real]
-                            agg.drop(pure_funcs, inplace=True)
+                            # Columns were renamed to `pure_funcs_real` at line above; dropping by the
+                            # original `pure_funcs` names would silently no-op (or raise).
+                            agg = agg.drop(columns=pure_funcs_real)
                             ds = pd.concat([ds, pure_agg], axis=1)
 
                         agg = agg.div(ds[feature], axis='index')
@@ -95,6 +108,8 @@ def EnrichTSDatasetWithRollingStats(ds, MAs=[5, 10], lags=[], exclude_features=[
                     ds = pd.concat([ds, agg], axis=1)
 
             for lag in lags:
+                # Guard against negative/zero lag which would leak future values into past rows.
+                assert lag > 0, f"lag must be > 0 (got {lag}); negative/zero lags cause look-ahead leakage"
                 if normalize == 'ratio':
                     ds[feature + '_lag_' + str(lag)] = ds[feature].shift(lag) / ds[feature]
                 else:
@@ -106,7 +121,7 @@ def EnrichTSDatasetWithRollingStats(ds, MAs=[5, 10], lags=[], exclude_features=[
 
 
 def SignificantLombScarglePeriod(y):
-    x = arange(len(y)).astype(float)
+    x = np.arange(len(y)).astype(float)
     f = np.linspace(1, len(y), 100)
     # Calculate Lomb-Scargle periodogram:
     import scipy.signal as signal
@@ -139,9 +154,9 @@ def GetAllInputsCombinations(x):
 
 def hurst(ts):
     lags = range(2, 5)
-    tau = [sqrt(std(subtract(ts[lag:], ts[:-lag]))) for lag in lags]
+    tau = [np.sqrt(np.std(np.subtract(ts[lag:], ts[:-lag]))) for lag in lags]
     # calculate Hurst as slope of log-log plot
-    m = polyfit(log(lags), log(tau), 1)
+    m = np.polyfit(np.log(lags), np.log(tau), 1)
     return m[0] * 2.0
 
 
@@ -170,7 +185,9 @@ class MyCustomColumnSelector(BaseEstimator, TransformerMixin):
         self.bVerbose = bVerbose
 
     def fit_transform(self, X, y=None):
-        return self.transform(self, X, y)
+        # Was `self.transform(self, X, y)` — bound method call already passes self, so the original
+        # signature mismatched and misused the `self` parameter as `x`.
+        return self.transform(X, y)
 
     def transform(self, x, y=None):
         bVerbose = self.bVerbose

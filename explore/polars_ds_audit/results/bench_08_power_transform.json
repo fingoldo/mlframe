@@ -1,0 +1,36 @@
+{
+  "api": "power transforms",
+  "note": "polars_ds 0.10.3 \u041d\u0415 \u0438\u043c\u0435\u0435\u0442 first-class yeo-johnson/box-cox \u2014 kand\u0438\u0434at \u043d\u0430 upstream",
+  "rows": {
+    "10000": {
+      "polars_ds": "not implemented upstream",
+      "scipy": {
+        "name": "scipy.stats.yeojohnson (per-col)",
+        "peak_mem_mb": 1.5324935913085938,
+        "result_hash": null,
+        "seconds": 0.20351149997441098
+      },
+      "sklearn": {
+        "name": "sklearn.PowerTransformer",
+        "peak_mem_mb": 70.58659553527832,
+        "result_hash": null,
+        "seconds": 0.23964459996204823
+      }
+    },
+    "100000": {
+      "polars_ds": "not implemented upstream",
+      "scipy": {
+        "name": "scipy.stats.yeojohnson (per-col)",
+        "peak_mem_mb": 15.265403747558594,
+        "result_hash": null,
+        "seconds": 1.6901112999767065
+      },
+      "sklearn": {
+        "name": "sklearn.PowerTransformer",
+        "peak_mem_mb": 23.917272567749023,
+        "result_hash": null,
+        "seconds": 1.728546499973163
+      }
+    }
+  }
+}

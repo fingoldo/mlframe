@@ -8,50 +8,27 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-for _install_attempt in range(3):
-    try:
+# ----------------------------------------------------------------------------------------------------------------------------
+# Normal Imports
+# ----------------------------------------------------------------------------------------------------------------------------
 
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Normal Imports
-        # ----------------------------------------------------------------------------------------------------------------------------
+from typing import *
+import pandas as pd, numpy as np
+from scipy.ndimage import shift
+from sklearn.preprocessing import KBinsDiscretizer,OrdinalEncoder
+from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin, RegressorMixin, MultiOutputMixin
 
-        from typing import *
-        import pandas as pd, numpy as np
-        from scipy.ndimage import shift
-        from sklearn.preprocessing import KBinsDiscretizer,OrdinalEncoder
-        from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin, RegressorMixin, MultiOutputMixin
+from numbers import Number
 
-        from numbers import Number
+from scipy.special import boxcox
+from sklearn.preprocessing import PowerTransformer
 
-        from scipy.special import boxcox
-        from sklearn.preprocessing import PowerTransformer
-
-        from collections.abc import Iterable
-        from sklearn.utils import _safe_indexing, check_array, check_random_state
-        from sklearn.utils.validation import check_is_fitted
-        from sklearn.exceptions import NotFittedError
-        from sklearn.compose import TransformedTargetRegressor
-        from sklearn.base import BaseEstimator, RegressorMixin, _fit_context, clone
-
-    except ModuleNotFoundError as e:
-
-        logger.warning(e)
-
-        if "cannot import name" in str(e):
-            raise (e)
-
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Packages auto-install
-        # ----------------------------------------------------------------------------------------------------------------------------
-
-        from pyutilz.pythonlib import ensure_installed
-
-        ensure_installed("numpy pandas scikit-learn")
-
-    else:
-        break
-else:
-    raise ImportError("Failed to import custom_estimators dependencies after 3 attempts")
+from collections.abc import Iterable
+from sklearn.utils import _safe_indexing, check_array, check_random_state
+from sklearn.utils.validation import check_is_fitted
+from sklearn.exceptions import NotFittedError
+from sklearn.compose import TransformedTargetRegressor
+from sklearn.base import BaseEstimator, RegressorMixin, _fit_context, clone
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits

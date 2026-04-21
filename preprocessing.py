@@ -12,17 +12,23 @@ logger = logging.getLogger(__name__)
 
 from typing import *
 
-from .config import *
+from .config import XGBOOST_MODEL_TYPES, LGBM_MODEL_TYPES, CATBOOST_MODEL_TYPES
 
-import numpy as np, pandas as pd, polars as pl
+import numpy as np, pandas as pd
 from pyutilz.system import tqdmu
+
+
+def _get_polars():
+    """Lazy polars import — heavy native deps, not every caller needs it."""
+    import polars as pl
+    return pl
 
 
 def prepare_df_for_catboost(
     df: object,
-    columns_to_drop: Sequence = [],
-    text_features: Sequence = [],
-    cat_features: list = [],
+    columns_to_drop: Optional[Sequence] = None,
+    text_features: Optional[Sequence] = None,
+    cat_features: Optional[list] = None,
     na_filler: str = "",
     ensure_categorical: bool = True,
     verbose: bool = False,
@@ -33,17 +39,23 @@ def prepare_df_for_catboost(
     ensure_categorical:bool=True makes further processing also suitable for xgboost.
     Works with both pandas and polars DataFrames. Always use the return value.
     """
-    is_polars = isinstance(df, pl.DataFrame)
-
-    # Defensive: callers pass ``text_features=None`` / ``cat_features=None``
-    # sometimes (e.g. after an optional feature-type auto-detection that
-    # decided there were none). Treat as empty so the subsequent ``for var
-    # in text_features`` / ``in cat_features`` iterations don't crash with
-    # ``TypeError: 'NoneType' object is not iterable``.
-    if text_features is None:
-        text_features = []
+    # Avoid the classic mutable-default-argument bug: a list literal in the
+    # signature is shared across calls, so every .append() leaked across
+    # invocations. Accept None and normalize here.
+    if columns_to_drop is None:
+        columns_to_drop = []
     if cat_features is None:
         cat_features = []
+
+    try:
+        pl = _get_polars()
+        is_polars = isinstance(df, pl.DataFrame)
+    except ImportError:
+        pl = None
+        is_polars = False
+
+    if text_features is None:
+        text_features = []
 
     if columns_to_drop:
         if is_polars:
@@ -213,7 +225,12 @@ def prepare_df_for_xgboost(
     Raises:
         TypeError: if ``df`` is a Polars DataFrame or Series.
     """
-    if isinstance(df, (pl.DataFrame, pl.Series)):
+    try:
+        pl = _get_polars()
+        is_polars_df = isinstance(df, (pl.DataFrame, pl.Series))
+    except ImportError:
+        is_polars_df = False
+    if is_polars_df:
         raise TypeError(
             f"prepare_df_for_xgboost requires a pandas DataFrame, got "
             f"{type(df).__name__}. Convert via get_pandas_view_of_polars_df() first."

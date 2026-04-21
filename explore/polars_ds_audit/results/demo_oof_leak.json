@@ -1,0 +1,33 @@
+{
+  "synthesis": {
+    "cardinality": 500,
+    "n": 20000,
+    "signal": 0.3
+  },
+  "variants": {
+    "OOFTargetEncoder_cv5": {
+      "fit_transform_s": 0.9120289999991655,
+      "gap": 0.0011112388685572405,
+      "test_auc": 0.5860164052290779,
+      "train_auc": 0.5871276440976352
+    },
+    "OOFTargetEncoder_randomized": {
+      "fit_transform_s": 0.008469699998386204,
+      "gap": 0.13169352718282268,
+      "test_auc": 0.5844979789145498,
+      "train_auc": 0.7161915060973725
+    },
+    "plain_polars_ds_TE": {
+      "fit_transform_s": 0.28161679999902844,
+      "gap": 0.14105309793599818,
+      "test_auc": 0.5844954222670216,
+      "train_auc": 0.7255485202030197
+    },
+    "sklearn_TargetEncoder_cv5": {
+      "fit_transform_s": 2.315780899953097,
+      "gap": -0.0023727681243413956,
+      "test_auc": 0.5849630664474916,
+      "train_auc": 0.5825902983231502
+    }
+  }
+}

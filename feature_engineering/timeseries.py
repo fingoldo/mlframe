@@ -1,3 +1,20 @@
+"""Time-series feature engineering for ML."""
+
+__all__ = [
+    "get_numaggs_metadata",
+    "find_next_cumsum_left_index",
+    "find_next_cumsum_right_index",
+    "get_nwindows_expected",
+    "get_ts_window_name",
+    "create_aggregated_features",
+    "compute_splitting_stats",
+    "create_windowed_features",
+    "create_and_process_windows",
+    "create_ts_features_parallel",
+    "compute_corr",
+    "general_acf",
+]
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # LOGGING
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -5,14 +22,6 @@
 import logging
 
 logger = logging.getLogger(__name__)
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Packages
-# ----------------------------------------------------------------------------------------------------------------------------
-
-from pyutilz.pythonlib import ensure_installed
-
-# ensure_installed("numpy pandas") #  PyWavelets
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
@@ -503,8 +512,10 @@ def compute_splitting_stats(
                         pre_sum = (window_df[subvar].iloc[index] - window_df[subvar].iloc[0]).total_seconds()
                         post_sum = (window_df[subvar].iloc[-1] - window_df[subvar].iloc[index]).total_seconds()
                     else:
+                        # Single sum + slice beats two .sum() calls on the same column.
+                        col_sum = window_df[subvar].sum()
                         pre_sum = window_df[subvar].iloc[:index].sum()
-                        post_sum = window_df[subvar].iloc[index:].sum()
+                        post_sum = col_sum - pre_sum
                     tot = pre_sum + post_sum
                     splitting_vals.append(pre_sum / tot if tot else 0)
                     if create_features_names:
@@ -590,8 +601,11 @@ def create_windowed_features(
             overlapping=overlapping,
             forward_direction=True,
             window_features_names=future_vars_names,
+            # When a targets_creation_fcn is supplied, targets are derived downstream from the raw
+            # future_windows_features dict, so no per-row list is accumulated here → pass None.
+            # Otherwise features are appended in-place to row_targets by create_and_process_windows.
             window_features=None if targets_creation_fcn else row_targets,
-            create_features_names=(index == start_index),
+            create_features_names=bool(index == start_index),
             verbose=verbose,
         )
 
@@ -612,8 +626,10 @@ def create_windowed_features(
             overlapping=overlapping,
             forward_direction=False,
             window_features_names=past_vars_names,
+            # Mirror of the future-branch semantics: only accumulate a per-row list when no
+            # features_creation_fcn is provided (otherwise features come from past_windows_features).
             window_features=None if features_creation_fcn else row_features,
-            create_features_names=(index == start_index),
+            create_features_names=bool(index == start_index),
             verbose=verbose,
         )
 

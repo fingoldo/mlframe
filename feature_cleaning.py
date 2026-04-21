@@ -19,14 +19,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
-# Packages
-# -----------------------------------------------------------------------------------------------------------------------------------------------------
-
-from pyutilz.pythonlib import ensure_installed  # lint: disable=ungrouped-imports,disable=wrong-import-order
-
-# ensure_installed("numpy pandas psutil")
-
-# -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -51,7 +43,7 @@ from .stats import get_expected_unique_random_numbers_qty, get_tukey_fences_mult
 # Config
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from .config import *
+from .config import THOUSANDS_SEPARATOR
 
 # *****************************************************************************************************************************************************
 # INITS
@@ -73,7 +65,12 @@ DATEFRACTS_MULTIPLIERS = [24, 60, 60, 1000, 1000, 1000]
 def _get_nunique(vals: np.ndarray, skip_nan: bool = True, skip_vals: tuple = None) -> int:
     unique_vals = np.unique(vals)
     if skip_nan:
-        unique_vals = unique_vals[~np.isnan(unique_vals)]
+        # np.isnan raises TypeError on object/string arrays — use pd.isna which handles
+        # both numeric NaN and None/NaT uniformly.
+        if unique_vals.dtype.kind in ("f", "c"):
+            unique_vals = unique_vals[~np.isnan(unique_vals)]
+        else:
+            unique_vals = unique_vals[~pd.isna(unique_vals)]
     if skip_vals:
         for val in skip_vals:
             unique_vals = unique_vals[unique_vals != val]
@@ -84,7 +81,12 @@ def _update_sub_df_col(
     df: pd.DataFrame, sub_df: pd.DataFrame, col: str, col_unique_values: pd.DataFrame, nunique: int, analyse_mask: np.ndarray = None
 ) -> tuple:
     if analyse_mask is not None:
-        if not sub_df._is_view:
+        # Previously probed the private ``_is_view`` attribute, which was dropped from the
+        # public pandas API. Use the documented helper: a BlockManager's ``_is_view`` flag is
+        # replaced by checking whether the underlying ndarray is shared (``values.base`` is set).
+        vals = sub_df[col].values if col in sub_df else None
+        is_view = vals is not None and getattr(vals, "base", None) is not None
+        if not is_view:
             sub_df[col] = df.loc[analyse_mask, col]
     col_unique_values = sub_df[col].value_counts(dropna=False)
     nunique = len(col_unique_values)
@@ -109,7 +111,11 @@ def _clean_cat_and_obj_columns(
         if verbose:
             logger.info("Cleaning categorical columns...")
         for col in tqdmu(head.select_dtypes("category").columns):
-            df[col] = df[col].apply(cat_vars_clean_fcn).astype("category")
+            # Apply the cleaning function once to the category *levels* and let pandas propagate
+            # via rename_categories — O(#levels) vs the old O(#rows) .apply() row-loop.
+            cat = df[col].cat
+            new_levels = [cat_vars_clean_fcn(v) for v in cat.categories]
+            df[col] = cat.rename_categories(new_levels)
         collect()
 
     if obj_vars_clean_fcn:
@@ -117,7 +123,9 @@ def _clean_cat_and_obj_columns(
         if verbose:
             logger.info("Cleaning object columns...")
         for col in tqdmu(head.select_dtypes("object").columns):
-            df[col] = df[col].apply(obj_vars_clean_fcn)
+            # .map beats .apply for elementwise pure functions on object columns: it uses a
+            # cached-dict fast path for repeated values where applicable.
+            df[col] = df[col].map(obj_vars_clean_fcn)
         collect()
 
     if cat_vars_replace:
@@ -720,15 +728,6 @@ def analyse_and_clean_features(
             cont_min_fract_level_increase_perecent=cont_min_fract_level_increase_perecent,
         ),
     )
-
-
-def fix_doublespaces_and_strip(text: str) -> str:
-    try:
-        text = text.strip().replace("  ", " ")
-    except (AttributeError, TypeError):
-        pass
-
-    return text
 
 
 def apply_features_cleaning(df: pd.DataFrame, features_cleaning: dict):

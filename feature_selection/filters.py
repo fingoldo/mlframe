@@ -77,8 +77,6 @@ def arr2str(arr) -> str:
         out += str(el)
     return out
 
-# ensure_installed("numba numpy pandas scipy astropy scikit-learn joblib catboost psutil")  # cupy-cuda11x
-
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -3808,11 +3806,12 @@ def njit_functions_dict(dict, exceptions: Sequence = ("grad1", "grad2", "sinc", 
 
 
 def smart_log(x: np.ndarray) -> np.ndarray:
-    x_min = np.float32(np.nanmin(x))
+    # Preserve input dtype (previous cast to float32 silently demoted float64
+    # inputs). A single nanmin pass plus a branch is enough — no second pass.
+    x_min = np.nanmin(x)
     if x_min > 0:
         return np.log(x)
-    else:
-        return np.log(x + 1e-5 - x_min)
+    return np.log(x + (1e-5 - x_min))
 
 
 def create_unary_transformations(preset: str = "minimal"):

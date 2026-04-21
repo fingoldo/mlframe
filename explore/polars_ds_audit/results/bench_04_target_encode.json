@@ -1,0 +1,66 @@
+{
+  "api": "target encode",
+  "note": "polars_ds \u0411\u0415\u0417 OOF; sklearn \u0421 \u0432\u0441\u0442\u0440\u043e\u0435\u043d\u043d\u044b\u043c cross-fit cv=5; category_encoders \u0411\u0415\u0417 OOF (\u0431\u0430\u0437\u043e\u0432\u0430\u044f \u0441\u043c\u0435\u0441\u044c \u0441 prior)",
+  "rows": {
+    "10000": {
+      "category_encoders": {
+        "name": "category_encoders.TargetEncoder",
+        "peak_mem_mb": 8.444250106811523,
+        "result_hash": null,
+        "seconds": 0.14148529997328296
+      },
+      "polars_ds_no_oof": {
+        "name": "polars_ds.target_encode (no OOF)",
+        "peak_mem_mb": 0.043602943420410156,
+        "result_hash": null,
+        "seconds": 0.009632600005716085
+      },
+      "sklearn_cv5": {
+        "name": "sklearn.TargetEncoder (cv=5)",
+        "peak_mem_mb": 69.63671588897705,
+        "result_hash": null,
+        "seconds": 0.06380539998644963
+      }
+    },
+    "200000": {
+      "category_encoders": {
+        "name": "category_encoders.TargetEncoder",
+        "peak_mem_mb": 35.761098861694336,
+        "result_hash": null,
+        "seconds": 0.6285352000268176
+      },
+      "polars_ds_no_oof": {
+        "name": "polars_ds.target_encode (no OOF)",
+        "peak_mem_mb": 0.013779640197753906,
+        "result_hash": null,
+        "seconds": 0.03150670003378764
+      },
+      "sklearn_cv5": {
+        "name": "sklearn.TargetEncoder (cv=5)",
+        "peak_mem_mb": 34.13105392456055,
+        "result_hash": null,
+        "seconds": 0.3074172999477014
+      }
+    },
+    "50000": {
+      "category_encoders": {
+        "name": "category_encoders.TargetEncoder",
+        "peak_mem_mb": 9.153738975524902,
+        "result_hash": null,
+        "seconds": 0.19365900004049763
+      },
+      "polars_ds_no_oof": {
+        "name": "polars_ds.target_encode (no OOF)",
+        "peak_mem_mb": 0.05331707000732422,
+        "result_hash": null,
+        "seconds": 0.012357699975837022
+      },
+      "sklearn_cv5": {
+        "name": "sklearn.TargetEncoder (cv=5)",
+        "peak_mem_mb": 8.686738014221191,
+        "result_hash": null,
+        "seconds": 0.08612779999384657
+      }
+    }
+  }
+}

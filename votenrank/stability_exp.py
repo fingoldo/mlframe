@@ -2,7 +2,7 @@ from scipy.stats import spearmanr
 import numpy as np
 import pandas as pd
 
-from tqdm.notebook import tqdm
+from pyutilz.system import tqdmu as tqdm
 from collections import defaultdict
 
 import matplotlib.pyplot as plt

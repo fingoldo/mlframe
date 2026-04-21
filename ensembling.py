@@ -17,15 +17,17 @@ logger = logging.getLogger(__name__)
 from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
 
 import copy
-import joblib
-from joblib import Parallel, delayed
+import psutil
+from joblib import delayed
 import pandas as pd, numpy as np
 
-from pyutilz.parallel import parallel_run
+from pyutilz.parallel import parallel_run, cpu_count_physical
 from pyutilz.pythonlib import is_jupyter_notebook
 from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_names, compute_numerical_aggregates_numba, get_basic_feature_names
 
 SIMPLE_ENSEMBLING_METHODS: list = "arithm harm median quad qube geo".split()
+
+_MEANS_COLS: list = "arimean,quadmean,qubmean,geomean,harmmean".split(",")
 
 basic_features_names = get_basic_feature_names(
     return_drawdown_stats=False,
@@ -82,7 +84,7 @@ def enrich_ensemble_preds_with_numaggs(
         probs_fields_names = []
 
     if n_jobs == -1:
-        n_jobs = joblib.cpu_count(only_physical_cores=only_physical_cores)
+        n_jobs = cpu_count_physical() if only_physical_cores else (psutil.cpu_count(logical=True) or 1)
 
     if n_jobs and n_jobs != 1:
         batch_numaggs_results = parallel_run(
@@ -120,7 +122,7 @@ def enrich_ensemble_preds_with_numaggs(
 
     res = pd.DataFrame(data=row_features, columns=columns)
     if means_only:
-        return res[probs_fields_names + "arimean,quadmean,qubmean,geomean,harmmean".split(",")]
+        return res[probs_fields_names + _MEANS_COLS]
     else:
         return res
 
@@ -542,16 +544,15 @@ def score_ensemble(
     effective_n_jobs = n_jobs
     if effective_n_jobs is None:
         if n_samples >= min_samples_for_parallel and not is_jupyter_notebook():
-            n_physical_cores = joblib.cpu_count(only_physical_cores=True) or 1
-            effective_n_jobs = min(len(ensembling_methods), n_physical_cores)
+            effective_n_jobs = min(len(ensembling_methods), cpu_count_physical())
         else:
             effective_n_jobs = 1
 
     # Convert pandas Series to numpy arrays before parallel section to avoid pickling issues
-    train_target_arr = train_target.values if isinstance(train_target, pd.Series) else train_target
-    test_target_arr = test_target.values if isinstance(test_target, pd.Series) else test_target
-    val_target_arr = val_target.values if isinstance(val_target, pd.Series) else val_target
-    target_arr = target.values if isinstance(target, pd.Series) else target
+    train_target_arr = train_target.to_numpy() if isinstance(train_target, pd.Series) else train_target
+    test_target_arr = test_target.to_numpy() if isinstance(test_target, pd.Series) else test_target
+    val_target_arr = val_target.to_numpy() if isinstance(val_target, pd.Series) else val_target
+    target_arr = target.to_numpy() if isinstance(target, pd.Series) else target
 
     for ensembling_level in range(max_ensembling_level):
 
@@ -586,9 +587,27 @@ def score_ensemble(
         )
 
         if len(ensembling_methods) > 1 and effective_n_jobs > 1:
-            # Parallel processing
-            results = Parallel(n_jobs=effective_n_jobs, backend="loky", max_nbytes="1K", verbose=0)(
-                delayed(_process_single_ensemble_method)(ensemble_method=method, **common_params) for method in ensembling_methods
+            # loky pickles kwargs across worker boundaries; closure-captured metrics/lambdas
+            # blow up in workers. Pre-check so we can fall back to sequential with a clear warning.
+            try:
+                import pickle
+                pickle.dumps((custom_ice_metric, custom_rice_metric, kwargs))
+            except (pickle.PicklingError, AttributeError, TypeError) as exc:
+                logger.warning(
+                    "ensembling: falling back to sequential — one of "
+                    "custom_ice_metric / custom_rice_metric / kwargs is not picklable: %s",
+                    exc,
+                )
+                effective_n_jobs = 1
+
+        if len(ensembling_methods) > 1 and effective_n_jobs > 1:
+            # Parallel processing — loky + tiny max_nbytes keeps arrays in-memory (no spill) per pre-existing tuning
+            results = parallel_run(
+                [delayed(_process_single_ensemble_method)(ensemble_method=method, **common_params) for method in ensembling_methods],
+                n_jobs=effective_n_jobs,
+                backend="loky",
+                max_nbytes="1K",
+                verbose=0,
             )
             for internal_method, next_ens_results, conf_results in results:
                 res[internal_method] = next_ens_results

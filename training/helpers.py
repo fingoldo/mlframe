@@ -31,10 +31,8 @@ from xgboost.callback import TrainingCallback
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit
 
-from pyutilz.system import get_gpuinfo_gpu_info, tqdmu
+from pyutilz.system import get_gpuinfo_gpu_info, tqdmu, get_own_memory_usage
 from pyutilz.pythonlib import get_parent_func_args, store_params_in_object
-
-from mlframe.helpers import get_own_ram_usage
 from mlframe.metrics import (
     compute_probabilistic_multiclass_error,
     robust_mlperf_metric,
@@ -767,7 +765,7 @@ class UniversalCallback:
         self.start_time = timer()
         if self.verbose > 0:
             self.last_reporting_ts = self.start_time
-            logger.info(f"Training started. Timer initiated. RAM usage {get_own_ram_usage():.1f}GB.")
+            logger.info(f"Training started. Timer initiated. RAM usage {get_own_memory_usage():.1f}GB.")
 
     def update_history(self, metrics_dict: Dict[str, Dict[str, float]]) -> None:
         for dataset in metrics_dict:
@@ -826,7 +824,7 @@ class UniversalCallback:
             logger.info(f"Auto-selected monitor_metric: {self.monitor_metric}, mode: {self.mode}")
 
     def _get_state(self, current_value: float) -> str:
-        return f"iter={self.iter:_}, {self.monitor_dataset} {self.monitor_metric}: current={current_value:.{self.ndigits}f}, best={self.best_metric:.{self.ndigits}f} @{self.best_iter:_}. RAM usage {get_own_ram_usage():.1f}GB."
+        return f"iter={self.iter:_}, {self.monitor_dataset} {self.monitor_metric}: current={current_value:.{self.ndigits}f}, best={self.best_metric:.{self.ndigits}f} @{self.best_iter:_}. RAM usage {get_own_memory_usage():.1f}GB."
 
     def should_stop(self) -> bool:
         cur_ts = timer()

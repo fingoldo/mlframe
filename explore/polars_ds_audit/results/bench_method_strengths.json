@@ -1,0 +1,494 @@
+[
+  {
+    "name": "A. Power-law cardinality + imbalanced binary",
+    "rows": [
+      {
+        "rep": 0,
+        "method": "plain TE",
+        "train_auc": 0.817072779840659,
+        "test_auc": 0.6819653889283469
+      },
+      {
+        "rep": 0,
+        "method": "OOF sigmoid cv=5",
+        "train_auc": 0.6441534462263852,
+        "test_auc": 0.6819653889283469
+      },
+      {
+        "rep": 0,
+        "method": "OOF Bayes classical cv=5",
+        "train_auc": 0.6086416308202405,
+        "test_auc": 0.6467837848150969
+      },
+      {
+        "rep": 0,
+        "method": "OOF Bayes pooled cv=5",
+        "train_auc": 0.5979100655572165,
+        "test_auc": 0.6057903813274019
+      },
+      {
+        "rep": 1,
+        "method": "plain TE",
+        "train_auc": 0.8144266798621708,
+        "test_auc": 0.6244427535156724
+      },
+      {
+        "rep": 1,
+        "method": "OOF sigmoid cv=5",
+        "train_auc": 0.6382857412153145,
+        "test_auc": 0.6244427535156724
+      },
+      {
+        "rep": 1,
+        "method": "OOF Bayes classical cv=5",
+        "train_auc": 0.6084912497670437,
+        "test_auc": 0.5926863398213272
+      },
+      {
+        "rep": 1,
+        "method": "OOF Bayes pooled cv=5",
+        "train_auc": 0.5961813962909304,
+        "test_auc": 0.5762279160240609
+      },
+      {
+        "rep": 2,
+        "method": "plain TE",
+        "train_auc": 0.8002141326085818,
+        "test_auc": 0.6203038320834573
+      },
+      {
+        "rep": 2,
+        "method": "OOF sigmoid cv=5",
+        "train_auc": 0.6054099354371519,
+        "test_auc": 0.6203038320834573
+      },
+      {
+        "rep": 2,
+        "method": "OOF Bayes classical cv=5",
+        "train_auc": 0.5902461974590778,
+        "test_auc": 0.6119017425203137
+      },
+      {
+        "rep": 2,
+        "method": "OOF Bayes pooled cv=5",
+        "train_auc": 0.5465719279042214,
+        "test_auc": 0.5637945610821475
+      },
+      {
+        "rep": 3,
+        "method": "plain TE",
+        "train_auc": 0.8251481398420173,
+        "test_auc": 0.6230359544655786
+      },
+      {
+        "rep": 3,
+        "method": "OOF sigmoid cv=5",
+        "train_auc": 0.6507894146669657,
+        "test_auc": 0.6230359544655786
+      },
+      {
+        "rep": 3,
+        "method": "OOF Bayes classical cv=5",
+        "train_auc": 0.6050408661633151,
+        "test_auc": 0.5954394720975414
+      },
+      {
+        "rep": 3,
+        "method": "OOF Bayes pooled cv=5",
+        "train_auc": 0.6082291744536643,
+        "test_auc": 0.5925613627345389
+      },
+      {
+        "rep": 4,
+        "method": "plain TE",
+        "train_auc": 0.8092248960440027,
+        "test_auc": 0.6431252527187213
+      },
+      {
+        "rep": 4,
+        "method": "OOF sigmoid cv=5",
+        "train_auc": 0.6323216744315762,
+        "test_auc": 0.6431252527187213
+      },
+      {
+        "rep": 4,
+        "method": "OOF Bayes classical cv=5",
+        "train_auc": 0.6029233227907227,
+        "test_auc": 0.6021422566983763
+      },
+      {
+        "rep": 4,
+        "method": "OOF Bayes pooled cv=5",
+        "train_auc": 0.5870486173399523,
+        "test_auc": 0.6132352784694292
+      }
+    ],
+    "summary": [
+      {
+        "method": "plain TE",
+        "train_auc_med": 0.8144266798621708,
+        "test_auc_med": 0.6244427535156724,
+        "gap_med": 0.1899839263464984
+      },
+      {
+        "method": "OOF sigmoid cv=5",
+        "train_auc_med": 0.6382857412153145,
+        "test_auc_med": 0.6244427535156724,
+        "gap_med": 0.013842987699642095
+      },
+      {
+        "method": "OOF Bayes classical cv=5",
+        "train_auc_med": 0.6050408661633151,
+        "test_auc_med": 0.6021422566983763,
+        "gap_med": 0.002898609464938806
+      },
+      {
+        "method": "OOF Bayes pooled cv=5",
+        "train_auc_med": 0.5961813962909304,
+        "test_auc_med": 0.5925613627345389,
+        "gap_med": 0.003620033556391511
+      }
+    ],
+    "winner": "plain TE"
+  },
+  {
+    "name": "B. Heterogeneous within-cat noise (tight + noisy mix)",
+    "rows": [
+      {
+        "rep": 0,
+        "method": "plain TE",
+        "train_auc": 0.8624496307206893,
+        "test_auc": 0.8528658020433839
+      },
+      {
+        "rep": 0,
+        "method": "OOF sigmoid cv=5",
+        "train_auc": 0.8328479172411357,
+        "test_auc": 0.8528658020433839
+      },
+      {
+        "rep": 0,
+        "method": "OOF Bayes classical cv=5",
+        "train_auc": 0.7959337243484254,
+        "test_auc": 0.8276044733248745
+      },
+      {
+        "rep": 0,
+        "method": "OOF Bayes pooled cv=5",
+        "train_auc": 0.8335004813273449,
+        "test_auc": 0.8530125505790304
+      },
+      {
+        "rep": 1,
+        "method": "plain TE",
+        "train_auc": 0.8618286784209706,
+        "test_auc": 0.8512807183701372
+      },
+      {
+        "rep": 1,
+        "method": "OOF sigmoid cv=5",
+        "train_auc": 0.8307473864877516,
+        "test_auc": 0.8512807183701372
+      },
+      {
+        "rep": 1,
+        "method": "OOF Bayes classical cv=5",
+        "train_auc": 0.7653474144090137,
+        "test_auc": 0.8089942248395986
+      },
+      {
+        "rep": 1,
+        "method": "OOF Bayes pooled cv=5",
+        "train_auc": 0.8320357063668691,
+        "test_auc": 0.8522420582643186
+      },
+      {
+        "rep": 2,
+        "method": "plain TE",
+        "train_auc": 0.8772868850424721,
+        "test_auc": 0.845948842475557
+      },
+      {
+        "rep": 2,
+        "method": "OOF sigmoid cv=5",
+        "train_auc": 0.8570517241604523,
+        "test_auc": 0.845948842475557
+      },
+      {
+        "rep": 2,
+        "method": "OOF Bayes classical cv=5",
+        "train_auc": 0.7734553484307586,
+        "test_auc": 0.7809524742040462
+      },
+      {
+        "rep": 2,
+        "method": "OOF Bayes pooled cv=5",
+        "train_auc": 0.8573985286606816,
+        "test_auc": 0.8444765682302089
+      },
+      {
+        "rep": 3,
+        "method": "plain TE",
+        "train_auc": 0.8724169437915544,
+        "test_auc": 0.8312037851759176
+      },
+      {
+        "rep": 3,
+        "method": "OOF sigmoid cv=5",
+        "train_auc": 0.8487759938986014,
+        "test_auc": 0.8312037851759176
+      },
+      {
+        "rep": 3,
+        "method": "OOF Bayes classical cv=5",
+        "train_auc": 0.7570319243274228,
+        "test_auc": 0.7643626258497815
+      },
+      {
+        "rep": 3,
+        "method": "OOF Bayes pooled cv=5",
+        "train_auc": 0.8490015460334835,
+        "test_auc": 0.832999280730906
+      },
+      {
+        "rep": 4,
+        "method": "plain TE",
+        "train_auc": 0.8715421872050991,
+        "test_auc": 0.8405095636607584
+      },
+      {
+        "rep": 4,
+        "method": "OOF sigmoid cv=5",
+        "train_auc": 0.8461024914864101,
+        "test_auc": 0.8405095636607584
+      },
+      {
+        "rep": 4,
+        "method": "OOF Bayes classical cv=5",
+        "train_auc": 0.7853814850396004,
+        "test_auc": 0.7883431707330093
+      },
+      {
+        "rep": 4,
+        "method": "OOF Bayes pooled cv=5",
+        "train_auc": 0.8462411817984666,
+        "test_auc": 0.8377282813525966
+      }
+    ],
+    "summary": [
+      {
+        "method": "plain TE",
+        "train_auc_med": 0.8715421872050991,
+        "test_auc_med": 0.845948842475557,
+        "gap_med": 0.02559334472954211
+      },
+      {
+        "method": "OOF sigmoid cv=5",
+        "train_auc_med": 0.8461024914864101,
+        "test_auc_med": 0.845948842475557,
+        "gap_med": 0.00015364901085312965
+      },
+      {
+        "method": "OOF Bayes classical cv=5",
+        "train_auc_med": 0.7734553484307586,
+        "test_auc_med": 0.7883431707330093,
+        "gap_med": -0.01488782230225072
+      },
+      {
+        "method": "OOF Bayes pooled cv=5",
+        "train_auc_med": 0.8462411817984666,
+        "test_auc_med": 0.8444765682302089,
+        "gap_med": 0.0017646135682577446
+      }
+    ],
+    "winner": "plain TE"
+  },
+  {
+    "name": "C. Group-split (unseen users at test time, 5-50 rows per user)",
+    "rows": [
+      {
+        "rep": 0,
+        "method": "plain TE",
+        "train_auc": 0.7318246647546701,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 0,
+        "method": "OOF sigmoid cv=5",
+        "train_auc": 0.6897064827015994,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 0,
+        "method": "OOF Bayes classical cv=5",
+        "train_auc": 0.6904565537555228,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 0,
+        "method": "OOF Bayes pooled cv=5",
+        "train_auc": 0.6905642973412913,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 0,
+        "method": "OOF GroupKFold (fold_col)",
+        "train_auc": 0.4812924062734155,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 1,
+        "method": "plain TE",
+        "train_auc": 0.7779371095082802,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 1,
+        "method": "OOF sigmoid cv=5",
+        "train_auc": 0.7469877507858014,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 1,
+        "method": "OOF Bayes classical cv=5",
+        "train_auc": 0.7389678045858048,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 1,
+        "method": "OOF Bayes pooled cv=5",
+        "train_auc": 0.7509558826002076,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 1,
+        "method": "OOF GroupKFold (fold_col)",
+        "train_auc": 0.5388972628944236,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 2,
+        "method": "plain TE",
+        "train_auc": 0.7721661990351047,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 2,
+        "method": "OOF sigmoid cv=5",
+        "train_auc": 0.733793064931337,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 2,
+        "method": "OOF Bayes classical cv=5",
+        "train_auc": 0.7282202625681771,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 2,
+        "method": "OOF Bayes pooled cv=5",
+        "train_auc": 0.7413724002463168,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 2,
+        "method": "OOF GroupKFold (fold_col)",
+        "train_auc": 0.5191553867914919,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 3,
+        "method": "plain TE",
+        "train_auc": 0.7663083122779595,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 3,
+        "method": "OOF sigmoid cv=5",
+        "train_auc": 0.7313621788454608,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 3,
+        "method": "OOF Bayes classical cv=5",
+        "train_auc": 0.7291077160536176,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 3,
+        "method": "OOF Bayes pooled cv=5",
+        "train_auc": 0.7361332056803165,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 3,
+        "method": "OOF GroupKFold (fold_col)",
+        "train_auc": 0.5423394328812179,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 4,
+        "method": "plain TE",
+        "train_auc": 0.7779921252598849,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 4,
+        "method": "OOF sigmoid cv=5",
+        "train_auc": 0.7423194999697731,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 4,
+        "method": "OOF Bayes classical cv=5",
+        "train_auc": 0.7285532924877187,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 4,
+        "method": "OOF Bayes pooled cv=5",
+        "train_auc": 0.746365423687828,
+        "test_auc": 0.5
+      },
+      {
+        "rep": 4,
+        "method": "OOF GroupKFold (fold_col)",
+        "train_auc": 0.5225633908694018,
+        "test_auc": 0.5
+      }
+    ],
+    "summary": [
+      {
+        "method": "plain TE",
+        "train_auc_med": 0.7721661990351047,
+        "test_auc_med": 0.5,
+        "gap_med": 0.27216619903510475
+      },
+      {
+        "method": "OOF sigmoid cv=5",
+        "train_auc_med": 0.733793064931337,
+        "test_auc_med": 0.5,
+        "gap_med": 0.233793064931337
+      },
+      {
+        "method": "OOF Bayes classical cv=5",
+        "train_auc_med": 0.7285532924877187,
+        "test_auc_med": 0.5,
+        "gap_med": 0.22855329248771872
+      },
+      {
+        "method": "OOF Bayes pooled cv=5",
+        "train_auc_med": 0.7413724002463168,
+        "test_auc_med": 0.5,
+        "gap_med": 0.2413724002463168
+      },
+      {
+        "method": "OOF GroupKFold (fold_col)",
+        "train_auc_med": 0.5225633908694018,
+        "test_auc_med": 0.5,
+        "gap_med": 0.022563390869401845
+      }
+    ],
+    "winner": "plain TE"
+  }
+]

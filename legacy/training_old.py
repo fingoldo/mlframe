@@ -15,9 +15,7 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 from typing import List, Dict, Iterable, Sequence, Union, Callable, Any, Optional, Tuple  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
-from .config import *
-
-# from pyutilz.pythonlib import ensure_installed;ensure_installed("pandas numpy numba scikit-learn lightgbm catboost xgboost shap")
+from mlframe.config import TABNET_MODEL_TYPES
 
 import re
 import copy
@@ -33,11 +31,11 @@ from collections import defaultdict
 
 
 from timeit import default_timer as timer
-from pyutilz.system import ensure_dir_exists, tqdmu
+from pyutilz.system import ensure_dir_exists, tqdmu, get_own_memory_usage
 from pyutilz.system import compute_total_gpus_ram, get_gpuinfo_gpu_info
 from pyutilz.pythonlib import prefix_dict_elems, get_human_readable_set_size, is_jupyter_notebook
 
-from mlframe.helpers import get_model_best_iter, ensure_no_infinity, get_own_ram_usage
+from mlframe.helpers import get_model_best_iter, ensure_no_infinity
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -631,7 +629,7 @@ def train_mlframe_models_suite_old(
     """In a unified fashion, train a bunch of models over the same data."""
 
     if verbose:
-        logger.info(f"Starting MLFRAME models suite training. RAM usage: {get_own_ram_usage():.1f}GB.")
+        logger.info(f"Starting MLFRAME models suite training. RAM usage: {get_own_memory_usage():.1f}GB.")
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Warnings
@@ -845,14 +843,14 @@ def train_mlframe_models_suite_old(
     if use_autogluon_models or use_lama_models:
         tran_val_idx = np.concatenate([train_idx, val_idx])
         if verbose:
-            logger.info(f"RSS at start: {get_own_ram_usage():.1f}GBs")
+            logger.info(f"RSS at start: {get_own_memory_usage():.1f}GBs")
     else:
         if verbose:
-            logger.info(f"Ram usage before deleting main df: {get_own_ram_usage():.1f}GBs")
+            logger.info(f"Ram usage before deleting main df: {get_own_memory_usage():.1f}GBs")
         del df
         clean_ram()
         if verbose:
-            logger.info(f"Ram usage after deleting main df: {get_own_ram_usage():.1f}GBs")
+            logger.info(f"Ram usage after deleting main df: {get_own_memory_usage():.1f}GBs")
 
     if isinstance(train_df, pl.DataFrame):
 
@@ -939,7 +937,7 @@ def train_mlframe_models_suite_old(
                         else:
                             df = df.drop(automl_target_label)
                         if verbose:
-                            logger.info(f"RSS after automl_target_label deletion: {get_own_ram_usage():.1f}GBs")
+                            logger.info(f"RSS after automl_target_label deletion: {get_own_memory_usage():.1f}GBs")
 
                 parts = slugify(target_name), slugify(model_name), slugify(target_type.lower()), slugify(cur_target_name)
                 if data_dir is not None:
@@ -1058,7 +1056,7 @@ def train_mlframe_models_suite_old(
                     df[automl_target_label] = cur_target_values
                 else:
                     df = df.with_columns(pl.Series(automl_target_label, cur_target_values))
-                print(f"RSS after automl_target_label inserting: {get_own_ram_usage():.1f}GBs")
+                print(f"RSS after automl_target_label inserting: {get_own_memory_usage():.1f}GBs")
                 if isinstance(df, pd.DataFrame):
                     automl_train_df = df.iloc[tran_val_idx].copy()
                 else:

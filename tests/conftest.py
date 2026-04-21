@@ -181,15 +181,14 @@ def cleanup_memory():
 
     gc.collect()
 
-    # Clear GPU memory and destroy distributed process groups
+    # Clear GPU memory. Distributed process-group teardown is the responsibility
+    # of the multigpu tests themselves — tearing it down per test here would
+    # race with tests that legitimately share a process group across fixtures.
     try:
         import torch
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
-
-        if torch.distributed.is_initialized():
-            torch.distributed.destroy_process_group()
     except ImportError:
         pass
     except Exception:

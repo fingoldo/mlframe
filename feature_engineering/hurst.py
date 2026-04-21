@@ -1,7 +1,14 @@
 """Compute the Hurst Exponent of an 1D array by the means of R/S analysis:
-    
+
     https://en.wikipedia.org/wiki/Hurst_exponent
 """
+
+__all__ = [
+    "compute_hurst_rs",
+    "precompute_hurst_exponent",
+    "compute_hurst_exponent",
+    "hurst_testing",
+]
 
 # pylint: disable=wrong-import-order,wrong-import-position,unidiomatic-typecheck,pointless-string-statement
 
@@ -12,16 +19,6 @@
 import logging
 
 logger = logging.getLogger(__name__)
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Packages
-# ----------------------------------------------------------------------------------------------------------------------------
-
-from pyutilz.pythonlib import (
-    ensure_installed,
-)  # lint: disable=ungrouped-imports,disable=wrong-import-order
-
-ensure_installed("numpy pandas numba scipy sklearn antropy")
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
@@ -102,8 +99,16 @@ def compute_hurst_exponent(arr: np.ndarray, min_window: int = 5, max_window: int
     window_sizes, rs = precompute_hurst_exponent(
         arr=arr, min_window=min_window, max_window=max_window, windows_log_step=windows_log_step, take_diffs=take_diffs
     )
-    x = np.vstack([np.log10(window_sizes), np.ones(len(rs))]).T
-    h, c = np.linalg.lstsq(x, np.log10(rs), rcond=-1)[0]
+    # If the R/S aggregation produced no usable windows, or if any entry is non-positive,
+    # np.log10 would yield -inf/nan and poison the least-squares fit.
+    if not rs or any((r is None) or (r <= 0) for r in rs):
+        return np.nan, np.nan
+    rs_arr = np.asarray(rs, dtype=float)
+    window_sizes_arr = np.asarray(window_sizes, dtype=float)
+    if np.any(rs_arr <= 0) or np.any(window_sizes_arr <= 0):
+        return np.nan, np.nan
+    x = np.vstack([np.log10(window_sizes_arr), np.ones(len(rs_arr))]).T
+    h, c = np.linalg.lstsq(x, np.log10(rs_arr), rcond=-1)[0]
     c = 10**c
     return h, c
 

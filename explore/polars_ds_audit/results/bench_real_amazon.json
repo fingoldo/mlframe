@@ -1,0 +1,777 @@
+{
+  "raw": [
+    {
+      "variant": "pds_TE_plain",
+      "repeat": 0,
+      "train_auc": 0.96078,
+      "test_auc": 0.759344,
+      "gap": 0.201436,
+      "time_s": 0.0348
+    },
+    {
+      "variant": "pds_OOF_TE_cv3",
+      "repeat": 0,
+      "train_auc": 0.826006,
+      "test_auc": 0.855018,
+      "gap": -0.029012,
+      "time_s": 0.0408
+    },
+    {
+      "variant": "pds_OOF_TE_cv5",
+      "repeat": 0,
+      "train_auc": 0.833211,
+      "test_auc": 0.854886,
+      "gap": -0.021675,
+      "time_s": 0.0508
+    },
+    {
+      "variant": "pds_OOF_Bayes_classical_cv3",
+      "repeat": 0,
+      "train_auc": 0.802212,
+      "test_auc": 0.831122,
+      "gap": -0.02891,
+      "time_s": 0.0713
+    },
+    {
+      "variant": "pds_OOF_Bayes_classical_cv5",
+      "repeat": 0,
+      "train_auc": 0.810006,
+      "test_auc": 0.830966,
+      "gap": -0.020961,
+      "time_s": 0.0948
+    },
+    {
+      "variant": "pds_OOF_Bayes_pooled_cv3",
+      "repeat": 0,
+      "train_auc": 0.820787,
+      "test_auc": 0.848581,
+      "gap": -0.027794,
+      "time_s": 0.0837
+    },
+    {
+      "variant": "pds_OOF_Bayes_pooled_cv5",
+      "repeat": 0,
+      "train_auc": 0.828856,
+      "test_auc": 0.848266,
+      "gap": -0.01941,
+      "time_s": 0.0954
+    },
+    {
+      "variant": "sklearn_TE_cv5",
+      "repeat": 0,
+      "train_auc": 0.830652,
+      "test_auc": 0.845019,
+      "gap": -0.014367,
+      "time_s": 0.1905
+    },
+    {
+      "variant": "sklearn_TE_cv3",
+      "repeat": 0,
+      "train_auc": 0.822429,
+      "test_auc": 0.844956,
+      "gap": -0.022527,
+      "time_s": 0.1497
+    },
+    {
+      "variant": "catenc_TE_plain",
+      "repeat": 0,
+      "train_auc": 0.96078,
+      "test_auc": 0.855153,
+      "gap": 0.105627,
+      "time_s": 0.2002
+    },
+    {
+      "variant": "pds_WoE_plain",
+      "repeat": 0,
+      "train_auc": 0.928431,
+      "test_auc": 0.795662,
+      "gap": 0.132769,
+      "time_s": 0.0247
+    },
+    {
+      "variant": "pds_OOF_WoE_cv3",
+      "repeat": 0,
+      "train_auc": 0.787345,
+      "test_auc": 0.814716,
+      "gap": -0.027371,
+      "time_s": 0.0641
+    },
+    {
+      "variant": "catenc_WoE_plain",
+      "repeat": 0,
+      "train_auc": 0.907712,
+      "test_auc": 0.813488,
+      "gap": 0.094224,
+      "time_s": 0.2342
+    },
+    {
+      "variant": "pds_Blueprint_cv3",
+      "repeat": 0,
+      "train_auc": 0.826006,
+      "test_auc": 0.855018,
+      "gap": -0.029012,
+      "time_s": 0.1568
+    },
+    {
+      "variant": "pds_Blueprint_TE_scale_refit_full",
+      "repeat": 0,
+      "train_auc": 0.827718,
+      "test_auc": 0.858549,
+      "gap": -0.030831,
+      "time_s": 0.0625
+    },
+    {
+      "variant": "pds_Blueprint_TE_scale_refit_oof",
+      "repeat": 0,
+      "train_auc": 0.827695,
+      "test_auc": 0.858577,
+      "gap": -0.030882,
+      "time_s": 0.0321
+    },
+    {
+      "variant": "pds_TE_plain",
+      "repeat": 1,
+      "train_auc": 0.959147,
+      "test_auc": 0.768031,
+      "gap": 0.191116,
+      "time_s": 0.0258
+    },
+    {
+      "variant": "pds_OOF_TE_cv3",
+      "repeat": 1,
+      "train_auc": 0.823963,
+      "test_auc": 0.861035,
+      "gap": -0.037072,
+      "time_s": 0.0415
+    },
+    {
+      "variant": "pds_OOF_TE_cv5",
+      "repeat": 1,
+      "train_auc": 0.834193,
+      "test_auc": 0.861104,
+      "gap": -0.026911,
+      "time_s": 0.0501
+    },
+    {
+      "variant": "pds_OOF_Bayes_classical_cv3",
+      "repeat": 1,
+      "train_auc": 0.804566,
+      "test_auc": 0.844523,
+      "gap": -0.039958,
+      "time_s": 0.0688
+    },
+    {
+      "variant": "pds_OOF_Bayes_classical_cv5",
+      "repeat": 1,
+      "train_auc": 0.815061,
+      "test_auc": 0.844402,
+      "gap": -0.02934,
+      "time_s": 0.0813
+    },
+    {
+      "variant": "pds_OOF_Bayes_pooled_cv3",
+      "repeat": 1,
+      "train_auc": 0.819801,
+      "test_auc": 0.86437,
+      "gap": -0.044569,
+      "time_s": 0.067
+    },
+    {
+      "variant": "pds_OOF_Bayes_pooled_cv5",
+      "repeat": 1,
+      "train_auc": 0.828245,
+      "test_auc": 0.863511,
+      "gap": -0.035266,
+      "time_s": 0.0966
+    },
+    {
+      "variant": "sklearn_TE_cv5",
+      "repeat": 1,
+      "train_auc": 0.835568,
+      "test_auc": 0.858013,
+      "gap": -0.022445,
+      "time_s": 0.1507
+    },
+    {
+      "variant": "sklearn_TE_cv3",
+      "repeat": 1,
+      "train_auc": 0.826205,
+      "test_auc": 0.855023,
+      "gap": -0.028819,
+      "time_s": 0.1561
+    },
+    {
+      "variant": "catenc_TE_plain",
+      "repeat": 1,
+      "train_auc": 0.959147,
+      "test_auc": 0.856783,
+      "gap": 0.102364,
+      "time_s": 0.1965
+    },
+    {
+      "variant": "pds_WoE_plain",
+      "repeat": 1,
+      "train_auc": 0.926888,
+      "test_auc": 0.806768,
+      "gap": 0.12012,
+      "time_s": 0.0234
+    },
+    {
+      "variant": "pds_OOF_WoE_cv3",
+      "repeat": 1,
+      "train_auc": 0.789021,
+      "test_auc": 0.823016,
+      "gap": -0.033994,
+      "time_s": 0.051
+    },
+    {
+      "variant": "catenc_WoE_plain",
+      "repeat": 1,
+      "train_auc": 0.91472,
+      "test_auc": 0.811484,
+      "gap": 0.103235,
+      "time_s": 0.1882
+    },
+    {
+      "variant": "pds_Blueprint_cv3",
+      "repeat": 1,
+      "train_auc": 0.823963,
+      "test_auc": 0.861035,
+      "gap": -0.037072,
+      "time_s": 0.0303
+    },
+    {
+      "variant": "pds_Blueprint_TE_scale_refit_full",
+      "repeat": 1,
+      "train_auc": 0.826086,
+      "test_auc": 0.862115,
+      "gap": -0.03603,
+      "time_s": 0.0342
+    },
+    {
+      "variant": "pds_Blueprint_TE_scale_refit_oof",
+      "repeat": 1,
+      "train_auc": 0.826109,
+      "test_auc": 0.862186,
+      "gap": -0.036077,
+      "time_s": 0.0366
+    },
+    {
+      "variant": "pds_TE_plain",
+      "repeat": 2,
+      "train_auc": 0.959751,
+      "test_auc": 0.736564,
+      "gap": 0.223186,
+      "time_s": 0.0268
+    },
+    {
+      "variant": "pds_OOF_TE_cv3",
+      "repeat": 2,
+      "train_auc": 0.838564,
+      "test_auc": 0.832844,
+      "gap": 0.00572,
+      "time_s": 0.0411
+    },
+    {
+      "variant": "pds_OOF_TE_cv5",
+      "repeat": 2,
+      "train_auc": 0.842799,
+      "test_auc": 0.833672,
+      "gap": 0.009127,
+      "time_s": 0.0524
+    },
+    {
+      "variant": "pds_OOF_Bayes_classical_cv3",
+      "repeat": 2,
+      "train_auc": 0.823219,
+      "test_auc": 0.808078,
+      "gap": 0.015141,
+      "time_s": 0.0643
+    },
+    {
+      "variant": "pds_OOF_Bayes_classical_cv5",
+      "repeat": 2,
+      "train_auc": 0.828696,
+      "test_auc": 0.808759,
+      "gap": 0.019937,
+      "time_s": 0.0923
+    },
+    {
+      "variant": "pds_OOF_Bayes_pooled_cv3",
+      "repeat": 2,
+      "train_auc": 0.832855,
+      "test_auc": 0.833728,
+      "gap": -0.000873,
+      "time_s": 0.0721
+    },
+    {
+      "variant": "pds_OOF_Bayes_pooled_cv5",
+      "repeat": 2,
+      "train_auc": 0.842012,
+      "test_auc": 0.834272,
+      "gap": 0.00774,
+      "time_s": 0.0899
+    },
+    {
+      "variant": "sklearn_TE_cv5",
+      "repeat": 2,
+      "train_auc": 0.833281,
+      "test_auc": 0.830172,
+      "gap": 0.003109,
+      "time_s": 0.151
+    },
+    {
+      "variant": "sklearn_TE_cv3",
+      "repeat": 2,
+      "train_auc": 0.824124,
+      "test_auc": 0.82989,
+      "gap": -0.005767,
+      "time_s": 0.1462
+    },
+    {
+      "variant": "catenc_TE_plain",
+      "repeat": 2,
+      "train_auc": 0.959751,
+      "test_auc": 0.829903,
+      "gap": 0.129848,
+      "time_s": 0.1871
+    },
+    {
+      "variant": "pds_WoE_plain",
+      "repeat": 2,
+      "train_auc": 0.931646,
+      "test_auc": 0.800457,
+      "gap": 0.131189,
+      "time_s": 0.0251
+    },
+    {
+      "variant": "pds_OOF_WoE_cv3",
+      "repeat": 2,
+      "train_auc": 0.795624,
+      "test_auc": 0.815175,
+      "gap": -0.01955,
+      "time_s": 0.0371
+    },
+    {
+      "variant": "catenc_WoE_plain",
+      "repeat": 2,
+      "train_auc": 0.912837,
+      "test_auc": 0.798441,
+      "gap": 0.114396,
+      "time_s": 0.2254
+    },
+    {
+      "variant": "pds_Blueprint_cv3",
+      "repeat": 2,
+      "train_auc": 0.838564,
+      "test_auc": 0.832844,
+      "gap": 0.00572,
+      "time_s": 0.0292
+    },
+    {
+      "variant": "pds_Blueprint_TE_scale_refit_full",
+      "repeat": 2,
+      "train_auc": 0.839829,
+      "test_auc": 0.835213,
+      "gap": 0.004616,
+      "time_s": 0.0889
+    },
+    {
+      "variant": "pds_Blueprint_TE_scale_refit_oof",
+      "repeat": 2,
+      "train_auc": 0.839775,
+      "test_auc": 0.835166,
+      "gap": 0.004609,
+      "time_s": 0.0414
+    },
+    {
+      "variant": "pds_TE_plain",
+      "repeat": 3,
+      "train_auc": 0.958733,
+      "test_auc": 0.758375,
+      "gap": 0.200358,
+      "time_s": 0.0252
+    },
+    {
+      "variant": "pds_OOF_TE_cv3",
+      "repeat": 3,
+      "train_auc": 0.829784,
+      "test_auc": 0.855243,
+      "gap": -0.025459,
+      "time_s": 0.0386
+    },
+    {
+      "variant": "pds_OOF_TE_cv5",
+      "repeat": 3,
+      "train_auc": 0.842285,
+      "test_auc": 0.85506,
+      "gap": -0.012775,
+      "time_s": 0.0509
+    },
+    {
+      "variant": "pds_OOF_Bayes_classical_cv3",
+      "repeat": 3,
+      "train_auc": 0.807848,
+      "test_auc": 0.825327,
+      "gap": -0.017478,
+      "time_s": 0.078
+    },
+    {
+      "variant": "pds_OOF_Bayes_classical_cv5",
+      "repeat": 3,
+      "train_auc": 0.819187,
+      "test_auc": 0.824946,
+      "gap": -0.005759,
+      "time_s": 0.086
+    },
+    {
+      "variant": "pds_OOF_Bayes_pooled_cv3",
+      "repeat": 3,
+      "train_auc": 0.823772,
+      "test_auc": 0.848938,
+      "gap": -0.025166,
+      "time_s": 0.0639
+    },
+    {
+      "variant": "pds_OOF_Bayes_pooled_cv5",
+      "repeat": 3,
+      "train_auc": 0.834159,
+      "test_auc": 0.849475,
+      "gap": -0.015316,
+      "time_s": 0.0839
+    },
+    {
+      "variant": "sklearn_TE_cv5",
+      "repeat": 3,
+      "train_auc": 0.830308,
+      "test_auc": 0.849772,
+      "gap": -0.019464,
+      "time_s": 0.1694
+    },
+    {
+      "variant": "sklearn_TE_cv3",
+      "repeat": 3,
+      "train_auc": 0.823505,
+      "test_auc": 0.847203,
+      "gap": -0.023698,
+      "time_s": 0.1428
+    },
+    {
+      "variant": "catenc_TE_plain",
+      "repeat": 3,
+      "train_auc": 0.958733,
+      "test_auc": 0.854714,
+      "gap": 0.104019,
+      "time_s": 0.1844
+    },
+    {
+      "variant": "pds_WoE_plain",
+      "repeat": 3,
+      "train_auc": 0.929731,
+      "test_auc": 0.802506,
+      "gap": 0.127225,
+      "time_s": 0.0252
+    },
+    {
+      "variant": "pds_OOF_WoE_cv3",
+      "repeat": 3,
+      "train_auc": 0.781707,
+      "test_auc": 0.812229,
+      "gap": -0.030523,
+      "time_s": 0.0377
+    },
+    {
+      "variant": "catenc_WoE_plain",
+      "repeat": 3,
+      "train_auc": 0.910996,
+      "test_auc": 0.798189,
+      "gap": 0.112807,
+      "time_s": 0.2046
+    },
+    {
+      "variant": "pds_Blueprint_cv3",
+      "repeat": 3,
+      "train_auc": 0.829784,
+      "test_auc": 0.855243,
+      "gap": -0.025459,
+      "time_s": 0.0295
+    },
+    {
+      "variant": "pds_Blueprint_TE_scale_refit_full",
+      "repeat": 3,
+      "train_auc": 0.831391,
+      "test_auc": 0.857558,
+      "gap": -0.026167,
+      "time_s": 0.0334
+    },
+    {
+      "variant": "pds_Blueprint_TE_scale_refit_oof",
+      "repeat": 3,
+      "train_auc": 0.831401,
+      "test_auc": 0.85755,
+      "gap": -0.026149,
+      "time_s": 0.035
+    },
+    {
+      "variant": "pds_TE_plain",
+      "repeat": 4,
+      "train_auc": 0.960571,
+      "test_auc": 0.748019,
+      "gap": 0.212552,
+      "time_s": 0.0262
+    },
+    {
+      "variant": "pds_OOF_TE_cv3",
+      "repeat": 4,
+      "train_auc": 0.830327,
+      "test_auc": 0.843924,
+      "gap": -0.013597,
+      "time_s": 0.0427
+    },
+    {
+      "variant": "pds_OOF_TE_cv5",
+      "repeat": 4,
+      "train_auc": 0.840033,
+      "test_auc": 0.844599,
+      "gap": -0.004567,
+      "time_s": 0.0515
+    },
+    {
+      "variant": "pds_OOF_Bayes_classical_cv3",
+      "repeat": 4,
+      "train_auc": 0.80858,
+      "test_auc": 0.833761,
+      "gap": -0.025181,
+      "time_s": 0.0684
+    },
+    {
+      "variant": "pds_OOF_Bayes_classical_cv5",
+      "repeat": 4,
+      "train_auc": 0.820077,
+      "test_auc": 0.834198,
+      "gap": -0.014121,
+      "time_s": 0.0874
+    },
+    {
+      "variant": "pds_OOF_Bayes_pooled_cv3",
+      "repeat": 4,
+      "train_auc": 0.826314,
+      "test_auc": 0.840374,
+      "gap": -0.01406,
+      "time_s": 0.0784
+    },
+    {
+      "variant": "pds_OOF_Bayes_pooled_cv5",
+      "repeat": 4,
+      "train_auc": 0.837053,
+      "test_auc": 0.840571,
+      "gap": -0.003518,
+      "time_s": 0.0952
+    },
+    {
+      "variant": "sklearn_TE_cv5",
+      "repeat": 4,
+      "train_auc": 0.834663,
+      "test_auc": 0.840919,
+      "gap": -0.006256,
+      "time_s": 0.1741
+    },
+    {
+      "variant": "sklearn_TE_cv3",
+      "repeat": 4,
+      "train_auc": 0.826474,
+      "test_auc": 0.839194,
+      "gap": -0.01272,
+      "time_s": 0.1474
+    },
+    {
+      "variant": "catenc_TE_plain",
+      "repeat": 4,
+      "train_auc": 0.960571,
+      "test_auc": 0.837323,
+      "gap": 0.123248,
+      "time_s": 0.2035
+    },
+    {
+      "variant": "pds_WoE_plain",
+      "repeat": 4,
+      "train_auc": 0.928662,
+      "test_auc": 0.790647,
+      "gap": 0.138015,
+      "time_s": 0.0235
+    },
+    {
+      "variant": "pds_OOF_WoE_cv3",
+      "repeat": 4,
+      "train_auc": 0.789178,
+      "test_auc": 0.813938,
+      "gap": -0.024759,
+      "time_s": 0.0368
+    },
+    {
+      "variant": "catenc_WoE_plain",
+      "repeat": 4,
+      "train_auc": 0.910476,
+      "test_auc": 0.795717,
+      "gap": 0.114759,
+      "time_s": 0.194
+    },
+    {
+      "variant": "pds_Blueprint_cv3",
+      "repeat": 4,
+      "train_auc": 0.830327,
+      "test_auc": 0.843924,
+      "gap": -0.013597,
+      "time_s": 0.0291
+    },
+    {
+      "variant": "pds_Blueprint_TE_scale_refit_full",
+      "repeat": 4,
+      "train_auc": 0.833282,
+      "test_auc": 0.841334,
+      "gap": -0.008051,
+      "time_s": 0.037
+    },
+    {
+      "variant": "pds_Blueprint_TE_scale_refit_oof",
+      "repeat": 4,
+      "train_auc": 0.833302,
+      "test_auc": 0.841268,
+      "gap": -0.007966,
+      "time_s": 0.0311
+    }
+  ],
+  "summary": [
+    {
+      "variant": "pds_TE_plain",
+      "train_auc_median": 0.959751,
+      "test_auc_median": 0.758375,
+      "gap_median": 0.201436,
+      "time_median": 0.0262,
+      "gap_std": 0.0111
+    },
+    {
+      "variant": "pds_OOF_TE_cv3",
+      "train_auc_median": 0.829784,
+      "test_auc_median": 0.855018,
+      "gap_median": -0.025459,
+      "time_median": 0.0411,
+      "gap_std": 0.0149
+    },
+    {
+      "variant": "pds_OOF_TE_cv5",
+      "train_auc_median": 0.840033,
+      "test_auc_median": 0.854886,
+      "gap_median": -0.012775,
+      "time_median": 0.0509,
+      "gap_std": 0.0128
+    },
+    {
+      "variant": "pds_OOF_Bayes_classical_cv3",
+      "train_auc_median": 0.807848,
+      "test_auc_median": 0.831122,
+      "gap_median": -0.025181,
+      "time_median": 0.0688,
+      "gap_std": 0.0187
+    },
+    {
+      "variant": "pds_OOF_Bayes_classical_cv5",
+      "train_auc_median": 0.819187,
+      "test_auc_median": 0.830966,
+      "gap_median": -0.014121,
+      "time_median": 0.0874,
+      "gap_std": 0.0169
+    },
+    {
+      "variant": "pds_OOF_Bayes_pooled_cv3",
+      "train_auc_median": 0.823772,
+      "test_auc_median": 0.848581,
+      "gap_median": -0.025166,
+      "time_median": 0.0721,
+      "gap_std": 0.0146
+    },
+    {
+      "variant": "pds_OOF_Bayes_pooled_cv5",
+      "train_auc_median": 0.834159,
+      "test_auc_median": 0.848266,
+      "gap_median": -0.015316,
+      "time_median": 0.0952,
+      "gap_std": 0.0146
+    },
+    {
+      "variant": "sklearn_TE_cv5",
+      "train_auc_median": 0.833281,
+      "test_auc_median": 0.845019,
+      "gap_median": -0.014367,
+      "time_median": 0.1694,
+      "gap_std": 0.0093
+    },
+    {
+      "variant": "sklearn_TE_cv3",
+      "train_auc_median": 0.824124,
+      "test_auc_median": 0.844956,
+      "gap_median": -0.022527,
+      "time_median": 0.1474,
+      "gap_std": 0.0083
+    },
+    {
+      "variant": "catenc_TE_plain",
+      "train_auc_median": 0.959751,
+      "test_auc_median": 0.854714,
+      "gap_median": 0.105627,
+      "time_median": 0.1965,
+      "gap_std": 0.0113
+    },
+    {
+      "variant": "pds_WoE_plain",
+      "train_auc_median": 0.928662,
+      "test_auc_median": 0.800457,
+      "gap_median": 0.131189,
+      "time_median": 0.0247,
+      "gap_std": 0.006
+    },
+    {
+      "variant": "pds_OOF_WoE_cv3",
+      "train_auc_median": 0.789021,
+      "test_auc_median": 0.814716,
+      "gap_median": -0.027371,
+      "time_median": 0.0377,
+      "gap_std": 0.0049
+    },
+    {
+      "variant": "catenc_WoE_plain",
+      "train_auc_median": 0.910996,
+      "test_auc_median": 0.798441,
+      "gap_median": 0.112807,
+      "time_median": 0.2046,
+      "gap_std": 0.008
+    },
+    {
+      "variant": "pds_Blueprint_cv3",
+      "train_auc_median": 0.829784,
+      "test_auc_median": 0.855018,
+      "gap_median": -0.025459,
+      "time_median": 0.0295,
+      "gap_std": 0.0149
+    },
+    {
+      "variant": "pds_Blueprint_TE_scale_refit_full",
+      "train_auc_median": 0.831391,
+      "test_auc_median": 0.857558,
+      "gap_median": -0.026167,
+      "time_median": 0.037,
+      "gap_std": 0.0152
+    },
+    {
+      "variant": "pds_Blueprint_TE_scale_refit_oof",
+      "train_auc_median": 0.831401,
+      "test_auc_median": 0.85755,
+      "gap_median": -0.026149,
+      "time_median": 0.035,
+      "gap_std": 0.0152
+    }
+  ],
+  "dataset": "Amazon_employee_access",
+  "n_rows": 32769,
+  "max_cardinality": 7518
+}

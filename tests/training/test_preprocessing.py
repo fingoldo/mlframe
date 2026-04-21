@@ -14,6 +14,7 @@ from mlframe.training.preprocessing import (
     save_split_artifacts,
 )
 import os
+import time
 from mlframe.training.splitting import make_train_test_split
 from mlframe.training.configs import PreprocessingConfig, TrainingSplitConfig
 from mlframe.training.utils import process_nans, process_nulls, remove_constant_columns
@@ -460,11 +461,11 @@ class TestSaveSplitArtifacts:
 
         base_path = os.path.join(data_dir, models_dir, "target", "test_model")
         file_path = os.path.join(base_path, "train_timestamps.parquet")
+        # Stamp file with a known old mtime so any rewrite will shift it forward.
+        # Avoids a flaky sleep(0.01) that won't register on coarse-precision filesystems.
+        past = time.time() - 3600
+        os.utime(file_path, (past, past))
         mtime_before = os.path.getmtime(file_path)
-
-        # Wait a tiny bit to ensure mtime would change
-        import time
-        time.sleep(0.01)
 
         # Second save with different data
         new_timestamps = pd.Series(pd.date_range("2021-01-01", periods=100, freq="h"))

@@ -6,6 +6,7 @@ import numba
 import string
 import numpy as np
 import pandas as pd
+from random import randint, random
 from scipy import stats
 from collections import Counter, defaultdict
 
@@ -40,6 +41,13 @@ punctuation = string.punctuation
 domain_suffixes = None
 nlp_stopwords = set()
 VOWELS = set(["a", "e", "i", "o", "u", "а", "у", "о", "и", "э", "ы", "я", "ю", "е", "ё"])  # latin  # cyrillic
+
+# Text-stats caches: previously assigned only inside init_nlp()/flush_text_stats_caches(),
+# so calling create_textual_features or get_char_stats without first calling init_nlp
+# raised NameError. Initialize at import time.
+charstats_buffer: dict = {}
+oov_buffer: dict = {}
+oov_tokens_buffer: set = set()
 
 # ************************************************************************************************************************************************************************************
 # Numerical features
@@ -100,16 +108,21 @@ def CalculateNumericalStatsPandas(base, bNonZero=False):
     else:
         r = base.astype(float)
     seriesMinimum = r.min()
+    # pandas 2.0 removed Series.mad; compute mean-absolute-deviation manually.
+    mad_value = (r - r.mean()).abs().mean() if len(r) else np.nan
+    # r.mode() is empty on an all-NaN/empty series → .values[0] would IndexError.
+    mode_series = r.mode()
+    mode_value = mode_series.iloc[0] if len(mode_series) else np.nan
     res = pd.Series(
         {
             "mean": r.mean(),
             "min": seriesMinimum,
             "max": r.max(),
             "std": r.std(ddof=0),
-            "mad": r.mad(),
+            "mad": mad_value,
             "skew": r.skew(),
             "kurtosis": r.kurtosis(),
-            "mode": r.mode().values[0],
+            "mode": mode_value,
             "percentile10": percentile10(r),
             "percentile50": percentile50(r),
             "percentile90": percentile90(r),
@@ -280,8 +293,8 @@ def CalculateCategoricalStatsNumpy(a, res, l=1):
         # ************************************************************************************************************************************************************************************
         # Textual features
         # ************************************************************************************************************************************************************************************
-
-        from random import randint, random
+        # (`from random import randint, random` is now at module top so it loads at import time,
+        #  not when CalculateCategoricalStatsNumpy is called with a non-empty loop body.)
 
 
 def flush_text_stats_caches():
@@ -358,20 +371,30 @@ def get_domain_suffixes() -> tuple:
 
     res = None
     try:
-        res = requests.get("https://publicsuffix.org/list/public_suffix_list.dat")
+        # timeout avoids hanging the caller indefinitely on a wedged network.
+        res = requests.get("https://publicsuffix.org/list/public_suffix_list.dat", timeout=10)
         logging.info(f"Downloaded internet domain suffixes list")
     except Exception as e:
         logging.exception(e)
     if res is None:
+        # CWD-relative open was fragile; fall back to the zip copy shipped alongside this module.
+        # TextIOWrapper applies universal-newline translation so CRLF in the zipped .dat
+        # doesn't leave stray \r in the downstream split("\n") loop.
+        import io
+        import zipfile
+        local_path = path.join(path.dirname(path.abspath(__file__)), "resources", "public_suffix_list.zip")
         try:
-            with open("public_suffix_list.dat") as f:
-                res = f.read()
-            logging.info(f"Loaded internet domain suffixes list")
+            with zipfile.ZipFile(local_path) as zf:
+                with zf.open("public_suffix_list.dat") as raw:
+                    res = io.TextIOWrapper(raw, encoding="utf-8").read()
+            logging.info(f"Loaded internet domain suffixes list from %s", local_path)
         except Exception as e:
             logging.warning(f"Could not loaded internet domain suffixes list from both web and local file")
     if res:
+        # `res` is either a requests Response (.text) or a string from the local-file fallback.
+        text = res.text if hasattr(res, "text") else res
         lst = set()
-        for line in res.text.split("\n"):
+        for line in text.split("\n"):
             if not line.startswith("//"):
                 domains = line.split(".")
                 cand = domains[-1]

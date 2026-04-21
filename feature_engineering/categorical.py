@@ -1,5 +1,10 @@
 """Categorical feature engineering for ML. Optimized & rich set of aggregates for 1d vectors."""
 
+__all__ = [
+    "compute_countaggs",
+    "get_countaggs_names",
+]
+
 # pylint: disable=wrong-import-order,wrong-import-position,unidiomatic-typecheck,pointless-string-statement
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -11,31 +16,27 @@ import logging
 logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------------------------------------------------------------------
-# Packages
-# ----------------------------------------------------------------------------------------------------------------------------
-
-from pyutilz.pythonlib import (
-    ensure_installed,
-)  # lint: disable=ungrouped-imports,disable=wrong-import-order
-
-# ensure_installed("numpy pandas scipy")
-
-# ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
 from typing import *
 
 import warnings
-
-warnings.simplefilter(action="ignore", category=FutureWarning)
+from contextlib import contextmanager
 
 from antropy import *
 import pandas as pd, numpy as np
 from scipy.stats import entropy
 from .numerical import compute_numaggs, get_numaggs_names
 
-warnings.filterwarnings("ignore", message="nperseg =")
+
+@contextmanager
+def _suppress_cat_warnings():
+    """Scoped warnings suppression — replaces former module-level ``warnings.simplefilter``."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="nperseg =")
+        warnings.simplefilter(action="ignore", category=FutureWarning)
+        yield
 
 numaggs_names = get_numaggs_names()
 directional_numaggs_names = get_numaggs_names(directional_only=True)

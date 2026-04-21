@@ -1,8 +1,14 @@
-import tensorflow as tf
-import matplotlib.pyplot as plt
 from sklearn.base import BaseEstimator, TransformerMixin
 
+
+def _tf():
+    """Lazy TF import: avoids multi-second startup cost and optional-dep warnings on plain imports."""
+    import tensorflow as tf  # pylint: disable=import-outside-toplevel
+    return tf
+
+
 def plot_learning_curve(model_name:str,hist:object)->None:
+    import matplotlib.pyplot as plt  # pylint: disable=import-outside-toplevel
     plt.plot(hist.history['accuracy']);
     plt.plot(hist.history['val_accuracy']);
     plt.title(f"[{model_name}] model's accuracy")
@@ -26,41 +32,54 @@ class KerasDictConverter( BaseEstimator, TransformerMixin):
             transformers: list of (name, transformer, columns) tuples
                 transformer: {'drop', 'passthrough', 'tokenizer'} or estimator
         """
-        self.dimensions={}
+        # sklearn contract: __init__ must only assign its parameters verbatim and
+        # must not read/mutate them; otherwise sklearn.clone() loses state. The
+        # max_length default that previously peeked at self.tokenizer.model_max_length
+        # is now resolved lazily inside fit/transform via _effective_tokenizer_kwargs.
         self.remainder = remainder
-        self.tokenizer = tokenizer                        
+        self.tokenizer = tokenizer
         self.transformers = transformers
-        self.tokenizer_kwargs=tokenizer_kwargs
-        if self.tokenizer_kwargs is None: self.tokenizer_kwargs = dict(return_tensors='np',truncation=True,padding=True,max_length=self.tokenizer.model_max_length)
-        
-        self.fit_just_made = False
+        self.tokenizer_kwargs = tokenizer_kwargs
+
+    def _effective_tokenizer_kwargs(self) -> dict:
+        if self.tokenizer_kwargs is not None:
+            return self.tokenizer_kwargs
+        if self.tokenizer is None:
+            return dict(return_tensors='np', truncation=True, padding=True)
+        return dict(return_tensors='np', truncation=True, padding=True, max_length=self.tokenizer.model_max_length)
 
     def fit( self, X, y = None ):
+        self.dimensions_ = {}
+        self.fit_just_made_ = True
         for name, transformer, columns in self.transformers:
             if hasattr(transformer,'fit'):
                 transformer.fit(X[columns],y)
-        self.fit_just_made = True
-        return self 
+        return self
     
     def transform( self, X ):
+        if not hasattr(self, 'dimensions_'):
+            self.dimensions_ = {}
+            self.fit_just_made_ = False
+        tokenizer_kwargs = self._effective_tokenizer_kwargs()
         res={}
         for name, transformer, columns in self.transformers:
             if hasattr(transformer,'transform'):
-                res[name]=transformer.transform(X[columns])   
-                if self.fit_just_made:
-                    self.dimensions[name]=res[name].shape[1]
+                res[name]=transformer.transform(X[columns])
+                if self.fit_just_made_:
+                    self.dimensions_[name]=res[name].shape[1]
             elif transformer=='tokenizer':
-                assert len(columns)==1                          
-                tokenized=self.tokenizer(X[columns[0]].to_list(),**self.tokenizer_kwargs)
+                assert len(columns)==1
+                tokenized=self.tokenizer(X[columns[0]].to_list(),**tokenizer_kwargs)
                 for key,arr in tokenized.items():
                     res[name+'_tokenized_'+key]=arr
-                if self.fit_just_made:
-                    if 'tokenized' not in self.dimensions: self.dimensions['tokenized']={}
-                    self.dimensions['tokenized'][name]=arr.shape[1]
-        self.fit_just_made = False
-        return res      
+                if self.fit_just_made_:
+                    if 'tokenized' not in self.dimensions_: self.dimensions_['tokenized']={}
+                    self.dimensions_['tokenized'][name]=arr.shape[1]
+        self.fit_just_made_ = False
+        return res
         
 def create_multiinput__keras_model(blockdimensions:dict,ModelTemplate:object,model_name:str,nclasses:int,transformers_trainable:bool=False)->object:
+    tf = _tf()
     global_inputs={}
     blocks=[]
     for block,ndim in blockdimensions.items():

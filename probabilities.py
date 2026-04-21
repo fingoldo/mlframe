@@ -14,6 +14,8 @@ def generate_probs_from_outcomes(
     So, how to achieve this?
 
     0)  if flip_percent is specified, for a random portion of data zeroes and ones are flipped. this will lower ROC AUC.
+        Indices to flip are drawn WITHOUT replacement so exactly ``floor(n*flip_percent)``
+        distinct observations are flipped.
     1) we can work with small random chunks/subsets of data
     2) for every chunk, its real freq is computed.
     3) for every observation, 'exact' prob is drawn from some distribution (uniform or, say, gaussian) with center in real freq.
@@ -29,11 +31,16 @@ def generate_probs_from_outcomes(
     bin_offsets = (np.random.random(size=nbins) - 0.5) * bins_std
 
     if flip_percent:
-        # flip some bits to worsen our so far perfect predictive power
+        # Flip some bits to worsen our so far perfect predictive power. Previous impl used
+        # np.random.choice(indices, size=flip_size) which samples WITH replacement: duplicates
+        # flip the same index twice (a no-op), so fewer than flip_size observations ended up
+        # flipped. The shuffled `indices` above already gives a uniform random permutation, so
+        # taking the first flip_size entries is a without-replacement sample — exactly what the
+        # flip_percent contract wants.
         flip_size = int(n * flip_percent)
         if flip_size:
             outcomes = outcomes.copy()
-            flip_indices = np.random.choice(indices, size=flip_size)
+            flip_indices = indices[:flip_size]
             outcomes[flip_indices] = 1 - outcomes[flip_indices]
 
     l = 0  # left border
@@ -41,8 +48,11 @@ def generate_probs_from_outcomes(
         r = (idx + 1) * chunk_size  # right border
         freq = outcomes[l:r].mean()  # find real event occuring frequency in current chunk of observation
 
-        # add pregenerated offset for particular bin
+        # add pregenerated offset for particular bin. Clamp bin_idx to nbins-1 so that
+        # freq==1.0 (int(1.0*nbins) == nbins) does not index out of bounds.
         bin_idx = int(freq * nbins)
+        if bin_idx >= nbins:
+            bin_idx = nbins - 1
         freq = freq + bin_offsets[bin_idx]
 
         # add small symmetric random noise. it must be higher when freq approaches [0;1] borders.
@@ -125,6 +135,12 @@ def generate_similar_probs(predicted_probs, true_outcomes, noise_scale=0.05, n_i
     original_auc = roc_auc_score(true_outcomes, predicted_probs)
 
     similar_probs = None
+    # Track the best candidate seen so far (minimum joint distance to the target metrics)
+    # so that non-convergence returns the closest approximation rather than whatever the
+    # final iteration produced. The previous impl returned `noisy_probs` (the last draw),
+    # which could be arbitrarily far from the originals.
+    best_probs = None
+    best_score = np.inf
 
     for _ in range(n_iterations):
         # Add Gaussian noise and clip the values to keep them in [0, 1]
@@ -135,13 +151,20 @@ def generate_similar_probs(predicted_probs, true_outcomes, noise_scale=0.05, n_i
         new_brier_score = brier_score_loss(true_outcomes, noisy_probs)
         new_auc = roc_auc_score(true_outcomes, noisy_probs)
 
+        score = abs(new_brier_score - original_brier_score) / max(abs(original_brier_score), 1e-12) + \
+                abs(new_auc - original_auc) / max(abs(original_auc), 1e-12)
+        if score < best_score:
+            best_score = score
+            best_probs = noisy_probs
+
         # Check if the new metrics are close to the original
         if np.isclose(new_brier_score, original_brier_score, rtol=0.01) and np.isclose(new_auc, original_auc, rtol=0.01):
             similar_probs = noisy_probs
             break
 
-    # If the loop doesn't converge, return the best found so far
-    return similar_probs if similar_probs is not None else noisy_probs
+    # If the loop doesn't converge, return the best-so-far (closest joint Brier+AUC match),
+    # not the final iteration's draw.
+    return similar_probs if similar_probs is not None else best_probs
 
 
 def generate_similar_probs_by_ranking(predicted_probs, true_outcomes, n_bins: int = 10, noise_scale: float = 0.001):

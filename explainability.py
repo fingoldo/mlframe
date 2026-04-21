@@ -14,29 +14,19 @@ import logging
 logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------------------------------------------------------------------
-# Packages
-# ----------------------------------------------------------------------------------------------------------------------------
-
-from pyutilz.pythonlib import ensure_installed
-
-ensure_installed("shap numpy")
-
-# ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
 from typing import *
 
-import shap
 import numpy as np, pandas as pd
 from pyutilz.system import tqdmu
-from catboost import EFstrType, Pool
 from .evaluation import show_custom_calibration_plot
 from sklearn.metrics import classification_report
-from imblearn.pipeline import Pipeline
 
 
 def init_model_instance(model_class: object, params: dict) -> object:
+    from imblearn.pipeline import Pipeline  # pylint: disable=import-outside-toplevel
     if isinstance(model_class, Pipeline):
         modified_steps = []
         for step in model_class.steps:
@@ -66,6 +56,10 @@ def compute_shap_on_cv(
     plot: bool = True,
 ) -> Tuple[np.ndarray]:
     """Also computes oos Performance"""
+    import shap  # pylint: disable=import-outside-toplevel
+    from catboost import EFstrType, Pool  # pylint: disable=import-outside-toplevel
+    from imblearn.pipeline import Pipeline  # pylint: disable=import-outside-toplevel
+
     values, base_values, interaction_values, interaction_base_values, predictions, expected_values = [], [], [], [], [], []
     _X = Pool(X, cat_features=model_params.get("cat_features"))
 

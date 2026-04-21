@@ -23,9 +23,27 @@ logger = logging.getLogger(__name__)
 from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
 
 import os
+import hashlib
 import tempfile
 
 import joblib
+
+
+def _sha256_of_file(path: str, chunk: int = 1 << 20) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(chunk), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _verify_sidecar(path: str) -> bool:
+    sidecar = path + ".sha256"
+    if not os.path.isfile(sidecar):
+        return True
+    with open(sidecar, "r", encoding="utf-8") as f:
+        expected = f.read().strip().split()[0].lower()
+    return _sha256_of_file(path).lower() == expected
 
 import matplotlib as mpl
 import matplotlib.cm as cm
@@ -69,6 +87,8 @@ def replay_cv_results(fname: str, trusted_root: Optional[str] = None):
             raise ValueError(f"Path {abs_fname} is not inside trusted_root {abs_root}")
         if common != abs_root:
             raise ValueError(f"Path {abs_fname} is not inside trusted_root {abs_root}")
+    if not _verify_sidecar(fname):
+        raise ValueError(f"sha256 sidecar mismatch for {fname}; refusing to load")
     cv_results = joblib.load(fname)
     for title, runs in cv_results.items():
         logger.info("Dataset: %s", title)

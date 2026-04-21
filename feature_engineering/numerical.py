@@ -1,5 +1,23 @@
 """Numerical feature engineering for ML. Optimized & rich set of aggregates for 1d vectors."""
 
+__all__ = [
+    "compute_simple_stats_numba",
+    "compute_simple_stats_numba_arr",
+    "get_simple_stats_names",
+    "compute_numerical_aggregates_numba",
+    "get_basic_feature_names",
+    "compute_nunique_modes_quantiles_numpy",
+    "compute_ncrossings",
+    "compute_nunique_mode_quantiles_numba",
+    "compute_numaggs",
+    "get_numaggs_names",
+    "get_moments_slope_mi_feature_names",
+    "rolling_moving_average",
+    "numaggs_over_matrix_rows",
+    "compute_numaggs_parallel",
+    "cont_entropy",
+]
+
 # pylint: disable=wrong-import-order,wrong-import-position,unidiomatic-typecheck,pointless-string-statement
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -9,12 +27,6 @@
 import logging
 
 logger = logging.getLogger(__name__)
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Packages
-# ----------------------------------------------------------------------------------------------------------------------------
-
-# from pyutilz.pythonlib import ensure_installed;ensure_installed("numba numpy pandas joblib psutil scikit-learn antropy astropy entropy_estimators") # npeet?
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
@@ -39,10 +51,22 @@ from scipy.stats import entropy, kstest
 from scipy import stats
 
 import warnings
+from contextlib import contextmanager
 
-warnings.filterwarnings("ignore", message="nperseg =")
-warnings.simplefilter(action="ignore", category=FutureWarning)
-warnings.simplefilter(action="ignore", category=RuntimeWarning)
+
+@contextmanager
+def _suppress_numeric_warnings():
+    """Scoped replacement for the old module-level ``warnings.simplefilter`` calls.
+
+    Previously this module registered global filters at import time, silently swallowing
+    FutureWarning / RuntimeWarning everywhere in the process (including in unrelated caller
+    code). Callers that really need suppression can use this context manager.
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="nperseg =")
+        warnings.simplefilter(action="ignore", category=FutureWarning)
+        warnings.simplefilter(action="ignore", category=RuntimeWarning)
+        yield
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
@@ -100,10 +124,14 @@ def compute_simple_stats_numba(arr: np.ndarray) -> tuple:
         if np.isfinite(next_value):
             size += 1
             total += next_value
+            # Independent if/if (not if/elif): on a flat array like [5, 5, 5, 5] the `elif` branch
+            # would keep argmax at 0 (first scan) while argmin stayed at 0 too — but a value equal
+            # to minval could never reach the max-update branch. Separate branches keep both
+            # indices consistently updatable.
             if next_value < minval:
                 minval = next_value
                 argmin = i
-            elif next_value > maxval:
+            if next_value > maxval:
                 maxval = next_value
                 argmax = i
 
@@ -261,11 +289,13 @@ def compute_numerical_aggregates_numba(
             if weights is not None:
                 weighted_qubic_mean += temp_value * next_weight
 
+        # Independent checks (not if/elif): elif would mean a sample equal to minimum can never
+        # update maximum, producing inconsistent min_index/max_index on degenerate inputs.
         if next_value < minimum:
             minimum = next_value
             min_index = i
             nminupdates += 1
-        elif next_value > maximum:
+        if next_value > maximum:
             maximum = next_value
             max_index = i
             nmaxupdates += 1
@@ -298,8 +328,9 @@ def compute_numerical_aggregates_numba(
                     weighted_harmonic_mean += next_weight * addend
 
             if return_n_zer_pos_int:
-                frac = next_value % 1
-                if not frac:
+                # Was `next_value % 1` — robust for positive floats but fragile around negative
+                # values and denormals. `np.floor(x) == x` is the exact integer check.
+                if np.floor(next_value) == next_value:
                     ninteger = ninteger + 1
 
             if next_value > 0:

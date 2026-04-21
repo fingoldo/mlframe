@@ -11,6 +11,7 @@ polars
 polars_talib
 pyarrow
 scipy
+pyutilz>=1.0.0  # sibling utility lib: tqdmu, parallel_run, cpu_count_physical, get_own_memory_usage, pandaslib helpers
 # ================================================================================================
 # ⚙️ Hardware / System Info & Profiling
 # Inspect system hardware and profile code performance

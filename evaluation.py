@@ -11,14 +11,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------------------------------------------------------------------
-# Packages
-# ----------------------------------------------------------------------------------------------------------------------------
-
-from pyutilz.pythonlib import ensure_installed
-
-# ensure_installed("pandas numpy")
-
-# ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
@@ -224,7 +216,12 @@ def evaluate_estimators(
                     if nclasses == 2:
                         if threshold is None:
                             threshold = 1 / nclasses
-                        preds = (probs > threshold).astype(np.int8)[:, pos_label]
+                        # Previous: `(probs > threshold).astype(int8)[:, pos_label]` returned a
+                        # 0/1 vector that was "1 iff prob of pos_label > threshold" — which is a
+                        # per-column thresholding semantic distinct from argmax. When pos_label=1
+                        # that collapses to the intended behavior; for pos_label=0 it silently
+                        # inverted the threshold's meaning. Use an explicit column threshold:
+                        preds = (probs[:, pos_label] > threshold).astype(np.int8)
                     else:
                         preds = np.argmax(probs, axis=1)
 

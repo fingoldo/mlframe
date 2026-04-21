@@ -39,6 +39,10 @@ class EarlyStoppingWrapper(BaseEstimator):
         store_params_in_object(obj=self, params=get_parent_func_args())
 
     def fit(self, X, y):
+        self.best_score_ = -np.inf
+        self.best_model_ = None
+        self.no_improvement_count_ = 0
+
         n_val_samples = int(len(X) * self.validation_fraction)
         X_train, X_val = X[:-n_val_samples], X[-n_val_samples:]
         y_train, y_val = y[:-n_val_samples], y[-n_val_samples:]
@@ -68,17 +72,19 @@ class EarlyStoppingWrapper(BaseEstimator):
         return self.best_model_.predict_proba(X)
 
 
-# ������ �������������
-from sklearn.datasets import load_iris
-from sklearn.model_selection import train_test_split
+# Demo / smoke test kept for reference. Guarded behind __main__ so it no longer
+# trains a model + prints to stdout at import time.
+if __name__ == "__main__":
+    from sklearn.datasets import load_iris
+    from sklearn.model_selection import train_test_split
 
-data = load_iris()
-X_train, X_test, y_train, y_test = train_test_split(data.data, data.target, test_size=0.2, random_state=42)
+    data = load_iris()
+    X_train, X_test, y_train, y_test = train_test_split(data.data, data.target, test_size=0.2, random_state=42)
 
-base_model = SGDClassifier(max_iter=1, tol=None)  # max_iter=1, ����� ������������ partial_fit
-early_stopping_model = EarlyStoppingWrapper(base_model, patience=5, max_iter=100)
+    base_model = SGDClassifier(max_iter=1, tol=None)  # max_iter=1 so partial_fit drives iteration
+    early_stopping_model = EarlyStoppingWrapper(base_model, patience=5, max_iter=100)
 
-early_stopping_model.fit(X_train, y_train)
-y_pred = early_stopping_model.predict(X_test)
+    early_stopping_model.fit(X_train, y_train)
+    y_pred = early_stopping_model.predict(X_test)
 
-print(f"Accuracy: {accuracy_score(y_test, y_pred)}")
+    print(f"Accuracy: {accuracy_score(y_test, y_pred)}")

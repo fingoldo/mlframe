@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
+import re
 from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
 
 from os.path import join
@@ -25,6 +26,16 @@ from sklearn.inspection import permutation_importance
 from pyutilz.system import ensure_dir_exists
 
 import shap
+
+# Precompile once; strips anything that could turn ``model_name`` into a path
+# traversal, a hidden file, or a Windows-reserved character when interpolated
+# into a filename.
+_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._ =\[\]@\-]+")
+
+
+def _sanitize_for_filename(s: str, max_len: int = 120) -> str:
+    cleaned = _SAFE_FILENAME_RE.sub("_", str(s)).strip(" .")
+    return cleaned[:max_len] if cleaned else "unnamed"
 
 # *****************************************************************************************************************************************************
 # Feature importances
@@ -96,9 +107,18 @@ def compute_permutation_importances(*sklearn_args, columns: list, **sklearn_kwar
 
     result = permutation_importance(*sklearn_args, **sklearn_kwargs)
 
+    # `result` is a Bunch; "importances" is 2D (n_features x n_repeats) and
+    # breaks Polars construction on some versions. Keep only the per-feature
+    # 1-D arrays that survive conversion, then assemble the frame explicitly.
+    frame = {
+        key: np.asarray(value)
+        for key, value in result.items()
+        if key != "importances" and hasattr(value, "__len__") and np.asarray(value).ndim == 1
+    }
+    frame["feature"] = list(columns)
+
     return (
-        pl.DataFrame({**result, **dict(feature=columns)})
-        .drop("importances")
+        pl.DataFrame(frame)
         .filter(~((pl.col("importances_mean") == 0) & (pl.col("importances_std") == 0)))
         .sort(pl.col("importances_mean") - pl.col("importances_std") * 0.2, descending=True)
     )
@@ -118,4 +138,5 @@ def explain_top_feature_importances(
     _ = ax.set_title(fi_name)
     if save_chart:
         ensure_dir_exists("reports")
-        fig.savefig(join("reports", f"{fi_name}_shap_beeswarm.png"), bbox_inches="tight", dpi=400)
+        safe_name = _sanitize_for_filename(fi_name)
+        fig.savefig(join("reports", f"{safe_name}_shap_beeswarm.png"), bbox_inches="tight", dpi=400)

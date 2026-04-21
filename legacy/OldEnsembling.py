@@ -45,7 +45,7 @@ from scipy.sparse import csr_matrix,hstack
 ##########################################################################################################################################################################################################
 # Dustributions
 ##########################################################################################################################################################################################################
-from mlframe.Models import log_uniform
+from mlframe.legacy.Models import log_uniform
 from scipy.stats import expon, uniform, norm
 from scipy.stats import randint as sp_randint
 ##########################################################################################################################################################################################################
@@ -110,7 +110,7 @@ def brier_and_precision_score(y_true, y_prob,max_loss,min_precision):
         return 0
     return precision-brier
 
-from mlframe.Models import rmsle_score,rmsle_loss,rmse_score,rmse_loss
+from mlframe.legacy.Models import rmsle_score,rmsle_loss,rmse_score,rmse_loss
 
 brier_and_precision_scorer= make_scorer(brier_and_precision_score,needs_proba=True,greater_is_better=True)
 

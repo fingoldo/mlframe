@@ -1,0 +1,89 @@
+{
+  "api": "string distances",
+  "rows": {
+    "10000": {
+      "polars_ds_jaro": {
+        "name": "polars_ds.str_jaro",
+        "peak_mem_mb": 0.003987312316894531,
+        "result_hash": null,
+        "seconds": 0.002769000013358891
+      },
+      "polars_ds_leven": {
+        "name": "polars_ds.str_leven",
+        "peak_mem_mb": 0.016927719116210938,
+        "result_hash": null,
+        "seconds": 0.0056776999845169485
+      },
+      "rapidfuzz_jaro": {
+        "name": "rapidfuzz.JaroWinkler",
+        "peak_mem_mb": 1.5790882110595703,
+        "result_hash": null,
+        "seconds": 0.029650099982973188
+      },
+      "rapidfuzz_leven": {
+        "name": "rapidfuzz.Levenshtein",
+        "peak_mem_mb": 1.9723262786865234,
+        "result_hash": null,
+        "seconds": 0.018251100031193346
+      },
+      "speedup_jaro_vs_rf": 10.707872820486775,
+      "speedup_leven_vs_rf": 3.2145235008831
+    },
+    "200000": {
+      "polars_ds_jaro": {
+        "name": "polars_ds.str_jaro",
+        "peak_mem_mb": 0.0033693313598632812,
+        "result_hash": null,
+        "seconds": 0.04351579997455701
+      },
+      "polars_ds_leven": {
+        "name": "polars_ds.str_leven",
+        "peak_mem_mb": 0.0034303665161132812,
+        "result_hash": null,
+        "seconds": 0.057928599999286234
+      },
+      "rapidfuzz_jaro": {
+        "name": "rapidfuzz.JaroWinkler",
+        "peak_mem_mb": 31.495707511901855,
+        "result_hash": null,
+        "seconds": 0.5110032999655232
+      },
+      "rapidfuzz_leven": {
+        "name": "rapidfuzz.Levenshtein",
+        "peak_mem_mb": 26.918070793151855,
+        "result_hash": null,
+        "seconds": 0.3481869000243023
+      },
+      "speedup_jaro_vs_rf": 11.742937054226248,
+      "speedup_leven_vs_rf": 6.010621696857727
+    },
+    "50000": {
+      "polars_ds_jaro": {
+        "name": "polars_ds.str_jaro",
+        "peak_mem_mb": 0.0036287307739257812,
+        "result_hash": null,
+        "seconds": 0.010980399965774268
+      },
+      "polars_ds_leven": {
+        "name": "polars_ds.str_leven",
+        "peak_mem_mb": 0.013933181762695312,
+        "result_hash": null,
+        "seconds": 0.014038599969353527
+      },
+      "rapidfuzz_jaro": {
+        "name": "rapidfuzz.JaroWinkler",
+        "peak_mem_mb": 7.910614967346191,
+        "result_hash": null,
+        "seconds": 0.12266319995978847
+      },
+      "rapidfuzz_leven": {
+        "name": "rapidfuzz.Levenshtein",
+        "peak_mem_mb": 6.766205787658691,
+        "result_hash": null,
+        "seconds": 0.11113330000080168
+      },
+      "speedup_jaro_vs_rf": 11.171104908940269,
+      "speedup_leven_vs_rf": 7.916266596626967
+    }
+  }
+}

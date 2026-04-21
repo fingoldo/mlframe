@@ -14,14 +14,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------------------------------------------------------------------
-# Packages
-# ----------------------------------------------------------------------------------------------------------------------------
-
-from pyutilz.pythonlib import ensure_installed
-
-# ensure_installed("pandas numpy properscoring") #  scikit-learn
-
-# ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
@@ -122,15 +114,18 @@ def make_custom_calibration_plot(
             figsize=figsize,
         )
 
-    for pos_label in classes:
+    # Non-integer class labels (strings, arbitrary objects) can't index into probs[:, pos_label]
+    # or ax_probs[pos_label]. Enumerate classes and use the positional index for indexing;
+    # keep the original class value for label/title/metric keys.
+    for plot_idx, pos_label in enumerate(classes):
 
         title = f"Calibration plot for {display_labels.get(pos_label,'class '+str(pos_label))}:"
         # fig.suptitle(title)
 
         if isinstance(probs, np.ndarray):
-            prob_pos = probs[:, pos_label]
+            prob_pos = probs[:, plot_idx]
         else:
-            prob_pos = probs.iloc[:, pos_label].values
+            prob_pos = probs.iloc[:, plot_idx].values
 
         if isinstance(y, np.ndarray):
             y_true = (y == pos_label).astype(np.int8)
@@ -143,7 +138,7 @@ def make_custom_calibration_plot(
             y_true,
             prob_pos,
             legend_label="Model Probs",
-            ax=ax_probs if nclasses == 1 else ax_probs[pos_label],
+            ax=ax_probs if nclasses == 1 else ax_probs[plot_idx],
             title=title,
             append=False,
             nbins=nbins,
@@ -154,8 +149,8 @@ def make_custom_calibration_plot(
         # Same axis, competing probs, if any
 
         for competing_vars in competing_probs:
-            if len(competing_vars[pos_label]) > 0:
-                var_name = competing_vars[pos_label]
+            if len(competing_vars[plot_idx]) > 0:
+                var_name = competing_vars[plot_idx]
                 prob_pos = X[var_name]
             else:
                 named_vars = [var for var in competing_vars if len(var) > 0]
@@ -166,13 +161,16 @@ def make_custom_calibration_plot(
             if type(prob_pos) != np.ndarray:
                 prob_pos = prob_pos.values
             var_name = "_".join(var_name.split("_")[1:])
-            show_classifier_calibration(y_true, prob_pos, legend_label=var_name, ax=ax_probs[pos_label], title=title, append=True, nbins=nbins)
+            show_classifier_calibration(y_true, prob_pos, legend_label=var_name, ax=ax_probs[plot_idx], title=title, append=True, nbins=nbins)
     if skip_plotting:
         plt.close(fig)
     return fig, metrics
 
 
-@njit()
+# cache=True + nogil=True + fastmath=False: caches compiled code across interpreter runs
+# (cuts repeat-session warm-up) and releases the GIL for threaded callers. Signature
+# intentionally left unspecified because callers pass both int and float dtypes for y_true.
+@njit(cache=True, nogil=True, fastmath=False)
 def bin_predictions(
     y_true: np.array,
     y_pred: np.array,

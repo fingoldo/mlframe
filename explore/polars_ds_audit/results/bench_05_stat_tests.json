@@ -1,0 +1,71 @@
+{
+  "api": "t-test / f_classif",
+  "rows": {
+    "10000": {
+      "polars_ds": {
+        "name": "polars_ds.ttest_ind (per-feat loop)",
+        "peak_mem_mb": 0.0341644287109375,
+        "result_hash": null,
+        "seconds": 0.017874800018034875
+      },
+      "scipy": {
+        "name": "scipy.stats.ttest_ind",
+        "peak_mem_mb": 55.67429733276367,
+        "result_hash": null,
+        "seconds": 0.13604620000114664
+      },
+      "sklearn": {
+        "name": "sklearn.f_classif (vectorized)",
+        "peak_mem_mb": 22.38773536682129,
+        "result_hash": null,
+        "seconds": 0.011213299992959946
+      },
+      "speedup_vs_scipy": 7.611061374889906,
+      "speedup_vs_sklearn": 0.6273245005060883
+    },
+    "200000": {
+      "polars_ds": {
+        "name": "polars_ds.ttest_ind (per-feat loop)",
+        "peak_mem_mb": 0.018857955932617188,
+        "result_hash": null,
+        "seconds": 0.057679399964399636
+      },
+      "scipy": {
+        "name": "scipy.stats.ttest_ind",
+        "peak_mem_mb": 4.857483863830566,
+        "result_hash": null,
+        "seconds": 0.2703810000093654
+      },
+      "sklearn": {
+        "name": "sklearn.f_classif (vectorized)",
+        "peak_mem_mb": 106.93208122253418,
+        "result_hash": null,
+        "seconds": 0.10746289999224246
+      },
+      "speedup_vs_scipy": 4.687652787238555,
+      "speedup_vs_sklearn": 1.8631071068452472
+    },
+    "50000": {
+      "polars_ds": {
+        "name": "polars_ds.ttest_ind (per-feat loop)",
+        "peak_mem_mb": 0.03912830352783203,
+        "result_hash": null,
+        "seconds": 0.027647200040519238
+      },
+      "scipy": {
+        "name": "scipy.stats.ttest_ind",
+        "peak_mem_mb": 1.279738426208496,
+        "result_hash": null,
+        "seconds": 0.14773289998993278
+      },
+      "sklearn": {
+        "name": "sklearn.f_classif (vectorized)",
+        "peak_mem_mb": 26.797518730163574,
+        "result_hash": null,
+        "seconds": 0.032539899984840304
+      },
+      "speedup_vs_scipy": 5.343503131362962,
+      "speedup_vs_sklearn": 1.1769690940547475
+    }
+  }
+}

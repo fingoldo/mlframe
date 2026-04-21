@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-from tqdm.auto import tqdm, trange
+from pyutilz.system import tqdmu as tqdm
 
 from . import Leaderboard
 
@@ -32,7 +32,7 @@ def compute_iia_for_fixed_models(method, table, models_order, weights):
 
 def compute_iia(method, table, weights, num_repetitions):
     results = []
-    for i in trange(num_repetitions, leave=False):
+    for i in tqdm(range(num_repetitions), leave=False):
         models_order = table.index.tolist()
         np.random.seed(i)
         np.random.shuffle(models_order)

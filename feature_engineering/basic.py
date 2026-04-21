@@ -1,5 +1,10 @@
 """Basic feature engineering for ML."""
 
+__all__ = [
+    "create_date_features",
+    "run_pysr_fe",
+]
+
 # pylint: disable=wrong-import-order,wrong-import-position,unidiomatic-typecheck,pointless-string-statement
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -20,8 +25,7 @@ from typing import *
 import numpy as np, pandas as pd
 import polars as pl, polars.selectors as cs
 
-from pyutilz.system import clean_ram
-from mlframe.helpers import get_own_ram_usage
+from pyutilz.system import clean_ram, get_own_memory_usage
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
@@ -29,8 +33,16 @@ from mlframe.helpers import get_own_ram_usage
 
 
 import warnings
+from contextlib import contextmanager
 
-warnings.simplefilter(action="ignore", category=FutureWarning)
+
+@contextmanager
+def _suppress_basic_warnings():
+    """Scoped warnings suppression — replaces former module-level ``warnings.simplefilter``
+    which silenced FutureWarning process-wide."""
+    with warnings.catch_warnings():
+        warnings.simplefilter(action="ignore", category=FutureWarning)
+        yield
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Core
@@ -48,7 +60,7 @@ def create_date_features(
     if len(cols) == 0:
         return df
 
-    logger.info(f"In create_date_features. RAM usage: {get_own_ram_usage():.1f}GB.")
+    logger.info(f"In create_date_features. RAM usage: {get_own_memory_usage():.1f}GB.")
 
     is_pandas = isinstance(df, pd.DataFrame)
     is_polars = isinstance(df, pl.DataFrame)
@@ -82,6 +94,10 @@ def create_date_features(
         )
 
     if is_pandas:
+        # Previously mutated the caller's frame in place (assignment via df[col + "_" + method] = ...)
+        # while the polars branch returned a new frame → asymmetric API. Work on a shallow copy so
+        # callers get back a new frame in both branches.
+        df = df.copy(deep=False)
         for col in cols:
             obj = df[col].dt
             for method, dtype in methods.items():
@@ -143,8 +159,21 @@ def run_pysr_fe(df: pl.DataFrame, nsamples: int = 100_000, target_columns_prefix
         # ^ Custom loss function (julia syntax)
     )
 
-    # Build a mapping from old → new names
-    rename_map = {col: col.replace("=", "_").replace(".", "_") for col in df.columns}
+    # Build a mapping from old → new names.
+    # Two-pass replace could collapse distinct columns onto the same sanitized name
+    # (e.g. "a=b" and "a.b" both become "a_b"). Deduplicate by appending an index suffix
+    # on collision so PySR sees unique features.
+    rename_map = {}
+    used = set()
+    for col in df.columns:
+        candidate = col.replace("=", "_").replace(".", "_")
+        base = candidate
+        i = 1
+        while candidate in used:
+            candidate = f"{base}__{i}"
+            i += 1
+        used.add(candidate)
+        rename_map[col] = candidate
 
     tmp_df = df.head(nsamples) if nsamples else df
     expr = cs.numeric() - cs.starts_with(target_columns_prefix)

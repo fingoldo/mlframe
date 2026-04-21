@@ -1,5 +1,9 @@
 """FE using bruteforce search."""
 
+__all__ = [
+    "run_pysr_feature_engineering",
+]
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # LOGGING
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -72,9 +76,11 @@ def run_pysr_feature_engineering(
 
     # Convert polars to pandas if needed
     if isinstance(df, pl.DataFrame):
-        tmp_df = df.sample(sample_size).fill_null(0).fill_nan(0).to_pandas()
+        # polars.DataFrame.sample raises when n > len(df); clamp like the pandas branch does.
+        tmp_df = df.sample(min(sample_size, len(df))).fill_null(0).fill_nan(0).to_pandas()
     elif isinstance(df, pd.DataFrame):
-        tmp_df = df.sample(min(sample_size, len(df))).fillna(0).copy()
+        # pandas.sample already returns a fresh frame; trailing .copy() was redundant.
+        tmp_df = df.sample(min(sample_size, len(df))).fillna(0)
     else:
         raise ValueError("Input must be a pandas or polars DataFrame.")
 

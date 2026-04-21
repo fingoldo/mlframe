@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
-from .config import *
+# No direct references to mlframe.config names remain in this module. If you
+# need one, import it explicitly rather than reintroducing the wildcard.
 
 import re
 from functools import lru_cache
@@ -292,7 +293,7 @@ def compare_postcalibrators(
     plot_file: str = "",
     report_params: dict = None,
     include_patterns: list = [],
-    skip_patterns: list = [r"netcal\.BetaCalibrationDependent", "netcal\.ENIR", "netcal\.NearIsotonicRegression"],  # r"BetaCalibration\[variant=ab\]"
+    skip_patterns: list = [r"netcal\.BetaCalibrationDependent", r"netcal\.ENIR", r"netcal\.NearIsotonicRegression"],  # r"BetaCalibration\[variant=ab\]"
 ) -> tuple:
     """Given calibration and OOS probabilities and true targets,
     fits a number of calibrator models  on the calib set and computes ML metrics on the OOS set.
@@ -384,7 +385,16 @@ def compare_postcalibrators(
         metrics = None
     else:
         metrics = pd.DataFrame(metrics).T
-        metrics = metrics.drop(columns=[1]).join(metrics[1].apply(pd.Series)).drop(columns=["feature_importances"]).sort_values("ice")
+        # Column `1` holds the second element of the tuple returned by report_model_perf
+        # (a dict of per-metric scores); we flatten it into wide-form columns and drop the
+        # feature_importances column which isn't useful for calibrator comparison.
+        PERF_DICT_COL = 1
+        metrics = (
+            metrics.drop(columns=[PERF_DICT_COL])
+            .join(metrics[PERF_DICT_COL].apply(pd.Series))
+            .drop(columns=["feature_importances"])
+            .sort_values("ice")
+        )
 
     return metrics, fit_calibrators
 
@@ -405,6 +415,17 @@ def train_postcalibrators(
     normalize_stds_by_mean_preds: bool = True,
     verbose: int = 1,
 ):
+    """Fit postcalibrators on the aggregated test-set predictions of a model ensemble.
+
+    Disjoint-set contract: callers MUST NOT subsequently evaluate the fitted calibrators on
+    the same ``first_model.test_*`` set used here — the calibrators are fit directly on those
+    test predictions and reporting calibrated metrics on that same set measures in-sample
+    calibration quality, not held-out calibration. For an honest estimate, hold out an
+    additional split (calibration/validation set) and apply the fitted calibrators there.
+    ``compare_postcalibrators`` enforces the split via its ``calib_probs`` vs ``oos_probs``
+    arguments; this orchestrator intentionally passes ``oos_probs=None`` because calibrators
+    are persisted for later inference, not measured here.
+    """
     ensembled_test_predictions, confident_test_indices = ensemble_probabilistic_predictions(
         *(el.test_probs for el in models.values()),
         ensemble_method=ensembling_method,
@@ -419,7 +440,28 @@ def train_postcalibrators(
     first_model = list(models.values())[0]
     columns = first_model.columns
 
-    test_target = first_model.test_target.values
+    # Alignment precondition: every model in the ensemble MUST share the same test_target
+    # indexing as first_model — we call ensemble_probabilistic_predictions positionally on
+    # test_probs, so row i of ensembled_test_predictions must correspond to row i of every
+    # model's test_target. Previously this was assumed implicitly; now assert explicitly
+    # so mis-aligned folds fail loud instead of producing silently garbage calibrators.
+    first_target = first_model.test_target
+    for name, model in models.items():
+        other_target = model.test_target
+        if len(other_target) != len(first_target):
+            raise AssertionError(
+                f"train_postcalibrators: model '{name}' test_target length {len(other_target)} "
+                f"does not match first model's {len(first_target)}; ensemble and calibrator "
+                "fits would be misaligned."
+            )
+        if hasattr(first_target, "index") and hasattr(other_target, "index"):
+            if not first_target.index.equals(other_target.index):
+                raise AssertionError(
+                    f"train_postcalibrators: model '{name}' test_target index does not match "
+                    "first model's index; row-wise alignment cannot be assumed."
+                )
+
+    test_target = first_target.values
 
     calib_test_metrics, test_calibrators = compare_postcalibrators(
         model_name=model_name,

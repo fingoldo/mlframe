@@ -9,46 +9,25 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-while True:
-    try:
+# ----------------------------------------------------------------------------------------------------------------------------
+# Normal Imports
+# ----------------------------------------------------------------------------------------------------------------------------
 
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Normal Imports
-        # ----------------------------------------------------------------------------------------------------------------------------
+from typing import *
 
-        from typing import *
+import numpy as np
 
-        import numpy as np
+from pyutilz.system import tqdmu
+from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
-        from pyutilz.system import tqdmu
-        from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
+import matplotlib.pyplot as plt
 
-        import matplotlib.pyplot as plt
+import random as _stdlib_random
+from enum import Enum, auto
+from expiringdict import ExpiringDict
+from timeit import default_timer as timer
 
-        import random as _stdlib_random
-        from enum import Enum, auto
-        from expiringdict import ExpiringDict
-        from timeit import default_timer as timer
-
-        from catboost import CatBoostRegressor
-
-    except ModuleNotFoundError as e:
-
-        logger.warning(e)
-
-        if "cannot import name" in str(e):
-            raise (e)
-
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Packages auto-install
-        # ----------------------------------------------------------------------------------------------------------------------------
-
-        from pyutilz.pythonlib import ensure_installed
-
-        ensure_installed("numpy expiringdict")
-
-    else:
-        break
+from catboost import CatBoostRegressor
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
@@ -133,10 +112,10 @@ class MBHOptimizer:
         search_space: np.ndarray,  # search space, all possible input combinations to check
         ground_truth: np.ndarray = None,  # known true fitness of the entire search space
         direction: OptimizationDirection = OptimizationDirection.Maximize,
-        known_candidates: list = [],
-        known_evaluations: list = [],
+        known_candidates: Optional[list] = None,
+        known_evaluations: Optional[list] = None,
         # inits
-        seeded_inputs: Sequence = [],  # seed items you want to be explored from start
+        seeded_inputs: Optional[Sequence] = None,  # seed items you want to be explored from start
         init_num_samples: Union[float, int] = 5,  # how many samples to generate & evaluate before fitting surrogate self.model
         init_evaluate_ascending: bool = False,
         init_evaluate_descending: bool = True,
@@ -150,7 +129,7 @@ class MBHOptimizer:
         # self.model
         acquisition_method: str = "EE",
         model_name: str = "CBQ",  # actual estimator instance here? + for lgbm also the linear mode flag
-        model_params: dict = {"iterations": 150},
+        model_params: Optional[dict] = None,
         quantile: float = 0.01,
         input_dtype=np.int32,
         # Visualisation
@@ -172,6 +151,15 @@ class MBHOptimizer:
         # ----------------------------------------------------------------------------------------------------------------------------
         # Params checks
         # ----------------------------------------------------------------------------------------------------------------------------
+
+        if known_candidates is None:
+            known_candidates = []
+        if known_evaluations is None:
+            known_evaluations = []
+        if seeded_inputs is None:
+            seeded_inputs = []
+        if model_params is None:
+            model_params = {"iterations": 150}
 
         assert quantile > 0.0 and quantile < 0.5
         assert len(search_space) > 0
@@ -218,7 +206,7 @@ class MBHOptimizer:
         self.nsteps = 0
 
         self.suggested_candidates = ExpiringDict(
-            max_len=1e6,
+            max_len=int(1e6),
             max_age_seconds=suggestions_cache_max_age_sec,
         )
         self.evaluated_candidates = []
@@ -319,7 +307,7 @@ class MBHOptimizer:
             # Checking pre-seeded first
             # ----------------------------------------------------------------------------------------------------------------------------
 
-            print("pre_seeded_candidates=", self.pre_seeded_candidates)
+            logger.debug("pre_seeded_candidates=%s", self.pre_seeded_candidates)
 
             next_candidate = self.pre_seeded_candidates.pop(0)
             self.suggested_candidates[next_candidate] = eval_start_time
@@ -330,6 +318,10 @@ class MBHOptimizer:
 
             # If no improvement found for a long time, become greedy and check points closest to known optimum, regardless
             # of underlying model's opinion.
+
+            if len(self.known_candidates) == 0 or self.best_candidate is None:
+                logger.warning("suggest_candidate called before any evaluations were submitted; cannot suggest.")
+                return None
 
             greedy_prob = min(self.greedy_prob * min(self.n_noimproving_iters, self.n_steps_since_greedy + 1), 1.0)
             if self._stdlib_rng.random() < greedy_prob:
@@ -364,8 +356,11 @@ class MBHOptimizer:
                     if not hasattr(self.model, "partial_fit"):
                         self.model.fit(self.known_candidates.reshape(-1, 1), self.known_evaluations)
                     else:
-                        n = self.nsteps - self.last_retrain_ninputs
-                        self.model.partial_fit(self.known_candidates[:-n], self.known_evaluations[:-n])
+                        n = max(1, len(self.known_candidates) - self.last_retrain_ninputs)
+                        self.model.partial_fit(
+                            self.known_candidates[-n:].reshape(-1, 1),
+                            self.known_evaluations[-n:],
+                        )
                     self.last_retrain_ninputs = len(self.known_candidates)
 
                     # ----------------------------------------------------------------------------------------------------------------------------
@@ -389,6 +384,11 @@ class MBHOptimizer:
                     y_pred = self.y_pred
                     y_std = self.y_std
 
+                if y_pred is None:
+                    # Surrogate not ready yet (e.g., all known targets equal at previous retrain).
+                    logger.warning("Surrogate predictions unavailable; cannot suggest.")
+                    return None
+
                 if self._stdlib_rng.random() < self.exploitation_probability:
                     self.mode = "exploitation"
                 else:
@@ -405,7 +405,10 @@ class MBHOptimizer:
                 # ----------------------------------------------------------------------------------------------------------------------------
 
                 max_dist = distances.max()
-                distances = distances * np.abs(self.best_evaluation - self.worst_evaluation) * self.dist_scaling_coefficient / max_dist
+                if max_dist > 0:
+                    distances = distances * np.abs(self.best_evaluation - self.worst_evaluation) * self.dist_scaling_coefficient / max_dist
+                else:
+                    distances = np.zeros_like(distances)
 
                 if self.mode == "exploration":
 
@@ -466,6 +469,9 @@ class MBHOptimizer:
 
         # if duration_seconds is None, it's computed automatically using timestamp of suggesting that particular candidate to that particular worker
 
+        new_candidates_batch = []
+        new_evaluations_batch = []
+
         for next_candidate, next_evaluation, next_duration in zip(candidates, evaluations, durations):
 
             self.nsteps += 1
@@ -494,8 +500,8 @@ class MBHOptimizer:
             if self.verbose and self.n_noimproving_iters == 0:
                 logger.info(f"Next optimum found at point ({self.best_candidate}): {self.best_evaluation:_.6f}")
 
-            self.known_candidates = np.append(self.known_candidates, [next_candidate]).astype(int)
-            self.known_evaluations = np.append(self.known_evaluations, next_evaluation)
+            new_candidates_batch.append(next_candidate)
+            new_evaluations_batch.append(next_evaluation)
 
             if next_candidate in self.pre_seeded_candidates:
                 self.pre_seeded_candidates.remove(next_candidate)
@@ -514,6 +520,9 @@ class MBHOptimizer:
             if (
                 self.n_noimproving_iters == 0 and self.plotting == OptimizationProgressPlotting.OnScoreImprovement
             ) or self.plotting == OptimizationProgressPlotting.Regular:
+                # For plotting we need up-to-date known_* arrays; include the in-progress batch.
+                known_cands_for_plot = np.concatenate([self.known_candidates, np.asarray(new_candidates_batch)]).astype(int)
+                known_evals_for_plot = np.concatenate([self.known_evaluations, np.asarray(new_evaluations_batch)])
                 plot_search_state(
                     search_space=self.search_space,
                     next_cand=next_candidate,
@@ -525,8 +534,8 @@ class MBHOptimizer:
                     y_pred=self.y_pred,
                     y_std=self.y_std,
                     ground_truth=self.ground_truth,
-                    known_candidates=self.known_candidates,
-                    known_evaluations=self.known_evaluations,
+                    known_candidates=known_cands_for_plot,
+                    known_evaluations=known_evals_for_plot,
                     acquisition_method=self.acquisition_method,
                     mode=self.mode,
                     additional_info=self.additional_info,
@@ -539,14 +548,18 @@ class MBHOptimizer:
                     skip_candidates=[0],
                 )
 
+        if new_candidates_batch:
+            self.known_candidates = np.concatenate([self.known_candidates, np.asarray(new_candidates_batch)]).astype(int)
+            self.known_evaluations = np.concatenate([self.known_evaluations, np.asarray(new_evaluations_batch)])
+
 
 def optimize_finite_onedimensional_search_space(
     search_space: Sequence,  # search space, all possible input combinations to check
     eval_candidate_func: object,  # fitness function to be optimized over the search space
     ground_truth: np.ndarray = None,  # known true fitness of the entire search space
     direction: OptimizationDirection = OptimizationDirection.Maximize,
-    known_candidates: list = [],
-    known_evaluations: list = [],
+    known_candidates: Optional[list] = None,
+    known_evaluations: Optional[list] = None,
     # stopping conditions
     max_runtime_mins: float = None,
     predict_runtimes: bool = False,  # intellectual setting that skips candidates whose evaluation won't finish within current runtime limit
@@ -554,7 +567,7 @@ def optimize_finite_onedimensional_search_space(
     best_desired_score: float = None,
     max_noimproving_iters: int = None,
     # inits
-    seeded_inputs: Sequence = [],  # seed items you want to be explored from start
+    seeded_inputs: Optional[Sequence] = None,  # seed items you want to be explored from start
     init_num_samples: Union[float, int] = 5,  # how many samples to generate & evaluate before fitting surrogate self.model
     init_evaluate_ascending: bool = False,
     init_evaluate_descending: bool = False,
@@ -568,7 +581,7 @@ def optimize_finite_onedimensional_search_space(
     # self.model
     acquisition_method: str = "EE",
     model_name: str = "CBQ",  # actual estimator instance here? + for lgbm also the linear mode flag
-    model_params: dict = {"iterations": 150},
+    model_params: Optional[dict] = None,
     quantile: float = 0.01,
     input_dtype=np.int32,
     # Visualisation

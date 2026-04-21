@@ -1,7 +1,6 @@
 import time
 
 import scipy
-import random
 from scipy import stats
 import numpy as np, pandas as pd
 from itertools import combinations
@@ -23,10 +22,14 @@ def sample_random_variable(
     exclude: set = set(["ksone", "gausshyper", "kstwo", "cosine", "frechet_l", "frechet_r"]),
     max_time_per10k: float = 1.0,
     randomize_params: bool = True,
+    random_state=None,
 ):
     """
         Samples from a specified categorical or continuous distribution.
     """
+    # All random draws go through this generator so callers can reproduce results.
+    generator = check_random_state(random_state)
+
     cats = [dst for dst in stats._distr_params.distdiscrete if (dst[0] in include or len(include) == 0) and (dst[0] not in exclude)]
     conts = [dst for dst in stats._distr_params.distcont if (dst[0] in include or len(include) == 0) and (dst[0] not in exclude)]
 
@@ -37,7 +40,7 @@ def sample_random_variable(
     elif kind == "mixed":
         source = cats + conts
 
-    dist_name, params = random.choice(source)
+    dist_name, params = source[generator.randint(0, len(source))]
 
     # Append recommended dist params.
     # Note: `params` came out of random.choice as a tuple, but we convert to list
@@ -46,7 +49,7 @@ def sample_random_variable(
     params = list(params)
     if (dist_name, tuple(params)) in conts:
         if randomize_params:
-            params = params + [shift * random.random(), scale * random.random()]
+            params = params + [shift * generator.rand(), scale * generator.rand()]
         else:
             params = params + [shift, scale]
 
@@ -56,7 +59,7 @@ def sample_random_variable(
     # Create frozen random variable using parameters and add it to the list to be used to draw the probability density functions
     start = time.time()
     rv = dist(*params)
-    data = rv.rvs(size=size)
+    data = rv.rvs(size=size, random_state=generator)
     end = time.time()
 
     # Report if taking too long
@@ -144,7 +147,7 @@ def generate_modelling_data(
 
             predictors = np.empty((n_samples, n_classes), dtype=np.float32)
             for j in tqdmu(range(n_classes), desc=rpad("predictors")):
-                dist_name, predictors[:, j] = sample_random_variable(kind="cont", size=n_samples, shift=shift, scale=scale, include=include_distributions)
+                dist_name, predictors[:, j] = sample_random_variable(kind="cont", size=n_samples, shift=shift, scale=scale, include=include_distributions, random_state=generator)
                 pred_min, pred_max = predictors[:, j].min(), predictors[:, j].max()
                 # Guarded normalization: avoid division by zero when the sampled
                 # column is constant (all values equal).
@@ -187,7 +190,7 @@ def generate_modelling_data(
         # dependent on a single (randomly chosen) predictor. cont.
 
         for j in tqdmu(range(n_singly_correlated), desc=rpad("singly_correlated")):
-            dist_name, X[:, idx + j] = sample_random_variable(kind="cont", size=n_samples, shift=shift, scale=scale, include=include_distributions)
+            dist_name, X[:, idx + j] = sample_random_variable(kind="cont", size=n_samples, shift=shift, scale=scale, include=include_distributions, random_state=generator)
 
             k = generator.choice(range(n_informative))
             X[:, idx + j] *= X[:, k]
@@ -202,7 +205,7 @@ def generate_modelling_data(
             combs = list(combinations(range(n_informative), generator.choice(range(2, n_informative + 1))))
             current_combination = combs[generator.choice(len(combs))]
 
-            dist_name, X[:, idx + j] = sample_random_variable(kind="cont", size=n_samples, shift=shift, scale=scale, include=include_distributions)
+            dist_name, X[:, idx + j] = sample_random_variable(kind="cont", size=n_samples, shift=shift, scale=scale, include=include_distributions, random_state=generator)
 
             for k in current_combination:
                 X[:, idx + j] *= X[:, k]
@@ -223,7 +226,7 @@ def generate_modelling_data(
     if n_unrelated_single > 0:
         # features not dependent on any true predictor. cat or cont.
         for j in tqdmu(range(n_unrelated_single), desc=rpad("unrelated_single")):
-            dist_name, X[:, idx + j] = sample_random_variable(kind="mixed", size=n_samples, shift=shift, scale=scale, include=include_distributions)
+            dist_name, X[:, idx + j] = sample_random_variable(kind="mixed", size=n_samples, shift=shift, scale=scale, include=include_distributions, random_state=generator)
             fnames.append(f"unr_{dist_name}")
 
     idx += n_unrelated_single
@@ -234,7 +237,7 @@ def generate_modelling_data(
             combs = list(combinations(range(n_unrelated_single), generator.choice(range(2, n_unrelated_single + 1))))
             current_combination = combs[generator.choice(len(combs))]
 
-            dist_name, X[:, idx + j] = sample_random_variable(kind="mixed", size=n_samples, shift=shift, scale=scale, include=include_distributions)
+            dist_name, X[:, idx + j] = sample_random_variable(kind="mixed", size=n_samples, shift=shift, scale=scale, include=include_distributions, random_state=generator)
 
             for k in current_combination:
                 # `idx - n_unrelated_single + k` reaches back into the block of

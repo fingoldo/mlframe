@@ -18,7 +18,6 @@ except ImportError:  # SciPy < 1.7 fallback
     from scipy.stats import binom_test  # type: ignore
 from scipy.stats import ks_2samp
 import matplotlib.pyplot as plt
-from tqdm.auto import tqdm
 import random
 import pandas as pd
 import numpy as np

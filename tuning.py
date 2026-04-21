@@ -11,14 +11,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------------------------------------------------------------------
-# Packages
-# ----------------------------------------------------------------------------------------------------------------------------
-
-from pyutilz.pythonlib import ensure_installed
-
-# ensure_installed("pandas numpy scipy")
-
-# ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
@@ -60,20 +52,16 @@ class hashabledict(dict):
 
 def check_condition(condition, params: dict) -> bool:
     if isinstance(condition, (dict, hashabledict)):
-        skipped = False
         # must hold on all the conditions!
         for cond_field, cond_value in condition.items():
             if isinstance(cond_value, list):
-                # print(cond_field,cond_value)
                 for sub_value in cond_value:
                     if value_by_key(dct=params, key=cond_field, expected_value=sub_value):
-                        # print("True")
                         return True
-                # print("False")
             else:
                 if value_by_key(dct=params, key=cond_field, expected_value=cond_value):
                     return True
-        return skipped
+        return False
     else:
         return condition
 
@@ -185,12 +173,15 @@ def generate_valid_candidates(
     rng = np.random.default_rng(random_state)
     logging.info(f"Generating {n} valid candidates...")
     approved = []
-    niters = 0
-    while True:
+    attempts = 0
+    inner_n = n
+    while attempts < max_iters:
         sklearn_seed = int(rng.integers(0, 2**32 - 1))
-        params_samples = list(ParameterSampler(params, n_iter=n, random_state=sklearn_seed))
+        params_samples = list(ParameterSampler(params, n_iter=inner_n, random_state=sklearn_seed))
 
+        approvals_this_batch = 0
         for sample in params_samples:
+            attempts += 1
             double_check_dist_params(sample, rng=rng)
             if check_rules(
                 sample,
@@ -201,9 +192,14 @@ def generate_valid_candidates(
                 allow_if_values_and=allow_if_values_and,
             ):
                 approved.append(sample)
-                niters += 1
-                if len(approved) == n or niters >= max_iters:
+                approvals_this_batch += 1
+                if len(approved) == n:
                     return approved
+            if attempts >= max_iters:
+                return approved
+        if approvals_this_batch == 0:
+            inner_n = min(inner_n * 2, max(n * 8, 64))
+    return approved
 
 
 def preprocess_df(df, cat_features):
@@ -238,7 +234,11 @@ def prepare_trials_dataset(experiment_name: str, objective_name: str) -> pd.Data
 
 
 def normalize_probs(probs: np.ndarray):
-    np.divide(probs, probs.sum(), out=probs)
+    total = probs.sum()
+    if total <= 0 or not np.isfinite(total):
+        probs[:] = 1.0 / len(probs)
+        return
+    np.divide(probs, total, out=probs)
 
 
 def favorize_unexplored(candidates: list, probs: np.ndarray, trials: pd.DataFrame, cat_features: list, order: int = 1) -> None:
@@ -250,21 +250,21 @@ def favorize_unexplored(candidates: list, probs: np.ndarray, trials: pd.DataFram
 
     logging.info(f"Favorizing unexplored trials...")
 
-    already_sampled = {}
-    for col in cat_features:
-        already_sampled[col] = trials[col].unique().tolist()
+    already_sampled = {col: set(trials[col].unique().tolist()) for col in cat_features}
+    newly_seen = {col: set() for col in cat_features}
 
     favorized_items = []
     for i in range(len(probs)):
         candidate = candidates[i]
+        novel_factor = 1.0
         for param, value in candidate.items():
             if param in cat_features:
-                known_values = already_sampled.get(param, [])
-                if value not in known_values:
-                    probs[i] *= 2
+                if value not in already_sampled[param] and value not in newly_seen[param]:
+                    novel_factor *= 2.0
                     favorized_items.append({param: value})
-                    known_values.append(value)
-                    break
+                    newly_seen[param].add(value)
+        if novel_factor > 1.0:
+            probs[i] *= novel_factor
 
     if len(favorized_items) > 0:
         normalize_probs(probs)
@@ -302,7 +302,10 @@ def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv
         X = trials
         model_columns = X.columns
 
-        fitted_model, expected_score = justify_estimator(model, X, y, refit=True, test_size=0.1, cv=cv, scoring=scoring, min_score=min_score, random_state=random_state)
+        fitted_model, expected_score = justify_estimator(
+            model, X, y, refit=True, test_size=0.1, cv=cv, scoring=scoring,
+            min_score=min_score, random_state=random_state, early_stopping_rounds=50,
+        )
 
         y_min, y_max = y.min(), y.max()
         trained_models[cache_key] = [fitted_model, len(trials), scoring, expected_score, model_columns]
@@ -310,7 +313,19 @@ def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv
     return fitted_model, model_columns, y
 
 
-def justify_estimator(est, X, y, cv=3, refit: bool = True, scoring="r2", min_score: float = 0.6, test_size=0.1, plot=False, random_state: Union[int, np.random.Generator, None] = None):
+def justify_estimator(
+    est,
+    X,
+    y,
+    cv=3,
+    refit: bool = True,
+    scoring="r2",
+    min_score: float = 0.6,
+    test_size=0.1,
+    plot=False,
+    random_state: Union[int, np.random.Generator, None] = None,
+    early_stopping_rounds: Optional[int] = 50,
+):
 
     logging.info(f"Checking if ML gains some predictive power already on {len(y):_} samples...")
 
@@ -322,10 +337,16 @@ def justify_estimator(est, X, y, cv=3, refit: bool = True, scoring="r2", min_sco
         if refit:
             logging.info(f"Fitting a model")
 
-            if "cat" in str(est).lower():
+            is_catboost = isinstance(est, (CatBoostRegressor,)) or "catboost" in est.__class__.__module__.lower()
+            if is_catboost:
                 rng = np.random.default_rng(random_state)
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=int(rng.integers(0, 2**32 - 1)))
-                est.fit(X_train, y_train, eval_set=(X_test, y_test), plot=plot, verbose=False)
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X, y, test_size=test_size, random_state=int(rng.integers(0, 2**32 - 1))
+                )
+                fit_kwargs = {"eval_set": (X_test, y_test), "plot": plot, "verbose": False}
+                if early_stopping_rounds is not None:
+                    fit_kwargs["early_stopping_rounds"] = early_stopping_rounds
+                est.fit(X_train, y_train, **fit_kwargs)
             else:
                 est.fit(X, y)
         else:
@@ -336,7 +357,9 @@ def justify_estimator(est, X, y, cv=3, refit: bool = True, scoring="r2", min_sco
     return est, mean_score
 
 
-def create_ctr_params(GPU_ENABLED: bool = True, params: dict = {}, stdlib_rng: Optional[_stdlib_random.Random] = None, random_state: Union[int, np.random.Generator, None] = None) -> str:
+def create_ctr_params(GPU_ENABLED: bool = True, params: Optional[dict] = None, stdlib_rng: Optional[_stdlib_random.Random] = None, random_state: Union[int, np.random.Generator, None] = None) -> str:
+    if params is None:
+        params = {}
     if stdlib_rng is None:
         _rng_tmp = np.random.default_rng(random_state)
         stdlib_rng = _stdlib_random.Random(int(_rng_tmp.integers(0, 2**32 - 1)))
@@ -451,7 +474,7 @@ class ParamsOptimizer:
                     logging.warning(f"Nothing to sample for experiment {experiment_name}")
                     return candidates
 
-                probs = np.ones(len(candidates), np.float32) / len(candidates)
+                probs = np.ones(len(candidates), np.float64) / len(candidates)
                 if len(candidates) > n:
 
                     if len(trials) >= min_samples_for_ml:
@@ -503,11 +526,11 @@ class ParamsOptimizer:
                                     )
 
                                 else:
-                                    desired_objective = (y.max() - y.min()) * improving_by_atleast + y.min()
+                                    desired_objective = y.max() - (y.max() - y.min()) * improving_by_atleast
                                     bad_indices = np.where(predictions <= desired_objective)[0]
 
                                     logging.info(
-                                        f"Best and worst observed trial's objectives: {y.max()}, {y.min()}. Leaving only {len(bad_indices)} candidates with predicted objective under {desired_objective}"
+                                        f"Best and worst observed trial's objectives: {y.max()}, {y.min()}. Skipping {len(bad_indices)} candidates with predicted objective under {desired_objective}"
                                     )
 
                                 probs[bad_indices] = 0.0
@@ -544,12 +567,16 @@ class CatboostParamsOptimizer(ParamsOptimizer):
         groups: bool = False,
         need_training_continuation: bool = False,
         task: MLTaskType = MLTaskType.Regression,
-        params_override: dict = {},
-        delete_params: Sequence = [],
+        params_override: Optional[dict] = None,
+        delete_params: Optional[Sequence] = None,
         random_state: Union[int, np.random.Generator, None] = None,
     ):
 
         super().__init__(random_state=random_state)
+        if params_override is None:
+            params_override = {}
+        if delete_params is None:
+            delete_params = []
         # ,db_name:str=None,db_host:str=None,db_port:int=None,db_username:str=None,db_pwd:str=None,db_schema:str="public"
         # super().init(db_name=db_name,db_host=db_host,db_port=db_port,db_usernam=db_username,db_pwd=db_pwd,db_schema=db_schema)
 
