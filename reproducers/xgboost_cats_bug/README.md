@@ -162,30 +162,7 @@ after `fill_null`. Physical codes collapse to `[0..50]`, XGBoost allocates
 Generation took ~116 s on the prod Windows machine (exact core count unknown). The temp parquet is deleted
 afterwards; use `--keep-parquet` to reuse it on subsequent runs.
 
-### 3.2 Real-data bundle (requires production parquet)
-
-If the crash does not reproduce on your machine with the synthetic script (the
-heap-layout sensitivity means it may not), a bundle built from real data can
-be used. Run [`dump_raw_crash_bundle.py`](./dump_raw_crash_bundle.py) on the
-machine that holds the parquet:
-
-```
-python dump_raw_crash_bundle.py --parquet path/to/jobs_details.parquet --out-dir D:\Temp\xgb_bundle
-```
-
-Then copy `D:\Temp\xgb_bundle\` and run the generated `reproduce.py`:
-
-```
-python reproduce.py          # expected: silent kill 0xC0000005
-python reproduce.py --workaround  # expected: FIT_OK
-```
-
-The bundle contains two files:
-- `skills_text_uniques.parquet` — all unique `skills_text` values from the
-  full dataset (the cache-pollution source).
-- `crash_slice.parquet` — 311 168 rows of `category` only (the XGB input).
-
-### 3.3 Diagnostic output from a confirmed crash run
+### 3.2 Diagnostic output from a confirmed crash run
 
 ```
 polars 1.33.1, xgboost 3.2.0, platform=win32
