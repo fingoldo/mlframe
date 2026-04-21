@@ -3604,29 +3604,23 @@ class TestTextAndEmbeddingFeatures:
         assert "text_feat" not in text_feats, \
             f"text_feat should stay categorical (5 unique < threshold 50), but found in text_features"
 
-    @pytest.mark.xfail(
-        reason="2026-04-21: this test's intent contradicts "
-        "test_auto_detect_polars_categorical_promoted_by_cardinality "
-        "(in test_untested_core_helpers.py). Both pass ``cat_features`` "
-        "containing a pl.Categorical column with high cardinality; one "
-        "expects promotion to text_features, the other expects it stays "
-        "categorical. Resolving needs a finer distinguishing signal (e.g. "
-        "a per-column ``honor_user_dtype`` flag on FeatureTypesConfig) — "
-        "out of scope for the 2026-04-21 fix bundle. The current code "
-        "honors the other test (promote by cardinality)."
-    )
     def test_user_declared_polars_categorical_not_promoted_to_text(
         self, temp_data_dir, common_init_params
     ):
-        """Columns the user explicitly marked as pl.Categorical must stay categorical
-        even when their cardinality would otherwise trigger text-auto-detection.
-        Regression: earlier version passed empty cat_features to _auto_detect_feature_types,
-        causing high-cardinality user-declared Categorical columns to be silently promoted
-        to text_features."""
+        """Columns the user explicitly marked as pl.Categorical must stay
+        categorical even when their cardinality would otherwise trigger
+        text-auto-detection — IF the caller passes
+        ``FeatureTypesConfig(honor_user_dtype=True)``. Default behaviour
+        (honor_user_dtype=False) still promotes by cardinality; see
+        ``test_auto_detect_polars_categorical_promoted_by_cardinality``
+        in ``test_untested_core_helpers.py``.
+        """
         from mlframe.training.configs import FeatureTypesConfig
 
         # 100 unique values + pl.Categorical dtype — threshold=50 would promote if we
-        # didn't honor the user's explicit dtype.
+        # didn't honor the user's explicit dtype. honor_user_dtype=True tells
+        # auto-detect to treat pl.Categorical / pl.Enum as user-declared and
+        # skip the cardinality-based promotion.
         pl_df = _make_text_embedding_polars_df(n_text_unique=100)
         pl_df = pl_df.with_columns(pl.col("text_feat").cast(pl.Categorical))
 
@@ -3637,7 +3631,10 @@ class TestTextAndEmbeddingFeatures:
             model_name="user_cat_preserved",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            feature_types_config=FeatureTypesConfig(cat_text_cardinality_threshold=50),
+            feature_types_config=FeatureTypesConfig(
+                cat_text_cardinality_threshold=50,
+                honor_user_dtype=True,
+            ),
             init_common_params=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,

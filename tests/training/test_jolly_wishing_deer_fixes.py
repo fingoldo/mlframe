@@ -570,6 +570,106 @@ def test_fix9_cb_pool_reuse_weight_only_swap_no_rebuild():
     )
 
 
+def test_honor_user_dtype_preserves_polars_categorical():
+    """honor_user_dtype=True: pre-cast pl.Categorical column stays a
+    cat_feature even when cardinality exceeds the text-promotion threshold.
+    Same df with default config (honor_user_dtype=False) promotes it.
+    The signal that distinguishes "user cast to Categorical explicitly"
+    from "raw String that happens to be high-cardinality" is the dtype
+    coming into the function."""
+    from mlframe.training.core import _auto_detect_feature_types
+    from mlframe.training.configs import FeatureTypesConfig
+
+    rng = np.random.default_rng(0)
+    n = 1000
+    vocab = [f"v_{i}" for i in range(500)]
+    vals = rng.choice(vocab, size=n)
+    df = pl.DataFrame({
+        "num": rng.random(n).astype(np.float32),
+        "user_cat": pl.Series("user_cat", vals).cast(pl.Categorical),
+    })
+
+    # Default honor_user_dtype=False: auto-promote high-cardinality Categorical.
+    t_default, _ = _auto_detect_feature_types(
+        df,
+        FeatureTypesConfig(cat_text_cardinality_threshold=50),
+        cat_features=["user_cat"],
+        verbose=False,
+    )
+    assert "user_cat" in t_default, "default must auto-promote high-card Categorical"
+
+    # honor_user_dtype=True: user's explicit Categorical intent honored.
+    t_honor, _ = _auto_detect_feature_types(
+        df,
+        FeatureTypesConfig(
+            cat_text_cardinality_threshold=50, honor_user_dtype=True,
+        ),
+        cat_features=["user_cat"],
+        verbose=False,
+    )
+    assert t_honor == [], (
+        f"honor_user_dtype=True must preserve pl.Categorical; got text_features={t_honor}"
+    )
+
+
+def test_honor_user_dtype_still_promotes_raw_string():
+    """honor_user_dtype=True gates ONLY the pre-cast categorical path.
+    Raw pl.Utf8 / pl.String columns are still auto-promotion candidates —
+    there's no user intent encoded in their dtype."""
+    from mlframe.training.core import _auto_detect_feature_types
+    from mlframe.training.configs import FeatureTypesConfig
+
+    rng = np.random.default_rng(0)
+    n = 1000
+    vocab = [f"v_{i}" for i in range(500)]
+    df = pl.DataFrame({"raw_str": rng.choice(vocab, size=n)})  # stays pl.String
+
+    t, _ = _auto_detect_feature_types(
+        df,
+        FeatureTypesConfig(
+            cat_text_cardinality_threshold=50, honor_user_dtype=True,
+        ),
+        cat_features=[],
+        verbose=False,
+    )
+    assert "raw_str" in t, (
+        "honor_user_dtype must NOT block raw String promotion — no user "
+        f"dtype signal there. Got text_features={t}"
+    )
+
+
+def test_honor_user_dtype_pandas_category_parity():
+    """Symmetry check: pandas ``category`` dtype gets the same treatment
+    as pl.Categorical when honor_user_dtype=True."""
+    from mlframe.training.core import _auto_detect_feature_types
+    from mlframe.training.configs import FeatureTypesConfig
+
+    vocab = [f"v_{i}" for i in range(100)]
+    rng = np.random.default_rng(0)
+    vals = rng.choice(vocab, size=500)
+    df = pd.DataFrame({"user_cat": pd.Categorical(vals)})
+
+    # Default: promoted.
+    t_default, _ = _auto_detect_feature_types(
+        df,
+        FeatureTypesConfig(cat_text_cardinality_threshold=10),
+        cat_features=["user_cat"],
+        verbose=False,
+    )
+    assert "user_cat" in t_default
+
+    # honor_user_dtype=True: preserved.
+    t_honor, _ = _auto_detect_feature_types(
+        df,
+        FeatureTypesConfig(
+            cat_text_cardinality_threshold=10, honor_user_dtype=True,
+        ),
+        cat_features=["user_cat"],
+        verbose=False,
+    )
+    assert t_honor == []
+
+
 def test_orch1_cb_val_pool_reuse_across_weight_swaps():
     """Orch-1 (2026-04-21): val Pool also reused across weight fits.
     Pre-Orch-1 each CB fit rebuilt both train AND val Pools; the train

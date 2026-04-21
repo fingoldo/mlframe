@@ -508,6 +508,12 @@ def _auto_detect_feature_types(
     # detection still runs). Cheaper than threading the flag through every
     # append site; one flag read per schema iteration at worst.
     promote_text = feature_types_config.use_text_features
+    # 2026-04-21 ``honor_user_dtype``: when True, pre-cast categorical
+    # dtypes (pl.Categorical / pl.Enum / pandas ``category``) are treated
+    # as user-declared and exempt from auto-promotion. Raw pl.String /
+    # pl.Utf8 / pandas object/string columns remain promotion candidates.
+    honor_user_dtype = getattr(feature_types_config, "honor_user_dtype", False)
+    honored_user_dtype_cols: list = []  # for diagnostic log
 
     if isinstance(df, pl.DataFrame):
         for name, dtype in df.schema.items():
@@ -526,6 +532,14 @@ def _auto_detect_feature_types(
                 dtype in (pl.String, pl.Utf8, pl.Categorical)
                 or isinstance(dtype, pl.Enum)
             )
+            # honor_user_dtype: skip promotion for already-categorical
+            # dtypes; only raw Utf8/String remain auto-promotion candidates.
+            is_user_categorical_dtype = (
+                dtype == pl.Categorical or isinstance(dtype, pl.Enum)
+            )
+            if honor_user_dtype and is_user_categorical_dtype:
+                honored_user_dtype_cols.append(name)
+                continue
             if is_text_like and promote_text:
                 n_unique = df[name].n_unique()
                 if n_unique > threshold:
@@ -547,6 +561,13 @@ def _auto_detect_feature_types(
             if col in user_assigned:
                 continue
             dtype_name = str(df[col].dtype)
+            # honor_user_dtype symmetry with the polars branch: ``category``
+            # dtype is a user-declared categorical in pandas land; skip
+            # promotion when the flag is on. ``object`` / ``string`` stay
+            # as auto-promotion candidates.
+            if honor_user_dtype and dtype_name == "category":
+                honored_user_dtype_cols.append(col)
+                continue
             if (dtype_name.startswith("object") or dtype_name.startswith("string") or dtype_name == "category") and promote_text:
                 n_unique = df[col].nunique()
                 if n_unique > threshold:
@@ -607,6 +628,13 @@ def _auto_detect_feature_types(
             len(skipped_low_non_null), threshold, min_non_null_abs,
             min_non_null_frac * 100, total_rows, min_non_null_frac * 100,
             formatted,
+        )
+    if honored_user_dtype_cols and verbose:
+        logger.info(
+            "  honor_user_dtype=True: %d column(s) with explicit categorical "
+            "dtype (pl.Categorical / pl.Enum / pandas category) kept out of "
+            "text-auto-promotion regardless of cardinality: %s",
+            len(honored_user_dtype_cols), sorted(honored_user_dtype_cols),
         )
 
     return text_features, embedding_features

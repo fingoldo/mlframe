@@ -415,6 +415,23 @@ class FeatureTypesConfig(BaseConfig):
     auto_detect_feature_types: bool = True
     use_text_features: bool = True
     cat_text_cardinality_threshold: int = Field(default=300, ge=1)
+    # 2026-04-21: per-column "honor the user's explicit dtype" signal.
+    # When False (default, current behaviour), any text-like column
+    # (pl.String / pl.Utf8 / pl.Categorical / pl.Enum / pandas object|
+    # string|category) with n_unique > threshold gets auto-promoted to
+    # text_features — even if the user explicitly cast it to
+    # pl.Categorical / pl.Enum / pd.Categorical. When True, a column
+    # whose incoming dtype ALREADY encodes a categorical intent
+    # (pl.Categorical, pl.Enum, pandas ``category``) is treated as
+    # user-declared: it stays in cat_features regardless of cardinality.
+    # Only raw pl.String / pl.Utf8 / pandas object/string columns remain
+    # candidates for auto-promotion under this flag. Use case: a
+    # high-cardinality column (e.g. 10k-unique ``skills_text`` already
+    # cast to ``pl.Categorical`` upstream) that the operator wants
+    # handled by CatBoost's categorical path, not its TF-IDF text path.
+    # Default stays False to preserve existing behaviour; flip per
+    # config when the workload has user-curated Categorical intent.
+    honor_user_dtype: bool = False
 
 
 class FeatureSelectionConfig(BaseConfig):
