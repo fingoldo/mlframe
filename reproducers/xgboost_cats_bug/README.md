@@ -233,17 +233,24 @@ for col in cat_columns:
 
 ---
 
-## 6. Files in this directory
+## 6. Files
+
+### `upstream/` — attach these to the XGBoost issue
 
 | file | purpose |
 |---|---|
-| `repro_xgb_synthetic_v2.py` | Standalone synthetic reproducer — no real data needed |
-| `dump_raw_crash_bundle.py` | Dumps a minimal real-data bundle from a production parquet |
-| `fix_add_categories_compact.cc` | Proposed C++ patch with tests and migration notes |
-| `repro_xgb_minimal_for_upstream.py` | Parquet-based reproducer (requires real data, 2 columns) |
-| `repro_xgb_exact_prod_state.py` | Reconstructs exact prod cache state from extracted dict |
-| `repro_xgb_synthetic_realistic.py` | Earlier synthetic attempt (variable-length natural strings) |
-| `bisect_*.py` | Scripts used to bisect row threshold and column set |
-| `dump_*.py` | Other dump/IPC experiments from the bisection campaign |
-| `extract_crash_state.py` | Extracted physical code → string mapping from prod memory |
-| `trace_category_codes.py` | Traces category code changes through the pipeline |
+| [`upstream/repro_xgb_synthetic_v2.py`](./upstream/repro_xgb_synthetic_v2.py) | Standalone reproducer — no real data, self-contained |
+| [`upstream/fix_add_categories_compact.cc`](./upstream/fix_add_categories_compact.cc) | Proposed C++ patch with unit tests and migration notes |
+
+### Investigation scripts (bisection campaign, not needed for the issue)
+
+| file | purpose |
+|---|---|
+| `bisect_*.py` | Bisect row threshold and column set |
+| `dump_*.py` | Dump/IPC experiments |
+| `extract_crash_state.py` | Extract physical code → string mapping from prod memory |
+| `repro_xgb_exact_prod_state.py` | Reconstruct exact prod cache state from extracted dict |
+| `repro_xgb_minimal_for_upstream.py` | Earlier parquet-based reproducer (requires real data) |
+| `repro_xgb_synthetic_realistic.py` | Earlier synthetic attempt (did not reliably crash) |
+| `dump_raw_crash_bundle.py` | Dump minimal real-data bundle from a production parquet |
+| `trace_category_codes.py` | Trace category code changes through the pipeline |
