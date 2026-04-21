@@ -31,17 +31,16 @@ before building the cut-values buffer. See section 4 and
 
 ## 1. How sparse codes arise in polars
 
-This is not a contrived edge case. The exact production state (extracted from
-process memory via `extract_crash_state.py` on 2026-04-20):
+This is not a contrived edge case. The production sequence:
 
 1. `polars >= 1.19` makes the global `StringCache` permanently enabled —
    `disable_string_cache()` is a no-op in 1.33+. The cache assigns a physical
    code to every new unique string, incrementing a global counter.
-2. By the time the ML pipeline runs, the `category` column (89 distinct
-   strings, loaded from parquet) holds compact codes `0..87`.
-3. Casting `skills_text` (~2.5 M unique strings) to `pl.Categorical` fills the
-   cache with ~2.5 M additional entries, advancing the global code counter to
-   ~2 526 057.
+2. By the time the ML pipeline runs, a low-cardinality `category` column
+   (89 distinct strings, loaded from parquet) holds compact codes `0..87`.
+3. Casting a high-cardinality string column (~2.5 M unique values) to
+   `pl.Categorical` fills the cache with ~2.5 M additional entries, advancing
+   the global code counter to ~2 526 057.
 4. `fill_null("__MISSING__")` on `category` registers the new string
    `"__MISSING__"` in the polluted cache at code `2_526_058`.
 
@@ -232,25 +231,3 @@ for col in cat_columns:
 ```
 
 ---
-
-## 6. Files
-
-### `upstream/` — attach these to the XGBoost issue
-
-| file | purpose |
-|---|---|
-| [`upstream/repro_xgb_synthetic_v2.py`](./upstream/repro_xgb_synthetic_v2.py) | Standalone reproducer — no real data, self-contained |
-| [`upstream/fix_add_categories_compact.cc`](./upstream/fix_add_categories_compact.cc) | Proposed C++ patch with unit tests and migration notes |
-
-### Investigation scripts (bisection campaign, not needed for the issue)
-
-| file | purpose |
-|---|---|
-| `bisect_*.py` | Bisect row threshold and column set |
-| `dump_*.py` | Dump/IPC experiments |
-| `extract_crash_state.py` | Extract physical code → string mapping from prod memory |
-| `repro_xgb_exact_prod_state.py` | Reconstruct exact prod cache state from extracted dict |
-| `repro_xgb_minimal_for_upstream.py` | Earlier parquet-based reproducer (requires real data) |
-| `repro_xgb_synthetic_realistic.py` | Earlier synthetic attempt (did not reliably crash) |
-| `dump_raw_crash_bundle.py` | Dump minimal real-data bundle from a production parquet |
-| `trace_category_codes.py` | Trace category code changes through the pipeline |
