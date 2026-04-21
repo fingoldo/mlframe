@@ -14,7 +14,7 @@ explode and bin values may be wrong.
 
 `xgboost::common::AddCategories` in `src/common/quantile.cc` allocates the
 per-feature cut-values buffer with `max_category_code + 1` entries instead of
-`n_unique` entries. A single `polars.Categorical` column where one value has a
+`n_unique` entries. A single `polars.Categorical` colфmn where one value has a
 physical code of `2_526_058` while `n_unique = 51` causes XGBoost to allocate
 `~10 MB` for what should be a `~200 B` buffer. On Windows this over-allocation
 corrupts the heap and kills the process.
@@ -44,13 +44,13 @@ This is not a contrived edge case. The production sequence:
 4. `fill_null("__MISSING__")` on `category` registers the new string
    `"__MISSING__"` in the polluted cache at code `2_526_058`.
 
-End state for the `category` column (verbatim from `extract_crash_state.py`):
+End state for the `category` column:
 
 | physical code | string |
 |---|---|
-| 0 | `Digital Marketing` |
-| 1 | `Virtual Assistance` |
-| ... | 86 other real strings at codes 2..87 |
+| 0 | `cat_0` |
+| 1 | `cat_1` |
+| ... | 86 other strings at codes 2..87 |
 | **2_526_058** | `__MISSING__` |
 
 `n_unique = 89`. `max_physical_code = 2_526_058`.
