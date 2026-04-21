@@ -21,7 +21,6 @@ Usage
 from __future__ import annotations
 
 import argparse
-import random
 import sys
 import tempfile
 import time
@@ -70,76 +69,79 @@ CATEGORY_STRINGS = [
     "Contract Manufacturing",
 ]
 
-_VOCAB = (
-    "python programming framework library module package import export "
-    "javascript typescript react angular vue node express fastify django "
-    "flask fastapi postgres mysql sqlite mongodb redis elasticsearch kafka "
-    "docker kubernetes terraform ansible aws azure gcp cloud serverless "
-    "machine learning artificial intelligence deep neural transformer model "
-    "tensorflow pytorch keras scikit pandas numpy scipy matplotlib seaborn "
-    "data science analytics visualization dashboard reporting metric kpi "
-    "marketing seo sem social media content strategy brand advertising "
-    "copywriting editorial publishing translation localization proofread "
-    "design graphic illustration logo typography branding ui ux wireframe "
-    "video animation motion editing rendering compositing color grading "
-    "audio music production recording mixing mastering podcast voice talent "
-    "accounting bookkeeping tax audit compliance finance banking investment "
-    "legal contract corporate immigration intellectual property patent law "
-    "recruiting hr resume cover letter interview coaching training mentor "
-    "project management agile scrum kanban sprint backlog stakeholder team "
-    "sales lead generation crm pipeline conversion funnel outreach email "
-    "customer service support chat ticket escalation help desk knowledge "
-    "transcription subtitles captions dictation reporting interview article "
-    "research market survey competitor intelligence insight ecommerce shopify "
-    "security penetration testing audit firewall vpn encryption hashing "
-    "database administration backup restore replication sharding index query "
-    "mobile ios android swift kotlin react native flutter game unity unreal "
-    "blockchain crypto nft solidity ethereum smart contract defi engineering "
-    "mechanical electrical civil structural chemical industrial architecture "
-    "photography product fashion portrait event wedding real estate drone"
-).split()
-_PUNCT = (" ", " ", " ", ", ", ". ", " & ", " - ", ": ", " | ", " + ")
+# ASCII chars used for random string content — printable, ASCII-safe, no cp1251 issues.
+_CHARS = np.frombuffer(
+    b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ,.!?-_/:",
+    dtype=np.uint8,
+)
+_N_CHARS = len(_CHARS)
 
 
-def _make_string(rng: random.Random, target_len: int) -> str:
-    out, cur = [], 0
-    while cur < target_len:
-        w = rng.choice(_VOCAB)
-        out.append(w)
-        cur += len(w)
-        if cur < target_len:
-            sep = rng.choice(_PUNCT)
-            out.append(sep)
-            cur += len(sep)
-    return "".join(out)[:target_len]
+def _gen_chunk(args: tuple) -> list[str]:
+    """Generate a chunk of unique variable-length strings (worker function).
+
+    Each string is prefixed with its global index as hex, guaranteeing
+    global uniqueness across chunks without coordination.
+    Content after the prefix is random ASCII chars generated via numpy
+    (vectorised — much faster than Python rng.choice per character).
+    """
+    start, end, seed = args
+    rng = np.random.default_rng(seed)
+    n = end - start
+
+    # Sample lengths: 50% short (4-40), 40% medium (40-500), 10% long (500-4799).
+    x = rng.random(n)
+    lengths = np.where(
+        x < 0.50, rng.integers(4, 41, n),
+        np.where(x < 0.90, rng.integers(40, 501, n),
+                 rng.integers(500, 4800, n))
+    ).astype(np.int32)
+
+    # Generate all random content bytes at once (vectorised).
+    prefix_len = 10  # f"{idx:08x} " = 10 chars
+    content_lens = np.maximum(0, lengths - prefix_len)
+    total_content = int(content_lens.sum())
+    rand_bytes = _CHARS[rng.integers(0, _N_CHARS, total_content)]
+    content_str = rand_bytes.tobytes().decode("ascii")
+
+    result: list[str] = []
+    pos = 0
+    for i in range(n):
+        prefix = f"{start + i:08x} "
+        cl = int(content_lens[i])
+        result.append(prefix + content_str[pos: pos + cl])
+        pos += cl
+    return result
 
 
-def generate_primer_parquet(path: Path, n: int, seed: int) -> None:
-    """Generate n unique variable-length strings and save to parquet."""
-    rng = random.Random(seed)
-    cat_set = set(CATEGORY_STRINGS)
-    strings: list[str] = []
-    seen: set[str] = set(cat_set)
-    uniq = 0
-    while len(strings) < n:
-        # Heavy-tailed length: 50% short, 40% medium, 10% long
-        x = rng.random()
-        if x < 0.50:
-            length = rng.randint(4, 40)
-        elif x < 0.90:
-            length = rng.randint(40, 500)
-        else:
-            length = rng.randint(500, 4799)
-        s = _make_string(rng, length)
-        if s in seen:
-            s = s[:max(4, length - 6)] + f" ~{uniq:x}"
-            uniq += 1
-        seen.add(s)
-        strings.append(s)
+def generate_primer_parquet(path: Path, n: int, seed: int,
+                             n_jobs: int = 0) -> None:
+    """Generate n unique variable-length strings and save to parquet.
 
-    pl.DataFrame({"skills_text": pl.Series("skills_text", strings,
-                                            dtype=pl.String)}).write_parquet(
-        path, compression="zstd", compression_level=9)
+    Uses multiprocessing to parallelise string generation.
+    n_jobs=0 means use all CPU cores.
+    """
+    import multiprocessing as mp
+
+    if n_jobs <= 0:
+        n_jobs = mp.cpu_count()
+    n_jobs = min(n_jobs, n)
+
+    chunk_size = n // n_jobs
+    chunks = [
+        (i * chunk_size,
+         (i + 1) * chunk_size if i < n_jobs - 1 else n,
+         seed + i)
+        for i in range(n_jobs)
+    ]
+
+    with mp.Pool(n_jobs) as pool:
+        parts = pool.map(_gen_chunk, chunks)
+
+    strings = [s for part in parts for s in part]
+    pl.DataFrame(
+        {"skills_text": pl.Series("skills_text", strings, dtype=pl.String)}
+    ).write_parquet(path, compression="zstd", compression_level=9)
 
 
 def main() -> None:
@@ -149,6 +151,8 @@ def main() -> None:
     ap.add_argument("--n-train", type=int, default=211_168)
     ap.add_argument("--n-val",   type=int, default=100_000)
     ap.add_argument("--seed",    type=int, default=42)
+    ap.add_argument("--n-jobs",  type=int, default=0,
+                    help="Worker processes for string generation (0=all cores)")
     ap.add_argument("--workaround", action="store_true")
     ap.add_argument("--keep-parquet", action="store_true",
                     help="Keep the generated parquet after run (for reuse)")
@@ -168,7 +172,8 @@ def main() -> None:
             print(f"generating {args.n_primer:_} synthetic primer strings...",
                   flush=True)
             t0 = time.perf_counter()
-            generate_primer_parquet(primer_path, args.n_primer, args.seed)
+            generate_primer_parquet(primer_path, args.n_primer, args.seed,
+                                    n_jobs=args.n_jobs)
             sz = primer_path.stat().st_size / 1e6
             print(f"  saved {primer_path} ({sz:.1f} MB) in "
                   f"{time.perf_counter()-t0:.1f}s", flush=True)
