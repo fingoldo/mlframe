@@ -24,8 +24,7 @@ fitting. `pl.Enum` enforces compact codes `[0..n_unique-1]` — XGBoost allocate
 the correct buffer size.
 
 **Fix:** compact physical codes to `[0..n_unique-1]` inside `AddCategories`
-before building the cut-values buffer. See section 4 and
-[`fix_add_categories_compact.cc`](./fix_add_categories_compact.cc).
+before building the cut-values buffer. See section 4.
 
 ---
 
@@ -101,7 +100,7 @@ constexpr inline bst_cat_t OutOfRangeCat() {
 Lowering the threshold is not the fix — even a max_cat of `100_000` produces
 a 400 KB buffer for 51 categories, still 8 000× waste.
 
-### 2.2 Why Windows crashes and Linux does not
+### 2.2 Why Windows crashes
 
 On Windows the ~10 MB allocation, combined with the heap state produced by
 loading the large Arrow buffers, triggers SEH `0xC0000005`. No Python-level
@@ -206,7 +205,7 @@ byte-compatible.
 
 Full patch with unit tests, serialisation notes, and a list of the ~6
 downstream indexing sites that need a one-line update is in
-[`fix_add_categories_compact.cc`](./fix_add_categories_compact.cc).
+`upstream/fix_add_categories_compact.cc` (this repo).
 
 Three options were considered:
 
