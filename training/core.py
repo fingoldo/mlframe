@@ -846,6 +846,7 @@ from .utils import (
     log_phase,
     drop_columns_from_dataframe,
     get_pandas_view_of_polars_df,
+    encode_cats_as_codes,
     estimate_df_size_mb,
     get_process_rss_mb,
     maybe_clean_ram_and_gpu,
@@ -2905,7 +2906,14 @@ def train_mlframe_models_suite(
                                         f"{type(strategy).__name__} for {mlframe_model_name}"
                                     )
                                     _logged_lazy_conv = True
-                                common_params[df_key] = get_pandas_view_of_polars_df(df_)
+                                pdf = get_pandas_view_of_polars_df(df_)
+                                # LGB's _LGBMValidateData → check_array converts pd.Categorical
+                                # to numpy object array of strings, then crashes on non-numeric
+                                # values. Encode cat columns as integer codes so LGB's internal
+                                # binner receives numbers it can handle.
+                                if cat_features:
+                                    pdf = encode_cats_as_codes(pdf, cat_features)
+                                common_params[df_key] = pdf
 
                         # For non-Polars models, build tier DFs from pandas common_params
                         tier_pandas = _build_tier_dfs(
