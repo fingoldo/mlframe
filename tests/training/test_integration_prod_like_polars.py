@@ -420,6 +420,208 @@ def test_polars_multi_weight_schemas(model_name, tmp_path):
 
 
 # ===========================================================================
+# Multi-target: several targets of the same type or mixed types in one suite
+# ===========================================================================
+
+from mlframe.training.configs import TargetTypes
+
+
+class _MultiTargetExtractor:
+    """Extractor that emits multiple targets, optionally of mixed types.
+
+    target_by_type structure expected by train_mlframe_models_suite:
+        {TargetType: {target_name: target_values, ...}, ...}
+    Passing both BINARY_CLASSIFICATION and REGRESSION keys exercises the
+    target_type outer loop in the suite; passing multiple names under one
+    key exercises the target (inner) loop.
+    """
+
+    def __init__(self, target_specs):
+        # target_specs: list of (target_name, target_type_enum, target_values_fn)
+        self.target_specs = target_specs
+
+    def transform(self, df):
+        target_by_type = {}
+        drop_cols = []
+        for name, ttype, values_fn in self.target_specs:
+            target_by_type.setdefault(ttype, {})[name] = values_fn(df)
+            if name in df.columns:
+                drop_cols.append(name)
+        return (
+            df,
+            target_by_type,
+            None, None, None, None,
+            drop_cols,
+            {},  # uniform weights
+        )
+
+
+@pytest.mark.parametrize("model_name", ["cb", "xgb", "lgb"])
+def test_polars_multi_target_same_type(model_name, tmp_path):
+    """Two binary-classification targets on the same Polars+Enum frame in one
+    suite call. Exercises the inner target loop without target-type switch."""
+    pytest.importorskip({"cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm"}[model_name])
+
+    from mlframe.training.core import train_mlframe_models_suite
+
+    n = 500
+    pl_df = _basic_polars_frame(n=n, seed=11)
+    # Add a second binary target derived from features so it's actually learnable.
+    rng = np.random.default_rng(11)
+    pl_df = pl_df.with_columns(
+        pl.Series("target2", ((pl_df["num1"].to_numpy() + rng.normal(0, 0.3, n)) > 0).astype(int))
+    )
+
+    fte = _MultiTargetExtractor([
+        ("target",  TargetTypes.BINARY_CLASSIFICATION, lambda df_: df_["target"].to_numpy()),
+        ("target2", TargetTypes.BINARY_CLASSIFICATION, lambda df_: df_["target2"].to_numpy()),
+    ])
+
+    trained, _ = train_mlframe_models_suite(
+        df=pl_df, target_name=f"mt_{model_name}", model_name=f"mt_{model_name}",
+        features_and_targets_extractor=fte, mlframe_models=[model_name],
+        hyperparams_config=_config_for_model(model_name),
+        init_common_params=_common_init_params(),
+        use_ordinary_models=True, use_mlframe_ensembles=False,
+        data_dir=str(tmp_path), models_dir="models", verbose=0,
+    )
+    assert trained
+    # Must have trained under BINARY_CLASSIFICATION for both target names.
+    assert TargetTypes.BINARY_CLASSIFICATION in trained
+    clf_targets = trained[TargetTypes.BINARY_CLASSIFICATION]
+    assert "target" in clf_targets and "target2" in clf_targets, (
+        f"Expected both targets trained; got keys={list(clf_targets.keys())}"
+    )
+
+
+@pytest.mark.parametrize("model_name", ["cb", "xgb", "lgb"])
+def test_polars_multi_target_types_clf_and_reg(model_name, tmp_path):
+    """One binary-classification + one regression target on the same
+    Polars+Enum frame. Exercises the outer target_type loop — CB/XGB/LGB
+    must accept the Polars frame for BOTH target types without crashing."""
+    pytest.importorskip({"cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm"}[model_name])
+
+    from mlframe.training.core import train_mlframe_models_suite
+
+    n = 500
+    pl_df = _basic_polars_frame(n=n, seed=22)
+    rng = np.random.default_rng(22)
+    pl_df = pl_df.with_columns(
+        pl.Series("target_reg", rng.standard_normal(n).astype(np.float32))
+    )
+
+    fte = _MultiTargetExtractor([
+        ("target",     TargetTypes.BINARY_CLASSIFICATION, lambda df_: df_["target"].to_numpy()),
+        ("target_reg", TargetTypes.REGRESSION,           lambda df_: df_["target_reg"].to_numpy()),
+    ])
+
+    trained, _ = train_mlframe_models_suite(
+        df=pl_df, target_name=f"mtt_{model_name}", model_name=f"mtt_{model_name}",
+        features_and_targets_extractor=fte, mlframe_models=[model_name],
+        hyperparams_config=_config_for_model(model_name),
+        init_common_params=_common_init_params(),
+        use_ordinary_models=True, use_mlframe_ensembles=False,
+        data_dir=str(tmp_path), models_dir="models", verbose=0,
+    )
+    assert trained
+    assert TargetTypes.BINARY_CLASSIFICATION in trained
+    assert TargetTypes.REGRESSION in trained
+
+
+# ===========================================================================
+# Feature selectors: MRMR as pre_pipeline with Polars + Enum
+# ===========================================================================
+
+@pytest.mark.parametrize("model_name", ["cb", "xgb", "lgb"])
+def test_polars_enum_with_mrmr_feature_selection(model_name, tmp_path):
+    """MRMR runs as pre_pipeline before model.fit. Polars+Enum cats must
+    survive the MRMR.transform call (which selects a subset of columns) and
+    reach the tree model in a trainable state."""
+    pytest.importorskip({"cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm"}[model_name])
+
+    from mlframe.training.core import train_mlframe_models_suite
+
+    pl_df = _basic_polars_frame(n=600)
+    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+    trained, _ = train_mlframe_models_suite(
+        df=pl_df,
+        target_name=f"mrmr_{model_name}",
+        model_name=f"mrmr_{model_name}",
+        features_and_targets_extractor=fte,
+        mlframe_models=[model_name],
+        hyperparams_config=_config_for_model(model_name),
+        init_common_params=_common_init_params(),
+        use_ordinary_models=True, use_mlframe_ensembles=False,
+        data_dir=str(tmp_path), models_dir="models", verbose=0,
+        use_mrmr_fs=True,
+        mrmr_kwargs={
+            "verbose": 0, "max_runtime_mins": 1, "n_workers": 1,
+            "quantization_nbins": 5, "use_simple_mode": True,
+            "min_nonzero_confidence": 0.9, "max_consec_unconfirmed": 3,
+            "full_npermutations": 3,
+        },
+    )
+    assert trained
+
+
+# ===========================================================================
+# Kitchen-sink: Polars+Enum × multi-target-types × MRMR × all tree models
+# ===========================================================================
+
+def test_polars_kitchen_sink_all_trees_mrmr_multi_target_types(tmp_path):
+    """The most-rigorous prod-like scenario in one test:
+        * Polars input with pl.Enum cat columns
+        * MRMR feature selector as pre_pipeline
+        * Binary classification + regression targets in one suite call
+        * All three tree models: cb + xgb + lgb
+    Must complete without crash on the Polars→pandas→LGB path AND with
+    the feature selector in the middle."""
+    for m in ("cb", "xgb", "lgb"):
+        pytest.importorskip({"cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm"}[m])
+
+    from mlframe.training.core import train_mlframe_models_suite
+
+    n = 700
+    pl_df = _basic_polars_frame(n=n, seed=33)
+    rng = np.random.default_rng(33)
+    pl_df = pl_df.with_columns(
+        pl.Series("target_reg", rng.standard_normal(n).astype(np.float32))
+    )
+
+    fte = _MultiTargetExtractor([
+        ("target",     TargetTypes.BINARY_CLASSIFICATION, lambda df_: df_["target"].to_numpy()),
+        ("target_reg", TargetTypes.REGRESSION,           lambda df_: df_["target_reg"].to_numpy()),
+    ])
+
+    cfg = {}
+    for m in ("cb", "xgb", "lgb"):
+        cfg.update(_config_for_model(m))
+
+    trained, _ = train_mlframe_models_suite(
+        df=pl_df,
+        target_name="kitchen_sink",
+        model_name="kitchen_sink",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb", "xgb", "lgb"],
+        hyperparams_config=cfg,
+        init_common_params=_common_init_params(),
+        use_ordinary_models=True, use_mlframe_ensembles=False,
+        data_dir=str(tmp_path), models_dir="models", verbose=0,
+        use_mrmr_fs=True,
+        mrmr_kwargs={
+            "verbose": 0, "max_runtime_mins": 1, "n_workers": 1,
+            "quantization_nbins": 5, "use_simple_mode": True,
+            "min_nonzero_confidence": 0.9, "max_consec_unconfirmed": 3,
+            "full_npermutations": 3,
+        },
+    )
+    assert trained
+    assert TargetTypes.BINARY_CLASSIFICATION in trained
+    assert TargetTypes.REGRESSION in trained
+
+
+# ===========================================================================
 # Diagnostic log presence: the [pre-fit] line appears for each fit
 # ===========================================================================
 
