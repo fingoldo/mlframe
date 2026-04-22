@@ -241,7 +241,10 @@ def test_fix5_upfront_filter_faster_on_skewed_workload():
 
 def test_fix6_use_text_features_false_suppresses_auto_promotion():
     """With use_text_features=False, high-cardinality columns must NOT
-    be promoted to text_features."""
+    be promoted to text_features — but they MUST appear in the
+    ``auto_detected_high_card_to_drop`` return list so the caller
+    drops them entirely (prevents XGB QuantileDMatrix OOM + CB
+    artefact bloat; see Fix 6 correction 2026-04-22)."""
     from mlframe.training.core import _auto_detect_feature_types
     from mlframe.training.configs import FeatureTypesConfig
 
@@ -254,15 +257,17 @@ def test_fix6_use_text_features_false_suppresses_auto_promotion():
         "highcard": pl.Series(vals),
     })
 
-    t_on, _ = _auto_detect_feature_types(
+    t_on, _, drop_on = _auto_detect_feature_types(
         df, FeatureTypesConfig(), cat_features=[], verbose=False,
     )
     assert "highcard" in t_on
+    assert drop_on == []  # promoted to text_features, not dropped
 
-    t_off, _ = _auto_detect_feature_types(
+    t_off, _, drop_off = _auto_detect_feature_types(
         df, FeatureTypesConfig(use_text_features=False), cat_features=[], verbose=False,
     )
     assert t_off == []
+    assert drop_off == ["highcard"]  # Fix 6 correction: caller must drop this.
 
 
 def test_fix6_use_text_features_false_honors_explicit_list():
@@ -277,13 +282,82 @@ def test_fix6_use_text_features_false_honors_explicit_list():
     from mlframe.training.configs import FeatureTypesConfig
 
     df = pl.DataFrame({"x": ["a", "b"]})
-    t_off, _ = _auto_detect_feature_types(
+    t_off, _, drop_off = _auto_detect_feature_types(
         df,
         FeatureTypesConfig(use_text_features=False, text_features=["x"]),
         cat_features=[],
         verbose=False,
     )
     assert t_off == ["x"]
+    # Explicit user-listed columns are skipped via ``user_assigned`` —
+    # they're NOT in the auto-detected drop list even when the flag is off.
+    assert drop_off == []
+
+
+def test_fix6_use_text_features_false_end_to_end_xgb_does_not_see_highcard(tmp_path):
+    """Regression test for the 2026-04-22 prod OOM:
+    ``use_text_features=False`` on a frame with a high-cardinality
+    string column MUST result in XGB training on a df that does NOT
+    contain that column. Before the fix, the col silently stayed as
+    cat_feature, XGB's QuantileDMatrix tried to build a 2M-level cat
+    index on 9M rows, and the process was killed with MemoryError.
+
+    This is the test that would have caught the bug the original
+    Fix 6 unit-test suite missed — it exercises the real contract
+    (what reaches fit / what's persisted in metadata), not just the
+    helper's return value in isolation."""
+    pytest.importorskip("xgboost")
+    from mlframe.training.core import train_mlframe_models_suite
+    from mlframe.training.configs import FeatureTypesConfig, PolarsPipelineConfig
+    from .shared import SimpleFeaturesAndTargetsExtractor
+
+    rng = np.random.default_rng(0)
+    n = 800
+    # 400 unique tokens > default cat_text_cardinality_threshold (300) —
+    # would auto-promote to text_features under use_text_features=True,
+    # would auto-drop under use_text_features=False.
+    vocab = [f"tok_{i}" for i in range(400)]
+    df = pl.DataFrame({
+        "f_num": rng.random(n).astype(np.float32),
+        "f_lowcard": pl.Series(rng.choice(["A", "B", "C"], size=n)),
+        "skills_text_like": pl.Series(rng.choice(vocab, size=n)),
+        "target": rng.integers(0, 2, size=n).astype(np.int64),
+    })
+
+    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+    _, metadata = train_mlframe_models_suite(
+        df=df,
+        target_name="test_target",
+        model_name="fix6_regression_test",
+        features_and_targets_extractor=fte,
+        mlframe_models=["xgb"],
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        pipeline_config=PolarsPipelineConfig(
+            use_polarsds_pipeline=False,
+            categorical_encoding=None,
+            scaler_name=None,
+            imputer_strategy=None,
+        ),
+        feature_types_config=FeatureTypesConfig(use_text_features=False),
+        data_dir=str(tmp_path),
+        models_dir="models",
+        verbose=0,
+    )
+
+    # Contract: the high-card column must be absent from the trained
+    # input schema — XGB never saw it.
+    trained_cols = metadata["columns"]
+    trained_cols = list(trained_cols) if not isinstance(trained_cols, list) else trained_cols
+    assert "skills_text_like" not in trained_cols, (
+        f"Fix 6 regression: ``use_text_features=False`` but column "
+        f"'skills_text_like' still reached the XGB fit frame. "
+        f"metadata['columns']={trained_cols}"
+    )
+    # And the stored cat_features must not list it either.
+    assert "skills_text_like" not in (metadata.get("cat_features") or [])
+    assert "skills_text_like" not in (metadata.get("text_features") or [])
 
 
 # ---------------------------------------------------------------------------
@@ -590,7 +664,7 @@ def test_honor_user_dtype_preserves_polars_categorical():
     })
 
     # Default honor_user_dtype=False: auto-promote high-cardinality Categorical.
-    t_default, _ = _auto_detect_feature_types(
+    t_default, _, _ = _auto_detect_feature_types(
         df,
         FeatureTypesConfig(cat_text_cardinality_threshold=50),
         cat_features=["user_cat"],
@@ -599,7 +673,7 @@ def test_honor_user_dtype_preserves_polars_categorical():
     assert "user_cat" in t_default, "default must auto-promote high-card Categorical"
 
     # honor_user_dtype=True: user's explicit Categorical intent honored.
-    t_honor, _ = _auto_detect_feature_types(
+    t_honor, _, _ = _auto_detect_feature_types(
         df,
         FeatureTypesConfig(
             cat_text_cardinality_threshold=50, honor_user_dtype=True,
@@ -624,7 +698,7 @@ def test_honor_user_dtype_still_promotes_raw_string():
     vocab = [f"v_{i}" for i in range(500)]
     df = pl.DataFrame({"raw_str": rng.choice(vocab, size=n)})  # stays pl.String
 
-    t, _ = _auto_detect_feature_types(
+    t, _, _ = _auto_detect_feature_types(
         df,
         FeatureTypesConfig(
             cat_text_cardinality_threshold=50, honor_user_dtype=True,
@@ -650,7 +724,7 @@ def test_honor_user_dtype_pandas_category_parity():
     df = pd.DataFrame({"user_cat": pd.Categorical(vals)})
 
     # Default: promoted.
-    t_default, _ = _auto_detect_feature_types(
+    t_default, _, _ = _auto_detect_feature_types(
         df,
         FeatureTypesConfig(cat_text_cardinality_threshold=10),
         cat_features=["user_cat"],
@@ -659,7 +733,7 @@ def test_honor_user_dtype_pandas_category_parity():
     assert "user_cat" in t_default
 
     # honor_user_dtype=True: preserved.
-    t_honor, _ = _auto_detect_feature_types(
+    t_honor, _, _ = _auto_detect_feature_types(
         df,
         FeatureTypesConfig(
             cat_text_cardinality_threshold=10, honor_user_dtype=True,
@@ -668,6 +742,102 @@ def test_honor_user_dtype_pandas_category_parity():
         verbose=False,
     )
     assert t_honor == []
+
+
+def test_align_polars_categorical_dicts_no_test_leakage(tmp_path):
+    """2026-04-22 future-leakage fix: category dict alignment must
+    compute its Enum vocabulary from train + val ONLY. Test-set
+    categories must NOT leak into the Enum — otherwise we're
+    seeding training-time preprocessing with held-out data and
+    invalidating the test as a future-unseen-data proxy.
+
+    This test constructs a frame where the test split has a
+    category ('test_only_cat') that does NOT appear in train or
+    val. After training, the persisted Enum vocabulary for that
+    column must NOT contain 'test_only_cat'."""
+    pytest.importorskip("catboost")
+    from mlframe.training.core import train_mlframe_models_suite
+    from mlframe.training.configs import (
+        FeatureTypesConfig,
+        TrainingBehaviorConfig,
+        PolarsPipelineConfig,
+        TrainingSplitConfig,
+    )
+    from .shared import SimpleFeaturesAndTargetsExtractor
+
+    rng = np.random.default_rng(0)
+    # Construct a frame where:
+    #   - first 70% rows use categories A, B, C (train)
+    #   - next 10% use categories A, B (val)
+    #   - last 20% use 'test_only_cat' (test split via chronological ordering)
+    n_tr = 700
+    n_vl = 100
+    n_te = 200
+    n = n_tr + n_vl + n_te
+    cat_vals = np.concatenate([
+        rng.choice(["A", "B", "C"], size=n_tr),
+        rng.choice(["A", "B"], size=n_vl),
+        np.array(["test_only_cat"] * n_te, dtype=object),
+    ])
+    df = pl.DataFrame({
+        "f_num": rng.random(n).astype(np.float32),
+        "my_cat": pl.Series(cat_vals, dtype=pl.Categorical),
+        "target": rng.integers(0, 2, size=n).astype(np.int64),
+    })
+
+    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+    _, metadata = train_mlframe_models_suite(
+        df=df,
+        target_name="test_target",
+        model_name="leakage_test",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb"],
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        pipeline_config=PolarsPipelineConfig(
+            use_polarsds_pipeline=False,
+            categorical_encoding=None,
+            scaler_name=None,
+            imputer_strategy=None,
+        ),
+        split_config=TrainingSplitConfig(
+            shuffle_val=False,
+            shuffle_test=False,
+            test_size=0.2,
+            val_size=0.1,
+            wholeday_splitting=False,
+        ),
+        behavior_config=TrainingBehaviorConfig(
+            align_polars_categorical_dicts=True,
+            prefer_gpu_configs=False,
+        ),
+        feature_types_config=FeatureTypesConfig(use_text_features=True),
+        hyperparams_config={"iterations": 3},
+        data_dir=str(tmp_path),
+        models_dir="models",
+        verbose=0,
+    )
+
+    # Contract: the Enum / Categorical vocabulary for 'my_cat' must be
+    # a subset of {A, B, C} — test_only_cat must NOT have leaked in.
+    cats_seen = None
+    for entry in metadata.get("model_schemas", {}).values():
+        schema = entry.get("input_schema", [])
+        for col_entry in schema:
+            if col_entry["name"] == "my_cat":
+                cats_seen = col_entry.get("dtype", "")
+                break
+        if cats_seen is not None:
+            break
+    # dtype string for pl.Enum(...) includes the category list; assert
+    # test_only_cat is absent from it (strict substring check).
+    assert cats_seen is not None, "'my_cat' not found in any model_schema"
+    assert "test_only_cat" not in cats_seen, (
+        f"Future-leakage regression: 'test_only_cat' (test-only "
+        f"category) leaked into the trained Enum vocabulary. "
+        f"dtype snapshot: {cats_seen!r}"
+    )
 
 
 def test_orch1_cb_val_pool_reuse_across_weight_swaps():
@@ -723,6 +893,70 @@ def test_orch1_cb_val_pool_reuse_across_weight_swaps():
         f"expected 1 train + 1 val Pool build (2 total) across 3 weight-only fits; "
         f"got {build_count['n']}"
     )
+
+
+def test_fix943_cb_val_pool_reused_on_predict_path_too():
+    """Fix 9.4.3 correction (2026-04-22): the val Pool cached at
+    fit time MUST be reused on the subsequent predict_proba /
+    predict path too. Pre-fix the metrics path called
+    ``model.predict_proba(val_df)`` with a raw DataFrame, CB's
+    sklearn wrapper rebuilt a fresh Pool at the C++ boundary →
+    53-66 s wasted per metrics invocation on the 7M-row prod run
+    (2026-04-22 log). This test counts Pool constructor calls
+    across (1) fit and (2) predict_proba on the SAME val frame;
+    total must be 2 (1 train + 1 val at fit, 0 at predict)."""
+    from mlframe.training import trainer
+    pytest.importorskip("catboost")
+    import catboost as cb
+
+    rng = np.random.default_rng(0)
+    n, nv = 300, 80
+    train_df = pl.DataFrame({
+        "num": rng.standard_normal(n).astype(np.float32),
+        "cat": pl.Series("cat", rng.choice(["a", "b", "c"], size=n)).cast(pl.Categorical),
+    })
+    val_df = pl.DataFrame({
+        "num": rng.standard_normal(nv).astype(np.float32),
+        "cat": pl.Series("cat", rng.choice(["a", "b", "c"], size=nv)).cast(pl.Categorical),
+    })
+    y = rng.integers(0, 2, size=n)
+    yv = rng.integers(0, 2, size=nv)
+
+    trainer._CB_POOL_CACHE.clear()
+    trainer._CB_VAL_POOL_CACHE.clear()
+
+    build_count = {"n": 0}
+    orig_init = cb.Pool.__init__
+
+    def counting_init(self, *args, **kwargs):
+        build_count["n"] += 1
+        return orig_init(self, *args, **kwargs)
+
+    cb.Pool.__init__ = counting_init
+    try:
+        m = cb.CatBoostClassifier(iterations=3, verbose=False)
+        trainer._train_model_with_fallback(
+            m, m, "CatBoostClassifier", train_df, y,
+            {"cat_features": ["cat"], "sample_weight": np.ones(n),
+             "eval_set": [(val_df, yv)]},
+            False,
+        )
+        # After fit: 2 Pool builds (1 train + 1 val).
+        builds_after_fit = build_count["n"]
+        assert builds_after_fit == 2, f"fit built {builds_after_fit} Pools, expected 2"
+
+        # predict_proba on the SAME val_df — reuse path must skip rebuild.
+        trainer._predict_with_fallback(m, val_df, method="predict_proba")
+        builds_after_predict = build_count["n"]
+        assert builds_after_predict == 2, (
+            f"Fix 9.4.3 regression: predict_proba rebuilt the val Pool "
+            f"(build count {builds_after_fit} -> {builds_after_predict}; "
+            f"expected stays at 2). The cached val Pool at "
+            f"_CB_VAL_POOL_CACHE was NOT reused — 53-66 s wasted per "
+            f"metrics invocation on 7M-row prod."
+        )
+    finally:
+        cb.Pool.__init__ = orig_init
 
 
 def test_fix9_cb_stale_cat_features_filtered():

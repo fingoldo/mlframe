@@ -80,7 +80,7 @@ class TestMinNonNullTextPromotionGuard:
             auto_detect_feature_types=True,
             cat_text_cardinality_threshold=50,
         )
-        text, emb = _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
+        text, emb, _ = _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
         assert "sparse_text" not in text, (
             "n_unique=60>50 but non_null_fraction=0.06%<1% floor — "
             "must stay as cat_feature to avoid CatBoost 'Dictionary size is 0'"
@@ -96,7 +96,7 @@ class TestMinNonNullTextPromotionGuard:
             auto_detect_feature_types=True,
             cat_text_cardinality_threshold=50,
         )
-        text, emb = _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
+        text, emb, _ = _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
         assert "sparse_text" in text
 
     def test_tiny_df_not_blocked_by_fraction(self):
@@ -112,7 +112,7 @@ class TestMinNonNullTextPromotionGuard:
             auto_detect_feature_types=True,
             cat_text_cardinality_threshold=10,
         )
-        text, emb = _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
+        text, emb, _ = _auto_detect_feature_types(df, cfg, cat_features=["sparse_text"])
         assert "sparse_text" in text, (
             "tiny DF with 100% non-null fraction must still promote — "
             "the guard is relative, not absolute"
@@ -149,7 +149,7 @@ class TestMinNonNullTextPromotionGuard:
             auto_detect_feature_types=True,
             cat_text_cardinality_threshold=50,
         )
-        text, emb = _auto_detect_feature_types(df, cfg, cat_features=["sparse"])
+        text, emb, _ = _auto_detect_feature_types(df, cfg, cat_features=["sparse"])
         assert "sparse" not in text
 
     def test_boundary_at_default_fraction(self):
@@ -164,12 +164,12 @@ class TestMinNonNullTextPromotionGuard:
 
         # 99 non-null / 10_000 = 0.99% < 1% → block
         df_just_below = self._build_df_polars(n=10_000, non_null_count=99, each_unique_occurs=1)
-        text_below, _ = _auto_detect_feature_types(df_just_below, cfg, cat_features=["sparse_text"])
+        text_below, _, _ = _auto_detect_feature_types(df_just_below, cfg, cat_features=["sparse_text"])
         assert "sparse_text" not in text_below
 
         # 100 non-null / 10_000 = 1.0% → promote (absolute threshold
         # from round(10_000 * 0.01) = 100; guard is non_null < 100 → block,
         # so 100 is the boundary pass)
         df_just_above = self._build_df_polars(n=10_000, non_null_count=100, each_unique_occurs=1)
-        text_above, _ = _auto_detect_feature_types(df_just_above, cfg, cat_features=["sparse_text"])
+        text_above, _, _ = _auto_detect_feature_types(df_just_above, cfg, cat_features=["sparse_text"])
         assert "sparse_text" in text_above

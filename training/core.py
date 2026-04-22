@@ -470,6 +470,21 @@ def _auto_detect_feature_types(
 
     text_features = list(feature_types_config.text_features or [])
     embedding_features = list(feature_types_config.embedding_features or [])
+    # Auto-detected high-cardinality text-like columns that the caller
+    # should DROP entirely from the training df when ``use_text_features=
+    # False``. Semantic:
+    #   ``use_text_features=True``  -> auto-detected cols go into
+    #     ``text_features`` (CB uses them; XGB/LGB drop them via
+    #     ``supports_text_features=False`` mechanism).
+    #   ``use_text_features=False`` -> auto-detected cols go into THIS
+    #     list so the caller can drop them from the df entirely (so
+    #     no model — including CB — tries to consume them as a 2M-level
+    #     categorical, which otherwise OOMs XGB's QuantileDMatrix and
+    #     balloons CB's model artefact).
+    # Regardless of the flag, if the user explicitly listed a column in
+    # ``feature_types_config.text_features``/``embedding_features``, that
+    # column is honored (not touched here).
+    auto_detected_high_card_to_drop: list = []
 
     # Master switch ``use_text_features`` only gates AUTO-PROMOTION (the
     # cardinality-based heuristic below). User-supplied explicit
@@ -481,7 +496,7 @@ def _auto_detect_feature_types(
     # top. The ``promote_text`` flag below is the real gate.)
 
     if not feature_types_config.auto_detect_feature_types:
-        return text_features, embedding_features
+        return text_features, embedding_features, auto_detected_high_card_to_drop
 
     # Defensive: callers sometimes pass ``cat_features=None`` (e.g. after a
     # model skipped categorical detection). Treat as empty list — the
@@ -560,21 +575,33 @@ def _auto_detect_feature_types(
             if honor_user_dtype and is_user_categorical_dtype:
                 honored_user_dtype_cols.append(name)
                 continue
-            if is_text_like and promote_text:
+            if is_text_like:
                 n_unique = df[name].n_unique()
                 if n_unique > threshold:
-                    # Non-null FRACTION guard — block promotion if the
-                    # column is sparse relative to total rows; keeps
-                    # CB's text estimator from producing an empty
-                    # TF-IDF dictionary.
+                    # Non-null FRACTION guard — block promotion/drop if
+                    # the column is sparse relative to total rows. For
+                    # the PROMOTE path this keeps CB's text estimator
+                    # from producing an empty TF-IDF dictionary; for the
+                    # DROP path (``use_text_features=False``) the
+                    # sparseness check is still a useful signal that
+                    # the column is unlikely to materially help any
+                    # model anyway — callers handle it identically.
                     non_null = int(df[name].count())
                     if non_null < min_non_null_abs:
                         skipped_low_non_null.append((name, n_unique, non_null))
                         continue
-                    text_features.append(name)
                     cardinalities[name] = n_unique
-                    if name in cat_features:
-                        promoted.append(name)
+                    if promote_text:
+                        text_features.append(name)
+                        if name in cat_features:
+                            promoted.append(name)
+                    else:
+                        # ``use_text_features=False``: caller MUST drop
+                        # this column. Leaving it as cat_feature crashes
+                        # XGB (QuantileDMatrix OOM on 2M-level cats) and
+                        # balloons CB artefact size with a useless
+                        # nominal-encoding vocabulary.
+                        auto_detected_high_card_to_drop.append(name)
     else:
         # pandas: only detect high-cardinality text (no reliable embedding auto-detect)
         for col in df.columns:
@@ -588,17 +615,21 @@ def _auto_detect_feature_types(
             if honor_user_dtype and dtype_name == "category":
                 honored_user_dtype_cols.append(col)
                 continue
-            if (dtype_name.startswith("object") or dtype_name.startswith("string") or dtype_name == "category") and promote_text:
+            if dtype_name.startswith("object") or dtype_name.startswith("string") or dtype_name == "category":
                 n_unique = df[col].nunique()
                 if n_unique > threshold:
                     non_null = int(df[col].notna().sum())
                     if non_null < min_non_null_abs:
                         skipped_low_non_null.append((col, n_unique, non_null))
                         continue
-                    text_features.append(col)
                     cardinalities[col] = n_unique
-                    if col in cat_features:
-                        promoted.append(col)
+                    if promote_text:
+                        text_features.append(col)
+                        if col in cat_features:
+                            promoted.append(col)
+                    else:
+                        # ``use_text_features=False``: drop-list for caller.
+                        auto_detected_high_card_to_drop.append(col)
 
     # Historical note: this function used to mutate ``cat_features`` in place
     # (calling ``.remove(name)`` for each promoted column). The in-place removal
@@ -625,6 +656,24 @@ def _auto_detect_feature_types(
         logger.info(
             f"  Auto-detected feature types — text: {_fmt_with_cardinality(text_features) if text_features else '(none)'}, "
             f"embedding: {embedding_features or '(none)'}"
+        )
+
+    # Load-bearing: log the drop-list regardless of verbose. Operator
+    # needs to see WHICH columns were auto-dropped and WHY — a silent
+    # drop is exactly the class of bug we just fixed (2026-04-22):
+    # skills_text at 2M unique silently stayed as cat_feature under
+    # ``use_text_features=False`` and OOM'd XGB on a prod 9M-row run.
+    if auto_detected_high_card_to_drop:
+        logger.warning(
+            "  use_text_features=False: auto-dropping %d high-cardinality "
+            "text-like column(s) (n_unique > %d) to prevent "
+            "XGB QuantileDMatrix OOM / CB model-artefact bloat: %s. "
+            "To keep these columns, set use_text_features=True (routes "
+            "them to text_features — CB uses them, XGB/LGB drop them) "
+            "or add them explicitly to feature_types_config.text_features.",
+            len(auto_detected_high_card_to_drop),
+            threshold,
+            _fmt_with_cardinality(auto_detected_high_card_to_drop),
         )
 
     # Always log the skipped-by-non-null-guard set, even at verbose=False
@@ -657,7 +706,7 @@ def _auto_detect_feature_types(
             len(honored_user_dtype_cols), sorted(honored_user_dtype_cols),
         )
 
-    return text_features, embedding_features
+    return text_features, embedding_features, auto_detected_high_card_to_drop
 
 
 def _validate_feature_type_exclusivity(
@@ -1977,9 +2026,35 @@ def train_mlframe_models_suite(
         ]
     else:
         user_polars_cats = []
-    text_features, embedding_features = _auto_detect_feature_types(
+    text_features, embedding_features, auto_high_card_drop = _auto_detect_feature_types(
         detect_df, feature_types_config, user_polars_cats, verbose=verbose,
     )
+    # Fix 6 correction (2026-04-22): when ``use_text_features=False``,
+    # the detector populates ``auto_high_card_drop`` with columns that
+    # exceed the cardinality threshold. Leaving them as cat_features
+    # silently OOMs XGB's QuantileDMatrix (observed on prod 9_018_479-
+    # row × ``skills_text:2_063_092``-unique run 2026-04-22) and
+    # balloons CB's model artefact. Drop them from the train/val/test
+    # splits AND from ``raw_cat_features`` here so every downstream
+    # strategy sees the same reduced frame.
+    if auto_high_card_drop:
+        train_df = _drop_cols_df(train_df, auto_high_card_drop)
+        val_df = _drop_cols_df(val_df, auto_high_card_drop)
+        test_df = _drop_cols_df(test_df, auto_high_card_drop)
+        if was_polars_input:
+            if train_df_polars_pre is not None:
+                train_df_polars_pre = _drop_cols_df(train_df_polars_pre, auto_high_card_drop)
+            if val_df_polars_pre is not None:
+                val_df_polars_pre = _drop_cols_df(val_df_polars_pre, auto_high_card_drop)
+            if test_df_polars_pre is not None:
+                test_df_polars_pre = _drop_cols_df(test_df_polars_pre, auto_high_card_drop)
+        raw_cat_features = [c for c in raw_cat_features if c not in auto_high_card_drop]
+        # Keep the metadata ``columns`` snapshot in sync with the
+        # reduced frame — load-time schema diff (_validate_input_
+        # columns_against_metadata) uses this to filter serving df to
+        # the trained subset, so a stale list re-introduces the
+        # dropped column at inference and the model errors on shape.
+        metadata["columns"] = train_df.columns.tolist() if isinstance(train_df, pd.DataFrame) else train_df.columns
     # Remove auto-detected text/embedding features from cat list (they're not categoricals)
     text_emb_set = set(text_features) | set(embedding_features)
     effective_cat_features = [c for c in raw_cat_features if c not in text_emb_set]
@@ -1996,6 +2071,15 @@ def train_mlframe_models_suite(
     # refused to accept it. Reassigning here flows the correct set to every
     # downstream user via the single ``cat_features`` binding.
     cat_features = effective_cat_features
+    # Keep metadata in sync with the post-detection cat_features list.
+    # ``metadata["cat_features"]`` was set to the un-filtered list at line
+    # 1999 (before auto-detection ran); without this re-sync, Fix 6's
+    # drop-list / text auto-promotion never propagates to the persisted
+    # metadata, so load-time schema validation and inference consumers
+    # see a stale cat_features list that includes already-removed
+    # high-cardinality columns (2026-04-22 regression caught by
+    # test_fix6_use_text_features_false_end_to_end_xgb_does_not_see_highcard).
+    metadata["cat_features"] = cat_features
 
     # One-time Polars string→Categorical cast (shared across all models in the loop).
     # XGBoost's arrow bridge rejects pl.Utf8/large_string ("KeyError: DataType(large_string)");
@@ -2449,25 +2533,42 @@ def train_mlframe_models_suite(
                 # Collect unique values from each split (drop nulls —
                 # fill_null above already handled them; nulls mustn't
                 # enter an Enum's category list).
+                #
+                # 2026-04-22 future-leakage fix: ONLY train + val
+                # contribute to the Enum vocabulary. test_df categories
+                # MUST NOT leak back — the whole purpose of a held-out
+                # test is to represent "truly unseen" data, and seeding
+                # the model's categorical vocabulary with test values
+                # leaks future information into training-time
+                # preprocessing (the Enum object is part of the pipeline
+                # the model commits to at fit). Test-only categories
+                # are cast with ``strict=False`` → OOV values land as
+                # nulls, which XGB / CB treat identically to any other
+                # missing value (consistent with production-time
+                # behaviour: at inference we have no mechanism to
+                # retroactively grow the Enum either).
                 tr_u = train_df_polars.select(pl.col(col).drop_nulls().unique())[col]
                 v_u  = val_df_polars.select(pl.col(col).drop_nulls().unique())[col] if val_df_polars is not None else None
-                te_u = test_df_polars.select(pl.col(col).drop_nulls().unique())[col] if test_df_polars is not None else None
                 # Union + stable-sorted for reproducibility.
                 union = set(tr_u.to_list())
                 if v_u is not None:
                     union |= set(v_u.to_list())
-                if te_u is not None:
-                    union |= set(te_u.to_list())
                 if len(union) > _DICT_ALIGN_SKIP_CARD:
                     skipped_cols.append((col, len(union)))
                     continue
                 union_sorted = sorted(union)
                 enum_dt = pl.Enum(union_sorted)
+                # train + val: known to be fully within the vocabulary,
+                # safe to cast strictly (default).
                 train_df_polars = train_df_polars.with_columns(pl.col(col).cast(enum_dt))
                 if val_df_polars is not None:
                     val_df_polars = val_df_polars.with_columns(pl.col(col).cast(enum_dt))
+                # test: may have OOV; cast with strict=False to null those
+                # out rather than crashing or leaking them into the Enum.
                 if test_df_polars is not None:
-                    test_df_polars = test_df_polars.with_columns(pl.col(col).cast(enum_dt))
+                    test_df_polars = test_df_polars.with_columns(
+                        pl.col(col).cast(enum_dt, strict=False)
+                    )
                 aligned_cols.append((col, len(union_sorted)))
             except Exception as _e:
                 logger.warning(

@@ -42,7 +42,7 @@ Usage:
 
     @given(df=adversarial_frame(n_rows=(100, 500)))
     def test_auto_detect_survives_arbitrary_frame(df):
-        text, emb = _auto_detect_feature_types(df, cfg, cat_features=[])
+        text, emb, _ = _auto_detect_feature_types(df, cfg, cat_features=[])
         assert isinstance(text, list) and isinstance(emb, list)
 """
 from __future__ import annotations

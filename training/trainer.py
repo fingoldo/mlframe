@@ -1286,6 +1286,52 @@ def _predict_with_fallback(
     """
     fn = getattr(model, method)
     n_rows = len(X) if hasattr(X, "__len__") else None
+
+    # Fix 9.4.3 correction (2026-04-22): reuse the cached CatBoost val
+    # Pool for predict-path calls too. The fit path already stored a
+    # Pool in ``_CB_VAL_POOL_CACHE`` keyed on
+    # ``(id(val_df), cols, shape, cat_features, text_features,
+    #   embedding_features)``. Prior to this fix the metrics path
+    # called ``model.predict_proba(val_df)`` with a raw DataFrame,
+    # which dispatches into CB's sklearn wrapper → rebuilds a fresh
+    # Pool from the frame → on 7.3M rows, 53–66 s wasted per metrics
+    # invocation (observed on prod 2026-04-22 log: 53 s at fit, then
+    # another 66.7 s at VAL metrics computation for the identical
+    # frame). CB's sklearn wrapper short-circuits rebuild when it
+    # sees ``isinstance(X, Pool)``, so passing the cached Pool here
+    # skips the second build entirely.
+    #
+    # Lookup uses the full id(X)+cols+shape signature — same frame
+    # => same Pool. A stale cache entry that matches the signature
+    # but had its label overwritten by fit is still fine for
+    # predict_proba / predict (they don't read the label).
+    try:
+        _model_type = type(model).__name__
+        if _model_type in CATBOOST_MODEL_TYPES and hasattr(X, "columns") and hasattr(X, "shape"):
+            _cols = tuple(X.columns) if not isinstance(X.columns, tuple) else X.columns
+            try:
+                _shape = X.shape
+                _shape_sig = (int(_shape[0]), int(_shape[1]))
+            except Exception:
+                _shape_sig = None
+            _id = id(X)
+            for key, pool in _CB_VAL_POOL_CACHE.items():
+                if key[0] == _id and key[1] == _cols and key[2] == _shape_sig:
+                    logger.info(
+                        "[cb-val-pool-reuse] %s hit on cached val Pool — "
+                        "skipping redundant Pool rebuild (saves the 53-66s "
+                        "observed on 7M-row prod)",
+                        method,
+                    )
+                    with phase(method, model=_model_type, n_rows=n_rows):
+                        return fn(pool)
+    except Exception as _exc:
+        # Any lookup failure is benign — fall through to normal path.
+        logger.debug(
+            f"[cb-val-pool-reuse] {method} cache probe failed "
+            f"({type(_exc).__name__}: {_exc}); falling through."
+        )
+
     try:
         with phase(method, model=type(model).__name__, n_rows=n_rows):
             return fn(X)

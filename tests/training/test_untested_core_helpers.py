@@ -135,7 +135,7 @@ def test_auto_detect_disabled_returns_user_lists():
     cfg = FeatureTypesConfig(auto_detect_feature_types=False,
                              text_features=["t"], embedding_features=["e"])
     df = pd.DataFrame({"t": ["x"], "e": [[1.0]]})
-    t, e = _auto_detect_feature_types(df, cfg, cat_features=[])
+    t, e, _ = _auto_detect_feature_types(df, cfg, cat_features=[])
     assert t == ["t"]
     assert e == ["e"]
 
@@ -149,7 +149,7 @@ def test_auto_detect_pandas_high_cardinality_text():
         "high_card": [f"s_{i}" for i in range(50)],
         "num": rng.standard_normal(50),
     })
-    t, e = _auto_detect_feature_types(df, cfg, cat_features=[])
+    t, e, _ = _auto_detect_feature_types(df, cfg, cat_features=[])
     assert "high_card" in t
     assert "low_card" not in t
     assert "num" not in t
@@ -167,7 +167,7 @@ def test_auto_detect_pandas_promotes_high_card_cat_to_text():
                              cat_text_cardinality_threshold=2)
     df = pd.DataFrame({"c": [f"v_{i}" for i in range(20)]})
     cat_features = ["c"]
-    t, e = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
+    t, e, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
     assert "c" in t, "high-cardinality column must be promoted to text"
     # Contract: input list is NOT mutated. The caller filters separately.
     assert cat_features == ["c"], (
@@ -183,7 +183,7 @@ def test_auto_detect_pandas_keeps_low_card_cat():
                              cat_text_cardinality_threshold=100)
     df = pd.DataFrame({"c": ["red", "green", "blue"] * 10})  # n_unique = 3
     cat_features = ["c"]
-    t, e = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
+    t, e, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
     assert "c" not in t
     assert "c" in cat_features
 
@@ -201,7 +201,7 @@ def test_auto_detect_threshold_boundary(n_unique, threshold, expected_promoted):
                              cat_text_cardinality_threshold=threshold)
     df = pd.DataFrame({"c": [f"v_{i:04d}" for i in range(n_unique)]})
     cat_features = ["c"]
-    t, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
+    t, _, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
     if expected_promoted:
         assert "c" in t
     else:
@@ -223,11 +223,11 @@ def test_auto_detect_does_not_mutate_cat_features_across_calls():
     df = pd.DataFrame({"c": [f"v_{i}" for i in range(20)], "low": ["a", "b"] * 10})
     cat_features = ["c", "low"]
 
-    t1, e1 = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
+    t1, e1, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
     # Snapshot the list after the first call — must be unchanged.
     assert cat_features == ["c", "low"], "first call must not mutate cat_features"
 
-    t2, e2 = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
+    t2, e2, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
     assert t1 == t2, "second call with identical input must produce identical text_features"
     assert e1 == e2
     assert cat_features == ["c", "low"], "second call must also not mutate"
@@ -242,7 +242,7 @@ def test_auto_detect_user_text_wins_over_promotion():
                              text_features=["c"])
     df = pd.DataFrame({"c": [f"v_{i}" for i in range(20)]})
     cat_features = ["c"]
-    t, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
+    t, _, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
     # The column is in text_features regardless (user declared it so), and
     # must also NOT be in cat_features — user's text declaration takes
     # precedence over a pipeline-derived cat classification.
@@ -269,7 +269,7 @@ def test_auto_detect_polars_categorical_promoted_by_cardinality():
         "hc": pl.Series("hc", [f"v_{i}" for i in range(50)]).cast(pl.Categorical),
     })
     cat_features = ["hc"]
-    t, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
+    t, _, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
     assert "hc" in t
     # Input list must NOT be mutated — caller filters via set-difference.
     assert cat_features == ["hc"]
@@ -290,7 +290,7 @@ def test_auto_detect_polars_enum_promoted_by_cardinality():
     cfg = FeatureTypesConfig(auto_detect_feature_types=True,
                              cat_text_cardinality_threshold=10)
     cat_features = ["hc"]
-    t, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
+    t, _, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_features)
     assert "hc" in t, "pl.Enum column with high cardinality must be promoted to text_features"
     # Input list must NOT be mutated — caller filters via set-difference.
     assert cat_features == ["hc"]
@@ -305,7 +305,7 @@ def test_auto_detect_accepts_cat_features_none():
     df = pl.DataFrame({"s": [f"v_{i}" for i in range(10)]})
     cfg = FeatureTypesConfig(auto_detect_feature_types=True,
                              cat_text_cardinality_threshold=3)
-    t, e = _auto_detect_feature_types(df, cfg, cat_features=None)
+    t, e, _ = _auto_detect_feature_types(df, cfg, cat_features=None)
     assert "s" in t
 
 
@@ -316,7 +316,7 @@ def test_auto_detect_polars_embedding():
         "emb": [[1.0, 2.0], [3.0, 4.0]],
         "num": [1.0, 2.0],
     })
-    t, e = _auto_detect_feature_types(df, cfg, cat_features=[])
+    t, e, _ = _auto_detect_feature_types(df, cfg, cat_features=[])
     assert "emb" in e
 
 
@@ -324,7 +324,7 @@ def test_auto_detect_polars_high_card_text():
     cfg = FeatureTypesConfig(auto_detect_feature_types=True,
                              cat_text_cardinality_threshold=3)
     df = pl.DataFrame({"s": [f"v_{i}" for i in range(10)]})
-    t, e = _auto_detect_feature_types(df, cfg, cat_features=[])
+    t, e, _ = _auto_detect_feature_types(df, cfg, cat_features=[])
     assert "s" in t
 
 

@@ -51,7 +51,7 @@ class TestAutoDetectFeatureTypesRobustness:
         )
         cat_candidates = [c for c, dt in df.schema.items()
                           if dt == pl.Categorical or dt == pl.Utf8]
-        text, emb = _auto_detect_feature_types(df, cfg, cat_features=cat_candidates)
+        text, emb, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_candidates)
         assert isinstance(text, list)
         assert isinstance(emb, list)
         # Invariant: returned names are a subset of the provided candidates
@@ -76,7 +76,7 @@ class TestAutoDetectFeatureTypesRobustness:
         )  # min_non_null_fraction_for_text_promotion default is 0.01 (getattr'd)
         cat_candidates = [c for c, dt in df.schema.items()
                           if dt in (pl.Categorical, pl.Utf8)]
-        text, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_candidates)
+        text, _, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_candidates)
         # For every column that IS in the promoted text list, its
         # non_null fraction must be >= 1%.
         for col in text:
@@ -93,7 +93,7 @@ class TestAutoDetectFeatureTypesRobustness:
                                  cat_text_cardinality_threshold=300)
         cat_candidates = [c for c, dt in df.schema.items()
                           if dt == pl.Enum or dt == pl.Categorical or dt == pl.Utf8]
-        text, emb = _auto_detect_feature_types(df, cfg, cat_features=cat_candidates)
+        text, emb, _ = _auto_detect_feature_types(df, cfg, cat_features=cat_candidates)
         # prod_like has small-cardinality cats (<=16 uniques) so nothing
         # should be promoted to text.
         assert text == [], f"unexpected text promotion on prod_like: {text}"
@@ -432,7 +432,7 @@ class TestAutoDetectIgnoresNumericPathology:
                                  cat_text_cardinality_threshold=10)
         # Pretend every column in the frame is a cat candidate — the
         # detector must still classify numerics correctly.
-        text, emb = _auto_detect_feature_types(
+        text, emb, _ = _auto_detect_feature_types(
             df, cfg, cat_features=list(df.columns),
         )
         numeric_names = [c for c, dt in df.schema.items()
