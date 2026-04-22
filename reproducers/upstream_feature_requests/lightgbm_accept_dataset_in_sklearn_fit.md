@@ -69,13 +69,24 @@ targets = {
     "churn":              (lgb.LGBMClassifier(n_estimators=1000),              y_churn_train,    y_churn_val),
     "next_best_action":   (lgb.LGBMClassifier(n_estimators=1000),              y_nba_train,      y_nba_val),
     "best_discount_pct":  (lgb.LGBMRegressor(n_estimators=1000),               y_discount_train, y_discount_val),
-    "job_rank":           (lgb.LGBMRanker(n_estimators=1000, objective="rank"), y_rank_train,     y_rank_val),
 }
 for target_name, (model, y_train, y_val) in targets.items():
     train_set.set_label(y_train)
     val_set.set_label(y_val)
     model.fit(train_set, eval_set=[(val_set,)], callbacks=[lgb.early_stopping(50)])
     ...
+
+# LGBMRanker — same feature matrix, ranking target; group counts change per query split.
+ranker_train = lgb.Dataset(X_train, label=y_rank_train, group=group_counts_train,
+                           categorical_feature=cat_cols)
+ranker_val   = lgb.Dataset(X_val,   label=y_rank_val,   group=group_counts_val,
+                           reference=ranker_train)
+
+for weight_scheme in ("uniform", "recency"):
+    ranker_train.set_weight(weight_for_scheme(weight_scheme))
+    ranker = lgb.LGBMRanker(n_estimators=1000, objective="lambdarank")
+    ranker.fit(ranker_train, eval_set=[(ranker_val,)], callbacks=[lgb.early_stopping(50)])
+    ...  # predict (relevance scores), feature_importances_ — all sklearn API
 ```
 
 ## Backwards compatibility
@@ -96,6 +107,7 @@ Purely additive — existing callers are unchanged. The `Dataset` branch is gate
 
 Happy to submit the PR with unit tests covering:
 - `LGBMClassifier.fit(Dataset, y)`, `LGBMRegressor.fit(Dataset, y)`, and `LGBMRanker.fit(Dataset, y)` set label correctly.
+- `LGBMRanker` with `Dataset(group=...)` — `set_group()` round-trip works post-construct.
 - `fit(Dataset)` with pre-set label.
 - `set_weight` round-trip across fits preserves metric parity vs `fit(array, y, sample_weight=...)`.
 - `fit(Dataset, eval_set=[(Dataset,)])` with both as Dataset.
