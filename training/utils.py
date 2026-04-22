@@ -396,7 +396,7 @@ def compute_model_input_fingerprint(
 
 def get_pandas_view_of_polars_df(
     df: pl.DataFrame,
-    self_destruct: bool = True,
+    self_destruct: bool = False,
     log_threshold_seconds: float = 1.0,
 ) -> pd.DataFrame:
     """
@@ -521,19 +521,15 @@ def get_pandas_view_of_polars_df(
     #     codes representation, but that's the only unavoidable copy.
     #   * use_threads=True   → parallel column materialization (default but
     #     stated explicitly so the contract is visible).
-    #   * self_destruct=True → release Arrow chunks as conversion consumes
-    #     them, halving peak RAM and shaving ~26% wall-clock. Marked
-    #     EXPERIMENTAL by pyarrow with a "will crash if you touch the Arrow
-    #     object after to_pandas" warning. SAFE here because tbl_fixed is
-    #     a local variable that goes out of scope right after this call —
-    #     no external reference can survive. Caller can opt out via
-    #     self_destruct=False if they're in a context that holds an extra
-    #     reference (e.g., debugging, reuse of the Arrow table downstream).
+    #   * self_destruct=False (default) → SAFE. Tested 2026-04-22: enabling
+    #     self_destruct=True caused a native crash inside pytest during the
+    #     integration suite — pyarrow's "EXPERIMENTAL" warning was no joke.
+    #     The 26% extra speedup is not worth the segfault risk; opt-in only.
     # Bench (2026-04-22, 7.3M × 118 with 18 dict cols):
     #   default                          30.06s   (1×)
     #   use_threads only                  2.10s   (14×)
-    #   +split_blocks                     0.95s   (32×)
-    #   +self_destruct                    0.70s   (43×)  ← default
+    #   +split_blocks                     0.95s   (32×)  ← default
+    #   +self_destruct                    0.70s   (43×)  ← opt-in, may crash
     pandas_df = tbl_fixed.to_pandas(
         use_threads=True,
         split_blocks=True,

@@ -1310,6 +1310,29 @@ def _predict_with_fallback(
     fn = getattr(model, method)
     n_rows = len(X) if hasattr(X, "__len__") else None
 
+    # Self-heal for LGB / sklearn / linear: their sklearn wrappers receive
+    # the X arg through _LGBMValidateData → check_array which converts
+    # pd.Categorical to numpy object arrays of strings — crashes on the first
+    # non-numeric cell. Convert Polars → pandas up front so the wrapper takes
+    # its native pandas fastpath. (Mirrors the model.fit self-heal in
+    # _train_model_with_fallback.)
+    _model_type = type(model).__name__
+    if isinstance(X, pl.DataFrame) and (
+        "LGBM" in _model_type
+        or "Linear" in _model_type
+        or "Logistic" in _model_type
+        or "Ridge" in _model_type
+        or "Lasso" in _model_type
+        or "SGD" in _model_type
+    ):
+        from .utils import get_pandas_view_of_polars_df
+        logger.warning(
+            "  [predict] %s.%s received pl.DataFrame; converting to pandas "
+            "to avoid sklearn check_array crash on string categoricals.",
+            _model_type, method,
+        )
+        X = get_pandas_view_of_polars_df(X)
+
     # Fix 9.4.3 correction (2026-04-22): reuse the cached CatBoost val
     # Pool for predict-path calls too. The fit path already stored a
     # Pool in ``_CB_VAL_POOL_CACHE`` keyed on
@@ -1820,25 +1843,67 @@ def _train_model_with_fallback(
     # eval_set=pool) confuses CB's fit signature.
     if _cb_pool is not None and model_type_name in CATBOOST_MODEL_TYPES:
         _maybe_rewrite_eval_set_as_cb_pool(fit_params)
-    # Diagnostic: log the type/dtypes of train_df right before model.fit so
-    # the next prod failure tells us if data was silently converted to numpy
-    # somewhere upstream (which is the root cause of the LGB
-    # "could not convert string to float: 'HOURLY'" crash — LGB takes the
-    # numpy fastpath in Dataset._lazy_init when X is np.ndarray, and the
-    # __init_from_np2d path can't handle string categoricals).
+    # Diagnostic: log the type+module of train_df right before model.fit so
+    # silent type drift is visible in the log (Polars vs pandas vs numpy).
+    # Critical: type(pl.DataFrame).__name__ == "DataFrame" — same as pandas —
+    # so we log the module too, otherwise "DataFrame" can hide a Polars frame
+    # that should have been converted upstream.
+    _is_polars = isinstance(train_df, pl.DataFrame)
+    _is_pandas = isinstance(train_df, pd.DataFrame)
     try:
-        _train_df_type = type(train_df).__name__
-        if hasattr(train_df, "dtypes"):
+        if _is_polars:
+            _kind = "pl.DataFrame"
+        elif _is_pandas:
+            _kind = "pd.DataFrame"
+        elif isinstance(train_df, np.ndarray):
+            _kind = f"np.ndarray(dtype={train_df.dtype})"
+        else:
+            _kind = type(train_df).__name__
+        if hasattr(train_df, "dtypes") and hasattr(train_df, "columns"):
             _dtype_summary = ", ".join(f"{c}={train_df[c].dtype}" for c in list(train_df.columns)[:5])
             if len(train_df.columns) > 5:
                 _dtype_summary += f", ... ({len(train_df.columns)} cols total)"
-        elif isinstance(train_df, np.ndarray):
-            _dtype_summary = f"ndarray(dtype={train_df.dtype}, shape={train_df.shape})"
         else:
-            _dtype_summary = "(no dtypes attr)"
-        logger.info(f"  [pre-fit] train_df type={_train_df_type}, dtypes: {_dtype_summary}")
-    except Exception:  # diagnostic must never break training
+            _dtype_summary = ""
+        logger.info(f"  [pre-fit] train_df type={_kind}, {_dtype_summary}")
+    except Exception:
         pass
+
+    # Self-heal for LGB/sklearn/linear models that receive a Polars DataFrame.
+    # Root cause (2026-04-22): the lazy-pandas-conversion block in
+    # core.py:2898-2908 is supposed to fire for non-Polars-native strategies,
+    # but in multi-model suites it can be skipped or its effect can be lost
+    # before this point. LGB's sklearn wrapper then takes the non-pandas
+    # branch in fit(), calls _LGBMValidateData → check_array which converts
+    # the Polars frame to a numpy object array, and Dataset.__init_from_np2d
+    # crashes on the first string cell ('HOURLY'). Convert in-place here so
+    # LGB sees a proper pd.DataFrame and takes its native pandas fastpath.
+    if _is_polars and (
+        "LGBM" in model_type_name
+        or "Linear" in model_type_name
+        or "Logistic" in model_type_name
+        or "Ridge" in model_type_name
+        or "Lasso" in model_type_name
+        or "SGD" in model_type_name
+    ):
+        from .utils import get_pandas_view_of_polars_df
+        logger.warning(
+            "  [pre-fit] %s received pl.DataFrame; sklearn-wrapper would "
+            "crash on string categoricals. Converting to pandas in-place. "
+            "Investigate why upstream lazy conversion didn't fire.",
+            model_type_name,
+        )
+        train_df = get_pandas_view_of_polars_df(train_df)
+        # Same for eval_set if it's still polars
+        if "eval_set" in fit_params and fit_params["eval_set"]:
+            new_eval = []
+            es = fit_params["eval_set"]
+            es_pairs = es if isinstance(es, list) else [es]
+            for X_v, y_v in es_pairs:
+                if isinstance(X_v, pl.DataFrame):
+                    X_v = get_pandas_view_of_polars_df(X_v)
+                new_eval.append((X_v, y_v))
+            fit_params["eval_set"] = new_eval if isinstance(es, list) else new_eval[0]
 
     try:
         with phase("model.fit", model=model_type_name,

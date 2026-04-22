@@ -240,18 +240,22 @@ def test_get_pandas_view_source_uses_zero_copy_flags():
         "to_pandas call must use split_blocks=True for zero-copy numeric views"
     )
     assert "self_destruct=self_destruct" in src, (
-        "to_pandas must thread the self_destruct param through so callers can opt out"
+        "to_pandas must thread the self_destruct param through so callers can opt in"
+    )
+    assert "self_destruct: bool = False" in src, (
+        "self_destruct must default to False — pyarrow EXPERIMENTAL flag, "
+        "caused native pytest crash on 2026-04-22 with default=True"
     )
 
 
 @pytest.mark.parametrize(
     "self_destruct_arg, expected_self_destruct",
     [
-        (None, True),       # default → True
-        (True, True),
-        (False, False),
+        (None, False),      # default → False (safe; pyarrow EXPERIMENTAL flag)
+        (True, True),       # explicit opt-in (caller takes responsibility)
+        (False, False),     # explicit safe
     ],
-    ids=["default", "explicit_true", "explicit_false"],
+    ids=["default_false", "explicit_true", "explicit_false"],
 )
 def test_get_pandas_view_self_destruct_param_behavior(self_destruct_arg, expected_self_destruct):
     """End-to-end behavioural test: with self_destruct on/off, the function
