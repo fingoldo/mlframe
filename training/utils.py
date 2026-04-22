@@ -503,37 +503,6 @@ def get_pandas_view_of_polars_df(df: pl.DataFrame) -> pd.DataFrame:
     return pandas_df
 
 
-def encode_cats_as_codes(df: "pd.DataFrame", cat_features: list) -> "pd.DataFrame":
-    """Convert pd.Categorical / object cat-feature columns to int16 codes for LGB.
-
-    LightGBM's sklearn wrapper calls _LGBMValidateData → sklearn check_array, which
-    converts pd.Categorical to a numpy object array of strings. LGB then tries to build
-    its Dataset from that numpy array and crashes:
-        ValueError: could not convert string to float: 'HOURLY'
-
-    LGB CAN handle integer-coded categoricals when categorical_feature is specified.
-    Encoding with .cat.codes produces -1 for NaN (which LGB treats as missing), and
-    small non-negative integers for known categories — safe for LGB's internal binner.
-
-    Only columns that are present in the DataFrame AND are pd.Categorical or object dtype
-    are touched; numeric cat columns (already integer-coded upstream) pass through.
-    """
-    cols_to_encode = [
-        c for c in cat_features
-        if c in df.columns and (
-            hasattr(df[c], "cat") or df[c].dtype == object
-        )
-    ]
-    if not cols_to_encode:
-        return df
-    df = df.copy()
-    for col in cols_to_encode:
-        if not hasattr(df[col], "cat"):
-            df[col] = df[col].astype("category")
-        df[col] = df[col].cat.codes.astype("int16")
-    return df
-
-
 def save_series_or_df(
     obj: Union[pd.Series, pd.DataFrame, pl.Series, pl.DataFrame],
     file: str,

@@ -680,6 +680,15 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
 
     Feature selectors (MRMR, RFECV) can't encode text or list-of-float embedding columns;
     catboost needs them back intact for fit. Hide → run → re-attach preserves both.
+
+    Numpy-output fallback (2026-04-22): if the inner ``fn`` is a default sklearn
+    Pipeline (no ``set_output(transform="pandas")``), ``out`` comes back as a numpy
+    array. The original code detected this via ``hasattr(out, "columns")`` and
+    silently returned numpy — dropping ``passthrough_cols`` and, worse, collapsing
+    pd.Categorical dtypes in the selected columns to numpy object strings, which
+    crashes LGB's Dataset construction on the ``'HOURLY'`` path. We now rebuild a
+    pd.DataFrame from the reduced-input column names so passthrough_cols re-attach
+    and downstream models take the native-pandas fastpath.
     """
     if not passthrough_cols or df is None or not hasattr(df, "columns"):
         return fn(df, target) if fit else fn(df)
@@ -701,6 +710,20 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
             held_pd = held.to_pandas() if is_polars else held
             for c in present:
                 out[c] = held_pd[c].values if hasattr(held_pd[c], "values") else held_pd[c]
+    elif isinstance(out, np.ndarray) and out.ndim == 2:
+        # Reconstruct a DataFrame using the reduced-input column names when the
+        # transformer preserved the column count. If the shape differs (e.g. a
+        # feature selector dropped columns), we can't safely name them — fall
+        # back to positional names and warn via debug log.
+        reduced_cols = list(reduced.columns)
+        if out.shape[1] == len(reduced_cols):
+            col_names = reduced_cols
+        else:
+            col_names = [f"f{i}" for i in range(out.shape[1])]
+        out = pd.DataFrame(out, columns=col_names, index=getattr(reduced, "index", None))
+        held_pd = held.to_pandas() if is_polars else held
+        for c in present:
+            out[c] = held_pd[c].values if hasattr(held_pd[c], "values") else held_pd[c]
     return out
 
 

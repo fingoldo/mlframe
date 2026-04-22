@@ -223,7 +223,20 @@ class ModelPipelineStrategy(ABC):
         if len(steps) == 1 and steps[0][0] == "transform":
             return base_pipeline
 
-        return Pipeline(steps=steps)
+        pipeline = Pipeline(steps=steps)
+        # Ensure DataFrame dtypes (pd.Categorical, object) survive the chain.
+        # sklearn's default returns numpy, which destroys categoricals — LGB/CB/XGB
+        # then receive numpy with string values and crash on Dataset construction
+        # (e.g. "could not convert string to float: 'HOURLY'"). set_output keeps
+        # the frame as pd.DataFrame so downstream isinstance(X, pd_DataFrame)
+        # branches take the native-pandas fastpath. Best-effort: some nested
+        # transformers (custom, third-party) don't declare get_feature_names_out
+        # and sklearn refuses to configure; swallow and continue.
+        try:
+            pipeline = pipeline.set_output(transform="pandas")
+        except Exception:
+            pass
+        return pipeline
 
 
 class TreeModelStrategy(ModelPipelineStrategy):
