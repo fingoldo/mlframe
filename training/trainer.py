@@ -1820,6 +1820,26 @@ def _train_model_with_fallback(
     # eval_set=pool) confuses CB's fit signature.
     if _cb_pool is not None and model_type_name in CATBOOST_MODEL_TYPES:
         _maybe_rewrite_eval_set_as_cb_pool(fit_params)
+    # Diagnostic: log the type/dtypes of train_df right before model.fit so
+    # the next prod failure tells us if data was silently converted to numpy
+    # somewhere upstream (which is the root cause of the LGB
+    # "could not convert string to float: 'HOURLY'" crash — LGB takes the
+    # numpy fastpath in Dataset._lazy_init when X is np.ndarray, and the
+    # __init_from_np2d path can't handle string categoricals).
+    try:
+        _train_df_type = type(train_df).__name__
+        if hasattr(train_df, "dtypes"):
+            _dtype_summary = ", ".join(f"{c}={train_df[c].dtype}" for c in list(train_df.columns)[:5])
+            if len(train_df.columns) > 5:
+                _dtype_summary += f", ... ({len(train_df.columns)} cols total)"
+        elif isinstance(train_df, np.ndarray):
+            _dtype_summary = f"ndarray(dtype={train_df.dtype}, shape={train_df.shape})"
+        else:
+            _dtype_summary = "(no dtypes attr)"
+        logger.info(f"  [pre-fit] train_df type={_train_df_type}, dtypes: {_dtype_summary}")
+    except Exception:  # diagnostic must never break training
+        pass
+
     try:
         with phase("model.fit", model=model_type_name,
                    n_rows=(train_df.shape[0] if hasattr(train_df, "shape") else None),

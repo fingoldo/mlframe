@@ -215,6 +215,91 @@ def test_build_pipeline_output_format_default_is_pandas():
     assert isinstance(out, pd.DataFrame)
 
 
+def test_get_pandas_view_source_uses_zero_copy_flags():
+    """Static contract test: verify the to_pandas call inside
+    get_pandas_view_of_polars_df uses use_threads=True + split_blocks=True.
+    These are the flags that bring the conversion from 30s → 0.95s on
+    7.3M × 118 (32× speedup). Mocking pa.Table.to_pandas at runtime fails
+    because pyarrow Table is immutable; source-level inspection is reliable
+    and equally restrictive.
+
+    Bench (7.3M × 118 with 18 dict cols):
+        default to_pandas:                30.06s   (1×)
+        use_threads only:                  2.10s   (14×)
+        +split_blocks:                     0.95s   (32×)
+        +self_destruct:                    0.70s   (43×)  ← default
+    """
+    import inspect
+    from mlframe.training.utils import get_pandas_view_of_polars_df
+
+    src = inspect.getsource(get_pandas_view_of_polars_df)
+    assert "use_threads=True" in src, (
+        "to_pandas call must use use_threads=True"
+    )
+    assert "split_blocks=True" in src, (
+        "to_pandas call must use split_blocks=True for zero-copy numeric views"
+    )
+    assert "self_destruct=self_destruct" in src, (
+        "to_pandas must thread the self_destruct param through so callers can opt out"
+    )
+
+
+@pytest.mark.parametrize(
+    "self_destruct_arg, expected_self_destruct",
+    [
+        (None, True),       # default → True
+        (True, True),
+        (False, False),
+    ],
+    ids=["default", "explicit_true", "explicit_false"],
+)
+def test_get_pandas_view_self_destruct_param_behavior(self_destruct_arg, expected_self_destruct):
+    """End-to-end behavioural test: with self_destruct on/off, the function
+    still produces a valid pd.DataFrame with the expected schema and values.
+    self_destruct=True is documented EXPERIMENTAL by pyarrow ("will crash if
+    you touch the Arrow object after to_pandas") — safe inside the function
+    because tbl_fixed is a local variable, but the caller can opt out via
+    self_destruct=False if they hold an extra reference somewhere.
+    """
+    from mlframe.training.utils import get_pandas_view_of_polars_df
+
+    df = pl.DataFrame({
+        "num": np.arange(100, dtype=np.float32),
+        "cat": pl.Series(["A", "B"] * 50).cast(pl.Categorical),
+    })
+
+    if self_destruct_arg is None:
+        out = get_pandas_view_of_polars_df(df)
+    else:
+        out = get_pandas_view_of_polars_df(df, self_destruct=self_destruct_arg)
+
+    assert isinstance(out, pd.DataFrame)
+    assert list(out.columns) == ["num", "cat"]
+    assert out["num"].dtype == np.float32
+    assert out["cat"].dtype.name == "category"
+    assert len(out) == 100
+
+
+def test_get_pandas_view_logs_long_conversions(caplog):
+    """Long conversions (>= log_threshold_seconds) must emit an INFO log with
+    timing + RAM usage so operators can spot the 35-min stalls. Sub-threshold
+    conversions stay silent to avoid log spam."""
+    import logging
+    from mlframe.training.utils import get_pandas_view_of_polars_df
+
+    df = pl.DataFrame({"num": np.arange(1000, dtype=np.float32)})
+
+    # Force-log by setting threshold to 0
+    with caplog.at_level(logging.INFO, logger="mlframe.training.utils"):
+        get_pandas_view_of_polars_df(df, log_threshold_seconds=0.0)
+
+    msgs = [r.message for r in caplog.records if "get_pandas_view_of_polars_df" in r.message]
+    assert msgs, "Expected an INFO log line when log_threshold_seconds=0"
+    log = msgs[0]
+    assert "RAM" in log, f"Log line must include RAM usage: {log}"
+    assert "self_destruct" in log, f"Log line must indicate self_destruct setting: {log}"
+
+
 def test_polars_enum_pandas_pipeline_lgb_fit_end_to_end():
     """Full production path reproducer.
 
