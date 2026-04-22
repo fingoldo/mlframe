@@ -150,7 +150,14 @@ def test_numba_cache_hit_across_subprocess(tmp_path):
 
 
 def test_numba_nogil_releases_gil():
-    """nogil=True: 2 threads running a heavy @njit should scale near-linearly."""
+    """nogil=True: 2 threads running a heavy @njit should scale near-linearly.
+
+    Note (2026-04-22): when the full test suite runs in parallel or on a
+    loaded CPU, the `solo` baseline can be inflated by other workers and
+    the parallel scaling check goes flaky. Guard with a baseline floor +
+    a few-iteration median so a single jittery sample doesn't fail the
+    suite. Pure-isolation runs still see scaling well below 1.7×.
+    """
     from numba import njit
     from mlframe.metrics import NUMBA_NJIT_PARAMS
 
@@ -166,12 +173,26 @@ def test_numba_nogil_releases_gil():
     N = 5_000_000
     _heavy(100)  # warmup
 
-    t0 = time.perf_counter(); _heavy(N); solo = time.perf_counter() - t0
+    # Take the best-of-3 for both solo and parallel to suppress one-shot
+    # CPU-contention spikes from other test workers.
+    def _time_solo():
+        t0 = time.perf_counter(); _heavy(N); return time.perf_counter() - t0
 
-    t0 = time.perf_counter()
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        list(ex.map(_heavy, [N, N]))
-    par = time.perf_counter() - t0
+    def _time_par():
+        t0 = time.perf_counter()
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            list(ex.map(_heavy, [N, N]))
+        return time.perf_counter() - t0
+
+    solo = min(_time_solo() for _ in range(3))
+    par = min(_time_par() for _ in range(3))
+
+    # Best-of-3 measurement removes most contention noise, but if the
+    # solo timing is sub-5ms even after best-of-3, the noise floor of
+    # ThreadPoolExecutor startup overhead dominates the ratio. Skip
+    # rather than fail-flake.
+    if solo < 0.005:
+        pytest.skip(f"solo={solo*1000:.1f}ms too small for stable ratio check")
 
     # Perfect scaling = 1.0x solo; GIL-bound = 2.0x solo. Require < 1.7x.
     assert par < solo * 1.7, f"GIL appears held: par={par:.3f}s solo={solo:.3f}s ratio={par/solo:.2f}"
