@@ -62,7 +62,7 @@ def _build_extension_steps(config: PreprocessingExtensionsConfig, n_features: in
     if config.binarization_threshold is not None:
         steps.append(("binarizer", Binarizer(threshold=config.binarization_threshold)))
     if config.kbins is not None:
-        steps.append(("kbins", KBinsDiscretizer(n_bins=config.kbins, encode=config.kbins_encode, strategy="quantile")))
+        steps.append(("kbins", KBinsDiscretizer(n_bins=config.kbins, encode=config.kbins_encode, strategy="quantile", quantile_method="averaged_inverted_cdf")))
     if config.polynomial_degree is not None:
         projected = n_features ** config.polynomial_degree
         if projected > config.memory_safety_max_features:

@@ -183,9 +183,9 @@ def _build_ridge_classifier(config: LinearModelConfig) -> BaseEstimator:
 
 
 def _build_lasso_classifier(config: LinearModelConfig) -> BaseEstimator:
-    """Build a Lasso classifier via LogisticRegression with L1 penalty."""
+    """Build a Lasso classifier via LogisticRegression with L1 penalty (l1_ratio=1 via saga)."""
     return LogisticRegression(
-        penalty="l1",
+        l1_ratio=1,
         C=1.0 / config.alpha if config.alpha > 0 else 1.0,
         solver="saga",
         max_iter=config.max_iter,
@@ -197,9 +197,8 @@ def _build_lasso_classifier(config: LinearModelConfig) -> BaseEstimator:
 
 
 def _build_elasticnet_classifier(config: LinearModelConfig) -> BaseEstimator:
-    """Build an ElasticNet classifier via LogisticRegression with combined L1/L2 penalty."""
+    """Build an ElasticNet classifier via LogisticRegression (l1_ratio controls L1/L2 mix via saga)."""
     return LogisticRegression(
-        penalty="elasticnet",
         C=1.0 / config.alpha if config.alpha > 0 else 1.0,
         l1_ratio=_get_l1_ratio(config),
         solver="saga",
