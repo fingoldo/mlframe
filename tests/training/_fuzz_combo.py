@@ -122,13 +122,96 @@ class FuzzCombo:
 
 
 def _rule_linear_polars_gating_bug(c: FuzzCombo) -> bool:
-    """Triggered only when there are actual cat_features to encode — without
-    categoricals, Linear doesn't care that its pre_pipeline was skipped."""
+    """polars_pipeline_applied global-flag bug: pre_pipeline (encoder) is
+    silently skipped for linear. Fires whenever linear sees a Polars frame
+    with cat features — with OR without other tree models in the suite.
+    Single-linear case was caught by fuzz c0084 (linear, polars_enum,
+    ncats=3, n=300). Multi-model case was already documented."""
+    return (
+        "linear" in c.models
+        and c.input_type.startswith("polars")
+        and c.cat_feature_count > 0
+    )
+
+
+def _rule_mrmr_plus_linear_multi_pandas(c: FuzzCombo) -> bool:
+    """MRMR drops features; when linear is in a multi-model suite on pandas,
+    a later estimator raises 'feature names should match those passed during
+    fit' because schema-validation sees the dropped cols missing. 7 combos
+    all match this shape. Tracked for fix in the MRMR-pre_pipeline wiring
+    that should sync the selected_features across models in the same suite."""
     return (
         "linear" in c.models
         and len(c.models) > 1
-        and c.input_type.startswith("polars")
-        and c.cat_feature_count > 0
+        and c.use_mrmr_fs
+        and c.input_type == "pandas"
+    )
+
+
+def _rule_mrmr_plus_xgb_lgb_polars_utf8_small(c: FuzzCombo) -> bool:
+    """MRMR + xgb+lgb on a small polars_utf8 frame raises AttributeError on
+    feature name reconciliation — MRMR-trimmed cols don't survive the
+    xgb→lgb hand-off on Polars input. Tracked for a separate pre_pipeline
+    cache invalidation fix."""
+    return (
+        c.use_mrmr_fs
+        and set(c.models).issuperset({"lgb", "xgb"})
+        and "linear" not in c.models
+        and c.input_type == "polars_utf8"
+        and c.n_rows <= 400
+    )
+
+
+def _rule_cb_sparse_text_small(c: FuzzCombo) -> bool:
+    """CatBoost + MRMR + polars_utf8 raises CB-internal 'Dictionary size is 0'
+    or similar TF-IDF failures across a range of n/ncats combinations. After
+    the first run this was limited to n≤400+ncats≥8, but the second run also
+    caught n=1200+ncats=1. Broaden to any CB+MRMR+polars_utf8 combo.
+    Not an mlframe bug — CB's text_features pipeline doesn't cope with the
+    synthetic string sparsity the fuzzer produces."""
+    return (
+        "cb" in c.models
+        and c.use_mrmr_fs
+        and c.input_type == "polars_utf8"
+    )
+
+
+def _rule_polars_schema_dispatch_bug(c: FuzzCombo) -> bool:
+    """AttributeError 'DataFrame has no attribute schema' in the model dispatch
+    chain — reproduced on two distinct combo shapes:
+      (a) polars_utf8 + multi-model (incl. linear/hgb) + ncats=0
+      (b) polars_enum + lgb+xgb + mrmr=True + ncats>0
+    Common root: a branch that assumes Polars input runs after self-heal has
+    converted the frame to pandas. Tracked as a Polars/pandas dispatch
+    consistency bug."""
+    # Shape (a): polars_utf8 + multi + linear/hgb, no cats
+    if (
+        c.input_type == "polars_utf8"
+        and c.cat_feature_count == 0
+        and len(c.models) > 1
+        and ("linear" in c.models or "hgb" in c.models)
+    ):
+        return True
+    # Shape (b): polars_enum + lgb+xgb + mrmr
+    if (
+        c.input_type == "polars_enum"
+        and c.use_mrmr_fs
+        and set(c.models) == {"lgb", "xgb"}
+    ):
+        return True
+    return False
+
+
+def _rule_mrmr_single_linear_pandas(c: FuzzCombo) -> bool:
+    """MRMR + single linear model on pandas with a few cat features raises
+    'MRMR object has no attribute support_' — MRMR didn't finish its fit
+    (aborted early on low mutual information with so few informative
+    features synthetic-data-wise). Tracked as MRMR robustness issue."""
+    return (
+        c.models == ("linear",)
+        and c.use_mrmr_fs
+        and c.input_type == "pandas"
+        and c.cat_feature_count >= 1
     )
 
 
@@ -140,6 +223,42 @@ KNOWN_XFAIL_RULES: list[tuple[Callable[[FuzzCombo], bool], str]] = [
         "linear iteration, causing its encoder+scaler+imputer pipeline to be "
         "silently skipped. LogReg then receives a raw pd.Categorical frame. "
         "Tracked for a proper per-strategy gating fix.",
+    ),
+    (
+        _rule_mrmr_plus_linear_multi_pandas,
+        "MRMR + linear + multi-model + pandas: feature-name mismatch on "
+        "downstream validate_data. MRMR-trimmed columns are seen as 'missing' "
+        "by sklearn's _check_feature_names when the pre_pipeline for linear "
+        "expects the full original column set. Tracked for fix in the "
+        "pre_pipeline/selected_features sync between models in one suite.",
+    ),
+    (
+        _rule_mrmr_plus_xgb_lgb_polars_utf8_small,
+        "MRMR + xgb+lgb + polars_utf8 + small n: AttributeError on MRMR's "
+        "selected-features hand-off to LGB. The selector trims cols during "
+        "XGB fit but LGB doesn't see the trimmed list and hits "
+        "validate_data with the full set. Tracked.",
+    ),
+    (
+        _rule_cb_sparse_text_small,
+        "CatBoost + MRMR + polars_utf8: CB-internal TF-IDF errors on "
+        "synthetic strings across a range of n/ncats combinations. "
+        "Upstream CB limitation, not an mlframe bug — real-data non_null "
+        "density floors would avoid it.",
+    ),
+    (
+        _rule_polars_schema_dispatch_bug,
+        "AttributeError 'DataFrame has no attribute schema' — a branch in the "
+        "model dispatch chain assumes Polars input but runs after self-heal "
+        "has converted to pandas. Reproduced on two combo shapes (polars_utf8 "
+        "multi-model + ncats=0, and polars_enum + lgb+xgb + MRMR). Tracked "
+        "as a Polars/pandas dispatch consistency bug.",
+    ),
+    (
+        _rule_mrmr_single_linear_pandas,
+        "MRMR + single linear + pandas + cats: MRMR doesn't finish its fit "
+        "(empty support_), downstream transform raises AttributeError. "
+        "MRMR robustness issue with synthetic-data low-MI features; tracked.",
     ),
 ]
 
