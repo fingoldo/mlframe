@@ -1,8 +1,5 @@
-# [RFC] `LGBMModel.fit(X=Dataset)` — accept a pre-built Dataset to enable weight/label reuse (follow-up to #5074)
+# [RFC] `LGBMModel.fit(X=Dataset)` — accept a pre-built Dataset to enable efficient weight/label change
 
-**Target repo:** [microsoft/LightGBM](https://github.com/microsoft/LightGBM) — open as a new issue; reference #5074 and #4965 in the body.
-
----
 
 ## Motivation
 
@@ -67,11 +64,12 @@ for weight_scheme in ("uniform", "recency", "inverse_recency"):
     clf.fit(train_set, eval_set=[(val_set,)], callbacks=[lgb.early_stopping(50)])
     ...  # predict_proba, feature_importances_, booster_ — all sklearn API
 
-# LGBMClassifier / LGBMRegressor — vary targets across the same feature matrix.
+# LGBMClassifier / LGBMRegressor / LGBMRanker — vary targets across the same feature matrix.
 targets = {
-    "churn":              (lgb.LGBMClassifier(n_estimators=1000),  y_churn_train,    y_churn_val),
-    "next_best_action":   (lgb.LGBMClassifier(n_estimators=1000),  y_nba_train,      y_nba_val),
-    "best_discount_pct":  (lgb.LGBMRegressor(n_estimators=1000),   y_discount_train, y_discount_val),
+    "churn":              (lgb.LGBMClassifier(n_estimators=1000),              y_churn_train,    y_churn_val),
+    "next_best_action":   (lgb.LGBMClassifier(n_estimators=1000),              y_nba_train,      y_nba_val),
+    "best_discount_pct":  (lgb.LGBMRegressor(n_estimators=1000),               y_discount_train, y_discount_val),
+    "job_rank":           (lgb.LGBMRanker(n_estimators=1000, objective="rank"), y_rank_train,     y_rank_val),
 }
 for target_name, (model, y_train, y_val) in targets.items():
     train_set.set_label(y_train)
@@ -97,7 +95,7 @@ Purely additive — existing callers are unchanged. The `Dataset` branch is gate
 ## Willingness to PR
 
 Happy to submit the PR with unit tests covering:
-- `LGBMClassifier.fit(Dataset, y)` and `LGBMRegressor.fit(Dataset, y)` set label correctly.
+- `LGBMClassifier.fit(Dataset, y)`, `LGBMRegressor.fit(Dataset, y)`, and `LGBMRanker.fit(Dataset, y)` set label correctly.
 - `fit(Dataset)` with pre-set label.
 - `set_weight` round-trip across fits preserves metric parity vs `fit(array, y, sample_weight=...)`.
 - `fit(Dataset, eval_set=[(Dataset,)])` with both as Dataset.
