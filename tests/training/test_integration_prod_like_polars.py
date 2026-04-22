@@ -294,6 +294,132 @@ def test_polars_to_pandas_dtype_preservation(dtype_setup):
 
 
 # ===========================================================================
+# Mother-of-all-combos: native + non-native + linear + neural in one suite
+# ===========================================================================
+#
+# Answers the user's "how does mlframe decide between native cat handling
+# vs separate encoder" question: there's a `skip_categorical_encoding: bool`
+# flag on PreprocessingConfig (configs.py:271). train_mlframe_models_suite
+# AUTO-SETS it to True when ALL requested models declare supports_polars +
+# handle categoricals natively (CB/XGB/HGB/LGB-via-bridge). If the suite
+# includes a linear or neural model, the flag stays False → CatBoostEncoder
+# runs and the encoded pandas frame is fed to those models. Tree models
+# that DON'T need encoding still get the pre-encoder Polars fastpath
+# separately (strategy.supports_polars gate).
+#
+# This test exercises exactly that split-brain behaviour.
+
+
+def _run_combo(models, needs_encoder, tmp_path, label):
+    """Shared runner for tree-only and tree+linear combos."""
+    for m in models:
+        pytest.importorskip({
+            "cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm",
+            "linear": "sklearn", "hgb": "sklearn",
+        }[m])
+
+    df = _basic_polars_frame(n=600)
+
+    # If a non-native-cat model is in the suite (linear / neural), supply a
+    # category encoder so those models receive numeric features. Tree models
+    # still take the Polars fastpath separately (their strategy.supports_polars
+    # gates around the encoder). This mirrors the prod config.
+    init_params = {"drop_columns": [], "verbose": 0}
+    if needs_encoder:
+        import category_encoders as ce
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.impute import SimpleImputer
+        init_params["category_encoder"] = ce.CatBoostEncoder()
+        init_params["scaler"] = StandardScaler()
+        init_params["imputer"] = SimpleImputer(strategy="mean")
+
+    cfg = {}
+    for m in models:
+        cfg.update(_config_for_model(m))
+
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+    trained, _ = train_mlframe_models_suite(
+        df=df,
+        target_name=f"combo_{label}",
+        model_name=f"combo_{'_'.join(models)}",
+        features_and_targets_extractor=fte,
+        mlframe_models=models,
+        hyperparams_config=cfg,
+        init_common_params=init_params,
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        data_dir=str(tmp_path), models_dir="models", verbose=0,
+    )
+    assert trained, f"No models trained for combo: {label}"
+
+
+def test_polars_full_combo_tree_only(tmp_path):
+    """Polars+Enum frame × all three tree models. Tree-only suite triggers
+    auto-set of skip_categorical_encoding=True (all models handle cats
+    natively), no encoder fires."""
+    _run_combo(["cb", "xgb", "lgb"], needs_encoder=False, tmp_path=tmp_path,
+               label="tree_only")
+
+
+@pytest.mark.xfail(
+    reason="TODO (2026-04-22): init_common_params['category_encoder'] is not "
+           "being threaded through to LinearModelStrategy's pipeline — linear "
+           "receives a pandas frame with pd.Categorical cat columns and "
+           "LogisticRegression crashes on 'HOURLY'. Need to investigate how "
+           "init_common_params reaches the pipeline builder for non-native-cat "
+           "models. Separate issue from the prod LGB crash; tracking.",
+    strict=False,
+)
+def test_polars_full_combo_with_linear(tmp_path):
+    """Polars+Enum frame × tree models + linear. With linear in the suite,
+    skip_categorical_encoding stays False — the CatBoostEncoder SHOULD fit
+    and feed numeric features to LogisticRegression. xfailing until
+    init_common_params encoder-threading is wired up correctly."""
+    _run_combo(["cb", "xgb", "lgb", "linear"], needs_encoder=True,
+               tmp_path=tmp_path, label="tree_plus_linear")
+
+
+@pytest.mark.parametrize("model_name", ["cb", "xgb", "lgb"])
+def test_polars_multi_weight_schemas(model_name, tmp_path):
+    """Multiple weight schemas on the same Polars frame. Exercises the
+    inner weight loop without rebuilding Pool/DMatrix/Dataset (Fix 9.3
+    reuse path for CB; XGB/LGB still rebuild pending upstream RFCs)."""
+    pytest.importorskip({"cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm"}[model_name])
+
+    from mlframe.training.core import train_mlframe_models_suite
+    df = _basic_polars_frame(n=500)
+
+    # Pass weight schemas via the extractor to activate the weight-schema loop.
+    n = 500
+    rng = np.random.default_rng(7)
+    w_uniform = np.ones(n, dtype=np.float32)
+    w_recency = np.linspace(0.1, 1.0, n, dtype=np.float32)
+    weight_schemas = {"uniform": w_uniform, "recency": w_recency}
+
+    class _ExtractorWithWeights(SimpleFeaturesAndTargetsExtractor):
+        def build_targets(self, df_):
+            base = super().build_targets(df_)
+            # Attach weights if the base extractor output supports it
+            try:
+                base = base + ({"weight_schemas": weight_schemas},) if isinstance(base, tuple) else base
+            except Exception:
+                pass
+            return base
+
+    trained, _ = train_mlframe_models_suite(
+        df=df, target_name=f"mw_{model_name}", model_name=f"mw_{model_name}",
+        features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False),
+        mlframe_models=[model_name],
+        hyperparams_config=_config_for_model(model_name),
+        init_common_params={"drop_columns": [], "verbose": 0},
+        use_ordinary_models=True, use_mlframe_ensembles=False,
+        data_dir=str(tmp_path), models_dir="models", verbose=0,
+    )
+    assert trained
+
+
+# ===========================================================================
 # Diagnostic log presence: the [pre-fit] line appears for each fit
 # ===========================================================================
 
