@@ -148,6 +148,73 @@ def test_passthrough_cols_pandas_output_keeps_dtypes():
 # End-to-end: Polars Enum → pandas bridge → Pipeline → LGB fit succeeds
 # ---------------------------------------------------------------------------
 
+def test_build_pipeline_output_format_polars():
+    """build_pipeline(..., output_format='polars') returns a Pipeline whose
+    fit_transform yields a pl.DataFrame, allowing Polars-native consumers
+    (CB / XGB Polars fastpath, HGB) to skip the arrow→pandas bridge.
+
+    Requires sklearn >= 1.4 (polars output added there). On older sklearn the
+    fallback to pandas should kick in and the test would skip rather than fail.
+    """
+    import sklearn
+    from packaging.version import Version
+    if Version(sklearn.__version__) < Version("1.4"):
+        pytest.skip("sklearn < 1.4: set_output(transform='polars') not available")
+
+    from mlframe.training.strategies import LinearModelStrategy
+
+    n = 50
+    rng = np.random.default_rng(0)
+    df = pl.DataFrame({
+        "num1": rng.standard_normal(n).astype(np.float32),
+        "num2": rng.standard_normal(n).astype(np.float32),
+    })
+    y = rng.integers(0, 2, size=n)
+
+    strategy = LinearModelStrategy()
+    pipeline = strategy.build_pipeline(
+        base_pipeline=None,
+        cat_features=[],
+        category_encoder=None,
+        imputer=SimpleImputer(strategy="mean"),
+        scaler=StandardScaler(),
+        output_format="polars",
+    )
+    if pipeline is None:
+        pytest.skip("build_pipeline returned None")
+
+    out = pipeline.fit_transform(df, y)
+    assert isinstance(out, pl.DataFrame), (
+        f"output_format='polars' should yield pl.DataFrame, got {type(out).__name__}"
+    )
+
+
+def test_build_pipeline_output_format_default_is_pandas():
+    """Default output_format='pandas' preserves backward compatibility."""
+    from mlframe.training.strategies import LinearModelStrategy
+
+    n = 50
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({
+        "num1": rng.standard_normal(n).astype(np.float32),
+        "num2": rng.standard_normal(n).astype(np.float32),
+    })
+    y = rng.integers(0, 2, size=n)
+
+    pipeline = LinearModelStrategy().build_pipeline(
+        base_pipeline=None,
+        cat_features=[],
+        category_encoder=None,
+        imputer=SimpleImputer(strategy="mean"),
+        scaler=StandardScaler(),
+    )
+    if pipeline is None:
+        pytest.skip("build_pipeline returned None")
+
+    out = pipeline.fit_transform(df, y)
+    assert isinstance(out, pd.DataFrame)
+
+
 def test_polars_enum_pandas_pipeline_lgb_fit_end_to_end():
     """Full production path reproducer.
 

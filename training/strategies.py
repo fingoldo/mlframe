@@ -139,6 +139,7 @@ class ModelPipelineStrategy(ABC):
         category_encoder: Optional[Any] = None,
         imputer: Optional[Any] = None,
         scaler: Optional[Any] = None,
+        output_format: str = "pandas",
     ) -> Optional[Pipeline]:
         """
         Build the preprocessing pipeline for this model type.
@@ -150,6 +151,13 @@ class ModelPipelineStrategy(ABC):
             category_encoder: Encoder for categorical features
             imputer: Imputer for missing values
             scaler: Scaler for feature normalization
+            output_format: ``"pandas"`` (default) or ``"polars"``. Routed to the
+                Pipeline's ``set_output(transform=...)`` so DataFrame dtypes
+                survive the chain. Choose ``"polars"`` when the downstream
+                consumer is Polars-native (CB / XGB Polars fastpath, HGB) and
+                you want to skip the arrow→pandas bridge; ``"pandas"`` for LGB
+                and other pandas-only consumers. Requires sklearn >= 1.4 for
+                ``"polars"`` support.
 
         Returns:
             Configured sklearn Pipeline or None if no preprocessing needed
@@ -224,18 +232,25 @@ class ModelPipelineStrategy(ABC):
             return base_pipeline
 
         pipeline = Pipeline(steps=steps)
-        # Ensure DataFrame dtypes (pd.Categorical, object) survive the chain.
+        # Ensure DataFrame dtypes (pd.Categorical, object, pl.Enum) survive the chain.
         # sklearn's default returns numpy, which destroys categoricals — LGB/CB/XGB
         # then receive numpy with string values and crash on Dataset construction
         # (e.g. "could not convert string to float: 'HOURLY'"). set_output keeps
-        # the frame as pd.DataFrame so downstream isinstance(X, pd_DataFrame)
-        # branches take the native-pandas fastpath. Best-effort: some nested
-        # transformers (custom, third-party) don't declare get_feature_names_out
-        # and sklearn refuses to configure; swallow and continue.
+        # the frame as the requested type so downstream isinstance(X, pd_DataFrame)
+        # / pl.DataFrame branches take the native fastpath. Best-effort: some
+        # nested transformers (custom, third-party) don't declare
+        # get_feature_names_out and sklearn refuses to configure; swallow and
+        # continue. "polars" requires sklearn >= 1.4 — older versions raise.
         try:
-            pipeline = pipeline.set_output(transform="pandas")
+            pipeline = pipeline.set_output(transform=output_format)
         except Exception:
-            pass
+            if output_format != "pandas":
+                # Fall back to pandas (works on sklearn >= 1.2) if polars is
+                # rejected by the installed sklearn or by an inner transformer.
+                try:
+                    pipeline = pipeline.set_output(transform="pandas")
+                except Exception:
+                    pass
         return pipeline
 
 
