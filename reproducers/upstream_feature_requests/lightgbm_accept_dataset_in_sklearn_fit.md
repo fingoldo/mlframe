@@ -1,9 +1,5 @@
 # [RFC] `LGBMClassifier.fit(X=Dataset)` — accept a pre-built Dataset to enable weight/label reuse (follow-up to #5074)
 
-**Target repo:** [microsoft/LightGBM](https://github.com/microsoft/LightGBM) — open as a new issue; reference #5074 and #2966 in the body.
-
----
-
 ## Motivation
 
 Same root cause as [#5074](https://github.com/microsoft/LightGBM/issues/5074), re-opening with a concrete API proposal. On multi-GB / multi-weight training runs, `LGBMClassifier.fit(X, y, sample_weight=w)` rebuilds the `Dataset` on every call at [lightgbm/sklearn.py:978-987](https://github.com/microsoft/LightGBM/blob/master/python-package/lightgbm/sklearn.py). With N weight schemes (recency / uniform / custom) across M models in a sklearn `Pipeline` or hyperparam sweep, that's N × M full-Dataset rebuilds for the same feature matrix — on our 200+ GB production dataset each completely unnecessary rebuild takes up to 10 minutes, and the aggregate dominates wall-clock.
@@ -54,12 +50,11 @@ No default behaviour change for `fit(X: array_like, y, ...)`. The `isinstance` g
 import lightgbm as lgb
 
 # Build the Dataset once for the full 200+ GB feature matrix.
-# With free_raw_data=False the raw arrays stay alive so set_label / set_weight
-# can update the C++ handle in place without touching the feature data.
+# set_label / set_weight write directly to the C++ handle via LGBM_DatasetSetField
+# and work post-construct regardless of free_raw_data.
 train_set = lgb.Dataset(X_train, label=y_churn, weight=w_uniform,
-                        categorical_feature=cat_cols, free_raw_data=False)
-val_set   = lgb.Dataset(X_val, label=y_churn_val, reference=train_set,
-                        free_raw_data=False)
+                        categorical_feature=cat_cols)
+val_set   = lgb.Dataset(X_val, label=y_churn_val, reference=train_set)
 
 # Vary weight schemes for a single target — only set_weight() between fits.
 for weight_scheme in ("uniform", "recency", "inverse_recency"):
@@ -89,8 +84,7 @@ Purely additive — existing callers are unchanged. The `Dataset` branch is gate
 ## Relation to existing threads
 
 - [#5074](https://github.com/microsoft/LightGBM/issues/5074) — "Fitting LGBMClassifier on a Dataset". The earlier issue asked about the performance cost of extracting `.data` / `.label` from a Dataset to feed the sklearn API; it was closed without documented resolution. This RFC proposes the concrete API to eliminate the extraction entirely.
-- [#2966](https://github.com/microsoft/LightGBM/issues/2966) — "The sklearn wrapper is not really compatible with the sklearn ecosystem" — explicit acknowledgement that the wrapper diverges from the native API.
-- [#4965](https://github.com/microsoft/LightGBM/issues/4965) — Dataset reuse constraints (`free_raw_data=False` trade-off); orthogonal but relevant for users adopting this RFC.
+- [#4965](https://github.com/microsoft/LightGBM/issues/4965) — Documents the Dataset lifecycle constraint that users of this RFC must understand: once `construct()` runs (internally on the first `train()` call), the feature layout is frozen — feature data is binned and cannot be changed. `set_label()` and `set_weight()` work post-construct because they write directly to the C++ handle via `LGBM_DatasetSetField`, not through the Python raw-data references. The practical rule: build the Dataset once with the final feature set; call `set_label`/`set_weight` freely between fits; never alter columns or dtypes.
 
 ## Alternatives considered
 
