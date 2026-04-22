@@ -1317,18 +1317,11 @@ def _predict_with_fallback(
     # its native pandas fastpath. (Mirrors the model.fit self-heal in
     # _train_model_with_fallback.)
     _model_type = type(model).__name__
-    if isinstance(X, pl.DataFrame) and (
-        "LGBM" in _model_type
-        or "Linear" in _model_type
-        or "Logistic" in _model_type
-        or "Ridge" in _model_type
-        or "Lasso" in _model_type
-        or "SGD" in _model_type
-    ):
+    if isinstance(X, pl.DataFrame) and "LGBM" in _model_type:
         from .utils import get_pandas_view_of_polars_df
         logger.warning(
             "  [predict] %s.%s received pl.DataFrame; converting to pandas "
-            "to avoid sklearn check_array crash on string categoricals.",
+            "so LGB's sklearn wrapper takes the pandas-native fastpath.",
             _model_type, method,
         )
         X = get_pandas_view_of_polars_df(X)
@@ -1878,23 +1871,20 @@ def _train_model_with_fallback(
     # the Polars frame to a numpy object array, and Dataset.__init_from_np2d
     # crashes on the first string cell ('HOURLY'). Convert in-place here so
     # LGB sees a proper pd.DataFrame and takes its native pandas fastpath.
-    if _is_polars and (
-        "LGBM" in model_type_name
-        or "Linear" in model_type_name
-        or "Logistic" in model_type_name
-        or "Ridge" in model_type_name
-        or "Lasso" in model_type_name
-        or "SGD" in model_type_name
-    ):
+    # Self-heal only for LGB (which handles pd.Categorical natively once it
+    # sees a pandas frame). Linear/sklearn models MUST go through the
+    # upstream category_encoder pipeline — hacking .cat.codes here would
+    # hide the root-cause bug where pre_pipeline with CatBoostEncoder
+    # doesn't reach LinearModelStrategy's fit_transform step.
+    if _is_polars and "LGBM" in model_type_name:
         from .utils import get_pandas_view_of_polars_df
         logger.warning(
-            "  [pre-fit] %s received pl.DataFrame; sklearn-wrapper would "
-            "crash on string categoricals. Converting to pandas in-place. "
-            "Investigate why upstream lazy conversion didn't fire.",
+            "  [pre-fit] %s received pl.DataFrame; LGB sklearn wrapper would "
+            "crash on string categoricals in the non-pandas branch. Converting "
+            "to pandas in-place. Investigate why upstream lazy conversion didn't fire.",
             model_type_name,
         )
         train_df = get_pandas_view_of_polars_df(train_df)
-        # Same for eval_set if it's still polars
         if "eval_set" in fit_params and fit_params["eval_set"]:
             new_eval = []
             es = fit_params["eval_set"]

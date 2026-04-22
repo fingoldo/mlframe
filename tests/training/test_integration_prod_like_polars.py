@@ -363,19 +363,27 @@ def test_polars_full_combo_tree_only(tmp_path):
 
 
 @pytest.mark.xfail(
-    reason="TODO (2026-04-22): init_common_params['category_encoder'] is not "
-           "being threaded through to LinearModelStrategy's pipeline — linear "
-           "receives a pandas frame with pd.Categorical cat columns and "
-           "LogisticRegression crashes on 'HOURLY'. Need to investigate how "
-           "init_common_params reaches the pipeline builder for non-native-cat "
-           "models. Separate issue from the prod LGB crash; tracking.",
+    reason="Known root-cause: polars_pipeline_applied accumulates globally "
+           "across the model-suite loop (core.py:3049). When CB/XGB run first "
+           "on a Polars frame, the flag becomes True and every later model "
+           "inherits skip_preprocessing=True — even LinearModelStrategy, "
+           "whose CatBoostEncoder+scaler+imputer pipeline is then silently "
+           "skipped. LogReg receives the raw pd.Categorical frame and crashes "
+           "on 'HOURLY'. The naive per-model fix (gate by strategy.requires_encoding "
+           "or supports_polars) broke tree-only suites because it also routed "
+           "LGB through the encoder, producing an object-dtype frame that "
+           "LGB.Dataset_lazy_init can't consume (scipy.sparse dtype object). "
+           "Proper fix needs surgery on _build_process_model_kwargs to compute "
+           "skip_preprocessing per-model based on BOTH "
+           "strategy.supports_polars AND strategy.requires_encoding. Deferred.",
     strict=False,
 )
 def test_polars_full_combo_with_linear(tmp_path):
-    """Polars+Enum frame × tree models + linear. With linear in the suite,
-    skip_categorical_encoding stays False — the CatBoostEncoder SHOULD fit
-    and feed numeric features to LogisticRegression. xfailing until
-    init_common_params encoder-threading is wired up correctly."""
+    """Polars+Enum frame × tree models + linear in one suite call.
+
+    See xfail reason: global polars_pipeline_applied flag incorrectly skips
+    preprocessing for the linear model when tree models ran first in the
+    same suite."""
     _run_combo(["cb", "xgb", "lgb", "linear"], needs_encoder=True,
                tmp_path=tmp_path, label="tree_plus_linear")
 
