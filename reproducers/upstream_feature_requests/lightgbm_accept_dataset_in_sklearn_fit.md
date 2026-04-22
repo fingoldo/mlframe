@@ -21,7 +21,7 @@ def _build_train_pool(X, y, cat_features, text_features, embedding_features, ...
         ...  # label overwrite via _set_pool_label_with_overwrite_warning
 ```
 
-Callers build one `Pool` and call `fit()` multiple times with `pool.set_label` / `pool.set_weight` in between. It's idiomatic, documented in CatBoost tutorials, and a major performance win for hyperparameter-sweep / multi-target / cross-validated workflows. Among the "big three" GBDT libraries, LightGBM is the only one whose sklearn wrapper forces a full rebuild on every fit. Closing this gap would bring LGB in line with the other two and make the sklearn wrapper usable for production training pipelines that re-use the same feature matrix dozens of times.
+Callers build one `Pool` and call `fit()` multiple times with `pool.set_label` / `pool.set_weight` in between. It's idiomatic, documented in CatBoost tutorials, and a major performance win for hyperparameter-sweep / multi-target / cross-validated workflows. LightGBM and XGBoost are the two libraries among the "big three" whose sklearn wrappers force a full rebuild on every fit; this RFC proposes the fix for LightGBM. Closing this gap would bring LGB in line with CatBoost for production training pipelines that re-use the same feature matrix across multiple fits.
 
 ## Proposal
 
@@ -76,7 +76,7 @@ Purely additive — existing callers are unchanged. The `Dataset` branch is gate
 
 ## Alternatives considered
 
-- **Using `lightgbm.train` directly + a thin sklearn-facade adapter in userspace:** the facade has to re-implement `predict_proba`, `feature_importances_`, `_le` label-encoder plumbing, early-stopping callbacks, pipeline compatibility. 50+ lines per wrapper, fragile on version bumps.
+- **Using `lightgbm.train` directly + a thin sklearn-facade adapter in userspace:** the facade has to re-implement `predict_proba`, `feature_importances_`, `_le` label-encoder plumbing, early-stopping callbacks, pipeline compatibility. Non-trivial boilerplate that's fragile on version bumps.
 - **Monkey-patching `LGBMModel.fit`:** brittle; breaks silently when `_LGBMValidateData` signature changes.
 
 ## Willingness to PR

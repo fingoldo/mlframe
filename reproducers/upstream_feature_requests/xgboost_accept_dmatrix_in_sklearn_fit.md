@@ -21,7 +21,7 @@ def _build_train_pool(X, y, cat_features, text_features, embedding_features, ...
         ...  # label overwrite via _set_pool_label_with_overwrite_warning
 ```
 
-Callers routinely build one `Pool` and call `fit()` multiple times with `pool.set_label` / `pool.set_weight` in between — this is idiomatic, documented in the CatBoost tutorials, and delivers a significant speed-up for grid-search / hyperparameter-sweep / multi-target workloads. Among the "big three" GBDT libraries, XGBoost is the only one whose sklearn wrapper forces a full rebuild on every fit. Closing this gap would make XGBoost more competitive in production training pipelines where the same feature matrix is re-used dozens of times.
+Callers routinely build one `Pool` and call `fit()` multiple times with `pool.set_label` / `pool.set_weight` in between — this is idiomatic, documented in the CatBoost tutorials, and delivers a significant speed-up for grid-search / hyperparameter-sweep / multi-target workloads. XGBoost and LightGBM are the two libraries among the "big three" whose sklearn wrappers force a full rebuild on every fit; this RFC proposes the fix for XGBoost. Closing this gap would bring XGBoost in line with CatBoost for production training pipelines where the same feature matrix is re-used across multiple fits.
 
 ## Proposal
 
@@ -70,12 +70,11 @@ Purely additive — existing `fit(X: array_like, y, ...)` paths are unchanged. T
 
 - [#4190](https://github.com/dmlc/xgboost/issues/4190) — access `DMatrix.set_base_margin` via sklearn wrapper. **Accepted**, implemented via PR #5151. Precedent that upstream adds DMatrix capabilities through the sklearn wrapper when there's a concrete use case.
 - [#7817](https://github.com/dmlc/xgboost/issues/7817) — `categorical_features` param gap between sklearn wrapper and DMatrix.
-- [#2000](https://github.com/dmlc/xgboost/issues/2000) — "How to feed test data to my xgb model?" (tangentially related).
 
 ## Alternatives considered
 
 - **Using `xgb.train` directly + a thin sklearn-facade adapter in userspace:** 30+ lines per wrapper, duplicates `predict_proba` / `feature_importances_` logic, fragile on version bumps, breaks pipeline / grid-search integrations.
-- **Monkey-patching `_create_dmatrix`:** brittle, tightly couples userspace to internal layout. Observed to break between 2.x and 3.x minor releases.
+- **Monkey-patching `_create_dmatrix`:** brittle, tightly couples userspace to a private internal method whose signature can change across releases.
 
 ## Willingness to PR
 
