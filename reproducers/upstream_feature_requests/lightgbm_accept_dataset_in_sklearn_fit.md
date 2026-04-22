@@ -1,10 +1,14 @@
-# [RFC] `LGBMClassifier.fit(X=Dataset)` — accept a pre-built Dataset to enable weight/label reuse (follow-up to #5074)
+# [RFC] `LGBMModel.fit(X=Dataset)` — accept a pre-built Dataset to enable weight/label reuse (follow-up to #5074)
+
+**Target repo:** [microsoft/LightGBM](https://github.com/microsoft/LightGBM) — open as a new issue; reference #5074 and #4965 in the body.
+
+---
 
 ## Motivation
 
-Same root cause as [#5074](https://github.com/microsoft/LightGBM/issues/5074), re-opening with a concrete API proposal. On multi-GB / multi-weight training runs, `LGBMClassifier.fit(X, y, sample_weight=w)` rebuilds the `Dataset` on every call at [lightgbm/sklearn.py:978-987](https://github.com/microsoft/LightGBM/blob/master/python-package/lightgbm/sklearn.py). With N weight schemes (recency / uniform / custom) across M models in a sklearn `Pipeline` or hyperparam sweep, that's N × M full-Dataset rebuilds for the same feature matrix — on our 200+ GB production dataset each completely unnecessary rebuild takes up to 10 minutes, and the aggregate dominates wall-clock.
+Same root cause as [#5074](https://github.com/microsoft/LightGBM/issues/5074), re-opening with a concrete API proposal. On multi-GB / multi-weight training runs, `LGBMModel.fit(X, y, sample_weight=w)` rebuilds the `Dataset` on every call at [lightgbm/sklearn.py:978-987](https://github.com/microsoft/LightGBM/blob/master/python-package/lightgbm/sklearn.py). This affects all three sklearn wrappers — `LGBMClassifier`, `LGBMRegressor`, and `LGBMRanker` — since they all inherit `fit` from `LGBMModel`. With N weight schemes (recency / uniform / custom) across M models in a sklearn `Pipeline` or hyperparam sweep, that's N × M full-Dataset rebuilds for the same feature matrix — on our 200+ GB production dataset each completely unnecessary rebuild takes up to 10 minutes, and the aggregate dominates wall-clock.
 
-The native `lightgbm.train(params, train_set)` API takes a pre-built `Dataset` and supports `train_set.set_label(new_label)` / `train_set.set_weight(new_weight)` in-place (both documented as returning `self`, in-place on the C++ handle via `set_field`). But the sklearn API's `early_stopping`, `callbacks`, `predict_proba`, `feature_importances_`, pipeline compatibility, and grid-search integration force users back to `LGBMClassifier.fit(X, y)` and block reuse.
+The native `lightgbm.train(params, train_set)` API takes a pre-built `Dataset` and supports `train_set.set_label(new_label)` / `train_set.set_weight(new_weight)` in-place (both documented as returning `self`, in-place on the C++ handle via `set_field`). But the sklearn API's `early_stopping`, `callbacks`, `predict_proba`, `feature_importances_`, pipeline compatibility, and grid-search integration force users back to `LGBMModel.fit(X, y)` and block reuse.
 
 ## Precedent — CatBoost already supports this
 
@@ -21,7 +25,7 @@ Callers build one `Pool` and call `fit()` multiple times with `pool.set_label` /
 
 ## Proposal
 
-Add a fast-path in `LGBMModel.fit` (`lightgbm/sklearn.py` ~line 948, before the `_LGBMValidateData` branch):
+Add a fast-path in `LGBMModel.fit` (`lightgbm/sklearn.py` ~line 948, before the `_LGBMValidateData` branch). Because the fix is in the base class, it covers `LGBMClassifier`, `LGBMRegressor`, and `LGBMRanker` with a single change:
 
 ```python
 if isinstance(X, Dataset):
@@ -56,23 +60,22 @@ train_set = lgb.Dataset(X_train, label=y_churn, weight=w_uniform,
                         categorical_feature=cat_cols)
 val_set   = lgb.Dataset(X_val, label=y_churn_val, reference=train_set)
 
-# Vary weight schemes for a single target — only set_weight() between fits.
+# LGBMClassifier — vary weight schemes for a single target.
 for weight_scheme in ("uniform", "recency", "inverse_recency"):
     train_set.set_weight(weight_for_scheme(weight_scheme))
-    model = lgb.LGBMClassifier(n_estimators=1000)
-    model.fit(train_set, eval_set=[(val_set,)], callbacks=[lgb.early_stopping(50)])
+    clf = lgb.LGBMClassifier(n_estimators=1000)
+    clf.fit(train_set, eval_set=[(val_set,)], callbacks=[lgb.early_stopping(50)])
     ...  # predict_proba, feature_importances_, booster_ — all sklearn API
 
-# Vary targets across the same feature matrix — only set_label() between fits.
+# LGBMClassifier / LGBMRegressor — vary targets across the same feature matrix.
 targets = {
-    "churn":               (y_churn_train,          y_churn_val),
-    "next_best_action":    (y_nba_train,             y_nba_val),
-    "best_discount_pct":   (y_discount_train,        y_discount_val),
+    "churn":              (lgb.LGBMClassifier(n_estimators=1000),  y_churn_train,    y_churn_val),
+    "next_best_action":   (lgb.LGBMClassifier(n_estimators=1000),  y_nba_train,      y_nba_val),
+    "best_discount_pct":  (lgb.LGBMRegressor(n_estimators=1000),   y_discount_train, y_discount_val),
 }
-for target_name, (y_train, y_val) in targets.items():
+for target_name, (model, y_train, y_val) in targets.items():
     train_set.set_label(y_train)
     val_set.set_label(y_val)
-    model = lgb.LGBMClassifier(n_estimators=1000)
     model.fit(train_set, eval_set=[(val_set,)], callbacks=[lgb.early_stopping(50)])
     ...
 ```
@@ -94,10 +97,10 @@ Purely additive — existing callers are unchanged. The `Dataset` branch is gate
 ## Willingness to PR
 
 Happy to submit the PR with unit tests covering:
-- `fit(Dataset, y)` sets label correctly.
+- `LGBMClassifier.fit(Dataset, y)` and `LGBMRegressor.fit(Dataset, y)` set label correctly.
 - `fit(Dataset)` with pre-set label.
-- `set_weight` round-trip across fits preserves metric parity vs fit(array, y, sample_weight=...).
+- `set_weight` round-trip across fits preserves metric parity vs `fit(array, y, sample_weight=...)`.
 - `fit(Dataset, eval_set=[(Dataset,)])` with both as Dataset.
-- `free_raw_data=True` edge case (Dataset.set_label must still work post-construct once the handle is built).
+- `set_label` works post-construct (after the C++ handle is built).
 - `feature_name` / `categorical_feature` preservation.
-- Pipeline / GridSearchCV compatibility via feature_names_in_ accessor.
+- Pipeline / GridSearchCV compatibility via `feature_names_in_` accessor.
