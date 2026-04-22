@@ -66,6 +66,34 @@ def _skip_if_deps_missing(models: tuple[str, ...]) -> None:
         pytest.importorskip(pkg[m])
 
 
+@pytest.fixture(autouse=True)
+def _fuzz_combo_cleanup():
+    """Between fuzz combos: close matplotlib figures, clear CB/XGB/LGB
+    internal caches, drop generated models — state accumulation across the
+    150-combo run has been observed to trigger native-level crashes
+    (SIGSEGV on combo 6 in a sequential run on 2026-04-22)."""
+    yield
+    # 1. Matplotlib figures (mlframe emits per-model feature_importance plots).
+    try:
+        import matplotlib.pyplot as plt
+        plt.close("all")
+    except Exception:
+        pass
+    # 2. mlframe's in-process caches (CB val Pool cache, tier-DF cache).
+    try:
+        from mlframe.training import trainer as _tr
+        for attr in ("_CB_POOL_CACHE", "_CB_VAL_POOL_CACHE"):
+            cache = getattr(_tr, attr, None)
+            if hasattr(cache, "clear"):
+                cache.clear()
+    except Exception:
+        pass
+    # 3. Python-level GC so native libraries release their allocations
+    # before the next combo imports a fresh model.
+    import gc
+    gc.collect()
+
+
 @pytest.mark.timeout(60)
 @pytest.mark.parametrize("combo", COMBOS, ids=[c.pytest_id() for c in COMBOS])
 def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):

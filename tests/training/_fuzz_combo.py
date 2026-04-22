@@ -122,10 +122,13 @@ class FuzzCombo:
 
 
 def _rule_linear_polars_gating_bug(c: FuzzCombo) -> bool:
+    """Triggered only when there are actual cat_features to encode — without
+    categoricals, Linear doesn't care that its pre_pipeline was skipped."""
     return (
         "linear" in c.models
         and len(c.models) > 1
         and c.input_type.startswith("polars")
+        and c.cat_feature_count > 0
     )
 
 
