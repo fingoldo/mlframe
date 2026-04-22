@@ -6,7 +6,7 @@
 
 ## Motivation
 
-Same root cause as [#5074](https://github.com/microsoft/LightGBM/issues/5074), re-opening with a concrete API proposal. On multi-GB / multi-weight training runs, `LGBMClassifier.fit(X, y, sample_weight=w)` rebuilds the `Dataset` on every call at [lightgbm/sklearn.py:978-987](https://github.com/microsoft/LightGBM/blob/master/python-package/lightgbm/sklearn.py). With N weight schemes (recency / uniform / custom) across M models in a sklearn `Pipeline` or hyperparam sweep, that's N × M full-Dataset rebuilds for the same feature matrix — in our 9M-row production workload, each rebuild is several seconds and the aggregate dominates wall-clock.
+Same root cause as [#5074](https://github.com/microsoft/LightGBM/issues/5074), re-opening with a concrete API proposal. On multi-GB / multi-weight training runs, `LGBMClassifier.fit(X, y, sample_weight=w)` rebuilds the `Dataset` on every call at [lightgbm/sklearn.py:978-987](https://github.com/microsoft/LightGBM/blob/master/python-package/lightgbm/sklearn.py). With N weight schemes (recency / uniform / custom) across M models in a sklearn `Pipeline` or hyperparam sweep, that's N × M full-Dataset rebuilds for the same feature matrix — in our 9M-row production workload, on our 200+ GB production dataset each completely unnecessary rebuild takes up to 10 minutes, and the aggregate dominates wall-clock.
 
 The native `lightgbm.train(params, train_set)` API takes a pre-built `Dataset` and supports `train_set.set_label(new_label)` / `train_set.set_weight(new_weight)` in-place (both documented as returning `self`, in-place on the C++ handle via `set_field`). But the sklearn API's `early_stopping`, `callbacks`, `predict_proba`, `feature_importances_`, pipeline compatibility, and grid-search integration force users back to `LGBMClassifier.fit(X, y)` and block reuse.
 
@@ -53,15 +53,33 @@ No default behaviour change for `fit(X: array_like, y, ...)`. The `isinstance` g
 ```python
 import lightgbm as lgb
 
-train_set = lgb.Dataset(X_train, label=y_train, weight=w_uniform,
+# Build the Dataset once for the full 200+ GB feature matrix.
+# With free_raw_data=False the raw arrays stay alive so set_label / set_weight
+# can update the C++ handle in place without touching the feature data.
+train_set = lgb.Dataset(X_train, label=y_churn, weight=w_uniform,
                         categorical_feature=cat_cols, free_raw_data=False)
-val_set   = lgb.Dataset(X_val, label=y_val, reference=train_set, free_raw_data=False)
+val_set   = lgb.Dataset(X_val, label=y_churn_val, reference=train_set,
+                        free_raw_data=False)
 
+# Vary weight schemes for a single target — only set_weight() between fits.
 for weight_scheme in ("uniform", "recency", "inverse_recency"):
     train_set.set_weight(weight_for_scheme(weight_scheme))
     model = lgb.LGBMClassifier(n_estimators=1000)
     model.fit(train_set, eval_set=[(val_set,)], callbacks=[lgb.early_stopping(50)])
     ...  # predict_proba, feature_importances_, booster_ — all sklearn API
+
+# Vary targets across the same feature matrix — only set_label() between fits.
+targets = {
+    "churn":               (y_churn_train,          y_churn_val),
+    "next_best_action":    (y_nba_train,             y_nba_val),
+    "best_discount_pct":   (y_discount_train,        y_discount_val),
+}
+for target_name, (y_train, y_val) in targets.items():
+    train_set.set_label(y_train)
+    val_set.set_label(y_val)
+    model = lgb.LGBMClassifier(n_estimators=1000)
+    model.fit(train_set, eval_set=[(val_set,)], callbacks=[lgb.early_stopping(50)])
+    ...
 ```
 
 ## Backwards compatibility
