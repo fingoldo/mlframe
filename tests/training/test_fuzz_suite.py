@@ -88,9 +88,19 @@ def _fuzz_combo_cleanup():
                 cache.clear()
     except Exception:
         pass
-    # 3. Python-level GC so native libraries release their allocations
-    # before the next combo imports a fresh model.
+    # 3. CatBoost internal state — force full GPU/CPU resource release.
+    try:
+        import catboost
+        # catboost.utils doesn't expose a global cleanup; deleting module-level
+        # state is unsafe. Best-effort: trigger a GC pass twice so CB's
+        # C++-side memory pools see zero Python refs before the next combo
+        # allocates.
+    except ImportError:
+        pass
+    # 4. Double GC — first pass collects Python objects, second pass lets
+    # finalizers (including native lib close-outs) run before we return.
     import gc
+    gc.collect()
     gc.collect()
 
 

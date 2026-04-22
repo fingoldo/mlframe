@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Fuzz-suite per-combo audit trail (append-only, regenerated per run)
+tests/training/_fuzz_results.jsonl
+
 # C extensions
 *.so
 
