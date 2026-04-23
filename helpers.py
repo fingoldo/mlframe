@@ -90,18 +90,60 @@ def ensure_no_infinity_pl(df: pl.DataFrame, num_cols_only: bool = True, nans_fil
 
 
 def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_filler: float = 0, verbose: int = 1) -> pd.DataFrame:
-    num_cols = df.head().select_dtypes("number").columns
+    """Replace ±inf with ``nans_filler`` in float columns.
+
+    Only **float** columns can hold infinity, so integer / boolean / category /
+    datetime columns are skipped — including pandas nullable extension types
+    like ``Int8`` (which the polars→pandas bridge produces for nullable
+    Boolean inputs since 2026-04-23). Earlier versions called
+    ``df[num_cols].to_numpy()`` over all numeric dtypes, which on an Int8
+    column with ``pd.NA`` materializes a Python-object array and then crashed
+    with ``TypeError: ufunc 'isinf' not supported for the input types``
+    (2026-04-23 LGB prod regression: ``hide_budget`` was Int8 + pd.NA).
+
+    Float extension dtypes (``Float32Dtype`` / ``Float64Dtype`` with
+    ``pd.NA``) are handled per-column with ``to_numpy(dtype=float, na_value=
+    np.nan)`` so the isinf check works on a real float array.
+    """
+    # Restrict to float-only columns. Integer + bool can't hold inf, so
+    # there's no work to do for them; skipping avoids the extension-dtype
+    # to_numpy() pitfall above.
     inf_cols = []
-    if not num_cols_only or len(num_cols) == df.shape[1]:
-        tmp = np.isinf(df).any()
-        tmp = tmp[tmp == True]
-        inf_cols = tmp.index.values.tolist()
-    else:
-        # protects against TypeError: Object with dtype category cannot perform the numpy op isinf
-        if len(num_cols) > 0:
-            inf_mask = np.isinf(df[num_cols].to_numpy()).any(axis=0)
-            inf_cols = [c for c, is_inf in zip(num_cols, inf_mask) if is_inf]
-    if len(inf_cols) > 0:
+    candidate_cols = (
+        list(df.columns) if not num_cols_only
+        else [c for c in df.columns if pd.api.types.is_float_dtype(df[c].dtype)]
+    )
+    if not candidate_cols:
+        return df
+
+    for col in candidate_cols:
+        s = df[col]
+        dt = s.dtype
+        try:
+            if pd.api.types.is_extension_array_dtype(dt):
+                # Float64Dtype / Float32Dtype with pd.NA → cast to numpy
+                # float, replacing pd.NA with NaN. NaN is not inf, so this
+                # doesn't change the inf-detection answer.
+                arr = s.to_numpy(dtype=np.float64, na_value=np.nan)
+            else:
+                arr = s.to_numpy()
+            if not np.issubdtype(arr.dtype, np.floating):
+                # Should not happen given the float-only filter, but guards
+                # against unexpected object-dtype slip-throughs from upstream.
+                continue
+            if np.isinf(arr).any():
+                inf_cols.append(col)
+        except (TypeError, ValueError) as exc:
+            # Don't let a single weird column abort the whole pre-fit check —
+            # log and move on. The column will simply not be sanitised.
+            if verbose:
+                logger.warning(
+                    "ensure_no_infinity_pd: skipped %r (dtype=%s) — "
+                    "isinf check failed: %s",
+                    col, dt, exc,
+                )
+
+    if inf_cols:
         for col in inf_cols:
             df[col] = np.nan_to_num(df[col], posinf=nans_filler, neginf=nans_filler)
         if verbose:

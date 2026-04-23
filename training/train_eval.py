@@ -649,6 +649,31 @@ def process_model(
             else:
                 model_obj = loaded_model.model
                 pre_pipeline = loaded_model.pre_pipeline
+                # Restore the Polars-fastpath sticky flag (2026-04-23 fix).
+                # CB's pickle/joblib serialization writes through CatBoost's
+                # native ``save_model``, which doesn't preserve arbitrary
+                # Python attributes set on the estimator (verified by the
+                # 2026-04-23 prod log: ``cb_recency`` reload still hit the
+                # ``predict_proba RAISED TypeError`` polars-fastpath miss
+                # despite the original CB instance having had the flag set
+                # at fit time). Set it defensively for any reloaded CB —
+                # we know CB 1.2.x's polars fastpath has dispatch gaps on
+                # nullable Categorical / Enum columns, and a wasted retry
+                # on every VAL/TEST/ensemble call burns a WARN + ~1-2 s.
+                # No-op on non-CB models (the attribute is never read for
+                # them).
+                _model_cls_name = type(model_obj).__name__
+                if (
+                    _model_cls_name.startswith("CatBoost")
+                    and not getattr(model_obj, "_mlframe_polars_fastpath_broken", False)
+                ):
+                    try:
+                        model_obj._mlframe_polars_fastpath_broken = True
+                    except Exception:
+                        # CB Python class is permissive about attributes,
+                        # but slot-restricted forks could refuse — degrade
+                        # to "pay one extra retry" rather than fail.
+                        pass
     if not use_cached_model:
         if "model" not in model_params:
             raise KeyError(f"'model' key missing in model_params. Available keys: {list(model_params.keys())}")

@@ -2828,6 +2828,41 @@ def train_mlframe_models_suite(
 
                     # Use strategy pattern to determine pipeline and cache key
                     strategy = strategy_by_model[id(mlframe_model_name)]
+
+                    # B5 release (upfront, 2026-04-23 fix): drop the
+                    # pre-pipeline Polars originals as soon as we hit the
+                    # FIRST strategy that can't consume them, regardless of
+                    # ``feature_tier`` change. The original release block
+                    # below (post-iteration) only fires on a tier transition
+                    # — but XGB and LGB share ``tier=(False,False)``, so a
+                    # ``cb → xgb → lgb`` suite kept ``train_df_polars`` /
+                    # ``val_df_polars`` / ``test_df_polars`` alive through
+                    # the LGB iteration. Right after that LGB triggered the
+                    # lazy polars→pandas conversion, holding **both** the
+                    # 29 GB polars frames and the 57 GB pandas copies
+                    # simultaneously — peak 86 GB on the 2026-04-23 prod
+                    # run, instead of ~57 GB. Releasing here, before the
+                    # lazy conversion, halves peak RAM in mixed suites.
+                    if (
+                        not strategy.supports_polars
+                        and train_df_polars is not None
+                    ):
+                        del train_df_polars, val_df_polars, test_df_polars
+                        train_df_polars = val_df_polars = test_df_polars = None
+                        tier_dfs_cache.clear()
+                        baseline_rss_mb = maybe_clean_ram_and_gpu(
+                            baseline_rss_mb, df_size_mb,
+                            verbose=verbose,
+                            reason="non-polars-native strategy entry",
+                        )
+                        if verbose:
+                            logger.info(
+                                "  Released pre-pipeline Polars originals before "
+                                "%s (non-polars-native strategy) — frees ~30 %% "
+                                "of peak RAM before lazy pandas conversion.",
+                                mlframe_model_name,
+                            )
+
                     # Clone base_pipeline per model so each iteration gets a
                     # fresh un-fitted selector (MRMR / RFECV). Previously, a
                     # single fitted ``orig_pre_pipeline`` was shared across

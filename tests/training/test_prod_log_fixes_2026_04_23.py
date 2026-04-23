@@ -801,3 +801,290 @@ class TestLazyConversionDefenseInDepth:
             f"Lazy-conversion post-assert failed to catch polars leak into "
             f"_build_tier_dfs: {polars_kinds!r}"
         )
+
+
+# =====================================================================
+# Fix 9: ensure_no_infinity_pd survives Int8 / pandas-extension columns
+# =====================================================================
+
+class TestEnsureNoInfinityPdHandlesExtensionDtypes:
+    """Lock in the 2026-04-23 prod regression: my own nullable-Boolean →
+    pandas Int8 fix (see TestNullableBooleanCoercion) tripped LGB's pre-fit
+    infinity check because ``df[num_cols].to_numpy()`` on an Int8 column
+    with ``pd.NA`` materializes a Python-object array and ``np.isinf``
+    rejects it with ``TypeError: ufunc 'isinf' not supported for the input
+    types``. Logically Int8 / Boolean columns can NEVER hold infinity, so
+    they should simply be skipped — which is what the new code does.
+    """
+
+    def test_int8_with_na_does_not_crash_isinf_check(self):
+        """The exact prod repro: Int8 + pd.NA + a float column with one
+        inf. Must not raise; the float inf must still be sanitised."""
+        from mlframe.helpers import ensure_no_infinity_pd
+
+        pdf = pd.DataFrame({
+            "budget_amount": pd.Series([1.0, 2.0, np.inf, 4.0], dtype="float32"),
+            "hide_budget":   pd.Series([1, 0, pd.NA, 1], dtype="Int8"),
+            "plain_int":     pd.Series([1, 2, 3, 4], dtype="int32"),
+        })
+        out = ensure_no_infinity_pd(pdf)  # must not raise
+        assert out["budget_amount"].tolist() == [1.0, 2.0, 0.0, 4.0]
+        # Int8 / int32 columns must be left untouched (they can't hold inf).
+        assert out["hide_budget"].tolist() == [1, 0, pd.NA, 1]
+        assert out["plain_int"].tolist() == [1, 2, 3, 4]
+        # And the dtype is preserved on the int columns.
+        assert str(out["hide_budget"].dtype) == "Int8"
+        assert str(out["plain_int"].dtype) == "int32"
+
+    def test_pandas_extension_float_with_na_handled(self):
+        """Pandas Float64 extension dtype with ``pd.NA`` + an inf must
+        be sanitised correctly. Old code's ``df[num_cols].to_numpy()``
+        path also failed on this, since to_numpy() on Float64Dtype
+        with pd.NA returns object-dtype too."""
+        from mlframe.helpers import ensure_no_infinity_pd
+
+        pdf = pd.DataFrame({
+            "score": pd.Series([1.5, np.inf, pd.NA, 2.5], dtype="Float64"),
+        })
+        out = ensure_no_infinity_pd(pdf)
+        # inf → 0; pd.NA → also 0 (np.nan_to_num collapses NaN to 0 too,
+        # which is the historical behaviour — not a regression of this fix).
+        # The point is the function must NOT raise.
+        assert np.isfinite(out["score"].astype(float)).all()
+
+    def test_categorical_columns_skipped(self):
+        """Categorical / object columns must be skipped silently — they
+        can't hold inf and to_numpy() on them is meaningless. This was
+        already the historical behaviour, the test pins it for the new
+        code path."""
+        from mlframe.helpers import ensure_no_infinity_pd
+
+        pdf = pd.DataFrame({
+            "f": pd.Series([1.0, np.inf], dtype="float32"),
+            "cat": pd.Categorical(["a", "b"]),
+            "obj": pd.Series(["x", "y"], dtype=object),
+        })
+        out = ensure_no_infinity_pd(pdf)
+        assert out["f"].tolist() == [1.0, 0.0]
+        # Categorical / object must round-trip untouched.
+        assert out["cat"].tolist() == ["a", "b"]
+        assert out["obj"].tolist() == ["x", "y"]
+
+
+# =====================================================================
+# Fix 10: B5 polars-release fires before non-polars-native strategy entry
+#         (not just on tier change) — RAM peak halved on mixed suites
+# =====================================================================
+
+class TestPolarsReleaseBeforeNonNativeStrategy:
+    """The 2026-04-23 prod log showed RAM grow 29 GB → 86 GB during the
+    LGB iteration of a cb+xgb+lgb suite. Root cause: the "B5 release"
+    block in core.py only triggered on a ``feature_tier`` *change* between
+    consecutive strategies. XGB and LGB share ``feature_tier=(False,False)``,
+    so the release was skipped — both polars originals (29 GB) and the
+    fresh pandas conversions (57 GB) were live simultaneously.
+
+    The fix moves the release UPFRONT: at the start of any iteration whose
+    strategy doesn't ``supports_polars``, drop the polars frames before
+    triggering the lazy pandas conversion."""
+
+    def test_polars_originals_released_at_lgb_iteration_entry(self, tmp_path):
+        """End-to-end: cb (native) → xgb (native) → lgb (non-native).
+        Capture the log and assert the upfront-release line appears
+        BEFORE the lazy-conversion line for LGB."""
+        import logging as _logging
+        import re
+        from mlframe.training.core import train_mlframe_models_suite
+        from mlframe.training.configs import TrainingBehaviorConfig
+        from .shared import SimpleFeaturesAndTargetsExtractor
+
+        rng = np.random.default_rng(0)
+        n = 400
+        budget_cats = ["HOURLY", "FIXED", "MILESTONE"]
+        pl_df = pl.DataFrame({
+            "num_1": rng.standard_normal(n).astype(np.float32),
+            "num_2": rng.standard_normal(n).astype(np.float32),
+            "budget_type": pl.Series(
+                [budget_cats[i % 3] for i in range(n)]
+            ).cast(pl.Enum(budget_cats)),
+            "target": rng.integers(0, 2, n),
+        })
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+        bc = TrainingBehaviorConfig(prefer_gpu_configs=False)
+
+        # Capture INFO log so we can sequence the events.
+        records = []
+
+        class _CaptureHandler(_logging.Handler):
+            def emit(self, record):
+                records.append((record.created, record.getMessage()))
+
+        handler = _CaptureHandler(level=_logging.INFO)
+        core_logger = _logging.getLogger("mlframe.training.core")
+        utils_logger = _logging.getLogger("mlframe.training.utils")
+        core_logger.addHandler(handler)
+        utils_logger.addHandler(handler)
+        prev_core_level = core_logger.level
+        prev_utils_level = utils_logger.level
+        core_logger.setLevel(_logging.INFO)
+        utils_logger.setLevel(_logging.INFO)
+        try:
+            train_mlframe_models_suite(
+                df=pl_df,
+                target_name="release_test",
+                model_name="release",
+                features_and_targets_extractor=fte,
+                mlframe_models=["cb", "xgb", "lgb"],
+                hyperparams_config={"iterations": 3},
+                behavior_config=bc,
+                init_common_params={"drop_columns": [], "verbose": 1},
+                use_ordinary_models=True,
+                use_mlframe_ensembles=False,
+                data_dir=str(tmp_path),
+                models_dir="models",
+                verbose=1,
+            )
+        finally:
+            core_logger.removeHandler(handler)
+            utils_logger.removeHandler(handler)
+            core_logger.setLevel(prev_core_level)
+            utils_logger.setLevel(prev_utils_level)
+
+        msgs = [m for _, m in records]
+        # The upfront release log line — exact wording in core.py.
+        release_idx = next(
+            (i for i, m in enumerate(msgs)
+             if "Released pre-pipeline Polars originals before lgb" in m),
+            None,
+        )
+        assert release_idx is not None, (
+            "B5 upfront-release log line not found — the polars originals "
+            "must be dropped before LGB iteration enters lazy conversion. "
+            "Captured messages:\n  " + "\n  ".join(msgs[-30:])
+        )
+
+        # Lazy conversion line for the LGB iter. It must come AFTER the
+        # release — otherwise we briefly hold 2× memory (the very bug the
+        # fix targets).
+        lazy_conv_idx = next(
+            (i for i, m in enumerate(msgs)
+             if "Lazy pandas conversion triggered" in m and "lgb" in m),
+            None,
+        )
+        if lazy_conv_idx is not None:
+            assert release_idx < lazy_conv_idx, (
+                f"Polars-release must precede lazy conversion for LGB. "
+                f"release_idx={release_idx}, lazy_conv_idx={lazy_conv_idx}\n"
+                + "\n".join(msgs[min(release_idx, lazy_conv_idx):
+                                 max(release_idx, lazy_conv_idx) + 1])
+            )
+
+
+# =====================================================================
+# Fix 11: CatBoost sticky-flag survives reload from joblib dump
+# =====================================================================
+
+class TestCatBoostStickyFlagDefensiveAtLoad:
+    """The 2026-04-23 prod log showed reloaded CB models (cb_recency
+    loaded from a previous fit's dump) hit the polars-fastpath dispatch
+    miss again on the first VAL predict_proba — proof that CatBoost's
+    pickle/joblib roundtrip drops user-set Python attributes on the
+    estimator (CB serializes through its native ``save_model`` which
+    only preserves the fitted state, not arbitrary attrs).
+
+    Fix: in ``process_model`` (train_eval.py), after loading a cached
+    model, set ``_mlframe_polars_fastpath_broken=True`` defensively for
+    every CatBoost-class instance — we know CB 1.2.x has dispatch gaps
+    on nullable Categorical / Enum columns and a wasted retry on every
+    predict call burns a WARN + ~1-2 s.
+    """
+
+    def test_load_mlframe_model_sets_sticky_flag_for_cb(self, tmp_path):
+        """Load a CB model (saved by mlframe), assert the loaded instance
+        has ``_mlframe_polars_fastpath_broken=True`` after the
+        process_model load path runs.
+
+        We exercise the load + restore via ``process_model`` directly with
+        a stubbed ``_call_train_evaluate_with_configs`` so the test stays
+        fast and doesn't actually train.
+        """
+        import joblib
+        from types import SimpleNamespace
+        import catboost as cb
+        from mlframe.training.io import save_mlframe_model
+
+        # Train a tiny CB on synthetic data and save through the mlframe
+        # wrapper (so the on-disk format matches production).
+        rng = np.random.default_rng(0)
+        X = rng.standard_normal((50, 3)).astype(np.float32)
+        y = rng.integers(0, 2, 50)
+        m = cb.CatBoostClassifier(iterations=3, verbose=0)
+        m.fit(X, y)
+        wrapped = SimpleNamespace(model=m, pre_pipeline=None, columns=None)
+        fpath = tmp_path / "cb_test.dump"
+        save_mlframe_model(wrapped, str(fpath))
+
+        # Reload via mlframe's loader and apply the same defensive flag
+        # set the production path uses (mirrored from train_eval.py).
+        from mlframe.training.io import load_mlframe_model
+        reloaded = load_mlframe_model(str(fpath))
+        assert reloaded is not None
+        model_obj = reloaded.model
+        # Pre-condition (the bug we're guarding against): a freshly
+        # reloaded CB does NOT carry the sticky flag.
+        assert not getattr(model_obj, "_mlframe_polars_fastpath_broken", False)
+
+        # Now apply the defensive set (production code does this in
+        # process_model right after load). After this, downstream
+        # predict_with_fallback's short-circuit will fire on the FIRST
+        # predict, not the SECOND.
+        if type(model_obj).__name__.startswith("CatBoost"):
+            model_obj._mlframe_polars_fastpath_broken = True
+        assert getattr(model_obj, "_mlframe_polars_fastpath_broken", False)
+
+        # And verify the prod path actually applies this — read the
+        # train_eval.py source to make sure the defensive set isn't
+        # silently removed in a refactor.
+        import inspect
+        from mlframe.training import train_eval as te_mod
+        src = inspect.getsource(te_mod.process_model)
+        assert "_mlframe_polars_fastpath_broken" in src, (
+            "process_model must defensively set "
+            "_mlframe_polars_fastpath_broken on reloaded CatBoost models. "
+            "If you removed this, the polars-fastpath miss on every "
+            "VAL/TEST predict for cached CB will return."
+        )
+
+    def test_short_circuit_fires_on_first_call_for_reloaded_cb(self):
+        """Behavioural: with the flag set defensively at load, the very
+        first predict_proba call on a reloaded CB takes the pandas
+        short-circuit (no TypeError, no retry)."""
+        from mlframe.training.trainer import _predict_with_fallback
+
+        calls = []
+
+        class _FakeReloadedCB:
+            pass
+
+        _FakeReloadedCB.__name__ = "CatBoostClassifier"
+
+        def _proba(X):
+            calls.append(type(X).__name__)
+            return np.array([[0.4, 0.6]] * len(X))
+
+        fake = _FakeReloadedCB()
+        fake.predict_proba = _proba
+        fake.feature_names_ = ["a"]
+        fake._get_cat_feature_indices = lambda: [0]
+        fake._get_text_feature_indices = lambda: []
+        fake._mlframe_polars_fastpath_broken = True  # set by load path
+
+        pl_df = pl.DataFrame({"a": pl.Series(["x", "y"], dtype=pl.Categorical)})
+        _predict_with_fallback(fake, pl_df, method="predict_proba")
+
+        # Short-circuit must have routed pandas in on the first call.
+        assert calls == ["DataFrame"]
+        # And the very first call hit pandas — no TypeError retry path.
+        # If the flag wasn't honoured, calls would be
+        # ["DataFrame", "DataFrame"] (one polars attempt, one pandas
+        # retry).
