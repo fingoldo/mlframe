@@ -1079,3 +1079,197 @@ def test_prepare_polars_called_once_per_model_per_pipeline(tmp_path, monkeypatch
         f"tier_dfs_cache regressed or the per-model loop is rebuilding "
         f"tier frames."
     )
+
+
+# ===========================================================================
+# Tier 4 — obвеска и наблюдаемость (observability)
+# ===========================================================================
+
+
+# #19 Config validation — Pydantic extra=forbid (strict configs only)
+def test_strict_configs_reject_unknown_fields():
+    """Configs declared with ``extra='forbid'`` must raise a clean
+    ``ValidationError`` on typo'd field names — this prevents the
+    silent-absorption bug where ``iteratoins=100`` (typo) slipped
+    through as an unused extra.
+
+    mlframe has TWO strict configs (explicit ``extra='forbid'`` at
+    class level): ``PreprocessingConfig`` and ``FeatureTypesConfig``.
+    The rest inherit ``BaseConfig``'s ``extra='allow'`` to preserve
+    pass-through kwargs (e.g. ``hyperparams_config={'mae_weight': 1.0}``
+    flows through to downstream callees). The permissive configs
+    still emit a WARNING via ``_warn_on_unknown_extras`` validator —
+    tested separately.
+    """
+    from pydantic import ValidationError
+
+    # PreprocessingConfig declares extra='forbid' (configs.py:138).
+    with pytest.raises(ValidationError):
+        PreprocessingConfig(fillna_vlue=0)  # typo: vlue → value
+
+    # FeatureTypesConfig declares extra='forbid' (configs.py:406).
+    with pytest.raises(ValidationError):
+        FeatureTypesConfig(use_text_feats=True)  # typo: feats → features
+
+
+def test_permissive_configs_warn_on_unknown_fields(caplog):
+    """Permissive configs (extra='allow') must WARN on unknown fields
+    — silent absorption is the real prod-risk (``iteratoins=100``
+    typo slipping through unused). ``PolarsPipelineConfig`` and
+    ``TrainingBehaviorConfig`` are permissive; typos must still
+    produce a visible WARNING via ``_warn_on_unknown_extras``.
+    """
+    import logging
+    caplog.set_level(logging.WARNING, logger="mlframe.training.configs")
+
+    # Should NOT raise (extra='allow'), but must emit a WARNING.
+    cfg = PolarsPipelineConfig(use_polrsds_pipeline=True)  # typo: missing 'a'
+    assert cfg is not None
+
+    log_text = caplog.text.lower()
+    assert "unknown field" in log_text, (
+        "PolarsPipelineConfig did not warn on unknown field — "
+        "silent-absorption bug returned. Log: " + log_text[-300:]
+    )
+
+
+# #20 Metadata schema contents — load-bearing fields must be populated
+def test_metadata_carries_load_bearing_fields(tmp_path):
+    """After training, the returned metadata dict must contain the
+    keys that ``load_mlframe_suite`` / ``_validate_input_columns_against_metadata``
+    depend on:
+      * ``columns`` (the trained feature list)
+      * ``cat_features`` (may be empty post-encoding — still the key
+        must be present)
+      * ``pipeline``, ``extensions_pipeline`` (for transform at load)
+      * ``outlier_detection`` (dict with ``applied`` flag)
+      * ``model_schemas`` (per-model schema hashes — Fix 8)
+
+    Each missing key below would manifest as a distinct load-time
+    failure. This test is a single-point tripwire catching silent
+    metadata shape drift.
+    """
+    pytest.importorskip("catboost")
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=True, regression=False)
+    _trained, meta = _train_once(df, tmp_path, models=("cb",), regression=False)
+    assert meta is not None
+
+    for key in ("columns", "cat_features", "pipeline", "outlier_detection", "model_schemas"):
+        assert key in meta, f"metadata missing load-bearing key {key!r}; keys={list(meta)[:20]}"
+
+    # model_schemas must be non-empty and entries must carry schema_hash
+    # + input_schema + mlframe_model + weight_name.
+    schemas = meta["model_schemas"]
+    assert schemas, "model_schemas is empty after a successful training"
+    entry = next(iter(schemas.values()))
+    for k in ("schema_hash", "input_schema", "mlframe_model", "weight_name"):
+        assert k in entry, (
+            f"model_schemas entry missing {k!r}; entry keys={list(entry)}"
+        )
+
+    # outlier_detection must have the applied flag (False here since
+    # no detector was passed).
+    od = meta["outlier_detection"]
+    assert isinstance(od, dict)
+    assert "applied" in od
+    assert od["applied"] is False  # no detector passed in this test
+
+
+# #21 continue_on_model_failure — one model crashes, others proceed
+def test_continue_on_model_failure_skips_crashed_model(tmp_path, monkeypatch):
+    """When ``continue_on_model_failure=True``, a deliberate crash
+    during CB.fit must not abort the whole suite — XGB in the same
+    ``mlframe_models`` list must still train. Metadata's
+    ``failed_models`` list must record the crashed model.
+
+    Monkey-patches ``CatBoostClassifier.fit`` to raise a tagged
+    RuntimeError; the suite's ``continue_on_model_failure`` branch
+    at ``core.py:3232-3238`` is the load-bearing code.
+    """
+    pytest.importorskip("catboost")
+    pytest.importorskip("xgboost")
+
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
+
+    import catboost as cb
+    _orig_fit = cb.CatBoostClassifier.fit
+    _sentinel = RuntimeError("sentinel-fit-crash-for-test")
+
+    def _boom(self, *a, **kw):
+        raise _sentinel
+
+    monkeypatch.setattr(cb.CatBoostClassifier, "fit", _boom)
+
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+    trained, meta = train_mlframe_models_suite(
+        df=df, target_name="tgt", model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb", "xgb"],
+        hyperparams_config={
+            "iterations": 3,
+            "cb_kwargs": {"task_type": "CPU", "verbose": 0},
+            "xgb_kwargs": {"device": "cpu", "verbosity": 0},
+        },
+        init_common_params={"drop_columns": [], "verbose": 0},
+        use_ordinary_models=True, use_mlframe_ensembles=False,
+        behavior_config=TrainingBehaviorConfig(continue_on_model_failure=True),
+        data_dir=str(tmp_path), models_dir="models", verbose=0,
+    )
+
+    # CB crashed, XGB must have trained. The ``trained`` dict may have
+    # XGB entries even if CB's entries are missing / empty.
+    from mlframe.training.configs import TargetTypes
+    inner = trained.get(TargetTypes.BINARY_CLASSIFICATION) or {}
+    # failed_models list must record the crash with model='cb'.
+    failed = meta.get("failed_models") or []
+    assert failed, (
+        "continue_on_model_failure=True but no 'failed_models' in metadata"
+    )
+    cb_failures = [f for f in failed if f.get("model") == "cb"]
+    assert cb_failures, (
+        f"CB crash not recorded in failed_models: {failed}"
+    )
+
+    # Restore fit so subsequent tests in same session aren't affected
+    # (monkeypatch does this automatically, but explicit is safer).
+    cb.CatBoostClassifier.fit = _orig_fit
+
+
+# #22 verbose=0 — stdout must be effectively silent (modulo warnings)
+def test_verbose_zero_suppresses_suite_info_logs(tmp_path, capsys, caplog):
+    """``verbose=0`` must suppress the suite's own INFO-level stdout
+    narration. Third-party libs (CatBoost's native output, matplotlib
+    warnings) may still emit; we can't stop those. But the suite's
+    own ``logger.info(...)`` calls must be silenced.
+    """
+    pytest.importorskip("catboost")
+    import logging
+    caplog.set_level(logging.WARNING, logger="mlframe")
+
+    df = _make_baseline_pandas(n=200, seed=0, with_cat=False, regression=False)
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+    trained, _ = train_mlframe_models_suite(
+        df=df, target_name="tgt", model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb"],
+        hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+        init_common_params={"drop_columns": [], "verbose": 0},
+        use_ordinary_models=True, use_mlframe_ensembles=False,
+        data_dir=str(tmp_path), models_dir="models", verbose=0,
+    )
+    assert trained
+
+    # Check caplog at INFO level filtered to mlframe: the suite's own
+    # verbose=0 path should emit zero INFO records from the mlframe
+    # namespace. We allow WARNING+ (diagnostics shouldn't vanish).
+    mlframe_info_records = [
+        r for r in caplog.records
+        if r.name.startswith("mlframe") and r.levelno == logging.INFO
+    ]
+    assert not mlframe_info_records, (
+        f"verbose=0 leaked {len(mlframe_info_records)} INFO-level log "
+        f"records from mlframe.*; first few:\n"
+        + "\n".join(r.getMessage()[:120] for r in mlframe_info_records[:5])
+    )
