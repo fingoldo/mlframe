@@ -221,6 +221,118 @@ def test_sensor_mrmr_native_polars_no_full_to_pandas():
 
 
 # ---------------------------------------------------------------------------
+# Sensor — MRMR must actually SELECT cat features that matter (both pandas & polars).
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("frame_type", ["pandas", "polars"])
+def test_sensor_mrmr_selects_informative_cat_features(frame_type):
+    """Functional guard: MRMR must include an informative categorical
+    column among its selected features (not drop it as noise). Covers
+    both pandas and Polars inputs — asserts that the Fix 10 polars path
+    preserves MI-based selection quality, not just API compatibility.
+
+    Data: 1000 rows, binary target derived directly from a 3-level cat
+    column; three noise numeric columns; one noise cat column.
+      * cat_signal: categorical with 3 levels, perfectly predictive
+        (class 0 for level 'A', class 1 for 'B' and 'C').
+      * cat_noise: 4 random levels, independent of target.
+      * num_noise_1..3: iid normal.
+    MRMR should rank cat_signal well above the noise features.
+    """
+    import numpy as np
+    from mlframe.feature_selection.filters import MRMR
+
+    n = 1000
+    rng = np.random.default_rng(7)
+    signal_levels = np.array(["A", "B", "C"])[rng.integers(0, 3, n)]
+    y = (signal_levels != "A").astype(np.int32)  # fully determined by cat_signal
+    noise_levels = np.array(["x", "y", "z", "w"])[rng.integers(0, 4, n)]
+    num_data = rng.standard_normal((n, 3)).astype(np.float32)
+
+    if frame_type == "polars":
+        import polars as pl
+        df = pl.DataFrame({
+            "num_noise_1": num_data[:, 0],
+            "num_noise_2": num_data[:, 1],
+            "num_noise_3": num_data[:, 2],
+            "cat_signal": pl.Series(signal_levels).cast(pl.Enum(["A", "B", "C"])),
+            "cat_noise": pl.Series(noise_levels).cast(pl.Enum(["x", "y", "z", "w"])),
+        })
+    else:
+        import pandas as pd
+        df = pd.DataFrame({
+            "num_noise_1": num_data[:, 0],
+            "num_noise_2": num_data[:, 1],
+            "num_noise_3": num_data[:, 2],
+            "cat_signal": pd.Categorical(signal_levels, categories=["A", "B", "C"]),
+            "cat_noise": pd.Categorical(noise_levels, categories=["x", "y", "z", "w"]),
+        })
+
+    sel = MRMR(
+        verbose=0, max_runtime_mins=1, n_workers=1,
+        quantization_nbins=5, use_simple_mode=True,
+        min_nonzero_confidence=0.9, max_consec_unconfirmed=3,
+        full_npermutations=5, min_relevance_gain=1e-4,
+    )
+    sel.fit(df, y)
+
+    # MRMR must select at least one feature, and cat_signal must be first
+    # (by highest MI with target).
+    support = sel.support_
+    assert support is not None and len(support) >= 1, (
+        f"MRMR ({frame_type}) selected no features on perfectly-predictive "
+        f"cat_signal — MI computation is broken."
+    )
+    selected_names = [sel.feature_names_in_[i] for i in support]
+    assert "cat_signal" in selected_names, (
+        f"MRMR ({frame_type}) did NOT select cat_signal despite perfect "
+        f"correlation with target. Selected: {selected_names}. "
+        f"Likely root cause: categorize_dataset's polars path fails to "
+        f"encode cat codes properly, so MI on cat_signal is computed as 0."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Sensor — MRMR + xgb+lgb + polars_utf8 small n (FIXED 2026-04-22, incidental).
+# ---------------------------------------------------------------------------
+
+def test_sensor_mrmr_xgb_lgb_polars_utf8_small(tmp_path):
+    """Regression guard for a multi-model suite (xgb+lgb) with MRMR on a
+    small polars_utf8 frame (c0098: seed=98, n=300, ncats=1, mrmr=True).
+
+    Originally failed with AttributeError on feature-name reconciliation
+    between XGB and LGB iterations. Not fixed directly — fell out of the
+    composite of these 2026-04-22 fixes:
+      * tier_cache kind-key (commit 5ff8467) — prevents pandas/Polars
+        cache collision when XGB (Polars-native) and LGB (pandas-via-
+        bridge) share a tier slot.
+      * orig_pre_pipeline per-model clone (b30aa44) — each strategy
+        builds its own MRMR fit state instead of mutating a shared
+        singleton.
+      * MRMR.transform intersection safeguard (b30aa44) — degrades
+        gracefully when selected cols don't match X.columns.
+      * Fix 10 polars-native MRMR (3a149e2) — zero full-frame copies.
+
+    If this sensor ever goes red, one of the four above regressed.
+    """
+    _skip_if_deps_missing("lgb", "xgb")
+    combo = FuzzCombo(
+        models=("lgb", "xgb"),
+        input_type="polars_utf8",
+        n_rows=300,
+        cat_feature_count=1,
+        null_fraction_cats=0.0,
+        use_mrmr_fs=True,
+        weight_schemas=("uniform",),
+        target_type="binary_classification",
+        auto_detect_cats=True,
+        align_polars_categorical_dicts=False,
+        seed=98,
+    )
+    _run_sensor_combo(combo, tmp_path)
+
+
+# ---------------------------------------------------------------------------
 # Sensor — MRMR.transform raised AttributeError on un-set support_ (FIXED 2026-04-22).
 # ---------------------------------------------------------------------------
 

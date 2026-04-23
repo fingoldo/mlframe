@@ -155,18 +155,12 @@ def _rule_mrmr_plus_linear_multi_pandas(c: FuzzCombo) -> bool:
     )
 
 
-def _rule_mrmr_plus_xgb_lgb_polars_utf8_small(c: FuzzCombo) -> bool:
-    """MRMR + xgb+lgb on a small polars_utf8 frame raises AttributeError on
-    feature name reconciliation — MRMR-trimmed cols don't survive the
-    xgb→lgb hand-off on Polars input. Tracked for a separate pre_pipeline
-    cache invalidation fix."""
-    return (
-        c.use_mrmr_fs
-        and set(c.models).issuperset({"lgb", "xgb"})
-        and "linear" not in c.models
-        and c.input_type == "polars_utf8"
-        and c.n_rows <= 400
-    )
+# _rule_mrmr_plus_xgb_lgb_polars_utf8_small REMOVED 2026-04-22:
+# Incidentally fixed by the composite of tier_cache kind-key (commit 5ff8467),
+# orig_pre_pipeline per-model clone (b30aa44), MRMR.transform intersection
+# safeguard (same), and Fix 10's polars-native path (3a149e2). The c0098
+# repro now PASSES. Permanent regression guard:
+# test_sensor_mrmr_xgb_lgb_polars_utf8_small in test_fuzz_regression_sensors.py.
 
 
 def _rule_cb_sparse_text_small(c: FuzzCombo) -> bool:
@@ -222,13 +216,8 @@ KNOWN_XFAIL_RULES: list[tuple[Callable[[FuzzCombo], bool], str]] = [
         "expects the full original column set. Tracked for fix in the "
         "pre_pipeline/selected_features sync between models in one suite.",
     ),
-    (
-        _rule_mrmr_plus_xgb_lgb_polars_utf8_small,
-        "MRMR + xgb+lgb + polars_utf8 + small n: AttributeError on MRMR's "
-        "selected-features hand-off to LGB. The selector trims cols during "
-        "XGB fit but LGB doesn't see the trimmed list and hits "
-        "validate_data with the full set. Tracked.",
-    ),
+    # _rule_mrmr_plus_xgb_lgb_polars_utf8_small REMOVED 2026-04-22.
+    # Permanent regression guard: test_sensor_mrmr_xgb_lgb_polars_utf8_small.
     (
         _rule_cb_sparse_text_small,
         "CatBoost + MRMR + polars_utf8: CB-internal TF-IDF errors on "
