@@ -10,6 +10,7 @@ they're traced to a specific combo predicate.
 """
 from __future__ import annotations
 
+import os
 import time
 import traceback
 
@@ -25,7 +26,12 @@ from ._fuzz_combo import (
 from .shared import SimpleFeaturesAndTargetsExtractor
 
 # Enumerate once at import time — small, pure Python, no heavy deps.
-COMBOS: list[FuzzCombo] = enumerate_combos(target=150, master_seed=2026_04_22)
+# FUZZ_SEED env var overrides the default (driver scripts use this to
+# sweep many seeds in sequence without editing the file; each pytest
+# invocation reads the env fresh so 10k-combo campaigns can span 60+
+# seeds × 150 combos each without the parent process sharing state).
+_FUZZ_MASTER_SEED = int(os.environ.get("FUZZ_SEED", "20260422"))
+COMBOS: list[FuzzCombo] = enumerate_combos(target=150, master_seed=_FUZZ_MASTER_SEED)
 
 
 def _config_for_models(models: tuple[str, ...], n_rows: int) -> dict:
