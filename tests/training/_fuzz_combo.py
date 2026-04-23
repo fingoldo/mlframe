@@ -121,17 +121,15 @@ class FuzzCombo:
 # ---------------------------------------------------------------------------
 
 
-def _rule_linear_polars_gating_bug(c: FuzzCombo) -> bool:
-    """polars_pipeline_applied global-flag bug: pre_pipeline (encoder) is
-    silently skipped for linear. Fires whenever linear sees a Polars frame
-    with cat features — with OR without other tree models in the suite.
-    Single-linear case was caught by fuzz c0084 (linear, polars_enum,
-    ncats=3, n=300). Multi-model case was already documented."""
-    return (
-        "linear" in c.models
-        and c.input_type.startswith("polars")
-        and c.cat_feature_count > 0
-    )
+# _rule_linear_polars_gating_bug REMOVED 2026-04-22 (Fix 11):
+# core.py:3085 now computes polars_pipeline_applied per-strategy:
+#   polars_pipeline_applied AND strategy.supports_polars
+#                            AND NOT strategy.requires_encoding
+# Linear (supports_polars=False, requires_encoding=True) always gets
+# skip_preprocessing=False, so its pre_pipeline runs the encoder fully.
+# Permanent regression guard: test_polars_full_combo_with_linear in
+# test_integration_prod_like_polars.py (xfail removed) +
+# test_sensor_linear_polars_gating_bug in test_fuzz_regression_sensors.py.
 
 
 def _rule_mrmr_plus_linear_multi_pandas(c: FuzzCombo) -> bool:
@@ -200,14 +198,9 @@ def _rule_cb_sparse_text_small(c: FuzzCombo) -> bool:
 
 
 KNOWN_XFAIL_RULES: list[tuple[Callable[[FuzzCombo], bool], str]] = [
-    (
-        _rule_linear_polars_gating_bug,
-        "polars_pipeline_applied global-flag bug (core.py:3049): CB/XGB setting the "
-        "flag to True during their Polars-fastpath iteration bleeds into the "
-        "linear iteration, causing its encoder+scaler+imputer pipeline to be "
-        "silently skipped. LogReg then receives a raw pd.Categorical frame. "
-        "Tracked for a proper per-strategy gating fix.",
-    ),
+    # _rule_linear_polars_gating_bug REMOVED 2026-04-22 (Fix 11).
+    # Permanent regression guard: test_polars_full_combo_with_linear
+    # (xfail removed) + test_sensor_linear_polars_gating_bug.
     (
         _rule_mrmr_plus_linear_multi_pandas,
         "MRMR + linear + multi-model + pandas: feature-name mismatch on "

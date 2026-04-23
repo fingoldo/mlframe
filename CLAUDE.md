@@ -31,3 +31,37 @@ try/finally (never call `X.copy()`).
 If you find a bug that genuinely needs a copy, escalate — the user would
 rather ship a design change than accept an unconditional copy on a hot
 DataFrame path.
+
+## Open work items
+
+### Full MRMR Feature Engineering (FE) support for Polars input
+
+Fix 10 (2026-04-22) made `MRMR.fit(pl.DataFrame, y)` work without any
+`.to_pandas()` copy of the main frame — the selector itself runs on a
+zero-copy polars path (`to_physical()` for cat codes, `.to_numpy()` on a
+column select for numerics).
+
+**FE (feature engineering) inside MRMR is still pandas-only and is
+auto-disabled on polars input** (`filters.py:~2890`, gated on
+`_is_polars_input and fe_max_steps > 0`). This is a conservative
+workaround — the selector quality is preserved, but users who want FE
+on polars frames currently get a silent `fe_max_steps=0`.
+
+Affected sites in `feature_selection/filters.py` (pandas-only ops):
+- L3184, 3537, 3679 — `X.iloc[:, idx].values`
+- L3324 — `X[col] = transformed_vals[:, j]`
+- L3623 — `X.iloc[:, original_cols[var]].values` in
+  `check_prospective_fe_pairs`
+
+To add full polars FE support later:
+- Replace `X.iloc[:, idx].values` with `X[:, idx].to_numpy()` on the
+  polars branch (zero-copy for numerics).
+- Replace in-place `X[col] = vals` with `X = X.with_columns(pl.Series(...))`
+  on the polars branch.
+- Add direct tests: `tests/training/test_mrmr_polars_fe.py` plus a
+  biz-value test that enables FE (`fe_max_steps > 0`) on a polars frame
+  and asserts FE-generated columns appear in `selected_features_`.
+
+Estimated scope: ~80 LOC changes across 4-5 sites + ~100 LOC of tests.
+Deferred — current conservative gate keeps the selector usable on
+polars while FE remains pandas-only.

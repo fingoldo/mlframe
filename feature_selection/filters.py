@@ -2887,6 +2887,15 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_unary_preset = self.fe_unary_preset
         fe_binary_preset = self.fe_binary_preset
         fe_max_pair_features = self.fe_max_pair_features
+
+        # Fix 10 addendum (2026-04-22): MRMR feature engineering (invoked
+        # when fe_max_steps > 0) uses pandas-only ops at multiple sites
+        # (X.iloc[:, i].values at filters.py:~3184, 3324, 3537, 3623,
+        # 3679; X[col] = vals at ~3324). Adapting all of these to polars
+        # is a separate large refactor. For now, gracefully disable FE
+        # when the input is polars — the selector itself still works and
+        # uses the zero-copy polars categorize_dataset path. Log once so
+        # it's visible that FE was skipped.
         fe_min_nonzero_confidence = self.fe_min_nonzero_confidence
         fe_min_pair_mi = self.fe_min_pair_mi
         fe_min_pair_mi_prevalence = self.fe_min_pair_mi_prevalence
@@ -2958,6 +2967,16 @@ class MRMR(BaseEstimator, TransformerMixin):
             _is_polars_input = isinstance(X, pl.DataFrame)
         except ImportError:
             _is_polars_input = False
+
+        if _is_polars_input and fe_max_steps > 0:
+            logger.warning(
+                "MRMR feature engineering (fe_max_steps=%d) requires pandas; "
+                "the polars path only supports the selector itself. Disabling "
+                "FE for this polars-input call. (Full polars FE support is a "
+                "separate refactor — see Fix 10 addendum in the plan.)",
+                fe_max_steps,
+            )
+            fe_max_steps = 0
 
         if _is_polars_input:
             # Polars is immutable; `with_columns` returns a new frame that

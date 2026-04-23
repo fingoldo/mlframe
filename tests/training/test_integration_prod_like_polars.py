@@ -362,28 +362,21 @@ def test_polars_full_combo_tree_only(tmp_path):
                label="tree_only")
 
 
-@pytest.mark.xfail(
-    reason="Known root-cause: polars_pipeline_applied accumulates globally "
-           "across the model-suite loop (core.py:3049). When CB/XGB run first "
-           "on a Polars frame, the flag becomes True and every later model "
-           "inherits skip_preprocessing=True — even LinearModelStrategy, "
-           "whose CatBoostEncoder+scaler+imputer pipeline is then silently "
-           "skipped. LogReg receives the raw pd.Categorical frame and crashes "
-           "on 'HOURLY'. The naive per-model fix (gate by strategy.requires_encoding "
-           "or supports_polars) broke tree-only suites because it also routed "
-           "LGB through the encoder, producing an object-dtype frame that "
-           "LGB.Dataset_lazy_init can't consume (scipy.sparse dtype object). "
-           "Proper fix needs surgery on _build_process_model_kwargs to compute "
-           "skip_preprocessing per-model based on BOTH "
-           "strategy.supports_polars AND strategy.requires_encoding. Deferred.",
-    strict=False,
-)
 def test_polars_full_combo_with_linear(tmp_path):
     """Polars+Enum frame × tree models + linear in one suite call.
 
-    See xfail reason: global polars_pipeline_applied flag incorrectly skips
-    preprocessing for the linear model when tree models ran first in the
-    same suite."""
+    Fixed 2026-04-22 (Fix 11 in jolly-wishing-deer plan):
+    ``polars_pipeline_applied`` at core.py:3085 is now computed per-strategy
+    rather than OR-accumulated globally:
+        polars_pipeline_applied=(
+            polars_pipeline_applied
+            and strategy.supports_polars
+            and not strategy.requires_encoding
+        )
+    Linear (supports_polars=False, requires_encoding=True) therefore always
+    gets skip_preprocessing=False, and its CatBoostEncoder+scaler+imputer
+    pipeline actually runs. LogReg receives numeric features instead of raw
+    pd.Categorical — no more 'HOURLY' crash."""
     _run_combo(["cb", "xgb", "lgb", "linear"], needs_encoder=True,
                tmp_path=tmp_path, label="tree_plus_linear")
 

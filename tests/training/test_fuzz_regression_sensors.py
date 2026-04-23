@@ -293,6 +293,47 @@ def test_sensor_mrmr_selects_informative_cat_features(frame_type):
 
 
 # ---------------------------------------------------------------------------
+# Sensor — Linear polars gating bug (FIXED 2026-04-22 via Fix 11).
+# ---------------------------------------------------------------------------
+
+def test_sensor_linear_polars_gating_bug(tmp_path):
+    """Regression guard for the ``polars_pipeline_applied`` global-flag bug
+    at core.py:3085. Before Fix 11, the flag was OR-accumulated across the
+    model-suite loop — seeded True at core.py:1995 when the input is Polars
+    and the polars-ds pipeline exists, then every iteration inherited True.
+    Linear (which DOES need encoder+scaler+imputer) then had
+    skip_preprocessing=True forced onto it and its pre_pipeline was
+    silently skipped. LogReg received raw pd.Categorical and crashed on
+    'HOURLY' / 'FIXED'.
+
+    Fix 11 replaces the OR-accumulation with a per-strategy condition:
+        polars_pipeline_applied AND strategy.supports_polars
+                                AND NOT strategy.requires_encoding
+
+    Linear satisfies NONE of the last two, so its pre_pipeline runs fully.
+
+    Sensor pins the smallest-n combo (c0011: linear+xgb, polars_nullable,
+    n=300, ncats=3). If a future refactor re-introduces the accumulator or
+    drops the per-strategy gate, this test reds immediately.
+    """
+    _skip_if_deps_missing("linear", "xgb")
+    combo = FuzzCombo(
+        models=("linear", "xgb"),
+        input_type="polars_nullable",
+        n_rows=300,
+        cat_feature_count=3,
+        null_fraction_cats=0.0,
+        use_mrmr_fs=False,
+        weight_schemas=("uniform",),
+        target_type="binary_classification",
+        auto_detect_cats=True,
+        align_polars_categorical_dicts=False,
+        seed=11,
+    )
+    _run_sensor_combo(combo, tmp_path)
+
+
+# ---------------------------------------------------------------------------
 # Sensor — MRMR + xgb+lgb + polars_utf8 small n (FIXED 2026-04-22, incidental).
 # ---------------------------------------------------------------------------
 

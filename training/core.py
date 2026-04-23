@@ -3082,7 +3082,45 @@ def train_mlframe_models_suite(
                             trainset_features_stats=trainset_features_stats,
                             verbose=verbose,
                             cached_dfs=cached_dfs,
-                            polars_pipeline_applied=polars_pipeline_applied or polars_fastpath_skip_preprocessing,
+                            # Fix 11 (2026-04-22): per-strategy compute of
+                            # whether the Polars-ds pipeline already did the
+                            # preprocessing this strategy would have needed.
+                            #
+                            # Previously ``polars_pipeline_applied or
+                            # polars_fastpath_skip_preprocessing`` accumulated
+                            # globally across the suite loop. The initial
+                            # value at core.py:1995 is True when the input is
+                            # Polars and the polars-ds pipeline exists — so
+                            # every later iteration (including Linear, which
+                            # really DOES need the encoder/scaler/imputer)
+                            # inherited True and skipped its pre_pipeline
+                            # via train_eval.py:675 → trainer.py:775
+                            # ``elif skip_preprocessing: feature_selector
+                            # only`` branch. LogReg then received raw
+                            # pd.Categorical and crashed on 'HOURLY'.
+                            #
+                            # Correct semantics: the preprocessing is
+                            # already done for THIS strategy iff
+                            #   (a) the initial polars-ds pipeline ran at
+                            #       the suite level (``polars_pipeline_applied``
+                            #       as seeded before the loop), AND
+                            #   (b) this strategy itself can consume
+                            #       Polars frames (``supports_polars``).
+                            #
+                            # requires_encoding=True is NOT a sufficient
+                            # trigger to re-run preprocessing: HGB declares
+                            # requires_encoding=True for its pandas-fallback
+                            # path only, but on the Polars fastpath HGB
+                            # consumes pl.Categorical natively (no encoder
+                            # needed). Gating on supports_polars alone is
+                            # correct — only the non-Polars-native
+                            # strategies (Linear, Neural, sklearn-generic,
+                            # LGB-via-bridge) fall through to their own
+                            # pre_pipeline run in trainer.py.
+                            polars_pipeline_applied=(
+                                polars_pipeline_applied
+                                and strategy.supports_polars
+                            ),
                             mlframe_model_name=mlframe_model_name,
                             metadata_columns=metadata.get("columns"),
                         )
