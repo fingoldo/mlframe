@@ -3203,9 +3203,28 @@ def train_mlframe_models_suite(
                             # strategies (Linear, Neural, sklearn-generic,
                             # LGB-via-bridge) fall through to their own
                             # pre_pipeline run in trainer.py.
+                            #
+                            # 2026-04-23 extension (fuzz c0003 / HGB +
+                            # polars_enum + use_polarsds_pipeline=False):
+                            # when the shared polars-ds pipeline does NOT
+                            # run, Fix 11's left-hand side collapses to
+                            # False — the gate was then False for HGB too,
+                            # forcing pre_pipeline (with a sklearn
+                            # category_encoders encoder) to fit on a
+                            # pl.DataFrame and crash at convert_inputs.
+                            # The polars fastpath being ACTIVE for this
+                            # strategy is itself a sufficient reason to
+                            # skip sklearn preprocessing — the strategy
+                            # consumes the Polars frame natively, so the
+                            # encoder/scaler/imputer would both be
+                            # redundant and crash on Polars input.
+                            # ``polars_fastpath_active`` already encodes
+                            # (train_df_polars is not None AND
+                            # strategy.supports_polars), so this disjunct
+                            # keeps the supports_polars-required invariant.
                             polars_pipeline_applied=(
-                                polars_pipeline_applied
-                                and strategy.supports_polars
+                                (polars_pipeline_applied and strategy.supports_polars)
+                                or polars_fastpath_active
                             ),
                             mlframe_model_name=mlframe_model_name,
                             metadata_columns=metadata.get("columns"),

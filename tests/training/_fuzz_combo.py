@@ -46,6 +46,18 @@ AXES: dict[str, tuple[Any, ...]] = {
     "target_type": ("binary_classification", "regression"),
     "auto_detect_cats": (True, False),
     "align_polars_categorical_dicts": (True, False),
+    # 2026-04-24 expansion: flags that previously had NO coverage despite
+    # being runtime-visible knobs. AXES-driven ≠ actually-wired — these
+    # flags need corresponding prop-through in test_fuzz_suite.py runner.
+    "use_polarsds_pipeline": (True, False),
+    "use_text_features": (True, False),
+    "honor_user_dtype": (True, False),
+    # Rare column types that the frame builder previously omitted — this
+    # is the gap the production 'skills_text' / embedding features caught
+    # us on. A non-zero count forces the builder to emit at least one
+    # high-cardinality text column or one pl.List embedding column.
+    "text_col_count": (0, 1),
+    "embedding_col_count": (0, 1),
 }
 
 
@@ -67,6 +79,13 @@ class FuzzCombo:
     auto_detect_cats: bool
     align_polars_categorical_dicts: bool
     seed: int
+    # New axes 2026-04-24 — have defaults so existing pinned sensor combos
+    # and stored ``_fuzz_results.jsonl`` rows keep deserialising cleanly.
+    use_polarsds_pipeline: bool = True
+    use_text_features: bool = True
+    honor_user_dtype: bool = False
+    text_col_count: int = 0
+    embedding_col_count: int = 0
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -87,6 +106,11 @@ class FuzzCombo:
             self.target_type,
             self.auto_detect_cats,
             align,
+            self.use_polarsds_pipeline,
+            self.use_text_features,
+            self.honor_user_dtype,
+            self.text_col_count,
+            self.embedding_col_count,
         )
 
     def short_id(self) -> str:
@@ -113,6 +137,11 @@ class FuzzCombo:
             "auto_detect_cats": self.auto_detect_cats,
             "align_polars_categorical_dicts": self.align_polars_categorical_dicts,
             "seed": self.seed,
+            "use_polarsds_pipeline": self.use_polarsds_pipeline,
+            "use_text_features": self.use_text_features,
+            "honor_user_dtype": self.honor_user_dtype,
+            "text_col_count": self.text_col_count,
+            "embedding_col_count": self.embedding_col_count,
         }
 
 
@@ -270,6 +299,12 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         auto_detect_cats=axes["auto_detect_cats"],
         align_polars_categorical_dicts=axes["align_polars_categorical_dicts"],
         seed=seed,
+        # New 2026-04-24 axes
+        use_polarsds_pipeline=axes.get("use_polarsds_pipeline", True),
+        use_text_features=axes.get("use_text_features", True),
+        honor_user_dtype=axes.get("honor_user_dtype", False),
+        text_col_count=axes.get("text_col_count", 0),
+        embedding_col_count=axes.get("embedding_col_count", 0),
     )
 
 
@@ -299,6 +334,11 @@ def _combo_pairs(combo: FuzzCombo) -> set[tuple[str, Any, str, Any]]:
         "target_type": combo.target_type,
         "auto_detect_cats": combo.auto_detect_cats,
         "align_polars_categorical_dicts": combo.align_polars_categorical_dicts,
+        "use_polarsds_pipeline": combo.use_polarsds_pipeline,
+        "use_text_features": combo.use_text_features,
+        "honor_user_dtype": combo.honor_user_dtype,
+        "text_col_count": combo.text_col_count,
+        "embedding_col_count": combo.embedding_col_count,
         "n_models": len(combo.models),
     }
     names = list(values.keys())
@@ -445,6 +485,18 @@ def build_frame_for_combo(combo: FuzzCombo):
     """Build a pd / pl DataFrame matching the combo's input spec.
 
     Returns (df, target_col_name, cat_feature_names: list[str]).
+
+    Text columns (``combo.text_col_count > 0``) are only emitted when
+    ``"cb"`` is in ``combo.models`` — CatBoost is the only strategy that
+    consumes ``text_features`` (see ``strategies.py``
+    ``supports_text_features=True`` for CB; every other model either
+    drops them via ``core.py:486-496`` or never looks at them). Same
+    gate for embedding columns (``pl.List(pl.Float32)``). We still
+    emit them SOMETIMES (not always) because the CB×text_features and
+    CB×embeddings paths have their own TF-IDF / feature-dispatch
+    edge cases that the earlier fuzz runs never exercised — pin them
+    behind the "cb present" gate so a CB-less combo doesn't spuriously
+    fail for a reason unrelated to what's being sampled.
     """
     import numpy as np
 
@@ -484,11 +536,46 @@ def build_frame_for_combo(combo: FuzzCombo):
         target = (logits + rng.standard_normal(n) * 0.3 > 0).astype("int32")
         target_col = "target"
 
+    # Text columns: only emit when CB will actually consume them. Each
+    # "text" row is a 3-word sentence drawn from a shared vocabulary so
+    # CB's TF-IDF builds a non-empty dictionary (a single-word-per-row
+    # column above the cardinality threshold would otherwise degenerate).
+    want_text = combo.text_col_count > 0 and "cb" in combo.models
+    text_vocab = [
+        "python", "rust", "golang", "java", "swift", "kotlin",
+        "backend", "frontend", "devops", "mlops", "dataeng", "platform",
+        "cloud", "edge", "realtime", "batch", "stream", "vector",
+        "search", "nlp", "vision", "audio", "robotics", "quantum",
+    ]
+    text_cols: dict[str, list] = {}
+    if want_text:
+        for i in range(combo.text_col_count):
+            rows = []
+            for _ in range(n):
+                # 3 tokens per row, order randomized → non-trivial TF-IDF
+                idxs = rng.integers(0, len(text_vocab), size=3)
+                rows.append(" ".join(text_vocab[j] for j in idxs))
+            text_cols[f"text_{i}"] = rows
+
+    # Embedding columns: only Polars inputs support detection via
+    # ``pl.List(pl.Float32)``; pandas has no robust native analog the
+    # auto-detector recognises — skip for pandas to avoid spurious
+    # xfails unrelated to the axis under test.
+    want_embedding = (
+        combo.embedding_col_count > 0
+        and "cb" in combo.models
+        and combo.input_type != "pandas"
+    )
+
     if combo.input_type == "pandas":
         import pandas as pd
         data = {**num_cols}
         for name, values in cat_cols.items():
             data[name] = pd.Categorical(values)
+        for name, values in text_cols.items():
+            # pandas object dtype with n_unique > threshold triggers text
+            # auto-promotion inside ``_auto_detect_feature_types``.
+            data[name] = pd.array(values, dtype="string")
         data[target_col] = target
         return pd.DataFrame(data), target_col, cat_names
 
@@ -503,5 +590,18 @@ def build_frame_for_combo(combo: FuzzCombo):
             data_pl[name] = pl.Series(values).cast(pl.Categorical)
         else:  # polars_utf8
             data_pl[name] = pl.Series(values, dtype=pl.Utf8)
+    for name, values in text_cols.items():
+        # Text columns are always pl.Utf8 — the auto-detector routes them
+        # to text_features via cardinality threshold (hundreds of unique
+        # 3-word sentences on 300+ rows) regardless of combo.input_type.
+        data_pl[name] = pl.Series(values, dtype=pl.Utf8)
+    if want_embedding:
+        emb_dim = 4
+        for i in range(combo.embedding_col_count):
+            vecs = rng.standard_normal((n, emb_dim)).astype("float32")
+            data_pl[f"emb_{i}"] = pl.Series(
+                [vecs[j].tolist() for j in range(n)],
+                dtype=pl.List(pl.Float32),
+            )
     data_pl[target_col] = target
     return pl.DataFrame(data_pl), target_col, cat_names

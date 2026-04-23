@@ -39,6 +39,62 @@ def _config_for_models(models: tuple[str, ...], n_rows: int) -> dict:
     return cfg
 
 
+def _configs_for_combo(combo: FuzzCombo) -> dict:
+    """Build the preprocessing / feature-types / behavior config overrides
+    that prop the combo's per-axis flags into ``train_mlframe_models_suite``.
+
+    Returns a kwargs dict ready to **-splat into the suite call. Built
+    lazily from Pydantic model defaults so any field we don't touch
+    keeps its library default (mirrors how prod callers typically
+    override only a handful of fields).
+
+    Text / embedding column names are passed explicitly so that combos
+    with ``auto_detect_cats=False`` still register them as text / embedding
+    features. Without this, the auto-detector's early-return on
+    ``auto_detect_feature_types=False`` leaves ``emb_0`` (or ``text_0``)
+    in the feature matrix as a regular column — CatBoost's Polars
+    fastpath then crashes trying to process a ``pl.List(Float32)`` /
+    high-cardinality string column it never learned was special.
+    Matches the prod idiom: callers who turn off auto-detection
+    typically do so BECAUSE they're declaring the lists manually."""
+    from mlframe.training.configs import (
+        PolarsPipelineConfig,
+        FeatureTypesConfig,
+        TrainingBehaviorConfig,
+    )
+    # Mirror the ``want_text`` / ``want_embedding`` gates in
+    # ``build_frame_for_combo`` so the declared column lists exactly
+    # match what the frame actually contains — no false positives,
+    # no false negatives.
+    emits_text = combo.text_col_count > 0 and "cb" in combo.models
+    emits_emb = (
+        combo.embedding_col_count > 0
+        and "cb" in combo.models
+        and combo.input_type != "pandas"
+    )
+    text_features = (
+        [f"text_{i}" for i in range(combo.text_col_count)] if emits_text else None
+    )
+    embedding_features = (
+        [f"emb_{i}" for i in range(combo.embedding_col_count)] if emits_emb else None
+    )
+    return {
+        "pipeline_config": PolarsPipelineConfig(
+            use_polarsds_pipeline=combo.use_polarsds_pipeline,
+        ),
+        "feature_types_config": FeatureTypesConfig(
+            auto_detect_feature_types=combo.auto_detect_cats,
+            use_text_features=combo.use_text_features,
+            honor_user_dtype=combo.honor_user_dtype,
+            text_features=text_features,
+            embedding_features=embedding_features,
+        ),
+        "behavior_config": TrainingBehaviorConfig(
+            align_polars_categorical_dicts=combo.align_polars_categorical_dicts,
+        ),
+    }
+
+
 def _common_init_for_combo(combo: FuzzCombo) -> dict:
     """init_common_params for a combo. Attaches a category encoder only when
     a non-native-cat model (linear) is present — matches the prod config
@@ -150,6 +206,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 "min_nonzero_confidence": 0.9, "max_consec_unconfirmed": 3,
                 "full_npermutations": 3,
             } if combo.use_mrmr_fs else None),
+            **_configs_for_combo(combo),
         )
         assert trained, f"empty models dict for combo {combo.short_id()}"
     except Exception as exc:

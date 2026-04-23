@@ -3668,8 +3668,23 @@ def check_prospective_fe_pairs(
                         else:
                             transformed_vars[:, i] = tr_func(vals)
                     except Exception as e:
+                        # np.isnan / np.isinf / np.nanmin only work on float
+                        # dtypes. When ``vals`` is object/string (e.g. a
+                        # polars_utf8 cat column that wasn't encoded before
+                        # reaching FE), calling them inside the error-log
+                        # formatter itself raises — masking the real
+                        # transformation error and aborting MRMR entirely.
+                        # Compute numeric-only diagnostics conditionally.
+                        if np.issubdtype(vals.dtype, np.floating):
+                            _diag = (
+                                f", isnan={np.isnan(vals).sum()}, "
+                                f"isinf={np.isinf(vals).sum()}, nanmin={np.nanmin(vals)}"
+                            )
+                        else:
+                            _diag = f", dtype={vals.dtype} (numeric diagnostics skipped)"
                         logger.error(
-                            f"Error when performing {tr_name} on array {vals[:5]}, var={cols[var]}: {str(e)}, isnan={np.isnan(vals).sum()}, isinf={np.isinf(vals).sum()}, nanmin={np.nanmin(vals)}"
+                            f"Error when performing {tr_name} on array {vals[:5]}, "
+                            f"var={cols[var]}: {str(e)}{_diag}"
                         )
                     else:
                         vars_transformations[key] = i
