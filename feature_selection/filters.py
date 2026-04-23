@@ -2968,16 +2968,6 @@ class MRMR(BaseEstimator, TransformerMixin):
         except ImportError:
             _is_polars_input = False
 
-        if _is_polars_input and fe_max_steps > 0:
-            logger.warning(
-                "MRMR feature engineering (fe_max_steps=%d) requires pandas; "
-                "the polars path only supports the selector itself. Disabling "
-                "FE for this polars-input call. (Full polars FE support is a "
-                "separate refactor — see Fix 10 addendum in the plan.)",
-                fe_max_steps,
-            )
-            fe_max_steps = 0
-
         if _is_polars_input:
             # Polars is immutable; `with_columns` returns a new frame that
             # shares buffers with X — no data copy. Caller's X is not mutated.
@@ -3286,8 +3276,14 @@ class MRMR(BaseEstimator, TransformerMixin):
                     return best_mi
 
                 for (raw_vars_pair, pair_mi), uplift in prospective_pairs.items():
-                    vals_a = X.iloc[:, raw_vars_pair[0]].values
-                    vals_b = X.iloc[:, raw_vars_pair[1]].values
+                    if _is_polars_input:
+                        # Polars: int column indexing returns a Series;
+                        # .to_numpy() is zero-copy for Arrow-backed numerics.
+                        vals_a = X[:, raw_vars_pair[0]].to_numpy()
+                        vals_b = X[:, raw_vars_pair[1]].to_numpy()
+                    else:
+                        vals_a = X.iloc[:, raw_vars_pair[0]].values
+                        vals_b = X.iloc[:, raw_vars_pair[1]].values
 
                     for _ in range(fe_smart_polynom_iters):
 
@@ -3425,8 +3421,19 @@ class MRMR(BaseEstimator, TransformerMixin):
                             data = np.append(data, new_vals, axis=1)
                             nbins = nbins + new_nbins
                             cols = cols + new_cols
-                            for col in new_cols:
-                                X[col] = transformed_vals[:, j]
+                            if _is_polars_input:
+                                # Polars is immutable — accumulate new cols
+                                # via with_columns (returns a new frame
+                                # sharing buffers with X). Caller's original
+                                # frame is never mutated.
+                                _series_to_add = [
+                                    pl.Series(col, transformed_vals[:, j])
+                                    for j, col in enumerate(new_cols)
+                                ]
+                                X = X.with_columns(_series_to_add)
+                            else:
+                                for col in new_cols:
+                                    X[col] = transformed_vals[:, j]
 
                         n_recommended_features += len(this_pair_features)
 
@@ -3639,7 +3646,12 @@ def check_prospective_fe_pairs(
     i = 0
     for (raw_vars_pair, pair_mi), uplift in prospective_pairs.items():
         for var in raw_vars_pair:
-            vals = X.iloc[:, original_cols[var]].values
+            # Polars vs pandas int-column indexing: X[:, idx].to_numpy()
+            # (polars, zero-copy for numerics) vs X.iloc[:, idx].values (pandas).
+            if hasattr(X, "iloc"):
+                vals = X.iloc[:, original_cols[var]].values
+            else:
+                vals = X[:, original_cols[var]].to_numpy()
             for tr_name, tr_func in unary_transformations.items():
                 key = (var, tr_name)
                 if key not in vars_transformations:
@@ -3781,7 +3793,10 @@ def check_prospective_fe_pairs(
                             external_factors = np.random.choice(external_factors, fe_max_external_validation_factors)
 
                         for external_factor in tqdmu(external_factors, desc="external validation factor", leave=False):
-                            param_b = X.iloc[:, original_cols[external_factor]].values
+                            if hasattr(X, "iloc"):
+                                param_b = X.iloc[:, original_cols[external_factor]].values
+                            else:
+                                param_b = X[:, original_cols[external_factor]].to_numpy()
 
                             for valid_bin_func_name, valid_bin_func in binary_transformations.items():
 

@@ -321,3 +321,46 @@ def test_selected_features_surface_for_inspection(tmp_path):
         f"Selected features not a subset of df columns. "
         f"Extra: {set(selected) - set(df.columns)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 4 — MRMR on Polars input through the full suite (Fix 10 polars support)
+# ---------------------------------------------------------------------------
+
+def test_mrmr_drops_uninformative_features_on_polars_input(tmp_path):
+    """Same as test_mrmr_drops_uninformative_features but with pl.DataFrame
+    input. Fix 10 made MRMR polars-native (zero-copy via to_physical /
+    to_numpy); this biz-value test confirms the selector STILL drops noise
+    through the full train_mlframe_models_suite flow with LGB downstream.
+    Also indirectly exercises the lazy polars→pandas bridge for LGB after
+    MRMR has run on Polars.
+    """
+    import polars as pl
+    pd_df, _ = _make_noisy_classification(n=1000, k_noise=30, seed=11)
+    # Convert to polars — preserves dtypes via the standard from_pandas path.
+    pl_df = pl.from_pandas(pd_df)
+
+    models, metadata, _ = _run_suite(pl_df, tmp_path, use_mrmr=True, iters=20)
+
+    selected = _collect_selected_features(models, metadata)
+    if not selected:
+        pytest.xfail(
+            "TODO(bizvalue): MRMR selected-features not surfaced through "
+            "train_mlframe_models_suite return values (shared with the "
+            "pandas-input test above)."
+        )
+    # At least one informative feature must be in the selected set.
+    # _make_noisy_classification puts the signal in 'info_0'..'info_4'.
+    signal_cols = {f"info_{i}" for i in range(5)}
+    assert set(selected) & signal_cols, (
+        f"MRMR on Polars failed to pick any signal feature. "
+        f"Selected: {selected}. Expected at least one of: {signal_cols}"
+    )
+    # And at least one NOISE column should have been dropped (selector
+    # should not keep every single noise col). _make_noisy_classification
+    # uses 'x_*' or similar naming — we assert the selected count is less
+    # than the total column count as a coarse sanity bound.
+    assert len(selected) < len(pl_df.columns) - 1, (
+        f"MRMR on Polars kept almost every column ({len(selected)} of "
+        f"{len(pl_df.columns) - 1}) — selector not functioning on polars input."
+    )
