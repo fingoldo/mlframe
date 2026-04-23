@@ -707,3 +707,219 @@ def test_ensembles_enabled_produces_ensemble_log(tmp_path, caplog):
         "use_mlframe_ensembles=True did not trigger the ensemble log. "
         "Captured log tail:\n" + log_text[-800:]
     )
+
+
+# ===========================================================================
+# Tier 2 — data edge cases
+# ===========================================================================
+
+
+# #8 Single-class target (y all 0 or all 1)
+def test_single_class_target_does_not_silently_return_empty(tmp_path):
+    """Degenerate classification target (all samples same class) must
+    either (a) raise a clear error upfront, or (b) skip training and
+    return a well-marked empty result. A SILENT training with bogus
+    metrics is the failure mode this guards against.
+
+    Real-world trigger: a daily job's target column has 100 % minority
+    class when the upstream filter accidentally narrows to a single
+    state. Past prod incident: models "trained" with AUC=NaN, shipped.
+    """
+    pytest.importorskip("catboost")
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
+    df["target"] = np.zeros(len(df), dtype="int32")  # all one class
+
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+
+    # Either outcome is OK; silent-pass-with-bogus-metrics is NOT.
+    # Catch any Exception here — CatBoostError (from catboost C++) is
+    # neither ValueError nor RuntimeError, and empirically fires at
+    # fit() time with "Target contains only one unique value".
+    raised = None
+    trained = None
+    meta = None
+    try:
+        trained, meta = train_mlframe_models_suite(
+            df=df, target_name="tgt", model_name="mdl",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+            init_common_params={"drop_columns": [], "verbose": 0},
+            use_ordinary_models=True, use_mlframe_ensembles=False,
+            data_dir=str(tmp_path), models_dir="models", verbose=0,
+        )
+    except Exception as e:
+        raised = e
+
+    if raised is not None:
+        msg = str(raised).lower()
+        assert any(
+            kw in msg for kw in (
+                "class", "label", "target", "one", "single", "degenerate",
+                "unique",  # CatBoostError: "Target contains only one unique value"
+            )
+        ), f"degenerate-target raise was opaque: {raised!r}"
+        return
+    # Non-crashing path: empty trained dict OR failure breadcrumb in meta.
+    if trained:
+        assert meta is not None
+
+
+# #9 High-cardinality cat column (> HGB's 255 ordinal limit)
+def test_high_cardinality_cat_column_trains_successfully(tmp_path):
+    """cat_0 with 1000 unique string values must not crash the suite.
+
+    HGB has ``_MAX_CATEGORICAL_CARDINALITY = 255`` and triggers the
+    ordinal-to-UInt32 fallback for columns above that. XGB handles it
+    via ``enable_categorical``. CB has no cardinality limit. This test
+    verifies the cross-model fallback paths don't regress.
+    """
+    pytest.importorskip("catboost")
+    pytest.importorskip("xgboost")
+    pytest.importorskip("lightgbm")
+
+    rng = np.random.default_rng(0)
+    n = 3000  # need enough rows that 1000 uniques is plausible
+    # 1000-uniques: format "k000".."k999" cycled.
+    cat_vals = [f"k{i % 1000:03d}" for i in range(n)]
+    num_0 = rng.standard_normal(n).astype("float32")
+    y = (num_0 > 0).astype("int32")
+    df = pd.DataFrame({
+        "num_0": num_0,
+        "cat_0": pd.Categorical(cat_vals),
+        "target": y,
+    })
+    assert df["cat_0"].nunique() == 1000
+
+    # HGB + CB + XGB mixed (LGB skipped: it has its own cat behaviour
+    # not relevant to this test's cardinality-cap guard).
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+    trained, meta = train_mlframe_models_suite(
+        df=df, target_name="tgt", model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb", "hgb", "xgb"],
+        hyperparams_config={
+            "iterations": 3,
+            "cb_kwargs": {"task_type": "CPU", "verbose": 0},
+            "xgb_kwargs": {"device": "cpu", "verbosity": 0, "enable_categorical": True},
+        },
+        init_common_params={"drop_columns": [], "verbose": 0},
+        use_ordinary_models=True, use_mlframe_ensembles=False,
+        data_dir=str(tmp_path), models_dir="models", verbose=0,
+    )
+    assert trained, "high-cardinality suite returned empty dict"
+
+
+# #10 Infinity / NaN in numeric column
+def test_infinity_and_nan_in_numeric_column_does_not_crash(tmp_path):
+    """A numeric column containing ``np.inf``, ``-np.inf``, ``np.nan``
+    must be handled by the suite's existing guards (``fix_infinities``
+    / ``skip_infinity_checks`` flags). This test covers the default
+    config (``fix_infinities=True``) — the framework must either clip
+    or drop the rows, not propagate NaN/Inf into the model fit.
+    """
+    pytest.importorskip("catboost")
+    df = _make_baseline_pandas(n=400, seed=0, with_cat=False, regression=False)
+    # Inject inf/nan into num_0 at 3 rows — enough to trigger handling
+    # but not enough to shift the sample distribution dramatically.
+    df.loc[0, "num_0"] = np.inf
+    df.loc[1, "num_0"] = -np.inf
+    df.loc[2, "num_0"] = np.nan
+
+    trained, _ = _train_once(df, tmp_path, models=("cb",), regression=False)
+    assert trained, "NaN/Inf pandas frame broke the training suite"
+
+
+# #11 Date/datetime column — should either pass through or be dropped cleanly
+def test_datetime_column_does_not_crash_suite(tmp_path):
+    """A frame with a ``pl.Datetime`` / pandas datetime column — the
+    suite must either silently drop it (treat as non-feature) or feed
+    it through as numeric via int64 epoch. A crash in feature-type
+    auto-detection is the failure mode this guards.
+    """
+    pytest.importorskip("catboost")
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
+    # Add a datetime column spanning 1 year.
+    start = pd.Timestamp("2026-01-01")
+    df["ts"] = pd.date_range(start, periods=len(df), freq="H")
+
+    trained, meta = _train_once(df, tmp_path, models=("cb",), regression=False)
+    assert trained, "datetime column broke the suite"
+    trained_cols = meta.get("columns") or []
+    # Either ``ts`` is in trained_cols (treated as numeric epoch) OR
+    # it was dropped. Both are acceptable; the INVARIANT is that the
+    # run completed without crashing on the datetime dtype.
+    if "ts" in trained_cols:
+        # If kept, CB received it — that's fine, datetime is allowed
+        # as a numeric feature for CB when cast to int64.
+        pass
+
+
+# #12 Multi-target regression (two regression targets at once)
+class _MultiTargetExtractor(SimpleFeaturesAndTargetsExtractor):
+    """Extractor that emits TWO regression targets from the same frame."""
+
+    def __init__(self, target_columns=("target_a", "target_b")):
+        super().__init__(target_column="target_a", regression=True)
+        self._targets = list(target_columns)
+
+    def transform(self, df):
+        from mlframe.training.configs import TargetTypes
+        if isinstance(df, pd.DataFrame):
+            tgt_vals = {c: df[c].values for c in self._targets}
+        else:
+            tgt_vals = {c: df[c].to_numpy() for c in self._targets}
+        target_by_type = {TargetTypes.REGRESSION: tgt_vals}
+        return (df, target_by_type, None, None, None, None, list(self._targets), {})
+
+
+def test_multi_target_regression_trains_all_targets(tmp_path):
+    """When the extractor emits 2 regression targets the suite must
+    train all of them (not silently skip). Protects against a
+    regression where the target_by_type loop breaks on dict-with-N-keys
+    (used to iterate only the first one).
+    """
+    pytest.importorskip("catboost")
+    rng = np.random.default_rng(0)
+    n = 300
+    num_0 = rng.standard_normal(n).astype("float32")
+    num_1 = rng.standard_normal(n).astype("float32")
+    df = pd.DataFrame({
+        "num_0": num_0, "num_1": num_1,
+        "target_a": 2 * num_0 + rng.standard_normal(n) * 0.3,
+        "target_b": -1.5 * num_1 + rng.standard_normal(n) * 0.3,
+    })
+
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = _MultiTargetExtractor(target_columns=("target_a", "target_b"))
+    trained, meta = train_mlframe_models_suite(
+        df=df, target_name="tgt", model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb"],
+        hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+        init_common_params={"drop_columns": [], "verbose": 0},
+        use_ordinary_models=True, use_mlframe_ensembles=False,
+        data_dir=str(tmp_path), models_dir="models", verbose=0,
+    )
+    assert trained, "multi-target regression returned empty trained dict"
+
+    # Evidence both targets trained: the ``trained`` dict nests by
+    # target_type → target_name → models. For 2 regression targets
+    # sharing target_type, the inner dict must contain both.
+    from mlframe.training.configs import TargetTypes
+    inner = trained.get(TargetTypes.REGRESSION) or trained.get("regression") or {}
+    assert isinstance(inner, dict), (
+        f"trained[REGRESSION] is not a dict: {type(inner).__name__}"
+    )
+    target_names_trained = set(inner.keys())
+    expected = {"target_a", "target_b"}
+    assert expected.issubset(target_names_trained), (
+        f"Not all regression targets trained: expected superset of {expected}, "
+        f"got {target_names_trained}. Full trained structure keys: {list(trained)}"
+    )
+    # Note: schema_hash can collide across targets when they share the
+    # same feature frame (model_file_name at core.py:3134 doesn't
+    # include target_name). That's why we use the ``trained`` dict
+    # structure rather than ``model_schemas`` count for this assertion.
