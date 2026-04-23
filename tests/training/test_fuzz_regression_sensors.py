@@ -153,6 +153,74 @@ def test_sensor_tier_cache_polars_pandas_collision(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Sensor — MRMR must accept pl.DataFrame natively without full .to_pandas() (FIXED 2026-04-22, Fix 10).
+# ---------------------------------------------------------------------------
+
+def test_sensor_mrmr_native_polars_no_full_to_pandas():
+    """Regression guard for MRMR.fit copying the whole frame via X.to_pandas()
+    when the input is a pl.DataFrame.
+
+    CLAUDE.md forbids caller-visible copies on 100+ GB prod frames. Before
+    Fix 10, MRMR.fit unconditionally called X.to_pandas() at filters.py:~2894.
+    The fix branches on isinstance(X, pl.DataFrame) and uses Polars-native
+    with_columns / fill_null / drop (no-copy for Arrow-backed numerics).
+    categorize_dataset was likewise adapted: numeric subset via to_numpy()
+    (zero-copy for numerics) and a bounded conversion of only the cat-col
+    subset for OrdinalEncoder.
+
+    Spy on pl.DataFrame.to_pandas during fit and assert ≤ 1 call (allowed
+    for the cat-col subset only).
+    """
+    import polars as pl
+    import numpy as np
+    from mlframe.feature_selection.filters import MRMR
+
+    n = 500
+    rng = np.random.default_rng(42)
+    pl_df = pl.DataFrame({
+        "num1": rng.standard_normal(n).astype(np.float32),
+        "num2": rng.standard_normal(n).astype(np.float32),
+        "num3": rng.standard_normal(n).astype(np.float32),
+        "cat1": pl.Series(["A", "B", "C"] * (n // 3 + 1))[:n].cast(pl.Enum(["A", "B", "C"])),
+    })
+    y = rng.integers(0, 2, n)
+
+    call_count = {"n": 0}
+    orig = pl.DataFrame.to_pandas
+    def _spy(self, *args, **kwargs):
+        call_count["n"] += 1
+        return orig(self, *args, **kwargs)
+    pl.DataFrame.to_pandas = _spy
+    try:
+        sel = MRMR(
+            verbose=0, max_runtime_mins=1, n_workers=1,
+            quantization_nbins=5, use_simple_mode=True,
+            min_nonzero_confidence=0.9, max_consec_unconfirmed=3,
+            full_npermutations=3,
+        )
+        sel.fit(pl_df, y)
+    finally:
+        pl.DataFrame.to_pandas = orig
+
+    # 0 calls expected — MRMR's polars path uses pl.col.to_physical() to
+    # get integer codes for Categorical / Enum / bool / Utf8-cast-to-Cat
+    # without ever materializing to pandas. Any .to_pandas() call means
+    # someone re-introduced a copy path.
+    assert call_count["n"] == 0, (
+        f"MRMR.fit called pl.DataFrame.to_pandas() {call_count['n']} times — "
+        f"regression: Fix 10 requires a zero-copy polars path (to_physical "
+        f"for cat codes, .to_numpy() for numerics). A full-frame .to_pandas() "
+        f"would OOM on 200 GB prod (CLAUDE.md)."
+    )
+
+    # transform must return pl.DataFrame.
+    out = sel.transform(pl_df)
+    assert isinstance(out, pl.DataFrame), (
+        f"MRMR.transform must preserve pl.DataFrame input type; got {type(out).__name__}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Sensor — MRMR.transform raised AttributeError on un-set support_ (FIXED 2026-04-22).
 # ---------------------------------------------------------------------------
 

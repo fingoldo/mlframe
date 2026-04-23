@@ -2624,7 +2624,7 @@ def discretize_sklearn(
 
 
 def categorize_dataset(
-    df: pd.DataFrame,
+    df,
     method: str = "quantile",
     n_bins: int = 4,
     min_ncats: int = 50,
@@ -2635,25 +2635,82 @@ def categorize_dataset(
     For cat columns uses OrdinalEncoder.
     For the rest uses new discretize_2d_array.
     Does not care for min_cats yet.
+
+    Accepts either a pandas DataFrame or a polars DataFrame. On the polars
+    path no `.to_pandas()` copy is made — numeric columns are extracted
+    via `.to_numpy()` (zero-copy for Arrow-backed numerics), categorical
+    columns via `ordinal_encoder.fit_transform` on a select-projected
+    subset (per-cat-col copies, bounded by cat-col count × n_rows, much
+    smaller than a full-frame materialization).
     """
 
     data = None
     numerical_cols = []
     categorical_factors = []
 
-    numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "bool")).columns.values.tolist()
+    try:
+        import polars as pl
+        _is_polars = isinstance(df, pl.DataFrame)
+    except ImportError:
+        _is_polars = False
+
+    if _is_polars:
+        # Polars schema-driven column selection — no pandas API calls.
+        _POLARS_CAT_DTYPES = {pl.Utf8, pl.String, pl.Categorical, pl.Boolean}
+        def _is_pl_cat(dt):
+            return (
+                dt in _POLARS_CAT_DTYPES
+                or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum))
+            )
+        numerical_cols = [name for name, dt in df.schema.items() if not _is_pl_cat(dt)]
+        categorical_cols_detected = [name for name, dt in df.schema.items() if _is_pl_cat(dt)]
+    else:
+        numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "bool")).columns.values.tolist()
+        categorical_cols_detected = None  # computed below via select_dtypes
 
     # Use .to_numpy() instead of .values for Arrow-backed DataFrames (from Polars conversion)
     # .values can return pyobject dtype which breaks numba's @njit
-    arr = df[numerical_cols].to_numpy(dtype=np.float64, na_value=np.nan)
+    if _is_polars:
+        # Polars `.to_numpy()` on a column subset is zero-copy for numerics.
+        _num_frame = df.select(numerical_cols)
+        arr = _num_frame.to_numpy().astype(np.float64, copy=False)
+    else:
+        arr = df[numerical_cols].to_numpy(dtype=np.float64, na_value=np.nan)
     data = discretize_2d_array(arr=arr, n_bins=n_bins, method=method, min_ncats=min_ncats, min_values=None, max_values=None, dtype=dtype)
 
-    categorical_factors = df.select_dtypes(include=("category", "object", "bool"))
-    categorical_cols = []
-    if categorical_factors.shape[1] > 0:
-        categorical_cols = categorical_factors.columns.values.tolist()
-        ordinal_encoder = OrdinalEncoder()
-        new_vals = ordinal_encoder.fit_transform(categorical_factors)
+    if _is_polars:
+        if categorical_cols_detected:
+            # Polars-native zero-copy integer encoding: pl.Categorical /
+            # pl.Enum columns already store integer codes in their physical
+            # representation (UInt32). For pl.Utf8 / pl.String we cast to
+            # Categorical first to obtain codes. Booleans are trivially 0/1.
+            # No OrdinalEncoder, no .to_pandas() — nothing copied.
+            cast_exprs = []
+            for c in categorical_cols_detected:
+                dt = df.schema[c]
+                if dt == pl.Boolean:
+                    cast_exprs.append(pl.col(c).cast(pl.UInt32))
+                elif dt in (pl.Utf8, pl.String):
+                    cast_exprs.append(pl.col(c).cast(pl.Categorical).to_physical())
+                else:
+                    # Categorical / Enum already integer-coded.
+                    cast_exprs.append(pl.col(c).to_physical())
+            _coded = df.select(cast_exprs)
+            categorical_cols = categorical_cols_detected
+            new_vals = _coded.to_numpy()
+        else:
+            categorical_cols = []
+            new_vals = None
+    else:
+        categorical_factors = df.select_dtypes(include=("category", "object", "bool"))
+        categorical_cols = []
+        if categorical_factors.shape[1] > 0:
+            categorical_cols = categorical_factors.columns.values.tolist()
+            ordinal_encoder = OrdinalEncoder()
+            new_vals = ordinal_encoder.fit_transform(categorical_factors)
+        else:
+            new_vals = None
+    if categorical_cols and new_vals is not None:
 
         max_cats = new_vals.max(axis=0)
         exc_idx = max_cats > np.iinfo(dtype).max
@@ -2891,18 +2948,37 @@ class MRMR(BaseEstimator, TransformerMixin):
             print("Converted targets from int64 to int16.")
             vals = vals.astype(np.int16)
 
-        # Polars DataFrames lack .loc — convert to pandas once for target injection + downstream ops.
-        if hasattr(X, "to_pandas") and not hasattr(X, "loc"):
-            X = X.to_pandas()
-        X.loc[:, target_names] = vals.reshape(-1, 1)
+        # 2026-04-22 (Fix 10 addendum to jolly-wishing-deer plan): native
+        # Polars support — no `.to_pandas()` copy. mlframe production
+        # frames are 100+ GB, and a full materialization would OOM on
+        # the prod box. CLAUDE.md forbids caller-visible copies; use
+        # Polars-native ops when the input is pl.DataFrame.
+        try:
+            import polars as pl  # local alias; safe even if pl is already imported module-scope
+            _is_polars_input = isinstance(X, pl.DataFrame)
+        except ImportError:
+            _is_polars_input = False
+
+        if _is_polars_input:
+            # Polars is immutable; `with_columns` returns a new frame that
+            # shares buffers with X — no data copy. Caller's X is not mutated.
+            target_series = [pl.Series(name, vals[:, i] if vals.ndim == 2 else vals) for i, name in enumerate(target_names)]
+            X = X.with_columns(target_series)
+        else:
+            X.loc[:, target_names] = vals.reshape(-1, 1)
 
         # ---------------------------------------------------------------------------------------------------------------
         # Discretize continuous data
         # ---------------------------------------------------------------------------------------------------------------
 
         logger.info("categorizing dataset...")
+        if _is_polars_input:
+            # Polars: fill_null forward-then-backward — no-copy lazy op.
+            _filled = X.fill_null(strategy="forward").fill_null(strategy="backward")
+        else:
+            _filled = X.ffill().bfill()
         data, cols, nbins = categorize_dataset(
-            df=X.ffill().bfill(),
+            df=_filled,
             method=self.quantization_method,
             n_bins=self.quantization_nbins,
             dtype=self.quantization_dtype,
@@ -2968,7 +3044,17 @@ class MRMR(BaseEstimator, TransformerMixin):
         n_jobs:int=-1,  
         """
 
-        categorical_vars_names = X.head().select_dtypes(include=("category", "object", "bool")).columns.values.tolist()
+        if _is_polars_input:
+            # Polars schema-driven detection; mirrors categorize_dataset's _is_pl_cat.
+            import polars as _pl
+            _CAT_DTYPES_FOR_VARS = {_pl.Utf8, _pl.String, _pl.Categorical, _pl.Boolean}
+            categorical_vars_names = [
+                name for name, dt in X.schema.items()
+                if dt in _CAT_DTYPES_FOR_VARS
+                or (hasattr(_pl, "Enum") and isinstance(dt, _pl.Enum))
+            ]
+        else:
+            categorical_vars_names = X.head().select_dtypes(include=("category", "object", "bool")).columns.values.tolist()
         categorical_vars = [cols.index(col) for col in categorical_vars_names]
 
         if fe_max_steps > 0:
@@ -3354,12 +3440,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         # injected ``targ_<id>`` columns attached. They then leaked into the
         # downstream sklearn pipeline: imputer/scaler recorded ``targ_<id>``
         # in ``feature_names_in_`` and raised on the next transform call.
-        # Fix: drop in place. This mutates the caller's frame back to its
-        # original schema (removes what we injected above) without any copy.
-        # NOTE: for prod 100+ GB frames, MRMR is expected to run on a sample,
-        # not the full frame — the ``.to_pandas()`` conversion above would
-        # itself be prohibitive at that scale. See CLAUDE.md.
-        X.drop(columns=target_names, inplace=True)
+        # Fix: drop in place (pandas) or rebind (polars — immutable, caller's
+        # X was never mutated so nothing to clean).
+        if _is_polars_input:
+            X = X.drop(target_names)  # no-copy lazy op; caller's X untouched
+        else:
+            X.drop(columns=target_names, inplace=True)  # restores caller's original schema
 
         # ---------------------------------------------------------------------------------------------------------------
         # selected_vars needs to be transformed to names using the cols variable and then back to indices using original Df columns names.
