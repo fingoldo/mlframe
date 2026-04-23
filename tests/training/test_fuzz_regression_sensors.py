@@ -662,6 +662,58 @@ def test_sensor_enum_null_fill_reaches_lazy_pandas_conversion(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Sensor — polars_utf8 cat_features must reach non-polars-native models as
+# pandas ``category`` dtype, not ``object`` (FIXED 2026-04-23, seed 20260430).
+# ---------------------------------------------------------------------------
+
+def test_sensor_polars_utf8_cats_cast_before_lazy_pandas_conversion(tmp_path):
+    """Regression guard for polars_utf8 input → pandas ``object`` dtype leak.
+
+    Symptom (fuzz driver, seed 20260430, 40 fails in a single batch):
+    ``ValueError: DataFrame.dtypes for data must be int, float, bool or
+    category. ... Invalid columns:cat_0: object`` from XGBClassifier's
+    sklearn wrapper. LGBMClassifier crashed on the same combo with its
+    own "pandas dtypes must be int, float or bool" error.
+
+    Root cause: when input is polars_utf8 and cat_features weren't
+    touched by the Enum-alignment block (either the block was skipped
+    or the columns stayed as pl.Utf8/String), the lazy pandas conversion
+    at the non-polars-native strategy branch converted pl.Utf8 → pandas
+    object (NOT ``category``). Tree-model sklearn wrappers reject object.
+
+    Fix in ``core.py`` right after the fill+align+alias-sync block:
+    cast any cat_feature that is still pl.Utf8/String to pl.Categorical
+    so the pandas view lands with ``category`` dtype.
+
+    Pinned to the 3-model mixed-polars-pandas pattern (hgb polars-native,
+    lgb/xgb mixed — LGB triggers the lazy conversion, XGB fit-time trips
+    the object-dtype check). If this test goes red, someone likely
+    removed the Utf8→Categorical cast step in core.py, or skipped it
+    for a subset of splits.
+    """
+    _skip_if_deps_missing("hgb", "lgb", "xgb")
+    combo = FuzzCombo(
+        models=("hgb", "lgb", "xgb"),
+        input_type="polars_utf8",
+        n_rows=600,
+        cat_feature_count=1,
+        null_fraction_cats=0.1,
+        use_mrmr_fs=False,
+        weight_schemas=("uniform",),
+        target_type="binary_classification",
+        auto_detect_cats=False,
+        align_polars_categorical_dicts=True,
+        seed=21,
+        use_polarsds_pipeline=True,
+        use_text_features=True,
+        honor_user_dtype=False,
+        text_col_count=0,
+        embedding_col_count=0,
+    )
+    _run_sensor_combo(combo, tmp_path)
+
+
+# ---------------------------------------------------------------------------
 # Unit sensor for bug #1 (Enum fill silent no-op) — no training, just verify
 # the helper. Fast, deterministic, doesn't hit CB at all.
 # ---------------------------------------------------------------------------

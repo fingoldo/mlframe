@@ -2678,6 +2678,40 @@ def train_mlframe_models_suite(
         if test_df_polars is not None:
             test_df_pd = test_df_polars
 
+    # 2026-04-23 (fuzz driver seed 20260430, pattern cb/hgb/lgb/xgb +
+    # polars_utf8 + ncats>=1): when input is polars_utf8 and alignment
+    # didn't touch the column (either skipped or align_polars_categorical_dicts=False),
+    # cat_features stay as pl.Utf8 / pl.String. Non-polars-native
+    # strategies (LGB, Linear) later trigger the lazy pandas conversion;
+    # pl.Utf8 → pandas ``object`` dtype (not ``category``). XGBClassifier's
+    # sklearn wrapper then raises
+    #     ValueError: DataFrame.dtypes for data must be int, float, bool
+    #     or category. ... Invalid columns:cat_0: object
+    # Cast remaining Utf8/String cat_features to pl.Categorical after
+    # fill+align so the pandas conversion produces ``category`` dtype.
+    # Gate on ``was_polars_input`` + non-empty ``cat_features`` so the
+    # pandas-input path stays a byte-for-byte no-op.
+    if was_polars_input and cat_features:
+        def _cast_utf8_cats_to_categorical(df_):
+            if not isinstance(df_, pl.DataFrame):
+                return df_
+            exprs = []
+            for c in cat_features:
+                if c in df_.columns and df_.schema[c] in (pl.Utf8, pl.String):
+                    exprs.append(pl.col(c).cast(pl.Categorical))
+            return df_.with_columns(exprs) if exprs else df_
+        train_df_polars = _cast_utf8_cats_to_categorical(train_df_polars)
+        val_df_polars = _cast_utf8_cats_to_categorical(val_df_polars)
+        test_df_polars = _cast_utf8_cats_to_categorical(test_df_polars)
+        if can_skip_pandas_conv:
+            train_df_pd = train_df_polars if train_df_polars is not None else train_df_pd
+            filtered_train_df = train_df_polars if train_df_polars is not None else filtered_train_df
+            if val_df_polars is not None:
+                val_df_pd = val_df_polars
+                filtered_val_df = val_df_polars
+            if test_df_polars is not None:
+                test_df_pd = test_df_polars
+
     # Save metadata EARLY (before training loops) so that if training is interrupted,
     # already-trained models are still usable with the saved pipeline/preprocessing
     _finalize_and_save_metadata(
