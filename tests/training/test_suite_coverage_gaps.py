@@ -534,3 +534,176 @@ def test_caller_pandas_frame_target_column_not_dropped(tmp_path):
     )
     # Target must still be present — some past versions dropped it inplace.
     assert "target" in df.columns, "target column was dropped from caller's df"
+
+
+# ===========================================================================
+# #3 — Outlier Detection integration (end-to-end)
+# ===========================================================================
+
+
+def test_outlier_detector_filters_training_rows(tmp_path):
+    """With a real ``outlier_detector`` passed to
+    ``train_mlframe_models_suite`` the OD block must:
+      * fit once (not per-target)
+      * produce ``metadata["outlier_detection"]["applied"] == True``
+      * record ``n_outliers_dropped_train`` in metadata
+      * leave test_df untouched (per the code at core.py:2484)
+
+    Uses IsolationForest with contamination=0.05 so ~5% of rows get
+    dropped — assert strictly > 0 to catch regressions where the OD
+    path silently becomes a no-op.
+    """
+    pytest.importorskip("catboost")
+    from sklearn.ensemble import IsolationForest
+
+    # Build a frame with planted outliers in num_0 so IsolationForest
+    # has something to flag (pure gaussian noise is too clean).
+    rng = np.random.default_rng(42)
+    n = 500
+    num_0 = rng.standard_normal(n).astype("float32")
+    num_0[:30] = num_0[:30] * 10.0  # extreme outliers in first 30 rows
+    num_1 = rng.standard_normal(n).astype("float32")
+    logits = num_0 * 0.1 - 0.5 * num_1  # dampen num_0 impact so we still learn
+    y = (logits + rng.standard_normal(n) * 0.3 > 0).astype("int32")
+    df = pd.DataFrame({"num_0": num_0, "num_1": num_1, "target": y})
+
+    detector = IsolationForest(contamination=0.05, random_state=42, n_estimators=30)
+
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+    trained, meta = train_mlframe_models_suite(
+        df=df, target_name="tgt", model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb"],
+        hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+        init_common_params={"drop_columns": [], "verbose": 0},
+        use_ordinary_models=True, use_mlframe_ensembles=False,
+        data_dir=str(tmp_path), models_dir="models", verbose=0,
+        outlier_detector=detector,
+    )
+    assert trained, "training failed with OD enabled"
+    od_meta = meta.get("outlier_detection") or {}
+    assert od_meta.get("applied") is True, (
+        f"OD metadata 'applied' flag missing/false: {od_meta}"
+    )
+    assert od_meta.get("n_outliers_dropped_train", 0) > 0, (
+        f"OD ran but dropped zero rows — contamination=0.05 on 500 rows "
+        f"with planted outliers should catch ≥1: {od_meta}"
+    )
+    # train_size_after_od must be present and less than the original row count.
+    size_after = od_meta.get("train_size_after_od")
+    assert size_after is not None and size_after < n, (
+        f"train_size_after_od unexpected: {size_after} vs n={n}"
+    )
+
+
+# ===========================================================================
+# #4 — RFECV feature selection path
+# ===========================================================================
+
+
+def test_rfecv_pipeline_runs_for_each_model_family(tmp_path, caplog):
+    """The ``rfecv_models`` kwarg must accept the supported RFECV model
+    names (``cb_rfecv`` / ``lgb_rfecv`` / ``xgb_rfecv``) and train a
+    suite without crashing. This is a smoke guard — the Tier-1 promise
+    is "RFECV path doesn't regress", not a parametric sweep over all
+    three families.
+
+    Evidence the RFECV pre-pipeline executed comes from the suite's
+    own log (``cb_rfecv`` appears in ``pre_pipeline_name`` prefixes on
+    the per-model timing / ensemble / VAL-metric lines). If that log
+    signature goes missing, the kwarg has become a no-op.
+
+    Note: we don't assert a DISTINCT ``model_schemas`` entry for the
+    RFECV variant, because ``model_file_name`` = ``f"{mlframe_model_name}"``
+    (core.py:3134) does NOT include the pre_pipeline_name. When RFECV
+    happens to keep all features its ``schema_hash`` matches the
+    ordinary variant's, and the filename collides → one entry in
+    ``model_schemas``. That's a separate design gap tracked as a
+    follow-up; not what this test guards.
+    """
+    pytest.importorskip("catboost")
+    pytest.importorskip("xgboost")
+    pytest.importorskip("lightgbm")
+
+    import logging
+    caplog.set_level(logging.INFO, logger="mlframe")
+
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
+    from mlframe.training.core import train_mlframe_models_suite
+
+    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+    trained, meta = train_mlframe_models_suite(
+        df=df, target_name="tgt", model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb"],
+        hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+        init_common_params={"drop_columns": [], "verbose": 0},
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        rfecv_models=["cb_rfecv"],
+        data_dir=str(tmp_path), models_dir="models", verbose=1,
+    )
+    assert trained, "RFECV path returned empty trained dict"
+
+    # Evidence RFECV ran: the string "cb_rfecv" must appear in the suite's
+    # own captured log lines. If the pre_pipeline loop silently skipped
+    # the RFECV variant, this log line is absent.
+    log_text = caplog.text.lower()
+    assert "cb_rfecv" in log_text or "rfecv" in log_text, (
+        "RFECV path did not emit any identifying log line; the kwarg "
+        "may have become a silent no-op. Captured log tail:\n"
+        f"{log_text[-500:]}"
+    )
+
+
+# ===========================================================================
+# #5 — Ensembles (``use_mlframe_ensembles=True``)
+# ===========================================================================
+
+
+def test_ensembles_enabled_produces_ensemble_log(tmp_path, caplog):
+    """``use_mlframe_ensembles=True`` must not silently no-op.
+
+    The ensemble code path at ``core.py:3393-3432`` runs
+    ``score_ensemble(...)`` whose result is used only for logging /
+    metrics side effects (not returned in the ``trained`` dict). So
+    the load-bearing evidence it fired is a specific log line:
+    ``"evaluating simple ensembles..."`` at INFO level, followed by
+    an ensemble-tagged metric block.
+
+    If that log disappears, ``use_mlframe_ensembles`` has become a
+    silent flag — models train but no ensemble scoring happens.
+    """
+    pytest.importorskip("catboost")
+    pytest.importorskip("xgboost")
+
+    import logging
+    caplog.set_level(logging.INFO, logger="mlframe")
+
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
+    from mlframe.training.core import train_mlframe_models_suite
+
+    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+    trained, _ = train_mlframe_models_suite(
+        df=df, target_name="tgt", model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb", "xgb"],
+        hyperparams_config={
+            "iterations": 3,
+            "cb_kwargs": {"task_type": "CPU", "verbose": 0},
+            "xgb_kwargs": {"device": "cpu", "verbosity": 0},
+        },
+        init_common_params={"drop_columns": [], "verbose": 0},
+        use_ordinary_models=True, use_mlframe_ensembles=True,
+        data_dir=str(tmp_path), models_dir="models", verbose=1,
+    )
+    assert trained, "ensemble run returned empty trained dict"
+
+    log_text = caplog.text.lower()
+    # The specific phrase from core.py:3395. If this disappears, the
+    # ensemble code path got gated out — regression.
+    assert "evaluating simple ensembles" in log_text, (
+        "use_mlframe_ensembles=True did not trigger the ensemble log. "
+        "Captured log tail:\n" + log_text[-800:]
+    )

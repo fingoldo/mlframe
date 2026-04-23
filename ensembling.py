@@ -397,6 +397,16 @@ def _process_single_ensemble_method(
     kwargs_copy.pop("trainset_features_stats", None)
     kwargs_copy.pop("train_od_idx", None)
     kwargs_copy.pop("val_od_idx", None)
+    # 2026-04-23 (coverage-gap test_ensembles_enabled_produces_ensemble_log):
+    # ``common_params`` frequently carries ``drop_columns`` when the user
+    # passes ``init_common_params={"drop_columns": [...]}``. The literal
+    # ``drop_columns=[]`` below then collides with the ``**kwargs_copy``
+    # splat two positions later, raising
+    # ``TypeError: dict() got multiple values for keyword argument 'drop_columns'``.
+    # Pop the caller's value — the ensemble scorer intentionally sets
+    # ``drop_columns=[]`` to avoid dropping anything its sub-models
+    # already trained on (columns already stripped upstream).
+    kwargs_copy.pop("drop_columns", None)
 
     # Build config objects from flat params
     flat_params = dict(
