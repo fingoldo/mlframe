@@ -560,10 +560,30 @@ class TestSimpleFeaturesAndTargetsExtractorSampleWeights:
         weights = sample_weights['recency']
         assert len(weights) == 5
 
-    def test_no_sample_weights_without_ts_field(self):
-        """Test that no sample weights are generated without ts_field."""
+    def test_no_recency_weights_without_ts_field(self):
+        """Without ts_field, recency is not emitted; the uniform baseline is
+        (since 2026-04-23 ``use_uniform_weighting`` defaults to True so every
+        run has a baseline to attribute metric differences against)."""
         extractor = SimpleFeaturesAndTargetsExtractor(
             regression_targets=['target']
+        )
+        df = pd.DataFrame({
+            'feature1': [1.0, 2.0, 3.0],
+            'target': [10.0, 20.0, 30.0]
+        })
+
+        result = extractor.transform(df)
+        _, _, _, _, _, _, _, sample_weights = result
+
+        assert set(sample_weights.keys()) == {'uniform'}
+        assert sample_weights['uniform'] is None  # uniform is a sentinel, not an array
+
+    def test_sample_weights_fully_disabled(self):
+        """Explicit opt-out still yields an empty dict — the old default."""
+        extractor = SimpleFeaturesAndTargetsExtractor(
+            regression_targets=['target'],
+            use_uniform_weighting=False,
+            use_recency_weighting=False,
         )
         df = pd.DataFrame({
             'feature1': [1.0, 2.0, 3.0],

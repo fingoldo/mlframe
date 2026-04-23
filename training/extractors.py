@@ -522,10 +522,19 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
     classification_upper_thresholds : dict, optional
         Dict mapping column names to upper threshold values for binary classification.
         Example: {"score": 0.8} creates target "score_below_0.8".
-    use_uniform_weighting : bool, default=False
-        If True, include uniform weighting (None) in sample weights dict.
+    use_uniform_weighting : bool, default=True
+        If True, include uniform weighting (None) in sample weights dict. Default is
+        True so every run produces a uniform baseline — without one, a single
+        non-uniform schema (e.g. recency) cannot be attributed: is a metric win
+        due to the weighting or would the same training plan win uniformly?
+        (Observed 2026-04-23 prod log: a recency-only suite reported AUC=0.999
+        VAL / 0.71 TEST without any uniform comparator, making the attribution
+        impossible.)
     use_recency_weighting : bool, default=True
         If True and timestamps are available, include recency-based sample weights.
+        Combined with ``use_uniform_weighting=True``, time-indexed data gets
+        ``{uniform, recency}`` and non-temporal data gets ``{uniform}`` only
+        (recency silently skips when ``timestamps is None``).
 
     Example
     -------
@@ -555,7 +564,7 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
         classification_upper_thresholds: Optional[dict] = None,
         classification_thresholds: Optional[dict] = None,  # alias for classification_lower_thresholds
         # Weighting options
-        use_uniform_weighting: bool = False,
+        use_uniform_weighting: bool = True,
         use_recency_weighting: bool = True,
         # Sequence extraction (for recurrent models)
         sequence_columns: Optional[Tuple[str, ...]] = None,

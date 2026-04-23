@@ -1,5 +1,103 @@
 # Changelog
 
+## 2026-04-23 — Prod-log review fixes
+
+Batch of four fixes motivated by review of the 2026-04-23
+`train_mlframe_models_suite` log on `prod_jobsdetails`.
+
+### Fixed
+
+- **Nullable Polars Boolean → pandas `object` crashed LightGBM**
+  (`mlframe/training/utils.py :: get_pandas_view_of_polars_df`). The
+  column `hide_budget` in prod is `pl.Boolean` with nulls; through
+  pyarrow's `to_pandas()` it materializes as pandas `object` dtype
+  carrying `True`/`False`/`None`, which LightGBM's sklearn wrapper
+  rejects with `ValueError: pandas dtypes must be int, float or bool`.
+  The bridge now detects Arrow `bool` columns before the conversion and
+  coerces any object-materialized ones to pandas `Int8` with `pd.NA` —
+  verified 2026-04-23 as the universal format accepted by LightGBM
+  4.6, XGBoost 3.2, and CatBoost 1.2.10 (plain pandas nullable
+  `boolean` is rejected by CB with "Cannot convert <NA> to float";
+  `Int8` is not). Non-null Boolean columns stay as zero-copy numpy
+  `bool` — the coercion pays only when needed.
+- **`RuntimeWarning: divide by zero` on ensemble harmonic mean**
+  (`mlframe/ensembling.py`). The previous implementation relied on
+  `inf`-routing (`1/0 → inf → 1/mean(...) → 0`), which was numerically
+  correct by definition but produced a noisy warning on every ensemble
+  scoring. Rewritten with `np.errstate(divide="ignore")` + explicit
+  zero-mask: any slot where at least one model predicts exactly 0 is
+  routed to 0 directly, which is the HM definition (`HM(0, x) = 0`).
+  No warning, same values.
+
+### Changed
+
+- **Default weighting schemas flipped to include a uniform baseline**
+  (`mlframe/training/extractors.py :: SimpleFeaturesAndTargetsExtractor`).
+  `use_uniform_weighting` now defaults to `True` (was `False`).
+  Timeseries runs now produce `{uniform, recency}`; non-timeseries runs
+  produce `{uniform}` alone. Motivation: the 2026-04-23 prod suite ran
+  with `recency`-only weighting, which made attributing a 99.9% VAL /
+  71% TEST AUC gap to weighting vs. training plan impossible — there
+  was no baseline to compare against. Users can still opt out
+  explicitly with `use_uniform_weighting=False`.
+
+### Added
+
+- **Sticky "Polars-fastpath-broken" flag on CatBoost models**
+  (`mlframe/training/trainer.py`). When `_predict_with_fallback`'s
+  fallback path converts a `pl.DataFrame` to pandas in response to the
+  CB `No matching signature found` dispatch miss, it now sets
+  `model._mlframe_polars_fastpath_broken = True`. On subsequent
+  `predict_proba` / `predict_log_proba` calls (VAL → TEST →
+  per-ensemble-member scoring), `_predict_with_fallback` short-circuits
+  directly to the pandas path instead of re-hitting the same TypeError.
+  Mirror flag set in `_train_model_with_fallback` when the fit-side
+  fallback fires. Saves one WARN line + ~1–2 s per predict call on
+  prod-size frames (observed: 3–5 such calls per trained model).
+
+### Tests
+
+- New sensor suite: `mlframe/tests/training/test_prod_log_fixes_2026_04_23.py`
+  (16 tests). Locks in each of the above: nullable-Boolean → Int8
+  coercion + end-to-end LGB/XGB/CB fit, `harm` mean zero-handling +
+  warning-free path, weighting-schema defaults, CB sticky-flag
+  shortcut, and the pipeline_cache kind-isolation regression below.
+
+### Fixed (follow-up: duplicate polars→pandas conversion)
+
+- **`pipeline_cache` cross-stream leakage between polars-native and
+  pandas-consuming strategies** (`mlframe/training/core.py`). CB, XGB,
+  and LGB all inherit ``cache_key="tree"``, and XGB/LGB additionally
+  share ``feature_tier()``. Before this fix the cache key was
+  ``tree__tier(...,...)``, so XGB (Polars-native) wrote its polars
+  train/val/test frames into ``pipeline_cache`` under the same key LGB
+  then pulled from. LGB received a polars frame despite having run the
+  lazy pandas conversion one line earlier, and the trainer paid a
+  duplicate polars→pandas conversion as a silent self-heal — 224 s +
+  27.9 GB on the 2026-04-23 prod run, hidden inside a WARNING. Fix:
+  the cache key now includes a container-kind suffix
+  (``_kindpl`` / ``_kindpd``) derived from ``strategy.supports_polars``,
+  so polars and pandas consumers never read each other's entries even
+  when ``cache_key`` and ``feature_tier`` are identical. Mirror of the
+  same fix already applied to ``_build_tier_dfs`` upstream.
+- **Trainer self-heal replaced with hard-raise for non-Polars-native
+  models** (`mlframe/training/trainer.py::_train_model_with_fallback`).
+  The previous "self-heal" silently ran a second polars→pandas
+  conversion whenever LGB received a polars frame; that convenience is
+  exactly what buried the pipeline_cache leak above. The self-heal
+  path is now a ``RuntimeError`` that names the frame's id + shape and
+  points at ``pipeline_cache`` — future leaks surface as loud errors,
+  not hidden duplicate work. Polars-native strategies (CB, XGB, HGB)
+  still receive polars unchanged.
+
+### Tests (follow-up)
+
+- ``TestPipelineCacheKindIsolation`` (3 tests in the sensor suite):
+  end-to-end mixed cb+xgb+lgb suite on a polars frame must complete
+  without the trainer's hard-raise tripping; the cache-key format
+  includes the kind suffix; the trainer hard-raises on polars input to
+  LGB (defense-in-depth).
+
 ## 2026-04-21 — Training-overhead fixes (plan: `jolly-wishing-deer`)
 
 Addresses ~14 min of avoidable overhead and one blocking crash observed on

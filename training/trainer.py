@@ -1392,6 +1392,32 @@ def _predict_with_fallback(
             f"({type(_exc).__name__}: {_exc}); falling through."
         )
 
+    # Short-circuit: if this model already made a Polars-fastpath predict
+    # call fail and fell back to pandas (via the except block below, or the
+    # parallel path in _train_model_with_fallback), remember it and pre-
+    # convert on every subsequent call. Otherwise VAL + TEST + ensemble
+    # predict paths each re-hit the same Cython dispatch miss, each emitting
+    # a "No matching signature found" WARN + 1-2s wasted conversion. The flag
+    # is set on the model instance (not module-level) so different models in
+    # the same suite each get their own cache state.
+    _sticky_pandas = (
+        isinstance(X, pl.DataFrame)
+        and type(model).__name__ in CATBOOST_MODEL_TYPES
+        and getattr(model, "_mlframe_polars_fastpath_broken", False)
+    )
+    if _sticky_pandas:
+        from mlframe.training.utils import get_pandas_view_of_polars_df
+        from mlframe.preprocessing import prepare_df_for_catboost as _prep_cb
+        cat_feat, text_feat = _recover_cb_feature_names(model)
+        X_pd = get_pandas_view_of_polars_df(X)
+        if text_feat:
+            for col in text_feat:
+                if col in X_pd.columns and isinstance(X_pd[col].dtype, pd.CategoricalDtype):
+                    X_pd[col] = X_pd[col].astype("object").fillna("")
+        X_pd = _prep_cb(X_pd, cat_features=list(cat_feat), text_features=list(text_feat))
+        with phase(method, model=type(model).__name__, n_rows=n_rows):
+            return fn(X_pd)
+
     try:
         with phase(method, model=type(model).__name__, n_rows=n_rows):
             return fn(X)
@@ -1413,6 +1439,15 @@ def _predict_with_fallback(
             "converting to pandas and retrying.",
             method, err_str.splitlines()[-1][:240],
         )
+
+        # Mark this model instance as "Polars-broken" so the next predict/
+        # predict_proba/predict_log_proba call skips the retry dance.
+        try:
+            model._mlframe_polars_fastpath_broken = True
+        except Exception:
+            # Non-settable classes (frozen dataclasses, slots) — we simply
+            # keep paying the TypeError-retry cost. Not fatal.
+            pass
 
         # Recover cat/text feature names from the fitted model so
         # prepare_df_for_catboost can keep dtypes consistent with fit.
@@ -1883,38 +1918,39 @@ def _train_model_with_fallback(
     except Exception:
         pass
 
-    # Self-heal for LGB/sklearn/linear models that receive a Polars DataFrame.
-    # Root cause (2026-04-22): the lazy-pandas-conversion block in
-    # core.py:2898-2908 is supposed to fire for non-Polars-native strategies,
-    # but in multi-model suites it can be skipped or its effect can be lost
-    # before this point. LGB's sklearn wrapper then takes the non-pandas
-    # branch in fit(), calls _LGBMValidateData → check_array which converts
-    # the Polars frame to a numpy object array, and Dataset.__init_from_np2d
-    # crashes on the first string cell ('HOURLY'). Convert in-place here so
-    # LGB sees a proper pd.DataFrame and takes its native pandas fastpath.
-    # Self-heal only for LGB (which handles pd.Categorical natively once it
-    # sees a pandas frame). Linear/sklearn models MUST go through the
-    # upstream category_encoder pipeline — hacking .cat.codes here would
-    # hide the root-cause bug where pre_pipeline with CatBoostEncoder
-    # doesn't reach LinearModelStrategy's fit_transform step.
-    if _is_polars and "LGBM" in model_type_name:
-        from .utils import get_pandas_view_of_polars_df
-        logger.warning(
-            "  [pre-fit] %s received pl.DataFrame; LGB sklearn wrapper would "
-            "crash on string categoricals in the non-pandas branch. Converting "
-            "to pandas in-place. Investigate why upstream lazy conversion didn't fire.",
-            model_type_name,
+    # Polars-frame contract: only CatBoost, XGBoost, and HistGradientBoosting
+    # accept a Polars frame natively at fit time — their strategies carry
+    # ``supports_polars=True``. Everyone else (LGB, sklearn, linear, ridge,
+    # ...) MUST arrive with pandas; if a pl.DataFrame gets here for them, the
+    # upstream lazy-conversion → pipeline_cache → process_model chain has a
+    # leak. Previously the trainer silently ran a second polars→pandas
+    # conversion as a "self-heal" — which hid the 2026-04-23 regression where
+    # ``pipeline_cache`` crossed streams between XGB (polars-native,
+    # ``cache_key="tree" + tier(False,False)``) and LGB (same key) — LGB kept
+    # pulling XGB's polars frame out of cache and paying a duplicate 224 s
+    # conversion. The pipeline_cache fix (container-kind in key, core.py) is
+    # the real fix; this raise is the guard that ensures future leaks are
+    # caught at the trainer boundary instead of being papered over.
+    _POLARS_NATIVE_FIT_MODEL_PREFIXES = (
+        "CatBoost",      # CatBoostClassifier / CatBoostRegressor / CatBoost
+        "XGB",           # XGBClassifier / XGBRegressor / XGBRanker
+        "HistGradient",  # HistGradientBoostingClassifier / Regressor
+    )
+    if _is_polars and not any(
+        model_type_name.startswith(p) for p in _POLARS_NATIVE_FIT_MODEL_PREFIXES
+    ):
+        raise RuntimeError(
+            f"{model_type_name} received pl.DataFrame at fit time "
+            f"(shape={train_df.shape}, id={id(train_df)}). Only Polars-native "
+            f"strategies (CatBoost, XGBoost, HistGradientBoosting) may receive "
+            f"polars — everyone else needs pandas via the core.py lazy-"
+            f"conversion path. Most likely cause: ``pipeline_cache`` returned "
+            f"a polars frame cached by a polars-native strategy under a "
+            f"``cache_key`` that collides with this strategy's key (see the "
+            f"2026-04-23 kind-suffix fix in core.py). Diagnose via "
+            f"pipeline_cache keys + id() — do NOT add another silent "
+            f"self-heal."
         )
-        train_df = get_pandas_view_of_polars_df(train_df)
-        if "eval_set" in fit_params and fit_params["eval_set"]:
-            new_eval = []
-            es = fit_params["eval_set"]
-            es_pairs = es if isinstance(es, list) else [es]
-            for X_v, y_v in es_pairs:
-                if isinstance(X_v, pl.DataFrame):
-                    X_v = get_pandas_view_of_polars_df(X_v)
-                new_eval.append((X_v, y_v))
-            fit_params["eval_set"] = new_eval if isinstance(es, list) else new_eval[0]
 
     try:
         with phase("model.fit", model=model_type_name,
@@ -2022,6 +2058,16 @@ def _train_model_with_fallback(
                 "converting to pandas and retrying.",
                 last_line[:240],
             )
+            # Mark the model "Polars-broken" so subsequent predict_proba /
+            # predict_log_proba calls via _predict_with_fallback go straight
+            # to the pandas path — avoids the same Cython dispatch miss on
+            # every VAL/TEST/ensemble scoring (one WARN + one ~2s retry per
+            # call saved). See the symmetric short-circuit in
+            # _predict_with_fallback.
+            try:
+                model._mlframe_polars_fastpath_broken = True
+            except Exception:
+                pass
             schema_dump = _polars_schema_diagnostic(
                 train_df,
                 cat_features=fit_params.get("cat_features"),

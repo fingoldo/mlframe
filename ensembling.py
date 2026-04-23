@@ -188,7 +188,18 @@ def ensemble_probabilistic_predictions(
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
     if ensemble_method == "harm":
-        ensembled_predictions = 1 / np.mean(np.array([1 / pred for pred in preds]), axis=0)
+        # Harmonic mean: if any model predicts exactly 0, HM is defined as 0.
+        # Plain ``1 / pred`` triggers RuntimeWarning ("divide by zero") and
+        # produces ``inf``, which ``1/mean(...)`` then maps back to 0 — correct
+        # numerically but noisy in logs (observed 2026-04-23 prod run). Mask the
+        # zeros explicitly so the common path stays warning-free.
+        preds_arr = np.asarray(preds, dtype=np.float64)
+        any_zero = (preds_arr == 0).any(axis=0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            inv_sum = np.sum(1.0 / preds_arr, axis=0)
+            ensembled_predictions = len(preds_arr) / inv_sum
+        if any_zero.any():
+            ensembled_predictions = np.where(any_zero, 0.0, ensembled_predictions)
     elif ensemble_method == "arithm":
         ensembled_predictions = np.mean(np.array(preds), axis=0)
     elif ensemble_method == "median":

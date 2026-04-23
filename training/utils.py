@@ -507,6 +507,18 @@ def get_pandas_view_of_polars_df(
 
     tbl_fixed = pa.table(fixed_cols, names=tbl.column_names)
 
+    # Capture which Arrow columns were bool BEFORE to_pandas(). Nullable Boolean
+    # columns (those with any null) materialize as pandas ``object`` dtype with
+    # Python True/False/None elements — verified empirically 2026-04-23 against
+    # pyarrow 21 on Polars 1.37. This breaks LightGBM's sklearn wrapper, which
+    # refuses ``object`` dtypes (``ValueError: pandas dtypes must be int, float
+    # or bool``). Non-null Boolean stays as numpy ``bool``. We post-process only
+    # the object-materialized ones below.
+    _arrow_bool_cols = [
+        name for name, col in zip(tbl_fixed.column_names, tbl_fixed.columns)
+        if pa.types.is_boolean(col.type)
+    ]
+
     # Use numpy-backed pandas (types_mapper=None) for broad model compatibility.
     # LightGBM (and some other sklearn-family models) reject pandas columns with
     # ArrowDtype (e.g. 'float[pyarrow]').
@@ -535,6 +547,25 @@ def get_pandas_view_of_polars_df(
         split_blocks=True,
         self_destruct=self_destruct,
     )
+
+    # Coerce object-materialized nullable Boolean → pandas Int8 with ``pd.NA``.
+    # Verified 2026-04-23 that Int8/``pd.NA`` is accepted by all three tree
+    # backends (LightGBM 4.6, XGBoost 3.2, CatBoost 1.2.10); pandas nullable
+    # ``boolean`` is rejected by CatBoost ("Cannot convert <NA> to float") so we
+    # avoid it. Non-null Boolean already came out as numpy ``bool`` and is left
+    # alone. Object-elsewhere (e.g. ``pl.List`` / ``pl.Struct``) is untouched —
+    # the nested-dtype warning above still fires for those.
+    _coerced_bool_cols = []
+    for name in _arrow_bool_cols:
+        if pandas_df[name].dtype == object:
+            pandas_df[name] = pandas_df[name].astype("boolean").astype("Int8")
+            _coerced_bool_cols.append(name)
+    if _coerced_bool_cols and logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "get_pandas_view_of_polars_df: coerced %d nullable-bool object "
+            "column(s) to Int8: %s",
+            len(_coerced_bool_cols), _coerced_bool_cols,
+        )
 
     _elapsed = _time.perf_counter() - _t0
     if _elapsed >= log_threshold_seconds:
