@@ -135,11 +135,18 @@ def _rule_linear_polars_gating_bug(c: FuzzCombo) -> bool:
 
 
 def _rule_mrmr_plus_linear_multi_pandas(c: FuzzCombo) -> bool:
-    """MRMR drops features; when linear is in a multi-model suite on pandas,
-    a later estimator raises 'feature names should match those passed during
-    fit' because schema-validation sees the dropped cols missing. 7 combos
-    all match this shape. Tracked for fix in the MRMR-pre_pipeline wiring
-    that should sync the selected_features across models in the same suite."""
+    """MRMR + linear + multi-model pipeline still raises a feature-name
+    mismatch even after partial fixes. Progress in 2026-04-22 sweep:
+      * orig_pre_pipeline now cloned per model → MRMR refits cleanly for
+        each strategy (commit edb6199+)
+      * MRMR.transform intersects with X.columns when selected cols are
+        missing (same commit)
+      * _is_fitted on Pipeline requires ALL steps fitted (same commit)
+    Residual symptom: mlframe generates per-iteration targ_<id> columns;
+    MRMR selects them during fit, but transform sees a differently-id'd
+    set at predict time and sklearn validate_data still flags a
+    fit-time-vs-now diff. Tracked for a deeper fix in how mlframe injects
+    generated target cols (stable names across iterations needed)."""
     return (
         "linear" in c.models
         and len(c.models) > 1

@@ -3347,7 +3347,19 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Drop Temporarily targets
         # ---------------------------------------------------------------------------------------------------------------
 
-        X = X.drop(columns=target_names)
+        # 2026-04-22 fuzz-caught: the previous ``X = X.drop(columns=target_names)``
+        # returned a NEW DataFrame and only rebound the local ``X``. When the
+        # caller's input was pandas (so X.loc[:, target_names] = ... mutated
+        # the caller's frame directly), the caller's X was left with the
+        # injected ``targ_<id>`` columns attached. They then leaked into the
+        # downstream sklearn pipeline: imputer/scaler recorded ``targ_<id>``
+        # in ``feature_names_in_`` and raised on the next transform call.
+        # Fix: drop in place. This mutates the caller's frame back to its
+        # original schema (removes what we injected above) without any copy.
+        # NOTE: for prod 100+ GB frames, MRMR is expected to run on a sample,
+        # not the full frame — the ``.to_pandas()`` conversion above would
+        # itself be prohibitive at that scale. See CLAUDE.md.
+        X.drop(columns=target_names, inplace=True)
 
         # ---------------------------------------------------------------------------------------------------------------
         # selected_vars needs to be transformed to names using the cols variable and then back to indices using original Df columns names.
@@ -3454,6 +3466,24 @@ class MRMR(BaseEstimator, TransformerMixin):
                 # Use column names to support Arrow-backed DataFrames (from polars zero-copy conversion).
                 # Arrow-backed DFs don't support .iloc[:, integer_array] reliably.
                 selected_cols = [self.feature_names_in_[i] for i in support]
+                # 2026-04-22 fuzz-caught: in a multi-model suite where
+                # the same fitted MRMR is reused across models (via sklearn
+                # Pipeline state), the val_df passed to transform can have
+                # a different column set than the train_df MRMR fit on
+                # (e.g. after ``_filter_categorical_features`` or other
+                # per-model reshaping narrowed the frame). Falling through
+                # to ``X[selected_cols]`` on a DF missing any selected
+                # col raises KeyError with no actionable context.
+                # Intersect with X.columns and keep order, warn if shrunk.
+                missing = [c for c in selected_cols if c not in X.columns]
+                if missing:
+                    import logging as _lg
+                    _lg.getLogger(__name__).warning(
+                        "MRMR.transform: %d selected col(s) missing from input "
+                        "X — degrading to the intersection. Missing: %s",
+                        len(missing), missing[:8],
+                    )
+                    selected_cols = [c for c in selected_cols if c in X.columns]
                 return X[selected_cols]
             else:
                 return X.iloc[:, support]

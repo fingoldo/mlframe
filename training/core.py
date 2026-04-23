@@ -2784,8 +2784,29 @@ def train_mlframe_models_suite(
 
                     # Use strategy pattern to determine pipeline and cache key
                     strategy = strategy_by_model[id(mlframe_model_name)]
+                    # Clone base_pipeline per model so each iteration gets a
+                    # fresh un-fitted selector (MRMR / RFECV). Previously, a
+                    # single fitted ``orig_pre_pipeline`` was shared across
+                    # all models in the suite — if CB fit it on train_df
+                    # and selected 3 of 4 cols, the following Linear iter
+                    # saw a pipeline where MRMR was already fitted but
+                    # encoder/imputer/scaler were not. ``_is_fitted`` mis-
+                    # reported True → code took the transform-only branch
+                    # → imputer.transform raised "feature names should
+                    # match those passed during fit". Cloning isolates each
+                    # strategy's fit state. sklearn.base.clone handles
+                    # feature selectors (they're BaseEstimator-compatible)
+                    # without copying fitted data — resets parameters only.
+                    _base_for_strategy = orig_pre_pipeline
+                    if _base_for_strategy is not None:
+                        try:
+                            _base_for_strategy = clone(_base_for_strategy)
+                        except Exception:
+                            # Some custom base pipelines (non-BaseEstimator)
+                            # don't clone; keep the original reference.
+                            pass
                     pre_pipeline = strategy.build_pipeline(
-                        base_pipeline=orig_pre_pipeline,
+                        base_pipeline=_base_for_strategy,
                         cat_features=cat_features,
                         category_encoder=category_encoder if cat_features else None,
                         imputer=imputer,

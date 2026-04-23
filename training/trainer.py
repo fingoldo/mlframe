@@ -668,6 +668,27 @@ def _is_fitted(estimator):
     """
     if estimator is None:
         return False
+    # For a sklearn Pipeline, ``check_is_fitted`` passes as long as ANY step
+    # has fitted state — even if later steps are still unfitted. That bit
+    # us on 2026-04-22 (fuzz c0031): LinearModelStrategy's pre_pipeline had
+    # a fitted MRMR step (reused from a prior CB iteration) but un-fitted
+    # encoder/imputer/scaler. _is_fitted returned True → code took the
+    # ".transform only" branch → imputer.transform raised ValueError 'The
+    # feature names should match those that were passed during fit'.
+    # Require every non-trivial step to be fitted.
+    try:
+        from sklearn.pipeline import Pipeline
+        if isinstance(estimator, Pipeline):
+            for _name, step in estimator.steps:
+                if step is None or step == "passthrough":
+                    continue
+                try:
+                    check_is_fitted(step)
+                except NotFittedError:
+                    return False
+            return True
+    except Exception:
+        pass
     try:
         check_is_fitted(estimator)
         return True
