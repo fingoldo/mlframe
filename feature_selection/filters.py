@@ -3432,9 +3432,17 @@ class MRMR(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X, y=None):
-        if self.support_ is None:
+        # 2026-04-22 fuzz-caught: on synthetic low-MI data MRMR.fit() can
+        # exit early without setting self.support_ (e.g. it never started
+        # the selection loop). getattr() gracefully handles that: no
+        # ``support_`` attribute => pass-through, matching the
+        # "no selection yet" semantics of ``support_ is None``. Without
+        # this, ``transform`` raises AttributeError on a freshly-cloned
+        # MRMR that sklearn Pipeline (re)uses across fit→transform calls.
+        support = getattr(self, "support_", None)
+        if support is None:
             return X
-        if len(self.support_) == 0:
+        if len(support) == 0:
             # Return empty DataFrame/array with same rows but no columns
             # This signals that feature selection found no useful features
             if isinstance(X, pd.DataFrame):
@@ -3445,12 +3453,12 @@ class MRMR(BaseEstimator, TransformerMixin):
             if ENSURE_ARROW_DF_SUPPORT:
                 # Use column names to support Arrow-backed DataFrames (from polars zero-copy conversion).
                 # Arrow-backed DFs don't support .iloc[:, integer_array] reliably.
-                selected_cols = [self.feature_names_in_[i] for i in self.support_]
+                selected_cols = [self.feature_names_in_[i] for i in support]
                 return X[selected_cols]
             else:
-                return X.iloc[:, self.support_]
+                return X.iloc[:, support]
         else:
-            return X[:, self.support_]
+            return X[:, support]
 
 
 def check_prospective_fe_pairs(

@@ -153,6 +153,42 @@ def test_sensor_tier_cache_polars_pandas_collision(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Sensor — MRMR.transform raised AttributeError on un-set support_ (FIXED 2026-04-22).
+# ---------------------------------------------------------------------------
+
+def test_sensor_mrmr_transform_handles_missing_support_(tmp_path):
+    """Regression guard for MRMR.transform crashing on un-set support_.
+
+    Fuzz c0109: single Linear + MRMR on pandas with 1 cat feature + n=1200
+    synthetic-data. MRMR.fit() exited early (no positive MI signal on the
+    noise-level target) without ever assigning ``self.support_``. The
+    sklearn Pipeline then called MRMR.transform() as part of a fit→transform
+    flow, and filters.py:3435 ``if self.support_ is None`` raised
+    AttributeError because the attribute didn't exist at all.
+
+    Fixed 2026-04-22 by replacing direct attribute access with
+    ``getattr(self, 'support_', None)`` in MRMR.transform — preserving the
+    "no selection yet" pass-through semantics without requiring the
+    attribute to exist. Regressing this = direct dict lookup on support_.
+    """
+    _skip_if_deps_missing("linear")
+    combo = FuzzCombo(
+        models=("linear",),
+        input_type="pandas",
+        n_rows=1200,
+        cat_feature_count=1,
+        null_fraction_cats=0.0,
+        use_mrmr_fs=True,
+        weight_schemas=("uniform",),
+        target_type="binary_classification",
+        auto_detect_cats=True,
+        align_polars_categorical_dicts=False,
+        seed=109,
+    )
+    _run_sensor_combo(combo, tmp_path)
+
+
+# ---------------------------------------------------------------------------
 # Sensor #2 — _SafeUnpickler blocked category_encoders (FIXED 2026-04-22).
 # ---------------------------------------------------------------------------
 

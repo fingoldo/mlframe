@@ -191,17 +191,11 @@ def _rule_cb_sparse_text_small(c: FuzzCombo) -> bool:
 # in test_fuzz_regression_sensors.py — permanent regression guard.
 
 
-def _rule_mrmr_single_linear_pandas(c: FuzzCombo) -> bool:
-    """MRMR + single linear model on pandas with a few cat features raises
-    'MRMR object has no attribute support_' — MRMR didn't finish its fit
-    (aborted early on low mutual information with so few informative
-    features synthetic-data-wise). Tracked as MRMR robustness issue."""
-    return (
-        c.models == ("linear",)
-        and c.use_mrmr_fs
-        and c.input_type == "pandas"
-        and c.cat_feature_count >= 1
-    )
+# _rule_mrmr_single_linear_pandas REMOVED 2026-04-22: MRMR.transform now
+# uses getattr(self, 'support_', None) so a fit() that exits without
+# setting support_ (e.g. early-exit on low-MI synthetic data) degrades
+# to pass-through instead of raising. Regression guard:
+# test_sensor_mrmr_transform_handles_missing_support_ in test_fuzz_regression_sensors.py.
 
 
 KNOWN_XFAIL_RULES: list[tuple[Callable[[FuzzCombo], bool], str]] = [
@@ -238,12 +232,8 @@ KNOWN_XFAIL_RULES: list[tuple[Callable[[FuzzCombo], bool], str]] = [
     # _rule_polars_schema_dispatch_bug REMOVED 2026-04-22: fixed in
     # core.py _build_tier_dfs (cache key now includes container kind).
     # Permanent regression guard: test_sensor_tier_cache_polars_pandas_collision.
-    (
-        _rule_mrmr_single_linear_pandas,
-        "MRMR + single linear + pandas + cats: MRMR doesn't finish its fit "
-        "(empty support_), downstream transform raises AttributeError. "
-        "MRMR robustness issue with synthetic-data low-MI features; tracked.",
-    ),
+    # _rule_mrmr_single_linear_pandas REMOVED 2026-04-22: fixed in MRMR.transform.
+    # Permanent regression guard: test_sensor_mrmr_transform_handles_missing_support_.
 ]
 
 
