@@ -627,15 +627,28 @@ def process_model(
         if verbose:
             logger.info(f"Loading model from file {fpath}")
         loaded_model = load_mlframe_model(fpath)
-        if verbose:
-            logger.info(f"Loaded.")
-        mismatch = _validate_cached_model_schema(loaded_model, common_params.get("train_df"))
-        if mismatch:
-            logger.warning(f"Invalidating stale cached model at {fpath}: {mismatch}. Retraining.")
+        if loaded_model is None:
+            # Load returned None (e.g. _SafeUnpickler rejected an unsafe class,
+            # file corrupted, version skew). The loader logs the root cause;
+            # we fall back to retraining rather than attempting to use a
+            # half-loaded artifact and tripping AttributeError downstream on
+            # loaded_model.model.
+            logger.warning(
+                f"Cached model load returned None at {fpath} — "
+                f"retraining. (Check earlier WARN for the real cause: "
+                f"unsafe class blocked by allowlist, corrupted file, etc.)"
+            )
             use_cached_model = False
         else:
-            model_obj = loaded_model.model
-            pre_pipeline = loaded_model.pre_pipeline
+            if verbose:
+                logger.info(f"Loaded.")
+            mismatch = _validate_cached_model_schema(loaded_model, common_params.get("train_df"))
+            if mismatch:
+                logger.warning(f"Invalidating stale cached model at {fpath}: {mismatch}. Retraining.")
+                use_cached_model = False
+            else:
+                model_obj = loaded_model.model
+                pre_pipeline = loaded_model.pre_pipeline
     if not use_cached_model:
         if "model" not in model_params:
             raise KeyError(f"'model' key missing in model_params. Available keys: {list(model_params.keys())}")

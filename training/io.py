@@ -85,6 +85,14 @@ _SAFE_MODULE_PREFIXES: tuple = (
     # mlframe.* helpers (metrics.ICE, training.helpers.*, etc.) inside their pickled
     # state; without this the cb model is silently dropped at load time.
     "mlframe",
+    # Fix date 2026-04-22 (fuzz): Linear pre_pipelines include CatBoostEncoder /
+    # OrdinalEncoder / OneHotEncoder from the category_encoders package. Blocking
+    # them forced every cached-linear reload to fall back to retraining — the
+    # "Unsafe class blocked by _SafeUnpickler allowlist:
+    # category_encoders.cat_boost.CatBoostEncoder" WARN was noisy and defeated
+    # the schema-hash caching mechanism for any suite that includes linear
+    # models. Package is a widely-used sklearn-family transformer, safe to allow.
+    "category_encoders",
 )
 
 # Specific safe names in "types" (only SimpleNamespace).

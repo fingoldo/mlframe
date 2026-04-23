@@ -759,9 +759,24 @@ def _build_tier_dfs(
     """
     import polars as pl
 
-    tier = strategy.feature_tier()
-    if tier in tier_cache:
-        return tier_cache[tier]
+    # Cache key = (tier, input-container-kind). Without the kind component the
+    # cache collides between Polars and pandas inputs: in a multi-model suite
+    # where Linear (non-polars-native) runs first it stashes pandas tier-DFs
+    # under tier=(False,False); XGB (polars-native) later asks for the same
+    # tier and gets pandas back, then XGBoostStrategy.prepare_polars_dataframe
+    # raises "'DataFrame' object has no attribute 'schema'" on strategies.py:323.
+    # The "kind" tag is sampled from the first non-None input, matching what
+    # the caller actually passed in this invocation.
+    kind = "none"
+    for k in ("train_df", "val_df", "test_df"):
+        v = base_dfs.get(k)
+        if v is not None:
+            kind = "pl" if isinstance(v, pl.DataFrame) else "pd"
+            break
+    tier_key = (strategy.feature_tier(), kind)
+    tier = tier_key  # preserved name for downstream logging + storage
+    if tier_key in tier_cache:
+        return tier_cache[tier_key]
 
     # Determine columns to exclude for this tier
     cols_to_exclude = set()

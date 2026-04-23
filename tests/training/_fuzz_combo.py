@@ -176,30 +176,19 @@ def _rule_cb_sparse_text_small(c: FuzzCombo) -> bool:
     )
 
 
-def _rule_polars_schema_dispatch_bug(c: FuzzCombo) -> bool:
-    """AttributeError 'DataFrame has no attribute schema' in the model dispatch
-    chain — reproduced on two distinct combo shapes:
-      (a) polars_utf8 + multi-model (incl. linear/hgb) + ncats=0
-      (b) polars_enum + lgb+xgb + mrmr=True + ncats>0
-    Common root: a branch that assumes Polars input runs after self-heal has
-    converted the frame to pandas. Tracked as a Polars/pandas dispatch
-    consistency bug."""
-    # Shape (a): polars_utf8 + multi + linear/hgb, no cats
-    if (
-        c.input_type == "polars_utf8"
-        and c.cat_feature_count == 0
-        and len(c.models) > 1
-        and ("linear" in c.models or "hgb" in c.models)
-    ):
-        return True
-    # Shape (b): polars_enum + lgb+xgb + mrmr
-    if (
-        c.input_type == "polars_enum"
-        and c.use_mrmr_fs
-        and set(c.models) == {"lgb", "xgb"}
-    ):
-        return True
-    return False
+# REMOVED 2026-04-22: _rule_polars_schema_dispatch_bug
+#
+# Root cause was: _build_tier_dfs in core.py cached tier-DFs keyed only on
+# strategy.feature_tier() — which collides between Polars and pandas inputs
+# when a non-polars-native strategy (Linear) runs before a polars-native
+# strategy (XGB) in the same multi-model suite. Linear stashed pandas
+# tier-DFs under tier=(False,False); XGB retrieved the same key and got
+# pandas back; XGBoostStrategy.prepare_polars_dataframe then tried
+# df.schema.items() on a pandas frame and raised AttributeError.
+#
+# Fix: cache key now = (tier, kind) where kind ∈ {"pl","pd"} sampled from
+# the first non-None input. See test_sensor_tier_cache_polars_pandas_collision
+# in test_fuzz_regression_sensors.py — permanent regression guard.
 
 
 def _rule_mrmr_single_linear_pandas(c: FuzzCombo) -> bool:
@@ -246,14 +235,9 @@ KNOWN_XFAIL_RULES: list[tuple[Callable[[FuzzCombo], bool], str]] = [
         "Upstream CB limitation, not an mlframe bug — real-data non_null "
         "density floors would avoid it.",
     ),
-    (
-        _rule_polars_schema_dispatch_bug,
-        "AttributeError 'DataFrame has no attribute schema' — a branch in the "
-        "model dispatch chain assumes Polars input but runs after self-heal "
-        "has converted to pandas. Reproduced on two combo shapes (polars_utf8 "
-        "multi-model + ncats=0, and polars_enum + lgb+xgb + MRMR). Tracked "
-        "as a Polars/pandas dispatch consistency bug.",
-    ),
+    # _rule_polars_schema_dispatch_bug REMOVED 2026-04-22: fixed in
+    # core.py _build_tier_dfs (cache key now includes container kind).
+    # Permanent regression guard: test_sensor_tier_cache_polars_pandas_collision.
     (
         _rule_mrmr_single_linear_pandas,
         "MRMR + single linear + pandas + cats: MRMR doesn't finish its fit "
