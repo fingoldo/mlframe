@@ -94,6 +94,23 @@ def _run_sensor_combo(combo: FuzzCombo, tmp_path):
             "full_npermutations": 3,
         }
 
+    # Wire new axes (2026-04-24 expansion) through config objects so sensors
+    # exercise the same code paths as the fuzz runner. Text / embedding
+    # feature lists are declared explicitly (mirror the fuzz builder's
+    # "emit only when cb is in models" gate) — otherwise a combo with
+    # ``auto_detect_cats=False`` would orphan any emitted text/emb column.
+    from mlframe.training.configs import (
+        PolarsPipelineConfig, FeatureTypesConfig, TrainingBehaviorConfig,
+    )
+    emits_text = combo.text_col_count > 0 and "cb" in combo.models
+    emits_emb = (
+        combo.embedding_col_count > 0
+        and "cb" in combo.models
+        and combo.input_type != "pandas"
+    )
+    text_feats = [f"text_{i}" for i in range(combo.text_col_count)] if emits_text else None
+    emb_feats = [f"emb_{i}" for i in range(combo.embedding_col_count)] if emits_emb else None
+
     trained, _meta = train_mlframe_models_suite(
         df=df,
         target_name=combo.short_id(),
@@ -109,6 +126,19 @@ def _run_sensor_combo(combo: FuzzCombo, tmp_path):
         verbose=0,
         use_mrmr_fs=combo.use_mrmr_fs,
         mrmr_kwargs=mrmr_kwargs,
+        pipeline_config=PolarsPipelineConfig(
+            use_polarsds_pipeline=combo.use_polarsds_pipeline,
+        ),
+        feature_types_config=FeatureTypesConfig(
+            auto_detect_feature_types=combo.auto_detect_cats,
+            use_text_features=combo.use_text_features,
+            honor_user_dtype=combo.honor_user_dtype,
+            text_features=text_feats,
+            embedding_features=emb_feats,
+        ),
+        behavior_config=TrainingBehaviorConfig(
+            align_polars_categorical_dicts=combo.align_polars_categorical_dicts,
+        ),
     )
     assert trained, "train_mlframe_models_suite returned empty models dict"
 
@@ -514,3 +544,148 @@ def test_sensor_safeunpickler_allows_category_encoders(tmp_path):
         "Regression: _SafeUnpickler blocked a category_encoders class. "
         f"Full WARN log: {log_text[:500]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Sensor — polars-ds ordinal_encode must NOT encode text_features (FIXED 2026-04-23).
+# ---------------------------------------------------------------------------
+
+def test_sensor_polarsds_does_not_encode_text_features(tmp_path):
+    """Regression guard for the polars-ds pipeline encoding text columns
+    to numeric codes, breaking CatBoost's ``text_features`` dispatch.
+
+    Root cause (fuzz caught as c0085 / c0049 on 2026-04-23): in
+    ``mlframe/training/pipeline.py:create_polarsds_pipeline`` the
+    ordinal-encode step was configured with ``cols=None``, which means
+    "auto-detect all string/categorical columns". That auto-detection
+    includes user-declared ``text_features`` — polars-ds happily replaced
+    a column like ``text_0`` (strings like ``"backend backend search"``)
+    with float32 ordinal codes like ``187.0``. CB's Pool construction
+    then raised::
+
+        Invalid type for text_feature[non-default value idx=0,
+        feature_idx=2]=187.0 : text_features must have string type
+
+    Fix: ``fit_and_transform_pipeline`` now forwards the exclude set
+    (``text_features | embedding_features``) to
+    ``create_polarsds_pipeline`` as ``exclude_from_encoding=``. The
+    encoder receives an explicit ``cols=`` list that excludes those
+    reserved columns.
+
+    Pinned to fuzz combo ``c0085_39d4cb7b`` (master_seed 20260422).
+    If this test goes red, the most likely regression is someone
+    dropping the ``exclude_from_encoding=`` forward at fit_and_transform_pipeline,
+    or re-adding a ``cols=None`` shortcut to the ordinal_encode call.
+    """
+    _skip_if_deps_missing("cb", "linear", "xgb")
+    combo = FuzzCombo(
+        models=("cb", "linear", "xgb"),
+        input_type="polars_nullable",
+        n_rows=300,
+        cat_feature_count=8,
+        null_fraction_cats=0.3,
+        use_mrmr_fs=True,
+        weight_schemas=("uniform",),
+        target_type="binary_classification",
+        auto_detect_cats=False,
+        align_polars_categorical_dicts=True,
+        seed=85,
+        use_polarsds_pipeline=True,
+        use_text_features=True,
+        honor_user_dtype=False,
+        text_col_count=1,
+        embedding_col_count=1,
+    )
+    _run_sensor_combo(combo, tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Sensor — Enum column null-fill must expand the Enum to include sentinel
+# AND the top-level ``train_df_pd / filtered_train_df`` aliases must pick up
+# the filled clone (FIXED 2026-04-23).
+# ---------------------------------------------------------------------------
+
+def test_sensor_enum_null_fill_reaches_lazy_pandas_conversion(tmp_path):
+    """Regression guard for ``__MISSING__`` sentinel fills being lost
+    between the upstream polars fill step and the lazy pandas conversion
+    that feeds non-polars-native strategies (Linear, LGB, Neural).
+
+    Two layered bugs, both caught by fuzz combo ``c0121_c9085951`` /
+    ``c0088_2fa08bef`` (master_seed 20260422):
+
+    1. **Silent no-op on pl.Enum**: ``pl.col(c).fill_null('__MISSING__')``
+       on a ``pl.Enum`` whose category list does NOT include the
+       sentinel is a SILENT NO-OP in polars 1.40 — no error, no warning,
+       nulls survive. Fix in ``trainer._polars_fill_null_in_categorical``:
+       for Enum columns we rebuild the Enum with the sentinel appended
+       before filling.
+
+    2. **Filled clone never propagated back to the pandas-aliased
+       references**: when ``can_skip_pandas_conv=True`` the top-level
+       ``train_df_pd`` / ``filtered_train_df`` were aliased to the
+       ORIGINAL polars frames (unfilled). ``common_params["train_df"]``
+       picked them up. The lazy pandas conversion at the non-polars-
+       native strategy branch converted the UNFILLED frame — nulls
+       became NaN in the pandas Categorical, CB's fallback Pool build
+       raised ``Invalid type for cat_feature ... =NaN``. Fix in
+       ``core.py`` right after the fill + Enum-alignment block:
+       re-point ``train_df_pd / filtered_train_df / …`` at
+       ``train_df_polars`` (the filled + aligned clone).
+
+    Combo specifics: CB + Linear (mixed polars-native + non-native) +
+    polars_enum input + nulls + 8 cat columns + MRMR + emb column +
+    ``use_polarsds_pipeline=False`` (so fill_null is the only sentinel
+    source). If this test goes red, the likely regression is either
+    the Enum fill losing its expand-then-cast dance, or the alias
+    sync block after fill/align being removed.
+    """
+    _skip_if_deps_missing("cb", "linear")
+    combo = FuzzCombo(
+        models=("cb", "linear"),
+        input_type="polars_enum",
+        n_rows=300,
+        cat_feature_count=8,
+        null_fraction_cats=0.3,
+        use_mrmr_fs=True,
+        weight_schemas=("uniform",),
+        target_type="binary_classification",
+        auto_detect_cats=True,
+        align_polars_categorical_dicts=False,
+        seed=121,
+        use_polarsds_pipeline=False,
+        use_text_features=True,
+        honor_user_dtype=False,
+        text_col_count=1,
+        embedding_col_count=1,
+    )
+    _run_sensor_combo(combo, tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Unit sensor for bug #1 (Enum fill silent no-op) — no training, just verify
+# the helper. Fast, deterministic, doesn't hit CB at all.
+# ---------------------------------------------------------------------------
+
+def test_sensor_polars_fill_null_expands_enum_category_list():
+    """Direct unit guard: ``_polars_fill_null_in_categorical`` must actually
+    fill nulls in a pl.Enum column whose categories don't already include
+    the sentinel. Pre-fix this was silently no-op.
+
+    If this goes red, someone removed the Enum-expand branch in
+    ``trainer._polars_fill_null_in_categorical``.
+    """
+    import polars as pl
+    from mlframe.training.trainer import _polars_fill_null_in_categorical
+
+    enum_dt = pl.Enum(["A", "B", "C"])
+    df = pl.DataFrame({
+        "cat_x": pl.Series(["A", None, "B", None, "C"]).cast(enum_dt),
+    })
+    out = _polars_fill_null_in_categorical(df, ["cat_x"])
+    assert out["cat_x"].null_count() == 0, (
+        "Regression: fill_null on Enum with sentinel NOT in category list "
+        "became a silent no-op again."
+    )
+    assert out["cat_x"].to_list() == ["A", "__MISSING__", "B", "__MISSING__", "C"]
+    # Enum category list must have been extended, not replaced.
+    assert "__MISSING__" in out["cat_x"].dtype.categories

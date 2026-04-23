@@ -291,6 +291,7 @@ def create_polarsds_pipeline(
     config: PolarsPipelineConfig,
     pipeline_name: str = "feature_pipeline",
     verbose: int = 1,
+    exclude_from_encoding: Optional[set] = None,
 ):
     """
     Create a Polars-ds pipeline for scaling and encoding.
@@ -300,6 +301,15 @@ def create_polarsds_pipeline(
         config: Pipeline configuration
         pipeline_name: Name for the pipeline
         verbose: Verbosity level
+        exclude_from_encoding: Column names (e.g. text / embedding features) that
+            must NOT be ordinal/onehot-encoded. polars-ds's ``ordinal_encode(cols=None)``
+            encodes ALL string-like columns it finds, which includes user-declared
+            text_features like ``skills_text`` or synthetic fuzz ``text_0``
+            (discovered 2026-04-23 on fuzz c0085/c0049 → CB Pool build failed with
+            ``Invalid type for text_feature ... =187.0 : text_features must have
+            string type`` because the text column arrived as float32 ordinal
+            codes). When this set is non-empty, pass an explicit ``cols=`` list
+            to the encoder that excludes those columns.
 
     Returns:
         Materialized PdsPipeline or None if polars-ds not available
@@ -313,6 +323,8 @@ def create_polarsds_pipeline(
     if verbose:
         logger.info(f"Creating Polars-ds pipeline...")
 
+    excluded = set(exclude_from_encoding or ())
+
     t0_bp = timer()
     # Build blueprint
     bp = PdsBlueprint(train_df, name=pipeline_name)
@@ -324,14 +336,38 @@ def create_polarsds_pipeline(
         else:
             bp = bp.scale(cs.numeric(), method=config.scaler_name)
 
+    # Pre-compute the list of cat-like columns that SHOULD be encoded
+    # (text/embedding features excluded). We pass this list explicitly
+    # when ``excluded`` is non-empty so polars-ds never touches the
+    # reserved columns. When ``excluded`` is empty, keep the historical
+    # ``cols=None`` (auto-detect) behaviour for byte-for-byte
+    # compatibility with the pre-2026-04-23 fastpath.
+    def _encodable_cols() -> List[str]:
+        out: List[str] = []
+        for name, dtype in train_df.schema.items():
+            if name in excluded:
+                continue
+            # Mirror polars-ds's auto-detection for string-like dtypes.
+            if (
+                dtype == pl.Utf8
+                or dtype == pl.String
+                or dtype == pl.Categorical
+                or dtype == pl.Boolean
+                or (hasattr(pl, "Enum") and isinstance(dtype, pl.Enum))
+            ):
+                out.append(name)
+        return out
+
     # Add categorical encoding (skip when downstream models handle categoricals natively)
     if config.skip_categorical_encoding:
         if verbose:
             logger.info("  Skipping categorical encoding (downstream models handle categoricals natively)")
     elif config.categorical_encoding == "ordinal":
-        bp = bp.ordinal_encode(cols=None, null_value=-1, unknown_value=-2)
+        cols_arg = _encodable_cols() if excluded else None
+        bp = bp.ordinal_encode(cols=cols_arg, null_value=-1, unknown_value=-2)
     elif config.categorical_encoding == "onehot":
-        bp = bp.one_hot_encode(cols=None, drop_first=False, drop_cols=True)
+        cols_arg = _encodable_cols() if excluded else None
+        bp = bp.one_hot_encode(cols=cols_arg, drop_first=False, drop_cols=True)
     # Add more encoding methods as needed
 
     # Convert int to float32 for better compatibility
@@ -454,7 +490,10 @@ def fit_and_transform_pipeline(
         _orig_cat_features = [
             c for c in get_polars_cat_columns(train_df) if c not in _exclude_from_encoding
         ]
-        pipeline = create_polarsds_pipeline(train_df, config, verbose=verbose)
+        pipeline = create_polarsds_pipeline(
+            train_df, config, verbose=verbose,
+            exclude_from_encoding=_exclude_from_encoding,
+        )
 
         if pipeline is not None:
             if verbose:

@@ -2655,6 +2655,29 @@ def train_mlframe_models_suite(
                 len(skipped_cols), _DICT_ALIGN_SKIP_CARD, skipped_summary,
             )
 
+    # 2026-04-23 (fuzz c0088/c0121): when ``can_skip_pandas_conv=True`` the
+    # top-level ``train_df_pd / filtered_train_df / etc.`` were aliased to
+    # the ORIGINAL polars frames (line ~2354) BEFORE the fill_null /
+    # Enum-alignment block above. ``common_params["train_df"]`` (built by
+    # ``configure_training_params`` below) picks up ``filtered_train_df``,
+    # so the lazy pandas conversion at the non-polars-native strategy branch
+    # (line ~3034) converts the UNFILLED frame — nulls become NaN in the
+    # pandas Categorical, CB's fallback Pool build raises
+    # ``Invalid type for cat_feature ... =NaN``. Re-point the aliases to
+    # the filled+aligned ``train_df_polars`` now that those treatments
+    # have been applied, so every downstream consumer (select_target,
+    # common_params, lazy-pandas-conversion) sees the sentinel-filled
+    # values. ``train_df_polars`` already carries the OD row filter
+    # (applied at line ~2479), so the row sets stay aligned.
+    if can_skip_pandas_conv and train_df_polars is not None:
+        train_df_pd = train_df_polars
+        filtered_train_df = train_df_polars
+        if val_df_polars is not None:
+            val_df_pd = val_df_polars
+            filtered_val_df = val_df_polars
+        if test_df_polars is not None:
+            test_df_pd = test_df_polars
+
     # Save metadata EARLY (before training loops) so that if training is interrupted,
     # already-trained models are still usable with the saved pipeline/preprocessing
     _finalize_and_save_metadata(

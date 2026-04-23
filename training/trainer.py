@@ -1267,12 +1267,37 @@ def _polars_fill_null_in_categorical(
     Returns df unchanged if ``nullable_cat_cols`` is empty or df is
     not a Polars DataFrame — caller can unconditionally wrap
     train/val/test without pre-checking.
+
+    2026-04-23 (fuzz c0088 / c0121): ``fill_null(sentinel)`` on a
+    ``pl.Enum`` whose category list does NOT already include the
+    sentinel is a SILENT NO-OP in polars 1.40 — no error, no warning,
+    nulls survive. The caller then hands the still-nullable Enum to
+    CB's pandas fallback, which converts null→NaN and crashes with
+    ``Invalid type for cat_feature ... =NaN``. Guard: for Enum
+    columns we rebuild the Enum with the sentinel appended BEFORE
+    filling. For ``pl.Categorical`` the Arrow-level dict auto-extends
+    on fill_null, and for ``pl.Utf8/String`` no category list
+    constraint applies, so those paths stay as-is.
     """
     try:
         import polars as _pl
         if not nullable_cat_cols or not isinstance(df, _pl.DataFrame):
             return df
-        fill_exprs = [_pl.col(c).fill_null(sentinel) for c in nullable_cat_cols]
+        fill_exprs = []
+        for c in nullable_cat_cols:
+            dt = df.schema.get(c)
+            # Enum: rebuild the category list to include the sentinel,
+            # cast, THEN fill. Without the cast step the fill is a no-op.
+            if dt is not None and hasattr(_pl, "Enum") and isinstance(dt, _pl.Enum):
+                orig_cats = list(dt.categories)
+                if sentinel not in orig_cats:
+                    new_enum = _pl.Enum(orig_cats + [sentinel])
+                    fill_exprs.append(
+                        _pl.col(c).cast(new_enum).fill_null(sentinel).alias(c)
+                    )
+                    continue
+                # Enum already allowed the sentinel — plain fill_null works.
+            fill_exprs.append(_pl.col(c).fill_null(sentinel))
         return df.with_columns(fill_exprs)
     except Exception:
         return df
