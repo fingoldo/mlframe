@@ -171,7 +171,18 @@ def main() -> int:
         print(f"\n[driver] === seed {seed} (batch {i+1}/{args.max_seeds}, "
               f"{already}/{args.target} combos so far) ===", flush=True)
         rc, tail = _run_one_seed(seed, args.per_seed_timeout_s)
+        # Retry once on fast-fail: when pytest exits nonzero under
+        # 120 s AND produced zero new combo rows, the cause is almost
+        # always a flaky import during collection (shap, transformers —
+        # seen 2026-04-23 on Windows in ~50% of subprocess spawns). A
+        # fresh subprocess usually succeeds. Cap at one retry to avoid
+        # burning wallclock on genuinely-broken seeds.
         dur = time.time() - t_seed
+        if rc != 0 and dur < 120 and _file_size() == size_before:
+            print(f"[driver]   fast-fail detected ({dur:.1f}s, no combos logged) "
+                  f"— retrying seed {seed} once.", flush=True)
+            rc, tail = _run_one_seed(seed, args.per_seed_timeout_s)
+            dur = time.time() - t_seed
 
         summary = _summarize_since(size_before)
         after = _count_unique_combos()
