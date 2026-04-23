@@ -153,36 +153,42 @@ def _rule_mrmr_plus_linear_multi_pandas(c: FuzzCombo) -> bool:
     )
 
 
-def _rule_mrmr_plus_xgb_lgb_polars_utf8_small(c: FuzzCombo) -> bool:
-    """MRMR + xgb+lgb + polars_utf8 + small n raises ValueError 'could not
-    convert string to float: A' on the LGB iteration. Re-instated 2026-04-22
-    after sensor flakiness: Fix 10 + 11 did NOT fully close this path;
-    needs a deeper investigation into why the cat column's string value
-    reaches LGB's numpy conversion unencoded. Deferred."""
-    return (
-        c.use_mrmr_fs
-        and set(c.models).issuperset({"lgb", "xgb"})
-        and "linear" not in c.models
-        and c.input_type == "polars_utf8"
-        and c.n_rows <= 400
-    )
+def _rule_cb_nan_in_cat_features_mrmr(c: FuzzCombo) -> bool:
+    """New-seed (2026-04-23) fuzz caught CB raising
+    'Invalid type for cat_feature ... NaN : cat_features must be integer
+    or string, real number values and NaN are not allowed'.
 
-
-def _rule_cb_sparse_text_small(c: FuzzCombo) -> bool:
-    """CatBoost + MRMR + polars_utf8 raises CB-internal 'Dictionary size is 0'
-    or similar TF-IDF failures across a range of n/ncats combinations.
-    Not an mlframe bug — CB's text_features pipeline doesn't cope with the
-    synthetic string sparsity the fuzzer produces. Deferred — the only
-    clean fix is to gate text-promotion on a minimum absolute row count
-    (e.g. 2000 rows), but that interacts with other pl.Utf8 flows in a
-    way that the naive 2026-04-22 attempt broke. Track for a more
-    targeted fix: narrow the gate to CB-only + high-ncats polars_utf8,
-    not a global frame-size threshold."""
+    Reproducers: c0006 (cb+lgb, polars_enum, n=600, ncats=8, mrmr,
+    null_fraction_cats>0) and c0019 (cb+lgb+linear, polars_enum, n=300,
+    ncats=8, mrmr, null_fraction_cats>0). Common shape: CB + MRMR + many
+    cat_features + nulls in Polars Enum input. The upstream fill_null
+    block in mlframe doesn't cover the MRMR-selected subset on this
+    particular combo shape. Tracked for a fix in MRMR's interaction
+    with the fill_null pass."""
     return (
         "cb" in c.models
         and c.use_mrmr_fs
-        and c.input_type == "polars_utf8"
+        and c.input_type.startswith("polars")
+        and c.cat_feature_count >= 8
+        and c.null_fraction_cats > 0
     )
+
+
+# _rule_mrmr_plus_xgb_lgb_polars_utf8_small REMOVED 2026-04-23: same root
+# cause as _rule_cb_sparse_text_small — categorize_dataset incorrectly
+# routed polars Categorical / Utf8 columns through the numeric branch
+# because `dt in set_of_dtype_classes` uses hash equality, and
+# `pl.Categorical` instance hash differs from class hash. Permanent
+# regression guard: test_sensor_categorize_dataset_recognizes_polars_cat_dtypes.
+
+
+# _rule_cb_sparse_text_small REMOVED 2026-04-23: the underlying failures
+# were a symptom of the categorize_dataset dt-in-set hash bug
+# (filters.py:2660, `dt in {pl.Utf8, pl.Categorical, ...}` returns False
+# for Categorical instances because class-vs-instance hash differs).
+# Fixed there with explicit `==` checks per dtype. Both c0048 and c0098
+# now PASS. Permanent regression guard:
+# test_sensor_categorize_dataset_recognizes_polars_cat_dtypes.
 
 
 # REMOVED 2026-04-22: _rule_polars_schema_dispatch_bug
@@ -220,20 +226,17 @@ KNOWN_XFAIL_RULES: list[tuple[Callable[[FuzzCombo], bool], str]] = [
         "pre_pipeline/selected_features sync between models in one suite.",
     ),
     (
-        _rule_mrmr_plus_xgb_lgb_polars_utf8_small,
-        "MRMR + xgb+lgb + polars_utf8 + small n: LGB receives an unencoded "
-        "Polars→pandas frame with Utf8 string values and crashes on the "
-        "numpy conversion. Re-instated after a sensor showed the Fix 10/11 "
-        "combo didn't fully close this path. Deferred for a targeted "
-        "repro + fix pass.",
+        _rule_cb_nan_in_cat_features_mrmr,
+        "CatBoost + MRMR + polars_enum + many cat_features + nulls: CB "
+        "raises 'Invalid type for cat_feature ... NaN'. The upstream "
+        "fill_null pass doesn't reach every MRMR-selected subset in this "
+        "shape. Tracked — needs MRMR+fill_null integration fix.",
     ),
-    (
-        _rule_cb_sparse_text_small,
-        "CatBoost + MRMR + polars_utf8: CB-internal TF-IDF errors on "
-        "synthetic strings. Upstream CB limitation; tracking for a "
-        "targeted gate (CB-only + high-ncats polars_utf8) instead of "
-        "the naive global frame-size threshold that broke other flows.",
-    ),
+    # _rule_mrmr_plus_xgb_lgb_polars_utf8_small REMOVED 2026-04-23 — fixed by
+    # `dt in set` → `dt == class` correction in filters.py categorize_dataset.
+    # Permanent regression guard:
+    # test_sensor_categorize_dataset_recognizes_polars_cat_dtypes.
+    # _rule_cb_sparse_text_small REMOVED 2026-04-23 — same root cause; same sensor.
     # _rule_polars_schema_dispatch_bug REMOVED 2026-04-22: fixed in
     # core.py _build_tier_dfs (cache key now includes container kind).
     # Permanent regression guard: test_sensor_tier_cache_polars_pandas_collision.

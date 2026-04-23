@@ -2656,10 +2656,17 @@ def categorize_dataset(
 
     if _is_polars:
         # Polars schema-driven column selection — no pandas API calls.
-        _POLARS_CAT_DTYPES = {pl.Utf8, pl.String, pl.Categorical, pl.Boolean}
+        # IMPORTANT: we cannot put dtype *instances* in a set for membership
+        # because instance hash differs from the class. `pl.Categorical` class
+        # and a concrete `Categorical(ordering=...)` instance return different
+        # hashes, so `dt in {pl.Categorical}` is False even though
+        # `dt == pl.Categorical` is True. Use explicit == checks per dtype.
         def _is_pl_cat(dt):
             return (
-                dt in _POLARS_CAT_DTYPES
+                dt == pl.Utf8
+                or dt == pl.String
+                or dt == pl.Categorical
+                or dt == pl.Boolean
                 or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum))
             )
         numerical_cols = [name for name, dt in df.schema.items() if not _is_pl_cat(dt)]

@@ -293,6 +293,55 @@ def test_sensor_mrmr_selects_informative_cat_features(frame_type):
 
 
 # ---------------------------------------------------------------------------
+# Sensor — categorize_dataset dt-in-set hash bug (FIXED 2026-04-23).
+# ---------------------------------------------------------------------------
+
+def test_sensor_categorize_dataset_recognizes_polars_cat_dtypes():
+    """filters.py:categorize_dataset used `dt in {pl.Utf8, pl.Categorical, ...}`.
+    Set-membership uses hash equality, and `pl.Categorical` (class) has a
+    different hash than a `Categorical(ordering=...)` *instance* from a
+    schema. Result: Categorical columns slipped into the numerical branch
+    → `df[numerical_cols].to_numpy(dtype=np.float64)` then raised
+    `ValueError: could not convert string to float: 'A'`.
+
+    Fix (2026-04-23): replace set-based check with explicit `dt == class`
+    comparisons per dtype (__eq__ is correctly implemented on polars
+    dtype instances vs classes). Sensor: build a minimal frame with
+    cat_0 as pl.Categorical, call categorize_dataset directly, and
+    assert cat_0 is encoded to integer codes instead of raising.
+
+    Covers two formerly-xfail rules (_rule_cb_sparse_text_small and
+    _rule_mrmr_plus_xgb_lgb_polars_utf8_small) — both were symptoms of
+    this same dispatch error.
+    """
+    import polars as pl
+    import numpy as np
+    from mlframe.feature_selection.filters import categorize_dataset
+
+    df = pl.DataFrame({
+        "num": np.arange(100, dtype=np.float32),
+        "cat_0": pl.Series(["A", "B", "C"] * 34)[:100].cast(pl.Categorical),
+        "cat_enum": pl.Series(["X", "Y"] * 50).cast(pl.Enum(["X", "Y"])),
+        "cat_utf8": pl.Series(["one", "two", "three"] * 34)[:100],  # Utf8
+        "cat_bool": pl.Series([True, False] * 50),
+    })
+    data, cols, nbins = categorize_dataset(df, n_bins=5)
+    # All cat columns must appear in the output (as integer-encoded cols).
+    for c in ("cat_0", "cat_enum", "cat_utf8", "cat_bool"):
+        assert c in cols, (
+            f"categorize_dataset dropped cat column {c!r}; regression in "
+            f"the _is_pl_cat detection (likely `dt in set_of_classes` "
+            f"reinstated instead of explicit `==` checks)."
+        )
+    # The integer codes must fit in the quantization dtype, not NaN/str.
+    assert np.issubdtype(data.dtype, np.integer), (
+        f"categorize_dataset returned data with dtype {data.dtype}; "
+        f"expected integer codes. Regression likely in the polars-cat "
+        f"encoding path."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Sensor — Linear polars gating bug (FIXED 2026-04-22 via Fix 11).
 # ---------------------------------------------------------------------------
 
