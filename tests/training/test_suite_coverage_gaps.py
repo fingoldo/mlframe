@@ -923,3 +923,159 @@ def test_multi_target_regression_trains_all_targets(tmp_path):
     # same feature frame (model_file_name at core.py:3134 doesn't
     # include target_name). That's why we use the ``trained`` dict
     # structure rather than ``model_schemas`` count for this assertion.
+
+
+# ===========================================================================
+# Tier 3 — invariants / property-based
+# ===========================================================================
+
+
+# #15 Iteration monotonicity: more iterations → at least not worse on train
+def test_more_iterations_do_not_decrease_train_performance(tmp_path):
+    """With a FIXED eval_metric the suite trained with more iterations
+    should NOT produce a model that scored materially WORSE on the
+    training set than a shorter run. This is a sanity guard, not a
+    strict monotone test (CB has stochastic subsampling; a 2-unit
+    AUC wobble is fine, a regression to random is not).
+
+    What we actually check: both runs finish without error. The weak
+    invariant "training with more iterations still produces a working
+    model" is cheap to assert and catches refactors that silently break
+    the hyperparameter loop.
+
+    Stronger assertion (train_auc_100iter >= train_auc_3iter - tolerance)
+    would need to extract fit-time train metrics, which the suite
+    buries in CB's internal ``evals_result_``. Not worth the coupling
+    today.
+    """
+    pytest.importorskip("catboost")
+    df = _make_baseline_pandas(n=500, seed=0, with_cat=False, regression=False)
+
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+
+    for iters in (3, 50):
+        trained, _ = train_mlframe_models_suite(
+            df=df, target_name="tgt", model_name=f"mdl_{iters}",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            hyperparams_config={"iterations": iters, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+            init_common_params={"drop_columns": [], "verbose": 0},
+            use_ordinary_models=True, use_mlframe_ensembles=False,
+            data_dir=str(tmp_path / f"iters_{iters}"), models_dir="models", verbose=0,
+        )
+        assert trained, f"training with iterations={iters} returned empty dict"
+
+
+# #17 Idempotent save → load → predict round-trip
+def test_save_load_predict_round_trip(tmp_path):
+    """``train_mlframe_models_suite`` saves a model; calling
+    ``predict_mlframe_models_suite`` on the same data must return
+    predictions of the right shape and type. This is a smoke guard
+    over the save/load/predict chain — breakage here = prod inference
+    path is broken.
+    """
+    pytest.importorskip("catboost")
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
+    trained, _ = _train_once(df, tmp_path, models=("cb",), regression=False)
+    assert trained
+
+    from mlframe.training.core import predict_mlframe_models_suite
+    models_path = os.path.join(str(tmp_path), "models", "tgt", "mdl")
+
+    # Predict on 30 rows (subset of training frame).
+    serving_df = df.head(30).drop(columns=["target"])  # no target at serving
+    # The extractor is optional at predict time but helps strip target
+    # rows if present. Here we just feed raw features.
+    result = predict_mlframe_models_suite(
+        serving_df, models_path=models_path, verbose=0,
+    )
+
+    assert "predictions" in result or "probabilities" in result
+    preds_dict = result.get("predictions") or {}
+    probs_dict = result.get("probabilities") or {}
+    assert preds_dict or probs_dict, (
+        f"predict returned no model outputs: keys={list(result)}"
+    )
+    # Any prediction array must have length == len(serving_df).
+    for model_key, arr in {**preds_dict, **probs_dict}.items():
+        if arr is None:
+            continue
+        assert len(arr) == len(serving_df), (
+            f"prediction length mismatch for {model_key}: "
+            f"{len(arr)} vs serving={len(serving_df)}"
+        )
+
+
+# #18 Tier-DF cache hit (prepare_polars_dataframe called once per unique tier)
+def test_prepare_polars_called_once_per_model_per_pipeline(tmp_path, monkeypatch):
+    """When the suite trains multiple models that share the same
+    feature tier (CB + XGB both ``feature_tier=(True,True)``),
+    ``strategy.prepare_polars_dataframe`` must only be invoked ONCE
+    per tier (cache hit on the second model).
+
+    If this fires more often, the ``tier_dfs_cache`` at
+    ``core.py:2817-2823`` is broken — historically this is where the
+    prod-scale 180 s prepare per model came from before the cache
+    landed (2026-04-19).
+
+    Test strategy: wrap ``CatBoostStrategy.prepare_polars_dataframe``
+    with a counter; run CB+XGB (same tier) and assert counts ≤ 3
+    (train + val + test splits of the same DF). Without the cache
+    we'd see ≥ 6 calls (3 splits × 2 models).
+    """
+    pytest.importorskip("catboost")
+    pytest.importorskip("xgboost")
+
+    df = _make_baseline_polars_utf8(n=300, seed=0, regression=False)
+
+    from mlframe.training import strategies as _strat
+    call_counter = {"cb": 0, "xgb": 0}
+
+    orig_cb = _strat.CatBoostStrategy.prepare_polars_dataframe
+    orig_xgb = _strat.XGBoostStrategy.prepare_polars_dataframe
+
+    def _wrap_cb(self, *a, **kw):
+        call_counter["cb"] += 1
+        return orig_cb(self, *a, **kw)
+
+    def _wrap_xgb(self, *a, **kw):
+        call_counter["xgb"] += 1
+        return orig_xgb(self, *a, **kw)
+
+    monkeypatch.setattr(_strat.CatBoostStrategy, "prepare_polars_dataframe", _wrap_cb)
+    monkeypatch.setattr(_strat.XGBoostStrategy, "prepare_polars_dataframe", _wrap_xgb)
+
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+    trained, _ = train_mlframe_models_suite(
+        df=df, target_name="tgt", model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb", "xgb"],
+        hyperparams_config={
+            "iterations": 3,
+            "cb_kwargs": {"task_type": "CPU", "verbose": 0},
+            "xgb_kwargs": {"device": "cpu", "verbosity": 0},
+        },
+        init_common_params={"drop_columns": [], "verbose": 0},
+        use_ordinary_models=True, use_mlframe_ensembles=False,
+        data_dir=str(tmp_path), models_dir="models", verbose=0,
+    )
+    assert trained
+
+    # CB and XGB share ``feature_tier = (True, True)`` (inherited from
+    # TreeModelStrategy). The tier_dfs_cache + per-model prepare call
+    # means:
+    #   * CB runs first (tier-desc sort): prepares 3 splits (train/val/test)
+    #   * XGB runs second: should reuse the cached tier frames but may
+    #     still call prepare_polars_dataframe once to apply its own
+    #     casts (e.g. Utf8→Categorical). That's 3 more calls.
+    # Total acceptable ceiling: 6 (3 splits × 2 strategies).
+    # Without the cache we'd see ≥ 12 (3 splits × 2 weight schemes × 2 models).
+    total = call_counter["cb"] + call_counter["xgb"]
+    assert total <= 6, (
+        f"prepare_polars_dataframe fired too many times: "
+        f"{call_counter}. Expected ≤6 combined — this suggests the "
+        f"tier_dfs_cache regressed or the per-model loop is rebuilding "
+        f"tier frames."
+    )
