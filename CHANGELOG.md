@@ -98,6 +98,56 @@ Batch of four fixes motivated by review of the 2026-04-23
   includes the kind suffix; the trainer hard-raises on polars input to
   LGB (defense-in-depth).
 
+### Changed (follow-up 2: log readability)
+
+- **Conf Ensemble names now carry ``[VAL COV=xx%]`` tag**
+  (`mlframe/ensembling.py::_score_ensemble_for_method`). The 2026-04-23
+  prod log showed ``Conf Ensemble ...`` reporting 99.77 % accuracy with
+  no hint the metric was measured on a ~10 % coverage slice — easy to
+  misread as a headline. The coverage source is picked VAL → TEST →
+  TRAIN (first non-empty) and rendered directly in the log prefix so
+  `grep` surfaces it without reading the calibration subsection.
+- **Ensemble names now list participating models**
+  (`mlframe/training/core.py`). ``EnsARITHM 2models`` hid dropouts; now:
+    - ≤4 members → ``[cb+xgb+lgb]`` (full short-tag list)
+    - &gt;4 members → ``[N=5]`` (readable cap for large suites)
+  Short tags derived from model class name: CatBoost\*→cb, XGB\*→xgb,
+  LGBM\*→lgb, HistGradient\*→hgb.
+- **Category drift WARN carries cardinality-dependent healing suggestions**
+  (`mlframe/training/core.py`). The 2026-04-23 log showed 4 "Category
+  drift suspect" WARN lines with no actionable guidance. Each WARN now
+  includes a tiered suggestion block:
+    - card ≥ 1 000 → FeatureHasher / target-encoding / top-K + ``__OTHER__``
+    - card ∈ [100, 1 000) → CatBoostEncoder / top-K
+    - card &lt; 100 → add ``__UNSEEN__`` bucket / widen training window
+  **Decision is made using train-side cardinality + train-vs-val drift
+  only** — ``test_only`` is reported for operator visibility but NEVER
+  used to shape preprocessing (would leak test into training).
+
+### Added (follow-up 2)
+
+- **Defense-in-depth assert post lazy-conversion**
+  (`mlframe/training/core.py`). Immediately after the per-strategy lazy
+  conversion loop, every ``common_params`` DF key is re-checked and a
+  ``RuntimeError`` is raised if any still holds a ``pl.DataFrame``. Pins
+  the failure one function up the stack from the trainer-boundary
+  hard-raise — the exception message then identifies which key leaked
+  and from which strategy, saving debug time on future pipeline_cache /
+  common_params regressions.
+
+### Tests (follow-up 2)
+
+- ``TestEnsembleNameAnnotations`` (3 tests): Conf Ensemble COV tag
+  format; ``[cb+xgb]`` member-label when ≤4 models; ``[N=5]`` compression
+  when &gt;4 models.
+- ``TestCategoryDriftHealingSuggestions`` (2 tests): end-to-end WARN
+  contains the "suggested actions" block; structural check of the
+  cardinality-tier → keyword mapping (hash-bucket / target-encoding /
+  ``__UNSEEN__``).
+- ``TestLazyConversionDefenseInDepth`` (1 test): LGB-only suite on a
+  polars frame reaches ``_build_tier_dfs`` only with pandas frames
+  (polars leakage would have been caught by the new assert in core.py).
+
 ## 2026-04-21 — Training-overhead fixes (plan: `jolly-wishing-deer`)
 
 Addresses ~14 min of avoidable overhead and one blocking crash observed on

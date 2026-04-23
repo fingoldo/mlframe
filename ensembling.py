@@ -455,11 +455,30 @@ def _process_single_ensemble_method(
             is_regression=is_regression,
         )
 
+        # Report the confidence-filter coverage right in the model name so
+        # log-grep immediately shows that e.g. "Conf Ensemble ... [VAL
+        # COV=10%]" is computed on just 10 % of VAL rows — previously the
+        # 99.77 % accuracy number in the Conf Ensemble block was easy to
+        # misread as a headline, because coverage only appeared inside the
+        # calibration subsection as ``COV=XX%`` (2026-04-23 review finding).
+        # Prefer VAL coverage as the headline (early-stopping + calibration
+        # both key on VAL); fall back to TEST coverage then TRAIN.
+        _cov_src = None
+        for _label, _full, _conf in (
+            ("VAL", val_ensembled_predictions, val_confident_indices),
+            ("TEST", test_ensembled_predictions, test_confident_indices),
+            ("TRAIN", train_ensembled_predictions, train_confident_indices),
+        ):
+            if _full is not None and _conf is not None and len(_full) > 0:
+                _cov_src = (_label, 100.0 * len(_conf) / len(_full))
+                break
+        _cov_tag = f" [{_cov_src[0]} COV={_cov_src[1]:.0f}%]" if _cov_src else ""
+
         # Build config objects from flat params for confidence ensemble
         conf_flat_params = dict(
             df=None,
             drop_columns=[],
-            model_name_prefix=f"Conf Ensemble {internal_ensemble_method} {ensemble_name}",
+            model_name_prefix=f"Conf Ensemble {internal_ensemble_method} {ensemble_name}{_cov_tag}",
             train_idx=train_idx[train_confident_indices] if (train_idx is not None and train_confident_indices is not None) else None,
             test_idx=test_idx[test_confident_indices] if (test_idx is not None and test_confident_indices is not None) else None,
             val_idx=val_idx[val_confident_indices] if (val_idx is not None and val_confident_indices is not None) else None,

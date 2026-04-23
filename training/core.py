@@ -2191,15 +2191,59 @@ def train_mlframe_models_suite(
                         # WARN for anything where val_only is a non-trivial
                         # fraction of train cardinality — suspect for XGB
                         # val-DMatrix native crash.
+                        #
+                        # IMPORTANT: auto-healing decisions below rely on
+                        # ``v_only`` (val vs train) ONLY. ``t_only`` is
+                        # reported above for operator visibility but is NOT
+                        # used to choose an action — using TEST to inform
+                        # any preprocessing decision leaks test information
+                        # into training. The suggested-action heuristics
+                        # therefore look exclusively at train-vs-val drift
+                        # and at train-side cardinality.
                         for c, card_tr, v_only, t_only in drift_rows:
                             if v_only == 0 and t_only == 0:
                                 continue
                             v_frac = v_only / max(card_tr, 1)
                             if v_only >= 5 or v_frac >= 0.05:
+                                # Pick a concrete healing suggestion based on
+                                # train-side cardinality only. Thresholds are
+                                # conservative and documented so operators can
+                                # reproduce or override them deliberately.
+                                if card_tr >= 1000:
+                                    _healing = (
+                                        f"        suggested actions (pick one):\n"
+                                        f"          a) hash-bucket via FeatureHasher / target-encoding "
+                                        f"(card {card_tr:_} ≥ 1 000 → model will memorize train-only "
+                                        f"values and generalize poorly on val/test);\n"
+                                        f"          b) drop '{c}' from cat_features and keep only the "
+                                        f"top-K most frequent (K=100-300) as one-hot, route the rest "
+                                        f"into an '__OTHER__' bucket;\n"
+                                        f"          c) drop '{c}' entirely if it's an identifier or "
+                                        f"free-text field — promote to text_features via use_text_features=True "
+                                        f"so CatBoost handles it natively and other backends ignore it."
+                                    )
+                                elif card_tr >= 100:
+                                    _healing = (
+                                        f"        suggested actions (pick one):\n"
+                                        f"          a) target-encoding (CatBoostEncoder) to collapse "
+                                        f"{card_tr:_} levels into a continuous feature;\n"
+                                        f"          b) keep top-K by train frequency, bucket the rest "
+                                        f"into '__OTHER__' before fit (K≈30-80)."
+                                    )
+                                else:
+                                    _healing = (
+                                        f"        suggested actions (pick one):\n"
+                                        f"          a) add an explicit '__UNSEEN__' bucket in the "
+                                        f"Enum domain so val values absent from train resolve to a "
+                                        f"known category instead of raising;\n"
+                                        f"          b) widen the training window (temporal split) so "
+                                        f"val_only categories are observed at fit time."
+                                    )
                                 logger.warning(
                                     f"  Category drift suspect: {c} — val has {v_only} categories "
                                     f"({v_frac:.1%} of train card {card_tr:_}) that train never saw. "
-                                    f"XGB/CB may crash when constructing val DMatrix with ref=train."
+                                    f"XGB/CB may crash when constructing val DMatrix with ref=train.\n"
+                                    f"{_healing}"
                                 )
             except Exception as _e:
                 logger.warning(f"  Failed to compute categorical cardinality/drift: {_e}")
@@ -2954,6 +2998,37 @@ def train_mlframe_models_suite(
                                     _logged_lazy_conv = True
                                 common_params[df_key] = get_pandas_view_of_polars_df(df_)
 
+                        # Defense-in-depth (2026-04-23): immediately after the
+                        # lazy conversion ran above, EVERY ``common_params``
+                        # DF key must be non-polars. If a Polars frame is
+                        # still sitting here it means either (a) the loop
+                        # above silently missed a key (bug in this function)
+                        # or (b) some later step replaced the converted
+                        # frame with a polars original between iterations
+                        # — which is exactly the 2026-04-23 prod regression
+                        # that pipeline_cache's kind-suffix fix addresses.
+                        # The trainer-level hard-raise also catches this,
+                        # but failing HERE surfaces the bug one function up
+                        # the stack, closer to the cause (cheaper to debug
+                        # — you see ``strategy.__class__.__name__`` and the
+                        # live ``common_params`` state, not just a model
+                        # type at fit time).
+                        for df_key in ("train_df", "val_df", "test_df"):
+                            df_ = common_params.get(df_key)
+                            if isinstance(df_, pl.DataFrame):
+                                raise RuntimeError(
+                                    f"Lazy pandas conversion produced incomplete "
+                                    f"state for non-Polars-native strategy "
+                                    f"{type(strategy).__name__} ({mlframe_model_name}): "
+                                    f"common_params[{df_key!r}] is still pl.DataFrame "
+                                    f"(shape={df_.shape}, id={id(df_)}). The lazy-"
+                                    f"conversion hook iterated over train/val/test but "
+                                    f"this key escaped. Likely cause: a ``common_params`` "
+                                    f"override between lazy-conversion and here, or "
+                                    f"pipeline_cache cross-stream leakage (see core.py "
+                                    f"kind-suffix in cache_key)."
+                                )
+
                         # For non-Polars models, build tier DFs from pandas common_params
                         tier_pandas = _build_tier_dfs(
                             {"train_df": common_params.get("train_df"), "val_df": common_params.get("val_df"), "test_df": common_params.get("test_df")},
@@ -3209,9 +3284,38 @@ def train_mlframe_models_suite(
                         logger.info(f"evaluating simple ensembles...")
                     # Get feature count from transformed DataFrame for display
                     ens_n_features = train_df_transformed.shape[1] if train_df_transformed is not None else None
+                    # Name the ensemble by its actual members so post-hoc log
+                    # grep shows *which* models participated. The old
+                    # ``"{N}models "`` label hid dropouts — in the 2026-04-23
+                    # prod log LGB silently failed, yet the ensemble was
+                    # reported as "2models" with no hint that it was just
+                    # CB+XGB. Cap the list to keep headers readable:
+                    #   ≤4 members → "[cb+xgb+lgb]"
+                    #   >4        → "[N=5]" (avoid bloated titles)
+                    def _short_model_tag(ns):
+                        # ns is a SimpleNamespace from train_and_evaluate_model;
+                        # ns.model is the fitted estimator. Prefer a short tag
+                        # derived from the class name over the full class:
+                        # CatBoostClassifier → cb, XGBClassifier → xgb,
+                        # LGBMClassifier → lgb, HistGradient... → hgb.
+                        cls_name = type(getattr(ns, "model", ns)).__name__
+                        if cls_name.startswith("CatBoost"):
+                            return "cb"
+                        if cls_name.startswith("XGB"):
+                            return "xgb"
+                        if cls_name.startswith("LGBM"):
+                            return "lgb"
+                        if cls_name.startswith("HistGradient"):
+                            return "hgb"
+                        return cls_name
+                    _member_tags = [_short_model_tag(m) for m in ens_models]
+                    if len(_member_tags) <= 4:
+                        _members_label = "[" + "+".join(_member_tags) + "]"
+                    else:
+                        _members_label = f"[N={len(_member_tags)}]"
                     _ensembles = score_ensemble(  # Result used for side effects (logging/metrics)
                         models_and_predictions=ens_models,
-                        ensemble_name=f"{pre_pipeline_name}{len(ens_models)}models ",
+                        ensemble_name=f"{pre_pipeline_name}{_members_label} ",
                         n_features=ens_n_features,
                         **common_params,
                     )
