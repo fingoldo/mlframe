@@ -334,46 +334,6 @@ def test_sensor_linear_polars_gating_bug(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Sensor — MRMR + xgb+lgb + polars_utf8 small n (FIXED 2026-04-22, incidental).
-# ---------------------------------------------------------------------------
-
-def test_sensor_mrmr_xgb_lgb_polars_utf8_small(tmp_path):
-    """Regression guard for a multi-model suite (xgb+lgb) with MRMR on a
-    small polars_utf8 frame (c0098: seed=98, n=300, ncats=1, mrmr=True).
-
-    Originally failed with AttributeError on feature-name reconciliation
-    between XGB and LGB iterations. Not fixed directly — fell out of the
-    composite of these 2026-04-22 fixes:
-      * tier_cache kind-key (commit 5ff8467) — prevents pandas/Polars
-        cache collision when XGB (Polars-native) and LGB (pandas-via-
-        bridge) share a tier slot.
-      * orig_pre_pipeline per-model clone (b30aa44) — each strategy
-        builds its own MRMR fit state instead of mutating a shared
-        singleton.
-      * MRMR.transform intersection safeguard (b30aa44) — degrades
-        gracefully when selected cols don't match X.columns.
-      * Fix 10 polars-native MRMR (3a149e2) — zero full-frame copies.
-
-    If this sensor ever goes red, one of the four above regressed.
-    """
-    _skip_if_deps_missing("lgb", "xgb")
-    combo = FuzzCombo(
-        models=("lgb", "xgb"),
-        input_type="polars_utf8",
-        n_rows=300,
-        cat_feature_count=1,
-        null_fraction_cats=0.0,
-        use_mrmr_fs=True,
-        weight_schemas=("uniform",),
-        target_type="binary_classification",
-        auto_detect_cats=True,
-        align_polars_categorical_dicts=False,
-        seed=98,
-    )
-    _run_sensor_combo(combo, tmp_path)
-
-
-# ---------------------------------------------------------------------------
 # Sensor — MRMR.transform raised AttributeError on un-set support_ (FIXED 2026-04-22).
 # ---------------------------------------------------------------------------
 

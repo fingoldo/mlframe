@@ -2827,7 +2827,24 @@ def train_mlframe_models_suite(
                     #      models still share, different-tier models don't
                     #      collide.
                     _tier_suffix = f"_tier{strategy.feature_tier()}"
-                    cache_key = f"{strategy.cache_key}_{pre_pipeline_name}{_tier_suffix}" if pre_pipeline_name else f"{strategy.cache_key}{_tier_suffix}"
+                    # Container-kind suffix (2026-04-23 fix): CB, XGB, and LGB
+                    # all inherit ``cache_key="tree"`` and XGB/LGB share the
+                    # same ``feature_tier``. Without the kind qualifier, XGB
+                    # (Polars-native) stored the *polars* post-pipeline frame
+                    # under ``tree_..._tier(False,False)`` and LGB pulled that
+                    # polars frame out on its next iteration — undoing the
+                    # strategy-loop lazy pandas conversion a few lines later
+                    # and triggering a duplicate 224 s conversion in trainer's
+                    # self-heal (2026-04-23 prod log, ~38 min wasted). Mirror
+                    # the kind-tagging already used by ``_build_tier_dfs`` so
+                    # pandas-consumers and polars-consumers never collide on a
+                    # shared tier key.
+                    _kind_suffix = f"_kind{'pl' if strategy.supports_polars else 'pd'}"
+                    cache_key = (
+                        f"{strategy.cache_key}_{pre_pipeline_name}{_tier_suffix}{_kind_suffix}"
+                        if pre_pipeline_name else
+                        f"{strategy.cache_key}{_tier_suffix}{_kind_suffix}"
+                    )
 
                     # Polars fastpath: substitute original Polars DataFrames for models
                     # that support native Polars input (e.g. CatBoost >= 1.2.7, HGB).
@@ -2917,20 +2934,14 @@ def train_mlframe_models_suite(
                     else:
                         polars_fastpath_skip_preprocessing = False
 
-                        # Fix 1 (2026-04-21): non-Polars-native strategies (LGB,
-                        # sklearn, linear, ...) REQUIRE pandas at fit time. If
-                        # the upfront conversion was skipped OR its copies got
-                        # collected between Polars-native strategies and this
-                        # one, common_params may still hold Polars frames —
-                        # convert them just-in-time (in-place on common_params).
-                        # The user's 2026-04-21 crash trace showed LGB 4.6.0
-                        # receiving non-pandas X, hitting sklearn 1.8's
-                        # validate_data which can't set LGB's read-only
-                        # ``feature_names_in_`` property. Guaranteeing pandas
-                        # here makes LGB's own ``isinstance(X, pd_DataFrame)``
-                        # short-circuit the sklearn-validate crash path.
-                        # Idempotent: once converted, subsequent strategies see
-                        # pandas already and the isinstance check is a no-op.
+                        # Lazy pandas conversion for non-Polars-native strategies.
+                        # The "deferred" half of the 2026-04-21 design: when all
+                        # blockers for the Polars fastpath are non-native
+                        # strategies, the upfront ``_convert_dfs_to_pandas`` is
+                        # skipped and per-strategy conversion happens here,
+                        # preserving RAM when CB/XGB can run natively on polars.
+                        # In mixed suites (cb+xgb+lgb) this fires once when
+                        # lgb's iteration is reached.
                         _logged_lazy_conv = False
                         for df_key in ("train_df", "val_df", "test_df"):
                             df_ = common_params.get(df_key)
