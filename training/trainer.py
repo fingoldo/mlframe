@@ -1210,13 +1210,23 @@ def _polars_nullable_categorical_cols(df: Any, cat_features: Optional[List[str]]
             return []
 
         schema = df.schema
+        # 2026-04-23: extended to include pl.Utf8 / pl.String. Raw Utf8
+        # cat_features with nulls trigger the same CB 'Invalid type for
+        # cat_feature ... NaN' error on the Polars fastpath — the
+        # fill_null('__MISSING__') pre-fit pass must cover them too.
+        # Fuzz c0061/c0084/c0096 (cb + polars_utf8 + nulls) all crashed
+        # because Utf8 cols weren't in this candidate list.
+        def _is_cat_like(dt):
+            return (
+                dt == _pl.Categorical
+                or dt == _pl.Utf8
+                or dt == _pl.String
+                or (hasattr(_pl, "Enum") and isinstance(dt, _pl.Enum))
+            )
         if cat_features:
             candidate = [
                 c for c in cat_features
-                if c in schema and (
-                    schema[c] == _pl.Categorical
-                    or (hasattr(_pl, "Enum") and isinstance(schema[c], _pl.Enum))
-                )
+                if c in schema and _is_cat_like(schema[c])
             ]
         else:
             candidate = [

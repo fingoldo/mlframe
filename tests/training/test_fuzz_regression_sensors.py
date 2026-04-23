@@ -342,6 +342,39 @@ def test_sensor_categorize_dataset_recognizes_polars_cat_dtypes():
 
 
 # ---------------------------------------------------------------------------
+# Sensor — Polars Utf8 with nulls fills for CB cat_features (FIXED 2026-04-23).
+# ---------------------------------------------------------------------------
+
+def test_sensor_polars_utf8_nullable_cat_fills_before_cb(tmp_path):
+    """Regression guard for ``_polars_nullable_categorical_cols`` missing
+    pl.Utf8 / pl.String in its candidate list. Before the 2026-04-23 fix,
+    raw Utf8 cat columns with nulls slipped past the pre-fit
+    fill_null('__MISSING__') pass; CB then raised 'Invalid type for
+    cat_feature ... NaN' on the Polars fastpath.
+
+    New-seed fuzz caught combos c0061, c0084, c0096 (cb + polars_utf8 +
+    nulls). This sensor pins c0084 (smallest — cb+linear, n=600,
+    ncats=3, nulls=0.1). If a future refactor drops Utf8 from the
+    fill_null candidate list, CB will crash and this test reds.
+    """
+    _skip_if_deps_missing("cb", "linear")
+    combo = FuzzCombo(
+        models=("cb", "linear"),
+        input_type="polars_utf8",
+        n_rows=600,
+        cat_feature_count=3,
+        null_fraction_cats=0.1,
+        use_mrmr_fs=False,
+        weight_schemas=("uniform",),
+        target_type="binary_classification",
+        auto_detect_cats=True,
+        align_polars_categorical_dicts=False,
+        seed=84,
+    )
+    _run_sensor_combo(combo, tmp_path)
+
+
+# ---------------------------------------------------------------------------
 # Sensor — Linear polars gating bug (FIXED 2026-04-22 via Fix 11).
 # ---------------------------------------------------------------------------
 

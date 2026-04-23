@@ -132,46 +132,21 @@ class FuzzCombo:
 # test_sensor_linear_polars_gating_bug in test_fuzz_regression_sensors.py.
 
 
-def _rule_mrmr_plus_linear_multi_pandas(c: FuzzCombo) -> bool:
-    """MRMR + linear + multi-model pipeline still raises a feature-name
-    mismatch even after partial fixes. Progress in 2026-04-22 sweep:
-      * orig_pre_pipeline now cloned per model → MRMR refits cleanly for
-        each strategy (commit edb6199+)
-      * MRMR.transform intersects with X.columns when selected cols are
-        missing (same commit)
-      * _is_fitted on Pipeline requires ALL steps fitted (same commit)
-    Residual symptom: mlframe generates per-iteration targ_<id> columns;
-    MRMR selects them during fit, but transform sees a differently-id'd
-    set at predict time and sklearn validate_data still flags a
-    fit-time-vs-now diff. Tracked for a deeper fix in how mlframe injects
-    generated target cols (stable names across iterations needed)."""
-    return (
-        "linear" in c.models
-        and len(c.models) > 1
-        and c.use_mrmr_fs
-        and c.input_type == "pandas"
-    )
+# _rule_mrmr_plus_linear_multi_pandas REMOVED 2026-04-23: new-seed fuzz
+# showed 4/6 XPASS from this rule — the MRMR+linear+pandas combos that
+# once failed on feature-name mismatch now pass (composite of all
+# 2026-04-22/23 fixes — per-model pipeline cloning, _is_fitted
+# Pipeline-aware check, MRMR in-place drop, Fix 10 polars-native MRMR,
+# Fix 11 per-strategy polars_pipeline_applied, Fix 12 dt==class dispatch).
+# Rule is now misleading; permanent regression guard: the integration
+# test suite's test_polars_full_combo_with_linear (already un-xfailed).
 
-
-def _rule_cb_nan_in_cat_features_mrmr(c: FuzzCombo) -> bool:
-    """New-seed (2026-04-23) fuzz caught CB raising
-    'Invalid type for cat_feature ... NaN : cat_features must be integer
-    or string, real number values and NaN are not allowed'.
-
-    Reproducers: c0006 (cb+lgb, polars_enum, n=600, ncats=8, mrmr,
-    null_fraction_cats>0) and c0019 (cb+lgb+linear, polars_enum, n=300,
-    ncats=8, mrmr, null_fraction_cats>0). Common shape: CB + MRMR + many
-    cat_features + nulls in Polars Enum input. The upstream fill_null
-    block in mlframe doesn't cover the MRMR-selected subset on this
-    particular combo shape. Tracked for a fix in MRMR's interaction
-    with the fill_null pass."""
-    return (
-        "cb" in c.models
-        and c.use_mrmr_fs
-        and c.input_type.startswith("polars")
-        and c.cat_feature_count >= 8
-        and c.null_fraction_cats > 0
-    )
+# _rule_cb_nan_in_cat_features_mrmr REMOVED 2026-04-23: fixed in trainer.py
+# `_polars_nullable_categorical_cols` — the candidate list for the fill_null
+# pre-fit pass now includes pl.Utf8 / pl.String dtypes (previously only
+# Categorical / Enum). Raw Utf8 cat columns with nulls are now filled
+# before CB sees them. Permanent regression guard:
+# test_sensor_cb_polars_utf8_null_cat_fill.
 
 
 # _rule_mrmr_plus_xgb_lgb_polars_utf8_small REMOVED 2026-04-23: same root
@@ -217,21 +192,10 @@ KNOWN_XFAIL_RULES: list[tuple[Callable[[FuzzCombo], bool], str]] = [
     # _rule_linear_polars_gating_bug REMOVED 2026-04-22 (Fix 11).
     # Permanent regression guard: test_polars_full_combo_with_linear
     # (xfail removed) + test_sensor_linear_polars_gating_bug.
-    (
-        _rule_mrmr_plus_linear_multi_pandas,
-        "MRMR + linear + multi-model + pandas: feature-name mismatch on "
-        "downstream validate_data. MRMR-trimmed columns are seen as 'missing' "
-        "by sklearn's _check_feature_names when the pre_pipeline for linear "
-        "expects the full original column set. Tracked for fix in the "
-        "pre_pipeline/selected_features sync between models in one suite.",
-    ),
-    (
-        _rule_cb_nan_in_cat_features_mrmr,
-        "CatBoost + MRMR + polars_enum + many cat_features + nulls: CB "
-        "raises 'Invalid type for cat_feature ... NaN'. The upstream "
-        "fill_null pass doesn't reach every MRMR-selected subset in this "
-        "shape. Tracked — needs MRMR+fill_null integration fix.",
-    ),
+    # _rule_mrmr_plus_linear_multi_pandas REMOVED 2026-04-23 — combos now
+    # pass via composite of 2026-04-22/23 fixes.
+    # _rule_cb_nan_in_cat_features_mrmr REMOVED 2026-04-23 — fixed by
+    # extending _polars_nullable_categorical_cols to cover pl.Utf8/String.
     # _rule_mrmr_plus_xgb_lgb_polars_utf8_small REMOVED 2026-04-23 — fixed by
     # `dt in set` → `dt == class` correction in filters.py categorize_dataset.
     # Permanent regression guard:
