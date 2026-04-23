@@ -30,9 +30,10 @@ import numpy as np
 import polars as pl
 from xgboost import XGBClassifier
 
-if sys.platform == "win32":
-    import ctypes
-    ctypes.windll.kernel32.SetErrorMode(0x0001 | 0x0002)
+# Note: we used to call SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX) on Windows
+# to suppress the "application has crashed" dialog on the expected access violation. That flag
+# also disables Windows Error Reporting, so no crash dump is written when the process dies —
+# exactly when we want one. Leave WER alone so ProcDump / WER LocalDumps can capture a dump.
 try:
     import faulthandler
     faulthandler.enable(all_threads=True)
