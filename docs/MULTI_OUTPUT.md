@@ -126,16 +126,54 @@ Numba-implemented — sequential + parallel variants. Parallel auto-selected
 when `N*K > 1_000_000`. Bitmap popcount fast-path for K∈[16, 64] gives
 8.6× speedup at K=64.
 
+### Metrics registry (Session 4)
+
+Built-in multilabel metrics dispatched automatically from
+`report_probabilistic_model_perf` via `mlframe.training.metrics_registry`:
+
+```python
+from mlframe.training.metrics_registry import (
+    register_metric, list_registered, iter_extra_metrics,
+)
+from mlframe.training.configs import TargetTypes
+
+# Inspect registered metrics
+print(list_registered(TargetTypes.MULTILABEL_CLASSIFICATION))
+# ['hamming_loss', 'subset_accuracy', 'jaccard_samples']
+
+# Register a domain-specific metric (no evaluation.py edit required)
+def my_multilabel_score(y_true, probs_NK, preds_NK):
+    # Custom scoring logic
+    return some_value
+
+register_metric(
+    TargetTypes.MULTILABEL_CLASSIFICATION, "my_score", my_multilabel_score,
+)
+```
+
+Failing metrics (any exception during compute) are silently skipped —
+report keeps going. Idempotent registration; unregister via
+`unregister_metric(target_type, name)`.
+
 ## Calibration
 
-Post-hoc calibration (`post_calibrate_model`, `_PostHocCalibratedModel`)
-is currently **binary-only**:
-- `BINARY_CLASSIFICATION` → univariate `IsotonicRegression` mapping `probs[:, 1]`
-- `MULTICLASS_CLASSIFICATION` / `MULTILABEL_CLASSIFICATION` → raises `NotImplementedError`
+Post-hoc calibration (`post_calibrate_model`) dispatches by target_type:
 
-Per-class isotonic calibration is a Session-3 track. Set
-`MultilabelDispatchConfig.allow_uncalibrated_multi=True` to downgrade
-the raise to a warn (calibration silently skipped).
+| Target | Calibrator | Output |
+|---|---|---|
+| `BINARY_CLASSIFICATION` | univariate `IsotonicRegression` mapping `probs[:, 1]` | `(N, 2)` calibrated |
+| `MULTICLASS_CLASSIFICATION` | **`_PerClassIsotonicCalibrator`** (K independent isotonics) + row-normalisation | `(N, K)`, rows sum to 1 |
+| `MULTILABEL_CLASSIFICATION` | **`_PerClassIsotonicCalibrator`** (K independent isotonics, columns independent) | `(N, K)`, per-label in [0,1] |
+
+Per-class isotonic semantics (Session 4):
+- Each class k gets its own `IsotonicRegression.fit(probs[:, k], y_k)`
+  where `y_k = (y == k)` for MULTICLASS or `y[:, k]` for MULTILABEL
+- Constant-label columns (all 0 or all 1 in calibration set) → identity
+  mapping (skipped, no crash)
+- Output clipped to `[0, 1]`; MULTICLASS re-normalised row-wise to
+  preserve softmax invariant; MULTILABEL columns stay independent
+- Wrapped in `_PostHocMultiCalibratedModel` for transparent
+  `predict_proba` / `predict` delegation; pickle-roundtrip verified
 
 ## FeaturesAndTargetsExtractor for multilabel
 

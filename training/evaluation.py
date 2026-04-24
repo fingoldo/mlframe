@@ -674,6 +674,32 @@ def report_probabilistic_model_perf(
         if robust_integral_error is not None:
             print(f"TOTAL ROBUST INTEGRAL ERROR: {robust_integral_error:.4f}")
 
+        # 2026-04-24 Session 4: pluggable multi-output metrics registry.
+        # Dispatches hamming_loss / subset_accuracy / jaccard_score_multilabel
+        # (registered in mlframe.training.metrics_registry) when the
+        # report-caller context indicates a multilabel target. Additional
+        # metrics can be registered externally via
+        # ``register_metric(target_type, name, fn)`` — no code change to
+        # this report function required.
+        try:
+            from .metrics_registry import iter_extra_metrics
+            # Heuristic inference: multilabel if targets is 2-D binary.
+            if hasattr(targets, "ndim") and targets.ndim == 2:
+                from .configs import TargetTypes
+                extra = list(iter_extra_metrics(
+                    TargetTypes.MULTILABEL_CLASSIFICATION, targets, probs, preds,
+                ))
+                if extra:
+                    print("MULTILABEL METRICS:")
+                    for name, val in extra:
+                        try:
+                            print(f"\t{name}={val:.{report_ndigits}f}")
+                        except Exception:
+                            print(f"\t{name}={val}")
+        except Exception as e:
+            # Never fail a report because of metrics-registry plumbing.
+            logger.debug(f"multilabel metrics registry skipped: {e}")
+
     if subgroups:
         subgroups_metrics = {"ICE": custom_ice_metric}
         metrics_higher_is_better = {"ICE": False}
@@ -880,19 +906,51 @@ def post_calibrate_model(
         )
     model, test_preds, test_probs, val_preds, val_probs, columns, pre_pipeline, metrics = original_model
 
-    # 2026-04-24: shape guard for multi-output targets. Post-hoc
-    # calibration via a univariate meta-model only works for binary
-    # classification (where probs[:, 1] is the single positive-class
-    # probability). For MULTICLASS / MULTILABEL the contract is per-class
-    # calibration (one isotonic per class), which is its own track —
-    # raise NotImplementedError rather than silently mis-calibrating
-    # by feeding only column 1 of an (N, K) matrix to the meta-model.
-    if hasattr(test_probs, "shape") and len(test_probs.shape) == 2 and test_probs.shape[1] != 2:
-        raise NotImplementedError(
-            f"post_calibrate_model only supports binary classification "
-            f"(probs shape (N, 2)); got (N, {test_probs.shape[1]}). "
-            f"Multi-output post-hoc calibration (per-class isotonic) is "
-            f"a separate track — disable post-hoc calibration for multi-* targets."
+    # 2026-04-24 Session 4: multi-output path (MULTICLASS / MULTILABEL).
+    # When probs are (N, K) with K != 2, route through per-class isotonic
+    # calibration (K independent IsotonicRegression fits) instead of the
+    # univariate meta-model path. The multi-output branch returns the same
+    # 8-element tuple shape as the binary branch but with calibrated
+    # probability matrices.
+    is_multi_output = (
+        hasattr(test_probs, "shape")
+        and len(test_probs.shape) == 2
+        and test_probs.shape[1] != 2
+    )
+    if is_multi_output:
+        from mlframe.training.trainer import (
+            _PerClassIsotonicCalibrator, _PostHocMultiCalibratedModel,
+        )
+        from mlframe.training.configs import TargetTypes
+        # Infer target_type from labels: if y_true is (N, K) indicator
+        # matrix → multilabel; otherwise multiclass.
+        y_test_full = target_series.iloc[test_idx].values
+        if y_test_full.ndim == 2 or (
+            hasattr(y_test_full, "dtype") and y_test_full.dtype == object
+        ):
+            _target_type = TargetTypes.MULTILABEL_CLASSIFICATION
+        else:
+            _target_type = TargetTypes.MULTICLASS_CLASSIFICATION
+        # Fit per-class isotonic on the calibration slice of test_probs.
+        calib_probs = test_probs[:calib_set_size]
+        calib_y = y_test_full[:calib_set_size]
+        calibrator = _PerClassIsotonicCalibrator.fit(
+            calib_probs, calib_y, _target_type,
+        )
+        # Produce calibrated val/test probs.
+        meta_val_probs = calibrator.predict_proba(val_probs)
+        meta_test_probs = calibrator.predict_proba(test_probs)
+        # Wrap model for transparent predict_proba delegation at
+        # downstream serving time.
+        wrapped_model = _PostHocMultiCalibratedModel(
+            model, calibrator, _target_type,
+            classes_=getattr(model, "classes_", None),
+        )
+        # Copy val_preds/test_preds forward — they're caller-provided and
+        # decoupled from the probability calibration.
+        return (
+            wrapped_model, test_preds, meta_test_probs,
+            val_preds, meta_val_probs, columns, pre_pipeline, metrics,
         )
 
     meta_model.fit(test_probs[:calib_set_size, 1].reshape(-1, 1), target_series.iloc[test_idx].values[:calib_set_size], **fit_params)

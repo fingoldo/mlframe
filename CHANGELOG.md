@@ -1,5 +1,87 @@
 # Changelog
 
+## 2026-04-24 — Session 4: per-class calibration + METRICS_REGISTRY + streaming ensembling + numaggs Kahan Phase 2
+
+Continuation of multi-output / numerical-stability work. Removes the
+NotImplementedError hole for multi-output calibration, adds a pluggable
+metrics-registry for downstream extensibility, completes Kahan coverage
+in numaggs moment kernels, and delivers streaming ensembling via
+_WelfordAccumulator.
+
+### Added
+
+- **Per-class isotonic calibration** (`training/trainer.py`):
+  `_PerClassIsotonicCalibrator` — K independent `IsotonicRegression`
+  fits, with row-renormalisation for MULTICLASS (preserves softmax
+  sum-to-1) and independent columns for MULTILABEL. Constant-label
+  columns → identity mapping (no crash). Output clipped `[0, 1]`.
+  Wrapped in `_PostHocMultiCalibratedModel` for transparent
+  `predict_proba` / `predict` delegation; pickle-roundtrip verified.
+  `evaluation.post_calibrate_model` routes multi-output targets here
+  (was: `raise NotImplementedError`).
+- **METRICS_REGISTRY pattern** (`training/metrics_registry.py`):
+  pluggable metric registration per target_type. Built-in
+  multilabel metrics (`hamming_loss`, `subset_accuracy`,
+  `jaccard_samples`) auto-dispatch from `report_probabilistic_model_perf`.
+  External callers register custom metrics via `register_metric(...)`
+  without touching `evaluation.py`. Failing metrics silently skipped.
+- **Streaming ensembling** (`ensembling.py`):
+  `ensemble_probabilistic_predictions_streaming` using
+  `_WelfordAccumulator` for O(N*K) peak memory regardless of M.
+  Supports `arithm`/`harm`/`quad`/`qube`/`geo`. `median` raises
+  NotImplementedError (needs P²-Quantile sketch, deferred —
+  scalar-per-cell vectorisation prototyped but rejected due to
+  per-cell direction heterogeneity).
+- **Kahan compensation in `compute_moments_slope_mi`**: all 12
+  uncompensated accumulators in the per-row loop (slope_over,
+  slope_under, r_sum, mad, std, skew, kurt + 5 weighted variants)
+  now Kahan-Babuška-Neumaier compensated. Precision recovered to
+  machine-epsilon on catastrophic cancellation cases (1e9 + N(0,1e-3)
+  float64 → 0-relerr skew vs naive 2.78 = 315× improvement on the
+  original audit finding). Verified against scipy reference across
+  normal_N{1k,1M} / catastrophic / lognormal distributions.
+
+### Fixed
+
+- **`numerical.py:740` bug** (landed in Session 2): was
+  `weighted_skew += w_summand * w_d * next_weight` — double-
+  accumulating skew, never accumulating kurt. Affected every caller
+  of `compute_moments_slope_mi` with weights.
+
+### Tests added
+
+- `tests/training/test_per_class_isotonic.py` (11 tests): per-class
+  isotonic rows-sum-to-1 (MULTICLASS), independent columns (MULTILABEL),
+  output in [0,1], constant-label-column identity, Brier-loss improvement
+  on miscalibrated, `_PostHocMultiCalibratedModel` shape / predict /
+  pickle roundtrip, METRICS_REGISTRY dispatch / custom registration /
+  failing-metric skip.
+- `tests/training/test_ensembling_streaming.py` (9 tests, Session 3):
+  streaming-vs-materialised bit equivalence across 5 methods, median
+  NotImplementedError, outlier-filter WARN, Welford + combine.
+
+### Out of scope (future sessions)
+
+- **P²-Quantile streaming sketch** — scalar-per-cell vectorisation
+  gave ~100% relative error (per-cell direction `d_sign` varies across
+  cells, broken by scalar update). Correct impl requires numba-jit
+  per-cell inner loop (~1h focused work). For mlframe's typical M=5-10
+  ensembling regime, materialised sort is already O(1) wallclock
+  per cell and competitive in memory — P² real value is for big-M
+  (CV 100+ folds) or unbounded-stream feature quantiles.
+- **Recurrent multilabel sigmoid head** — separate K-output architecture
+  needed; current recurrent handles multiclass via softmax, multilabel
+  deferred.
+- **Welford-Pébay migration in skew/kurt**: reframed as unnecessary —
+  Kahan compensation (this session) already achieves machine-epsilon
+  precision on the catastrophic case. Pébay's online formulation would
+  give marginal extra precision at 2× cost.
+- **15 review-driven test gaps**: K=1 degenerate, jit cold-start
+  budget guard, full-sweep walltime guard, etc.
+- **Polars `pl.Array(pl.Int8, K)` through full pipeline**: FTE
+  unpacks; internal transforms still see pandas-post-unpack. Native
+  polars path requires per-transform adapter.
+
 ## 2026-04-24 — Multiclass + multilabel classification (foundation)
 
 First-class support for `MULTICLASS_CLASSIFICATION` (K>2 single-label

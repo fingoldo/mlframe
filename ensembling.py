@@ -162,6 +162,37 @@ class _WelfordAccumulator(StreamingAccumulator):
         out.max = np.maximum(a.max, b.max) if (a.max is not None and b.max is not None) else (a.max if a.max is not None else b.max)
         return out
 
+
+# P²-Quantile streaming sketch (Jain & Chlamtac 1985) DEFERRED.
+#
+# Honest ROI assessment after prototyping:
+# - For mlframe ensembling (typical M=5-10 models per suite), exact
+#   materialised median via `np.quantile(preds, 0.5)` is already O(1)
+#   in wallclock (sort of 5-10 floats per cell is ~instant) and O(M*N*K)
+#   in memory (fine up to N*K*8*M < ~500MB, covers the typical case).
+# - P² gives O(1) memory and O(1) time per sample, useful for **big-M**
+#   streams (CV with 100+ folds, online feature quantiles over huge N)
+#   but NOT for the M=5-10 ensembling regime.
+# - Correct vectorisation over (N, K) cells requires per-cell state
+#   transitions that don't reduce to numpy broadcasts (each cell has
+#   its own marker trajectory + different bucket placement per update).
+#   A naive scalar-per-i vectorisation (attempted Session 4) gave ~100%
+#   relative error — the per-cell direction `d_sign` varies across cells,
+#   breaking the scalar marker-shift logic.
+#
+# Correct implementation paths:
+# - numba-jitted per-cell loop (O(1) per cell, full N*K parallel via
+#   @numba.njit(parallel=True)) — ~1h focused work + bench
+# - pure-python per-cell loop (O(N*K) Python overhead per push — slow)
+# - existing `crick.TDigest` / `pytdigest` C++ binding — external dep
+#
+# When the big-M case arises in prod, revisit. Leaving the Welford
+# primitive (this module's `_WelfordAccumulator`) as the streaming
+# aggregator for mean/std/min/max. Median in streaming mode raises
+# NotImplementedError in `ensemble_probabilistic_predictions_streaming`.
+#
+# Tracked as: TODO(session-5+) P²-Quantile numba-jit per-cell impl
+
 # *****************************************************************************************************************************************************
 # Core ensembling functionality
 # *****************************************************************************************************************************************************
