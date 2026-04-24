@@ -2932,6 +2932,34 @@ def train_mlframe_models_suite(
                     weight_schemas = {"uniform": None}
                     logger.info("No weighting schemas from extractor, defaulting to uniform weighting.")
 
+                # Conflict check: backward val placement + non-uniform weighting.
+                # Backward split puts val BEFORE train on the timeline; recency
+                # weighting makes train bias toward the NEWEST rows. The two
+                # together optimise "fit the newest rows and validate on the
+                # oldest ones" — the opposite of the concept-drift proxy that
+                # motivated choosing backward in the first place. Warn at suite
+                # entry (rather than silently let the suite run) so the user
+                # either disables recency on the extractor or reverts to
+                # forward placement deliberately.
+                _val_placement = getattr(split_config, "val_placement", "forward")
+                if _val_placement == "backward":
+                    _non_uniform = [k for k in weight_schemas.keys() if k != "uniform"]
+                    if _non_uniform:
+                        logger.warning(
+                            "  val_placement='backward' is combined with %d non-"
+                            "uniform weighting schema(s) %s. Backward val is "
+                            "designed to approximate DEPLOYMENT error under "
+                            "drift by mirroring the val→train gap against the "
+                            "train→prod gap, while recency-style weights bias "
+                            "training toward the newest rows. Together they "
+                            "optimise 'fit newest, validate on oldest' — which "
+                            "contradicts the drift-proxy intent of backward. "
+                            "Consider disabling use_recency_weighting on the "
+                            "extractor (runs will fall back to uniform only) "
+                            "or switching back to val_placement='forward'.",
+                            len(_non_uniform), _non_uniform,
+                        )
+
                 # -----------------------------------------------------------------------
                 # MODEL LOOP: Train each model type with all weight variations
                 # Models sorted by feature tier (most features first) so that

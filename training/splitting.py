@@ -8,7 +8,7 @@ Provides flexible data splitting with support for:
 """
 
 import logging
-from typing import Optional, Tuple
+from typing import Literal, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -29,6 +29,7 @@ def make_train_test_split(
     timestamps: Optional[pd.Series] = None,
     wholeday_splitting: bool = True,
     random_seed: Optional[int] = None,
+    val_placement: Literal["forward", "backward"] = "forward",
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, str, str, str]:
     """
     Split data into train, validation, and test sets with flexible sequential/shuffled control.
@@ -55,6 +56,19 @@ def make_train_test_split(
         timestamps: Series of timestamps for time-based splitting.
         wholeday_splitting: If True and timestamps provided, split by whole days.
         random_seed: Random seed for reproducibility.
+        val_placement: Temporal placement of val relative to train/test.
+            - "forward" (default): ``[train] [val] [test]`` — val immediately
+              precedes test on the timeline (conventional time-series split).
+            - "backward": ``[val] [train] [test]`` — val precedes train
+              ("First test then train", Mazzanti 2024). Chosen when you want
+              val-metric to approximate deployment-time performance under
+              drift: forward's val→train gap is ~0 while train→prod gap is
+              large, so val overstates prod; backward mirrors the gaps so
+              val-metric is sampled from the same drift-distance regime as
+              deployment. Only meaningful when ``timestamps`` is provided
+              — without time axis, placement is ill-defined and this
+              argument is ignored (caller gets a plain sklearn shuffle
+              split). Also a no-op when ``val_size`` is 0.
 
     Returns:
         Tuple of (train_idx, val_idx, test_idx, train_details, val_details, test_details)
@@ -79,6 +93,30 @@ def make_train_test_split(
     # ``if trainset_aging_limit:`` falsy short-circuit.
     if trainset_aging_limit is not None and not (0 < trainset_aging_limit < 1.0):
         raise ValueError(f"trainset_aging_limit must be in (0, 1), got {trainset_aging_limit}")
+    if val_placement not in ("forward", "backward"):
+        raise ValueError(
+            f"val_placement must be 'forward' or 'backward', got {val_placement!r}"
+        )
+
+    # Backward placement is time-axis-specific. Without timestamps there is
+    # no "before/after" to place val relative to train, so we silently fall
+    # back to forward — the sklearn-shuffle path below doesn't order rows
+    # by time anyway. ``val_size=0`` makes placement moot too.
+    _effective_val_placement = val_placement
+    if timestamps is None or val_size == 0:
+        _effective_val_placement = "forward"
+    if _effective_val_placement == "backward" and trainset_aging_limit is not None:
+        # Aging trims the OLDEST train rows — which in backward layout are
+        # the ones closest to the (earlier) val block. Trimming them
+        # widens the val→train gap silently, defeating the "gap mirror"
+        # whole point of the Mazzanti split. Refuse explicitly rather
+        # than produce a subtly wrong split.
+        raise ValueError(
+            "val_placement='backward' is incompatible with "
+            "trainset_aging_limit — aging removes the oldest train rows, "
+            "which are the ones adjacent to the backward-placed val. "
+            "Drop one of the two."
+        )
 
     def _calculate_split_sizes(total_size, target_size, shuffle, sequential_fraction):
         """Calculate sequential and shuffled portions for a split."""
@@ -97,23 +135,39 @@ def make_train_test_split(
         return n_sequential, n_shuffled
 
     def _perform_split(sorted_items, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf, rng=rng):
-        """Perform the actual splitting on sorted items (dates or indices)."""
+        """Perform the actual splitting on sorted items (dates or indices).
+
+        With ``_effective_val_placement == "backward"`` the sequential val
+        slice is taken from the OLDEST end of ``remaining`` after the test
+        slice is removed, producing the Mazzanti layout
+        ``[val(oldest)] [train(middle)] [test(newest)]``. Forward (default)
+        takes it from the newest end of the same remainder, producing
+        ``[train(oldest)] [val(middle)] [test(newest)]``. The shuffled
+        portions are drawn from the remainder after BOTH sequential slices
+        are removed, so the shuffled-val / shuffled-test samples don't
+        overlap with the sequential blocks regardless of placement.
+        """
         remaining = sorted_items.copy()
         test_seq = val_seq = None
         test_list = []
         val_list = []
 
-        # Sequential test (most recent)
+        # Sequential test (most recent) — same for both placements.
         if n_test_seq > 0:
             test_seq = remaining[-n_test_seq:]
             test_list.append(test_seq)
             remaining = remaining[:-n_test_seq]
 
-        # Sequential val (next most recent)
+        # Sequential val: newest end (forward) or oldest end (backward).
         if n_val_seq > 0:
-            val_seq = remaining[-n_val_seq:]
-            val_list.append(val_seq)
-            remaining = remaining[:-n_val_seq]
+            if _effective_val_placement == "backward":
+                val_seq = remaining[:n_val_seq]
+                val_list.append(val_seq)
+                remaining = remaining[n_val_seq:]
+            else:
+                val_seq = remaining[-n_val_seq:]
+                val_list.append(val_seq)
+                remaining = remaining[:-n_val_seq]
 
         # Shuffled test from remaining
         if n_test_shuf > 0:

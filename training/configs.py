@@ -190,6 +190,13 @@ class TrainingSplitConfig(BaseConfig):
         Whether to split on day boundaries (default: True).
     random_seed : int
         Random seed for reproducible splits (default: 42).
+    val_placement : {"forward", "backward"}
+        Temporal placement of the validation set relative to train/test
+        (default: "forward"). "forward" = conventional [train][val][test];
+        "backward" = [val][train][test] ("First test then train", Mazzanti
+        2024). Backward testing gives a better proxy of deployment error
+        under drift but conflicts with recency weighting — see the field
+        comments below for the full trade-off analysis.
 
     Raises
     ------
@@ -225,6 +232,37 @@ class TrainingSplitConfig(BaseConfig):
     trainset_aging_limit: Optional[float] = Field(default=None, gt=0.0, lt=1.0)
     wholeday_splitting: bool = True
     random_seed: int = DEFAULT_RANDOM_SEED
+
+    # "First test then train" — Mazzanti 2024 (Medium, 58-dataset benchmark).
+    # When ``val_placement="backward"`` with time-indexed data, val is placed
+    # BEFORE train on the timeline:
+    #
+    #   forward  (default):  [ train ] [ val ]   [ test ]   ← conventional
+    #   backward          :  [ val   ] [ train ] [ test ]   ← Mazzanti
+    #
+    # Rationale: in forward-testing the val→train temporal gap is ~0 while
+    # the train→prod gap is large (weeks / months), so val-metric is sampled
+    # from the "near" edge of the drift trajectory and overstates prod
+    # performance. The 2026-04-23 prod log on jobsdetails showed this
+    # vividly — VAL ROC AUC 0.999 vs TEST 0.71. Backward-testing mirrors
+    # the val→train gap against the train→prod gap, so val-metric is
+    # sampled from the same drift-distance regime as deployment — an
+    # empirically better proxy (38 % vs 51 % mean deviation over 58
+    # datasets in Mazzanti's benchmark).
+    #
+    # Trade-offs:
+    #   - Conflicts with recency weighting (train weighted toward the most
+    #     recent rows while validating on the oldest rows is conceptually
+    #     inverted). ``core.py`` emits a WARN if a non-uniform weighting
+    #     schema is active alongside ``val_placement="backward"``; disable
+    #     ``use_recency_weighting`` on the extractor to silence, or accept
+    #     the conflict deliberately.
+    #   - Early-stopping against a backward val optimizes for "regenerates
+    #     to an earlier regime", which approximates "projects into a
+    #     future regime" only when drift is roughly symmetric in time. If
+    #     past and future regimes differ (post-COVID retail, post-2008
+    #     finance), neither forward nor backward val is fully trustworthy.
+    val_placement: Literal["forward", "backward"] = "forward"
 
     @model_validator(mode="after")
     def validate_split_sizes(self) -> "TrainingSplitConfig":
