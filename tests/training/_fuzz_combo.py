@@ -76,6 +76,19 @@ AXES: dict[str, tuple[Any, ...]] = {
     "fairness_col": (None, "cat_0"),                             # #31
     "custom_prep": (None, "pca2"),                               # #29
     "input_storage": ("memory", "parquet"),                      # #33
+    # 2026-04-24 (round 2): config fields previously hard-coded to
+    # defaults despite being user-facing knobs. Each axis exercises
+    # a distinct code path that prior fuzz couldn't reach.
+    "fillna_value_cfg": (None, 0.0),                             # PreprocessingConfig.fillna_value
+    "scaler_name_cfg": ("standard", "robust", None),             # PolarsPipelineConfig.scaler_name
+    "categorical_encoding_cfg": ("ordinal", "onehot"),           # PolarsPipelineConfig.categorical_encoding
+    "skip_categorical_encoding_cfg": (False, True),              # PolarsPipelineConfig.skip_categorical_encoding
+    "val_placement_cfg": ("forward", "backward"),                # TrainingSplitConfig.val_placement
+    "test_size_cfg": (0.1, 0.2),                                 # TrainingSplitConfig.test_size
+    "trainset_aging_limit_cfg": (None, 0.5),                     # TrainingSplitConfig.trainset_aging_limit
+    "cat_text_card_threshold_cfg": (50, 300),                    # FeatureTypesConfig.cat_text_cardinality_threshold
+    "early_stopping_rounds_cfg": (None, 20),                     # ModelHyperparamsConfig.early_stopping_rounds
+    "use_robust_eval_metric_cfg": (False, True),                 # TrainingBehaviorConfig.use_robust_eval_metric
 }
 
 
@@ -117,6 +130,17 @@ class FuzzCombo:
     fairness_col: "str | None" = None
     custom_prep: "str | None" = None
     input_storage: str = "memory"
+    # 2026-04-24 round 2 — config-field axes
+    fillna_value_cfg: "float | None" = None
+    scaler_name_cfg: "str | None" = "standard"
+    categorical_encoding_cfg: str = "ordinal"
+    skip_categorical_encoding_cfg: bool = False
+    val_placement_cfg: str = "forward"
+    test_size_cfg: float = 0.1
+    trainset_aging_limit_cfg: "float | None" = None
+    cat_text_card_threshold_cfg: int = 300
+    early_stopping_rounds_cfg: "int | None" = None
+    use_robust_eval_metric_cfg: bool = True
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -179,6 +203,17 @@ class FuzzCombo:
             fairness,
             custom_prep,
             self.input_storage,
+            # 2026-04-24 round 2 — config field axes
+            self.fillna_value_cfg,
+            self.scaler_name_cfg,
+            self.categorical_encoding_cfg,
+            self.skip_categorical_encoding_cfg,
+            self.val_placement_cfg,
+            self.test_size_cfg,
+            self.trainset_aging_limit_cfg,
+            self.cat_text_card_threshold_cfg,
+            self.early_stopping_rounds_cfg,
+            self.use_robust_eval_metric_cfg,
         )
 
     def short_id(self) -> str:
@@ -223,6 +258,17 @@ class FuzzCombo:
             "fairness_col": self.fairness_col,
             "custom_prep": self.custom_prep,
             "input_storage": self.input_storage,
+            # 2026-04-24 round 2
+            "fillna_value_cfg": self.fillna_value_cfg,
+            "scaler_name_cfg": self.scaler_name_cfg,
+            "categorical_encoding_cfg": self.categorical_encoding_cfg,
+            "skip_categorical_encoding_cfg": self.skip_categorical_encoding_cfg,
+            "val_placement_cfg": self.val_placement_cfg,
+            "test_size_cfg": self.test_size_cfg,
+            "trainset_aging_limit_cfg": self.trainset_aging_limit_cfg,
+            "cat_text_card_threshold_cfg": self.cat_text_card_threshold_cfg,
+            "early_stopping_rounds_cfg": self.early_stopping_rounds_cfg,
+            "use_robust_eval_metric_cfg": self.use_robust_eval_metric_cfg,
         }
 
 
@@ -398,6 +444,17 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         fairness_col=axes.get("fairness_col"),
         custom_prep=axes.get("custom_prep"),
         input_storage=axes.get("input_storage", "memory"),
+        # 2026-04-24 round 2
+        fillna_value_cfg=axes.get("fillna_value_cfg"),
+        scaler_name_cfg=axes.get("scaler_name_cfg", "standard"),
+        categorical_encoding_cfg=axes.get("categorical_encoding_cfg", "ordinal"),
+        skip_categorical_encoding_cfg=axes.get("skip_categorical_encoding_cfg", False),
+        val_placement_cfg=axes.get("val_placement_cfg", "forward"),
+        test_size_cfg=axes.get("test_size_cfg", 0.1),
+        trainset_aging_limit_cfg=axes.get("trainset_aging_limit_cfg"),
+        cat_text_card_threshold_cfg=axes.get("cat_text_card_threshold_cfg", 300),
+        early_stopping_rounds_cfg=axes.get("early_stopping_rounds_cfg"),
+        use_robust_eval_metric_cfg=axes.get("use_robust_eval_metric_cfg", True),
     )
 
 
@@ -445,6 +502,17 @@ def _combo_pairs(combo: FuzzCombo) -> set[tuple[str, Any, str, Any]]:
         "fairness_col": combo.fairness_col,
         "custom_prep": combo.custom_prep,
         "input_storage": combo.input_storage,
+        # 2026-04-24 round 2
+        "fillna_value_cfg": combo.fillna_value_cfg,
+        "scaler_name_cfg": combo.scaler_name_cfg,
+        "categorical_encoding_cfg": combo.categorical_encoding_cfg,
+        "skip_categorical_encoding_cfg": combo.skip_categorical_encoding_cfg,
+        "val_placement_cfg": combo.val_placement_cfg,
+        "test_size_cfg": combo.test_size_cfg,
+        "trainset_aging_limit_cfg": combo.trainset_aging_limit_cfg,
+        "cat_text_card_threshold_cfg": combo.cat_text_card_threshold_cfg,
+        "early_stopping_rounds_cfg": combo.early_stopping_rounds_cfg,
+        "use_robust_eval_metric_cfg": combo.use_robust_eval_metric_cfg,
         "n_models": len(combo.models),
     }
     names = list(values.keys())

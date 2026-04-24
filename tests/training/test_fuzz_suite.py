@@ -34,8 +34,15 @@ _FUZZ_MASTER_SEED = int(os.environ.get("FUZZ_SEED", "20260422"))
 COMBOS: list[FuzzCombo] = enumerate_combos(target=150, master_seed=_FUZZ_MASTER_SEED)
 
 
-def _config_for_models(models: tuple[str, ...], n_rows: int, iterations: int = 3) -> dict:
+def _config_for_models(
+    models: tuple[str, ...],
+    n_rows: int,
+    iterations: int = 3,
+    early_stopping_rounds: "int | None" = None,
+) -> dict:
     cfg: dict = {"iterations": iterations}
+    if early_stopping_rounds is not None:
+        cfg["early_stopping_rounds"] = early_stopping_rounds
     if "lgb" in models:
         cfg["lgb_kwargs"] = {"device_type": "cpu", "verbose": -1}
     if "xgb" in models:
@@ -67,6 +74,8 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         PolarsPipelineConfig,
         FeatureTypesConfig,
         TrainingBehaviorConfig,
+        PreprocessingConfig,
+        TrainingSplitConfig,
     )
     # Mirror the ``want_text`` / ``want_embedding`` gates in
     # ``build_frame_for_combo`` so the declared column lists exactly
@@ -95,20 +104,39 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         "align_polars_categorical_dicts": combo.align_polars_categorical_dicts,
         "continue_on_model_failure": combo.continue_on_model_failure,
         "prefer_calibrated_classifiers": combo.prefer_calibrated_classifiers,
+        # 2026-04-24 round 2
+        "use_robust_eval_metric": combo.use_robust_eval_metric_cfg,
     }
     if fairness_features:
         behavior_kwargs["fairness_features"] = fairness_features
         behavior_kwargs["fairness_min_pop_cat_thresh"] = 10
+    # TrainingSplitConfig: val_size left at default (0.1); test_size
+    # varies per axis. trainset_aging_limit validates strictly in
+    # (0, 1) so only 0.5 is a safe non-None value.
+    split_config = TrainingSplitConfig(
+        test_size=combo.test_size_cfg,
+        val_placement=combo.val_placement_cfg,
+        trainset_aging_limit=combo.trainset_aging_limit_cfg,
+    )
+    preprocessing_config = PreprocessingConfig(
+        fillna_value=combo.fillna_value_cfg,
+    )
     return {
         "pipeline_config": PolarsPipelineConfig(
             use_polarsds_pipeline=combo.use_polarsds_pipeline,
+            scaler_name=combo.scaler_name_cfg,
+            categorical_encoding=combo.categorical_encoding_cfg,
+            skip_categorical_encoding=combo.skip_categorical_encoding_cfg,
         ),
+        "preprocessing_config": preprocessing_config,
+        "split_config": split_config,
         "feature_types_config": FeatureTypesConfig(
             auto_detect_feature_types=combo.auto_detect_cats,
             use_text_features=combo.use_text_features,
             honor_user_dtype=combo.honor_user_dtype,
             text_features=text_features,
             embedding_features=embedding_features,
+            cat_text_cardinality_threshold=combo.cat_text_card_threshold_cfg,
         ),
         "behavior_config": TrainingBehaviorConfig(**behavior_kwargs),
     }
@@ -296,7 +324,9 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             features_and_targets_extractor=fte,
             mlframe_models=list(combo.models),
             hyperparams_config=_config_for_models(
-                combo.models, combo.n_rows, iterations=combo.iterations,
+                combo.models, combo.n_rows,
+                iterations=combo.iterations,
+                early_stopping_rounds=combo.early_stopping_rounds_cfg,
             ),
             init_common_params=_common_init_for_combo(combo),
             use_ordinary_models=True,
