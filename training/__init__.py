@@ -85,6 +85,14 @@ _LAZY_IMPORTS = {
     'TrainingConfig': ('.configs', 'TrainingConfig'),
     'config_from_dict': ('.configs', 'config_from_dict'),
     'TargetTypes': ('.configs', 'TargetTypes'),
+    # 2026-04-24: multi-output configs (multiclass / multilabel dispatch)
+    'MultilabelDispatchConfig': ('.configs', 'MultilabelDispatchConfig'),
+    'EnsemblingConfig': ('.configs', 'EnsemblingConfig'),
+    # Probability-surface helpers — re-exported without underscore prefix.
+    # Users writing custom estimators need these to canonicalise predict_proba
+    # output and apply the standard decision rule per target_type.
+    'canonical_predict_proba_shape': ('.helpers', '_canonical_predict_proba_shape'),
+    'predict_from_probs': ('.helpers', '_predict_from_probs'),
 
     # Model utilities
     'create_linear_model': ('.models', 'create_linear_model'),
@@ -206,6 +214,10 @@ __all__ = [
     'TrainingConfig',
     'config_from_dict',
     'TargetTypes',
+    'MultilabelDispatchConfig',
+    'EnsemblingConfig',
+    'canonical_predict_proba_shape',
+    'predict_from_probs',
     'DataConfig',
     'TrainingControlConfig',
     'MetricsConfig',

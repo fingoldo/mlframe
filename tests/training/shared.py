@@ -12,11 +12,69 @@ from mlframe.training.configs import TargetTypes
 
 
 class SimpleFeaturesAndTargetsExtractor:
-    """Mock FeaturesAndTargetsExtractor for testing."""
+    """Mock FeaturesAndTargetsExtractor for testing.
 
-    def __init__(self, target_column='target', regression=True):
+    target_type override
+    --------------------
+    By default, ``regression=True`` → REGRESSION; ``regression=False`` →
+    BINARY_CLASSIFICATION. For multiclass / multilabel tests, pass
+    ``target_type`` directly:
+        - ``target_type=TargetTypes.MULTICLASS_CLASSIFICATION`` — target column
+          is a 1-D int label (0..K-1)
+        - ``target_type=TargetTypes.MULTILABEL_CLASSIFICATION`` — target column
+          is either:
+            (a) a polars ``pl.List(pl.Int8)`` / ``pl.Array(pl.Int8, K)`` column
+                (auto-unpacked to (N, K) ndarray), OR
+            (b) a pandas object column where each cell is a list/tuple of K ints
+                (auto-stacked to (N, K) ndarray), OR
+            (c) a 2-D ndarray already.
+    """
+
+    def __init__(self, target_column='target', regression=True, target_type=None):
         self.target_column = target_column
         self.regression = regression
+        self._explicit_target_type = target_type
+
+    def _resolve_target_type(self):
+        if self._explicit_target_type is not None:
+            return self._explicit_target_type
+        return TargetTypes.REGRESSION if self.regression else TargetTypes.BINARY_CLASSIFICATION
+
+    def _extract_target_values(self, df):
+        """Returns 1-D or 2-D ndarray. Auto-detects polars list/array
+        target columns and unpacks them to (N, K)."""
+        target_type = self._resolve_target_type()
+        col = df[self.target_column]
+        if isinstance(df, pd.DataFrame):
+            raw = col.values
+        else:  # Polars
+            raw = col
+        # Multilabel: unpack list-typed column or stack object cells.
+        if target_type == TargetTypes.MULTILABEL_CLASSIFICATION:
+            if not isinstance(df, pd.DataFrame):
+                # Polars: try List/Array dtype first.
+                import polars as pl
+                if isinstance(col.dtype, pl.List) or (hasattr(pl, "Array") and isinstance(col.dtype, pl.Array)):
+                    # Stack list-of-lists into (N, K) ndarray.
+                    py_list = col.to_list()
+                    return np.asarray(py_list, dtype=np.int8)
+                # Fallback: bare 2-D-aware to_numpy
+                arr = col.to_numpy()
+                if arr.ndim == 2:
+                    return arr.astype(np.int8)
+                # 1-D object column with list cells (rare) — stack
+                return np.stack([np.asarray(c, dtype=np.int8) for c in arr])
+            else:
+                arr = raw
+                if arr.ndim == 2:
+                    return arr.astype(np.int8)
+                if arr.dtype == object:
+                    return np.stack([np.asarray(c, dtype=np.int8) for c in arr])
+                return arr
+        # Default: 1-D values (regression / binary / multiclass label).
+        if isinstance(df, pd.DataFrame):
+            return raw
+        return col.to_numpy()
 
     def transform(self, df):
         """
@@ -24,14 +82,8 @@ class SimpleFeaturesAndTargetsExtractor:
 
         Returns: (df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, columns_to_drop, sample_weights)
         """
-        # Extract target
-        if isinstance(df, pd.DataFrame):
-            target_values = df[self.target_column].values
-        else:  # Polars
-            target_values = df[self.target_column].to_numpy()
-
-        # Create target_by_type dict
-        target_type = TargetTypes.REGRESSION if self.regression else TargetTypes.BINARY_CLASSIFICATION
+        target_values = self._extract_target_values(df)
+        target_type = self._resolve_target_type()
         target_by_type = {
             target_type: {
                 self.target_column: target_values

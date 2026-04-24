@@ -392,12 +392,69 @@ class XGBoostStrategy(TreeModelStrategy):
     supports_polars = True
     # XGB has native multiclass via objective='multi:softprob'+num_class.
     # XGB 3.x has experimental multi_strategy='multi_output_tree' for
-    # multilabel but it's WIP/unstable — we route multilabel through
-    # MultiOutputClassifier wrapper for now (TODO: native upgrade when
-    # XGB 3.1 lands stable).
+    # multilabel — opt-in via MultilabelDispatchConfig.force_native_xgb_multilabel
+    # (default False, uses MultiOutputClassifier wrapper). Marked WIP by
+    # upstream until v3.1 stable; opting in earlier accepts the upstream
+    # stability risk for vector-output trees (smaller model, integrated
+    # GPU/SHAP support, faster inference).
     supports_native_multiclass = True
-    # supports_native_multilabel inherits False from ABC → wrapper path
-    # Inherits cache_key = "tree" from TreeModelStrategy (see CatBoostStrategy note).
+    # supports_native_multilabel: declared False at class level (matches the
+    # ABC default + tells callers "wrapper by default"). The actual native-
+    # multilabel decision is dynamic — see wrap_multilabel + get_classif_
+    # objective_kwargs overrides below, which BOTH consult the runtime
+    # MultilabelDispatchConfig.force_native_xgb_multilabel flag.
+    # Inherits cache_key = "tree" from TreeModelStrategy.
+
+    def get_classif_objective_kwargs(self, target_type, n_classes: int,
+                                      multilabel_config=None) -> dict:
+        """Override base to support opt-in native XGB multilabel.
+
+        When ``target_type == MULTILABEL_CLASSIFICATION`` AND
+        ``multilabel_config.force_native_xgb_multilabel`` is True, return
+        the native vector-output-tree kwargs:
+          {'objective': 'binary:logistic',
+           'multi_strategy': 'multi_output_tree',
+           'tree_method': 'hist'}
+
+        Otherwise falls back to the base dispatcher (which returns ``{}``
+        for multilabel — wrapper path takes over).
+        """
+        from .configs import TargetTypes as _TT, MultilabelDispatchConfig
+        if (
+            target_type == _TT.MULTILABEL_CLASSIFICATION
+            and multilabel_config is not None
+            and getattr(multilabel_config, "force_native_xgb_multilabel", False)
+        ):
+            # XGB 3.x experimental native multilabel. tree_method='hist'
+            # is required; binary:logistic per-output objective.
+            return {
+                "objective": "binary:logistic",
+                "multi_strategy": "multi_output_tree",
+                "tree_method": "hist",
+            }
+        return super().get_classif_objective_kwargs(target_type, n_classes)
+
+    def wrap_multilabel(self, estimator, target_type, multilabel_config=None,
+                       n_labels: Optional[int] = None):
+        """Override base to opt into native XGB multilabel when configured.
+
+        When ``force_native_xgb_multilabel=True``, return ``estimator``
+        unchanged (no MultiOutputClassifier wrapper) — the kwargs from
+        ``get_classif_objective_kwargs`` already configured the native
+        multi-output tree path.
+        """
+        from .configs import TargetTypes as _TT
+        if (
+            target_type == _TT.MULTILABEL_CLASSIFICATION
+            and multilabel_config is not None
+            and getattr(multilabel_config, "force_native_xgb_multilabel", False)
+        ):
+            return estimator
+        # Fall back to base (MultiOutputClassifier / chain / etc.)
+        return super().wrap_multilabel(
+            estimator, target_type,
+            multilabel_config=multilabel_config, n_labels=n_labels,
+        )
 
     def prepare_polars_dataframe(self, df: "pl.DataFrame", cat_features: List[str]) -> "pl.DataFrame":
         """Cast string columns to pl.Categorical for XGBoost auto-detection.

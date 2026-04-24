@@ -144,13 +144,24 @@ def compute_simple_stats_numba(arr: np.ndarray) -> tuple:
         mean_value = 0.0
         minval, maxval = 0.0, 0.0
 
+    # 2026-04-24 numerical stability: Kahan-Babuška-Neumaier compensated
+    # accumulator for the squared-deviation sum. Recovers 1-2 orders of
+    # magnitude on ill-conditioned inputs (e.g. 1e9 + N(0, 1e-3) where
+    # naive uncompensated sum loses ~5 digits of precision; Kahan recovers
+    # to numerical exactness). See docs/NUMERICAL_STABILITY_REPORT.md.
+    std_compensation = 0.0
     for i, next_value in enumerate(arr):
         if np.isfinite(next_value):
             d = next_value - mean_value
             summand = d * d
-            std_val = std_val + summand
+            t = std_val + summand
+            if abs(std_val) >= abs(summand):
+                std_compensation += (std_val - t) + summand
+            else:
+                std_compensation += (summand - t) + std_val
+            std_val = t
     if size:
-        std_val = np.sqrt(std_val / size)
+        std_val = np.sqrt((std_val + std_compensation) / size)
     else:
         std_val = 0.0
     return minval, maxval, argmin, argmax, mean_value, std_val
@@ -737,7 +748,16 @@ def compute_moments_slope_mi(
 
             kurt += summand * d
             if weights is not None:
-                weighted_skew += w_summand * w_d * next_weight
+                # Bug fix 2026-04-24 (numaggs audit): was `weighted_skew +=` —
+                # double-accumulating skew and never accumulating kurt. The
+                # downstream normaliser at line 771 then divided an
+                # always-zero `weighted_kurt` by `factor`, producing -3.0
+                # for every row that took the weighted-stats branch.
+                # Affects every caller using `compute_moments_slope_mi` with
+                # weights — silently wrong feature for 4-tuple
+                # (weighted_mad, weighted_std, weighted_skew, weighted_kurt)
+                # since at least the moments-slope-mi block was added.
+                weighted_kurt += w_summand * w_d * next_weight
 
     # mi = mutual_info_regression(xvals.reshape(-1, 1), arr, n_neighbors=2)  # n_neighbors=2 is strictly needed for short sequences
 

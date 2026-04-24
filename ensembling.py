@@ -35,6 +35,133 @@ basic_features_names = get_basic_feature_names(
     whiten_means=False,
 )
 
+
+# =============================================================================
+# Streaming-accumulator Protocol — 2026-04-24 Session 2
+# =============================================================================
+#
+# Pluggable interface for ensemble aggregation that consumes one (N, K)
+# probability matrix at a time, without materialising the full (M, N, K)
+# tensor. Today's `ensemble_probabilistic_predictions` uses materialised
+# `_preds_arr` (1 copy peak) — fine up to ~M=6, N=1M, K=5 (~240MB). For
+# bigger frames (prod 9M-row), implementations of this Protocol drop the
+# peak to O(N*K) by streaming.
+#
+# Currently provided:
+# - `_WelfordAccumulator` — single-pass mean / variance via Welford. Used
+#   directly by future big-frame ensembling path.
+#
+# Planned:
+# - `_KahanTwoPassAccumulator` — exact mean+var via Kahan-2pass (best precision)
+# - `_PSquaredQuantileAccumulator` — fixed-memory streaming quantile for median
+# - `_TDigestAccumulator` — alternative quantile sketch
+#
+# See docs/NUMERICAL_STABILITY_REPORT.md for empirical comparison of
+# Welford / Kahan / naive on 7 synthetic distributions.
+
+
+class StreamingAccumulator:
+    """Protocol for single-pass probability-matrix aggregation.
+
+    Concrete implementations:
+    - ``push(arr)``: consume one (N, K) probability matrix
+    - ``result()``: return ``dict[str, np.ndarray]`` with computed
+      statistics ('mean', 'std', 'min', 'max', 'geomean', etc.)
+
+    Memory budget: O(N*K) per accumulator instance (a few persistent
+    accumulator arrays). Independent of M (number of models in ensemble).
+    """
+
+    def push(self, arr: np.ndarray) -> None:
+        raise NotImplementedError
+
+    def result(self) -> dict:
+        raise NotImplementedError
+
+
+class _WelfordAccumulator(StreamingAccumulator):
+    """Welford single-pass mean+var+min+max for (N, K) probability matrices.
+
+    Extends the classical scalar Welford to elementwise (N, K) updates.
+    Memory: 4 persistent arrays of (N, K) — mean, M2, min, max.
+
+    Numerical stability: same as scalar Welford (each delta = arr - mean
+    operates on differences of similar magnitude to var, no catastrophic
+    cancellation). Per benchmarks (docs/NUMERICAL_STABILITY_REPORT.md):
+    Welford recovers 19-37x precision on long arrays of well-conditioned
+    data; loses to Kahan-2pass on extreme cancellation cases (large mean +
+    smooth variance) — for those use ``_KahanTwoPassAccumulator`` (TBD).
+
+    Usage::
+
+        acc = _WelfordAccumulator(shape=(N, K))
+        for model in models:
+            acc.push(model.predict_proba(X_val))
+        stats = acc.result()  # {'mean': (N,K), 'std': (N,K), 'min': ..., 'max': ...}
+    """
+
+    def __init__(self, shape: tuple, dtype=np.float64):
+        self.n = 0
+        self.mean = np.zeros(shape, dtype=dtype)
+        self.M2 = np.zeros(shape, dtype=dtype)
+        self.min: Optional[np.ndarray] = None
+        self.max: Optional[np.ndarray] = None
+        self._dtype = dtype
+
+    def push(self, arr: np.ndarray) -> None:
+        if arr.shape != self.mean.shape:
+            raise ValueError(
+                f"_WelfordAccumulator.push: expected shape {self.mean.shape}, "
+                f"got {arr.shape}"
+            )
+        arr = arr.astype(self._dtype, copy=False)
+        self.n += 1
+        delta = arr - self.mean
+        self.mean += delta / self.n
+        delta2 = arr - self.mean  # mean already updated
+        self.M2 += delta * delta2
+        if self.min is None:
+            self.min = arr.copy()
+            self.max = arr.copy()
+        else:
+            np.minimum(self.min, arr, out=self.min)
+            np.maximum(self.max, arr, out=self.max)
+
+    def result(self) -> dict:
+        if self.n == 0:
+            return {"mean": None, "std": None, "var": None, "min": None, "max": None, "n": 0}
+        var = self.M2 / max(self.n - 1, 1)  # sample variance (ddof=1)
+        return {
+            "mean": self.mean,
+            "var": var,
+            "std": np.sqrt(var),
+            "min": self.min,
+            "max": self.max,
+            "n": self.n,
+        }
+
+    @staticmethod
+    def combine(a: "_WelfordAccumulator", b: "_WelfordAccumulator") -> "_WelfordAccumulator":
+        """Exact merge of two Welford accumulators (Chan et al. 1979).
+
+        Enables parallelisation: split models across threads, each thread
+        builds its own Welford, then combine at the end. Result is
+        bit-identical to the single-stream version (no precision loss).
+        """
+        if a.n == 0:
+            return b
+        if b.n == 0:
+            return a
+        n = a.n + b.n
+        delta = b.mean - a.mean
+        out = _WelfordAccumulator(shape=a.mean.shape, dtype=a._dtype)
+        out.n = n
+        out.mean = a.mean + delta * b.n / n
+        out.M2 = a.M2 + b.M2 + (delta ** 2) * a.n * b.n / n
+        out.min = np.minimum(a.min, b.min) if (a.min is not None and b.min is not None) else (a.min if a.min is not None else b.min)
+        out.max = np.maximum(a.max, b.max) if (a.max is not None and b.max is not None) else (a.max if a.max is not None else b.max)
+        return out
+
 # *****************************************************************************************************************************************************
 # Core ensembling functionality
 # *****************************************************************************************************************************************************

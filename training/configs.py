@@ -1056,6 +1056,16 @@ class MultilabelDispatchConfig(BaseConfig):
     per_label_thresholds: Optional[List[float]] = None  # decision-rule thresholds
     wrapper_n_jobs: Union[int, str] = "auto"  # MultiOutputClassifier n_jobs
     allow_uncalibrated_multi: bool = False  # downgrade post-hoc calib skip from raise to warn
+    # 2026-04-24 Session-2: opt-in for native XGB multilabel (multi_strategy=
+    # 'multi_output_tree' + objective='binary:logistic'). XGB 3.x ships this
+    # as experimental — vector-output trees share structure across labels
+    # (smaller model, integrated GPU/SHAP, faster inference). Marked WIP
+    # by upstream until v3.1; default False uses MultiOutputClassifier
+    # wrapper. Set True to opt in (only takes effect with strategy='native'
+    # or 'auto' + XGBoostStrategy with the flag set). Combined with
+    # XGBoostStrategy.supports_native_multilabel which is gated on this
+    # flag at runtime.
+    force_native_xgb_multilabel: bool = False
 
 
 class EnsemblingConfig(BaseConfig):

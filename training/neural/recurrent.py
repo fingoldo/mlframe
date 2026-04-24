@@ -808,11 +808,22 @@ class RecurrentTorchModel(L.LightningModule):
                 self.val_mse = MeanSquaredError()
                 self.val_r2 = R2Score()
             else:
-                self.train_acc = Accuracy(task="multiclass" if self.config.num_classes > 2 else "binary",
-                                          num_classes=self.config.num_classes if self.config.num_classes > 2 else None)
-                self.val_acc = Accuracy(task="multiclass" if self.config.num_classes > 2 else "binary",
-                                        num_classes=self.config.num_classes if self.config.num_classes > 2 else None)
-                if self.config.num_classes == 2:
+                # 2026-04-24: extend to multiclass via Accuracy(task='multiclass').
+                # Multilabel paths and per-label AUROC/AUPRC are deferred —
+                # the existing recurrent path is binary/multiclass classifier
+                # built on a single softmax head; full multilabel needs a
+                # separate K-sigmoid head wired through MultilabelMixin.
+                # TODO(session-3): multilabel sigmoid head + MultilabelAUROC.
+                K = self.config.num_classes
+                if K > 2:
+                    task_str = "multiclass"
+                    self.train_acc = Accuracy(task=task_str, num_classes=K)
+                    self.val_acc = Accuracy(task=task_str, num_classes=K)
+                    self.val_auroc = AUROC(task=task_str, num_classes=K, average="macro")
+                    self.val_auprc = AveragePrecision(task=task_str, num_classes=K, average="macro")
+                else:
+                    self.train_acc = Accuracy(task="binary")
+                    self.val_acc = Accuracy(task="binary")
                     self.val_auroc = AUROC(task="binary")
                     self.val_auprc = AveragePrecision(task="binary")
             self._has_metrics = True
@@ -951,12 +962,17 @@ class RecurrentTorchModel(L.LightningModule):
                     self.val_auroc(probs[:, 1], batch["labels"])
                     self.val_auprc(probs[:, 1], batch["labels"])
                     self.log("val_acc", self.val_acc, prog_bar=True, on_step=False, on_epoch=True)
-                    self.log("val_auroc", self.val_auroc, prog_bar=True, on_step=False, on_epoch=True)
-                    self.log("val_auprc", self.val_auprc, on_step=False, on_epoch=True)
                 else:
+                    # 2026-04-24: multiclass val metrics. argmax for predictions,
+                    # full (N, K) probs to torchmetrics MulticlassAUROC/Accuracy
+                    # (which expects per-class scores).
                     preds = probs.argmax(dim=1)
                     self.val_acc(preds, batch["labels"])
+                    self.val_auroc(probs, batch["labels"])
+                    self.val_auprc(probs, batch["labels"])
                     self.log("val_acc", self.val_acc, prog_bar=True, on_step=False, on_epoch=True)
+                    self.log("val_auroc", self.val_auroc, prog_bar=True, on_step=False, on_epoch=True)
+                    self.log("val_auprc", self.val_auprc, on_step=False, on_epoch=True)
 
     def predict_step(self, batch: dict, _batch_idx: int) -> torch.Tensor:
         """Prediction step."""

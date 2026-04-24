@@ -35,6 +35,10 @@ optbinning
 properscoring
 pysr
 scikit-learn
+# 2026-04-24: optional dep for multilabel stratified splitting in
+# make_train_test_split(stratify_y=2D). Lazy-imported only when
+# stratify_y has 2-D shape. Caller gets a helpful ImportError if missing.
+iterative-stratification
 xgboost
 # ================================================================================================
 # 🧠 Calibration, Uncertainty & Interpretability
