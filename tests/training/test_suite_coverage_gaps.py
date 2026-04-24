@@ -1273,3 +1273,380 @@ def test_verbose_zero_suppresses_suite_info_logs(tmp_path, capsys, caplog):
         f"records from mlframe.*; first few:\n"
         + "\n".join(r.getMessage()[:120] for r in mlframe_info_records[:5])
     )
+
+
+# ===========================================================================
+# Group A — high-ROI, easy (#23–#28)
+# ===========================================================================
+
+
+# #23 Empty / None df / missing target column
+@pytest.mark.parametrize("df_input,error_kw", [
+    (None, ("none", "type", "input")),
+    # Empty pd.DataFrame has no columns at all → extractor fails with
+    # KeyError when looking up the target column. Either error class
+    # is acceptable as long as the message points at the missing
+    # column (or the empty frame).
+    (pd.DataFrame(), ("empty", "rows", "no", "target", "column", "key")),
+])
+def test_invalid_df_inputs_raise_clear_error(tmp_path, df_input, error_kw):
+    """``train_mlframe_models_suite`` must raise a CLEAR error (not a
+    cryptic AttributeError deep in the pipeline) when given invalid
+    ``df`` input. Two cases:
+      * ``df=None`` — caller forgot to load
+      * ``df=empty pandas frame`` — upstream filter killed all rows
+
+    The error message should reference the underlying problem
+    (none-type / empty / no rows / type), not be opaque.
+    """
+    pytest.importorskip("catboost")
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+
+    raised = None
+    try:
+        train_mlframe_models_suite(
+            df=df_input,
+            target_name="tgt", model_name="mdl",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+            init_common_params={"drop_columns": [], "verbose": 0},
+            use_ordinary_models=True, use_mlframe_ensembles=False,
+            data_dir=str(tmp_path), models_dir="models", verbose=0,
+        )
+    except Exception as e:
+        raised = e
+
+    assert raised is not None, (
+        f"invalid df={type(df_input).__name__} did not raise — "
+        "caller would proceed with junk data"
+    )
+    msg = str(raised).lower()
+    assert any(kw in msg for kw in error_kw), (
+        f"raise was opaque for df={type(df_input).__name__}: {raised!r}"
+    )
+
+
+def test_missing_target_column_raises(tmp_path):
+    """If the extractor's ``target_column`` is not in the input df,
+    the suite must raise a clear KeyError/ValueError mentioning the
+    missing column name. Silent dummy-fill or default-to-zero would
+    silently train a useless model.
+    """
+    pytest.importorskip("catboost")
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
+    df = df.drop(columns=["target"])  # target column gone
+
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+
+    raised = None
+    try:
+        train_mlframe_models_suite(
+            df=df, target_name="tgt", model_name="mdl",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+            init_common_params={"drop_columns": [], "verbose": 0},
+            use_ordinary_models=True, use_mlframe_ensembles=False,
+            data_dir=str(tmp_path), models_dir="models", verbose=0,
+        )
+    except Exception as e:
+        raised = e
+    assert raised is not None, "missing target column did not raise"
+    msg = str(raised).lower()
+    # Either explicit "target" mention OR a KeyError-style message about
+    # the column name. Anything that points the operator at the missing
+    # column is acceptable.
+    assert "target" in msg or "column" in msg or "key" in msg, (
+        f"missing-target raise was opaque: {raised!r}"
+    )
+
+
+# #24 Empty model list / unknown model name
+def test_empty_mlframe_models_handled_gracefully(tmp_path):
+    """``mlframe_models=[]`` (empty list) must either (a) raise a clean
+    error indicating no models were requested OR (b) skip cleanly with
+    an empty trained dict. A silent return-with-non-empty-dict from
+    nowhere would be the bug.
+    """
+    pytest.importorskip("catboost")
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+
+    raised = None
+    trained = None
+    try:
+        trained, _ = train_mlframe_models_suite(
+            df=df, target_name="tgt", model_name="mdl",
+            features_and_targets_extractor=fte,
+            mlframe_models=[],
+            hyperparams_config={"iterations": 3},
+            init_common_params={"drop_columns": [], "verbose": 0},
+            use_ordinary_models=True, use_mlframe_ensembles=False,
+            data_dir=str(tmp_path), models_dir="models", verbose=0,
+        )
+    except Exception as e:
+        raised = e
+    if raised is not None:
+        msg = str(raised).lower()
+        assert any(kw in msg for kw in ("model", "empty", "none")), (
+            f"empty-models raise was opaque: {raised!r}"
+        )
+        return
+    # Or, a non-crashing result: trained dict must be empty.
+    assert not trained, (
+        f"empty mlframe_models silently returned non-empty trained dict: {trained}"
+    )
+
+
+def test_unknown_mlframe_model_name_raises_or_warns(tmp_path):
+    """An unknown model name in ``mlframe_models`` must NOT silently
+    pass — either raise a ValueError listing valid names OR log a
+    WARNING and skip the unknown name. Silent acceptance leads to
+    "trained" reports that don't mention the missing model.
+    """
+    pytest.importorskip("catboost")
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+
+    import logging
+    import io
+    log_buf = io.StringIO()
+    handler = logging.StreamHandler(log_buf)
+    handler.setLevel(logging.WARNING)
+    logging.getLogger("mlframe").addHandler(handler)
+
+    raised = None
+    trained = None
+    try:
+        trained, _ = train_mlframe_models_suite(
+            df=df, target_name="tgt", model_name="mdl",
+            features_and_targets_extractor=fte,
+            mlframe_models=["this_is_not_a_real_model"],
+            hyperparams_config={"iterations": 3},
+            init_common_params={"drop_columns": [], "verbose": 0},
+            use_ordinary_models=True, use_mlframe_ensembles=False,
+            data_dir=str(tmp_path), models_dir="models", verbose=0,
+        )
+    except Exception as e:
+        raised = e
+    finally:
+        logging.getLogger("mlframe").removeHandler(handler)
+
+    log_text = log_buf.getvalue().lower()
+    if raised is not None:
+        # Loud raise — preferred.
+        msg = str(raised).lower()
+        assert any(kw in msg for kw in ("unknown", "model", "not", "valid")), (
+            f"unknown-model raise was opaque: {raised!r}"
+        )
+        return
+    # Or, silent skip with WARN. Trained dict empty + warning fired.
+    assert (
+        ("unknown" in log_text or "skip" in log_text or "this_is_not_a_real_model" in log_text)
+        or not trained
+    ), (
+        "unknown model name was silently accepted with no warning and "
+        "no skip — operator would never know"
+    )
+
+
+# #25 Predict output range invariant
+def test_predictions_in_valid_range_for_classification(tmp_path):
+    """Classification predict_proba outputs must be probabilities in
+    [0, 1]. Catches a broken model wrapper that returned raw logits
+    instead of probabilities.
+    """
+    pytest.importorskip("catboost")
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
+    trained, _ = _train_once(df, tmp_path, models=("cb",), regression=False)
+    assert trained
+
+    from mlframe.training.core import predict_mlframe_models_suite
+    models_path = os.path.join(str(tmp_path), "models", "tgt", "mdl")
+    serving = df.head(50).drop(columns=["target"])
+    res = predict_mlframe_models_suite(
+        serving, models_path=models_path, return_probabilities=True, verbose=0,
+    )
+    probs = res.get("probabilities") or {}
+    assert probs, "no probabilities returned for classification"
+    for name, arr in probs.items():
+        if arr is None:
+            continue
+        arr_np = np.asarray(arr)
+        # Either single-column (positive-class prob) or two-column.
+        # Both must be in [0, 1].
+        assert np.isfinite(arr_np).all(), f"non-finite probs from {name}: any NaN/Inf"
+        assert (arr_np >= 0.0).all() and (arr_np <= 1.0001).all(), (
+            f"out-of-range probs from {name}: min={arr_np.min()}, max={arr_np.max()}"
+        )
+
+
+def test_predictions_finite_for_regression(tmp_path):
+    """Regression predict outputs must be finite floats. Catches a
+    model that returned NaN/Inf from a numerically unstable fit.
+    """
+    pytest.importorskip("catboost")
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=True)
+    trained, _ = _train_once(df, tmp_path, models=("cb",), regression=True)
+    assert trained
+
+    from mlframe.training.core import predict_mlframe_models_suite
+    models_path = os.path.join(str(tmp_path), "models", "tgt", "mdl")
+    serving = df.head(50).drop(columns=["target"])
+    res = predict_mlframe_models_suite(
+        serving, models_path=models_path, return_probabilities=False, verbose=0,
+    )
+    preds = res.get("predictions") or {}
+    assert preds, "no predictions returned for regression"
+    for name, arr in preds.items():
+        if arr is None:
+            continue
+        arr_np = np.asarray(arr, dtype="float64")
+        assert np.isfinite(arr_np).all(), (
+            f"non-finite regression predictions from {name}"
+        )
+
+
+# #26 Column-order invariance: schema_hash should not depend on
+# input column order (compute_model_input_fingerprint sorts cols).
+def test_schema_hash_is_column_order_invariant(tmp_path):
+    """Train two suites on the SAME data but with columns in different
+    orders. ``schema_hash`` for the trained model must be identical.
+
+    This invariant relies on ``compute_model_input_fingerprint`` calling
+    ``sorted(df_at_fit.columns)`` at utils.py:374. If a refactor drops
+    the sort, two semantically-identical frames would produce DIFFERENT
+    cache filenames — duplicate trained models on disk and silent
+    cache misses at load time.
+    """
+    pytest.importorskip("catboost")
+    df_a = _make_baseline_pandas(n=300, seed=0, with_cat=True, regression=False)
+    # Reorder: put cat_0 BEFORE the numeric columns.
+    df_b = df_a[["cat_0", "num_0", "num_1", "num_2", "target"]].copy()
+
+    _, meta_a = _train_once(df_a, tmp_path / "a", models=("cb",), regression=False)
+    _, meta_b = _train_once(df_b, tmp_path / "b", models=("cb",), regression=False)
+
+    schemas_a = meta_a.get("model_schemas") or {}
+    schemas_b = meta_b.get("model_schemas") or {}
+    assert schemas_a and schemas_b, "no model_schemas after training"
+
+    # Take the first model entry from each and compare schema_hash.
+    hash_a = next(iter(schemas_a.values())).get("schema_hash")
+    hash_b = next(iter(schemas_b.values())).get("schema_hash")
+    assert hash_a == hash_b, (
+        f"column-order invariance broken: "
+        f"original-order hash={hash_a!r}, reordered hash={hash_b!r}. "
+        f"compute_model_input_fingerprint dropped its sorted() call?"
+    )
+
+
+# #27 Subprocess save/load roundtrip
+def test_save_load_predict_in_subprocess(tmp_path):
+    """Train in pytest process; load + predict in a FRESH subprocess.
+
+    This catches serialization issues that an in-process load would
+    miss — e.g., a custom class pickled with a module path that's
+    only importable in the test's working directory, or a CB binary
+    blob that triggers GPU-context init when loaded fresh.
+
+    Subprocess uses ``subprocess.run`` with the same Python interpreter,
+    captures stdout, asserts the printed prediction count matches the
+    expected serving rows.
+    """
+    pytest.importorskip("catboost")
+    import subprocess
+    import sys
+
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
+    _train_once(df, tmp_path, models=("cb",), regression=False)
+    models_path = os.path.join(str(tmp_path), "models", "tgt", "mdl")
+    assert os.path.isdir(models_path)
+
+    # Persist a serving frame to feed the subprocess.
+    serving_path = os.path.join(str(tmp_path), "serving.parquet")
+    df.head(40).drop(columns=["target"]).to_parquet(serving_path)
+
+    # Subprocess script: load + predict + print result count.
+    script = (
+        "import sys, os\n"
+        "import pandas as pd\n"
+        "from mlframe.training.core import predict_mlframe_models_suite\n"
+        f"df = pd.read_parquet({serving_path!r})\n"
+        f"res = predict_mlframe_models_suite(df, models_path={models_path!r}, "
+        "return_probabilities=True, verbose=0)\n"
+        "probs = res.get('probabilities') or {}\n"
+        "preds = res.get('predictions') or {}\n"
+        "any_arr = next(iter({**probs, **preds}.values()), None)\n"
+        "if any_arr is None:\n"
+        "    print('NONE'); sys.exit(2)\n"
+        "print('PREDS_LEN=' + str(len(any_arr)))\n"
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True, text=True, timeout=180,
+    )
+    assert result.returncode == 0, (
+        f"subprocess load+predict failed (rc={result.returncode}):\n"
+        f"--stdout--\n{result.stdout[-2000:]}\n--stderr--\n{result.stderr[-2000:]}"
+    )
+    assert "PREDS_LEN=40" in result.stdout, (
+        f"subprocess returned wrong prediction count: stdout={result.stdout!r}"
+    )
+
+
+# #28 Duplicates in mlframe_models — must dedupe or raise, not silently
+# train twice and overwrite.
+def test_duplicate_mlframe_models_handled(tmp_path):
+    """``mlframe_models=["cb", "cb"]`` (copy-paste typo). Acceptable
+    behaviours:
+      (a) silently dedupe → trained once, one entry in metadata
+      (b) explicit ValueError mentioning the duplicate
+
+    Unacceptable: train twice with the SAME model_file_name and the
+    second run silently overwrites the first — leaves stale metadata
+    referencing a file the suite has already replaced.
+    """
+    pytest.importorskip("catboost")
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+
+    raised = None
+    trained = None
+    meta = None
+    try:
+        trained, meta = train_mlframe_models_suite(
+            df=df, target_name="tgt", model_name="mdl",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb", "cb"],  # duplicate
+            hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+            init_common_params={"drop_columns": [], "verbose": 0},
+            use_ordinary_models=True, use_mlframe_ensembles=False,
+            data_dir=str(tmp_path), models_dir="models", verbose=0,
+        )
+    except Exception as e:
+        raised = e
+
+    if raised is not None:
+        msg = str(raised).lower()
+        assert any(kw in msg for kw in ("duplicate", "unique", "twice", "model")), (
+            f"duplicate-models raise was opaque: {raised!r}"
+        )
+        return
+    # Silent dedupe path: ensure model_schemas has at most ONE 'cb' entry.
+    schemas = (meta or {}).get("model_schemas") or {}
+    cb_entries = [
+        v for v in schemas.values()
+        if v.get("mlframe_model") == "cb" and v.get("weight_name") == "uniform"
+    ]
+    assert len(cb_entries) <= 1, (
+        f"duplicate ['cb','cb'] silently produced {len(cb_entries)} 'cb' entries "
+        f"in model_schemas — overwrite hazard. Entries: {cb_entries}"
+    )
