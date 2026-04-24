@@ -682,3 +682,164 @@ class TestXGBShimCacheHandoffInCoreLoop:
             "trainer.USE_XGB_DMATRIX_REUSE_SHIM toggle missing — single "
             "switching point lost; revert path becomes a multi-file edit."
         )
+
+
+# =====================================================================
+# 10. Pickle / joblib round-trip — the 2026-04-24 prod regression where
+#     cached DMatrix (ctypes pointers) blocked model save
+# =====================================================================
+
+class TestXGBShimPickleAndCacheLifecycle:
+    """The 2026-04-24 prod log captured:
+
+      20:29:53 ERROR ... Could not save model to file ... xgb__sch_...dump:
+               ctypes objects containing pointers cannot be pickled
+
+    Root cause: ``_cached_train_dmatrix`` / ``_cached_val_dmatrix``
+    are ``xgb.QuantileDMatrix`` instances holding ctypes pointers to
+    native C++ memory — joblib/pickle refuses them. Result: xgb_uniform
+    and xgb_recency .dump files never written → next-run cache-load
+    falls back to full retrain.
+
+    Fix: ``__getstate__`` / ``__setstate__`` strip the cache attrs
+    during pickle. Cache is transient runtime state; a reloaded model
+    repopulates it on the next ``.fit()`` call.
+
+    Bonus: ``clear_cache()`` — explicit release between suite runs for
+    the ~8 GB of C++ memory the cache can hold on 7M-row frames.
+    """
+
+    def test_joblib_dump_load_round_trip(
+        self, small_classification_data, tmp_path,
+    ):
+        """Full joblib round-trip — the exact call path mlframe.training.io
+        uses (``joblib.dump`` / ``joblib.load``). Before the 2026-04-24
+        fix this raised ``TypeError: ctypes objects containing pointers
+        cannot be pickled``."""
+        import joblib
+
+        X, y = small_classification_data
+        m = XGBClassifierWithDMatrixReuse(
+            n_estimators=3, max_depth=3, tree_method="hist",
+        )
+        m.fit(X, y)
+        assert m._cached_train_dmatrix is not None, (
+            "precondition: fit must populate the cache"
+        )
+
+        fpath = tmp_path / "shim.dump"
+        # This is the operation that used to fail in prod.
+        joblib.dump(m, fpath)
+
+        loaded = joblib.load(fpath)
+        # Loaded model produces the same predictions as the live one.
+        np.testing.assert_allclose(
+            loaded.predict_proba(X), m.predict_proba(X), atol=1e-6,
+            err_msg="reloaded shim diverged from live shim",
+        )
+        # Cache is NOT inherited across save/load — it's transient state.
+        assert loaded._cached_train_dmatrix is None
+        assert loaded._cached_train_key is None
+
+    def test_getstate_strips_cache_pointers(self, small_classification_data):
+        """Unit-level: ``__getstate__`` must return a dict whose cache
+        pointer attrs are ``None`` regardless of whether the live
+        instance holds a populated cache. The key attrs are nulled too
+        (a key without its DMatrix would silently "hit" stale data on
+        load)."""
+        X, y = small_classification_data
+        m = XGBClassifierWithDMatrixReuse(n_estimators=3)
+        m.fit(X, y)
+        assert m._cached_train_dmatrix is not None  # precondition
+
+        state = m.__getstate__()
+        # Cache attrs all nulled in the serialised state.
+        for _attr in (
+            "_cached_train_dmatrix",
+            "_cached_val_dmatrix",
+            "_cached_train_key",
+            "_cached_val_key",
+        ):
+            assert state.get(_attr) is None, (
+                f"__getstate__ must null {_attr!r} before pickling — "
+                f"the QuantileDMatrix holds ctypes pointers that can't "
+                f"be serialised."
+            )
+        # But the LIVE instance's cache is untouched — getstate must
+        # not have mutated ``self.__dict__`` as a side effect.
+        assert m._cached_train_dmatrix is not None
+
+    def test_setstate_initialises_cache_attrs_when_missing(self):
+        """Loading a saved model from a pre-fix era (no cache attrs in
+        the pickled dict) must still produce a valid instance with
+        initialised cache attrs — this is backward compatibility for
+        dumps that predated the shim's cache fields."""
+        m = XGBClassifierWithDMatrixReuse(n_estimators=3)
+
+        # Simulate an ancient state dict that lacked the cache attrs.
+        legacy_state = {
+            k: v for k, v in m.__getstate__().items()
+            if not k.startswith("_cached_")
+        }
+        assert not any(k.startswith("_cached_") for k in legacy_state)
+
+        # Fresh instance, load legacy state.
+        m2 = XGBClassifierWithDMatrixReuse(n_estimators=3)
+        m2.__setstate__(legacy_state)
+        # Cache attrs must exist and be None after restore.
+        for _attr in (
+            "_cached_train_dmatrix",
+            "_cached_val_dmatrix",
+            "_cached_train_key",
+            "_cached_val_key",
+        ):
+            assert hasattr(m2, _attr), (
+                f"__setstate__ must re-init {_attr!r} for backward "
+                f"compatibility with pre-fix saves"
+            )
+            assert getattr(m2, _attr) is None
+
+    def test_clear_cache_releases_dmatrix(self, small_classification_data):
+        """``clear_cache()`` must drop all cache references so the C++
+        DMatrix memory can be reclaimed. Verified by checking the
+        attrs are None post-call — Python's GC + XGBoost's Booster
+        destructor handle the C++ side."""
+        X, y = small_classification_data
+        m = XGBClassifierWithDMatrixReuse(n_estimators=3)
+        m.fit(X, y)
+        assert m._cached_train_dmatrix is not None
+
+        m.clear_cache()
+        assert m._cached_train_dmatrix is None
+        assert m._cached_train_key is None
+        assert m._cached_val_dmatrix is None
+        assert m._cached_val_key is None
+
+    def test_fit_after_clear_cache_rebuilds(self, small_classification_data):
+        """After ``clear_cache()`` + a new ``fit()``, the cache repopulates
+        — clear is a reset, not a permanent disable."""
+        X, y = small_classification_data
+        m = XGBClassifierWithDMatrixReuse(n_estimators=3)
+        m.fit(X, y)
+        m.clear_cache()
+        m.fit(X, y)
+        assert m._cached_train_dmatrix is not None, (
+            "cache should rebuild on the fit after clear_cache"
+        )
+
+    def test_regressor_shim_also_pickles(self, small_regression_data, tmp_path):
+        """Regressor variant has the same pickle contract as the
+        classifier — the ``_DMatrixReuseMixin`` override is shared."""
+        import joblib
+
+        X, y = small_regression_data
+        m = XGBRegressorWithDMatrixReuse(
+            n_estimators=3, max_depth=3, tree_method="hist",
+        )
+        m.fit(X, y)
+        fpath = tmp_path / "regressor_shim.dump"
+        joblib.dump(m, fpath)
+        loaded = joblib.load(fpath)
+        np.testing.assert_allclose(
+            loaded.predict(X), m.predict(X), atol=1e-6,
+        )

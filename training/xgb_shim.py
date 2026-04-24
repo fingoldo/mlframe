@@ -171,11 +171,74 @@ class _DMatrixReuseMixin:
     _cached_val_dmatrix: Optional[Any]
     _cached_val_key: Optional[tuple]
 
+    # Names of cache attributes. Listed once so ``__getstate__`` /
+    # ``clear_cache`` / the forward-/backward-transfer blocks in
+    # ``core.py`` stay in sync. Two groups: ``_CACHE_POINTER_ATTRS``
+    # are the heavyweight C++-backed DMatrix objects (unpicklable,
+    # costly in RAM), ``_CACHE_KEY_ATTRS`` are the lightweight tuple
+    # signatures that guard them.
+    _CACHE_POINTER_ATTRS: tuple = ("_cached_train_dmatrix", "_cached_val_dmatrix")
+    _CACHE_KEY_ATTRS: tuple = ("_cached_train_key", "_cached_val_key")
+
     def _init_cache(self) -> None:
-        self._cached_train_dmatrix = None
-        self._cached_train_key = None
-        self._cached_val_dmatrix = None
-        self._cached_val_key = None
+        for _attr in self._CACHE_POINTER_ATTRS + self._CACHE_KEY_ATTRS:
+            setattr(self, _attr, None)
+
+    # ------------------------------------------------------------------
+    # Pickle / joblib round-trip — strip cached DMatrix on save
+    # ------------------------------------------------------------------
+    #
+    # ``QuantileDMatrix`` holds ctypes pointers to C++ memory —
+    # joblib/pickle refuses it with "ctypes objects containing pointers
+    # cannot be pickled". The 2026-04-24 prod log captured the regression:
+    # mlframe.training.io failed to save both xgb_uniform and xgb_recency
+    # dumps → next-run cached-model-load fell back to full retrain.
+    #
+    # The cache is transient runtime state — built on first fit, reused
+    # only within the same process — so stripping it from the pickle
+    # state is semantically correct: a reloaded model is a fresh
+    # instance whose cache will repopulate on the next ``.fit()`` call.
+    # ``__setstate__`` re-initialises the cache attrs so legacy saves
+    # without the cache fields still load cleanly.
+
+    def __getstate__(self):
+        # Start from whatever parent (XGBModel) exposes as its state.
+        # ``XGBModel.__getstate__`` returns ``self.__dict__``; override by
+        # falling back to ``self.__dict__`` if parent doesn't define it.
+        parent_get = getattr(super(), "__getstate__", None)
+        state = parent_get() if parent_get is not None else self.__dict__
+        state = dict(state)  # shallow copy so we can mutate safely
+        # Strip pointer-typed cache attrs — their key siblings stay
+        # (they're tuples, safely pickleable, but meaningless without
+        # the DMatrix they indexed, so we null them too to avoid a
+        # stale-key-looking-valid trap on load).
+        for _attr in self._CACHE_POINTER_ATTRS + self._CACHE_KEY_ATTRS:
+            state[_attr] = None
+        return state
+
+    def __setstate__(self, state) -> None:
+        parent_set = getattr(super(), "__setstate__", None)
+        if parent_set is not None:
+            parent_set(state)
+        else:
+            self.__dict__.update(state)
+        # Defensive: ensure cache attrs exist even if we loaded an older
+        # save that predated this class's cache layout.
+        for _attr in self._CACHE_POINTER_ATTRS + self._CACHE_KEY_ATTRS:
+            if not hasattr(self, _attr):
+                setattr(self, _attr, None)
+
+    # ------------------------------------------------------------------
+    # Explicit cache release — call after you're done with a run if you
+    # need the memory back without waiting for GC
+    # ------------------------------------------------------------------
+
+    def clear_cache(self) -> None:
+        """Release cached DMatrix(s) and their keys. Useful between
+        suite runs to free the C++ memory backing the quantile sketches
+        (the 2026-04-24 prod log captured ~8 GB held by a single cached
+        train DMatrix on the 7.3M × 106 frame)."""
+        self._init_cache()
 
     # ------------------------------------------------------------------
     # Public extras — in-place swaps on the cached DMatrix
