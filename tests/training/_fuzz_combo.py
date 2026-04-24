@@ -89,6 +89,12 @@ AXES: dict[str, tuple[Any, ...]] = {
     "cat_text_card_threshold_cfg": (50, 300),                    # FeatureTypesConfig.cat_text_cardinality_threshold
     "early_stopping_rounds_cfg": (None, 20),                     # ModelHyperparamsConfig.early_stopping_rounds
     "use_robust_eval_metric_cfg": (False, True),                 # TrainingBehaviorConfig.use_robust_eval_metric
+    # 2026-04-24 (Fix G): adversarial axis values — synthetic patterns
+    # that stress-test the pipeline for bugs real-world synthetic data
+    # alone cannot reach. Each of these is a 2-value axis.
+    "inject_label_leak": (False, True),                          # feature = target + ε; val metric must be near-perfect
+    "inject_rank_deficient": (False, True),                      # colinear feature pair; linear-model edge
+    "inject_all_nan_col": (False, True),                         # whole column is NaN; pipeline guard test
 }
 
 
@@ -141,6 +147,10 @@ class FuzzCombo:
     cat_text_card_threshold_cfg: int = 300
     early_stopping_rounds_cfg: "int | None" = None
     use_robust_eval_metric_cfg: bool = True
+    # Fix G — adversarial axes
+    inject_label_leak: bool = False
+    inject_rank_deficient: bool = False
+    inject_all_nan_col: bool = False
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -214,6 +224,10 @@ class FuzzCombo:
             self.cat_text_card_threshold_cfg,
             self.early_stopping_rounds_cfg,
             self.use_robust_eval_metric_cfg,
+            # Fix G — adversarial axes
+            self.inject_label_leak,
+            self.inject_rank_deficient,
+            self.inject_all_nan_col,
         )
 
     def short_id(self) -> str:
@@ -269,6 +283,10 @@ class FuzzCombo:
             "cat_text_card_threshold_cfg": self.cat_text_card_threshold_cfg,
             "early_stopping_rounds_cfg": self.early_stopping_rounds_cfg,
             "use_robust_eval_metric_cfg": self.use_robust_eval_metric_cfg,
+            # Fix G
+            "inject_label_leak": self.inject_label_leak,
+            "inject_rank_deficient": self.inject_rank_deficient,
+            "inject_all_nan_col": self.inject_all_nan_col,
         }
 
 
@@ -455,6 +473,10 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         cat_text_card_threshold_cfg=axes.get("cat_text_card_threshold_cfg", 300),
         early_stopping_rounds_cfg=axes.get("early_stopping_rounds_cfg"),
         use_robust_eval_metric_cfg=axes.get("use_robust_eval_metric_cfg", True),
+        # Fix G
+        inject_label_leak=axes.get("inject_label_leak", False),
+        inject_rank_deficient=axes.get("inject_rank_deficient", False),
+        inject_all_nan_col=axes.get("inject_all_nan_col", False),
     )
 
 
@@ -513,6 +535,10 @@ def _combo_pairs(combo: FuzzCombo) -> set[tuple[str, Any, str, Any]]:
         "cat_text_card_threshold_cfg": combo.cat_text_card_threshold_cfg,
         "early_stopping_rounds_cfg": combo.early_stopping_rounds_cfg,
         "use_robust_eval_metric_cfg": combo.use_robust_eval_metric_cfg,
+        # Fix G
+        "inject_label_leak": combo.inject_label_leak,
+        "inject_rank_deficient": combo.inject_rank_deficient,
+        "inject_all_nan_col": combo.inject_all_nan_col,
         "n_models": len(combo.models),
     }
     names = list(values.keys())
@@ -594,6 +620,140 @@ def enumerate_combos(
 
 
 # ---------------------------------------------------------------------------
+# Fix A — 3-wise covering over a curated subset of load-bearing axes
+# ---------------------------------------------------------------------------
+
+# Only the axes where 3-way interaction bugs have historically lived or
+# are most plausible. Restricting the triple-space from the full 36
+# axes to these 13 keeps the covering algorithm tractable (~286 axis-
+# triples × ~12 value-triples = ~3.5k triples to cover) while still
+# probing the interactions that matter. Expand cautiously — adding one
+# axis bumps the triple count by ~C(N-1, 2) new axis-triples.
+_3WAY_AXES: tuple[str, ...] = (
+    "input_type",
+    "n_rows",
+    "cat_feature_count",
+    "use_mrmr_fs",
+    "target_type",
+    "outlier_detection",
+    "use_ensembles",
+    "inject_inf_nan",
+    "inject_degenerate_cols",
+    "custom_prep",
+    "categorical_encoding_cfg",
+    "scaler_name_cfg",
+    "inject_label_leak",
+    "inject_rank_deficient",
+    "inject_all_nan_col",
+)
+
+
+def _all_axis_triples() -> set[tuple[str, Any, str, Any, str, Any]]:
+    axes_ext: dict[str, tuple[Any, ...]] = {
+        name: AXES[name] for name in _3WAY_AXES if name in AXES
+    }
+    axes_ext["n_models"] = (1, 2, 3, 4, 5)
+    names = list(axes_ext.keys())
+    out: set[tuple] = set()
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            for k in range(j + 1, len(names)):
+                ai, aj, ak = names[i], names[j], names[k]
+                for vi in axes_ext[ai]:
+                    for vj in axes_ext[aj]:
+                        for vk in axes_ext[ak]:
+                            out.add((ai, vi, aj, vj, ak, vk))
+    return out
+
+
+def _combo_triples(combo: FuzzCombo) -> set[tuple[str, Any, str, Any, str, Any]]:
+    values = {
+        name: getattr(combo, name) for name in _3WAY_AXES if hasattr(combo, name)
+    }
+    values["n_models"] = len(combo.models)
+    names = list(values.keys())
+    out: set[tuple] = set()
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            for k in range(j + 1, len(names)):
+                out.add(
+                    (names[i], values[names[i]],
+                     names[j], values[names[j]],
+                     names[k], values[names[k]])
+                )
+    return out
+
+
+def enumerate_combos_3way(
+    target: int = 600,
+    master_seed: int = 2026_04_24,
+    model_universe: tuple[str, ...] = MODELS,
+) -> list[FuzzCombo]:
+    """Greedy 3-wise (triple) covering over ``_3WAY_AXES``.
+
+    Same shape as ``enumerate_combos`` but optimises for triple-coverage
+    instead of pair-coverage. Seeded separately (default ``2026_04_24``
+    so the 3-wise suite doesn't stomp the pairwise seed's sample).
+    """
+    rng = random.Random(master_seed)
+    seen: set[tuple] = set()
+    combos: list[FuzzCombo] = []
+
+    # Phase A — model subsets
+    for subset in _powerset_nonempty(model_universe):
+        axes = _sample_axes(rng)
+        combo = _build_combo(subset, axes, len(combos))
+        key = combo.canonical_key()
+        if key in seen:
+            continue
+        seen.add(key)
+        combos.append(combo)
+
+    # Phase B — greedy triple coverage
+    required = _all_axis_triples()
+    covered: set[tuple] = set()
+    for c in combos:
+        covered.update(_combo_triples(c))
+
+    tries = 0
+    max_tries = 40_000
+    while covered < required and tries < max_tries and len(combos) < target:
+        uncovered = required - covered
+        best_combo = None
+        best_new = 0
+        for _ in range(80):
+            subset = rng.choice(_powerset_nonempty(model_universe))
+            axes = _sample_axes(rng)
+            candidate = _build_combo(subset, axes, len(combos))
+            if candidate.canonical_key() in seen:
+                continue
+            cand = _combo_triples(candidate)
+            new = len(cand & uncovered)
+            if new > best_new:
+                best_new = new
+                best_combo = candidate
+        if best_combo is None:
+            break
+        seen.add(best_combo.canonical_key())
+        combos.append(best_combo)
+        covered.update(_combo_triples(best_combo))
+        tries += 1
+
+    # Phase C — random fill
+    while len(combos) < target:
+        subset = rng.choice(_powerset_nonempty(model_universe))
+        axes = _sample_axes(rng)
+        candidate = _build_combo(subset, axes, len(combos))
+        key = candidate.canonical_key()
+        if key in seen:
+            continue
+        seen.add(key)
+        combos.append(candidate)
+
+    return combos[:target]
+
+
+# ---------------------------------------------------------------------------
 # Results log — JSONL append-only
 # ---------------------------------------------------------------------------
 
@@ -611,12 +771,16 @@ def log_combo_outcome(
     """Append one JSONL row with the combo's outcome.
 
     Columns: combo fields, outcome in {pass,fail,xpass,xfail,skip}, duration,
-    error_class/error_summary (for fail/xpass rows), extra (free-form dict).
+    error_class/error_summary (for fail/xpass rows), extra (free-form dict),
+    and ``master_seed`` (Fix E: seed-rotation telemetry — the nightly cron
+    passes a different ``FUZZ_SEED`` each run, we tag each row so failures
+    stay attributable to their generating seed).
     """
     row: dict = {
         **combo.to_json(),
         "outcome": outcome,
         "duration_s": round(duration_s, 3),
+        "master_seed": int(os.environ.get("FUZZ_SEED", "20260422")),
     }
     if error_class:
         row["error_class"] = error_class
@@ -758,6 +922,26 @@ def build_frame_for_combo(combo: FuzzCombo):
     # handling in CB/XGB/LGB/HGB — not supposed to break anything.
     if combo.inject_zero_col:
         extra_num_cols["num_zero"] = np.zeros(n, dtype="float32")
+    # Fix G — adversarial columns.
+    # inject_rank_deficient: a colinear pair (num_dep = 2 * num_0).
+    # Should NOT crash linear models or destabilise GBDTs — this is a
+    # correctness guard, not a performance ask.
+    if combo.inject_rank_deficient:
+        extra_num_cols["num_dep"] = (2.0 * num_cols["num_0"]).astype("float32")
+    # inject_all_nan_col: a column that is 100% NaN. Separate from
+    # inject_degenerate_cols (which covers const + null together) so
+    # combos can toggle it independently.
+    if combo.inject_all_nan_col:
+        extra_num_cols["num_all_nan"] = np.full(n, np.nan, dtype="float32")
+    # inject_label_leak: a feature exactly equal to target + tiny noise.
+    # A correctly-functioning suite trains on this happily; the val
+    # metric must land near-perfect. Deliberately NOT asserted here —
+    # the adversarial axis catches pipeline corruption that SILENTLY
+    # suppresses the leak (e.g. label-column reordering, caller-frame
+    # mutation); any crash is the real bug we're probing for.
+    if combo.inject_label_leak:
+        leak_col = target.astype("float32") + (rng.standard_normal(n) * 0.01).astype("float32")
+        extra_num_cols["num_leak"] = leak_col
 
     if combo.input_type == "pandas":
         import pandas as pd

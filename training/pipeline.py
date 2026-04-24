@@ -362,12 +362,20 @@ def create_polarsds_pipeline(
     if config.skip_categorical_encoding:
         if verbose:
             logger.info("  Skipping categorical encoding (downstream models handle categoricals natively)")
-    elif config.categorical_encoding == "ordinal":
-        cols_arg = _encodable_cols() if excluded else None
-        bp = bp.ordinal_encode(cols=cols_arg, null_value=-1, unknown_value=-2)
-    elif config.categorical_encoding == "onehot":
-        cols_arg = _encodable_cols() if excluded else None
-        bp = bp.one_hot_encode(cols=cols_arg, drop_first=False, drop_cols=True)
+    elif config.categorical_encoding in ("ordinal", "onehot"):
+        # Pre-check: polars-ds raises "Provided columns either do not exist or are not
+        # string/categorical/enum types" when no cat-like columns exist. Skip the
+        # encoding step in that case rather than letting polars-ds crash.
+        candidate_cols = _encodable_cols()
+        if not candidate_cols:
+            if verbose:
+                logger.info("  No string/categorical/enum columns to encode; skipping categorical encoding step")
+        else:
+            cols_arg = candidate_cols if excluded else None
+            if config.categorical_encoding == "ordinal":
+                bp = bp.ordinal_encode(cols=cols_arg, null_value=-1, unknown_value=-2)
+            else:
+                bp = bp.one_hot_encode(cols=cols_arg, drop_first=False, drop_cols=True)
     # Add more encoding methods as needed
 
     # Convert int to float32 for better compatibility

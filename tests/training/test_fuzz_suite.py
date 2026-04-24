@@ -232,6 +232,100 @@ def _skip_if_deps_missing(models: tuple[str, ...]) -> None:
         pytest.importorskip(pkg[m])
 
 
+def _iter_trained_models(trained):
+    """Yield (target_type, target_name, trained_entry) for every model.
+
+    The suite returns ``trained[target_type][target_name]`` → list of
+    SimpleNamespace entries with ``.model``, ``.val_preds``, ``.val_probs``,
+    ``.columns``, ``.metrics`` attributes.
+    """
+    if not isinstance(trained, dict):
+        return
+    for tt, by_name in trained.items():
+        if not isinstance(by_name, dict):
+            continue
+        for tn, lst in by_name.items():
+            if not isinstance(lst, list):
+                continue
+            for entry in lst:
+                yield tt, tn, entry
+
+
+def _assert_prediction_invariants(trained, meta, combo) -> None:
+    """Fix C (cheap tier): post-train property checks that run on every
+    combo.
+
+    Runs on the predictions the suite already materialised
+    (``entry.val_preds``, ``entry.test_preds``), so no re-fit. Catches:
+
+    - NaN / Inf leaking into the model head (I1).
+    - Constant predictions when the val target has ≥2 distinct classes / values
+      (I2) — indicates dead pipeline / silently-dropped features.
+    - Shape mismatch between ``val_preds`` and ``meta['val_size']`` (I3) —
+      indicates row-slicing drift between the pipeline and its metrics.
+
+    Deeper invariants (determinism, idempotency, column-perm, prediction
+    probe) require re-fit; they live behind ``MLFRAME_FUZZ_INVARIANTS=full``
+    in ``test_fuzz_invariants_full.py``.
+    """
+    import math
+    import numpy as np
+
+    val_size = (meta or {}).get("val_size")
+    for tt, tn, entry in _iter_trained_models(trained):
+        # Pull both available forms; prefer probs (cleaner finite check)
+        # then fall back to preds.
+        for attr in ("val_probs", "val_preds"):
+            arr = getattr(entry, attr, None)
+            if arr is None:
+                continue
+            # Normalise to ndarray for finite checks.
+            try:
+                arr_np = np.asarray(arr)
+            except Exception:
+                continue
+            if arr_np.size == 0:
+                continue
+            # I1 — finiteness. Regression preds can be negative but must
+            # be finite. Classification probs live in [0, 1] but we only
+            # assert finiteness here to stay model-agnostic.
+            if np.issubdtype(arr_np.dtype, np.floating):
+                n_bad = int(np.count_nonzero(~np.isfinite(arr_np)))
+                assert n_bad == 0, (
+                    f"I1: non-finite values in {tt}/{tn}/{type(entry.model).__name__}.{attr} "
+                    f"({n_bad}/{arr_np.size})"
+                )
+            # I3 — shape upper-bound. ``meta['val_size']`` is measured
+            # before outlier-detection filters rows, so post-OD ``val_preds``
+            # can be strictly smaller. Asserting ``<=`` catches only the
+            # bug we care about (preds longer than val slice → row-slicing
+            # drift), not OD-expected shrinkage.
+            if val_size is not None and val_size > 0 and arr_np.ndim >= 1:
+                assert arr_np.shape[0] <= val_size, (
+                    f"I3: {attr} shape[0]={arr_np.shape[0]} > val_size={val_size} "
+                    f"for {tt}/{tn}/{type(entry.model).__name__}"
+                )
+            # I2 — non-constant predictions when val has >1 row.
+            # Skipped for tiny val slices (< 4 rows; statistical noise).
+            # Skipped when outlier-detection could have reduced val to
+            # a single class (we can't cheaply check val target variance
+            # here without re-extracting). Asserted only for classification
+            # probs where the "all-same" outcome is provably degenerate.
+            if (
+                attr == "val_probs"
+                and arr_np.size >= 4
+                and np.issubdtype(arr_np.dtype, np.floating)
+            ):
+                # Pull scalar series for 1-D, flatten for 2-D.
+                vals = arr_np.ravel()
+                unique_near = np.unique(np.round(vals, 6))
+                assert unique_near.size >= 2, (
+                    f"I2: val_probs are all identical "
+                    f"({unique_near[0]:.6g}) for {tt}/{tn}/{type(entry.model).__name__} "
+                    f"— pipeline may have dropped all features"
+                )
+
+
 @pytest.fixture(autouse=True)
 def _fuzz_combo_cleanup():
     """Between fuzz combos: close matplotlib figures, clear CB/XGB/LGB
@@ -393,6 +487,12 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                     "metadata missing 'model_schemas' despite non-empty "
                     f"trained dict; keys={list(_meta)[:20]}"
                 )
+
+        # --- Fix C property invariants (cheap, per-combo) ---
+        # Catches silent degeneracy that a "no exception" assertion misses:
+        # dead features, all-zero predictions, NaN leakage to the model
+        # head, val-slice misalignment.
+        _assert_prediction_invariants(trained, _meta, combo)
     except Exception as exc:
         outcome = "fail"
         err_class = type(exc).__name__

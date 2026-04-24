@@ -1,5 +1,54 @@
 # Changelog
 
+## 2026-04-24 — Combo-fuzz upgrade: A–G (invariants, metamorphic, 3-wise, Hypothesis, seed rotation, adversarial axes)
+
+Seven-part upgrade to the combo-fuzz harness in `tests/training/`.
+Pairwise test count unchanged at 150; new infrastructure sits alongside.
+
+### Added
+
+- **`tests/training/COMBO_FUZZ.md`** — design doc for the fuzz approach:
+  axes, covering algorithm, combo id scheme, invariants, A–G upgrade
+  roadmap, operating manual.
+- **Fix C — per-combo property invariants** (`test_fuzz_suite.py::_assert_prediction_invariants`):
+  - I1 finiteness: no NaN/Inf in `val_preds` / `val_probs`.
+  - I2 non-constant classification probs on val (≥2 distinct rounded to 6dp).
+  - I3 prediction-length upper-bound: `len(val_preds) <= meta['val_size']` (OD may shrink but never grow).
+- **Fix D — metamorphic dual-run suite** (`test_fuzz_metamorphic.py`):
+  - D1 column-rename invariance (val metric stable under feature rename).
+  - D2 duplicate-row stability (val metric stable under 5% row duplication).
+  - 5 curated combos (one per model-family), expandable via `MLFRAME_METAMORPHIC_ALL=1`.
+- **Fix E — master_seed rotation**: each `_fuzz_results.jsonl` row now
+  carries `master_seed`. Driver script `run_fuzz_seed_rotation.py`
+  runs N seed-rotated sweeps and aggregates `_fuzz_seed_summary.jsonl`.
+- **Fix G — adversarial axis values** (`_fuzz_combo.AXES`):
+  `inject_label_leak`, `inject_rank_deficient`, `inject_all_nan_col`.
+  Exercise feature leakage, colinear pairs, all-NaN columns.
+- **Fix A — 3-wise covering suite** (`test_fuzz_3way_suite.py` +
+  `enumerate_combos_3way` in `_fuzz_combo.py`): greedy triple coverage
+  over 15 curated load-bearing axes. 400 combos → 99.99% triple
+  coverage. Default master_seed `20260424` (distinct from pairwise).
+- **Fix B — Hypothesis continuous leaves** (`test_fuzz_hypothesis.py`):
+  draws `n_rows`, `fillna_value`, `test_size`, `cat_feature_count`,
+  `null_fraction_cats`, `iterations` continuously per example. Default
+  20 examples, auto-shrinking on failure.
+
+### Fixed
+
+- **polars-ds fork** (`D:/Temp/polars_ds_fork`): `cs.string() | cs.categorical()`
+  didn't match `pl.Enum`. Extended the selector in `transforms.py` (6 call
+  sites), `pipeline.py` (5 default-selector spots), and the
+  `drop([pl.String, pl.Categorical])` call in the one-hot-encode teardown
+  to include `pl.Enum`. Unblocks `polars_enum × onehot` combos.
+- **`mlframe/training/pipeline.py`**: `create_polarsds_pipeline` pre-checks
+  for encodable columns — skips the `one_hot_encode` / `ordinal_encode`
+  step when the frame has no string/categorical/enum columns, rather
+  than letting polars-ds raise "Provided columns either do not exist".
+- **`mlframe/training/utils.py`**: `_process_special_values` restricts
+  pandas `fillna` to numeric columns only. Unrestricted `df.fillna(0.0)`
+  was raising `TypeError: Cannot setitem on a Categorical with a new
+  category (0.0)` when any Categorical column existed.
+
 ## 2026-04-24 — Coverage-gap sweep + 7 framework bug fixes
 
 47 new tests landed across two files, plus 12 new fuzz axes and

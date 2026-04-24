@@ -722,10 +722,14 @@ def _process_special_values(
                 else:
                     df = df.with_columns(getattr(cs.numeric(), fill_func_name)(fill_value))
             else:
+                # Restrict pandas fill to numeric columns — mirrors the polars cs.numeric() gate.
+                # Unrestricted df.fillna(0.0) raises on Categorical columns
+                # ("Cannot setitem on a Categorical with a new category").
+                num_cols = df.select_dtypes(include="number").columns
                 if "NaN" in kind or "null" in kind:
-                    df = df.fillna(fill_value)
+                    df[num_cols] = df[num_cols].fillna(fill_value)
                 elif "infinite" in kind:
-                    df = df.replace([float("inf"), float("-inf")], fill_value)
+                    df[num_cols] = df[num_cols].replace([float("inf"), float("-inf")], fill_value)
             if verbose:
                 logger.info(f"{kind.capitalize()}s filled with {fill_value} value.")
                 log_ram_usage()
