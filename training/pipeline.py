@@ -486,36 +486,73 @@ def fit_and_transform_pipeline(
     # 2026-04-24 (fuzz extension surfaced 6× CatBoostError "Error while
     # processing column for feature 'ts'" and 18× numpy DTypePromotionError
     # involving DateTime64DType): datetime columns reach downstream model
-    # fit and crash. Coerce any datetime-typed columns to int64 nanosecond
-    # epoch HERE — the canonical "datetime as numeric feature" pattern.
-    # Silent coercion is intentional: the alternative (raising) would break
-    # every caller who's currently relying on datetime passing through as
-    # a no-op when the downstream model happens to tolerate it (rare).
-    def _coerce_datetime_to_int64(df_):
+    # fit and crash because no CB/XGB/LGB/HGB can train on raw datetime.
+    #
+    # Canonical ML treatment: DECOMPOSE datetime into numeric calendar
+    # components (day / weekday / month / hour / …). mlframe already ships
+    # ``feature_engineering.basic.create_date_features`` for exactly this —
+    # it handles pandas and polars, emits int8 derived columns, and drops
+    # the originals by default.
+    #
+    # Scope: fires when the features-and-targets extractor leaves any
+    # datetime-typed column in the trained feature frame. Prod callers
+    # typically decompose upstream; this is a safety net so the suite
+    # never feeds raw datetime to a model.
+    import numpy as _np
+    def _detect_datetime_cols(df_) -> "list[str]":
         if isinstance(df_, pl.DataFrame):
-            exprs = []
-            for name, dt in df_.schema.items():
-                # pl.Datetime is an instance-level type; use isinstance.
-                if isinstance(dt, pl.Datetime):
-                    exprs.append(pl.col(name).cast(pl.Int64))
-            return df_.with_columns(exprs) if exprs else df_
+            return [
+                name for name, dt in df_.schema.items()
+                if isinstance(dt, (pl.Datetime, pl.Date))
+            ]
         if hasattr(df_, "dtypes"):
             import pandas as _pd
-            cols_to_cast = [
+            return [
                 c for c in df_.columns
                 if _pd.api.types.is_datetime64_any_dtype(df_[c])
             ]
-            if cols_to_cast:
-                df_ = df_.copy()
-                for c in cols_to_cast:
-                    # view("int64") is zero-copy for pandas datetime64[ns]
-                    df_[c] = df_[c].astype("int64")
-            return df_
-        return df_
+        return []
 
-    train_df = _coerce_datetime_to_int64(train_df)
-    val_df = _coerce_datetime_to_int64(val_df) if val_df is not None else val_df
-    test_df = _coerce_datetime_to_int64(test_df) if test_df is not None else test_df
+    _dt_cols = _detect_datetime_cols(train_df)
+    if _dt_cols:
+        from mlframe.feature_engineering.basic import create_date_features
+        # Include hour so intraday signal survives when the column
+        # carries sub-day resolution; benign on pure-date input
+        # (hour=0 for all rows → dropped by the constant-column filter
+        # further downstream).
+        _dt_methods = {
+            "day": _np.int8,
+            "weekday": _np.int8,
+            "month": _np.int8,
+            "hour": _np.int8,
+        }
+        if verbose:
+            logger.info(
+                "Decomposing %d datetime column(s) into numeric features "
+                "(day/weekday/month/hour): %s",
+                len(_dt_cols), _dt_cols,
+            )
+        train_df = create_date_features(
+            train_df, cols=_dt_cols, delete_original_cols=True,
+            methods=_dt_methods,
+        )
+        # val/test: only decompose columns that still exist on each
+        # split (schema drift guard — upstream pruning may have
+        # already dropped one).
+        if val_df is not None:
+            val_cols = [c for c in _dt_cols if c in val_df.columns]
+            if val_cols:
+                val_df = create_date_features(
+                    val_df, cols=val_cols, delete_original_cols=True,
+                    methods=_dt_methods,
+                )
+        if test_df is not None:
+            test_cols = [c for c in _dt_cols if c in test_df.columns]
+            if test_cols:
+                test_df = create_date_features(
+                    test_df, cols=test_cols, delete_original_cols=True,
+                    methods=_dt_methods,
+                )
 
     # Handle Polars DataFrames with polars-ds
     if isinstance(train_df, pl.DataFrame) and config.use_polarsds_pipeline:
