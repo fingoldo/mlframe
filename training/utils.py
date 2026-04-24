@@ -870,10 +870,18 @@ def remove_constant_columns(df: Union[pl.DataFrame, pd.DataFrame], verbose: int 
     is_polars = isinstance(df, pl.DataFrame)
 
     if is_polars:
-        # Process numeric columns (min == max)
+        # Process numeric columns (min == max). For an all-NULL numeric column
+        # both min() and max() return None, and plain `None == None` in polars
+        # is `null` (not True) → the column slips past `min == max`. Use
+        # `eq_missing` which treats null==null as True, collapsing "constant"
+        # and "all-null" into one check without an OR branch. Same cost as
+        # `min == max` alone (~1ms on 600k × 6; eq_missing is actually
+        # marginally cheaper than the | null_count variant). Discovered
+        # 2026-04-24 on fuzz c0117 (pandas→parquet→polars + inject_degenerate
+        # → robust_scale crashed on NoneType-NoneType).
         df = _process_special_values(
             df=df,
-            expr_func=lambda: (cs.numeric().min() == cs.numeric().max()),
+            expr_func=lambda: cs.numeric().min().eq_missing(cs.numeric().max()),
             kind="constant numeric columns",
             drop_columns=True,
             verbose=verbose,

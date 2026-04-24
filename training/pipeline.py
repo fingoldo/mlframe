@@ -279,11 +279,27 @@ def prepare_df_for_catboost(df: pd.DataFrame, cat_features: List[str]) -> None:
     Args:
         df: DataFrame (modified in-place)
         cat_features: List of categorical feature names
+
+    Notes:
+        CatBoost's Pool rejects NaN in cat_features with "Invalid type for
+        cat_feature[object_idx=X,feature_idx=Y]=NaN : cat_features must be
+        integer or string, real number values and NaN values should be
+        converted to string." Fuzz c0036/c0038 hit this when
+        ``skip_categorical_encoding=True`` + pandas input + 10-30% null_frac
+        in cat columns. Fill NaN with a sentinel "__MISSING__" BEFORE the
+        category cast so the sentinel lands as a valid category level.
     """
     for col in cat_features:
         if col in df.columns:
-            if df[col].dtype.name not in ["category"]:
-                df[col] = df[col].astype("category")
+            s = df[col]
+            if s.isna().any():
+                # Cast to string first so fillna can insert the sentinel
+                # (fillna on Categorical rejects unknown values); the
+                # round-trip is cheap relative to Pool construction.
+                s = s.astype("string").fillna("__MISSING__")
+                df[col] = s.astype("category")
+            elif s.dtype.name != "category":
+                df[col] = s.astype("category")
 
 
 def create_polarsds_pipeline(
