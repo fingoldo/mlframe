@@ -843,3 +843,125 @@ class TestXGBShimPickleAndCacheLifecycle:
         np.testing.assert_allclose(
             loaded.predict(X), m.predict(X), atol=1e-6,
         )
+
+
+# =====================================================================
+# 11. Auto-clear_cache at end of strategy iter in core.py suite loop
+# =====================================================================
+
+class TestCoreAutoClearsShimCacheAtStrategyEnd:
+    """The shim holds ~8 GB of QuantileDMatrix memory on prod-size
+    frames (7.3M × 105). After the inner weight-schema loop finishes
+    for an XGB iteration, that cache is no longer read by anything
+    downstream (ensemble scoring uses pre-computed probs, model save
+    strips it via __getstate__, predict routes through _Booster). The
+    2026-04-24 follow-up calls ``clear_cache()`` on both the template
+    and every ens_models member at strategy-iter end to reclaim the
+    memory before the next strategy's lazy polars→pandas conversion.
+
+    These tests pin down that the hook is actually called, on the
+    right objects, and safe on non-shim models (CB/LGB/sklearn).
+    """
+
+    def test_source_contains_auto_clear_call(self):
+        """Structural: core.py's strategy loop must call
+        ``clear_cache()`` (via the duck-typed helper) on
+        ``original_model`` at end of strategy iter. Guards against
+        a refactor that drops the hook and silently re-introduces
+        the RAM leak."""
+        import inspect
+        from mlframe.training import core as core_mod
+
+        src = inspect.getsource(core_mod.train_mlframe_models_suite)
+        assert "_maybe_clear_shim_cache" in src, (
+            "core.py loop must call the auto-clear helper on the "
+            "template and ens_models at strategy-iter end. Without "
+            "it, XGB's ~8 GB cache stays live through LGB's lazy "
+            "conversion — the 2026-04-24 RAM leak returns."
+        )
+        # And it must call on BOTH template and ens_models, not just one.
+        assert "_maybe_clear_shim_cache(original_model)" in src
+        assert '_maybe_clear_shim_cache(getattr(_ens_ns, "model"' in src
+
+    def test_duck_typing_skips_non_shim_estimators(self):
+        """Safety: the helper uses duck-typing via ``callable(clear_cache)``,
+        so non-shim estimators (CB, LGB, sklearn LinearModel, etc.) are
+        silently skipped. Verify by calling the same pattern on a
+        vanilla XGBClassifier (which has no ``clear_cache``) — must be
+        a no-op without raising."""
+        # Inline helper mirroring core.py's _maybe_clear_shim_cache.
+        def _probe(est):
+            fn = getattr(est, "clear_cache", None)
+            if callable(fn):
+                try:
+                    fn()
+                except Exception:
+                    pass
+
+        # Vanilla XGBClassifier — no shim → no clear_cache → silent no-op.
+        vanilla = xgb.XGBClassifier(n_estimators=3)
+        _probe(vanilla)  # must not raise
+
+        # None — must not raise either.
+        _probe(None)
+
+        # An object with a clear_cache that raises — must swallow.
+        class _Boom:
+            def clear_cache(self):
+                raise RuntimeError("boom")
+        _probe(_Boom())  # must not raise (try/except swallows)
+
+    def test_shim_clear_cache_preserves_booster(self, small_classification_data):
+        """After ``clear_cache()``, the model must STILL be usable for
+        predict: ``_Booster`` is a separate attribute attached at fit
+        end, NOT part of the cache. The cache is fit-only scratchpad
+        — clear releases DMatrix memory but keeps the trained booster
+        intact. This is the invariant that makes auto-clear safe at
+        strategy-iter end.
+        """
+        X, y = small_classification_data
+        m = XGBClassifierWithDMatrixReuse(n_estimators=3, tree_method="hist")
+        m.fit(X, y)
+        probs_before = m.predict_proba(X)
+
+        m.clear_cache()
+        # Cache attrs wiped.
+        assert m._cached_train_dmatrix is None
+        # But Booster intact, predict still works + produces the SAME
+        # probabilities (predict is deterministic given the Booster).
+        probs_after = m.predict_proba(X)
+        np.testing.assert_allclose(probs_after, probs_before, atol=1e-9)
+
+    def test_ensemble_scoring_path_unaffected_by_clear_cache(self):
+        """End-of-strategy cache clear happens AFTER the inner weight
+        loop populates ``ens_models``. Ensemble scoring pulls
+        ``val_probs`` / ``test_probs`` off the stored SimpleNamespace
+        — not via ``.predict_proba()`` again. Structural check:
+        core.py's ``score_ensemble`` path doesn't re-call predict on
+        the cleared models.
+
+        Rationale pinned: if a future change makes score_ensemble call
+        predict on the stored models, the probs are still correct
+        (clear_cache preserves _Booster, see previous test), but it
+        would defeat the RAM saving we're paying the complexity for.
+        """
+        import inspect
+        from mlframe import ensembling as ens_mod
+
+        # Hot path uses pre-computed probs on level_models_and_predictions
+        # — check the function's source for the attribute access pattern.
+        src = inspect.getsource(ens_mod._process_single_ensemble_method)
+        # The probs come off the member objects as ``.val_probs`` /
+        # ``.test_probs``, NOT from ``.predict_proba(X)``.
+        assert "val_probs" in src and "test_probs" in src, (
+            "ensemble hot path must read pre-computed probs off the "
+            "stored member SimpleNamespaces — NOT call predict again "
+            "on cleared shim models."
+        )
+        # Hard negative: no ``.predict_proba(`` calls on members in the
+        # hot path (there might be trailing predict calls elsewhere,
+        # but in the single-method loop we rely on the stored probs).
+        # Be lenient — allow mentions of ``predict_proba`` in comments
+        # but not as a function call on a member.
+        assert "member.predict_proba(" not in src
+        assert ".predict_proba(X" not in src

@@ -404,3 +404,24 @@ Currently wired into the suite as `TrainingBehaviorConfig.align_polars_categoric
 
 Until (1) and (2) land the speedup is a pleasant side effect of the crash fix rather than a first-class optimization.
 
+### Probability calibration: ship `prefer_calibrated_classifiers=True` as the default
+
+The 2026-04-23 / 2026-04-24 prod logs consistently reported `CALIBRATIONs: MAEW=11-17%` on VAL across every model (CB, XGB, LGB) — the scores rank well (AUC 0.98+), but the predicted probabilities are mis-calibrated by 11–17 probability points. Anything downstream that consumes the probability value itself (expected-value sorting, threshold tuning, cost-sensitive routing, uncertainty-gated routing) sees skewed numbers; rank-only use cases (top-K screening) are fine.
+
+mlframe already supports post-hoc isotonic calibration via `TrainingBehaviorConfig.prefer_calibrated_classifiers=True` (sklearn `CalibratedClassifierCV` under the hood). The field exists; the default is currently `False`. Flipping the default is the one-flag fix, but before doing so, the **placement of the calibration_set** needs careful thought — it's a live trade-off, not a settled question:
+
+- **Option A — held-out slice of train**: the sklearn-standard path. `CalibratedClassifierCV(cv=...)` internally k-folds the training data, fits per-fold models, and fits the isotonic map on their out-of-fold predictions. Zero extra config for the user. Downside: on strongly time-indexed data (prod_jobsdetails is 22-year train / 14-month test), a random-k-fold calibration set is temporally mixed — the isotonic map learns on "mostly-past" data while the deployment distribution is "strictly-future". Calibration can drift with the same distance-under-drift artifact that motivated `val_placement="backward"`.
+- **Option B — explicit `calibration_df` drawn from the end of train (or a separate holdout)**: closer to deployment distribution; avoids the temporal-leak of in-train k-fold. Downside: carves further rows out of `train_df`, shrinking the learn set; needs a new config field (`calibration_size: float` or `calibration_df: DataFrame`) and wiring through `splitting.py`.
+- **Option C — piggyback on `val_df` (the set already used for early stopping)**: conceptually clean, but then the calibration map is fit on the very metric signal that decided early-stopping, double-counting one set's information. Risk of overconfident calibration on VAL that doesn't generalize.
+- **Option D — add a separate `TrainingSplitConfig.calibration_size` that carves a small contiguous slice just before test**: temporally closest to deployment, no contamination of train or val. New config field + propagation through the splitting function. This is probably the right answer but needs design review.
+
+Before flipping the default: decide A/B/C/D, add the tests, measure MAEW reduction end-to-end on the prod frame (the 11–17% should drop into single digits if calibration is placed correctly), and document the placement rule in `TrainingBehaviorConfig.prefer_calibrated_classifiers` docstring. Don't ship the flag-flip without a placement decision — a default calibration that makes things worse on drift-heavy data is worse than no calibration.
+
+### Persist ensemble member predictions for post-hoc inference reuse
+
+Currently `score_ensemble` runs on-the-fly from in-memory fitted members and discards per-member VAL / TEST `probs` arrays after the ensemble score is logged. If you want to re-run ensemble evaluation on new subsets, compare different ensemble methods later, or use the ensemble in an offline scoring pipeline without re-fitting all members, you need the per-member probs saved to disk alongside the `.dump` model files.
+
+Proposed format: one parquet-or-numpy file per (model, weight_schema) recording `val_probs` / `test_probs` / row index → stable under `data_dir/<target>/<model>/preds/`. `score_ensemble` would gain an `optional from_disk=True` mode that reads those instead of re-computing.
+
+**Leakage warning — load-bearing, do NOT skip**: the natural follow-up "automatically pick the best ensemble method by TEST metric" is **data leakage**. TEST is the deployment proxy; using TEST metrics to choose between ensemble methods (arithm / harm / median / geo / etc.) bleeds TEST information into model selection, and the reported TEST metric is no longer an honest estimate of deployment performance. The persistence feature must expose ensemble probs + metrics but **not** offer a "pick the best by TEST" selector. Method choice must happen on VAL (or a separate hold-out), with TEST computed only once for the chosen method. Add an explicit comment in the persistence loader and in the README note above: "Select ensemble method by VAL metric; then compute TEST once for the chosen method. Comparing TEST across methods and picking the argmax is leakage."
+

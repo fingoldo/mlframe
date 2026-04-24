@@ -3574,6 +3574,47 @@ def train_mlframe_models_suite(
                     if cache_key.startswith("tree"):
                         orig_pre_pipeline = pre_pipeline
 
+                    # Release XGB shim DMatrix cache memory at strategy-iter end
+                    # (2026-04-24 follow-up). The cache — cached
+                    # ``QuantileDMatrix`` on ``_cached_train_dmatrix`` /
+                    # ``_cached_val_dmatrix`` — is a fit-only scratchpad
+                    # used by the inner weight-schema loop (uniform → recency
+                    # swap in place via ``set_label`` / ``set_weight``).
+                    # Once the inner loop has finished, nothing downstream
+                    # reads those attrs:
+                    #   * ensemble scoring (below) uses pre-computed probs
+                    #     stored on the SimpleNamespace wrappers in
+                    #     ``ens_models`` — NOT ``.predict()`` calls;
+                    #   * ``.predict`` / ``.predict_proba`` route through
+                    #     ``_Booster`` (attached at fit end), not the cache;
+                    #   * model save goes through pickle / joblib, which
+                    #     our ``__getstate__`` override strips the cache
+                    #     from anyway.
+                    # The prod log showed a 7.3M × 105 frame holding ~8 GB
+                    # of QuantileDMatrix memory per XGB iteration. Before
+                    # LGB's lazy pandas conversion fires on the next iter,
+                    # releasing this cache frees ~30 % of peak RAM.
+                    # Duck-typed: only the shim has ``clear_cache()``. CB /
+                    # LGB / sklearn estimators skip harmlessly via the
+                    # ``callable`` check.
+                    def _maybe_clear_shim_cache(est):
+                        fn = getattr(est, "clear_cache", None)
+                        if callable(fn):
+                            try:
+                                fn()
+                            except Exception:
+                                pass
+                    # Template held under models_params; release its cache.
+                    _maybe_clear_shim_cache(original_model)
+                    # Each previously-fitted model snapshot parked in
+                    # ``ens_models`` may also hold a cache ref (forward-
+                    # transfer at clone copied the reference, not moved it).
+                    # Release on all — their probs are already recorded
+                    # and the cache is not read anywhere else.
+                    if ens_models:
+                        for _ens_ns in ens_models:
+                            _maybe_clear_shim_cache(getattr(_ens_ns, "model", None))
+
                     # B5: Release Polars originals after all tier-1 (Polars-native) models finish.
                     # When transitioning to a lower tier, pre-pipeline Polars DFs are no longer needed.
                     cur_tier = strategy.feature_tier()
