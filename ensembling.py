@@ -407,6 +407,25 @@ def _process_single_ensemble_method(
     # ``drop_columns=[]`` to avoid dropping anything its sub-models
     # already trained on (columns already stripped upstream).
     kwargs_copy.pop("drop_columns", None)
+    # 2026-04-24 (fuzz extension): init_common_params is a prod
+    # convention for passing PIPELINE COMPONENTS (not training
+    # hyperparams), e.g.:
+    #     init_common_params = {
+    #         "category_encoder": ce.CatBoostEncoder(),
+    #         "scaler": StandardScaler(),
+    #         "imputer": SimpleImputer(strategy="mean"),
+    #     }
+    # Suite threads these into common_params so per-model pre_pipeline
+    # builders pick them up. But the ensemble-scoring helper calls
+    # ``_build_configs_from_params(**kwargs_copy)`` — a function with a
+    # declared signature that raises TypeError on any kwarg it doesn't
+    # know about. Pop pipeline-component kwargs here so the ensemble
+    # path doesn't leak them into the config builder. This isn't
+    # feature loss: sub-models have already been fitted BEFORE the
+    # ensemble scorer runs; we don't re-apply encoder/scaler/imputer
+    # inside ensemble scoring.
+    for _pipeline_kwarg in ("category_encoder", "scaler", "imputer"):
+        kwargs_copy.pop(_pipeline_kwarg, None)
 
     # Build config objects from flat params
     flat_params = dict(
