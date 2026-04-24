@@ -139,12 +139,18 @@ def _custom_pre_pipelines_for_combo(combo: FuzzCombo):
     Matches the canonicalisation in FuzzCombo.canonical_key so the
     combo generation and runtime wiring agree.
     """
-    has_non_numeric = (
+    # Mirror FuzzCombo.canonical_key pca2-incompatibility gating:
+    # IncrementalPCA also rejects NaN (inject_inf_nan) and
+    # all-null columns (inject_degenerate_cols), not just
+    # non-numeric dtypes.
+    pca_incompatible = (
         combo.cat_feature_count > 0
         or combo.text_col_count > 0
         or combo.embedding_col_count > 0
+        or combo.inject_inf_nan
+        or combo.inject_degenerate_cols
     )
-    if combo.custom_prep == "pca2" and not has_non_numeric:
+    if combo.custom_prep == "pca2" and not pca_incompatible:
         try:
             from sklearn.decomposition import IncrementalPCA
             return {"pca2": IncrementalPCA(n_components=2)}

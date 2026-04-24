@@ -129,20 +129,27 @@ class FuzzCombo:
         # fairness_col is meaningful only if that column exists → None
         # when cat_feature_count == 0 (no cat_0 to reference).
         fairness = self.fairness_col if self.cat_feature_count > 0 else None
-        # custom_prep=pca2 makes sense only on an all-numeric frame —
-        # IncrementalPCA can't consume string/cat/text/embedding
-        # columns, and the mlframe pipeline doesn't pre-encode before
-        # a custom_pre_pipeline step. When the frame has ANY non-numeric
-        # feature (cat, text, embedding) canonicalise custom_prep to
-        # None so the pairwise sampler doesn't waste combos on a
-        # guaranteed-fail configuration. Users who want PCA on mixed
-        # dtypes must pre-encode themselves.
-        has_non_numeric = (
+        # custom_prep=pca2 makes sense only on a clean all-numeric
+        # frame — IncrementalPCA can't consume:
+        #   * string/cat/text/embedding columns (no pre-encoding before
+        #     custom_pre_pipeline in the mlframe pipeline),
+        #   * NaN values (sklearn IncrementalPCA explicitly rejects NaN;
+        #     the error message even suggests HistGradientBoosting as
+        #     the alternative),
+        #   * all-null / all-const columns (degenerate for PCA's
+        #     variance computation).
+        # Canonicalise custom_prep → None for any of those axes so
+        # the pairwise sampler doesn't waste combos on a guaranteed-fail
+        # configuration. Users who want PCA on real data must
+        # pre-process upstream.
+        pca_incompatible = (
             self.cat_feature_count > 0
             or self.text_col_count > 0
             or self.embedding_col_count > 0
+            or self.inject_inf_nan          # injects np.nan → PCA rejects
+            or self.inject_degenerate_cols  # adds all-null column → PCA rejects
         )
-        custom_prep = self.custom_prep if not has_non_numeric else None
+        custom_prep = self.custom_prep if not pca_incompatible else None
         return (
             tuple(sorted(self.models)),
             self.input_type,
