@@ -43,7 +43,18 @@ AXES: dict[str, tuple[Any, ...]] = {
     "null_fraction_cats": (0.0, 0.1, 0.3),
     "use_mrmr_fs": (False, True),
     "weight_schemas": (("uniform",), ("uniform", "recency")),
-    "target_type": ("binary_classification", "regression"),  # multi_classification not supported by mlframe yet (2026-04-24)
+    # 2026-04-24 (Phase H): re-add multiclass after foundation work landed.
+    # multilabel_classification is supported by the codebase but NOT yet
+    # by SimpleFeaturesAndTargetsExtractor (needs 2-D target handling) —
+    # multilabel fuzz axis is a Session-2 follow-up. The multilabel_strategy_cfg
+    # axis is kept here for forward-compat but only takes effect when
+    # multilabel combos are eventually added to target_type.
+    "target_type": (
+        "binary_classification",
+        "regression",
+        "multiclass_classification",
+    ),
+    "multilabel_strategy_cfg": ("auto", "wrapper", "chain"),  # parametric on multilabel; canonicalised to "auto" for non-multilabel
     "auto_detect_cats": (True, False),
     "align_polars_categorical_dicts": (True, False),
     # 2026-04-24 expansion: flags that previously had NO coverage despite
@@ -159,6 +170,9 @@ class FuzzCombo:
     inject_test_drift: "str | None" = None
     imbalance_ratio: str = "balanced"
     weird_cat_content: "str | None" = None
+    # 2026-04-24 Phase H — multilabel dispatch axis. Only meaningful when
+    # target_type == multilabel_classification.
+    multilabel_strategy_cfg: str = "auto"
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -254,10 +268,18 @@ class FuzzCombo:
             self._canonical_imbalance(),
             # weird_cat_content relevant only if there are cat columns.
             self.weird_cat_content if self.cat_feature_count > 0 else None,
+            # Phase H: multilabel_strategy_cfg only meaningful for multilabel.
+            self.multilabel_strategy_cfg if self.target_type == "multilabel_classification" else "auto",
         )
 
     def _canonical_imbalance(self) -> str:
         if "classification" not in self.target_type:
+            return "balanced"
+        # multiclass and multilabel: imbalance fuzz is its own can of worms
+        # (per-class balancing for multiclass, per-label for multilabel —
+        # neither is currently supported by the synthetic builder).
+        # Collapse to balanced for these target types.
+        if self.target_type in ("multiclass_classification", "multilabel_classification"):
             return "balanced"
         imb = self.imbalance_ratio
         frac = {"rare_5pct": 0.05, "rare_1pct": 0.01, "balanced": 0.5}.get(imb, 0.5)
@@ -332,6 +354,7 @@ class FuzzCombo:
             "inject_test_drift": self.inject_test_drift,
             "imbalance_ratio": self.imbalance_ratio,
             "weird_cat_content": self.weird_cat_content,
+            "multilabel_strategy_cfg": self.multilabel_strategy_cfg,
         }
 
 
@@ -526,6 +549,7 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         inject_test_drift=axes.get("inject_test_drift"),
         imbalance_ratio=axes.get("imbalance_ratio", "balanced"),
         weird_cat_content=axes.get("weird_cat_content"),
+        multilabel_strategy_cfg=axes.get("multilabel_strategy_cfg", "auto"),
     )
 
 
@@ -592,6 +616,8 @@ def _combo_pairs(combo: FuzzCombo) -> set[tuple[str, Any, str, Any]]:
         "inject_test_drift": combo.inject_test_drift,
         "imbalance_ratio": combo.imbalance_ratio,
         "weird_cat_content": combo.weird_cat_content,
+        # Phase H
+        "multilabel_strategy_cfg": combo.multilabel_strategy_cfg,
         "n_models": len(combo.models),
     }
     names = list(values.keys())
@@ -963,6 +989,33 @@ def build_frame_for_combo(combo: FuzzCombo):
             thresh = 0.0
         target = (logits > thresh).astype("int32")
         target_col = "target"
+    elif combo.target_type == "multiclass_classification":
+        # 3-class quantile-cut to balanced classes (Phase H restoration of R3-2).
+        score = num_cols["num_0"] + 0.3 * num_cols["num_1"] + rng.standard_normal(n) * 0.4
+        k = 3  # default 3 classes; multi_5 deferred (resource-heavy)
+        quantiles = [np.quantile(score, i / k) for i in range(1, k)]
+        target = np.digitize(score, quantiles).astype("int32")
+        target_col = "target"
+    elif combo.target_type == "multilabel_classification":
+        # K=3 binary labels with deliberate label correlation so chain ensemble
+        # has a chance to win. Post-generation guarantee: no all-zero rows
+        # (iterstrat / sklearn reject those silently).
+        k = 3
+        logit0 = num_cols["num_0"] - 0.4 * num_cols["num_1"] + rng.standard_normal(n) * 0.4
+        y0 = (logit0 > 0).astype("int8")
+        logit1 = 0.5 * y0 + num_cols["num_2"] + rng.standard_normal(n) * 0.4
+        y1 = (logit1 > 0).astype("int8")
+        logit2 = 0.5 * y0 + 0.5 * y1 + 0.3 * num_cols["num_3"] + rng.standard_normal(n) * 0.4
+        y2 = (logit2 > 0.6).astype("int8")  # rarer
+        Y = np.column_stack([y0, y1, y2])
+        # Guarantee no all-zero rows (iterstrat, MultiOutputClassifier).
+        zeros = (Y.sum(axis=1) == 0)
+        if zeros.any():
+            # flip a random label to 1 in zero rows (deterministic via rng)
+            for i in np.where(zeros)[0]:
+                Y[i, rng.integers(0, k)] = 1
+        target = Y  # (N, K)
+        target_col = "target"  # FTE will need to handle 2-D target
     else:
         raise ValueError(f"unknown target_type: {combo.target_type}")
 

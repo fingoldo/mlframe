@@ -1,5 +1,96 @@
 # Changelog
 
+## 2026-04-24 — Multiclass + multilabel classification (foundation)
+
+First-class support for `MULTICLASS_CLASSIFICATION` (K>2 single-label
+softmax) and `MULTILABEL_CLASSIFICATION` (K>=1 independent-binary OvR /
+native-CB / chain ensemble) target types alongside existing binary +
+regression. ~75 new tests; the runtime/dispatch surface is non-trivial
+so the test/code ratio is high.
+
+### Added
+
+- **`TargetTypes` enum** (`configs.py`): `MULTICLASS_CLASSIFICATION` +
+  `MULTILABEL_CLASSIFICATION` values; class-property predicates
+  `is_classification`, `is_binary`, `is_regression`, `is_multiclass`,
+  `is_multilabel`, `is_multi_output`. Replaces ad-hoc
+  `target_type == BINARY_CLASSIFICATION` checks.
+- **Per-strategy native dispatch** in `helpers._classif_objective_kwargs`:
+  CB `MultiClass` / `MultiLogloss`; XGB `multi:softprob+num_class=K`;
+  LGB `multiclass+num_class=K`; HGB sklearn auto-detect; Linear
+  `multi_class='multinomial', solver='lbfgs'`.
+- **Multilabel dispatch** via `_maybe_wrap_multilabel`: native CB path
+  (no wrapper); `MultiOutputClassifier` for XGB/LGB/HGB/Linear; or
+  `_ChainEnsemble` (custom — sklearn `VotingClassifier(soft)` over
+  `ClassifierChain` is BROKEN for multilabel, raises on 2-D y) of N
+  random-ordered chains with `cv=5` cross-validated chain features.
+- **Strategy feature flags** `supports_native_multiclass` /
+  `supports_native_multilabel` on `ModelPipelineStrategy` ABC. CB sets
+  both True; LGB/XGB/HGB/Linear set only multiclass=True; multilabel
+  via wrapper. New strategies opt-in by overriding (open/closed).
+- **`(N, K)` probability surface contract**: `_canonical_predict_proba_shape`
+  + `_predict_from_probs` helpers handle binary `(N,2)`,
+  `MultiOutputClassifier` `List[(N,2)]`, 1-D sigmoid, native `(N,K)`,
+  per-label thresholds (`Union[float, ndarray]`), NaN-safe decision
+  rule. Constant-label-column (per-label estimator with `classes_=[0]`)
+  emits zeros instead of IndexError.
+- **`MultilabelDispatchConfig` + `EnsemblingConfig`** Pydantic configs.
+  Replace env vars and sprawling kwargs with structured config.
+- **`stratify_y`** parameter in `make_train_test_split`: 1-D sklearn
+  `StratifiedShuffleSplit`, 2-D `iterstrat.MultilabelStratifiedShuffleSplit`
+  (lazy import; helpful ImportError on missing optional dep).
+- **Numba multilabel metrics** in `metrics.py`: `hamming_loss`,
+  `subset_accuracy`, `jaccard_score_multilabel`. Sequential + parallel
+  (auto-selected when `N*K > 1_000_000` — per Win32 `numba.prange`
+  cold-spawn benchmarking). Wrappers validate shape mismatch BEFORE
+  numba call (numba doesn't bounds-check inner loops).
+- **Ensembling materialisation dedup** (`ensembling.py`): 9 separate
+  `np.array(preds)` materialisations replaced with single `_preds_arr`
+  cache. ~5× peak-memory drop during aggregation. Geometric mean
+  rewritten via `exp(mean(log(...)))` with safer 1e-300 clip floor
+  (was 1e-12 — destroyed signal from well-calibrated boosted trees).
+- **Artifact metadata schema versioning** (`core.py`): per-model schema
+  records now include `target_type`, `n_classes`, `multilabel_strategy`,
+  `schema_version: int = 2`. Legacy artifacts (no fields) infer from
+  model structure at load time.
+- **Combo-fuzz**: `multiclass_classification` re-added to `target_type`
+  axis (3-class via balanced quantile-cut). `multilabel_strategy_cfg`
+  (`auto`/`wrapper`/`chain`) axis added forward-compat.
+
+### Changed
+
+- `[:, 1]` binary slicing replaced with shape-aware dispatch in
+  `core.py` (4 sites) and `automl.py` (2 sites with `multi_class='ovr'`).
+- `evaluation.post_calibrate_model` raises `NotImplementedError` on
+  multi-output probability shapes (univariate post-hoc isotonic doesn't
+  generalise; per-class isotonic is Session-2 work).
+
+### Tests added (~75 tests, 63 verified passing)
+
+- `tests/training/test_multiclass_classification.py` (29 tests):
+  TargetTypes predicates, canonicalizer, decision rule, strategy
+  feature flags, `get_training_configs` plumbing, chain orders,
+  config dataclass defaults.
+- `tests/training/test_multilabel_metrics_numba.py` (24 tests):
+  hamming/subset/jaccard correctness vs sklearn, parallel-variant
+  equivalence, edge cases.
+- `tests/training/test_bizvalue_classifier_chain.py` (3 tests):
+  ChainEnsemble beats `MultiOutputClassifier` on correlated labels —
+  observed +0.59pp Jaccard mean delta over 5 seeds, positive in 5/5.
+
+### Out of scope (Session 2-3)
+
+- Multi-* post-hoc calibration (per-class isotonic) — currently raises
+  `NotImplementedError`.
+- Multilabel fuzz axis (needs 2-D-aware `SimpleFeaturesAndTargetsExtractor`).
+- Native XGB multilabel (`multi_strategy='multi_output_tree'`) — WIP
+  in upstream, unstable.
+- Polars-native multilabel target dtype.
+- Recurrent / NeuralNet multi-output.
+- Full Welford-streaming ensembling refactor for prod-sized N=9M+
+  frames (current dedup gives ~5× peak-memory drop; full streaming
+  via Welford accumulators + P²-Quantile sketch gives ~10× more).
+
 ## 2026-04-24 — Combo-fuzz upgrade: A–G (invariants, metamorphic, 3-wise, Hypothesis, seed rotation, adversarial axes)
 
 Seven-part upgrade to the combo-fuzz harness in `tests/training/`.

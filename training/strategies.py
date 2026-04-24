@@ -111,6 +111,74 @@ class ModelPipelineStrategy(ABC):
         """Whether this model supports embedding features (list-of-float vector columns)."""
         return False
 
+    # ---- Multi-output (multiclass + multilabel) capability flags ----
+    # Strategies override these to opt INTO native dispatch. Default False
+    # means the dispatcher falls back to wrapper-based handling
+    # (MultiOutputClassifier for multilabel, default sklearn for
+    # multiclass — most libraries already support multiclass natively
+    # via library-specific objective kwargs in helpers._classif_objective_kwargs).
+
+    @property
+    def supports_native_multiclass(self) -> bool:
+        """Whether this strategy supports K>2 single-label classification
+        natively (via library objective kwargs).
+
+        True for CB/XGB/LGB/HGB/Linear (all 5 mlframe strategies have
+        native paths). NeuralNet / Recurrent default False (their multi-
+        output handling is its own track).
+        """
+        return False
+
+    @property
+    def supports_native_multilabel(self) -> bool:
+        """Whether this strategy supports K binary independent labels
+        natively (single fitted model returns (N, K) probabilities,
+        no MultiOutputClassifier wrapper needed).
+
+        Today only CatBoost (loss_function='MultiLogloss'). Override to
+        True in CatBoostStrategy.
+        """
+        return False
+
+    def get_classif_objective_kwargs(self, target_type, n_classes: int) -> dict:
+        """Per-strategy classifier kwargs for the target type.
+
+        Default implementation delegates to the freestanding
+        ``helpers._classif_objective_kwargs`` dispatcher. Strategies can
+        override to customise (e.g. force a specific eval_metric on
+        multilabel).
+        """
+        from .helpers import _classif_objective_kwargs
+
+        flavor_map = {
+            "CatBoostStrategy": "catboost",
+            "XGBoostStrategy": "xgboost",
+            "TreeModelStrategy": "lightgbm",  # default tree model is LGB
+            "HGBStrategy": "hgb",
+            "LinearModelStrategy": "linear",
+        }
+        flavor = flavor_map.get(type(self).__name__, "")
+        return _classif_objective_kwargs(flavor, target_type, n_classes)
+
+    def wrap_multilabel(self, estimator, target_type, multilabel_config=None,
+                       n_labels: Optional[int] = None):
+        """Multilabel dispatch: native vs wrapper vs chain ensemble.
+
+        Default delegates to ``helpers._maybe_wrap_multilabel`` with the
+        strategy's ``supports_native_multilabel`` flag. CatBoostStrategy
+        overrides this only if it needs CB-specific behaviour beyond the
+        flag check (currently doesn't).
+        """
+        from .helpers import _maybe_wrap_multilabel
+
+        return _maybe_wrap_multilabel(
+            estimator,
+            target_type,
+            multilabel_config=multilabel_config,
+            strategy_supports_native_multilabel=self.supports_native_multilabel,
+            n_labels=n_labels,
+        )
+
     def feature_tier(self) -> tuple:
         """Hashable key for grouping models by feature support level.
 
@@ -269,6 +337,11 @@ class TreeModelStrategy(ModelPipelineStrategy):
     requires_scaling = False
     requires_encoding = False
     requires_imputation = False
+    # All tree models (CB/LGB/XGB) support multiclass natively via library
+    # objective kwargs. Multilabel native is CB-only — overridden in
+    # CatBoostStrategy. LGB has no native multilabel (issue #524 since 2017),
+    # XGB 3.x experimental but unstable.
+    supports_native_multiclass = True
 
     def build_pipeline(
         self,
@@ -294,6 +367,14 @@ class CatBoostStrategy(TreeModelStrategy):
     supports_polars = True
     supports_text_features = True
     supports_embedding_features = True
+    # 2026-04-24: native multi-output support via loss_function='MultiClass'
+    # for K>2 single-label and 'MultiLogloss' for K independent binary
+    # outputs. The dispatch wires these via
+    # ModelPipelineStrategy.get_classif_objective_kwargs +
+    # _maybe_wrap_multilabel (which short-circuits the wrapper for
+    # supports_native_multilabel=True strategies).
+    supports_native_multiclass = True
+    supports_native_multilabel = True
     # Inherits cache_key = "tree" from TreeModelStrategy so CB/LGB/XGB share
     # transformed-DF cache (they have identical preprocessing requirements).
 
@@ -309,6 +390,13 @@ class XGBoostStrategy(TreeModelStrategy):
     """
 
     supports_polars = True
+    # XGB has native multiclass via objective='multi:softprob'+num_class.
+    # XGB 3.x has experimental multi_strategy='multi_output_tree' for
+    # multilabel but it's WIP/unstable — we route multilabel through
+    # MultiOutputClassifier wrapper for now (TODO: native upgrade when
+    # XGB 3.1 lands stable).
+    supports_native_multiclass = True
+    # supports_native_multilabel inherits False from ABC → wrapper path
     # Inherits cache_key = "tree" from TreeModelStrategy (see CatBoostStrategy note).
 
     def prepare_polars_dataframe(self, df: "pl.DataFrame", cat_features: List[str]) -> "pl.DataFrame":
@@ -346,6 +434,9 @@ class HGBStrategy(ModelPipelineStrategy):
     requires_encoding = True  # pandas fallback path still needs encoding
     requires_imputation = False
     supports_polars = True
+    # sklearn HistGradientBoostingClassifier auto-detects multiclass from y dtype
+    # (no library kwarg needed). No native multilabel; uses MultiOutputClassifier.
+    supports_native_multiclass = True
 
     # HGB max_bins is capped at 255 in sklearn
     _MAX_CATEGORICAL_CARDINALITY = 255
@@ -424,6 +515,10 @@ class LinearModelStrategy(ModelPipelineStrategy):
     requires_scaling = True
     requires_encoding = True
     requires_imputation = True
+    # sklearn LogisticRegression supports multiclass natively via
+    # multi_class='multinomial'. No native multilabel — uses
+    # MultiOutputClassifier.
+    supports_native_multiclass = True
 
 
 class RecurrentModelStrategy(ModelPipelineStrategy):

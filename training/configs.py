@@ -70,10 +70,60 @@ class TargetTypes(StrEnum):
         Regression task type for continuous targets.
     BINARY_CLASSIFICATION : str
         Binary classification task type for two-class targets.
+    MULTICLASS_CLASSIFICATION : str
+        K>2 single-label classification (exclusive labels via softmax).
+        Target shape is (N,) integer in {0, ..., K-1}.
+    MULTILABEL_CLASSIFICATION : str
+        K>=1 independent binary outputs (per-label sigmoid).
+        Target shape is (N, K) binary matrix.
     """
 
     REGRESSION = "regression"
     BINARY_CLASSIFICATION = "binary_classification"
+    MULTICLASS_CLASSIFICATION = "multiclass_classification"
+    MULTILABEL_CLASSIFICATION = "multilabel_classification"
+
+    @property
+    def is_classification(self) -> bool:
+        """True for binary, multiclass, and multilabel; False for regression.
+
+        Use this instead of `target_type == BINARY_CLASSIFICATION` so new
+        classification flavours route correctly without touching every
+        call site (8 sites previously hardcoded the binary equality check).
+        """
+        return self in (
+            TargetTypes.BINARY_CLASSIFICATION,
+            TargetTypes.MULTICLASS_CLASSIFICATION,
+            TargetTypes.MULTILABEL_CLASSIFICATION,
+        )
+
+    @property
+    def is_regression(self) -> bool:
+        return self == TargetTypes.REGRESSION
+
+    @property
+    def is_binary(self) -> bool:
+        return self == TargetTypes.BINARY_CLASSIFICATION
+
+    @property
+    def is_multiclass(self) -> bool:
+        return self == TargetTypes.MULTICLASS_CLASSIFICATION
+
+    @property
+    def is_multilabel(self) -> bool:
+        return self == TargetTypes.MULTILABEL_CLASSIFICATION
+
+    @property
+    def is_multi_output(self) -> bool:
+        """True when probability output is (N, K) with K>2 logically.
+
+        Convenience predicate for ``[:, 1]`` slicing sites that should
+        bail out / dispatch differently for multi-* targets.
+        """
+        return self in (
+            TargetTypes.MULTICLASS_CLASSIFICATION,
+            TargetTypes.MULTILABEL_CLASSIFICATION,
+        )
 
 
 class BaseConfig(BaseModel):
@@ -970,6 +1020,66 @@ class TrainingBehaviorConfig(BaseConfig):
     # restore the pre-2026-04-21 naming scheme (``{model}_{weight}.dump``);
     # load-time schema verification is also skipped for those artefacts.
     model_file_hash_suffix: bool = True
+
+
+class MultilabelDispatchConfig(BaseConfig):
+    """Configuration for multilabel-classification dispatch.
+
+    Bundles every multilabel-only knob so per-strategy code only sees one
+    parameter (instead of an exploding ``_maybe_wrap_multilabel(...)``
+    signature) and so adding a new strategy choice (e.g. ``stacking``)
+    doesn't require touching every dispatch site.
+
+    Only consulted when ``target_type == MULTILABEL_CLASSIFICATION``.
+
+    Strategy choices
+    ----------------
+    auto      : let the strategy pick — CatBoost uses native MultiLogloss,
+                everyone else uses ``MultiOutputClassifier(estimator)`` (OvR)
+    wrapper   : force ``MultiOutputClassifier(estimator)`` even on CB
+                (degrades CB native to OvR — useful for A/B vs native)
+    chain     : ``_ChainEnsemble`` of ``n_chains`` random-ordered
+                ``ClassifierChain(estimator, cv=cv)`` instances; averages
+                ``predict_proba`` outputs. Empirically +2-5% Jaccard on
+                correlated labels (sklearn ``plot_classifier_chain_yeast``).
+    native    : assert strategy supports native multilabel; raise if not.
+                For users who explicitly want CB MultiLogloss and want to
+                fail loud if mis-configured.
+    """
+
+    strategy: str = "auto"  # Literal["auto","wrapper","chain","native"]
+    n_chains: int = 3
+    chain_order_strategy: str = "random"  # Literal["random","by_frequency","user"]
+    chain_order_user: Optional[List[List[int]]] = None  # one ordering per chain
+    chain_seeds: Optional[List[int]] = None
+    cv: Optional[int] = 5  # ClassifierChain.cv — 5 cross-validates chain features
+    per_label_thresholds: Optional[List[float]] = None  # decision-rule thresholds
+    wrapper_n_jobs: Union[int, str] = "auto"  # MultiOutputClassifier n_jobs
+    allow_uncalibrated_multi: bool = False  # downgrade post-hoc calib skip from raise to warn
+
+
+class EnsemblingConfig(BaseConfig):
+    """Configuration for ensembling behaviour, including streaming-vs-legacy
+    aggregation choice and quantile-fallback budget.
+
+    Replaces the env-var ``ENSEMBLE_FORCE_LEGACY_MATERIALISATION=1`` knob
+    (which is invisible in function signatures, untestable, and global)
+    with a structured config. Env var is still honoured as the default
+    for one release for back-compat.
+    """
+
+    force_legacy: bool = False
+    """If True, use the pre-streaming materialised-aggregation path
+    (allocates ``(M, N, K)`` tensors). Default False uses streaming Welford."""
+
+    quantile_budget_bytes: int = 500 * 1024 * 1024
+    """Skip quantile-bucket aggregation with warn when ``M*N*K*8 > budget``.
+    500 MB default. Override per environment to taste."""
+
+    accumulator: str = "welford"
+    """Streaming accumulator implementation. ``welford`` is the only
+    impl today; ``tdigest`` / ``p2_quantile`` planned (registered via
+    ``StreamingAccumulator`` Protocol)."""
 
 
 class TrainingConfig(BaseConfig):

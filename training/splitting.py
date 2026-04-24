@@ -17,6 +17,62 @@ from sklearn.model_selection import train_test_split
 logger = logging.getLogger(__name__)
 
 
+def _stratified_split(
+    indices: np.ndarray,
+    test_size: float,
+    stratify_y: np.ndarray,
+    random_state: Optional[int] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Shape-aware stratified split for the no-timestamps row-based path.
+
+    1-D ``stratify_y``: sklearn ``StratifiedShuffleSplit``.
+    2-D ``stratify_y`` (multilabel): ``iterstrat.MultilabelStratifiedShuffleSplit``
+    (lazy-imported, raises with helpful message on missing optional dep).
+
+    Parameters
+    ----------
+    indices : np.ndarray (M,)
+        The row indices to split (e.g. arange(N) for the first call,
+        train_idx slice for the second).
+    test_size : float
+        Fraction of ``indices`` for the right-hand split (val or test).
+    stratify_y : np.ndarray (M,) or (M, K)
+        Labels for stratification, ALIGNED to ``indices`` (caller must
+        slice if indices is not the full range).
+    random_state : int | None
+
+    Returns
+    -------
+    (left_idx, right_idx) — both are slices of ``indices``, not 0..M-1.
+    """
+    if stratify_y.ndim == 1:
+        from sklearn.model_selection import StratifiedShuffleSplit
+
+        splitter = StratifiedShuffleSplit(
+            n_splits=1, test_size=test_size, random_state=random_state,
+        )
+    elif stratify_y.ndim == 2:
+        try:
+            from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
+        except ImportError as e:
+            raise ImportError(
+                "Multilabel stratification requires the optional dependency "
+                "'iterative-stratification'. Install via: "
+                "pip install iterative-stratification\n"
+                f"Original error: {e}"
+            ) from e
+        splitter = MultilabelStratifiedShuffleSplit(
+            n_splits=1, test_size=test_size, random_state=random_state,
+        )
+    else:
+        raise ValueError(
+            f"stratify_y must be 1-D or 2-D, got shape {stratify_y.shape}"
+        )
+
+    left_pos, right_pos = next(splitter.split(np.zeros(len(indices)), stratify_y))
+    return indices[left_pos], indices[right_pos]
+
+
 def make_train_test_split(
     df: pd.DataFrame,
     test_size: float = 0.1,
@@ -30,6 +86,7 @@ def make_train_test_split(
     wholeday_splitting: bool = True,
     random_seed: Optional[int] = None,
     val_placement: Literal["forward", "backward"] = "forward",
+    stratify_y: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, str, str, str]:
     """
     Split data into train, validation, and test sets with flexible sequential/shuffled control.
@@ -320,21 +377,64 @@ def make_train_test_split(
         test_details = _build_details(timestamps, test_idx, test_idx_seq, n_test_shuf, "R")
 
     else:
-        # Row-based splitting without timestamps (fallback to sklearn)
+        # Row-based splitting without timestamps (fallback to sklearn).
+        # 2026-04-24: stratify_y support — when provided, route through
+        # sklearn StratifiedShuffleSplit (1-D y) or
+        # iterstrat.MultilabelStratifiedShuffleSplit (2-D y, multilabel).
+        # Both REQUIRE shuffle (cannot stratify a sequential split). When
+        # stratify_y is provided AND shuffle_test/shuffle_val is False,
+        # we emit a WARNING and stratify anyway (correctness > sequential
+        # nicety; user explicitly asked for class balance).
         all_idx = np.arange(len(df))
-        if test_size > 0:
-            train_idx, test_idx = train_test_split(
-                all_idx, test_size=test_size, shuffle=shuffle_test,
-                random_state=sklearn_seed if shuffle_test else None,
+
+        if stratify_y is not None and timestamps is not None:
+            logger.warning(
+                "stratify_y provided but timestamps active — stratification "
+                "ignored (stratification is ill-defined for time-based splits)."
             )
+            _stratify_active = None
+        elif stratify_y is not None:
+            _stratify_active = np.asarray(stratify_y)
+            if _stratify_active.shape[0] != len(df):
+                raise ValueError(
+                    f"stratify_y length {_stratify_active.shape[0]} does not "
+                    f"match df length {len(df)}"
+                )
+            if _stratify_active.ndim not in (1, 2):
+                raise ValueError(
+                    f"stratify_y must be 1-D (single-label) or 2-D (multilabel), "
+                    f"got shape {_stratify_active.shape}"
+                )
+        else:
+            _stratify_active = None
+
+        if test_size > 0:
+            if _stratify_active is not None:
+                train_idx, test_idx = _stratified_split(
+                    all_idx, test_size=test_size,
+                    stratify_y=_stratify_active, random_state=sklearn_seed,
+                )
+            else:
+                train_idx, test_idx = train_test_split(
+                    all_idx, test_size=test_size, shuffle=shuffle_test,
+                    random_state=sklearn_seed if shuffle_test else None,
+                )
         else:
             train_idx, test_idx = all_idx, np.array([], dtype=np.intp)
 
         if val_size > 0:
-            train_idx, val_idx = train_test_split(
-                train_idx, test_size=val_size, shuffle=shuffle_val,
-                random_state=sklearn_seed if shuffle_val else None,
-            )
+            if _stratify_active is not None:
+                # Stratify val from the remaining train indices.
+                strat_train = _stratify_active[train_idx]
+                train_idx, val_idx = _stratified_split(
+                    train_idx, test_size=val_size,
+                    stratify_y=strat_train, random_state=sklearn_seed,
+                )
+            else:
+                train_idx, val_idx = train_test_split(
+                    train_idx, test_size=val_size, shuffle=shuffle_val,
+                    random_state=sklearn_seed if shuffle_val else None,
+                )
         else:
             val_idx = np.array([], dtype=np.intp)
 

@@ -325,6 +325,153 @@ def fast_classification_report(y_true: np.ndarray, y_pred: np.ndarray, nclasses:
     return hits, misses, accuracy, balanced_accuracy, supports, precisions, recalls, f1s, macro_averages, weighted_averages
 
 
+# ============================================================================
+# Multi-label numba metrics — 2026-04-24
+# ============================================================================
+#
+# All three accept either (N, K) binary indicator matrices or (N,) binary
+# arrays (auto-reshaped to (N, 1) by the public wrappers).
+#
+# Sequential variants are the default. Parallel variants (`@njit(parallel=True)`)
+# are auto-selected by the public wrapper when ``N * K > 1_000_000`` —
+# benchmarked threshold on Win32 where `numba.prange` cold-spawn cost is
+# ~40-80ms (rules out small-frame parallelism).
+#
+# All three follow sklearn semantics:
+# - `hamming_loss`: mean fraction of incorrect labels (lower is better)
+# - `subset_accuracy`: fraction of samples where ALL labels match (exact match)
+# - `jaccard_score_multilabel`: per-row averaged |y_true & y_pred| / |y_true | y_pred|;
+#   empty-union row counts as 1.0 (defined as "both empty = perfect" — sklearn
+#   `jaccard_score(average='samples')` raises in that case unless `zero_division`
+#   is explicit; we pick 1.0 as the well-defined choice).
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _fast_hamming_loss_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Sequential mean-mismatch fraction. Both inputs (N, K) uint8."""
+    N, K = y_true.shape
+    err = 0.0
+    for i in range(N):
+        for j in range(K):
+            if y_true[i, j] != y_pred[i, j]:
+                err += 1.0
+    return err / (N * K)
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
+def _fast_hamming_loss_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Parallel variant. Auto-selected by hamming_loss() when N*K > 1M."""
+    N, K = y_true.shape
+    err_per_row = np.zeros(N, dtype=np.float64)
+    for i in numba.prange(N):
+        local = 0.0
+        for j in range(K):
+            if y_true[i, j] != y_pred[i, j]:
+                local += 1.0
+        err_per_row[i] = local / K
+    return err_per_row.mean()
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _fast_subset_accuracy_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Row-wise all-equal then mean. Both inputs (N, K) uint8."""
+    N, K = y_true.shape
+    correct = 0.0
+    for i in range(N):
+        all_eq = True
+        for j in range(K):
+            if y_true[i, j] != y_pred[i, j]:
+                all_eq = False
+                break
+        if all_eq:
+            correct += 1.0
+    return correct / N
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _fast_jaccard_score_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Per-row Jaccard (|A∩B|/|A∪B|), averaged. Empty-union → 1.0."""
+    N, K = y_true.shape
+    total = 0.0
+    for i in range(N):
+        intersect = 0.0
+        union = 0.0
+        for j in range(K):
+            t = y_true[i, j]
+            p = y_pred[i, j]
+            if t == 1 and p == 1:
+                intersect += 1.0
+            if t == 1 or p == 1:
+                union += 1.0
+        if union > 0:
+            total += intersect / union
+        else:
+            total += 1.0  # both empty — perfect by definition
+    return total / N
+
+
+def _coerce_multilabel_array(arr) -> np.ndarray:
+    """Single-pass cast to contiguous uint8 (N, K). Reshape (N,) → (N, 1)."""
+    a = np.ascontiguousarray(np.asarray(arr), dtype=np.uint8)
+    if a.ndim == 1:
+        return a.reshape(-1, 1)
+    if a.ndim == 2:
+        return a
+    raise ValueError(f"multilabel array must be 1-D or 2-D, got shape {a.shape}")
+
+
+def _validate_multilabel_pair(y_true, y_pred) -> tuple:
+    """Coerce + validate y_true / y_pred shape match BEFORE calling numba.
+
+    Numba @njit kernels do not bounds-check inner loops; passing arrays
+    of mismatched second-dimension would silently read garbage memory.
+    Public wrappers MUST validate up-front.
+    """
+    yt = _coerce_multilabel_array(y_true)
+    yp = _coerce_multilabel_array(y_pred)
+    if yt.shape != yp.shape:
+        raise ValueError(
+            f"y_true shape {yt.shape} != y_pred shape {yp.shape}; "
+            "multilabel metrics require matching shapes."
+        )
+    return yt, yp
+
+
+def hamming_loss(y_true, y_pred) -> float:
+    """sklearn-compatible Hamming loss for multilabel targets.
+
+    Accepts (N,) binary or (N, K) multilabel. For N*K > 1M, auto-routes
+    to the parallel numba variant.
+
+    Same return-value semantics as ``sklearn.metrics.hamming_loss``.
+    """
+    yt, yp = _validate_multilabel_pair(y_true, y_pred)
+    if yt.shape[0] * yt.shape[1] > 1_000_000:
+        return _fast_hamming_loss_par(yt, yp)
+    return _fast_hamming_loss_seq(yt, yp)
+
+
+def subset_accuracy(y_true, y_pred) -> float:
+    """Subset accuracy (a.k.a. exact-match) for multilabel targets.
+
+    Equivalent to ``sklearn.metrics.accuracy_score(y_true, y_pred)`` on
+    multilabel inputs (sklearn does row-wise all-equal under the hood).
+    """
+    yt, yp = _validate_multilabel_pair(y_true, y_pred)
+    return _fast_subset_accuracy_seq(yt, yp)
+
+
+def jaccard_score_multilabel(y_true, y_pred) -> float:
+    """Per-row averaged Jaccard score for multilabel targets.
+
+    Equivalent to ``sklearn.metrics.jaccard_score(y_true, y_pred, average='samples')``
+    with the well-defined choice of 1.0 for empty-union rows
+    (sklearn's default raises a ``DivisionWarning`` on those).
+    """
+    yt, yp = _validate_multilabel_pair(y_true, y_pred)
+    return _fast_jaccard_score_seq(yt, yp)
+
+
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
     """Computes bins of predicted vs actual events frequencies. Corresponds to sklearn's UNIFORM strategy."""

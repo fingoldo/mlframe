@@ -880,6 +880,21 @@ def post_calibrate_model(
         )
     model, test_preds, test_probs, val_preds, val_probs, columns, pre_pipeline, metrics = original_model
 
+    # 2026-04-24: shape guard for multi-output targets. Post-hoc
+    # calibration via a univariate meta-model only works for binary
+    # classification (where probs[:, 1] is the single positive-class
+    # probability). For MULTICLASS / MULTILABEL the contract is per-class
+    # calibration (one isotonic per class), which is its own track —
+    # raise NotImplementedError rather than silently mis-calibrating
+    # by feeding only column 1 of an (N, K) matrix to the meta-model.
+    if hasattr(test_probs, "shape") and len(test_probs.shape) == 2 and test_probs.shape[1] != 2:
+        raise NotImplementedError(
+            f"post_calibrate_model only supports binary classification "
+            f"(probs shape (N, 2)); got (N, {test_probs.shape[1]}). "
+            f"Multi-output post-hoc calibration (per-class isotonic) is "
+            f"a separate track — disable post-hoc calibration for multi-* targets."
+        )
+
     meta_model.fit(test_probs[:calib_set_size, 1].reshape(-1, 1), target_series.iloc[test_idx].values[:calib_set_size], **fit_params)
 
     if show_val:

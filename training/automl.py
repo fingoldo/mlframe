@@ -122,7 +122,12 @@ def train_autogluon_model(
 
         if test_target is not None and verbose:
             try:
-                auc = roc_auc_score(test_target, test_probs[:, 1])
+                # Shape-aware roc_auc dispatch:
+                # (N, 2) binary → use class-1 column; K>2 → multi_class='ovr' on full (N, K)
+                if test_probs.ndim == 2 and test_probs.shape[1] > 2:
+                    auc = roc_auc_score(test_target, test_probs, multi_class='ovr')
+                else:
+                    auc = roc_auc_score(test_target, test_probs[:, 1])
                 logger.info(f"AutoGluon test AUC: {auc:.4f}")
                 metrics["test_auc"] = auc
             except (ValueError, TypeError) as e:
@@ -256,7 +261,12 @@ def train_lama_model(
 
         if test_target is not None and verbose and test_probs is not None:
             try:
-                auc = roc_auc_score(test_target, test_probs[:, 1])
+                # Shape-aware roc_auc dispatch:
+                # (N, 2) binary → use class-1 column; K>2 → multi_class='ovr' on full (N, K)
+                if test_probs.ndim == 2 and test_probs.shape[1] > 2:
+                    auc = roc_auc_score(test_target, test_probs, multi_class='ovr')
+                else:
+                    auc = roc_auc_score(test_target, test_probs[:, 1])
                 logger.info(f"LAMA test AUC: {auc:.4f}")
                 metrics["test_auc"] = auc
             except (ValueError, TypeError) as e:

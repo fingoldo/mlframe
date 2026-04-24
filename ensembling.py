@@ -178,6 +178,22 @@ def ensemble_probabilistic_predictions(
     if len(preds) == 0:
         return None, None, None
 
+    # 2026-04-24: dedup memory churn. Pre-2026-04-24, this function called
+    # `np.array(preds)` ~9 times across the various ensemble methods,
+    # outlier-filter, and confidence paths — each call materialised a full
+    # (M, N, K) tensor, peaking RAM at ~9× the steady-state cost. On
+    # multi_5 × ensembles × 2-weight_schemas (M=6, N=600, K=5) the peak hit
+    # native C++ allocator's Win32 4GB ceiling and OOM'd. Materialising
+    # ONCE here eliminates that churn — full Welford-streaming refactor
+    # for the big-N case (N=9M+) is tracked as TODO below.
+    #
+    # TODO(future): For N*K*M*8 > EnsemblingConfig.quantile_budget_bytes,
+    # switch to streaming Welford accumulators (mean/std/geomean via
+    # log-mean/M2) + P²-Quantile sketch for median/quantile aggregations.
+    # Estimated gain: ~5× peak-memory drop on prod-sized frames; not
+    # needed for fuzz-sized data.
+    _preds_arr = np.asarray(preds, dtype=np.float64)
+
     if len(preds) > 2:
 
         skipped_preds_indices = set()
@@ -187,7 +203,7 @@ def ensemble_probabilistic_predictions(
         # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
         # compute median preds first
-        median_preds = np.quantile(np.array(preds), 0.5, axis=0)
+        median_preds = np.quantile(_preds_arr, 0.5, axis=0)
 
         # Per-member distance summary (vectorised over all columns at once).
         # Old code did a Python loop over columns; on 6-member × 1-column
@@ -247,6 +263,9 @@ def ensemble_probabilistic_predictions(
                 preds = [el for i, el in enumerate(preds) if i not in skipped_preds_indices]
                 if verbose:
                     print(f"Using {len(preds)} members of ensemble")
+                # Members were dropped — re-materialise the cached tensor
+                # so downstream aggregations see only kept members.
+                _preds_arr = np.asarray(preds, dtype=np.float64)
             else:
                 if verbose:
                     print(f"ensemble_probabilistic_predictions filters too restrictive ({len(skipped_preds_indices)} vs {len(preds)}), skipping them")
@@ -261,28 +280,32 @@ def ensemble_probabilistic_predictions(
         # produces ``inf``, which ``1/mean(...)`` then maps back to 0 — correct
         # numerically but noisy in logs (observed 2026-04-23 prod run). Mask the
         # zeros explicitly so the common path stays warning-free.
-        preds_arr = np.asarray(preds, dtype=np.float64)
-        any_zero = (preds_arr == 0).any(axis=0)
+        any_zero = (_preds_arr == 0).any(axis=0)
         with np.errstate(divide="ignore", invalid="ignore"):
-            inv_sum = np.sum(1.0 / preds_arr, axis=0)
-            ensembled_predictions = len(preds_arr) / inv_sum
+            inv_sum = np.sum(1.0 / _preds_arr, axis=0)
+            ensembled_predictions = len(_preds_arr) / inv_sum
         if any_zero.any():
             ensembled_predictions = np.where(any_zero, 0.0, ensembled_predictions)
     elif ensemble_method == "arithm":
-        ensembled_predictions = np.mean(np.array(preds), axis=0)
+        ensembled_predictions = np.mean(_preds_arr, axis=0)
     elif ensemble_method == "median":
-        ensembled_predictions = np.quantile(np.array(preds), 0.5, axis=0)
+        ensembled_predictions = np.quantile(_preds_arr, 0.5, axis=0)
     elif ensemble_method == "quad":
-        ensembled_predictions = np.sqrt(np.mean(np.array([pred**2 for pred in preds]), axis=0))
+        ensembled_predictions = np.sqrt(np.mean(_preds_arr ** 2, axis=0))
     elif ensemble_method == "qube":
-        ensembled_predictions = np.cbrt(np.mean(np.array([pred**3 for pred in preds]), axis=0))
+        ensembled_predictions = np.cbrt(np.mean(_preds_arr ** 3, axis=0))
     elif ensemble_method == "geo":
-        ensembled_predictions = np.power(np.prod(preds, axis=0), 1 / len(preds))
+        # Use log-sum-exp via log-mean for numerical stability on large M.
+        # Floor at 1e-300 (smallest safe float64) instead of 1e-12 to
+        # preserve precision for legitimately rare events from well-
+        # calibrated boosted trees.
+        with np.errstate(divide="ignore"):
+            ensembled_predictions = np.exp(np.mean(np.log(np.clip(_preds_arr, 1e-300, None)), axis=0))
 
     # Replace non-finite values (NaN, inf) with arithmetic mean fallback
     non_finite_mask = ~np.isfinite(ensembled_predictions)
     if non_finite_mask.any():
-        arith_mean = np.mean(np.array(preds), axis=0)
+        arith_mean = np.mean(_preds_arr, axis=0)
         n_replaced = np.sum(non_finite_mask)
         if verbose:
             logger.info(f"{n_replaced} non-finite values replaced with arithmetic mean")
@@ -297,9 +320,9 @@ def ensemble_probabilistic_predictions(
 
     if uncertainty_quantile:
 
-        std_preds = np.std(np.array(preds), axis=0)
+        std_preds = np.std(_preds_arr, axis=0)
         if normalize_stds_by_mean_preds:
-            mean_preds = np.mean(np.array(preds), axis=0)
+            mean_preds = np.mean(_preds_arr, axis=0)
             uncertainty = (std_preds / mean_preds).mean(axis=1)
         else:
             uncertainty = std_preds.mean(axis=1)

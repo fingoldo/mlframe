@@ -3520,12 +3520,46 @@ def train_mlframe_models_suite(
                         # against the serving data. Keyed by the final
                         # model_file_name (already includes weight + hash), so
                         # repeat weights don't collide.
-                        metadata.setdefault("model_schemas", {})[model_file_name] = {
+                        # 2026-04-24: extend with target_type / n_classes /
+                        # multilabel_strategy + schema_version to support
+                        # multi-output target inference at load time. Old
+                        # artifacts without these fields fall through to
+                        # legacy binary inference (load_mlframe_suite).
+                        _record = {
                             "schema_hash": _schema_hash,
                             "input_schema": _input_schema,
                             "mlframe_model": mlframe_model_name,
                             "weight_name": weight_name,
+                            # Multi-output extensions:
+                            "target_type": str(target_type) if target_type is not None else None,
+                            "schema_version": 2,  # 1=legacy, 2=multi-output-aware
                         }
+                        try:
+                            from .configs import TargetTypes as _TT
+                            if target_type == _TT.MULTILABEL_CLASSIFICATION:
+                                # Number of label outputs and dispatch strategy
+                                _record["n_classes"] = (
+                                    int(train_y.shape[1])
+                                    if hasattr(train_y, "shape") and train_y.ndim == 2
+                                    else None
+                                )
+                                _record["multilabel_strategy"] = "native" if (
+                                    hasattr(strategy, "supports_native_multilabel") and strategy.supports_native_multilabel
+                                ) else "wrapper"
+                            elif target_type == _TT.MULTICLASS_CLASSIFICATION:
+                                _record["n_classes"] = (
+                                    int(len(np.unique(np.asarray(train_y))))
+                                    if hasattr(train_y, "shape") else None
+                                )
+                                _record["multilabel_strategy"] = None
+                            else:
+                                _record["n_classes"] = None
+                                _record["multilabel_strategy"] = None
+                        except Exception:
+                            # Defensive — never fail the metadata write because
+                            # of an introspection problem on multi-output fields.
+                            pass
+                        metadata.setdefault("model_schemas", {})[model_file_name] = _record
 
                         # Cache the transformed DataFrames if not already cached
                         if cached_dfs is None:
@@ -3865,9 +3899,18 @@ def predict_mlframe_models_suite(
                 results["probabilities"][model_name] = probs
                 all_probs.append(probs)
 
-                # For binary classification, get class 1 probability for averaging
+                # Shape-aware decision rule:
+                # - 1-D probs: threshold (binary sigmoid output)
+                # - (N, 2) binary: threshold on class-1 column
+                # - (N, K) multiclass (K>2): argmax
+                # Multilabel cannot be inferred from shape alone — caller
+                # must hold that contract; for now this path treats K>2 as
+                # multiclass (the dominant case for ndim==2 K>2).
                 if probs.ndim == 2:
-                    preds = (probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+                    if probs.shape[1] == 2:
+                        preds = (probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+                    else:
+                        preds = np.argmax(probs, axis=1)
                 else:
                     preds = (probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
                 results["predictions"][model_name] = preds
@@ -3900,9 +3943,13 @@ def predict_mlframe_models_suite(
         if isinstance(results.get("probabilities"), dict):
             results["probabilities"]["ensemble"] = avg_probs
 
-        # Ensemble predictions from averaged probabilities
+        # Ensemble predictions from averaged probabilities (shape-aware).
         if avg_probs.ndim == 2:
-            ensemble_preds = (avg_probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+            if avg_probs.shape[1] == 2:
+                ensemble_preds = (avg_probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+            else:
+                # Multiclass — argmax across K classes
+                ensemble_preds = np.argmax(avg_probs, axis=1)
         else:
             ensemble_preds = (avg_probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
         results["ensemble_predictions"] = ensemble_preds
@@ -4062,9 +4109,12 @@ def predict_from_models(
                         results["probabilities"][model_name] = probs
                         all_probs.append(probs)
 
-                        # For binary classification, get class 1 probability for threshold
+                        # Shape-aware decision rule (see predict_mlframe_models_suite).
                         if probs.ndim == 2:
-                            preds = (probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+                            if probs.shape[1] == 2:
+                                preds = (probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+                            else:
+                                preds = np.argmax(probs, axis=1)
                         else:
                             preds = (probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
                         results["predictions"][model_name] = preds
@@ -4097,9 +4147,13 @@ def predict_from_models(
         if isinstance(results.get("probabilities"), dict):
             results["probabilities"]["ensemble"] = avg_probs
 
-        # Ensemble predictions from averaged probabilities
+        # Ensemble predictions from averaged probabilities (shape-aware).
         if avg_probs.ndim == 2:
-            ensemble_preds = (avg_probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+            if avg_probs.shape[1] == 2:
+                ensemble_preds = (avg_probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+            else:
+                # Multiclass — argmax across K classes
+                ensemble_preds = np.argmax(avg_probs, axis=1)
         else:
             ensemble_preds = (avg_probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
         results["ensemble_predictions"] = ensemble_preds
