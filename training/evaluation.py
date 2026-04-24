@@ -538,7 +538,19 @@ def report_probabilistic_model_perf(
             probs[np.arange(len(preds_fallback)), class_indices] = 1.0
 
     if preds is None:
-        if probs.shape[1] == 2:
+        # 2026-04-24 Session 6: multilabel target → (N, K) probs, threshold
+        # each column independently; do NOT argmax (collapses to single class).
+        _targets_2d = (
+            isinstance(targets, np.ndarray) and targets.ndim == 2
+        ) or (
+            isinstance(targets, pd.DataFrame)
+        )
+        if _targets_2d:
+            # MultiOutputClassifier returns list[(N,2)] for predict_proba — canonicalize to (N, K).
+            from .helpers import _canonical_predict_proba_shape
+            probs = _canonical_predict_proba_shape(probs)
+            preds = (probs >= 0.5).astype(np.int8)
+        elif probs.shape[1] == 2:
             # For binary classification, use threshold=0.5 on class 1 probability
             # This ensures consistency with calibration metrics in fast_calibration_report
             classes_ = model.classes_ if (model is not None and hasattr(model, "classes_")) else np.array([0, 1])
@@ -559,13 +571,23 @@ def report_probabilistic_model_perf(
     log_losses = []
     robust_integral_errors = []
 
+    # 2026-04-24 Session 6: detect multilabel from 2-D target shape. Each
+    # column is an independent binary label; the per-class loop below uses
+    # the column directly instead of `targets == class_name` (which would
+    # broadcast a 2-D bool against a 1-D y_score and crash).
+    targets_arr = np.asarray(targets) if not isinstance(targets, np.ndarray) else targets
+    is_multilabel = targets_arr.ndim == 2
+
     integral_error = custom_ice_metric(y_true=targets, y_score=probs) if custom_ice_metric else 0.0
     robust_integral_error = None
     if custom_rice_metric and custom_rice_metric != custom_ice_metric:
         robust_integral_error = custom_rice_metric(y_true=targets, y_score=probs)
 
     if not classes:
-        if model is not None:
+        if is_multilabel:
+            # K independent labels named 0..K-1
+            classes = list(range(targets_arr.shape[1]))
+        elif model is not None:
             if hasattr(model, "classes_"):
                 classes = model.classes_
             else:
@@ -583,10 +605,15 @@ def report_probabilistic_model_perf(
             str_class_name = str(class_name)
         true_classes.append(str_class_name)
 
-        if len(classes) == 2 and class_id == 0:
+        # Multilabel: never skip class_id=0; every column is an independent label.
+        if not is_multilabel and len(classes) == 2 and class_id == 0:
             continue
 
-        y_true, y_score = (targets == class_name), probs[:, class_id]
+        if is_multilabel:
+            y_true = targets_arr[:, class_id]
+        else:
+            y_true = (targets == class_name)
+        y_score = probs[:, class_id]
         if isinstance(y_true, pl.Series):
             y_true = y_true.to_numpy()
 

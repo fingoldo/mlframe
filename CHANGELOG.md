@@ -1,5 +1,107 @@
 # Changelog
 
+## 2026-04-25 — Session 6: multilabel full-pipeline integration
+
+End-to-end multilabel support across `train_mlframe_models_suite`. All 42
+multilabel combos in the fuzz suite pass end-to-end (`cb`, `xgb`, `lgb`,
+`hgb`, `linear` × pandas/pl_enum/pl_utf8/pl_nullable × n=300/600/1200 ×
+single-model + 2-, 3-, 4-, 5-model combos × MRMR-on/off). Binary
+non-regression: 6 spot-check combos still pass.
+
+### Added
+
+- **`target_type` / `n_classes` plumbing to `get_training_configs`**
+  (`training/trainer.py:configure_training_params`,
+  `training/train_eval.py:select_target`, helper
+  `_n_classes_from_target`): the suite now derives K from the target
+  shape (multilabel → `target.shape[1]`, multiclass → `len(unique)`)
+  and routes `target_type`/`n_classes` into `config_params`. Without
+  this, multilabel targets reached CB without `loss_function` set, and
+  CB's `_get_loss_function_for_train` crashed with
+  `TypeError: unhashable type: 'numpy.ndarray'` on the 2-D label.
+
+- **MultiOutputClassifier wrap-on-suite for non-native multilabel
+  strategies** (`training/trainer.py:_wrap_for_multilabel_if_needed`):
+  HGB/XGB/LGB/Linear get wrapped in `MultiOutputClassifier` (or
+  `_ChainEnsemble` per `MultilabelDispatchConfig`) when `target_type ==
+  MULTILABEL_CLASSIFICATION`. CB MultiLogloss native is preserved.
+
+- **Multilabel-aware report path**
+  (`training/evaluation.py:report_probabilistic_model_perf`): detects
+  2-D `targets`, iterates over K columns directly via
+  `targets[:, class_id]` (was `targets == class_name` which broadcast
+  bool-2-D against 1-D y_score and crashed). `preds` derived as
+  `(probs >= 0.5).astype(int8)` for multilabel (was argmax — collapses
+  to single class). Probs canonicalised via
+  `_canonical_predict_proba_shape` before threshold so
+  `MultiOutputClassifier`'s `List[(N, 2)]` output works.
+
+### Fixed
+
+- **CB `eval_metric` incompatible with `MultiLogloss`**
+  (`training/helpers.py:get_training_configs`): CB rejects
+  `eval_metric='AUC'` with "metric AUC and loss MultiLogloss are
+  incompatible". Override to `'HammingLoss'` for `MultiLogloss` and
+  `'Accuracy'` for `MultiClass`. Also disable `CB_CALIB_CLASSIF`'s
+  custom `ICE` metric for multilabel (CB asserts custom metrics inherit
+  `MultiTargetCustomMetric`); falls back to `HammingLoss`.
+
+- **`_setup_eval_set` skips for `MultiOutputClassifier` wrapper**
+  (`training/trainer.py`): `eval_set`/`X_val`/`y_val` propagate verbatim
+  through the wrapper to each per-label inner estimator; `y_val` stays
+  2-D and crashes the inner fit. Inner estimators rely on internal
+  early-stopping (HGB `validation_fraction`) or have early stopping
+  disabled by `_wrap_for_multilabel_if_needed`.
+
+- **Inner-estimator `early_stopping_rounds`/`callbacks` disabled when
+  wrapped** (`training/trainer.py:_wrap_for_multilabel_if_needed`):
+  LGB/XGB raise "at least one dataset and eval metric is required for
+  evaluation" when early stopping is configured but no eval_set is
+  available (skipped per the previous fix). Patch them to `None` on the
+  inner estimator before wrapping.
+
+- **Polars-receipt guard sees through `MultiOutputClassifier`**
+  (`training/trainer.py`): when wrapping a polars-native estimator
+  (HGB) in `MultiOutputClassifier`, the outer name no longer matches
+  the polars-native prefix list. The guard now unwraps via
+  `model.estimator` to evaluate the inner type.
+
+- **Supervised encoders refuse 2-D y**
+  (`training/trainer.py:_multilabel_target_to_1d_for_supervised_encoders`):
+  `category_encoders.TargetEncoder` and friends fail with "Unexpected
+  input shape: (N, K)". Collapse to 1-D "any-positive" indicator
+  (`y.sum(axis=1) > 0`) for the encoder fit only — actual model still
+  trains on the full (N, K) target.
+
+- **Multilabel target nlabels-derivation in `configure_training_params`**:
+  the `nlabels = len(np.unique(target))` site rejects 2-D arrays.
+  Multilabel branch uses `target.shape[1]`; auto-empties
+  `catboost_custom_classif_metrics` (AUC-incompatible with
+  `MultiLogloss`).
+
+- **MRMR target injection for multilabel** (`feature_selection/filters.py`):
+  `X.loc[:, target_names] = vals.reshape(-1, 1)` crashes on 2-D `vals`
+  with "Must have equal len keys and value when setting with an
+  ndarray". Pass `vals` unchanged when 2-D so each column maps to its
+  `target_names` entry. Polars branch was already correct.
+
+### Removed
+
+- **`_rule_multilabel_full_pipeline_deferred`** xfail rule from
+  `tests/training/_fuzz_combo.py:KNOWN_XFAIL_RULES`. All 42 multilabel
+  combos now pass end-to-end without xfail.
+
+### Verification
+
+- `pytest tests/training/test_fuzz_suite.py -k '<42 multilabel ids>'`:
+  42/42 pass.
+- `pytest tests/training/test_fuzz_suite.py -k 'c0001 or c0002 or c0003
+  or c0004 or c0006 or c0007'`: 6/6 binary baselines still pass.
+- `pytest tests/training/test_save_load_multi_output.py`: 6/6.
+- `pytest tests/training/test_multi_output_corner_cases.py
+  test_multiclass_classification.py test_multilabel_metrics_numba.py
+  test_xgb_native_multilabel.py`: 78/78 (1 skipped — iterstrat optional).
+
 ## 2026-04-24 — Session 5: multi-output polish + integration-gap discovery
 
 Save/load roundtrip safety, corner-case coverage, and honest documentation

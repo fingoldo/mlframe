@@ -2981,7 +2981,15 @@ class MRMR(BaseEstimator, TransformerMixin):
             target_series = [pl.Series(name, vals[:, i] if vals.ndim == 2 else vals) for i, name in enumerate(target_names)]
             X = X.with_columns(target_series)
         else:
-            X.loc[:, target_names] = vals.reshape(-1, 1)
+            # 2026-04-24 Session 6: multilabel target → vals is (N, K). Pass it
+            # through unchanged so each column maps to its target_names entry.
+            # The previous .reshape(-1, 1) was right ONLY for 1-D y (single
+            # column with shape (N, 1)) and crashed on multilabel with
+            # "Must have equal len keys and value when setting with an ndarray".
+            if vals.ndim == 2:
+                X.loc[:, target_names] = vals
+            else:
+                X.loc[:, target_names] = vals.reshape(-1, 1)
 
         # ---------------------------------------------------------------------------------------------------------------
         # Discretize continuous data

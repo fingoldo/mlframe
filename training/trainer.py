@@ -758,6 +758,24 @@ def _is_fitted(estimator):
         return False
 
 
+def _multilabel_target_to_1d_for_supervised_encoders(target):
+    """Collapse a 2-D multilabel target to a 1-D signal for supervised encoders.
+
+    Many supervised feature transformers (category_encoders TargetEncoder,
+    sklearn TargetEncoder, polars-ds supervised steps) only accept 1-D y.
+    For multilabel data the natural reduction is "any positive label", which
+    keeps a useful signal for target-mean encoders without crashing the fit.
+
+    Returns ``target`` unchanged when it isn't a 2-D ndarray/DataFrame.
+    """
+    if target is None:
+        return target
+    arr = np.asarray(target) if not isinstance(target, np.ndarray) else target
+    if arr.ndim != 2:
+        return target
+    return (arr.sum(axis=1) > 0).astype(np.int8)
+
+
 def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=False, target=None):
     """Run a selector fit/transform on df with passthrough_cols hidden, then re-attach them.
 
@@ -888,9 +906,14 @@ def _apply_pre_pipeline_transforms(
             else:
                 if verbose:
                     logger.info(f"Fitting & transforming train_df via pre_pipeline {pre_pipeline}...")
+                # 2026-04-24 Session 6: supervised encoders (category_encoders
+                # TargetEncoder, polars-ds supervised steps) reject 2-D y. Collapse
+                # multilabel targets to "any positive label" for the encoder fit
+                # only — actual model still trains on the full (N, K) target.
+                _enc_target = _multilabel_target_to_1d_for_supervised_encoders(train_target)
                 train_df = _passthrough_cols_fit_transform(
                     pre_pipeline.fit_transform, train_df,
-                    passthrough_cols=selector_passthrough_cols, fit=True, target=train_target,
+                    passthrough_cols=selector_passthrough_cols, fit=True, target=_enc_target,
                 )
                 if verbose:
                     log_ram_usage()
@@ -961,6 +984,16 @@ def _setup_eval_set(
                 break
 
     if model_category is None or model_category not in eval_set_configs:
+        return
+
+    # 2026-04-24 Session 6: when the model is wrapped in MultiOutputClassifier
+    # (multilabel path), eval_set / X_val / y_val keyword args propagate
+    # verbatim to each per-label inner estimator. y_val stays 2-D and crashes
+    # the inner fit ("y should be a 1d array, got an array of shape (n,K)").
+    # Skip the eval_set injection for wrapped models — inner estimators must
+    # rely on their own internal early-stopping (HGB validation_fraction,
+    # or no early stopping for LGB/XGB/Linear).
+    if model_type_name in ("MultiOutputClassifier", "MultiOutputRegressor", "ClassifierChain"):
         return
 
     param_name, value_format = eval_set_configs[model_category]
@@ -2250,8 +2283,16 @@ def _train_model_with_fallback(
         "XGB",           # XGBClassifier / XGBRegressor / XGBRanker
         "HistGradient",  # HistGradientBoostingClassifier / Regressor
     )
+    # Look through MultiOutputClassifier wrapper for the polars-native check.
+    # The wrapper's `estimator` is the per-label base; if the base is polars-native
+    # (e.g. HGB), each per-label fit will accept polars too.
+    _effective_model_type_name = model_type_name
+    if model_type_name in ("MultiOutputClassifier", "MultiOutputRegressor", "ClassifierChain"):
+        inner = getattr(model, "estimator", None)
+        if inner is not None:
+            _effective_model_type_name = type(inner).__name__
     if _is_polars and not any(
-        model_type_name.startswith(p) for p in _POLARS_NATIVE_FIT_MODEL_PREFIXES
+        _effective_model_type_name.startswith(p) for p in _POLARS_NATIVE_FIT_MODEL_PREFIXES
     ):
         raise RuntimeError(
             f"{model_type_name} received pl.DataFrame at fit time "
@@ -3684,6 +3725,8 @@ def configure_training_params(
     callback_params: dict = None,
     train_df_size_bytes: Optional[float] = None,
     val_df_size_bytes: Optional[float] = None,
+    target_type: Optional["TargetTypes"] = None,
+    n_classes: Optional[int] = None,
 ):
     """Configure training parameters for all model types.
 
@@ -3733,10 +3776,34 @@ def configure_training_params(
     if cb_fit_params is None:
         cb_fit_params = {}
 
+    # 2026-04-24 Session 6: route target_type/n_classes into get_training_configs
+    # so the per-strategy classification dispatch (CB MultiLogloss, XGB
+    # multi:softprob+num_class, LGB multiclass+num_class) gets injected.
+    # Without this, multilabel targets reach CB without loss_function set,
+    # and CB's _get_loss_function_for_train tries len(set(label)) on the 2-D
+    # ndarray and crashes with TypeError: unhashable type: 'numpy.ndarray'.
+    if target_type is not None and "target_type" not in config_params:
+        config_params["target_type"] = target_type
+    if n_classes is not None and "n_classes" not in config_params:
+        config_params["n_classes"] = n_classes
+
     if not use_regression:
         if "catboost_custom_classif_metrics" not in config_params:
-            nlabels = len(np.unique(target))
-            if nlabels > 2:
+            # Multi-output safe label count: 2-D multilabel uses n_columns;
+            # 1-D binary/multiclass uses unique value count.
+            target_arr = np.asarray(target) if target is not None else None
+            if target_arr is not None and target_arr.ndim == 2:
+                nlabels = target_arr.shape[1] + 1  # treat as ">2" → multiclass-style metrics
+            elif target_arr is not None:
+                nlabels = len(np.unique(target_arr))
+            else:
+                nlabels = 2
+            # When multilabel: AUC is incompatible with MultiLogloss (CB rejects
+            # it at fit time). Skip the AUC/PRAUC defaults and let the per-strategy
+            # multilabel dispatch in helpers.py pick a compatible eval_metric.
+            if target_type is not None and getattr(target_type, "name", None) == "MULTILABEL_CLASSIFICATION":
+                catboost_custom_classif_metrics = []
+            elif nlabels > 2:
                 catboost_custom_classif_metrics = ["AUC", "PRAUC:hints=skip_train~true"]
             else:
                 catboost_custom_classif_metrics = ["AUC", "PRAUC:hints=skip_train~true", "BrierScore"]
@@ -3881,17 +3948,51 @@ def configure_training_params(
             ),
         )
 
+    # 2026-04-24 Session 6: per-strategy multilabel-wrap helper. Strategies
+    # without native (N, K) target support (HGB, XGB-via-MultiOutputClassifier,
+    # LGB, Linear) need MultiOutputClassifier when target is multilabel.
+    # Inner-estimator early_stopping that depends on eval_set must be disabled
+    # because the outer wrapper doesn't slice eval_set per label — without
+    # an eval_set the inner fit would crash ("at least one dataset and eval
+    # metric is required for evaluation").
+    def _wrap_for_multilabel_if_needed(estimator, strategy_cls):
+        if (
+            use_regression
+            or target_type is None
+            or not hasattr(target_type, "name")
+            or target_type.name != "MULTILABEL_CLASSIFICATION"
+        ):
+            return estimator
+        # Disable eval_set-dependent early stopping on the inner estimator.
+        try:
+            params = estimator.get_params()
+        except Exception:
+            params = {}
+        _patch = {}
+        if "early_stopping_rounds" in params and params.get("early_stopping_rounds") is not None:
+            _patch["early_stopping_rounds"] = None
+        # XGB sklearn ≥2 uses callbacks for early stopping too; strip them.
+        if "callbacks" in params and params.get("callbacks"):
+            _patch["callbacks"] = None
+        if _patch:
+            try:
+                estimator.set_params(**_patch)
+            except Exception:
+                pass
+        return strategy_cls().wrap_multilabel(estimator, target_type, n_labels=n_classes)
+
     hgb_params = None
     if _should_create_model("hgb"):
-        hgb_params = dict(
-            model=metamodel_func(
-                (
-                    HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS)
-                    if use_regression
-                    else HistGradientBoostingClassifier(**configs.HGB_GENERAL_PARAMS)
-                ),
+        from .strategies import HGBStrategy as _HGBS
+        _hgb_est = (
+            HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS)
+            if use_regression
+            else _wrap_for_multilabel_if_needed(
+                HistGradientBoostingClassifier(**configs.HGB_GENERAL_PARAMS),
+                _HGBS,
             )
         )
+        hgb_params = dict(model=metamodel_func(_hgb_est))
 
     xgb_params = None
     if _should_create_model("xgb"):
@@ -3905,6 +4006,10 @@ def configure_training_params(
             xgboost_verbose=xgboost_verbose,
             metamodel_func=metamodel_func,
         )
+        # XGB sklearn wrapper rejects 2-D y unless we use multi_strategy='multi_output_tree'
+        # (WIP in 3.x). Default to MultiOutputClassifier per Session-6 design.
+        from .strategies import XGBoostStrategy as _XGBS
+        xgb_params["model"] = _wrap_for_multilabel_if_needed(xgb_params["model"], _XGBS)
 
     lgb_params = None
     if _should_create_model("lgb"):
@@ -3917,6 +4022,9 @@ def configure_training_params(
             use_flaml_zeroshot=use_flaml_zeroshot,
             metamodel_func=metamodel_func,
         )
+        # LGB has no native multilabel — wrap with MultiOutputClassifier.
+        from .strategies import TreeModelStrategy as _LGBS
+        lgb_params["model"] = _wrap_for_multilabel_if_needed(lgb_params["model"], _LGBS)
 
     mlp_params = None
     if _should_create_model("mlp"):
@@ -3964,7 +4072,11 @@ def configure_training_params(
         if linear_model_config:
             linear_config_kwargs.update(linear_model_config.model_dump(exclude={"model_type"}))
         config = LinearModelConfig(**linear_config_kwargs)
-        linear_model_params[model_type] = dict(model=metamodel_func(create_linear_model(model_type, config, use_regression=use_regression)))
+        _linear_est = create_linear_model(model_type, config, use_regression=use_regression)
+        # Linear classifiers reject 2-D y → MultiOutputClassifier wrapper for multilabel.
+        from .strategies import LinearModelStrategy as _LMS
+        _linear_est = _wrap_for_multilabel_if_needed(_linear_est, _LMS)
+        linear_model_params[model_type] = dict(model=metamodel_func(_linear_est))
 
     # Get individual params (may be None if not in mlframe_models)
     linear_params = linear_model_params.get("linear")

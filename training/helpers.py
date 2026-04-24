@@ -737,18 +737,34 @@ def get_training_configs(
         lgb_obj = _classif_objective_kwargs("lightgbm", _resolved_tt, n_classes)
         if cb_obj:
             CB_CLASSIF.update(cb_obj)
+            # 2026-04-24 Session 6: when loss_function=MultiLogloss (multilabel),
+            # CB REJECTS eval_metric='AUC' with "metric AUC and loss MultiLogloss
+            # are incompatible". Override to HammingLoss for MultiLogloss,
+            # Accuracy for MultiClass. Caller can still override via cb_kwargs.
+            if cb_obj.get("loss_function") == "MultiLogloss":
+                CB_CLASSIF["eval_metric"] = "HammingLoss"
+            elif cb_obj.get("loss_function") == "MultiClass":
+                CB_CLASSIF["eval_metric"] = "Accuracy"
         if xgb_obj:
             # For multiclass, multi:softprob conflicts with binary metric.
             # Strip the binary eval_metric — caller can re-set if needed.
             XGB_GENERAL_CLASSIF.update(xgb_obj)
+            # XGB multiclass eval_metric: mlogloss aligns with multi:softprob.
+            # (binary binary_logloss / AUC don't apply.)
+            if xgb_obj.get("objective") == "multi:softprob":
+                XGB_GENERAL_CLASSIF["eval_metric"] = "mlogloss"
         if lgb_obj:
             # LGB_GENERAL_PARAMS gets the multiclass objective too — it has
             # no separate _CLASSIF variant currently.
             pass  # applied to LGB after LGB_GENERAL_PARAMS is built (below)
-        # Tag the resolved target_type onto each lib config so downstream
-        # callers know what was injected (visible in metadata, debugging).
-        for _d in (CB_CLASSIF, XGB_GENERAL_CLASSIF):
-            _d["_mlframe_target_type"] = str(_resolved_tt.value)
+        # NOTE: _mlframe_target_type metadata tag was historically attached
+        # here but REMOVED 2026-04-24 Session 6 — CatBoostClassifier init
+        # raises TypeError on unknown kwargs, blocking the entire multilabel
+        # path. Downstream observability (which lib + target_type) is covered
+        # by the per-model model_schemas metadata record populated in
+        # core.py around the fit call. Adding a side-channel tag here was
+        # a premature optimisation that forked a 4-year-stable init API
+        # contract for a diagnostic that's available elsewhere.
 
     def integral_calibration_error(y_true: np.ndarray, y_score: np.ndarray, verbose: bool = False) -> float:
         """Compute integral calibration error for probabilistic predictions.
@@ -934,7 +950,16 @@ def get_training_configs(
         return metric_name, value, higher_is_better
 
     CB_CALIB_CLASSIF = CB_CLASSIF.copy()
-    CB_CALIB_CLASSIF.update({"eval_metric": ICE(metric=final_integral_calibration_error, higher_is_better=False, max_arr_size=0)})
+    # 2026-04-24 Session 6: ICE custom-metric only works for single-target
+    # CB objectives (binary/multiclass). For MultiLogloss (multilabel), CB
+    # asserts the custom metric inherits from MultiTargetCustomMetric. Until
+    # we ship a multi-target ICE variant, fall back to HammingLoss for
+    # multilabel — same as CB_CLASSIF (so calibrated path == base path).
+    if _resolved_tt.is_classification and not _resolved_tt.is_binary and CB_CLASSIF.get("loss_function") == "MultiLogloss":
+        # eval_metric already set to HammingLoss above; keep it.
+        pass
+    else:
+        CB_CALIB_CLASSIF.update({"eval_metric": ICE(metric=final_integral_calibration_error, higher_is_better=False, max_arr_size=0)})
 
     LGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,

@@ -447,35 +447,13 @@ def _rule_cb_regression_polars_enum_mrmr_nulls_large(c: FuzzCombo) -> bool:
 # test_sensor_mrmr_transform_handles_missing_support_ in test_fuzz_regression_sensors.py.
 
 
-def _rule_multilabel_full_pipeline_deferred(c: FuzzCombo) -> bool:
-    """Multilabel combos fail mid-pipeline until full integration lands.
-
-    Session 5 discovered that multilabel target flows into multiple
-    binary-assuming sites deep in the stack:
-
-    - ``train_eval.select_target`` tried ``pd.Series(target).value_counts()``
-      on 2-D target → "Data must be 1-dimensional" (FIXED Session 5 via
-      multilabel branch guard).
-    - CatBoost's ``_get_loss_function_for_train`` (catboost/core.py:1802)
-      runs ``len(set(label))`` for auto loss-inference even when user
-      explicitly sets ``loss_function='MultiLogloss'`` — fails with
-      "unhashable type: 'numpy.ndarray'" on 2-D label. Upstream CB quirk;
-      workaround requires mlframe-side label routing change in
-      ``CatBoostStrategy.build_native_dataset`` / trainer.py dispatch.
-    - Downstream sites (configure_training_params, report_probabilistic_
-      model_perf per-class loop, metrics computation, save/load metadata)
-      likely have similar 1-D assumptions.
-
-    The multi-output *primitives* (FTE unpack, strategy dispatch,
-    _PerClassIsotonicCalibrator, _ChainEnsemble, numba multilabel metrics,
-    streaming Welford ensembling, save/load roundtrip) are all verified
-    via unit tests. Integration through the full ``train_mlframe_models_
-    suite`` pipeline is a Session-6+ epic estimated at 4-6h of careful
-    per-site integration work.
-
-    Rule fires for combos with ``target_type='multilabel_classification'``.
-    """
-    return c.target_type == "multilabel_classification"
+# _rule_multilabel_full_pipeline_deferred REMOVED 2026-04-25 — full
+# multilabel integration landed in Session 6. All 42 multilabel combos
+# in the fuzz suite pass end-to-end after target_type plumbing into
+# get_training_configs, MultiOutputClassifier wrapping for
+# HGB/XGB/LGB/Linear, multilabel-aware report path, MRMR target injection
+# fix, and supervised-encoder target collapse. See CHANGELOG.md
+# "Session 6: multilabel full-pipeline integration" entry.
 
 
 KNOWN_XFAIL_RULES: list[tuple[Callable[[FuzzCombo], bool], str]] = [
@@ -492,15 +470,8 @@ KNOWN_XFAIL_RULES: list[tuple[Callable[[FuzzCombo], bool], str]] = [
         "NaNs after upstream fill, or a regression-only branch bypasses "
         "it. Needs deeper dig.",
     ),
-    (
-        _rule_multilabel_full_pipeline_deferred,
-        "multilabel_classification combos fail mid-pipeline at various sites "
-        "assuming 1-D target (CatBoost _get_loss_function_for_train upstream "
-        "quirk, configure_training_params, report per-class loop, etc.). "
-        "Multi-output primitives (FTE unpack, dispatch, calibration, metrics, "
-        "ensembling, save/load) are verified by unit tests; full integration "
-        "is a Session-6+ epic (~4-6h of per-site 2-D-target fixes).",
-    ),
+    # _rule_multilabel_full_pipeline_deferred REMOVED 2026-04-25 — Session 6
+    # full integration landed; all 42 multilabel combos pass end-to-end.
     # _rule_mrmr_plus_xgb_lgb_polars_utf8_small REMOVED 2026-04-23 — fixed by
     # `dt in set` → `dt == class` correction in filters.py categorize_dataset.
     # Permanent regression guard:
