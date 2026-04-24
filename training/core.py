@@ -1945,6 +1945,60 @@ def train_mlframe_models_suite(
             if verbose:
                 logger.info(f"  All models {mlframe_models} support Polars natively — skipping categorical encoding in pipeline")
 
+    # 2026-04-24 (fuzz extension): datetime columns must be decomposed
+    # BEFORE the pre-pipeline clone, otherwise ``train_df_polars_pre`` and
+    # friends retain the raw datetime and reach downstream (linear
+    # pre_pipeline, MRMR, sklearn encoders, CB Pool) where numpy /
+    # sklearn / CB all raise on DateTime64DType. Decompose once here
+    # via the canonical ``create_date_features`` helper — same
+    # treatment we'd apply inside fit_and_transform_pipeline, just
+    # lifted earlier so the clone inherits the decomposition.
+    import numpy as _np_dt
+    def _detect_datetime_cols(df_):
+        if df_ is None:
+            return []
+        if isinstance(df_, pl.DataFrame):
+            return [name for name, dt in df_.schema.items()
+                    if isinstance(dt, (pl.Datetime, pl.Date))]
+        if hasattr(df_, "dtypes"):
+            return [c for c in df_.columns
+                    if pd.api.types.is_datetime64_any_dtype(df_[c])]
+        return []
+
+    _dt_cols = _detect_datetime_cols(train_df)
+    if _dt_cols:
+        from mlframe.feature_engineering.basic import create_date_features
+        _dt_methods = {
+            "day": _np_dt.int8,
+            "weekday": _np_dt.int8,
+            "month": _np_dt.int8,
+            "hour": _np_dt.int8,
+        }
+        if verbose:
+            logger.info(
+                "Decomposing %d datetime column(s) into numeric features "
+                "(day/weekday/month/hour) before pre-pipeline clone: %s",
+                len(_dt_cols), _dt_cols,
+            )
+        train_df = create_date_features(
+            train_df, cols=_dt_cols, delete_original_cols=True,
+            methods=_dt_methods,
+        )
+        if val_df is not None:
+            v_cols = [c for c in _dt_cols if c in val_df.columns]
+            if v_cols:
+                val_df = create_date_features(
+                    val_df, cols=v_cols, delete_original_cols=True,
+                    methods=_dt_methods,
+                )
+        if test_df is not None:
+            t_cols = [c for c in _dt_cols if c in test_df.columns]
+            if t_cols:
+                test_df = create_date_features(
+                    test_df, cols=t_cols, delete_original_cols=True,
+                    methods=_dt_methods,
+                )
+
     # Save pre-pipeline Polars originals for the Polars fastpath.
     # Only clone when the pipeline will actually modify categorical columns;
     # when skip_categorical_encoding=True the pipeline preserves dtypes so the
