@@ -1,5 +1,110 @@
 # Changelog
 
+## 2026-04-24 — Coverage-gap sweep + 7 framework bug fixes
+
+47 new tests landed across two files, plus 12 new fuzz axes and
+2 per-combo invariants. Every entry below traces to a test that
+surfaced the underlying bug.
+
+### Added
+
+- **`tests/training/test_suite_coverage_gaps.py`** — 47 tests (46 pass,
+  1 skip on CPU-only hosts) covering `train_mlframe_models_suite`
+  invariants the fuzz suite couldn't reach:
+  - Tier 1 (12): schema-hash load (#2), OD integration (#3), RFECV
+    smoke (#4), ensembles log guard (#5), sample_weight validation
+    (#6), constant/all-null column handling (#7), determinism (#13),
+    polars≡pandas feature set (#14), no caller-frame mutation (#16).
+  - Tier 2 (5): single-class target (#8), high-cardinality cat (#9),
+    inf/NaN numeric (#10), datetime column (#11), multi-target
+    regression (#12).
+  - Tier 3 (3): iteration non-regression (#15), save→load→predict
+    roundtrip (#17), tier_dfs_cache hit rate (#18).
+  - Tier 4 (5): strict Pydantic configs reject typos (#19a),
+    permissive configs WARN on typos (#19b), metadata schema
+    (#20), `continue_on_model_failure=True` graceful skip (#21),
+    `verbose=0` stdout silence (#22).
+  - Group A (10): empty/None df error (#23), missing target (#23b),
+    empty/unknown `mlframe_models` (#24), predict output range
+    (#25a+b), column-order invariance (#26), subprocess load/predict
+    (#27), duplicate-in-`mlframe_models` (#28).
+  - Group B (6): custom pre_pipelines (#29), preprocessing_extensions
+    polynomial features (#30), fairness subgroups (#31), calibrated
+    classifiers (#32), streaming parquet via `df=str(path)` (#33),
+    `trusted_root` security guard (#34).
+  - Group C (6): recurrent LSTM smoke (#35), CB GPU≡CPU (#36), memory
+    cap during polars→pandas (#37), MRMR+RFECV stack (#38),
+    `continue_on_failure`+ensembles (#39), uninformative column (#40).
+- **Fuzz axis expansion** (`tests/training/_fuzz_combo.py`): 12 new
+  axes bringing total to 23+ dimensions — `outlier_detection`,
+  `use_ensembles`, `continue_on_model_failure`, `iterations`,
+  `prefer_calibrated_classifiers`, `inject_degenerate_cols`,
+  `inject_inf_nan`, `with_datetime_col`, `inject_zero_col`,
+  `fairness_col`, `custom_prep`, `input_storage`. Canonicalisation
+  skips `custom_prep=pca2` when the frame has non-numeric columns
+  (PCA incompatible).
+- **Two post-train invariants in fuzz runner** (`test_fuzz_suite.py`):
+  #16 caller-frame mutation guard + #20 metadata schema check fire
+  on every combo — ~300 invariant evaluations per 150-combo sweep.
+
+### Fixed (framework bugs surfaced by the new tests)
+
+- **Recurrent path was DOA** (`training/trainer.py:3305`). Four
+  field-name typos in the `RecurrentConfig(...)` call: `seq_input_dim`
+  and `features_dim` aren't dataclass fields (wrappers compute both
+  from input shapes at fit-time, `neural/recurrent.py:1041-1042`);
+  `num_heads` was a typo for `n_heads` (declared line 170);
+  `mlp_hidden_dims` was a typo for `mlp_hidden_sizes` (line 174).
+  Every LSTM/GRU/RNN/Transformer fit had been crashing with
+  `TypeError` / `AttributeError` for an unknown duration. Surfaced
+  by `test_recurrent_lstm_smoke`.
+- **`ensembling.py:402` kwarg collision** — the ensemble scorer's
+  `dict(..., drop_columns=[], ..., **kwargs_copy)` raised
+  `TypeError: dict() got multiple values for keyword argument
+  'drop_columns'` on every ensemble run that used the standard
+  `init_common_params={"drop_columns": []}` pattern. Now pops
+  `drop_columns`, `category_encoder`, `scaler`, `imputer` from
+  `kwargs_copy` before the splat. Surfaced by
+  `test_ensembles_enabled_produces_ensemble_log` + 14×
+  `TypeError` in the fuzz sweep.
+- **Datetime columns crashed downstream models**
+  (`training/core.py :: train_mlframe_models_suite`). Raw
+  `pl.Datetime` / pandas `datetime64[ns]` columns surviving the
+  extractor reached CB Pool / XGB DMatrix / MRMR numeric path and
+  triggered 6× `CatBoostError: Error while processing column` and
+  18× `numpy.DTypePromotionError`. Now decomposed into
+  `day/weekday/month/hour` int8 components via
+  `feature_engineering.basic.create_date_features` BEFORE the
+  pre-pipeline polars-clone — so `train_df_polars_pre` inherits the
+  numeric decomposition. (Earlier draft used naive int64-epoch
+  coerce; user pushed back on the signal quality → rewrote using
+  the existing calendar-decomposition helper.)
+- **`_apply_outlier_detection_global` crashed on non-numeric columns**
+  (`training/core.py:971`). `IsolationForest.fit(train_df)` called
+  `validate_data` which tried to coerce string/categorical columns
+  to float. Now selects numeric+boolean columns only before fit
+  and predict (symmetric for train + val splits). Surfaced 20+
+  times in the fuzz sweep.
+
+### Invariant relaxations (runner)
+
+- Fuzz runner now accepts empty `trained` dict when
+  `continue_on_model_failure=True` (intended degradation — not a bug).
+- `model_schemas` only asserted when `trained` non-empty.
+- Per-test timeout raised 60s → 300s (heavy 5-model × MRMR × OD ×
+  iterations=30 combos legitimately need ~2-3 min).
+
+### Infrastructure
+
+- `run_fuzz_10k.py` (new file from earlier in the day) — spawns
+  one pytest subprocess per master_seed with retry on fast-fail
+  imports (flaky shap / transformers collection on Windows).
+- Memory rules documented: **never xfail framework bugs to defer**
+  (fix on the spot; xfail only for third-party / OS quirks);
+  **search for reuse before writing** (grep project + pyutilz
+  helpers before implementing any transform/FE utility —
+  naive-feeling fixes are a smell that proper tooling exists).
+
 ## 2026-04-23 — Prod-log review fixes
 
 Batch of four fixes motivated by review of the 2026-04-23

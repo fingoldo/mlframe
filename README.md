@@ -23,6 +23,13 @@ mlframe/
     training/
       test_core.py       # Integration tests for train_mlframe_models_suite
       test_core_coverage.py  # Comprehensive coverage tests (48 tests, all code paths)
+      test_suite_coverage_gaps.py  # Tier 1-4 + Group A-C invariant / edge-case tests (47)
+      test_fuzz_suite.py  # 150-combo pairwise-covering fuzz on 23+ axes (config flags,
+                          # data injections, OD/ensembles/calibration/custom prep/parquet,
+                          # with per-combo caller-mutation + metadata invariants)
+      test_fuzz_regression_sensors.py  # Permanent sensors pinned to each fuzz-caught bug
+      _fuzz_combo.py      # FuzzCombo axes + frame builder + KNOWN_XFAIL_RULES
+      run_fuzz_10k.py     # Driver: spawn pytest per master_seed (~10k unique combos)
       test_catboost_polars.py  # CatBoost & HGB native Polars support tests
       ...
 ```
