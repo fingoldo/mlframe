@@ -105,6 +105,27 @@ def make_train_test_split(
     _effective_val_placement = val_placement
     if timestamps is None or val_size == 0:
         _effective_val_placement = "forward"
+
+    # Diagnostic: surface the effective placement at INFO so a user who
+    # passed ``val_placement="backward"`` but sees a forward-style split
+    # in the log can immediately confirm whether (a) the value reached
+    # this function at all (config wiring), (b) it was downgraded to
+    # forward by the no-timestamps / val_size=0 fallback above, or
+    # (c) the placement is honoured but the layout still looks
+    # forward-ish for some other reason. Caller-attributed log so the
+    # line shows up next to the existing "{N} train rows ... val rows
+    # ..." summary at the bottom.
+    if val_placement != _effective_val_placement:
+        logger.info(
+            "val_placement=%r requested but downgraded to %r "
+            "(timestamps=%s, val_size=%s)",
+            val_placement, _effective_val_placement,
+            "present" if timestamps is not None else "None",
+            val_size,
+        )
+    elif val_placement != "forward":
+        logger.info("val_placement=%r (Mazzanti backward layout)", val_placement)
+
     if _effective_val_placement == "backward" and trainset_aging_limit is not None:
         # Aging trims the OLDEST train rows — which in backward layout are
         # the ones closest to the (earlier) val block. Trimming them

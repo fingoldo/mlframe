@@ -674,6 +674,89 @@ class TestValPlacementBackward:
         with pytest.raises(Exception):  # pydantic ValidationError
             TrainingSplitConfig(val_placement="middle")
 
+    def test_backward_emits_visible_log_line(self, caplog):
+        """When the caller passes ``val_placement='backward'`` and the
+        function actually honours it, an INFO line announcing the
+        Mazzanti layout is emitted. This is the line a user can grep
+        for to confirm the config reached the splitter.
+
+        Regression sensor for 2026-04-24: a user reported a forward-
+        looking split log even after passing ``val_placement='backward'``;
+        without this diagnostic line there was no way to tell from logs
+        alone whether the value reached ``make_train_test_split``,
+        was downgraded by the no-timestamps fallback, or was honoured
+        but produced layout that still looked "forward-ish" because
+        of shuffled portions.
+        """
+        import logging as _logging
+
+        df, ts = self._make_daily_df(n_days=20, rows_per_day=5)
+
+        caplog.set_level(_logging.INFO, logger="mlframe.training.splitting")
+        make_train_test_split(
+            df, test_size=0.2, val_size=0.2,
+            timestamps=ts, wholeday_splitting=True,
+            val_placement="backward",
+        )
+        msgs = [r.getMessage() for r in caplog.records
+                if r.name == "mlframe.training.splitting"]
+        assert any(
+            "val_placement='backward'" in m and "Mazzanti" in m
+            for m in msgs
+        ), (
+            f"backward placement must emit a visible 'val_placement=...' "
+            f"INFO line; captured messages from splitting:\n  "
+            + "\n  ".join(msgs)
+        )
+
+    def test_backward_downgrade_emits_visible_warning(self, caplog):
+        """Defensive: when caller asks for backward but the function
+        downgrades it (no timestamps / val_size=0), a log line announces
+        the downgrade with the reason. The user has no other way to
+        notice that backward silently became forward."""
+        import logging as _logging
+
+        df = pd.DataFrame({"x": range(200)})
+        caplog.set_level(_logging.INFO, logger="mlframe.training.splitting")
+        # No timestamps → backward must downgrade to forward.
+        make_train_test_split(
+            df, test_size=0.2, val_size=0.2,
+            val_placement="backward",
+        )
+        msgs = [r.getMessage() for r in caplog.records
+                if r.name == "mlframe.training.splitting"]
+        assert any(
+            "downgraded" in m and "backward" in m
+            for m in msgs
+        ), (
+            f"backward downgrade must emit a visible WARN/INFO line; "
+            f"captured: {msgs}"
+        )
+
+    def test_forward_does_not_emit_placement_line(self, caplog):
+        """Forward (default) — no extra log noise. The placement-line
+        only fires for backward (the one with the trade-off the user
+        opted into). Avoids polluting every existing forward run."""
+        import logging as _logging
+
+        df, ts = self._make_daily_df(n_days=20, rows_per_day=5)
+        caplog.set_level(_logging.INFO, logger="mlframe.training.splitting")
+        make_train_test_split(
+            df, test_size=0.2, val_size=0.2,
+            timestamps=ts, wholeday_splitting=True,
+            val_placement="forward",
+        )
+        msgs = [r.getMessage() for r in caplog.records
+                if r.name == "mlframe.training.splitting"]
+        # Existing "{N} train rows ... " summary line is always there;
+        # no placement-line should add to it for forward.
+        assert not any(
+            "val_placement=" in m or "Mazzanti" in m for m in msgs
+        ), (
+            f"forward (default) must NOT emit a placement diagnostic line; "
+            f"captured: {msgs}"
+        )
+
 
 # =====================================================================
 # Integration: train_mlframe_models_suite honours val_placement end-to-end

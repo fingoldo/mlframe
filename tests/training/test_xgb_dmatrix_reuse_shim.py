@@ -593,3 +593,92 @@ class TestXGBShimIntegrationWithMlframeSuite:
             "sklearn.clone() blanks the cache between iterations and we "
             "need to re-prime it from the strategy loop in core.py."
         )
+
+
+# =====================================================================
+# 9. Source-level checks: shim cache hand-off across sklearn.clone()
+#    in core.py's strategy/weight-schema loop
+# =====================================================================
+
+class TestXGBShimCacheHandoffInCoreLoop:
+    """The shim's per-instance cache (``_cached_train_dmatrix`` etc.)
+    is blanked by ``sklearn.clone()`` (correct — cloned models must
+    not silently inherit data). For the 2026-04-24 wiring to actually
+    save build time across weight-schema iterations, ``core.py``'s
+    strategy loop must hand the cache forward (template → cloned at
+    iter start) AND backward (cloned → template at iter end), so the
+    next iteration's clone sees the cache attrs on the template.
+
+    These tests are source-level structural assertions — they catch a
+    refactor that drops either half of the hand-off without requiring
+    a slow end-to-end suite run.
+    """
+
+    def test_core_loop_forward_transfers_cache_to_clone(self):
+        """Forward-transfer block in core.py copies
+        ``_cached_train_dmatrix`` / ``_cached_train_key`` /
+        ``_cached_val_dmatrix`` / ``_cached_val_key`` from the
+        ``original_model`` template onto the freshly-cloned model
+        right after sklearn.clone() returns."""
+        import inspect
+        from mlframe.training import core as core_mod
+
+        src = inspect.getsource(core_mod.train_mlframe_models_suite)
+        # The forward-transfer loop iterates over the four cache
+        # attribute names and uses ``setattr(cloned_model, _attr, ...)``.
+        for _attr in (
+            "_cached_train_dmatrix",
+            "_cached_train_key",
+            "_cached_val_dmatrix",
+            "_cached_val_key",
+        ):
+            assert _attr in src, (
+                f"core.py loop must transfer {_attr!r} forward across "
+                f"sklearn.clone() so the next weight-schema iteration's "
+                f"shim sees the cached DMatrix. If you removed this, "
+                f"the shim runs but produces no reuse — silent perf "
+                f"regression."
+            )
+
+    def test_core_loop_backward_transfers_cache_to_template(self):
+        """Backward-transfer block copies the cache from cloned_model
+        back onto the template (``original_model`` /
+        ``models_params[mlframe_model_name]['model']``) AFTER fit, so
+        the NEXT iteration's clone() picks it up via the forward
+        transfer above. Mirror of the forward block — drop either and
+        the chain breaks."""
+        import inspect
+        from mlframe.training import core as core_mod
+
+        src = inspect.getsource(core_mod.train_mlframe_models_suite)
+        # Heuristic: the backward block sets cache attrs on
+        # ``original_model`` (the only consumer that the next iteration
+        # will clone from). Search for the compound pattern.
+        assert "setattr(original_model, _attr" in src, (
+            "core.py loop must transfer the shim cache BACK to "
+            "``original_model`` after process_model. Without it, the "
+            "cache is born and dies inside one weight-schema iteration "
+            "— the next iteration's clone() picks up an empty template "
+            "and nothing reuses."
+        )
+
+    def test_xgb_shim_factory_is_invoked_from_configure_xgboost(self):
+        """``_configure_xgboost_params`` must dispatch through
+        ``_xgb_classifier_cls`` / ``_xgb_regressor_cls`` (so the toggle
+        is the single switching point), not hardcode ``XGBClassifier``
+        directly. Source-scan check."""
+        import inspect
+        from mlframe.training import trainer as tr_mod
+
+        src = inspect.getsource(tr_mod._configure_xgboost_params)
+        assert "_xgb_classifier_cls(" in src, (
+            "_configure_xgboost_params must use the _xgb_classifier_cls "
+            "factory. If you bypass it (e.g. by rewriting to inline "
+            "XGBClassifier), the shim toggle becomes meaningless."
+        )
+        assert "_xgb_regressor_cls(" in src
+        # And the toggle constant exists at module level.
+        assert hasattr(tr_mod, "USE_XGB_DMATRIX_REUSE_SHIM"), (
+            "trainer.USE_XGB_DMATRIX_REUSE_SHIM toggle missing — single "
+            "switching point lost; revert path becomes a multi-file edit."
+        )
