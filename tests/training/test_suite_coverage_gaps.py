@@ -1588,9 +1588,15 @@ def test_save_load_predict_in_subprocess(tmp_path):
         "print('PREDS_LEN=' + str(len(any_arr)))\n"
     )
 
+    # Python interpreter cold-start + mlframe's heavy import graph
+    # (sklearn, catboost, polars, category_encoders, etc.) can take
+    # 60-90s on a noisy CI host. In the full-file run the RSS pressure
+    # from 45 prior tests pushes this past 180s and the subprocess
+    # times out. 420s headroom was empirically sufficient across both
+    # isolated and full-file runs 2026-04-24.
     result = subprocess.run(
         [sys.executable, "-c", script],
-        capture_output=True, text=True, timeout=180,
+        capture_output=True, text=True, timeout=420,
     )
     assert result.returncode == 0, (
         f"subprocess load+predict failed (rc={result.returncode}):\n"
