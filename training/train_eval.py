@@ -296,6 +296,18 @@ def select_target(
     """
     if target_type == TargetTypes.REGRESSION:
         model_name += f" MT={target.mean():.4f}"
+    elif target_type == TargetTypes.MULTILABEL_CLASSIFICATION:
+        # 2026-04-24 Session 5: multilabel has 2-D target (N, K). Skip
+        # the binary value_counts / positive-rate path (would raise
+        # "Data must be 1-dimensional" on pandas.Series construction).
+        # Per-label positive rate: summary string shows K values.
+        target_arr = target if isinstance(target, np.ndarray) else np.asarray(target)
+        if target_arr.ndim == 2:
+            per_label_pos = target_arr.mean(axis=0)  # fraction of 1s per label
+            summary = ",".join(f"{p*100:.0f}%" for p in per_label_pos)
+            model_name += f" ML={summary}"
+        else:
+            model_name += f" ML=?"
     else:
         # Compute value counts for classification target
         if isinstance(target, (pl.Series, pd.Series)):
