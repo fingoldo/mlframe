@@ -135,13 +135,16 @@ class TestEnsembleHarmonicDivByZero:
     def _call_harm(self, preds):
         """Helper: invoke ensemble_probabilistic_predictions with method=harm.
 
-        ``max_mae=0`` and ``max_std=0`` disable the median-distance filter
-        that would otherwise drop one of the predictions when ``len(preds) > 2``
-        — we need the raw HM across all inputs so the closed-form check
-        below is deterministic.
+        Both threshold styles are disabled (``max_mae=max_std=0`` AND
+        ``max_mae_relative=max_std_relative=0``) — we need the raw HM
+        across ALL inputs so the closed-form check below is
+        deterministic. The 2026-04-24 fix added the ``_relative``
+        defaults (``2.5×median``); without explicitly setting them to
+        0 here, an outlier-by-std member would be excluded and the HM
+        formula would be computed on a different subset.
 
-        Returns only the ensembled prediction array; the function returns a
-        tuple ``(predictions, confident_indices, uncertainty)``.
+        Returns only the ensembled prediction array; the function
+        returns a tuple ``(predictions, confident_indices, uncertainty)``.
         """
         from mlframe.ensembling import ensemble_probabilistic_predictions
 
@@ -151,6 +154,8 @@ class TestEnsembleHarmonicDivByZero:
             ensemble_method="harm",
             max_mae=0,
             max_std=0,
+            max_mae_relative=0,
+            max_std_relative=0,
             verbose=False,
         )
         return out[0] if isinstance(out, tuple) else out
@@ -1088,3 +1093,281 @@ class TestCatBoostStickyFlagDefensiveAtLoad:
         # If the flag wasn't honoured, calls would be
         # ["DataFrame", "DataFrame"] (one polars attempt, one pandas
         # retry).
+
+
+# =====================================================================
+# Fix 12: Adaptive ensemble median-distance filter (relative-to-median)
+# =====================================================================
+
+class TestEnsembleAdaptiveMedianFilter:
+    """The 2026-04-24 prod log showed the ensemble outlier-member filter
+    excluding ALL 6 tree-model members (CB / XGB / LGB × 2 weighting
+    schemas) because the absolute defaults ``max_mae=0.04`` /
+    ``max_std=0.06`` were tuned for a different model-type mix.
+    Tree-model predictions cluster much more tightly than that.
+
+    Fix: defaults flipped to relative thresholds (``max_mae_relative=2.5``,
+    ``max_std_relative=2.5``), measured as multiples of the cross-member
+    **median** MAE/STD. Outliers (≥2.5× typical distance) get excluded;
+    tightly-clustered tree members all stay.
+    """
+
+    @staticmethod
+    def _make_clustered_preds(n_members=6, n_rows=100, jitter_scale=0.04, seed=0):
+        """All members deviate from a shared median by similar small jitter
+        — mirrors a tree-suite's prediction layout."""
+        rng = np.random.default_rng(seed)
+        median = rng.random((n_rows, 1))
+        return median, [
+            np.clip(median + rng.normal(0, jitter_scale, (n_rows, 1)), 0, 1)
+            for _ in range(n_members)
+        ]
+
+    def test_default_relative_thresholds_keep_clustered_members(self, capsys):
+        """Six members all within similar distance of the median → none
+        excluded under default relative-2.5× thresholds. Locks in the
+        2026-04-24 fix that turned the previous "exclude all" behaviour
+        into a useful filter."""
+        from mlframe.ensembling import ensemble_probabilistic_predictions
+
+        _, preds = self._make_clustered_preds()
+        out, _, _ = ensemble_probabilistic_predictions(
+            *preds, ensemble_method="arithm", verbose=True,
+        )
+        assert out is not None and len(out) == 100
+        captured = capsys.readouterr()
+        # No member must be excluded — the filter must NOT print any
+        # "ens member N excluded" lines for clustered members.
+        assert "ens member" not in captured.out, (
+            f"clustered members should not be filtered under default "
+            f"relative thresholds; got:\n{captured.out}"
+        )
+
+    def test_relative_filter_catches_real_outlier(self, capsys):
+        """Six clustered members + one 10× outlier → only the outlier
+        excluded; remaining 6 used."""
+        from mlframe.ensembling import ensemble_probabilistic_predictions
+
+        rng = np.random.default_rng(0)
+        median, preds = self._make_clustered_preds()
+        # Add an outlier 10× off the median jitter scale.
+        preds.append(np.clip(median + rng.normal(0, 0.5, (100, 1)), 0, 1))
+
+        ensemble_probabilistic_predictions(
+            *preds, ensemble_method="arithm", verbose=True,
+        )
+        captured = capsys.readouterr()
+        excluded_lines = [
+            ln for ln in captured.out.splitlines() if "ens member" in ln and "excluded" in ln
+        ]
+        assert len(excluded_lines) == 1, (
+            f"exactly one outlier should be excluded; got {len(excluded_lines)}:\n"
+            + "\n".join(excluded_lines)
+        )
+        # The excluded one is the last (index 6 — the outlier we added).
+        assert "ens member 6 excluded" in excluded_lines[0]
+        # Surviving 6 → "Using 6 members of ensemble" line.
+        assert "Using 6 members of ensemble" in captured.out
+
+    def test_legacy_absolute_thresholds_still_supported(self, capsys):
+        """Caller can opt back into the old absolute-threshold semantics
+        by passing ``max_mae``/``max_std`` non-zero (and disabling
+        relative). Ensures we didn't break the public API."""
+        from mlframe.ensembling import ensemble_probabilistic_predictions
+
+        _, preds = self._make_clustered_preds(jitter_scale=0.05)  # ~0.04-0.05 MAE
+        # Relative off, absolute strict.
+        ensemble_probabilistic_predictions(
+            *preds,
+            ensemble_method="arithm",
+            max_mae=0.01, max_std=0.01,
+            max_mae_relative=0, max_std_relative=0,
+            verbose=True,
+        )
+        captured = capsys.readouterr()
+        # With strict 0.01 absolute, all clustered ~0.04 members get
+        # excluded → triggers the "filters too restrictive" fallback.
+        assert "filters too restrictive" in captured.out or "ens member" in captured.out
+
+    def test_disabled_filter_no_op(self, capsys):
+        """Both threshold styles set to 0 ⇒ no filtering, no log noise."""
+        from mlframe.ensembling import ensemble_probabilistic_predictions
+
+        _, preds = self._make_clustered_preds()
+        out, _, _ = ensemble_probabilistic_predictions(
+            *preds,
+            ensemble_method="arithm",
+            max_mae=0, max_std=0,
+            max_mae_relative=0, max_std_relative=0,
+            verbose=True,
+        )
+        assert out is not None
+        captured = capsys.readouterr()
+        assert "ens member" not in captured.out
+        assert "filters too restrictive" not in captured.out
+
+    def test_two_member_ensemble_skips_filter_entirely(self, capsys):
+        """``len(preds) <= 2`` short-circuits the filter (median is
+        ill-defined). Locks in this corner case."""
+        from mlframe.ensembling import ensemble_probabilistic_predictions
+
+        rng = np.random.default_rng(0)
+        p1 = rng.random((50, 1))
+        p2 = rng.random((50, 1))
+        ensemble_probabilistic_predictions(
+            p1, p2, ensemble_method="arithm", verbose=True,
+        )
+        captured = capsys.readouterr()
+        assert "ens member" not in captured.out
+
+
+# =====================================================================
+# Fix 13: Conf Ensemble COV tag has trailing space (no slammed-together
+#          downstream tokens)
+# =====================================================================
+
+class TestConfEnsembleCovTagFormatting:
+    """The 2026-04-24 prod log showed
+    ``Conf Ensemble arithm [N=6]  [VAL COV=10%]notext prod_jobsdetails ...``
+    — note the missing space between ``[VAL COV=10%]`` and ``notext``.
+    Cause: ``_cov_tag`` had a leading space but no trailing one, so
+    the downstream concat produced jammed tokens.
+
+    Fix: trailing space in ``_cov_tag``. Empty-tag branch stays empty
+    so we don't introduce a double-space when the tag is off.
+    """
+
+    def test_cov_tag_has_leading_and_trailing_space(self):
+        """Reproduce the format-construction logic exactly."""
+        # When confidence info is available, the tag carries a leading
+        # AND trailing space.
+        val_full = np.arange(100)
+        val_conf = np.arange(10)  # 10 % coverage
+        _cov_src = ("VAL", 100.0 * len(val_conf) / len(val_full))
+        _cov_tag = f" [{_cov_src[0]} COV={_cov_src[1]:.0f}%] " if _cov_src else ""
+
+        assert _cov_tag.startswith(" "), "leading space lost"
+        assert _cov_tag.endswith(" "), "trailing space lost — downstream tokens will jam"
+        assert _cov_tag == " [VAL COV=10%] "
+
+        # Composed prefix + downstream token must have a clean separator.
+        prefix = f"Conf Ensemble arithm notext[N=6]{_cov_tag}downstream_token"
+        assert "%]downstream" not in prefix, (
+            f"tokens slammed together — trailing space in _cov_tag lost: "
+            f"{prefix!r}"
+        )
+
+    def test_empty_cov_tag_stays_empty(self):
+        """When coverage data is absent, the tag must be exactly empty —
+        no rogue space that would create a double-space in the prefix."""
+        _cov_src = None
+        _cov_tag = f" [{_cov_src[0]} COV={_cov_src[1]:.0f}%] " if _cov_src else ""
+        assert _cov_tag == ""
+
+    def test_source_contains_trailing_space(self):
+        """Structural check: the format string in ensembling.py source
+        ends with a space inside the f-string. Catches future drift if
+        someone strips the trailing space "for cleanliness"."""
+        import inspect
+        from mlframe import ensembling as ens_mod
+
+        src = inspect.getsource(ens_mod._process_single_ensemble_method)
+        # Look for the exact format spec — both spaces must be present.
+        assert ' [{_cov_src[0]} COV={_cov_src[1]:.0f}%] ' in src, (
+            "_cov_tag format string lost its trailing space — Conf "
+            "Ensemble names will jam together with downstream tokens "
+            "again (2026-04-24 regression class)."
+        )
+
+
+# =====================================================================
+# Fix 14: CatBoost sticky-flag set defensively at MODEL CREATION
+#          (not only after first dispatch miss / reload)
+# =====================================================================
+
+class TestCatBoostStickyFlagDefensiveAtCreation:
+    """The 2026-04-24 prod log showed that even with the load-path
+    defensive set (Fix 11), a fresh suite run still hit the polars-
+    fastpath dispatch miss on EVERY weight-schema iteration of CB:
+    each iteration calls ``sklearn.clone()`` on the base CB instance,
+    and clone strips non-param attributes — so the freshly-cloned
+    model arrives at predict-time with a blank flag, pays the
+    TypeError + retry roundtrip, then sets the flag for next call
+    (which never comes for that clone).
+
+    Fix: set the flag on the BASE CB instance the moment it's
+    constructed in ``configure_training_params``, AND preserve it
+    across ``clone()`` in the strategy loop. Both writes guarded
+    so any non-CB suite is a no-op.
+    """
+
+    def test_configure_training_params_sets_flag_on_fresh_cb(self):
+        """The base CB instance produced by ``configure_training_params``
+        must carry ``_mlframe_polars_fastpath_broken=True`` from the
+        moment it's created — before sklearn.clone() ever runs on it."""
+        # Source-level structural check: the configure call sets the
+        # attribute literally. End-to-end probe via the real factory
+        # would require a heavy dependency setup; the source check is
+        # a robust regression sensor.
+        import inspect
+        from mlframe.training import trainer as tr_mod
+
+        src = inspect.getsource(tr_mod.configure_training_params)
+        assert "_mlframe_polars_fastpath_broken = True" in src, (
+            "configure_training_params must defensively set "
+            "_mlframe_polars_fastpath_broken on the base CB instance "
+            "at construction time. Without it, every cloned weight-"
+            "schema CB pays the polars-fastpath dispatch miss on its "
+            "first predict (2026-04-24 prod log)."
+        )
+
+    def test_clone_in_strategy_loop_preserves_flag(self):
+        """The sklearn.clone() call inside core.py's weight-schema loop
+        strips non-param attributes — the post-clone preservation block
+        must re-assert ``_mlframe_polars_fastpath_broken`` for any base
+        CB that had it set."""
+        import inspect
+        from mlframe.training import core as core_mod
+
+        src = inspect.getsource(core_mod.train_mlframe_models_suite)
+        # The preservation block re-asserts the attribute on cloned_model.
+        assert "_mlframe_polars_fastpath_broken" in src, (
+            "core.py weight-schema loop must re-assert "
+            "_mlframe_polars_fastpath_broken on cloned_model — without "
+            "it, sklearn.clone() blanks the flag and every CB iteration "
+            "pays the dispatch-miss + retry on first predict."
+        )
+
+    def test_short_circuit_fires_on_fresh_clone_with_flag(self):
+        """Behavioural: a freshly-constructed CB-like instance whose
+        sticky flag was set at creation gets the predict-path short-
+        circuit on the FIRST predict — no TypeError retry."""
+        from mlframe.training.trainer import _predict_with_fallback
+
+        calls = []
+
+        class _FakeFreshCB:
+            pass
+
+        _FakeFreshCB.__name__ = "CatBoostClassifier"
+
+        def _proba(X):
+            calls.append(type(X).__name__)
+            return np.array([[0.4, 0.6]] * len(X))
+
+        fake = _FakeFreshCB()
+        fake.predict_proba = _proba
+        fake.feature_names_ = ["a"]
+        fake._get_cat_feature_indices = lambda: [0]
+        fake._get_text_feature_indices = lambda: []
+        # Set defensively at creation (mirrors configure_training_params).
+        fake._mlframe_polars_fastpath_broken = True
+
+        pl_df = pl.DataFrame({"a": pl.Series(["x", "y"], dtype=pl.Categorical)})
+        _predict_with_fallback(fake, pl_df, method="predict_proba")
+
+        # Only ONE call, with pandas — no polars attempt + retry.
+        assert calls == ["DataFrame"], (
+            f"defensive sticky flag must trigger short-circuit on first "
+            f"predict; got {calls}"
+        )

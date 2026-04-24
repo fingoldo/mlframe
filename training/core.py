@@ -3322,6 +3322,39 @@ def train_mlframe_models_suite(
                                 cloned_model._mlframe_posthoc_calibrate = True
                             except Exception:
                                 pass
+                        # Same problem class for the polars-fastpath sticky flag
+                        # (set defensively in trainer.configure_training_params
+                        # for every freshly constructed CatBoost instance — see
+                        # the 2026-04-24 prod log analysis). sklearn.clone()
+                        # would otherwise blank it on every weight-schema iter,
+                        # forcing the dispatch-miss + retry on the FIRST predict
+                        # of CB recency / CB uniform alike. Re-assert here.
+                        if getattr(original_model, "_mlframe_polars_fastpath_broken", False):
+                            try:
+                                cloned_model._mlframe_polars_fastpath_broken = True
+                            except Exception:
+                                pass
+                        # XGB DMatrix-reuse shim cache (2026-04-24). The shim
+                        # caches a QuantileDMatrix on instance attributes
+                        # (``_cached_train_dmatrix``, ``_cached_val_dmatrix`` and
+                        # their cache keys); sklearn.clone() blanks them. Without
+                        # this hand-off, the weight-schema loop (uniform →
+                        # recency on the same train_df) would rebuild the
+                        # DMatrix from scratch on every iteration — defeating
+                        # the whole point of the shim. Hand the cache forward
+                        # so reused DMatrix sees consecutive ``set_label`` /
+                        # ``set_weight`` swaps in place.
+                        for _attr in (
+                            "_cached_train_dmatrix",
+                            "_cached_train_key",
+                            "_cached_val_dmatrix",
+                            "_cached_val_key",
+                        ):
+                            if hasattr(original_model, _attr):
+                                try:
+                                    setattr(cloned_model, _attr, getattr(original_model, _attr))
+                                except Exception:
+                                    pass
                         current_model_params = models_params[mlframe_model_name].copy()
                         current_model_params["model"] = cloned_model
 
@@ -3455,6 +3488,32 @@ def train_mlframe_models_suite(
                             continue  # next weight_name in the inner loop
                         if verbose:
                             logger.info(f"  process_model({mlframe_model_name}, w={weight_name}) done — {_elapsed_str(t0_model)}")
+
+                        # XGB DMatrix-reuse shim cache (2026-04-24, second
+                        # half). The cache lives on the cloned_model that
+                        # ``process_model`` actually fit. Hand it back to the
+                        # template (``original_model`` / ``models_params[...]
+                        # ["model"]``) so the NEXT weight-schema iteration's
+                        # ``clone()`` carries the cache forward (via the
+                        # forward-transfer block above). Without this, the
+                        # cache would be born and die inside one weight-
+                        # schema iteration — wasted because the SAME train
+                        # frame is consumed by the next iteration with only
+                        # a different sample_weight. Symmetric counterpart
+                        # to the forward-transfer block in this loop.
+                        for _attr in (
+                            "_cached_train_dmatrix",
+                            "_cached_train_key",
+                            "_cached_val_dmatrix",
+                            "_cached_val_key",
+                        ):
+                            if hasattr(cloned_model, _attr):
+                                _val = getattr(cloned_model, _attr)
+                                if _val is not None:
+                                    try:
+                                        setattr(original_model, _attr, _val)
+                                    except Exception:
+                                        pass
 
                         # Fix 8: record this model's input-schema fingerprint
                         # in metadata so load-time can verify or at least diff

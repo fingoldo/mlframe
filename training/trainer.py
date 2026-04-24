@@ -235,6 +235,68 @@ try:
 except ImportError:  # pragma: no cover
     XGBClassifier = XGBRegressor = None  # type: ignore[assignment]
     XGBTrainingCallback = object  # type: ignore[assignment]
+
+# DMatrix-reuse shim (2026-04-24). Subclasses XGBClassifier / XGBRegressor
+# to cache QuantileDMatrix across consecutive ``.fit()`` calls on the same
+# feature matrix — saves ~100 s per repeated fit on multi-GB train frames.
+# Toggle via ``USE_XGB_DMATRIX_REUSE_SHIM`` below.
+try:
+    from mlframe.training.xgb_shim import (
+        XGBClassifierWithDMatrixReuse,
+        XGBRegressorWithDMatrixReuse,
+    )
+    _XGB_SHIM_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    XGBClassifierWithDMatrixReuse = XGBRegressorWithDMatrixReuse = None  # type: ignore[assignment]
+    _XGB_SHIM_AVAILABLE = False
+
+# ---------------------------------------------------------------------------
+# Feature flag: which XGBoost class do we instantiate in
+# ``_configure_xgboost_params``?
+#
+#   True  → use the DMatrix-reuse shim. Reuses QuantileDMatrix across
+#           weight-schema iterations and target swaps on the same feature
+#           matrix (the 2026-04-24 prod log saving target — ~100 s per
+#           rebuild eliminated).
+#   False → fall back to vanilla ``XGBClassifier`` / ``XGBRegressor``.
+#           Use this if the shim regresses behaviour or once XGBoost
+#           upstream lands the equivalent fix natively.
+#
+# To **revert** to vanilla XGBoost (e.g. when the upstream PR ships):
+#   1. Set ``USE_XGB_DMATRIX_REUSE_SHIM = False`` here, or
+#   2. Delete the import block above + ``_xgb_classifier_cls`` /
+#      ``_xgb_regressor_cls`` factories below + this constant, and
+#      replace ``_xgb_classifier_cls(use_flaml_zeroshot)`` calls in
+#      ``_configure_xgboost_params`` with the original inline expression
+#      ``flaml_zeroshot.XGBClassifier if use_flaml_zeroshot else
+#      XGBClassifier``.
+#   3. Delete ``mlframe/training/xgb_shim.py`` and its test counterpart.
+#
+# Either path is intentionally a small, localized change.
+USE_XGB_DMATRIX_REUSE_SHIM: bool = _XGB_SHIM_AVAILABLE
+
+
+def _xgb_classifier_cls(use_flaml_zeroshot: bool):
+    """Return the XGBClassifier class to instantiate.
+
+    Single dispatch point for the shim toggle — see
+    ``USE_XGB_DMATRIX_REUSE_SHIM`` above for revert instructions.
+    """
+    if use_flaml_zeroshot:
+        return flaml_zeroshot.XGBClassifier
+    if USE_XGB_DMATRIX_REUSE_SHIM and XGBClassifierWithDMatrixReuse is not None:
+        return XGBClassifierWithDMatrixReuse
+    return XGBClassifier
+
+
+def _xgb_regressor_cls(use_flaml_zeroshot: bool):
+    """Return the XGBRegressor class to instantiate. Mirror of
+    ``_xgb_classifier_cls``."""
+    if use_flaml_zeroshot:
+        return flaml_zeroshot.XGBRegressor
+    if USE_XGB_DMATRIX_REUSE_SHIM and XGBRegressorWithDMatrixReuse is not None:
+        return XGBRegressorWithDMatrixReuse
+    return XGBRegressor
 try:
     from ngboost import NGBClassifier, NGBRegressor
 except ImportError:  # pragma: no cover
@@ -3135,14 +3197,20 @@ def _configure_xgboost_params(
     xgboost_verbose,
     metamodel_func,
 ):
-    """Configure XGBoost model parameters."""
+    """Configure XGBoost model parameters.
+
+    Goes through the ``_xgb_classifier_cls`` / ``_xgb_regressor_cls``
+    factories so the DMatrix-reuse shim toggle (``USE_XGB_DMATRIX_REUSE_SHIM``,
+    declared at module level) is the single switching point. To revert to
+    vanilla XGBoost, see the docstring of ``USE_XGB_DMATRIX_REUSE_SHIM``.
+    """
     xgb_configs = cpu_configs if prefer_cpu_for_xgboost else configs
 
     if use_regression:
-        model_cls = flaml_zeroshot.XGBRegressor if use_flaml_zeroshot else XGBRegressor
+        model_cls = _xgb_regressor_cls(use_flaml_zeroshot)
         model = metamodel_func(model_cls(**xgb_configs.XGB_GENERAL_PARAMS))
     else:
-        model_cls = flaml_zeroshot.XGBClassifier if use_flaml_zeroshot else XGBClassifier
+        model_cls = _xgb_classifier_cls(use_flaml_zeroshot)
         xgb_classif_params = xgb_configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else xgb_configs.XGB_GENERAL_CLASSIF
         model = model_cls(**xgb_classif_params)
 
@@ -3558,6 +3626,33 @@ def configure_training_params(
         else:
             _cb_classif_params = cb_configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else cb_configs.CB_CLASSIF
             _cb_model = CatBoostClassifier(**_cb_classif_params)
+        # Defensively pre-set the polars-fastpath sticky flag (2026-04-24).
+        # Background: ``_predict_with_fallback`` lazily flips this attribute
+        # to True after the FIRST polars-fastpath dispatch miss, so the
+        # short-circuit fires only on the SECOND predict call onward.
+        # That's fine for re-using a single fitted model (VAL → TEST), but
+        # in a suite each weight-schema iteration calls ``sklearn.clone()``
+        # on this base ``_cb_model`` — and clone strips non-param attrs,
+        # giving every fresh CB instance a blank flag. The 2026-04-24 prod
+        # log captured the symptom: CB uniform AND CB recency BOTH paid
+        # the polars-miss + 2-3 s pandas-conversion roundtrip on their
+        # first TEST predict, with WARN noise on each.
+        # We know empirically (every prod run since 2026-04-19) that CB
+        # 1.2.x's ``_set_features_order_data_polars_categorical_column``
+        # has dispatch gaps on our nullable-Categorical / Enum schema, so
+        # opting CB into pandas at predict time is bestthing — bypasses
+        # the doomed retry on success, costs nothing on failure. Set on
+        # the base instance so ``clone()`` carries the param-equivalent
+        # state forward (sklearn.clone preserves ``get_params()`` keys;
+        # for the attr to survive clone we re-assert it inside
+        # ``train_eval.py:process_model``'s clone call too — but writing
+        # it here is the ergonomic source of truth).
+        try:
+            _cb_model._mlframe_polars_fastpath_broken = True
+        except Exception:
+            # CB Python class is permissive about attributes; slot-only
+            # forks could refuse — degrade to "pay first-call retry".
+            pass
         cb_params = dict(
             model=_cb_model,
             fit_params=dict(

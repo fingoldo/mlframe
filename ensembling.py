@@ -131,14 +131,45 @@ def ensemble_probabilistic_predictions(
     *preds,
     ensemble_method="harm",
     ensure_prob_limits: bool = True,
-    max_mae: float = 0.04,
-    max_std: float = 0.06,
+    max_mae: float = 0.0,
+    max_std: float = 0.0,
+    max_mae_relative: float = 2.5,
+    max_std_relative: float = 2.5,
     uncertainty_quantile: float = 0,
     normalize_stds_by_mean_preds: bool = False,
     verbose: bool = True,
 ) -> tuple:
     """Ensembles probabilistic predictions. All elements of the preds tuple must have the same shape.
     uncertainty_quantile>0 produces separate charts for points where the models are confident (agree).
+
+    Outlier-member filter (when len(preds) > 2):
+        Each member's distance from the cross-member median is summarised
+        by per-column MAE and STD (averaged across columns). A member is
+        excluded if either is "too large".
+
+        Two threshold styles are supported and **applied with OR-semantics**
+        (a member is excluded if ANY active threshold is exceeded):
+
+        1. ``max_mae`` / ``max_std`` — absolute thresholds in probability
+           units. Default 0.0 ⇒ disabled. Use when you know an upper-bound
+           on acceptable per-row drift in your domain (e.g. calibrated
+           classifiers within 5 pp).
+
+        2. ``max_mae_relative`` / ``max_std_relative`` — multiples of the
+           **median MAE / STD** across all members. Default 2.5 ⇒ exclude a
+           member whose distance is more than 2.5× the typical member's.
+           Default 0.0 disables.
+
+           Adaptive to suite composition: a 6-tree-model suite (CB / XGB /
+           LGB × 2 weight schemas) where every member has MAE 0.025-0.054
+           against median had max_mae=0.04 absolute trigger excluding all
+           6 members (2026-04-24 prod log) — making the filter a no-op +
+           36 noisy WARN lines per ensemble. Relative threshold 2.5 keeps
+           the typical members and excludes a true outlier (e.g. a single
+           MLP that's 5× off).
+
+    The previous defaults (``max_mae=0.04`` / ``max_std=0.06`` absolute) are
+    kept reachable by passing them explicitly; defaults are now relative.
     """
     assert ensemble_method in SIMPLE_ENSEMBLING_METHODS
     confident_indices = None
@@ -158,21 +189,58 @@ def ensemble_probabilistic_predictions(
         # compute median preds first
         median_preds = np.quantile(np.array(preds), 0.5, axis=0)
 
+        # Per-member distance summary (vectorised over all columns at once).
+        # Old code did a Python loop over columns; on 6-member × 1-column
+        # ensembles that's only 6 iterations, but on multi-output cases this
+        # is cleaner and ~free.
+        per_member_mae = np.empty(len(preds), dtype=np.float64)
+        per_member_std = np.empty(len(preds), dtype=np.float64)
         for i, pred in enumerate(preds):
-            tot_mae = 0.0
-            tot_std = 0.0
-            n_features = pred.shape[1]
-            for j in range(n_features):
-                diffs = np.abs((pred[:, j] - median_preds[:, j]))
-                mae = np.mean(diffs)
-                std = np.sqrt(np.mean(((diffs - mae) ** 2)))
-                tot_mae += mae
-                tot_std += std
-            tot_mae /= n_features
-            tot_std /= n_features
-            if (max_mae > 0 and tot_mae > max_mae) or (max_std > 0 and tot_std > max_std):
+            diffs = np.abs(pred - median_preds)
+            mae_per_col = diffs.mean(axis=0)                     # (n_cols,)
+            std_per_col = np.sqrt(((diffs - mae_per_col) ** 2).mean(axis=0))
+            per_member_mae[i] = mae_per_col.mean()
+            per_member_std[i] = std_per_col.mean()
+
+        # Resolve the relative thresholds against the **median across
+        # members** (robust to a single outlier; using mean would let one
+        # bad member drag the threshold up and shield itself).
+        median_mae = float(np.median(per_member_mae))
+        median_std = float(np.median(per_member_std))
+        rel_mae_threshold = (
+            max_mae_relative * median_mae if max_mae_relative > 0 else 0.0
+        )
+        rel_std_threshold = (
+            max_std_relative * median_std if max_std_relative > 0 else 0.0
+        )
+
+        for i in range(len(preds)):
+            tot_mae = float(per_member_mae[i])
+            tot_std = float(per_member_std[i])
+            abs_violation = (
+                (max_mae > 0 and tot_mae > max_mae)
+                or (max_std > 0 and tot_std > max_std)
+            )
+            rel_violation = (
+                (rel_mae_threshold > 0 and tot_mae > rel_mae_threshold)
+                or (rel_std_threshold > 0 and tot_std > rel_std_threshold)
+            )
+            if abs_violation or rel_violation:
                 if verbose:
-                    print(f"ens member {i} excluded due to high distance from the median, mae={tot_mae:4f}, std={tot_std:4f}")
+                    reason_parts = []
+                    if abs_violation:
+                        reason_parts.append(
+                            f"abs(mae>{max_mae}|std>{max_std})"
+                        )
+                    if rel_violation:
+                        reason_parts.append(
+                            f"rel(mae>{rel_mae_threshold:.4f}|std>{rel_std_threshold:.4f}; "
+                            f"median_mae={median_mae:.4f},median_std={median_std:.4f})"
+                        )
+                    print(
+                        f"ens member {i} excluded due to high distance from the median: "
+                        f"mae={tot_mae:.4f}, std={tot_std:.4f} [{'; '.join(reason_parts)}]"
+                    )
                 skipped_preds_indices.add(i)
         if skipped_preds_indices:
             if len(skipped_preds_indices) < len(preds):
@@ -315,6 +383,8 @@ def _process_single_ensemble_method(
     target_label_encoder: object,
     max_mae: float,
     max_std: float,
+    max_mae_relative: float,
+    max_std_relative: float,
     ensure_prob_limits: bool,
     nbins: int,
     uncertainty_quantile: float,
@@ -340,6 +410,8 @@ def _process_single_ensemble_method(
         ensemble_method=ensemble_method,
         max_mae=max_mae,
         max_std=max_std,
+        max_mae_relative=max_mae_relative,
+        max_std_relative=max_std_relative,
         ensure_prob_limits=ensure_prob_limits,
         uncertainty_quantile=uncertainty_quantile,
         normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
@@ -356,6 +428,8 @@ def _process_single_ensemble_method(
         ensemble_method=ensemble_method,
         max_mae=max_mae,
         max_std=max_std,
+        max_mae_relative=max_mae_relative,
+        max_std_relative=max_std_relative,
         ensure_prob_limits=ensure_prob_limits,
         uncertainty_quantile=uncertainty_quantile,
         normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
@@ -375,6 +449,8 @@ def _process_single_ensemble_method(
         ensemble_method=ensemble_method,
         max_mae=max_mae,
         max_std=max_std,
+        max_mae_relative=max_mae_relative,
+        max_std_relative=max_std_relative,
         ensure_prob_limits=ensure_prob_limits,
         uncertainty_quantile=uncertainty_quantile,
         normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
@@ -501,7 +577,11 @@ def _process_single_ensemble_method(
             if _full is not None and _conf is not None and len(_full) > 0:
                 _cov_src = (_label, 100.0 * len(_conf) / len(_full))
                 break
-        _cov_tag = f" [{_cov_src[0]} COV={_cov_src[1]:.0f}%]" if _cov_src else ""
+        # Trailing space so the downstream concat ``f"...{ensemble_name}{_cov_tag}"``
+        # doesn't slam the next token onto the closing bracket — the 2026-04-24
+        # prod log showed ``[VAL COV=10%]notext prod_jobsdetails ...`` (no space
+        # before "notext"). Empty tag stays empty (no double-space when off).
+        _cov_tag = f" [{_cov_src[0]} COV={_cov_src[1]:.0f}%] " if _cov_src else ""
 
         # Build config objects from flat params for confidence ensemble
         conf_flat_params = dict(
@@ -549,8 +629,17 @@ def score_ensemble(
     test_target: pd.Series = None,
     val_target: pd.Series = None,
     target_label_encoder: object = None,
-    max_mae: float = 0.05,
-    max_std: float = 0.06,
+    # Outlier-member-filter thresholds. The historical absolute defaults
+    # (``max_mae=0.05``, ``max_std=0.06``) excluded all 6 members of a
+    # uniform tree-model suite (CB / XGB / LGB × 2 weight schemas) on
+    # the 2026-04-24 prod log — turning the filter into a no-op + 36
+    # noisy WARN lines per ensemble. Defaults flipped to relative
+    # (``2.5×median``); pass non-zero ``max_mae`` / ``max_std`` to keep
+    # the legacy behaviour.
+    max_mae: float = 0.0,
+    max_std: float = 0.0,
+    max_mae_relative: float = 2.5,
+    max_std_relative: float = 2.5,
     ensure_prob_limits: bool = True,
     nbins: int = 100,
     ensembling_methods=SIMPLE_ENSEMBLING_METHODS,
@@ -633,6 +722,8 @@ def score_ensemble(
             target_label_encoder=target_label_encoder,
             max_mae=max_mae,
             max_std=max_std,
+            max_mae_relative=max_mae_relative,
+            max_std_relative=max_std_relative,
             ensure_prob_limits=ensure_prob_limits,
             nbins=nbins,
             uncertainty_quantile=uncertainty_quantile,
