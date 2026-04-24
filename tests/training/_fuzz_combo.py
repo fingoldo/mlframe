@@ -43,7 +43,7 @@ AXES: dict[str, tuple[Any, ...]] = {
     "null_fraction_cats": (0.0, 0.1, 0.3),
     "use_mrmr_fs": (False, True),
     "weight_schemas": (("uniform",), ("uniform", "recency")),
-    "target_type": ("binary_classification", "regression"),
+    "target_type": ("binary_classification", "regression"),  # multi_classification not supported by mlframe yet (2026-04-24)
     "auto_detect_cats": (True, False),
     "align_polars_categorical_dicts": (True, False),
     # 2026-04-24 expansion: flags that previously had NO coverage despite
@@ -95,6 +95,10 @@ AXES: dict[str, tuple[Any, ...]] = {
     "inject_label_leak": (False, True),                          # feature = target + ε; val metric must be near-perfect
     "inject_rank_deficient": (False, True),                      # colinear feature pair; linear-model edge
     "inject_all_nan_col": (False, True),                         # whole column is NaN; pipeline guard test
+    # 2026-04-24 (R3): drift, imbalance, weird-cat axes.
+    "inject_test_drift": (None, "unseen_category", "out_of_range_numeric", "shifted_distribution"),  # R3-1
+    "imbalance_ratio": ("balanced", "rare_5pct", "rare_1pct"),   # R3-4
+    "weird_cat_content": (None, "empty", "unicode", "null_like"),# R3-5
 }
 
 
@@ -151,6 +155,10 @@ class FuzzCombo:
     inject_label_leak: bool = False
     inject_rank_deficient: bool = False
     inject_all_nan_col: bool = False
+    # R3 — drift, imbalance, weird-cat axes
+    inject_test_drift: "str | None" = None
+    imbalance_ratio: str = "balanced"
+    weird_cat_content: "str | None" = None
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -184,6 +192,7 @@ class FuzzCombo:
             or self.inject_degenerate_cols  # adds all-null column → PCA rejects
         )
         custom_prep = self.custom_prep if not pca_incompatible else None
+        use_ensembles = self.use_ensembles
         return (
             tuple(sorted(self.models)),
             self.input_type,
@@ -202,7 +211,7 @@ class FuzzCombo:
             self.embedding_col_count,
             # 2026-04-24 combo-extension axes
             self.outlier_detection,
-            self.use_ensembles,
+            use_ensembles,
             self.continue_on_model_failure,
             self.iterations,
             self.prefer_calibrated_classifiers,
@@ -228,7 +237,39 @@ class FuzzCombo:
             self.inject_label_leak,
             self.inject_rank_deficient,
             self.inject_all_nan_col,
+            # R3 — drift, imbalance, weird-cat
+            # inject_test_drift canonicalises to None when n_rows is too
+            # small to meaningfully distinguish train from test slices.
+            self.inject_test_drift if self.n_rows >= 300 else None,
+            # imbalance_ratio canonicalisation: meaningful only on
+            # binary classification. Extreme imbalance on small frames
+            # causes random val/test splits to drop one class entirely
+            # ("CatBoostError: Target contains only one unique value",
+            # 2026-04-24 c0062/c0085). Clamp by expected minority count
+            # per 10% slice — need ≥2 minority rows in each split's
+            # worst-case unlucky draw, i.e. frac * slice_size ≥ ~4 → need
+            # frac * n * 0.1 ≥ 4 → frac ≥ 40/n. At n=1200, rare_1pct
+            # (0.01) = 12 total minority, slice=1.2 — unreliable → clamp
+            # to rare_5pct. rare_5pct survives at n≥800.
+            self._canonical_imbalance(),
+            # weird_cat_content relevant only if there are cat columns.
+            self.weird_cat_content if self.cat_feature_count > 0 else None,
         )
+
+    def _canonical_imbalance(self) -> str:
+        if "classification" not in self.target_type:
+            return "balanced"
+        imb = self.imbalance_ratio
+        frac = {"rare_5pct": 0.05, "rare_1pct": 0.01, "balanced": 0.5}.get(imb, 0.5)
+        # Each split gets ~0.1×n rows. Require frac × 0.1 × n ≥ 4
+        # (~4 minority rows expected in the smallest slice).
+        if frac * 0.1 * self.n_rows < 4:
+            # Try the next-safer rarity level.
+            if imb == "rare_1pct":
+                return "rare_5pct" if 0.05 * 0.1 * self.n_rows >= 4 else "balanced"
+            if imb == "rare_5pct":
+                return "balanced"
+        return imb
 
     def short_id(self) -> str:
         h = hashlib.blake2s(repr(self.canonical_key()).encode(), digest_size=4).hexdigest()
@@ -287,6 +328,10 @@ class FuzzCombo:
             "inject_label_leak": self.inject_label_leak,
             "inject_rank_deficient": self.inject_rank_deficient,
             "inject_all_nan_col": self.inject_all_nan_col,
+            # R3
+            "inject_test_drift": self.inject_test_drift,
+            "imbalance_ratio": self.imbalance_ratio,
+            "weird_cat_content": self.weird_cat_content,
         }
 
 
@@ -477,6 +522,10 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         inject_label_leak=axes.get("inject_label_leak", False),
         inject_rank_deficient=axes.get("inject_rank_deficient", False),
         inject_all_nan_col=axes.get("inject_all_nan_col", False),
+        # R3
+        inject_test_drift=axes.get("inject_test_drift"),
+        imbalance_ratio=axes.get("imbalance_ratio", "balanced"),
+        weird_cat_content=axes.get("weird_cat_content"),
     )
 
 
@@ -539,6 +588,10 @@ def _combo_pairs(combo: FuzzCombo) -> set[tuple[str, Any, str, Any]]:
         "inject_label_leak": combo.inject_label_leak,
         "inject_rank_deficient": combo.inject_rank_deficient,
         "inject_all_nan_col": combo.inject_all_nan_col,
+        # R3
+        "inject_test_drift": combo.inject_test_drift,
+        "imbalance_ratio": combo.imbalance_ratio,
+        "weird_cat_content": combo.weird_cat_content,
         "n_models": len(combo.models),
     }
     names = list(values.keys())
@@ -856,8 +909,29 @@ def build_frame_for_combo(combo: FuzzCombo):
     ]
     cat_cols = {}
     cat_names: list[str] = []
+    # R3-5 weird_cat_content: substitute specific pool entries with
+    # pathological values that historically broke auto-detection, TF-IDF,
+    # or encoder dispatch.
+    def _apply_weird(pool: list[str], kind: "str | None") -> list[str]:
+        if not kind:
+            return pool
+        pool = list(pool)
+        if kind == "empty":
+            # replace first entry with empty string
+            if pool:
+                pool[0] = ""
+        elif kind == "unicode":
+            # mix in a unicode-heavy value (emoji + CJK + combining marks)
+            pool.append("кат́")  # cyrillic + combining acute
+            pool.append("\U0001f600\U0001f4ca")        # emoji pair
+        elif kind == "null_like":
+            # strings that LOOK like nulls but are real string values.
+            # Pipeline bugs sometimes treat these as actual nulls.
+            pool.extend(["None", "NaN", "null", "NA"])
+        return pool
+
     for i in range(combo.cat_feature_count):
-        pool = cat_pools[i]
+        pool = _apply_weird(cat_pools[i], combo.weird_cat_content)
         values = [pool[j % len(pool)] for j in range(n)]
         if combo.null_fraction_cats > 0:
             mask = rng.random(n) < combo.null_fraction_cats
@@ -865,14 +939,32 @@ def build_frame_for_combo(combo: FuzzCombo):
         cat_cols[f"cat_{i}"] = values
         cat_names.append(f"cat_{i}")
 
-    # Target: derive from num_0 + num_1 with noise so models have signal
+    # Target: derive from num_0 + num_1 with noise so models have signal.
+    # R3-2 multi_classification_{3,5}: discretise a continuous score into
+    # N bins by quantile so distribution is approximately balanced.
+    # R3-4 imbalance_ratio: on binary, shift threshold so minority class
+    # is 5%/1% of rows instead of ~50/50. Not applied to multi-class
+    # (implementation complexity not worth it — balanced multiclass is
+    # the useful axis to exercise).
     if combo.target_type == "regression":
         target = 2.0 * num_cols["num_0"] - 1.5 * num_cols["num_1"] + rng.standard_normal(n) * 0.3
         target_col = "target_reg"
-    else:
-        logits = num_cols["num_0"] - 0.5 * num_cols["num_1"]
-        target = (logits + rng.standard_normal(n) * 0.3 > 0).astype("int32")
+    elif combo.target_type == "binary_classification":
+        logits = num_cols["num_0"] - 0.5 * num_cols["num_1"] + rng.standard_normal(n) * 0.3
+        # Use the canonical imbalance value (clamped by n_rows via
+        # _canonical_imbalance) so we never generate a target whose split
+        # would reliably drop a class from val/test.
+        imb = combo._canonical_imbalance()
+        if imb == "rare_5pct":
+            thresh = np.quantile(logits, 0.95)
+        elif imb == "rare_1pct":
+            thresh = np.quantile(logits, 0.99)
+        else:
+            thresh = 0.0
+        target = (logits > thresh).astype("int32")
         target_col = "target"
+    else:
+        raise ValueError(f"unknown target_type: {combo.target_type}")
 
     # Text columns: only emit when CB will actually consume them. Each
     # "text" row is a 3-word sentence drawn from a shared vocabulary so
@@ -942,6 +1034,27 @@ def build_frame_for_combo(combo: FuzzCombo):
     if combo.inject_label_leak:
         leak_col = target.astype("float32") + (rng.standard_normal(n) * 0.01).astype("float32")
         extra_num_cols["num_leak"] = leak_col
+    # R3-1 inject_test_drift: perturb the last 15% of rows so test/val
+    # slices see a distribution mismatch. Real prod bug surface (unseen
+    # categories, out-of-range values, feature shift) — catches pipelines
+    # that memoise train stats without guarding against unseen state.
+    if combo.inject_test_drift and n >= 20:
+        tail = max(3, int(n * 0.15))
+        tail_slice = slice(n - tail, n)
+        if combo.inject_test_drift == "out_of_range_numeric":
+            # scale last 15% of num_0 by 100× (values outside train range)
+            num_cols["num_0"][tail_slice] = num_cols["num_0"][tail_slice] * 100.0
+        elif combo.inject_test_drift == "shifted_distribution":
+            # shift num_0 by +5 sigma (covariate shift)
+            num_cols["num_0"][tail_slice] = num_cols["num_0"][tail_slice] + 5.0
+        elif combo.inject_test_drift == "unseen_category" and combo.cat_feature_count > 0:
+            # overwrite the FIRST cat column's tail values with a string
+            # that didn't exist in the training portion.
+            # (cat_cols[f"cat_0"] is already populated; mutate in place.)
+            cat_cols["cat_0"] = list(cat_cols["cat_0"])
+            unseen = "ZZZ_UNSEEN"
+            for j in range(n - tail, n):
+                cat_cols["cat_0"][j] = unseen
 
     if combo.input_type == "pandas":
         import pandas as pd
