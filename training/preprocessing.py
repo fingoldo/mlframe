@@ -143,8 +143,20 @@ def preprocess_dataframe(
         df = process_nans(df, fill_value=config.fillna_value, verbose=verbose)
 
     # Process infinities
-    if config.fix_infinities and config.fillna_value is not None:
-        df = process_infinities(df, fill_value=config.fillna_value, verbose=verbose)
+    # 2026-04-24: fix_infinities was double-gated on fillna_value — but
+    # fillna_value defaults to None (many callers never set it), making
+    # fix_infinities=True a silent no-op. XGB then crashes with
+    # "Input data contains `inf` or a value too large, while `missing`
+    # is not set to `inf`" when the frame has any np.inf in a numeric
+    # column. Decouple: when fillna_value is set, honor the explicit
+    # user value; otherwise default the inf-replacement to 0.0 (safe
+    # neutral — inf is pathological and the model can't learn from it
+    # regardless). The separate flag fix_infinities still gates the
+    # action so a caller who genuinely wants inf pass-through can
+    # set fix_infinities=False.
+    if config.fix_infinities:
+        inf_fill = config.fillna_value if config.fillna_value is not None else 0.0
+        df = process_infinities(df, fill_value=inf_fill, verbose=verbose)
 
     if verbose:
         logger.info(f"Preprocessing: {original_shape} -> {df.shape}")
