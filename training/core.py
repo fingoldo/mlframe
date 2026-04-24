@@ -967,11 +967,33 @@ def _apply_outlier_detection_global(
     if verbose:
         logger.info("Fitting outlier detector (once for all targets)...")
 
+    # 2026-04-24: sklearn outlier detectors (IsolationForest / LOF /
+    # EllipticEnvelope / OneClassSVM) all call ``validate_data`` /
+    # ``check_array`` at fit time which attempts to coerce the input
+    # to a numeric numpy array. Any non-numeric column (string, text,
+    # categorical, embedding list, etc.) crashes with
+    #   ValueError: could not convert string to float: 'A' / 'stream java java'
+    # The detector is fit on FEATURES ONLY to find structural outliers —
+    # dropping non-numeric columns before fit matches what sklearn would
+    # expect the caller to pre-process upstream. Recompute numeric view
+    # on each fit/predict call so polars and pandas paths are symmetric.
+    def _numeric_only_view(df_):
+        if isinstance(df_, pl.DataFrame):
+            numeric_cols = [
+                name for name, dt in df_.schema.items()
+                if dt.is_numeric() or dt == pl.Boolean
+            ]
+            return df_.select(numeric_cols) if len(numeric_cols) != len(df_.columns) else df_
+        if hasattr(df_, "select_dtypes"):
+            return df_.select_dtypes(include=["number", "bool"])
+        return df_
+
+    _train_numeric = _numeric_only_view(train_df)
     # Fit on training features only (unsupervised - no target needed)
-    outlier_detector.fit(train_df)
+    outlier_detector.fit(_train_numeric)
 
     # Predict on training set
-    is_inlier = outlier_detector.predict(train_df)
+    is_inlier = outlier_detector.predict(_train_numeric)
     train_od_idx = is_inlier == 1
 
     filtered_train_df = train_df
@@ -1009,7 +1031,7 @@ def _apply_outlier_detection_global(
     val_od_idx = None
 
     if val_df is not None and od_val_set:
-        is_inlier = outlier_detector.predict(val_df)
+        is_inlier = outlier_detector.predict(_numeric_only_view(val_df))
         val_od_idx = is_inlier == 1
         val_kept = val_od_idx.sum()
         if val_kept < len(val_df):
