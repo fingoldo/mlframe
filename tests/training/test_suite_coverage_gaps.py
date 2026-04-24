@@ -1650,3 +1650,213 @@ def test_duplicate_mlframe_models_handled(tmp_path):
         f"duplicate ['cb','cb'] silently produced {len(cb_entries)} 'cb' entries "
         f"in model_schemas — overwrite hazard. Entries: {cb_entries}"
     )
+
+
+# ===========================================================================
+# Group B — medium-ROI (#29-#34)
+# ===========================================================================
+
+
+# #29 Custom pre_pipelines (PCA/IncrementalPCA inserted into the suite)
+def test_custom_pre_pipelines_runs_without_crash(tmp_path, caplog):
+    """``custom_pre_pipelines={"pca50": IncrementalPCA(n_components=2)}``
+    must be accepted by the suite. The custom transformer fits inside
+    the per-model pre_pipeline loop. Asserts (a) no crash, (b) the
+    custom name appears in suite logs.
+
+    n_components=2 is small enough that the synthetic 3-numeric frame
+    can fit it without rank issues.
+    """
+    pytest.importorskip("catboost")
+    from sklearn.decomposition import IncrementalPCA
+    import logging
+    caplog.set_level(logging.INFO, logger="mlframe")
+
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+
+    custom = {"pca50": IncrementalPCA(n_components=2)}
+    trained, _ = train_mlframe_models_suite(
+        df=df, target_name="tgt", model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb"],
+        hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+        init_common_params={"drop_columns": [], "verbose": 0},
+        use_ordinary_models=True, use_mlframe_ensembles=False,
+        custom_pre_pipelines=custom,
+        data_dir=str(tmp_path), models_dir="models", verbose=1,
+    )
+    assert trained, "custom_pre_pipelines path returned empty trained dict"
+
+    log_text = caplog.text.lower()
+    assert "pca50" in log_text, (
+        "custom pipeline name 'pca50' missing from suite logs — "
+        "the custom_pre_pipelines kwarg may not have been wired in. "
+        "Captured log tail:\n" + log_text[-600:]
+    )
+
+
+# #30 preprocessing_extensions: poly_features + scaler
+def test_preprocessing_extensions_polynomial_features_run(tmp_path):
+    """``PreprocessingExtensionsConfig(polynomial_degree=2, ...)`` must
+    expand the feature space (poly features add interaction columns)
+    and feed it into model fit. Cross-checks the extensions sklearn
+    bridge inside ``apply_preprocessing_extensions`` (core.py:2019).
+
+    Asserts: training completes; column count after extensions > 3.
+    """
+    pytest.importorskip("catboost")
+    from mlframe.training.configs import PreprocessingExtensionsConfig
+
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
+
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+
+    ext = PreprocessingExtensionsConfig(
+        polynomial_degree=2,
+        polynomial_interaction_only=True,
+        scaler="StandardScaler",
+    )
+    trained, meta = train_mlframe_models_suite(
+        df=df, target_name="tgt", model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb"],
+        hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+        init_common_params={"drop_columns": [], "verbose": 0},
+        use_ordinary_models=True, use_mlframe_ensembles=False,
+        preprocessing_extensions=ext,
+        data_dir=str(tmp_path), models_dir="models", verbose=0,
+    )
+    assert trained, "preprocessing_extensions=poly run produced empty dict"
+    cols = meta.get("columns") or []
+    # Original frame has 3 numeric features. Interaction-only poly_2
+    # adds C(3,2)=3 interactions → at least 4 features post-extension.
+    # Permissive lower bound (>3) survives small sklearn-version drift.
+    assert len(cols) > 3, (
+        f"polynomial_degree=2 did not expand feature count: cols={cols}"
+    )
+
+
+# #31 Fairness end-to-end
+def test_fairness_features_recorded_in_metadata(tmp_path):
+    """Setting ``behavior_config.fairness_features=["cat_0"]`` must
+    populate fairness subgroups and reflect them in metadata. Without
+    this guard, a refactor that disables the fairness path silently
+    skips the per-subgroup metric calc.
+    """
+    pytest.importorskip("catboost")
+    df = _make_baseline_pandas(n=400, seed=0, with_cat=True, regression=False)
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+
+    behavior = TrainingBehaviorConfig(
+        fairness_features=["cat_0"],
+        fairness_min_pop_cat_thresh=10,
+    )
+    trained, meta = train_mlframe_models_suite(
+        df=df, target_name="tgt", model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb"],
+        hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+        init_common_params={"drop_columns": [], "verbose": 0},
+        use_ordinary_models=True, use_mlframe_ensembles=False,
+        behavior_config=behavior,
+        data_dir=str(tmp_path), models_dir="models", verbose=0,
+    )
+    assert trained, "fairness run returned empty trained dict"
+    # Acceptance: meta either records fairness subgroups OR the
+    # fairness keyword appears somewhere in the metadata. Strict
+    # contract is undocumented — we test the loose invariant
+    # "fairness_features didn't get silently dropped".
+    meta_text = repr(meta).lower()
+    assert "fair" in meta_text, (
+        "fairness_features=['cat_0'] left no breadcrumb in metadata — "
+        "the kwarg may have been silently ignored. Meta keys: "
+        + str(list(meta))
+    )
+
+
+# #32 prefer_calibrated_classifiers (calibration code path)
+def test_prefer_calibrated_classifiers_runs(tmp_path):
+    """``behavior_config.prefer_calibrated_classifiers=True`` selects
+    the CALIB_CLASSIF hyperparameter set inside ``configure_training_params``
+    (trainer.py:3680). Asserts a CB run with this flag set completes
+    without crashing — the calibration code path is not crashed by a
+    refactor.
+    """
+    pytest.importorskip("catboost")
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
+
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+
+    behavior = TrainingBehaviorConfig(prefer_calibrated_classifiers=True)
+    trained, _ = train_mlframe_models_suite(
+        df=df, target_name="tgt", model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb"],
+        hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+        init_common_params={"drop_columns": [], "verbose": 0},
+        use_ordinary_models=True, use_mlframe_ensembles=False,
+        behavior_config=behavior,
+        data_dir=str(tmp_path), models_dir="models", verbose=0,
+    )
+    assert trained, "prefer_calibrated_classifiers=True trained empty dict"
+
+
+# #33 Streaming parquet path: df=str(path)
+def test_df_as_parquet_path_string_loads_inside_suite(tmp_path):
+    """``train_mlframe_models_suite(df=<path-string>)`` must load the
+    parquet from disk via ``load_and_prepare_dataframe``. This is the
+    prod-streaming use case where the df is too large to materialize
+    in the caller and the suite reads it itself.
+    """
+    pytest.importorskip("catboost")
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=True, regression=False)
+    parquet_path = os.path.join(str(tmp_path), "data.parquet")
+    df.to_parquet(parquet_path)
+
+    from mlframe.training.core import train_mlframe_models_suite
+    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+    trained, meta = train_mlframe_models_suite(
+        df=parquet_path,  # path string instead of frame
+        target_name="tgt", model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb"],
+        hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+        init_common_params={"drop_columns": [], "verbose": 0},
+        use_ordinary_models=True, use_mlframe_ensembles=False,
+        data_dir=str(tmp_path), models_dir="models", verbose=0,
+    )
+    assert trained, "parquet-path-as-df failed to train"
+    cols = meta.get("columns") or []
+    assert "num_0" in cols, f"loaded frame missing expected columns: {cols}"
+
+
+# #34 trusted_root security check on load
+def test_load_outside_trusted_root_blocked(tmp_path):
+    """``predict_mlframe_models_suite`` defaults ``trusted_root`` to
+    ``os.path.abspath(models_path)``. Passing an EXPLICIT
+    ``trusted_root`` that does NOT contain the metadata file must
+    raise ``ValueError`` mentioning "trusted_root" — security guard
+    against arbitrary path escape during pickle load.
+    """
+    pytest.importorskip("catboost")
+    df = _make_baseline_pandas(n=200, seed=0, with_cat=False, regression=False)
+    _train_once(df, tmp_path, models=("cb",), regression=False)
+    models_path = os.path.join(str(tmp_path), "models", "tgt", "mdl")
+    serving = df.head(10).drop(columns=["target"])
+
+    from mlframe.training.core import predict_mlframe_models_suite
+
+    # Use a sibling dir that does NOT contain models_path.
+    bogus_root = os.path.abspath(os.path.join(str(tmp_path), "..", "elsewhere"))
+    os.makedirs(bogus_root, exist_ok=True)
+
+    with pytest.raises(ValueError, match=r"trusted_root|inside"):
+        predict_mlframe_models_suite(
+            serving, models_path=models_path,
+            trusted_root=bogus_root, verbose=0,
+        )
