@@ -43,16 +43,15 @@ AXES: dict[str, tuple[Any, ...]] = {
     "null_fraction_cats": (0.0, 0.1, 0.3),
     "use_mrmr_fs": (False, True),
     "weight_schemas": (("uniform",), ("uniform", "recency")),
-    # 2026-04-24 (Phase H): re-add multiclass after foundation work landed.
-    # multilabel_classification is supported by the codebase but NOT yet
-    # by SimpleFeaturesAndTargetsExtractor (needs 2-D target handling) —
-    # multilabel fuzz axis is a Session-2 follow-up. The multilabel_strategy_cfg
-    # axis is kept here for forward-compat but only takes effect when
-    # multilabel combos are eventually added to target_type.
+    # 2026-04-24 Session 3: multilabel_classification re-added — FTE now
+    # 2-D-aware (Session-2 landing); multilabel combos generate (N, 3)
+    # targets via build_frame_for_combo's correlated-label logic and the
+    # fuzz test runner uses MultilabelDispatchConfig via multilabel_strategy_cfg.
     "target_type": (
         "binary_classification",
         "regression",
         "multiclass_classification",
+        "multilabel_classification",
     ),
     "multilabel_strategy_cfg": ("auto", "wrapper", "chain"),  # parametric on multilabel; canonicalised to "auto" for non-multilabel
     "auto_detect_cats": (True, False),
@@ -1084,8 +1083,16 @@ def build_frame_for_combo(combo: FuzzCombo):
     # the adversarial axis catches pipeline corruption that SILENTLY
     # suppresses the leak (e.g. label-column reordering, caller-frame
     # mutation); any crash is the real bug we're probing for.
+    # For multilabel (target is (N, K)): leak label 0 specifically.
     if combo.inject_label_leak:
-        leak_col = target.astype("float32") + (rng.standard_normal(n) * 0.01).astype("float32")
+        if combo.target_type == "multilabel_classification":
+            # Leak the first label only — 2-D target can't be broadcast as
+            # a single feature. Single-label leak is still catastrophic for
+            # a model that silently mis-uses the first target dimension.
+            leak_src = target[:, 0]
+        else:
+            leak_src = target
+        leak_col = leak_src.astype("float32") + (rng.standard_normal(n) * 0.01).astype("float32")
         extra_num_cols["num_leak"] = leak_col
     # R3-1 inject_test_drift: perturb the last 15% of rows so test/val
     # slices see a distribution mismatch. Real prod bug surface (unseen
@@ -1121,7 +1128,13 @@ def build_frame_for_combo(combo: FuzzCombo):
         # with_datetime_col (#11): add a pandas datetime64 column.
         if combo.with_datetime_col:
             data["ts"] = pd.date_range("2026-01-01", periods=n, freq="h")
-        data[target_col] = target
+        # Multilabel target: 2-D (N, K) stored as an object column of list cells.
+        # SimpleFeaturesAndTargetsExtractor unpacks back to (N, K) ndarray at
+        # consumption time.
+        if combo.target_type == "multilabel_classification":
+            data[target_col] = pd.array([row.tolist() for row in target], dtype=object)
+        else:
+            data[target_col] = target
         return pd.DataFrame(data), target_col, cat_names
 
     import polars as pl
@@ -1156,5 +1169,13 @@ def build_frame_for_combo(combo: FuzzCombo):
             [start + _dt.timedelta(hours=i) for i in range(n)],
             dtype=pl.Datetime,
         )
-    data_pl[target_col] = target
+    # Multilabel target: 2-D (N, K) stored as pl.List(pl.Int8) column.
+    # SimpleFeaturesAndTargetsExtractor unpacks back to (N, K) ndarray.
+    if combo.target_type == "multilabel_classification":
+        data_pl[target_col] = pl.Series(
+            [row.tolist() for row in target],
+            dtype=pl.List(pl.Int8),
+        )
+    else:
+        data_pl[target_col] = target
     return pl.DataFrame(data_pl), target_col, cat_names

@@ -447,9 +447,20 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         frame_shape_before = getattr(df, "shape", None)
         frame_cols_before = tuple(df.columns) if hasattr(df, "columns") else None
 
+    # Resolve target_type for FTE — maps combo's string target_type to
+    # the TargetTypes enum. Multilabel gets explicit TargetTypes to
+    # trigger the 2-D target unpack path in FTE.
+    from mlframe.training.configs import TargetTypes as _TT
+    _combo_tt = {
+        "regression": _TT.REGRESSION,
+        "binary_classification": _TT.BINARY_CLASSIFICATION,
+        "multiclass_classification": _TT.MULTICLASS_CLASSIFICATION,
+        "multilabel_classification": _TT.MULTILABEL_CLASSIFICATION,
+    }[combo.target_type]
     fte = SimpleFeaturesAndTargetsExtractor(
         target_column=target_col,
         regression=(combo.target_type == "regression"),
+        target_type=_combo_tt,
     )
 
     # Resolve combo-specific kwargs (outlier detector, custom prep,

@@ -462,6 +462,150 @@ def ensemble_probabilistic_predictions(
     return ensembled_predictions, uncertainty, confident_indices
 
 
+# Default memory budget for the materialised ensemble path. Above this,
+# `ensemble_probabilistic_predictions_streaming` is preferred.
+# 500 MB allows M=6, N=9M, K=5 (~2.2 GB materialised) to trigger streaming.
+# Users can override via EnsemblingConfig.quantile_budget_bytes.
+ENSEMBLE_STREAMING_THRESHOLD_BYTES = 500 * 1024 * 1024
+
+
+def ensemble_probabilistic_predictions_streaming(
+    *preds,
+    ensemble_method: str = "arithm",
+    ensure_prob_limits: bool = True,
+    verbose: bool = True,
+) -> tuple:
+    """Streaming ensemble aggregation — one (N, K) at a time via
+    ``_WelfordAccumulator``.
+
+    Supports the moment-based methods that Welford / log-mean-of-log
+    exactly accommodate:
+      - ``arithm`` — mean via Welford
+      - ``harm``   — harmonic mean via Welford on ``1/p``
+      - ``quad``   — quadratic mean via Welford on ``p^2``
+      - ``qube``   — cubic mean via Welford on ``p^3``
+      - ``geo``    — geometric mean via Welford on ``log(p)`` (1e-300 clip)
+
+    Not supported here (require cross-member sort / quantile sketch):
+      - ``median`` — raises ``NotImplementedError``; use
+        ``ensemble_probabilistic_predictions`` (materialised) or wait for
+        Session-3 P²-Quantile accumulator.
+
+    Memory: O(N*K) for the single Welford instance; constant across M.
+    Materialised path (used by ``ensemble_probabilistic_predictions``)
+    is O(M*N*K). For prod (M=6, N=9M, K=5): streaming ~720MB, materialised
+    ~2.2GB peak.
+
+    Outlier-member filter (cross-member distance to median) is not
+    applied in streaming mode — emits a WARN when ``len(preds) > 2`` so
+    the caller knows. For small-M / small-N use cases, call the
+    materialised path instead.
+
+    Returns
+    -------
+    (ensembled_predictions, uncertainty, confident_indices)
+        Same contract as ``ensemble_probabilistic_predictions``.
+        ``uncertainty`` is the Welford std across members (unless
+        ``uncertainty_quantile=0``; streaming version always returns
+        std_preds.mean(axis=1) for consistency). ``confident_indices``
+        is None (no quantile-based filtering).
+    """
+    assert ensemble_method in SIMPLE_ENSEMBLING_METHODS, (
+        f"unknown ensemble_method {ensemble_method!r}"
+    )
+    if ensemble_method == "median":
+        raise NotImplementedError(
+            "ensemble_probabilistic_predictions_streaming: 'median' requires "
+            "a cross-member quantile sketch (e.g. P²-Quantile) not yet "
+            "available. Use ensemble_probabilistic_predictions (materialised) "
+            "or pick a moment-based method (arithm/harm/quad/qube/geo)."
+        )
+
+    preds = [p for p in preds if p is not None]
+    if len(preds) == 0:
+        return None, None, None
+    if len(preds) > 2 and verbose:
+        logger.warning(
+            "ensemble_probabilistic_predictions_streaming: outlier-member "
+            "filter is not applied in streaming mode (would require "
+            "materialised cross-member median). Use materialised path for "
+            "small-M suites where filter matters."
+        )
+
+    # Transform-per-model, feed Welford. Separate instances for each
+    # moment we need (mean + the method-specific transform).
+    first = np.asarray(preds[0])
+    shape = first.shape if first.ndim == 2 else (first.shape[0], 1)
+
+    # Primary aggregator — the ensemble method's target statistic
+    primary_acc = _WelfordAccumulator(shape=shape)
+    # Also accumulate raw preds mean + std for uncertainty reporting
+    raw_acc = _WelfordAccumulator(shape=shape)
+
+    for p in preds:
+        p = np.asarray(p, dtype=np.float64)
+        if p.ndim == 1:
+            p = p.reshape(-1, 1)
+        raw_acc.push(p)
+        if ensemble_method == "arithm":
+            primary_acc.push(p)
+        elif ensemble_method == "harm":
+            # Harm = len / sum(1/p). Accumulator sums 1/p; finalize at end.
+            with np.errstate(divide="ignore", invalid="ignore"):
+                inv = np.where(p == 0, 0.0, 1.0 / p)
+            primary_acc.push(inv)
+        elif ensemble_method == "quad":
+            primary_acc.push(p * p)
+        elif ensemble_method == "qube":
+            primary_acc.push(p * p * p)
+        elif ensemble_method == "geo":
+            # log-space; clip at 1e-300 (smallest safe float64) to preserve
+            # signal from well-calibrated rare-event probabilities.
+            with np.errstate(divide="ignore"):
+                primary_acc.push(np.log(np.clip(p, 1e-300, None)))
+
+    # Finalize per method
+    M = primary_acc.n
+    mean_of_t = primary_acc.mean  # (N, K) in transformed space
+    if ensemble_method == "arithm":
+        ensembled_predictions = mean_of_t
+    elif ensemble_method == "harm":
+        # mean_of_t is mean(1/p); harmonic mean = 1 / mean(1/p)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ensembled_predictions = np.where(mean_of_t == 0, 0.0, 1.0 / mean_of_t)
+    elif ensemble_method == "quad":
+        ensembled_predictions = np.sqrt(np.maximum(mean_of_t, 0.0))
+    elif ensemble_method == "qube":
+        ensembled_predictions = np.cbrt(mean_of_t)
+    elif ensemble_method == "geo":
+        ensembled_predictions = np.exp(mean_of_t)
+
+    # Non-finite fallback to arithmetic mean (same policy as materialised path)
+    non_finite_mask = ~np.isfinite(ensembled_predictions)
+    if non_finite_mask.any():
+        arith_mean = raw_acc.mean
+        n_replaced = int(np.sum(non_finite_mask))
+        if verbose:
+            logger.info(f"{n_replaced} non-finite values replaced with arithmetic mean")
+        ensembled_predictions = np.where(non_finite_mask, arith_mean, ensembled_predictions)
+
+    if ensure_prob_limits:
+        ensembled_predictions = np.clip(ensembled_predictions, 0.0, 1.0)
+
+    # Uncertainty from Welford std (raw preds, not transformed).
+    raw_result = raw_acc.result()
+    std_preds = raw_result["std"]
+    uncertainty = std_preds.mean(axis=1) if std_preds is not None else None
+
+    # Restore (N,) shape if original was 1-D
+    if first.ndim == 1 and ensembled_predictions.shape[1] == 1:
+        ensembled_predictions = ensembled_predictions[:, 0]
+        if uncertainty is not None and uncertainty.shape:
+            uncertainty = uncertainty
+
+    return ensembled_predictions, uncertainty, None
+
+
 def build_predictive_kwargs(train_data, test_data, val_data, is_regression: bool):
     """
     Build predictive_kwargs dict for classification or regression tasks.

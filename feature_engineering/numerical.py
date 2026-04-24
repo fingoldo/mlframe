@@ -692,9 +692,28 @@ def compute_moments_slope_mi(
     """
     slope_over, slope_under = 0.0, 0.0
     mad, std, skew, kurt = 0.0, 0.0, 0.0, 0.0
+    # 2026-04-24 Session 3: Kahan-Babuška-Neumaier compensation counters
+    # for every accumulator in the per-row loop. Recovers 1-5 orders of
+    # magnitude of precision on ill-conditioned inputs (large mean + small
+    # variance — e.g. financial time series 1e9 + N(0, 1e-3)). Cost ~1.5×
+    # wall-clock; upstream naive sums were catastrophic on such data
+    # (skew flipped sign, 5-digit loss in variance). See
+    # docs/NUMERICAL_STABILITY_REPORT.md for the bench that drove this.
+    slope_over_c = 0.0
+    slope_under_c = 0.0
+    r_sum_c = 0.0
+    mad_c = 0.0
+    std_c = 0.0
+    skew_c = 0.0
+    kurt_c = 0.0
     if weights is not None:
         sum_weights = 0.0
         weighted_mad, weighted_std, weighted_skew, weighted_kurt = mad, std, skew, kurt
+        sum_weights_c = 0.0
+        weighted_mad_c = 0.0
+        weighted_std_c = 0.0
+        weighted_skew_c = 0.0
+        weighted_kurt_c = 0.0
 
     size = len(arr)
 
@@ -713,11 +732,34 @@ def compute_moments_slope_mi(
 
         sl_x = xvals[i] - xvals_mean
 
-        slope_over += sl_x * next_value
-        slope_under += sl_x**2
+        # slope_over += sl_x * next_value (Kahan)
+        _inc = sl_x * next_value
+        _t = slope_over + _inc
+        if abs(slope_over) >= abs(_inc):
+            slope_over_c += (slope_over - _t) + _inc
+        else:
+            slope_over_c += (_inc - _t) + slope_over
+        slope_over = _t
+
+        # slope_under += sl_x**2 (Kahan)
+        _inc = sl_x * sl_x
+        _t = slope_under + _inc
+        if abs(slope_under) >= abs(_inc):
+            slope_under_c += (slope_under - _t) + _inc
+        else:
+            slope_under_c += (_inc - _t) + slope_under
+        slope_under = _t
 
         d = next_value - mean_value
-        r_sum += sl_x * d
+
+        # r_sum += sl_x * d (Kahan)
+        _inc = sl_x * d
+        _t = r_sum + _inc
+        if abs(r_sum) >= abs(_inc):
+            r_sum_c += (r_sum - _t) + _inc
+        else:
+            r_sum_c += (_inc - _t) + r_sum
+        r_sum = _t
 
         if has_prev_d:
             if d * prev_d < 0:
@@ -725,28 +767,87 @@ def compute_moments_slope_mi(
         prev_d = d
         has_prev_d = True
 
-        mad += abs(d)
+        # mad += abs(d) (Kahan)
+        _inc = abs(d)
+        _t = mad + _inc
+        if abs(mad) >= abs(_inc):
+            mad_c += (mad - _t) + _inc
+        else:
+            mad_c += (_inc - _t) + mad
+        mad = _t
+
         if weights is not None:
             next_weight = weights[i]
             w_d = next_value - weighted_mean_value
-            sum_weights += next_weight
-            weighted_mad += abs(w_d) * next_weight
+
+            # sum_weights += next_weight (Kahan)
+            _t = sum_weights + next_weight
+            if abs(sum_weights) >= abs(next_weight):
+                sum_weights_c += (sum_weights - _t) + next_weight
+            else:
+                sum_weights_c += (next_weight - _t) + sum_weights
+            sum_weights = _t
+
+            # weighted_mad += abs(w_d) * next_weight (Kahan)
+            _inc = abs(w_d) * next_weight
+            _t = weighted_mad + _inc
+            if abs(weighted_mad) >= abs(_inc):
+                weighted_mad_c += (weighted_mad - _t) + _inc
+            else:
+                weighted_mad_c += (_inc - _t) + weighted_mad
+            weighted_mad = _t
 
         summand = d * d
-        std += summand
+        # std += summand (Kahan)
+        _t = std + summand
+        if abs(std) >= abs(summand):
+            std_c += (std - _t) + summand
+        else:
+            std_c += (summand - _t) + std
+        std = _t
+
         if weights is not None:
             w_summand = w_d * w_d
-            weighted_std += w_summand * next_weight
+            # weighted_std += w_summand * next_weight (Kahan)
+            _inc = w_summand * next_weight
+            _t = weighted_std + _inc
+            if abs(weighted_std) >= abs(_inc):
+                weighted_std_c += (weighted_std - _t) + _inc
+            else:
+                weighted_std_c += (_inc - _t) + weighted_std
+            weighted_std = _t
 
         if not directional_only:
 
             summand = summand * d
-            skew += summand
+            # skew += summand (Kahan — d^3 squared-deviation cumulant)
+            _t = skew + summand
+            if abs(skew) >= abs(summand):
+                skew_c += (skew - _t) + summand
+            else:
+                skew_c += (summand - _t) + skew
+            skew = _t
+
             if weights is not None:
                 w_summand = w_summand * w_d
-                weighted_skew += w_summand * next_weight
+                # weighted_skew += w_summand * next_weight (Kahan)
+                _inc = w_summand * next_weight
+                _t = weighted_skew + _inc
+                if abs(weighted_skew) >= abs(_inc):
+                    weighted_skew_c += (weighted_skew - _t) + _inc
+                else:
+                    weighted_skew_c += (_inc - _t) + weighted_skew
+                weighted_skew = _t
 
-            kurt += summand * d
+            # kurt += summand * d (Kahan — d^4)
+            _inc = summand * d
+            _t = kurt + _inc
+            if abs(kurt) >= abs(_inc):
+                kurt_c += (kurt - _t) + _inc
+            else:
+                kurt_c += (_inc - _t) + kurt
+            kurt = _t
+
             if weights is not None:
                 # Bug fix 2026-04-24 (numaggs audit): was `weighted_skew +=` —
                 # double-accumulating skew and never accumulating kurt. The
@@ -754,15 +855,33 @@ def compute_moments_slope_mi(
                 # always-zero `weighted_kurt` by `factor`, producing -3.0
                 # for every row that took the weighted-stats branch.
                 # Affects every caller using `compute_moments_slope_mi` with
-                # weights — silently wrong feature for 4-tuple
-                # (weighted_mad, weighted_std, weighted_skew, weighted_kurt)
-                # since at least the moments-slope-mi block was added.
-                weighted_kurt += w_summand * w_d * next_weight
+                # weights — silently wrong feature for 4-tuple.
+                _inc = w_summand * w_d * next_weight
+                _t = weighted_kurt + _inc
+                if abs(weighted_kurt) >= abs(_inc):
+                    weighted_kurt_c += (weighted_kurt - _t) + _inc
+                else:
+                    weighted_kurt_c += (_inc - _t) + weighted_kurt
+                weighted_kurt = _t
 
     # mi = mutual_info_regression(xvals.reshape(-1, 1), arr, n_neighbors=2)  # n_neighbors=2 is strictly needed for short sequences
 
+    # Apply Kahan corrections to final accumulator values
+    slope_over += slope_over_c
+    slope_under += slope_under_c
+    r_sum += r_sum_c
+    mad += mad_c
+    std += std_c
+    skew += skew_c
+    kurt += kurt_c
+
     std = np.sqrt(std / size)
     if weights is not None:
+        sum_weights += sum_weights_c
+        weighted_mad += weighted_mad_c
+        weighted_std += weighted_std_c
+        weighted_skew += weighted_skew_c
+        weighted_kurt += weighted_kurt_c
         weighted_std = np.sqrt(weighted_std / sum_weights)
 
     if not directional_only:
