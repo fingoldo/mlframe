@@ -383,16 +383,21 @@ class TestGetPandasViewOfPolarsDF:
 # ================================================================================================
 
 class TestPolarsSliceDictionaryDiffers:
-    """Documents (and asserts) the Polars behaviour that killed the
-    shared-dict optimisation attempted on 2026-04-19: slicing a Polars
-    DataFrame with Categorical columns trims each slice's dictionary to
-    exactly the values present in that slice, so train/val/test slices of
-    one source carry **different** pyarrow dictionaries.
+    """Documents current Polars slice-over-Categorical semantics — the test
+    class name is historical. Relevant for the shared-dict optimisation
+    attempted on 2026-04-19 and abandoned because Polars (at the time,
+    ≤ 1.32) trimmed each slice's dictionary to exactly the values present
+    in that slice, making a shared Arrow-level cache pointless.
 
-    Kept as a guard test so a future polars upgrade that changes this
-    behaviour (e.g. starts preserving the parent's full palette across
-    slices) is detected immediately — because then the shared-dict
-    optimisation would become viable again.
+    Polars ≥ 1.33 changed that: slicing a ``pl.Categorical`` column now
+    preserves the parent's full dictionary on each slice (verified with
+    polars 1.33.1 on 2026-04-23 — ``head.to_arrow().chunks[0].dictionary``
+    equals the source's dictionary byte-for-byte, even though the slice
+    only materialises 127/198 categories). The behavioural test below
+    locks this in as the *current* contract. The previous failure mode
+    was the trigger that made shared-dict caching worth revisiting; the
+    new behaviour makes it viable — see the 2026-04-23 notes in
+    ``get_pandas_view_of_polars_df`` for whether / how to re-enable.
     """
 
     def test_high_cardinality_conversion_perf_budget(self):
@@ -428,7 +433,22 @@ class TestPolarsSliceDictionaryDiffers:
         out = get_pandas_view_of_polars_df(df)
         assert out.shape == (0, 0)
 
-    def test_slice_trims_categorical_dictionary(self):
+    def test_slice_preserves_parent_categorical_dictionary(self):
+        """Polars ≥ 1.33 preserves the parent's full Categorical dictionary
+        across slices (``.head()``, ``df[a:b]``, ``.filter()``, etc.).
+
+        Why we check this:
+          * shared-dict caching in ``get_pandas_view_of_polars_df`` is
+            sound iff sliced frames carry the same dict object as their
+            source — this test is the proof it still holds.
+          * if a future polars upgrade regresses back to per-slice dict
+            trimming (old behaviour), the first assert will start failing
+            and the shared-dict codepath will need to be gated off.
+
+        The test is "inverted" relative to its 2026-04-19 ancestor
+        (``test_slice_trims_categorical_dictionary``), which asserted the
+        opposite because at the time polars DID trim on slice.
+        """
         rng = np.random.default_rng(0)
         pool = np.array([f"c_{i}" for i in range(200)])
         values = pool[rng.integers(0, 200, size=1000)]
@@ -437,19 +457,23 @@ class TestPolarsSliceDictionaryDiffers:
         head = src.head(800)
         tail = src[800:]
 
+        full_dict = src.to_arrow().column(0).chunks[0].dictionary
         head_dict = head.to_arrow().column(0).chunks[0].dictionary
         tail_dict = tail.to_arrow().column(0).chunks[0].dictionary
 
-        # Whole-frame dict has the full palette; sliced frames have trimmed
-        # palettes that are strict subsets and — because row subsets
-        # intersect randomly — almost never match each other.
-        full_dict = src.to_arrow().column(0).chunks[0].dictionary
-        assert len(head_dict) < len(full_dict), "slice did not trim dict"
-        assert len(tail_dict) < len(full_dict), "slice did not trim dict"
-        assert not head_dict.equals(tail_dict), (
-            "train and val slice dicts matched — polars behaviour changed, "
-            "the shared-dict optimisation revisit might now be viable"
+        # Same size — parent palette preserved on each slice, regardless
+        # of how many of those categories the slice actually materialises.
+        assert len(head_dict) == len(full_dict), (
+            "polars slice trimmed the Categorical dict — behaviour reverted "
+            "to the pre-1.33 model; shared-dict caching in "
+            "get_pandas_view_of_polars_df must be gated off."
         )
+        assert len(tail_dict) == len(full_dict)
+        # Parent ↔ slice equality (stronger guarantee than equal length).
+        assert head_dict.equals(full_dict)
+        assert tail_dict.equals(full_dict)
+        # And the two slices share the same palette too.
+        assert head_dict.equals(tail_dict)
 
 
 # ================================================================================================
