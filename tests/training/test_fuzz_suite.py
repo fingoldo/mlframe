@@ -131,8 +131,20 @@ def _outlier_detector_for_combo(combo: FuzzCombo):
 
 def _custom_pre_pipelines_for_combo(combo: FuzzCombo):
     """When ``combo.custom_prep == "pca2"`` attach an IncrementalPCA
-    transformer. Fails-open if sklearn isn't importable."""
-    if combo.custom_prep == "pca2":
+    transformer. Fails-open if sklearn isn't importable.
+
+    Gated on all-numeric frame: sklearn's IncrementalPCA cannot fit
+    on string/categorical/list-of-float columns, and the mlframe
+    pipeline does NOT pre-encode before a custom_pre_pipeline.
+    Matches the canonicalisation in FuzzCombo.canonical_key so the
+    combo generation and runtime wiring agree.
+    """
+    has_non_numeric = (
+        combo.cat_feature_count > 0
+        or combo.text_col_count > 0
+        or combo.embedding_col_count > 0
+    )
+    if combo.custom_prep == "pca2" and not has_non_numeric:
         try:
             from sklearn.decomposition import IncrementalPCA
             return {"pca2": IncrementalPCA(n_components=2)}

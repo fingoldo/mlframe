@@ -129,6 +129,20 @@ class FuzzCombo:
         # fairness_col is meaningful only if that column exists → None
         # when cat_feature_count == 0 (no cat_0 to reference).
         fairness = self.fairness_col if self.cat_feature_count > 0 else None
+        # custom_prep=pca2 makes sense only on an all-numeric frame —
+        # IncrementalPCA can't consume string/cat/text/embedding
+        # columns, and the mlframe pipeline doesn't pre-encode before
+        # a custom_pre_pipeline step. When the frame has ANY non-numeric
+        # feature (cat, text, embedding) canonicalise custom_prep to
+        # None so the pairwise sampler doesn't waste combos on a
+        # guaranteed-fail configuration. Users who want PCA on mixed
+        # dtypes must pre-encode themselves.
+        has_non_numeric = (
+            self.cat_feature_count > 0
+            or self.text_col_count > 0
+            or self.embedding_col_count > 0
+        )
+        custom_prep = self.custom_prep if not has_non_numeric else None
         return (
             tuple(sorted(self.models)),
             self.input_type,
@@ -156,7 +170,7 @@ class FuzzCombo:
             self.with_datetime_col,
             self.inject_zero_col,
             fairness,
-            self.custom_prep,
+            custom_prep,
             self.input_storage,
         )
 
