@@ -3301,19 +3301,34 @@ def _configure_recurrent_params(
 
         rnn_type = rnn_type_map[model_name_lower]
 
-        # Create model-specific config
+        # Create model-specific config.
+        # 2026-04-24 (test_recurrent_lstm_smoke surfaced 4 bugs):
+        #   * ``seq_input_dim`` / ``features_dim`` were passed as
+        #     RecurrentConfig kwargs but the dataclass has no such
+        #     fields. The wrapper computes both internally during
+        #     ``fit`` from input shapes (see ``_RecurrentWrapperBase``
+        #     in neural/recurrent.py:1041-1042: ``_aux_input_size``
+        #     and ``_seq_input_size`` populated at fit-time). The
+        #     dimensions captured at lines 3274-3284 above are now
+        #     unused; left in place because future config-time
+        #     validation may want them.
+        #   * ``num_heads`` was a typo for ``n_heads`` (RecurrentConfig
+        #     declares ``n_heads`` at neural/recurrent.py:170).
+        #   * ``mlp_hidden_dims`` was a typo for ``mlp_hidden_sizes``
+        #     (declared at neural/recurrent.py:174).
+        # Without this fix every recurrent model (LSTM/GRU/RNN/
+        # Transformer) crashes immediately with TypeError /
+        # AttributeError on construction.
         config = RecurrentConfig(
             input_mode=input_mode,
             rnn_type=rnn_type,
-            seq_input_dim=seq_input_dim,
-            features_dim=features_dim,
             hidden_size=recurrent_config.hidden_size,
             num_layers=recurrent_config.num_layers,
             dropout=recurrent_config.dropout,
             bidirectional=recurrent_config.bidirectional,
-            num_heads=recurrent_config.num_heads,
+            n_heads=recurrent_config.n_heads,
             use_attention=recurrent_config.use_attention,
-            mlp_hidden_dims=recurrent_config.mlp_hidden_dims,
+            mlp_hidden_sizes=recurrent_config.mlp_hidden_sizes,
             num_classes=recurrent_config.num_classes,
             learning_rate=recurrent_config.learning_rate,
             weight_decay=recurrent_config.weight_decay,
