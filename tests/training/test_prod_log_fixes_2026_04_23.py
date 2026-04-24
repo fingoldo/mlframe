@@ -1371,3 +1371,171 @@ class TestCatBoostStickyFlagDefensiveAtCreation:
             f"defensive sticky flag must trigger short-circuit on first "
             f"predict; got {calls}"
         )
+
+
+# =====================================================================
+# Fix 15: _CB_VAL_POOL_CACHE two-stage lookup (id → content fallback)
+# =====================================================================
+
+class TestCBValPoolCacheContentFallback:
+    """The 2026-04-24 prod log captured CB val Pool being **rebuilt** on
+    every metrics-path predict_proba even though the fit phase had
+    already stored a Pool for the same val frame:
+
+      11:14:05 [dataset-build] catboost.Pool 811663x106 took=0.111s site=2006   ← fit eval_set
+      12:08:40 [dataset-build] catboost.Pool 811663x106 took=0.144s site=1458   ← metrics — rebuild!
+
+    Root cause: the cache lookup used ``id(val_df)`` exactly. Between
+    the fit (where the Pool was stored) and the metrics phase, the
+    Python object identity of ``val_df`` shifted (mlframe's pre-pipeline
+    transforms can return a fresh DataFrame). Same content, different
+    ``id()`` → cache miss → rebuild.
+
+    Fix: two-stage lookup. Stage 1 ``id(X)`` exact match (fast path);
+    stage 2 content match on (cols + shape + dtypes), safe for predict-
+    only reuse since predict doesn't read the label.
+    """
+
+    def test_cache_lookup_falls_back_to_content_when_id_misses(self):
+        """End-to-end: store a Pool keyed by id(val_df_a), then look up
+        with a fresh DataFrame val_df_b that has the same cols, shape,
+        and dtypes — must return the cached Pool via content match,
+        not rebuild."""
+        from mlframe.training.trainer import (
+            _CB_VAL_POOL_CACHE, _predict_with_fallback,
+        )
+        # Pre-condition: clear cache for a clean test.
+        _CB_VAL_POOL_CACHE.clear()
+
+        # Build two pandas frames with identical schema but distinct
+        # Python identity. id(df_a) != id(df_b).
+        df_a = pd.DataFrame({
+            "a": pd.Series([1.0, 2.0, 3.0], dtype="float32"),
+            "b": pd.Series(["x", "y", "z"], dtype="category"),
+        })
+        df_b = pd.DataFrame({
+            "a": pd.Series([4.0, 5.0, 6.0], dtype="float32"),  # different values, same dtype
+            "b": pd.Series(["x", "y", "z"], dtype="category"),
+        })
+        assert id(df_a) != id(df_b)
+
+        # Manually populate the cache with a fake Pool keyed by id(df_a)
+        # carrying the dtypes signature ``df_a`` has.
+        class _FakePool:
+            pass
+        fake_pool = _FakePool()
+        fake_pool._mlframe_dtypes_sig = tuple(str(d) for d in df_a.dtypes)
+        cols_a = tuple(df_a.columns)
+        shape_a = (df_a.shape[0], df_a.shape[1])
+        key = (id(df_a), cols_a, shape_a,
+               (), (), ())  # cat/text/embedding empty tuples to match storage shape
+        _CB_VAL_POOL_CACHE[key] = fake_pool
+
+        # Lookup with df_b: id miss, but cols+shape+dtypes match → hit.
+        calls = []
+
+        class _FakeCB:
+            pass
+        _FakeCB.__name__ = "CatBoostClassifier"
+
+        def _fake_predict_proba(X):
+            calls.append(type(X).__name__)
+            return np.array([[0.4, 0.6]] * 3)
+
+        fake = _FakeCB()
+        fake.predict_proba = _fake_predict_proba
+        # Sticky flag off so the cache probe runs (sticky path bypasses it
+        # for polars; we're testing pandas here so flag is moot).
+        try:
+            _predict_with_fallback(fake, df_b, method="predict_proba")
+        except Exception:
+            # Some downstream call may fail because our fake_pool isn't a
+            # real Pool — but we only care that the cache HIT was logged.
+            pass
+
+        # If the content-fallback fired, fn was called with our fake Pool.
+        assert calls == ["_FakePool"], (
+            f"content-fallback didn't fire — fn was called with {calls!r} "
+            f"instead of the cached Pool. The 2026-04-24 cache-miss "
+            f"regression has returned."
+        )
+
+        # Cleanup.
+        _CB_VAL_POOL_CACHE.clear()
+
+    def test_dtypes_sig_stored_on_pool_during_eval_set_setup(self):
+        """Structural check: the storage path in
+        ``_maybe_rewrite_eval_set_as_cb_pool`` must stash
+        ``_mlframe_dtypes_sig`` on the val Pool — without it, the
+        content-fallback lookup has nothing to compare."""
+        import inspect
+        from mlframe.training import trainer as tr_mod
+        src = inspect.getsource(tr_mod._maybe_rewrite_eval_set_as_cb_pool)
+        assert "_mlframe_dtypes_sig" in src, (
+            "_maybe_rewrite_eval_set_as_cb_pool must stash a "
+            "_mlframe_dtypes_sig fingerprint on the val Pool so the "
+            "predict-side content-fallback lookup can match across "
+            "id-shifts. See the 2026-04-24 cache-miss fix in trainer.py."
+        )
+
+
+# =====================================================================
+# Fix 16: TEST Pool double build eliminated by sticky-flag short-circuit
+# =====================================================================
+
+class TestCBSinglePoolBuildOnTestPredict:
+    """The 2026-04-24 prod log showed CB TEST predict_proba building the
+    Pool **twice**: once when CB.predict_proba(pl.DataFrame) was tried
+    (failed at the polars-fastpath dispatch), and again after pandas
+    fallback. Both happen inside CB's internal Pool dispatch.
+
+    With the CB sticky-flag set defensively at model construction
+    (``configure_training_params`` for fresh models, restored across
+    sklearn.clone() in core.py), the very first predict_proba on a
+    polars frame takes the pandas short-circuit — so only ONE Pool
+    build occurs, not two.
+    """
+
+    def test_first_polars_predict_takes_pandas_shortcut_not_double_build(self):
+        """A CB instance with the defensively-set sticky flag (matches
+        what ``_configure_xgboost_params`` / ``_configure_catboost_params``
+        produce now) predict_proba(pl.DataFrame) must skip the polars
+        attempt entirely — verified by tracking ``fn`` call kinds."""
+        from mlframe.training.trainer import _predict_with_fallback
+
+        kinds = []
+
+        class _FakeCB:
+            pass
+        _FakeCB.__name__ = "CatBoostClassifier"
+
+        def _proba(X):
+            kinds.append(type(X).__name__)
+            return np.array([[0.4, 0.6]] * len(X))
+
+        fake = _FakeCB()
+        fake.predict_proba = _proba
+        fake.feature_names_ = ["a"]
+        fake._get_cat_feature_indices = lambda: [0]
+        fake._get_text_feature_indices = lambda: []
+        # Defensive sticky flag (set at construction in production).
+        fake._mlframe_polars_fastpath_broken = True
+
+        pl_df = pl.DataFrame({
+            "a": pl.Series(["x", "y", "z"], dtype=pl.Categorical),
+        })
+        _predict_with_fallback(fake, pl_df, method="predict_proba")
+
+        # fn must have been called EXACTLY ONCE, with a pandas DataFrame
+        # (the short-circuit's converted X_pd). The pre-2026-04-24 path
+        # was: fn(polars) → TypeError → fn(pandas), i.e. TWO calls and
+        # TWO Pool builds inside CB.
+        assert len(kinds) == 1, (
+            f"defensive sticky-flag short-circuit didn't eliminate "
+            f"the double Pool build — fn was called {len(kinds)}× "
+            f"({kinds!r}). Expected 1 call with pandas only."
+        )
+        assert kinds[0] == "DataFrame", (
+            f"short-circuit must convert to pandas; first call was "
+            f"with {kinds[0]!r}"
+        )

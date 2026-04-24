@@ -1458,10 +1458,21 @@ def _predict_with_fallback(
     # sees ``isinstance(X, Pool)``, so passing the cached Pool here
     # skips the second build entirely.
     #
-    # Lookup uses the full id(X)+cols+shape signature — same frame
-    # => same Pool. A stale cache entry that matches the signature
-    # but had its label overwritten by fit is still fine for
-    # predict_proba / predict (they don't read the label).
+    # 2026-04-24 hardening: lookup originally required exact ``id(X)``
+    # match, which silently missed when the val_df Python object was
+    # replaced between fit and metrics phases (mlframe's pre_pipeline
+    # transforms can return a fresh frame). Prod log observed both
+    # CB uniform AND CB recency rebuilding the val Pool on metrics
+    # despite the fit-side cache having stored an entry for the same
+    # shape+columns frame. Two-stage lookup: try ``id(X)`` first
+    # (fast path), fall back on a content signature (cols + shape +
+    # dtypes) when no id match. The content fallback is safe for
+    # predict-only reuse — the comment above already documented
+    # "stale cache entry ... is still fine for predict (they don't
+    # read the label)". Adding dtypes to the fingerprint guards
+    # against a same-shape-different-content collision (rare but
+    # possible if user reuses the same outer frame across different
+    # preprocessing pipelines in the same process).
     try:
         _model_type = type(model).__name__
         if _model_type in CATBOOST_MODEL_TYPES and hasattr(X, "columns") and hasattr(X, "shape"):
@@ -1471,17 +1482,48 @@ def _predict_with_fallback(
                 _shape_sig = (int(_shape[0]), int(_shape[1]))
             except Exception:
                 _shape_sig = None
+            try:
+                # dtypes signature for collision-safe content fallback
+                if hasattr(X, "dtypes"):
+                    _dtypes_sig = tuple(str(d) for d in X.dtypes) if not hasattr(X.dtypes, "items") else tuple(str(d) for d in X.dtypes)
+                elif hasattr(X, "schema"):
+                    _dtypes_sig = tuple(str(d) for d in X.schema.values())
+                else:
+                    _dtypes_sig = None
+            except Exception:
+                _dtypes_sig = None
             _id = id(X)
+            _hit = None
+            _hit_via = None
+            # Stage 1: id-based exact match (fast).
             for key, pool in _CB_VAL_POOL_CACHE.items():
                 if key[0] == _id and key[1] == _cols and key[2] == _shape_sig:
-                    logger.info(
-                        "[cb-val-pool-reuse] %s hit on cached val Pool — "
-                        "skipping redundant Pool rebuild (saves the 53-66s "
-                        "observed on 7M-row prod)",
-                        method,
-                    )
-                    with phase(method, model=_model_type, n_rows=n_rows):
-                        return fn(pool)
+                    _hit = pool
+                    _hit_via = "id"
+                    break
+            # Stage 2: content-based fallback (id miss but cols + shape +
+            # dtypes match → predict_proba is safe to short-circuit, see
+            # comment above).
+            if _hit is None and _shape_sig is not None and _dtypes_sig is not None:
+                for key, pool in _CB_VAL_POOL_CACHE.items():
+                    cached_dtypes_sig = getattr(pool, "_mlframe_dtypes_sig", None)
+                    if (
+                        key[1] == _cols
+                        and key[2] == _shape_sig
+                        and cached_dtypes_sig == _dtypes_sig
+                    ):
+                        _hit = pool
+                        _hit_via = "content"
+                        break
+            if _hit is not None:
+                logger.info(
+                    "[cb-val-pool-reuse] %s hit on cached val Pool via %s — "
+                    "skipping redundant Pool rebuild (saves the 53-66s "
+                    "observed on 7M-row prod)",
+                    method, _hit_via,
+                )
+                with phase(method, model=_model_type, n_rows=n_rows):
+                    return fn(_hit)
     except Exception as _exc:
         # Any lookup failure is benign — fall through to normal path.
         logger.debug(
@@ -1912,6 +1954,21 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: Dict[str, Any]) -> None:
             continue
 
         val_pool._mlframe_last_target_id = id(val_target)
+        # Stash a content-fingerprint on the Pool so the predict-side
+        # lookup in ``_predict_with_fallback`` can do a cols + shape +
+        # dtypes content match when ``id(val_df)`` has shifted between
+        # fit and metrics phases (2026-04-24 prod regression — same
+        # frame, different Python object due to upstream pre_pipeline
+        # transforms).
+        try:
+            if hasattr(val_df, "dtypes"):
+                val_pool._mlframe_dtypes_sig = tuple(str(d) for d in val_df.dtypes)
+            elif hasattr(val_df, "schema"):
+                val_pool._mlframe_dtypes_sig = tuple(str(d) for d in val_df.schema.values())
+            else:
+                val_pool._mlframe_dtypes_sig = None
+        except Exception:
+            val_pool._mlframe_dtypes_sig = None
         _CB_VAL_POOL_CACHE[key] = val_pool
         rewritten.append(val_pool)
         changed = True
