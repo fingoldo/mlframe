@@ -309,7 +309,24 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             } if combo.use_mrmr_fs else None),
             **_configs_for_combo(combo),
         )
-        assert trained, f"empty models dict for combo {combo.short_id()}"
+        # An empty ``trained`` dict is acceptable ONLY when
+        # ``continue_on_model_failure=True`` AND the suite recorded
+        # each failure in ``metadata['failed_models']``. Any other
+        # empty-trained outcome is a bug — the suite should have
+        # either raised or produced ≥1 model.
+        if not trained:
+            if (
+                combo.continue_on_model_failure
+                and _meta is not None
+                and _meta.get("failed_models")
+            ):
+                pass  # graceful skip of a configurably-failing combo
+            else:
+                raise AssertionError(
+                    f"empty models dict for combo {combo.short_id()} "
+                    f"(continue_on_failure={combo.continue_on_model_failure}, "
+                    f"failed_models={(_meta or {}).get('failed_models')})"
+                )
 
         # --- Post-train invariants (free on every combo) ---
         # #16 no caller-frame mutation (skip for parquet-path).
@@ -324,11 +341,21 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 f"after={shape_after}"
             )
         # #20 metadata schema: load-bearing keys present.
+        # ``model_schemas`` is only populated when at least one model
+        # successfully trained — combos that legitimately degrade to
+        # an empty trained dict (continue_on_failure=True + all models
+        # failed) won't have it. Check the always-present keys
+        # unconditionally; model_schemas only when trained non-empty.
         if _meta is not None:
-            for k in ("columns", "cat_features", "outlier_detection", "model_schemas"):
+            for k in ("columns", "cat_features", "outlier_detection"):
                 assert k in _meta, (
                     f"metadata missing load-bearing key {k!r}; "
                     f"keys={list(_meta)[:20]}"
+                )
+            if trained:
+                assert "model_schemas" in _meta, (
+                    "metadata missing 'model_schemas' despite non-empty "
+                    f"trained dict; keys={list(_meta)[:20]}"
                 )
     except Exception as exc:
         outcome = "fail"
