@@ -34,8 +34,8 @@ _FUZZ_MASTER_SEED = int(os.environ.get("FUZZ_SEED", "20260422"))
 COMBOS: list[FuzzCombo] = enumerate_combos(target=150, master_seed=_FUZZ_MASTER_SEED)
 
 
-def _config_for_models(models: tuple[str, ...], n_rows: int) -> dict:
-    cfg: dict = {"iterations": 3 if n_rows <= 300 else 5}
+def _config_for_models(models: tuple[str, ...], n_rows: int, iterations: int = 3) -> dict:
+    cfg: dict = {"iterations": iterations}
     if "lgb" in models:
         cfg["lgb_kwargs"] = {"device_type": "cpu", "verbose": -1}
     if "xgb" in models:
@@ -84,6 +84,21 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
     embedding_features = (
         [f"emb_{i}" for i in range(combo.embedding_col_count)] if emits_emb else None
     )
+    # Fairness: only valid if the referenced column actually exists in
+    # the frame (cat_0 requires cat_feature_count >= 1).
+    fairness_features = (
+        [combo.fairness_col]
+        if combo.fairness_col is not None and combo.cat_feature_count > 0
+        else None
+    )
+    behavior_kwargs: dict = {
+        "align_polars_categorical_dicts": combo.align_polars_categorical_dicts,
+        "continue_on_model_failure": combo.continue_on_model_failure,
+        "prefer_calibrated_classifiers": combo.prefer_calibrated_classifiers,
+    }
+    if fairness_features:
+        behavior_kwargs["fairness_features"] = fairness_features
+        behavior_kwargs["fairness_min_pop_cat_thresh"] = 10
     return {
         "pipeline_config": PolarsPipelineConfig(
             use_polarsds_pipeline=combo.use_polarsds_pipeline,
@@ -95,10 +110,53 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
             text_features=text_features,
             embedding_features=embedding_features,
         ),
-        "behavior_config": TrainingBehaviorConfig(
-            align_polars_categorical_dicts=combo.align_polars_categorical_dicts,
-        ),
+        "behavior_config": TrainingBehaviorConfig(**behavior_kwargs),
     }
+
+
+def _outlier_detector_for_combo(combo: FuzzCombo):
+    """Construct an ``outlier_detector`` object when the combo asks for
+    one, else return None. Kept separate from ``_configs_for_combo`` so
+    the suite kwarg and the combo axis are wired independently."""
+    if combo.outlier_detection == "isolation_forest":
+        try:
+            from sklearn.ensemble import IsolationForest
+            return IsolationForest(
+                contamination=0.05, random_state=combo.seed, n_estimators=20,
+            )
+        except ImportError:
+            return None
+    return None
+
+
+def _custom_pre_pipelines_for_combo(combo: FuzzCombo):
+    """When ``combo.custom_prep == "pca2"`` attach an IncrementalPCA
+    transformer. Fails-open if sklearn isn't importable."""
+    if combo.custom_prep == "pca2":
+        try:
+            from sklearn.decomposition import IncrementalPCA
+            return {"pca2": IncrementalPCA(n_components=2)}
+        except ImportError:
+            return None
+    return None
+
+
+def _maybe_to_parquet(combo: FuzzCombo, df, tmp_path):
+    """Convert ``df`` to a parquet file path when
+    ``combo.input_storage == "parquet"``; otherwise pass through.
+    The suite's ``load_and_prepare_dataframe`` accepts str paths
+    and reads them internally — this exercises the streaming
+    parquet code path.
+    """
+    if combo.input_storage != "parquet":
+        return df
+    import polars as _pl
+    path = str(tmp_path / "combo_input.parquet")
+    if isinstance(df, _pl.DataFrame):
+        df.write_parquet(path)
+    else:
+        df.to_parquet(path)
+    return path
 
 
 def _common_init_for_combo(combo: FuzzCombo) -> dict:
@@ -166,7 +224,7 @@ def _fuzz_combo_cleanup():
     gc.collect()
 
 
-@pytest.mark.timeout(60)
+@pytest.mark.timeout(120)
 @pytest.mark.parametrize("combo", COMBOS, ids=[c.pytest_id() for c in COMBOS])
 def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     """Run ``train_mlframe_models_suite`` on one random combo; log the outcome."""
@@ -180,10 +238,31 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
 
     df, target_col, _cat_names = build_frame_for_combo(combo)
 
+    # #16 invariant: capture caller-frame schema + shape before the
+    # suite runs; re-assert identity after. Applies when input stays
+    # in-memory (parquet-path combos have no Python-level caller frame
+    # to preserve — the parquet file is the source of truth).
+    frame_schema_before = None
+    frame_shape_before = None
+    frame_cols_before = None
+    if combo.input_storage == "memory":
+        if hasattr(df, "schema"):
+            frame_schema_before = dict(df.schema)
+        elif hasattr(df, "dtypes"):
+            frame_schema_before = {c: str(df[c].dtype) for c in df.columns}
+        frame_shape_before = getattr(df, "shape", None)
+        frame_cols_before = tuple(df.columns) if hasattr(df, "columns") else None
+
     fte = SimpleFeaturesAndTargetsExtractor(
         target_column=target_col,
         regression=(combo.target_type == "regression"),
     )
+
+    # Resolve combo-specific kwargs (outlier detector, custom prep,
+    # parquet path). These feed directly into train_mlframe_models_suite.
+    df_input = _maybe_to_parquet(combo, df, tmp_path)
+    outlier_detector = _outlier_detector_for_combo(combo)
+    custom_pre = _custom_pre_pipelines_for_combo(combo)
 
     from mlframe.training.core import train_mlframe_models_suite
 
@@ -193,15 +272,19 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     err_summary = None
     try:
         trained, _meta = train_mlframe_models_suite(
-            df=df,
+            df=df_input,
             target_name=combo.short_id(),
             model_name=combo.short_id(),
             features_and_targets_extractor=fte,
             mlframe_models=list(combo.models),
-            hyperparams_config=_config_for_models(combo.models, combo.n_rows),
+            hyperparams_config=_config_for_models(
+                combo.models, combo.n_rows, iterations=combo.iterations,
+            ),
             init_common_params=_common_init_for_combo(combo),
             use_ordinary_models=True,
-            use_mlframe_ensembles=False,
+            use_mlframe_ensembles=combo.use_ensembles,
+            outlier_detector=outlier_detector,
+            custom_pre_pipelines=custom_pre,
             data_dir=str(tmp_path),
             models_dir="models",
             verbose=0,
@@ -215,6 +298,26 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             **_configs_for_combo(combo),
         )
         assert trained, f"empty models dict for combo {combo.short_id()}"
+
+        # --- Post-train invariants (free on every combo) ---
+        # #16 no caller-frame mutation (skip for parquet-path).
+        if combo.input_storage == "memory" and frame_cols_before is not None:
+            assert tuple(df.columns) == frame_cols_before, (
+                f"caller-frame columns mutated: before={frame_cols_before} "
+                f"after={tuple(df.columns)}"
+            )
+            shape_after = getattr(df, "shape", None)
+            assert shape_after == frame_shape_before, (
+                f"caller-frame shape mutated: before={frame_shape_before} "
+                f"after={shape_after}"
+            )
+        # #20 metadata schema: load-bearing keys present.
+        if _meta is not None:
+            for k in ("columns", "cat_features", "outlier_detection", "model_schemas"):
+                assert k in _meta, (
+                    f"metadata missing load-bearing key {k!r}; "
+                    f"keys={list(_meta)[:20]}"
+                )
     except Exception as exc:
         outcome = "fail"
         err_class = type(exc).__name__

@@ -58,6 +58,24 @@ AXES: dict[str, tuple[Any, ...]] = {
     # high-cardinality text column or one pl.List embedding column.
     "text_col_count": (0, 1),
     "embedding_col_count": (0, 1),
+    # 2026-04-24 combo extension — pull the test_suite_coverage_gaps
+    # gap-analysis items into the fuzz axis space so cross-axis
+    # interactions are exercised (e.g. OD × polars_utf8 × MRMR × linear).
+    # Each axis doubles the pairwise-coverage work; the pairwise sampler
+    # keeps the combo count at the target by selecting informative
+    # combinations rather than a full cartesian product.
+    "outlier_detection": (None, "isolation_forest"),             # #3
+    "use_ensembles": (False, True),                              # #5
+    "continue_on_model_failure": (False, True),                  # #21
+    "iterations": (3, 30),                                       # #15
+    "prefer_calibrated_classifiers": (False, True),              # #32
+    "inject_degenerate_cols": (False, True),                     # #7 (const + all-null)
+    "inject_inf_nan": (False, True),                             # #10
+    "with_datetime_col": (False, True),                          # #11
+    "inject_zero_col": (False, True),                            # #40 (uninformative)
+    "fairness_col": (None, "cat_0"),                             # #31
+    "custom_prep": (None, "pca2"),                               # #29
+    "input_storage": ("memory", "parquet"),                      # #33
 }
 
 
@@ -86,6 +104,19 @@ class FuzzCombo:
     honor_user_dtype: bool = False
     text_col_count: int = 0
     embedding_col_count: int = 0
+    # 2026-04-24 combo extension from test_suite_coverage_gaps analysis
+    outlier_detection: "str | None" = None
+    use_ensembles: bool = False
+    continue_on_model_failure: bool = False
+    iterations: int = 3
+    prefer_calibrated_classifiers: bool = False
+    inject_degenerate_cols: bool = False
+    inject_inf_nan: bool = False
+    with_datetime_col: bool = False
+    inject_zero_col: bool = False
+    fairness_col: "str | None" = None
+    custom_prep: "str | None" = None
+    input_storage: str = "memory"
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -95,6 +126,9 @@ class FuzzCombo:
         if self.input_type == "pandas":
             align = False
         null_frac = self.null_fraction_cats if self.cat_feature_count > 0 else 0.0
+        # fairness_col is meaningful only if that column exists → None
+        # when cat_feature_count == 0 (no cat_0 to reference).
+        fairness = self.fairness_col if self.cat_feature_count > 0 else None
         return (
             tuple(sorted(self.models)),
             self.input_type,
@@ -111,6 +145,19 @@ class FuzzCombo:
             self.honor_user_dtype,
             self.text_col_count,
             self.embedding_col_count,
+            # 2026-04-24 combo-extension axes
+            self.outlier_detection,
+            self.use_ensembles,
+            self.continue_on_model_failure,
+            self.iterations,
+            self.prefer_calibrated_classifiers,
+            self.inject_degenerate_cols,
+            self.inject_inf_nan,
+            self.with_datetime_col,
+            self.inject_zero_col,
+            fairness,
+            self.custom_prep,
+            self.input_storage,
         )
 
     def short_id(self) -> str:
@@ -142,6 +189,19 @@ class FuzzCombo:
             "honor_user_dtype": self.honor_user_dtype,
             "text_col_count": self.text_col_count,
             "embedding_col_count": self.embedding_col_count,
+            # 2026-04-24 combo-extension axes
+            "outlier_detection": self.outlier_detection,
+            "use_ensembles": self.use_ensembles,
+            "continue_on_model_failure": self.continue_on_model_failure,
+            "iterations": self.iterations,
+            "prefer_calibrated_classifiers": self.prefer_calibrated_classifiers,
+            "inject_degenerate_cols": self.inject_degenerate_cols,
+            "inject_inf_nan": self.inject_inf_nan,
+            "with_datetime_col": self.with_datetime_col,
+            "inject_zero_col": self.inject_zero_col,
+            "fairness_col": self.fairness_col,
+            "custom_prep": self.custom_prep,
+            "input_storage": self.input_storage,
         }
 
 
@@ -299,12 +359,24 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         auto_detect_cats=axes["auto_detect_cats"],
         align_polars_categorical_dicts=axes["align_polars_categorical_dicts"],
         seed=seed,
-        # New 2026-04-24 axes
         use_polarsds_pipeline=axes.get("use_polarsds_pipeline", True),
         use_text_features=axes.get("use_text_features", True),
         honor_user_dtype=axes.get("honor_user_dtype", False),
         text_col_count=axes.get("text_col_count", 0),
         embedding_col_count=axes.get("embedding_col_count", 0),
+        # 2026-04-24 combo-extension axes
+        outlier_detection=axes.get("outlier_detection"),
+        use_ensembles=axes.get("use_ensembles", False),
+        continue_on_model_failure=axes.get("continue_on_model_failure", False),
+        iterations=axes.get("iterations", 3),
+        prefer_calibrated_classifiers=axes.get("prefer_calibrated_classifiers", False),
+        inject_degenerate_cols=axes.get("inject_degenerate_cols", False),
+        inject_inf_nan=axes.get("inject_inf_nan", False),
+        with_datetime_col=axes.get("with_datetime_col", False),
+        inject_zero_col=axes.get("inject_zero_col", False),
+        fairness_col=axes.get("fairness_col"),
+        custom_prep=axes.get("custom_prep"),
+        input_storage=axes.get("input_storage", "memory"),
     )
 
 
@@ -339,6 +411,19 @@ def _combo_pairs(combo: FuzzCombo) -> set[tuple[str, Any, str, Any]]:
         "honor_user_dtype": combo.honor_user_dtype,
         "text_col_count": combo.text_col_count,
         "embedding_col_count": combo.embedding_col_count,
+        # 2026-04-24 combo-extension axes
+        "outlier_detection": combo.outlier_detection,
+        "use_ensembles": combo.use_ensembles,
+        "continue_on_model_failure": combo.continue_on_model_failure,
+        "iterations": combo.iterations,
+        "prefer_calibrated_classifiers": combo.prefer_calibrated_classifiers,
+        "inject_degenerate_cols": combo.inject_degenerate_cols,
+        "inject_inf_nan": combo.inject_inf_nan,
+        "with_datetime_col": combo.with_datetime_col,
+        "inject_zero_col": combo.inject_zero_col,
+        "fairness_col": combo.fairness_col,
+        "custom_prep": combo.custom_prep,
+        "input_storage": combo.input_storage,
         "n_models": len(combo.models),
     }
     names = list(values.keys())
@@ -567,20 +652,41 @@ def build_frame_for_combo(combo: FuzzCombo):
         and combo.input_type != "pandas"
     )
 
+    # Data-axis injections (2026-04-24 combo extension).
+    # inject_inf_nan: drop np.inf/-np.inf/np.nan into num_0's first 3 rows
+    if combo.inject_inf_nan and n >= 3:
+        num_cols["num_0"][0] = np.inf
+        num_cols["num_0"][1] = -np.inf
+        num_cols["num_0"][2] = np.nan
+    # inject_degenerate_cols (#7): add one constant + one all-null numeric
+    # column that the ``remove_constant_columns`` flag should strip.
+    extra_num_cols: dict = {}
+    if combo.inject_degenerate_cols:
+        extra_num_cols["num_const"] = np.full(n, 7.5, dtype="float32")
+        extra_num_cols["num_null"] = np.full(n, np.nan, dtype="float32")
+    # inject_zero_col (#40): add an all-zero numeric column as an
+    # uninformative feature. Triggers the per-model "constant feature"
+    # handling in CB/XGB/LGB/HGB — not supposed to break anything.
+    if combo.inject_zero_col:
+        extra_num_cols["num_zero"] = np.zeros(n, dtype="float32")
+
     if combo.input_type == "pandas":
         import pandas as pd
-        data = {**num_cols}
+        data = {**num_cols, **extra_num_cols}
         for name, values in cat_cols.items():
             data[name] = pd.Categorical(values)
         for name, values in text_cols.items():
             # pandas object dtype with n_unique > threshold triggers text
             # auto-promotion inside ``_auto_detect_feature_types``.
             data[name] = pd.array(values, dtype="string")
+        # with_datetime_col (#11): add a pandas datetime64 column.
+        if combo.with_datetime_col:
+            data["ts"] = pd.date_range("2026-01-01", periods=n, freq="h")
         data[target_col] = target
         return pd.DataFrame(data), target_col, cat_names
 
     import polars as pl
-    data_pl: dict[str, Any] = {**num_cols}
+    data_pl: dict[str, Any] = {**num_cols, **extra_num_cols}
     for name, values in cat_cols.items():
         if combo.input_type == "polars_enum":
             pool_values = [v for v in values if v is not None]
@@ -603,5 +709,13 @@ def build_frame_for_combo(combo: FuzzCombo):
                 [vecs[j].tolist() for j in range(n)],
                 dtype=pl.List(pl.Float32),
             )
+    # with_datetime_col (#11): polars datetime64 column.
+    if combo.with_datetime_col:
+        import datetime as _dt
+        start = _dt.datetime(2026, 1, 1)
+        data_pl["ts"] = pl.Series(
+            [start + _dt.timedelta(hours=i) for i in range(n)],
+            dtype=pl.Datetime,
+        )
     data_pl[target_col] = target
     return pl.DataFrame(data_pl), target_col, cat_names
