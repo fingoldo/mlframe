@@ -483,6 +483,40 @@ def fit_and_transform_pipeline(
     pipeline = None
     cat_features = []
 
+    # 2026-04-24 (fuzz extension surfaced 6× CatBoostError "Error while
+    # processing column for feature 'ts'" and 18× numpy DTypePromotionError
+    # involving DateTime64DType): datetime columns reach downstream model
+    # fit and crash. Coerce any datetime-typed columns to int64 nanosecond
+    # epoch HERE — the canonical "datetime as numeric feature" pattern.
+    # Silent coercion is intentional: the alternative (raising) would break
+    # every caller who's currently relying on datetime passing through as
+    # a no-op when the downstream model happens to tolerate it (rare).
+    def _coerce_datetime_to_int64(df_):
+        if isinstance(df_, pl.DataFrame):
+            exprs = []
+            for name, dt in df_.schema.items():
+                # pl.Datetime is an instance-level type; use isinstance.
+                if isinstance(dt, pl.Datetime):
+                    exprs.append(pl.col(name).cast(pl.Int64))
+            return df_.with_columns(exprs) if exprs else df_
+        if hasattr(df_, "dtypes"):
+            import pandas as _pd
+            cols_to_cast = [
+                c for c in df_.columns
+                if _pd.api.types.is_datetime64_any_dtype(df_[c])
+            ]
+            if cols_to_cast:
+                df_ = df_.copy()
+                for c in cols_to_cast:
+                    # view("int64") is zero-copy for pandas datetime64[ns]
+                    df_[c] = df_[c].astype("int64")
+            return df_
+        return df_
+
+    train_df = _coerce_datetime_to_int64(train_df)
+    val_df = _coerce_datetime_to_int64(val_df) if val_df is not None else val_df
+    test_df = _coerce_datetime_to_int64(test_df) if test_df is not None else test_df
+
     # Handle Polars DataFrames with polars-ds
     if isinstance(train_df, pl.DataFrame) and config.use_polarsds_pipeline:
         # Detect cat_features from the ORIGINAL schema before the pipeline possibly
