@@ -128,6 +128,22 @@ def prewarm_numba_cache():
     logits_multi = np.array([[-1.0, 0.0, 1.0], [0.5, -0.5, 0.0], [0.0, 1.0, -1.0]], dtype=np.float64)
     _ = cb_logits_to_probs_multiclass(logits_multi)
 
+    # 2026-04-25 Session 6 polish: prewarm multilabel kernels too. Without
+    # this the first multilabel-aware report path call eats a 1-3s JIT
+    # compile budget per kernel × per dtype, which surprises new users
+    # running the report on small data and shows up in time-sensitive
+    # benchmarks.
+    yt_ml = np.array([[0, 1, 1], [1, 0, 1], [1, 1, 0], [0, 0, 1]], dtype=np.uint8)
+    yp_ml = np.array([[1, 1, 0], [1, 0, 1], [1, 0, 0], [0, 1, 1]], dtype=np.uint8)
+    _ = _fast_hamming_loss_seq(yt_ml, yp_ml)
+    _ = _fast_hamming_loss_par(yt_ml, yp_ml)
+    _ = _fast_subset_accuracy_seq(yt_ml, yp_ml)
+    _ = _fast_jaccard_score_seq(yt_ml, yp_ml)
+    # Bitmap variant takes packed uint64 + K — prewarm for K<=64 path.
+    yt_packed = np.array([0b011, 0b101, 0b110, 0b001], dtype=np.uint64)
+    yp_packed = np.array([0b110, 0b101, 0b100, 0b011], dtype=np.uint64)
+    _ = _fast_jaccard_bitmap_seq(yt_packed, yp_packed, 3)
+
     # Audit hook: verify nogil=True actually stuck. Silent fallback would
     # make parallel val/test metric evaluation secretly sequential.
     _assert_numba_nogil_active()
