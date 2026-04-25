@@ -1,5 +1,86 @@
 # Changelog
 
+## 2026-04-26 — Session 7: label-distribution drift report + PU-learning wrapper
+
+Two new training-time tools surfaced by a production drift incident
+(temporal-split classifier showed VAL ROC AUC 0.99 → TEST 0.64 across
+three model families). Both target selection-bias / prior-shift, the
+class of failures that don't show up until the trained model meets
+test data with a different marginal P(y).
+
+### Added
+
+- **`compute_label_distribution_drift(train, val, test, target_type)`**
+  in [training/drift_report.py](training/drift_report.py): per-split
+  summary (n / n_positive / P(y=1)) plus cross-split deltas in
+  percentage points. Type-aware: binary (P(y=1)), multiclass (per-class
+  rate), multilabel (per-label rate), regression (mean / std / median
+  / p01 / p99 + train-σ z-scores). Warns when |Δ| > 5pp (binary/multi)
+  or > 0.5σ (regression).
+
+- **Auto-wired in `train_mlframe_models_suite`**: the report is computed
+  inside the per-target loop right after train/val/test target subsets
+  are extracted, BEFORE `select_target` and any model fits. Renders a
+  4-line block to the log and stores the structured dict on
+  `metadata["label_distribution_drift"][target_type][target_name]`.
+  Catches selection bias in seconds rather than after a 5-hour run.
+
+  Example output:
+  ```
+  label_distribution_drift report (target_type=binary_classification target=cl_act_total_hired_above_1):
+    train n=  7_304_969 n_positive=  5_405_680 P(y=1)=0.7400
+    val   n=    811_663 n_positive=    698_344 P(y=1)=0.8604
+    test  n=    901_847 n_positive=    746_133 P(y=1)=0.8273
+    WARN: VAL P(y=1)=0.860 vs train 0.740 (Δ=+12.0pp); selection-bias / prior-shift suspected — model will be miscalibrated on val.
+    WARN: TEST P(y=1)=0.827 vs train 0.740 (Δ=+8.7pp); selection-bias / prior-shift suspected — model will be miscalibrated on test.
+  ```
+
+- **`PULearningWrapper`** in [training/pu_learning.py](training/pu_learning.py):
+  sklearn-style binary classifier wrapper for selection-biased data
+  ("most periods are positive-only because the data source only surfaces
+  positives; some periods are fully labeled"). Three strategies:
+
+  | strategy                    | what it does                                                                  |
+  |-----------------------------|-------------------------------------------------------------------------------|
+  | `unbiased_only`             | Train base classifier on the unbiased subset only. Cleanest calibration.       |
+  | `prior_shift_correction`    | Train on full data, apply Saerens-Latinne-Decaestecker (2002) at inference.    |
+  | `elkan_noto`                | Classical Elkan & Noto (KDD 2008) PU classifier with proxy g(x) and c=P(s=1\|y=1). |
+  | `auto`                      | Picks `unbiased_only` if ≥1k each-class unbiased samples, else `prior_shift_correction`. |
+
+  Synthetic temporal-bias benchmark (true TEST P(y=1)=0.46, train observed P(y=1)=0.96):
+
+  | strategy                | mean_pred | AUC   | Brier   | Brier vs naive |
+  |-------------------------|-----------|-------|---------|----------------|
+  | NAIVE                   | 0.882     | 0.864 | 0.3765  | —              |
+  | UNBIASED_ONLY           | 0.463     | 0.833 | 0.1812  | -51.9%         |
+  | PRIOR_SHIFT_CORRECTION  | 0.448     | 0.864 | 0.1493  | -60.3%         |
+  | ELKAN_NOTO              | 0.653     | 0.856 | 0.1959  | -48.0%         |
+
+  `prior_shift_correction` wins: same AUC as naive (Saerens correction
+  is a monotone rescale → preserves ranking), calibration matches true
+  prior within 1.5pp, Brier drops 60%. `unbiased_only` is the fallback
+  when the operator doesn't know the true target prior.
+
+- **Public API exports** via `mlframe.training`:
+  `compute_label_distribution_drift`, `format_drift_report`,
+  `PULearningWrapper`, `estimate_c_from_unbiased_positives`.
+
+### Tests
+
+- 20 unit tests in `tests/training/test_drift_report.py` covering
+  binary / multiclass / multilabel / regression input types, pandas /
+  polars / numpy compatibility, threshold tuning, edge cases,
+  JSON-roundtrip safety.
+- 24 unit tests in `tests/training/test_pu_learning_synthetic.py`
+  including a temporal-bias synthetic generator
+  (`_gen_temporal_pu_dataset`) that mirrors the user's production
+  drift pattern: 96 months, 4 unbiased windows mid-stream, ~98%
+  observed positive rate during biased periods, ~40% true rate.
+  Per-strategy invariants: calibration recovery, Brier-vs-naive
+  improvement, AUC preservation.
+- Integration smoke: drift report fires correctly inside actual fuzz
+  combo runs.
+
 ## 2026-04-25 — Session 6: multilabel full-pipeline integration
 
 End-to-end multilabel support across `train_mlframe_models_suite`. All 42

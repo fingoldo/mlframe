@@ -94,6 +94,12 @@ _LAZY_IMPORTS = {
     'canonical_predict_proba_shape': ('.helpers', '_canonical_predict_proba_shape'),
     'predict_from_probs': ('.helpers', '_predict_from_probs'),
 
+    # Selection-bias / drift tools (Session 7)
+    'compute_label_distribution_drift': ('.drift_report', 'compute_label_distribution_drift'),
+    'format_drift_report': ('.drift_report', 'format_drift_report'),
+    'PULearningWrapper': ('.pu_learning', 'PULearningWrapper'),
+    'estimate_c_from_unbiased_positives': ('.pu_learning', 'estimate_c_from_unbiased_positives'),
+
     # Model utilities
     'create_linear_model': ('.models', 'create_linear_model'),
     'is_linear_model': ('.models', 'is_linear_model'),
@@ -218,6 +224,10 @@ __all__ = [
     'EnsemblingConfig',
     'canonical_predict_proba_shape',
     'predict_from_probs',
+    'compute_label_distribution_drift',
+    'format_drift_report',
+    'PULearningWrapper',
+    'estimate_c_from_unbiased_positives',
     'DataConfig',
     'TrainingControlConfig',
     'MetricsConfig',

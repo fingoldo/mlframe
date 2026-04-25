@@ -121,6 +121,63 @@ Multilabel notes:
 
 See [docs/MULTI_OUTPUT.md](docs/MULTI_OUTPUT.md) for the full design notes.
 
+## Selection-bias / drift tools
+
+For binary targets where train/val/test marginals diverge (selection
+bias, temporal drift, label-shift), the suite ships two tools to
+catch the problem early and remediate it.
+
+### Drift detection (auto-emitted by the suite)
+
+Every per-target run logs a `label_distribution_drift report` block
+right after the train/val/test split materialises and BEFORE training
+starts. It surfaces P(y=1) per split for binary targets (per-class /
+per-label / mean+std for the other target types) and warns when any
+split's prior diverges from train's by more than 5pp (binary/multi)
+or 0.5σ (regression). The structured report is also stored on
+`metadata["label_distribution_drift"]` for retrospective inspection.
+
+```python
+from mlframe.training import compute_label_distribution_drift, format_drift_report
+
+report = compute_label_distribution_drift(y_train, y_val, y_test, "binary_classification")
+print(format_drift_report(report, target_name="my_target"))
+# WARN: TEST P(y=1)=0.83 vs train 0.74 (Δ=+8.7pp); selection-bias / prior-shift suspected ...
+```
+
+### PU-learning wrapper (selection-biased binary classification)
+
+When the training data is "positives heavily over-observed because the
+data source mostly only surfaces positives" (e.g. a marketplace listing
+hired jobs but not unhired ones), a naive classifier learns the wrong
+prior and gets blown out at TEST time. `PULearningWrapper` recovers
+calibration via three strategies — pick via `strategy="..."` or let
+`strategy="auto"` choose:
+
+| strategy                  | when to use                                              |
+|---------------------------|----------------------------------------------------------|
+| `unbiased_only`           | ≥1k each-class fully-labeled samples; cleanest calibration |
+| `prior_shift_correction`  | Saerens (2002); preserves AUC, recovers calibration       |
+| `elkan_noto`              | Elkan & Noto (KDD 2008); classical PU                     |
+| `auto` (default)          | picks `unbiased_only` if data large enough, else Saerens   |
+
+```python
+from mlframe.training import PULearningWrapper
+from sklearn.ensemble import HistGradientBoostingClassifier
+
+pu = PULearningWrapper(
+    base_estimator=HistGradientBoostingClassifier(max_iter=200),
+    strategy="prior_shift_correction",
+    true_prior=0.40,  # known target population P(y=1); estimated from unbiased subset if None
+)
+pu.fit(X=X_train, y=y_observed, is_unbiased=is_full_labeled_period)
+probs = pu.predict_proba(X_test)
+```
+
+On a synthetic temporal-bias benchmark (true TEST P(y=1)=0.46, train
+observed P(y=1)=0.96): naive Brier 0.376 → `prior_shift_correction`
+0.149 (−60%), AUC 0.864 unchanged.
+
 ## Key parameters
 
 `train_mlframe_models_suite` accepts:
