@@ -178,6 +178,10 @@ On a synthetic temporal-bias benchmark (true TEST P(y=1)=0.46, train
 observed P(y=1)=0.96): naive Brier 0.376 → `prior_shift_correction`
 0.149 (−60%), AUC 0.864 unchanged.
 
+See [docs/SELECTION_BIAS.md](docs/SELECTION_BIAS.md) for the decision
+matrix, full benchmark, and what these tools do NOT fix
+(feature-distribution drift, label noise).
+
 ## Key parameters
 
 `train_mlframe_models_suite` accepts:
