@@ -88,6 +88,39 @@ Each model type has a `ModelPipelineStrategy` that declares its preprocessing ne
 | `NeuralNetStrategy` | mlp, ngb | Yes | Yes | Yes | No | No | No |
 | `LinearModelStrategy` | ridge, lasso, ... | Yes | Yes | Yes | No | No | No |
 
+## Target types
+
+`TargetTypes` — declared via `SimpleFeaturesAndTargetsExtractor(target_type=...)`
+or auto-derived from `regression=True/False`. The suite plumbs the value into
+[get_training_configs](training/helpers.py) so each strategy injects the right
+native objective (CB `loss_function`, XGB `objective`+`num_class`, LGB
+`objective`+`num_class`); non-native cases get auto-wrapped in
+`MultiOutputClassifier` / `_ChainEnsemble`.
+
+| target_type                  | y shape | CB              | XGB                            | LGB                            | HGB                            | Linear (LR)                    |
+|------------------------------|:-------:|:---------------:|:------------------------------:|:------------------------------:|:------------------------------:|:------------------------------:|
+| `REGRESSION`                 | `(N,)`  | regressor       | regressor                      | regressor                      | regressor                      | regressor                      |
+| `BINARY_CLASSIFICATION`      | `(N,)`  | `Logloss`       | `binary:logistic`              | `binary`                       | classifier (auto)              | `LogisticRegression`           |
+| `MULTICLASS_CLASSIFICATION`  | `(N,)`  | `MultiClass`    | `multi:softprob` + `num_class` | `multiclass` + `num_class`     | classifier (auto)              | `multi_class='multinomial'`    |
+| `MULTILABEL_CLASSIFICATION`  | `(N,K)` | `MultiLogloss` (native) | `MultiOutputClassifier(...)`   | `MultiOutputClassifier(...)`   | `MultiOutputClassifier(...)`   | `MultiOutputClassifier(...)`   |
+
+Multilabel notes:
+- CB returns `(N, K)` directly via `MultiLogloss`; no wrapper.
+- Other strategies are wrapped in `sklearn.multioutput.MultiOutputClassifier`
+  by [training/trainer.py:_wrap_for_multilabel_if_needed](training/trainer.py).
+  Inner-estimator `early_stopping_rounds`/`callbacks` are auto-disabled —
+  `eval_set` does not safely propagate through the wrapper to per-label fits.
+- Set `MultilabelDispatchConfig(strategy="chain", n_chains=...)` to use
+  `_ChainEnsemble` (random-ordered `ClassifierChain` ensemble) when labels
+  are correlated; +2-5% Jaccard on correlated synthetic data.
+- Stratified splits for 2-D y require `iterative-stratification` (optional
+  dep): `pip install iterative-stratification`.
+- Numba multilabel metrics: `mlframe.metrics.{hamming_loss,
+  subset_accuracy, jaccard_score_multilabel}` — auto-routed to a parallel
+  variant when `N*K > 1_000_000`.
+
+See [docs/MULTI_OUTPUT.md](docs/MULTI_OUTPUT.md) for the full design notes.
+
 ## Key parameters
 
 `train_mlframe_models_suite` accepts:

@@ -1349,6 +1349,20 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         if labels is None:
             raise ValueError("labels is required")
 
+        # 2026-04-25 Session 6: recurrent classifier path is binary/multiclass
+        # only — torchmetrics tasks at L825-828 are hardcoded to "binary",
+        # and the (N, K) sigmoid head + per-label loss isn't wired. Multilabel
+        # 2-D y must be rejected explicitly with a helpful pointer rather than
+        # crashing deep in torchmetrics with an opaque shape error.
+        if hasattr(labels, "ndim") and labels.ndim == 2:
+            raise NotImplementedError(
+                "RecurrentClassifierWrapper does not yet support multilabel "
+                f"targets (got y.shape={labels.shape}). Use a non-recurrent "
+                "strategy (cb/xgb/lgb/hgb/linear) for multilabel until the "
+                "sigmoid-head + per-label loss work lands. See plan addendum "
+                "'Recurrent multilabel sigmoid head' for the deferred epic."
+            )
+
         self._validate_inputs(features, sequences)
         self._clear_cache()
 
