@@ -882,6 +882,7 @@ from ..ensembling import score_ensemble
 
 # Training execution functions from train_eval module
 from .train_eval import process_model, select_target
+from .drift_report import compute_label_distribution_drift, format_drift_report
 
 # Fairness subgroups creation
 from mlframe.metrics import create_fairness_subgroups
@@ -2843,6 +2844,34 @@ def train_mlframe_models_suite(
                         if isinstance(cur_target_values, (np.ndarray, pl.Series))
                         else cur_target_values.iloc[filtered_val_idx]
                     )
+                # Test target extraction for the drift report. test_idx is
+                # NOT subset by the outlier-detector (test never gets
+                # OD-filtered) so we use the raw test_idx here.
+                current_test_target = None
+                if test_idx is not None:
+                    current_test_target = (
+                        cur_target_values[test_idx]
+                        if isinstance(cur_target_values, (np.ndarray, pl.Series))
+                        else cur_target_values.iloc[test_idx]
+                    )
+
+                # 2026-04-25 Session 7: label-distribution drift report.
+                # Computes per-split P(y) (binary), per-class rate
+                # (multiclass), per-label rate (multilabel), or mean/std
+                # (regression), and warns when train/val/test priors
+                # diverge beyond the threshold. Logged BEFORE training so
+                # operators catch selection-bias / temporal-prior-shift
+                # without waiting hours for a miscalibrated model. Stored
+                # on the metadata dict for retrospective inspection.
+                _drift_report = compute_label_distribution_drift(
+                    train_target=current_train_target,
+                    val_target=current_val_target,
+                    test_target=current_test_target,
+                    target_type=str(target_type),
+                )
+                logger.info(format_drift_report(_drift_report, target_name=cur_target_name))
+                metadata.setdefault("label_distribution_drift", {}) \
+                    .setdefault(str(target_type), {})[cur_target_name] = _drift_report
 
                 if verbose:
                     logger.info(f"select_target...")
