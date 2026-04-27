@@ -3699,15 +3699,6 @@ def train_and_evaluate_model(
     train_df, val_df, test_df = _decategorise_float_cat_columns(
         train_df, val_df=val_df, test_df=test_df,
     )
-    # XGB cat-category alignment (no-op for non-XGB models): align the
-    # ``categories`` list across train / val / test so val/test rows
-    # whose category wasn't seen in train don't trip XGBoost's
-    # ``Found a category not in the training set`` rejection at
-    # predict time (fuzz seed=2024 c0060). Done before pre_pipeline
-    # so RFECV inner XGB also benefits.
-    train_df, val_df, test_df = _align_xgb_cat_categories(
-        model_type_name, train_df, val_df=val_df, test_df=test_df,
-    )
 
     train_df, val_df = _apply_pre_pipeline_transforms(
         model=model,
@@ -3807,6 +3798,19 @@ def train_and_evaluate_model(
             _validate_target_values(train_target, "train", is_classification=_is_clf)
             if val_target is not None:
                 _validate_target_values(val_target, "val", is_classification=_is_clf)
+
+            # XGB cat-category alignment (no-op for non-XGB models): align
+            # the ``categories`` list across train / val / test so
+            # val/test rows whose category wasn't seen in train don't
+            # trip XGBoost's ``Found a category not in the training set``
+            # rejection at predict time (fuzz seed=2024 c0060). Done AFTER
+            # pre_pipeline so the alignment uses the actual cat layout
+            # the model.fit + model.predict will see (pre_pipeline can
+            # rename / re-cast cat columns; aligning before that would
+            # be undone).
+            train_df, val_df, test_df = _align_xgb_cat_categories(
+                model_type_name, train_df, val_df=val_df, test_df=test_df,
+            )
 
             if not just_evaluate:
                 model, best_iter = _train_model_with_fallback(
