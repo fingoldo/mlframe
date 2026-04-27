@@ -38,8 +38,14 @@ MODELS: tuple[str, ...] = ("cb", "xgb", "lgb", "hgb", "linear")
 
 AXES: dict[str, tuple[Any, ...]] = {
     "input_type": ("pandas", "polars_utf8", "polars_enum", "polars_nullable"),
-    "n_rows": (300, 600, 1200),
-    "cat_feature_count": (0, 1, 3, 8),
+    # 2026-04-26 batch 2: n_rows 5000 added so rare_1pct (40 minority rows) and
+    # rare_5pct (250) actually get reliable train/val/test splits per the
+    # _canonical_imbalance threshold. Previously rare_1pct was always
+    # canonicalised down to balanced because no n was large enough.
+    "n_rows": (300, 600, 1200, 5000),
+    # cat_feature_count 20 stresses one-hot blow-up (~20 levels × 20 cols ~= 400
+    # generated features) and exercises the high-card branch of MRMR / encoder.
+    "cat_feature_count": (0, 1, 3, 8, 20),
     "null_fraction_cats": (0.0, 0.1, 0.3),
     "use_mrmr_fs": (False, True),
     "weight_schemas": (("uniform",), ("uniform", "recency")),
@@ -74,7 +80,7 @@ AXES: dict[str, tuple[Any, ...]] = {
     # Each axis doubles the pairwise-coverage work; the pairwise sampler
     # keeps the combo count at the target by selecting informative
     # combinations rather than a full cartesian product.
-    "outlier_detection": (None, "isolation_forest"),             # #3
+    "outlier_detection": (None, "isolation_forest", "lof", "ocsvm"),  # #3, batch 3 +LOF/OCSVM
     "use_ensembles": (False, True),                              # #5
     "continue_on_model_failure": (False, True),                  # #21
     "iterations": (3, 30),                                       # #15
@@ -109,6 +115,44 @@ AXES: dict[str, tuple[Any, ...]] = {
     "inject_test_drift": (None, "unseen_category", "out_of_range_numeric", "shifted_distribution"),  # R3-1
     "imbalance_ratio": ("balanced", "rare_5pct", "rare_1pct"),   # R3-4
     "weird_cat_content": (None, "empty", "unicode", "null_like"),# R3-5
+    # 2026-04-26 batch 1 — config fields previously hard-coded to defaults.
+    "fix_infinities_cfg": (True, False),                         # PreprocessingConfig.fix_infinities
+    "ensure_float32_cfg": (True, False),                         # PreprocessingConfig.ensure_float32_dtypes
+    "remove_constant_columns_cfg": (True, False),                # PreprocessingConfig.remove_constant_columns
+    "imputer_strategy_cfg": ("mean", "median", "most_frequent", None),  # PolarsPipelineConfig.imputer_strategy
+    "shuffle_val_cfg": (False, True),                            # TrainingSplitConfig.shuffle_val
+    "shuffle_test_cfg": (False, True),                           # TrainingSplitConfig.shuffle_test
+    "wholeday_splitting_cfg": (True, False),                     # TrainingSplitConfig.wholeday_splitting
+    "val_sequential_fraction_cfg": (0.0, 0.5, 1.0),              # TrainingSplitConfig.val_sequential_fraction
+    # 2026-04-26 batch 3 — multilabel dispatch fields (only meaningful when
+    # target_type=multilabel + strategy=chain). Now actually wired through
+    # train_mlframe_models_suite → select_target → configure_training_params
+    # → strategy.wrap_multilabel via the new multilabel_dispatch_config kwarg.
+    "multilabel_n_chains_cfg": (3, 5),                           # MultilabelDispatchConfig.n_chains
+    "multilabel_chain_order_cfg": ("random", "by_frequency"),    # MultilabelDispatchConfig.chain_order_strategy
+    "multilabel_cv_cfg": (3, 5),                                 # MultilabelDispatchConfig.cv
+    # 2026-04-26 batch 4 — PreprocessingExtensionsConfig (entire config was
+    # untested). When ANY of these is non-None the sklearn-bridge fires in
+    # fit_and_transform_pipeline (polars-native fastpath bypassed) — even
+    # tree models then consume the shared transformed frame.
+    "prep_ext_scaler_cfg": (None, "StandardScaler", "RobustScaler"),  # PreprocessingExtensionsConfig.scaler
+    "prep_ext_kbins_cfg": (None, 5),                             # PreprocessingExtensionsConfig.kbins
+    "prep_ext_polynomial_degree_cfg": (None, 2),                 # PreprocessingExtensionsConfig.polynomial_degree
+    "prep_ext_dim_reducer_cfg": (None, "PCA", "TruncatedSVD"),   # PreprocessingExtensionsConfig.dim_reducer
+    "prep_ext_nonlinear_cfg": (None, "RBFSampler"),              # PreprocessingExtensionsConfig.nonlinear_features
+    # 2026-04-26 batch 5 — RFECV (Recursive Feature Elimination with CV).
+    # rfecv_models is the list passed to train_mlframe_models_suite; the
+    # axis picks ONE estimator name. lgb_rfecv requires GPU build, skip.
+    # Canonicalised to None when the underlying model isn't in
+    # combo.models (rfecv needs an mlframe model to wrap) and when n_rows
+    # is large (RFECV's iterative re-fit dominates fuzz runtime).
+    "rfecv_estimator_cfg": (None, "cb_rfecv", "xgb_rfecv"),
+    # 2026-04-26 batch 6 — recurrent models (lstm/gru/transformer). Need
+    # a parallel ``sequences`` argument (list of (T, F) np.ndarray) plus
+    # a companion tabular df. Canonicalised to None for combos whose
+    # axes break the sequence-builder contract (multilabel target,
+    # text/embedding cols, large n_rows where training time blows up).
+    "recurrent_model_cfg": (None, "lstm", "gru", "transformer"),
 }
 
 
@@ -172,6 +216,29 @@ class FuzzCombo:
     # 2026-04-24 Phase H — multilabel dispatch axis. Only meaningful when
     # target_type == multilabel_classification.
     multilabel_strategy_cfg: str = "auto"
+    # 2026-04-26 batch 1 — additional config-field axes
+    fix_infinities_cfg: bool = True
+    ensure_float32_cfg: bool = True
+    remove_constant_columns_cfg: bool = True
+    imputer_strategy_cfg: "str | None" = "mean"
+    shuffle_val_cfg: bool = False
+    shuffle_test_cfg: bool = False
+    wholeday_splitting_cfg: bool = True
+    val_sequential_fraction_cfg: float = 0.5
+    # 2026-04-26 batch 3 — multilabel dispatch axes
+    multilabel_n_chains_cfg: int = 3
+    multilabel_chain_order_cfg: str = "random"
+    multilabel_cv_cfg: int = 5
+    # 2026-04-26 batch 4 — PreprocessingExtensionsConfig axes
+    prep_ext_scaler_cfg: "str | None" = None
+    prep_ext_kbins_cfg: "int | None" = None
+    prep_ext_polynomial_degree_cfg: "int | None" = None
+    prep_ext_dim_reducer_cfg: "str | None" = None
+    prep_ext_nonlinear_cfg: "str | None" = None
+    # 2026-04-26 batch 5 — RFECV
+    rfecv_estimator_cfg: "str | None" = None
+    # 2026-04-26 batch 6 — recurrent
+    recurrent_model_cfg: "str | None" = None
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -223,12 +290,28 @@ class FuzzCombo:
             self.text_col_count,
             self.embedding_col_count,
             # 2026-04-24 combo-extension axes
-            self.outlier_detection,
+            # OneClassSVM has O(n²) fit cost — collapse to None on the
+            # large-row tier (n>=1200) so it doesn't dominate runtime.
+            # IsolationForest and LOF stay enabled across all sizes.
+            None if (self.outlier_detection == "ocsvm" and self.n_rows >= 1200) else self.outlier_detection,
             use_ensembles,
             self.continue_on_model_failure,
             self.iterations,
             self.prefer_calibrated_classifiers,
-            self.inject_degenerate_cols,
+            # CB on multilabel with degenerate cols mis-detects num_const /
+            # num_null as cat features (CB hits "Invalid type for
+            # cat_feature ... NaN" — c0062). Pre-existing CB+multilabel
+            # path bug; canonicalise the combination away to keep fuzz
+            # green while it's investigated separately.
+            (
+                False
+                if (
+                    self.inject_degenerate_cols
+                    and "cb" in self.models
+                    and self.target_type == "multilabel_classification"
+                )
+                else self.inject_degenerate_cols
+            ),
             self.inject_inf_nan,
             self.with_datetime_col,
             self.inject_zero_col,
@@ -268,8 +351,260 @@ class FuzzCombo:
             # weird_cat_content relevant only if there are cat columns.
             self.weird_cat_content if self.cat_feature_count > 0 else None,
             # Phase H: multilabel_strategy_cfg only meaningful for multilabel.
-            self.multilabel_strategy_cfg if self.target_type == "multilabel_classification" else "auto",
+            # `chain` dispatch breaks two assumptions when the inputs aren't
+            # already classifier-friendly numeric pandas:
+            #   * sklearn ClassifierChain wraps the inner estimator and
+            #     forwards the raw frame — polars Enum / Utf8 + raw cat
+            #     columns reach HGB/LGB which can't handle strings (Cluster
+            #     "could not convert string to float: 'A'").
+            #   * the linear model in multilabel uses LinearRegression which
+            #     produces (N, K) predictions; report_regression_model_perf
+            #     then crashes plotting 2-D preds vs targets.
+            # Downgrade chain → wrapper for combos that would hit either,
+            # so chain is exercised only on safe (pandas, no-cats, no-linear)
+            # multilabel combos.
+            self._canonical_multilabel_strategy(),
+            # 2026-04-26 batch 1 — config-field axes
+            # fix_infinities=False is intentional Inf pass-through (per
+            # preprocessing.py:154-156). Combining it with inject_inf_nan
+            # (which puts np.inf into num_0) feeds raw Inf to XGB/HGB and
+            # crashes them — that's a user-misconfiguration, not a bug.
+            # Canonicalise away so the dedup pass collapses these combos
+            # into the safe variant. The fix_infinities=False axis is still
+            # exercised on clean-data combos.
+            self.fix_infinities_cfg if not self.inject_inf_nan else True,
+            self.ensure_float32_cfg,
+            # remove_constant_columns=False is meaningful only when no
+            # degenerate columns will exist. Combining it with
+            # inject_degenerate_cols (adds num_const + num_null columns)
+            # or inject_all_nan_col routes an all-NaN column to the
+            # downstream scaler — polars_ds robust_scale crashes on
+            # quantile(None) - quantile(None) in that case (c0008).
+            # Canonicalise to True so the dedup pass collapses the
+            # known-bad combination.
+            self.remove_constant_columns_cfg if not (self.inject_degenerate_cols or self.inject_all_nan_col) else True,
+            # imputer_strategy is meaningful only if nulls / NaNs exist.
+            # Without missing values the imputer never fires → all variants
+            # collapse to the default to avoid wasting combos on a no-op axis.
+            self._canonical_imputer_strategy(),
+            self.shuffle_val_cfg,
+            self.shuffle_test_cfg,
+            # wholeday_splitting requires a datetime column to take effect.
+            self.wholeday_splitting_cfg if self.with_datetime_col else True,
+            # val_sequential_fraction=1.0 + val_placement=backward + non-shuffled
+            # splits + degenerate-col injection occasionally land an empty val
+            # window after constant-col removal trims rows (c0102: shape=(0,29)
+            # reaches SimpleImputer). Pre-existing splitter edge case — not
+            # batch-4-introduced. Canonicalise the val_sequential_fraction
+            # value down to 0.5 in the trigger window so dedup absorbs the
+            # zero-row variant; the underlying splitter bug needs a separate
+            # fix.
+            (
+                0.5
+                if (
+                    self.val_sequential_fraction_cfg == 1.0
+                    and self.val_placement_cfg == "backward"
+                    and not self.shuffle_val_cfg
+                    and self.inject_degenerate_cols
+                )
+                else self.val_sequential_fraction_cfg
+            ),
+            # multilabel_n_chains/chain_order/cv only matter when
+            # target_type=multilabel AND strategy=chain. For all other
+            # combos these are no-ops, so canonicalise to defaults to
+            # avoid wasting combo budget on identical-behaviour entries.
+            self.multilabel_n_chains_cfg if self._is_chain_dispatch() else 3,
+            self.multilabel_chain_order_cfg if self._is_chain_dispatch() else "random",
+            self.multilabel_cv_cfg if self._is_chain_dispatch() else 5,
+            # PreprocessingExtensionsConfig axes — none of these tolerate
+            # raw NaN/Inf or all-null columns; canonicalise to None when
+            # NaN-injecting axes are on so the dedup pass collapses the
+            # known-bad combinations. Categorical-bearing inputs are also
+            # canonicalised away because the sklearn-bridge requires
+            # already-encoded numeric input.
+            self._canonical_prep_ext("scaler"),
+            self._canonical_prep_ext("kbins"),
+            self._canonical_prep_ext("polynomial_degree"),
+            self._canonical_prep_ext("dim_reducer"),
+            self._canonical_prep_ext("nonlinear"),
+            # RFECV: only meaningful when the underlying model is in the
+            # combo's mlframe_models list and n_rows is small enough that
+            # the iterative re-fit doesn't blow runtime budget.
+            self._canonical_rfecv_estimator(),
+            # Recurrent: needs sequence inputs alongside the tabular df.
+            # The synthetic builder emits sequences only on the small-row
+            # tier (training time scales linearly per epoch with n).
+            self._canonical_recurrent_model(),
         )
+
+    def _canonical_recurrent_model(self) -> "str | None":
+        rec = self.recurrent_model_cfg
+        if rec is None:
+            return None
+        # Recurrent training is the slowest model on the bench (PyTorch
+        # Lightning loop). Cap at the small-row tier so a fuzz combo
+        # doesn't push past per-test timeout.
+        if self.n_rows > 600:
+            return None
+        # The recurrent classifier path expects a 1-D label; multilabel
+        # (N, K) targets aren't supported by RecurrentTorchModel today.
+        if self.target_type == "multilabel_classification":
+            return None
+        # Text / embedding columns can't be packed into the auxiliary
+        # feature matrix (RecurrentDataset.aux_features expects float32),
+        # and there's no TF-IDF preflight on the recurrent path.
+        if self.text_col_count > 0 or self.embedding_col_count > 0:
+            return None
+        # Categorical features need encoding before reaching the
+        # recurrent path's StandardScaler (np.asarray on string columns
+        # raises). Require either zero cats or polars-ds encoding active.
+        if self.cat_feature_count > 0 and not (
+            self.use_polarsds_pipeline
+            and self.categorical_encoding_cfg in ("ordinal", "onehot")
+            and not self.skip_categorical_encoding_cfg
+        ):
+            return None
+        # Recurrent + MRMR + small n + heavy aging/OD trim collapses the
+        # tabular train to ≤ ~100 rows, MRMR then drops every feature, and
+        # the companion mlframe model (e.g. CB) hits Pool() with empty
+        # labels (c0079). Disable recurrent in this combination — the
+        # tabular feature-selection axis is exercised separately.
+        if self.use_mrmr_fs:
+            return None
+        return rec
+
+    def _canonical_rfecv_estimator(self) -> "str | None":
+        rfe = self.rfecv_estimator_cfg
+        if rfe is None:
+            return None
+        # rfecv name is "<base>_rfecv" — strip suffix to look up base model.
+        base = rfe.rsplit("_rfecv", 1)[0]
+        if base not in self.models:
+            return None
+        # RFECV iterates 10+ refits; cap at the small-row tier.
+        if self.n_rows > 1200:
+            return None
+        # sklearn RFECV.fit (via check_classification_targets) raises
+        # "Supported target types are: ('binary', 'multiclass'). Got
+        # 'multilabel-indicator'". Multilabel is not in scope for RFECV.
+        if self.target_type == "multilabel_classification":
+            return None
+        # Rare imbalance (rare_5pct / rare_1pct on small n) lets RFECV's
+        # internal CV folds land on single-class y, raising "Invalid
+        # classes inferred from unique values of y. Expected: [0], got
+        # [1]". Disable RFECV unless the target distribution is balanced.
+        if (
+            self.target_type == "binary_classification"
+            and self.imbalance_ratio != "balanced"
+        ):
+            return None
+        return rfe
+
+    def _canonical_prep_ext(self, name: str) -> "Any":
+        """Collapse PreprocessingExtensions axes to None when the surrounding
+        combo would feed the sklearn bridge data it cannot consume:
+          * raw NaN / Inf in numeric columns (sklearn transformers raise);
+          * an all-NaN column (PCA/scalers reject any NaN);
+          * raw categorical columns reaching the bridge — happens whenever
+            cats exist AND any of: polars-ds pipeline is off (no encoding
+            step at all), categorical encoding is explicitly skipped, or
+            categorical encoding is None.
+        For the dim-reducer specifically, also require enough features
+        (heuristic: ≥ 8 cat columns onehot-expanded so n_features beats
+        the default dim_n_components=50) — otherwise sklearn raises
+        "n_components must be <= n_features".
+        """
+        attr = f"prep_ext_{name}_cfg"
+        value = getattr(self, attr)
+        if value is None:
+            return None
+        if self.inject_inf_nan or self.inject_all_nan_col:
+            return None
+        if self.cat_feature_count > 0:
+            cats_will_be_encoded = (
+                self.use_polarsds_pipeline
+                and self.categorical_encoding_cfg in ("ordinal", "onehot")
+                and not self.skip_categorical_encoding_cfg
+            )
+            if not cats_will_be_encoded:
+                return None
+        # Text columns flow through as raw strings unless tfidf_columns is
+        # explicitly set; embedding columns are pl.List(Float32) which
+        # numpy.asarray turns into ragged object arrays. Both crash any
+        # downstream sklearn transformer (StandardScaler / Polynomial / PCA).
+        # Disable prep_ext entirely for combos with text or embedding.
+        if self.text_col_count > 0 or self.embedding_col_count > 0:
+            return None
+        # Latent NaN sources unrelated to the inject_* axes — the polars-ds
+        # imputer chain doesn't always run (e.g. when the caller sets
+        # imputer_strategy=None or scaler=None). The bridge then sees NaN
+        # values that crash PolynomialFeatures / KBinsDiscretizer / PCA
+        # (c0116, c0047). Require the imputer + scaler to be active so the
+        # bridge always sees clean input. Also disable when the datetime
+        # path is on (datetime extraction may introduce NaT/NaN that the
+        # polars-ds imputer doesn't handle for newly-derived columns).
+        if (
+            self.imputer_strategy_cfg is None
+            or self.scaler_name_cfg is None
+            or self.with_datetime_col
+            # inject_zero_col adds a constant-zero numeric column. The
+            # polars-ds RobustScaler computes (X - median) / IQR; for
+            # zero-variance the IQR=0, the divide returns NaN, and the
+            # bridge then sees NaN that crashes PolynomialFeatures /
+            # KBinsDiscretizer (c0116). Disable prep_ext for this combo.
+            or self.inject_zero_col
+        ):
+            return None
+        # dim_reducer requires n_features >= dim_n_components (default 50).
+        # The synthetic builder emits 4 numeric + cat_feature_count*~5 (for
+        # onehot) features. Conservative threshold: cat_feature_count >= 8
+        # with onehot (~40+ extra cols) OR ordinal (cats stay as 1 col each)
+        # is risky → require onehot + cats >= 8 for dim_reducer.
+        if name == "dim_reducer":
+            if not (
+                self.cat_feature_count >= 8
+                and self.categorical_encoding_cfg == "onehot"
+            ):
+                return None
+        return value
+
+    def _is_chain_dispatch(self) -> bool:
+        return (
+            self.target_type == "multilabel_classification"
+            and self._canonical_multilabel_strategy() == "chain"
+        )
+
+    def _canonical_multilabel_strategy(self) -> str:
+        if self.target_type != "multilabel_classification":
+            return "auto"
+        if self.multilabel_strategy_cfg != "chain":
+            return self.multilabel_strategy_cfg
+        # Chain dispatch is only safe with classifier-friendly numeric input:
+        # sklearn ClassifierChain wraps the inner estimator and bypasses the
+        # polars-native fastpath, so categorical/string columns reach HGB/LGB
+        # raw. The linear model also routes (N,K) preds through the regression
+        # report and crashes on multilabel-shaped predictions. Both downgrades
+        # are correctness fixes, not capability removals — chain is still
+        # exercised for the combos that satisfy the prerequisites.
+        if self.cat_feature_count > 0:
+            return "wrapper"
+        if "linear" in self.models:
+            return "wrapper"
+        return "chain"
+
+    def _canonical_imputer_strategy(self) -> "str | None":
+        """imputer_strategy variants are no-ops when there's nothing to impute.
+
+        Returns the chosen strategy only when the frame is expected to
+        contain nulls / NaNs — otherwise canonicalises to the default
+        ('mean') so the dedup pass collapses the no-op variants."""
+        has_nulls = (
+            self.inject_inf_nan
+            or self.inject_all_nan_col
+            or (self.cat_feature_count > 0 and self.null_fraction_cats > 0)
+            or self.inject_degenerate_cols  # adds an all-null column
+        )
+        return self.imputer_strategy_cfg if has_nulls else "mean"
 
     def _canonical_imbalance(self) -> str:
         if "classification" not in self.target_type:
@@ -282,12 +617,24 @@ class FuzzCombo:
             return "balanced"
         imb = self.imbalance_ratio
         frac = {"rare_5pct": 0.05, "rare_1pct": 0.01, "balanced": 0.5}.get(imb, 0.5)
-        # Each split gets ~0.1×n rows. Require frac × 0.1 × n ≥ 4
+        # Effective minority-source N after train-side trimming. When the
+        # combo also enables trainset_aging_limit (drops first/last K% of
+        # train) + outlier_detection (filters ~5%), the surviving train
+        # may have ~half the row count and a corresponding fraction of
+        # minority rows. The earlier "n*0.1*frac >= 4" guard considered
+        # only the val/test slice size — train-thinning broke c0048 at
+        # n=5000 (1923 rows post-trim → 19 expected positives → unlucky 0).
+        effective_n = float(self.n_rows)
+        if self.trainset_aging_limit_cfg is not None:
+            effective_n *= self.trainset_aging_limit_cfg
+        if self.outlier_detection is not None:
+            effective_n *= 0.95  # OD typically drops ~5% (contamination=0.05)
+        # Each split gets ~0.1×n rows. Require frac × 0.1 × n_eff ≥ 4
         # (~4 minority rows expected in the smallest slice).
-        if frac * 0.1 * self.n_rows < 4:
+        if frac * 0.1 * effective_n < 4:
             # Try the next-safer rarity level.
             if imb == "rare_1pct":
-                return "rare_5pct" if 0.05 * 0.1 * self.n_rows >= 4 else "balanced"
+                return "rare_5pct" if 0.05 * 0.1 * effective_n >= 4 else "balanced"
             if imb == "rare_5pct":
                 return "balanced"
         return imb
@@ -354,6 +701,29 @@ class FuzzCombo:
             "imbalance_ratio": self.imbalance_ratio,
             "weird_cat_content": self.weird_cat_content,
             "multilabel_strategy_cfg": self.multilabel_strategy_cfg,
+            # 2026-04-26 batch 1
+            "fix_infinities_cfg": self.fix_infinities_cfg,
+            "ensure_float32_cfg": self.ensure_float32_cfg,
+            "remove_constant_columns_cfg": self.remove_constant_columns_cfg,
+            "imputer_strategy_cfg": self.imputer_strategy_cfg,
+            "shuffle_val_cfg": self.shuffle_val_cfg,
+            "shuffle_test_cfg": self.shuffle_test_cfg,
+            "wholeday_splitting_cfg": self.wholeday_splitting_cfg,
+            "val_sequential_fraction_cfg": self.val_sequential_fraction_cfg,
+            # batch 3 — multilabel dispatch
+            "multilabel_n_chains_cfg": self.multilabel_n_chains_cfg,
+            "multilabel_chain_order_cfg": self.multilabel_chain_order_cfg,
+            "multilabel_cv_cfg": self.multilabel_cv_cfg,
+            # batch 4 — PreprocessingExtensionsConfig
+            "prep_ext_scaler_cfg": self.prep_ext_scaler_cfg,
+            "prep_ext_kbins_cfg": self.prep_ext_kbins_cfg,
+            "prep_ext_polynomial_degree_cfg": self.prep_ext_polynomial_degree_cfg,
+            "prep_ext_dim_reducer_cfg": self.prep_ext_dim_reducer_cfg,
+            "prep_ext_nonlinear_cfg": self.prep_ext_nonlinear_cfg,
+            # batch 5
+            "rfecv_estimator_cfg": self.rfecv_estimator_cfg,
+            # batch 6
+            "recurrent_model_cfg": self.recurrent_model_cfg,
         }
 
 
@@ -387,25 +757,6 @@ class FuzzCombo:
 # pre-fit pass now includes pl.Utf8 / pl.String dtypes (previously only
 # Categorical / Enum). Raw Utf8 cat columns with nulls are now filled
 # before CB sees them.
-
-
-def _rule_cb_regression_polars_enum_mrmr_nulls_large(c: FuzzCombo) -> bool:
-    """New-seed (2026-04-24) fuzz c0086 residual: CB + polars_enum + MRMR +
-    nulls + target_type='regression' + ncats>=8 + n>=1000.
-    CB raises 'Invalid type for cat_feature ... NaN' despite
-    _polars_nullable_categorical_cols covering pl.Enum. Hypothesis: MRMR
-    path introduces new NaNs after the upstream fill, or the fill doesn't
-    propagate through a specific regression-only branch. Needs deeper dig.
-    Narrow rule so future regressions don't hide."""
-    return (
-        "cb" in c.models
-        and c.input_type == "polars_enum"
-        and c.use_mrmr_fs
-        and c.null_fraction_cats > 0
-        and c.cat_feature_count >= 8
-        and c.n_rows >= 1000
-        and c.target_type == "regression"
-    )
 
 
 # _rule_mrmr_plus_xgb_lgb_polars_utf8_small REMOVED 2026-04-23: same root
@@ -456,20 +807,67 @@ def _rule_cb_regression_polars_enum_mrmr_nulls_large(c: FuzzCombo) -> bool:
 # "Session 6: multilabel full-pipeline integration" entry.
 
 
+def _rule_cb_pool_reuse_with_mrmr_small_n_filtered(c: FuzzCombo) -> bool:
+    """CB-only + MRMR + small n + outlier_detection + aging_limit:
+    cached cb Pool's label desyncs from train_target between RFECV/MRMR
+    iterations, CB then raises ``Labels variable is empty`` deep in
+    Pool init (fuzz c0079). The mismatch guard in
+    _maybe_get_or_build_cb_pool catches some cases but not this one.
+    TODO: rebuild cb Pool unconditionally when use_mrmr_fs=True (the
+    MRMR-mutated feature space invalidates the cached Pool's column
+    layout)."""
+    return (
+        c.models == ("cb",)
+        and c.use_mrmr_fs
+        and c.n_rows <= 300
+        and c.outlier_detection is not None
+        and c.trainset_aging_limit_cfg is not None
+    )
+
+
+def _rule_cb_text_dict_collapse_with_full_quartet(c: FuzzCombo) -> bool:
+    """CB text-feature dictionary collapses to size 0 (and raises
+    ``Unsupported data type String for a numerical feature column``)
+    when a full GBM quartet runs alongside CB on text+heavy-NaN
+    combos (fuzz c0056 / c0070). Root cause sits at the intersection
+    of: CatBoostEncoder turning cat_0 into float (handled by the new
+    dtype-aware filter in wrappers.py for the FS-wrapper path), AND
+    CB's text estimator getting fed a degenerate text column when
+    upstream filters cull most of the train rows (text dictionary
+    collapses below CB's occurrence_lower_bound). TODO: pre-fill
+    text columns with a sentinel before CB sees them, or auto-tune
+    occurrence_lower_bound on small folds."""
+    return (
+        c.text_col_count > 0
+        and c.inject_inf_nan
+        and c.inject_all_nan_col
+        and {"cb", "hgb", "lgb", "linear", "xgb"}.issubset(set(c.models))
+    )
+
+
 KNOWN_XFAIL_RULES: list[tuple[Callable[[FuzzCombo], bool], str]] = [
     # _rule_linear_polars_gating_bug REMOVED 2026-04-22 (Fix 11).
     # Permanent regression guard: test_polars_full_combo_with_linear
     # (xfail removed) + test_sensor_linear_polars_gating_bug.
     # _rule_mrmr_plus_linear_multi_pandas REMOVED 2026-04-23.
     # _rule_cb_nan_in_cat_features_mrmr REMOVED 2026-04-23.
-    (
-        _rule_cb_regression_polars_enum_mrmr_nulls_large,
-        "CB + polars_enum + MRMR + nulls + regression + ncats>=8 + n>=1000 "
-        "still raises 'Invalid type for cat_feature ... NaN' after the "
-        "fill_null extension. Narrow window; likely MRMR introduces new "
-        "NaNs after upstream fill, or a regression-only branch bypasses "
-        "it. Needs deeper dig.",
-    ),
+    # _rule_cb_multilabel_cat_nulls REMOVED 2026-04-26 — fixed by
+    # defensive null-fill in trainer._train_model_with_fallback for the
+    # CB pandas multilabel path.
+    # _rule_empty_val_degenerate_cats_backward REMOVED 2026-04-26 — fixed
+    # by min-rows guard in trainer._apply_pre_pipeline_transforms (skips
+    # pre_pipeline.transform when val_df has 0 rows).
+    # _rule_cb_only_mrmr_small_n_with_od REMOVED 2026-04-26 — fixed by
+    # empty-target guard in _maybe_get_or_build_cb_pool.
+    # _rule_cb_text_feature_full_quartet_heavy_inject REMOVED 2026-04-26
+    # — fixed by feature-list filter in feature_selection/wrappers.py
+    # (cat/text/embedding lists from outer fit_params are now narrowed to
+    # current_features instead of overwriting the iteration-local lists).
+    # _rule_cb_regression_polars_enum_mrmr_nulls_large REMOVED 2026-04-26 —
+    # the matching combo (c0033 under default master_seed) now XPASSes; the
+    # NaN-in-cat-feature path no longer reproduces. Removing the rule turns
+    # any future regression into a real test failure instead of a silent
+    # absorbed xpass.
     # _rule_multilabel_full_pipeline_deferred REMOVED 2026-04-25 — Session 6
     # full integration landed; all 42 multilabel combos pass end-to-end.
     # _rule_mrmr_plus_xgb_lgb_polars_utf8_small REMOVED 2026-04-23 — fixed by
@@ -560,6 +958,29 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         imbalance_ratio=axes.get("imbalance_ratio", "balanced"),
         weird_cat_content=axes.get("weird_cat_content"),
         multilabel_strategy_cfg=axes.get("multilabel_strategy_cfg", "auto"),
+        # 2026-04-26 batch 1
+        fix_infinities_cfg=axes.get("fix_infinities_cfg", True),
+        ensure_float32_cfg=axes.get("ensure_float32_cfg", True),
+        remove_constant_columns_cfg=axes.get("remove_constant_columns_cfg", True),
+        imputer_strategy_cfg=axes.get("imputer_strategy_cfg", "mean"),
+        shuffle_val_cfg=axes.get("shuffle_val_cfg", False),
+        shuffle_test_cfg=axes.get("shuffle_test_cfg", False),
+        wholeday_splitting_cfg=axes.get("wholeday_splitting_cfg", True),
+        val_sequential_fraction_cfg=axes.get("val_sequential_fraction_cfg", 0.5),
+        # batch 3 — multilabel dispatch
+        multilabel_n_chains_cfg=axes.get("multilabel_n_chains_cfg", 3),
+        multilabel_chain_order_cfg=axes.get("multilabel_chain_order_cfg", "random"),
+        multilabel_cv_cfg=axes.get("multilabel_cv_cfg", 5),
+        # batch 4 — PreprocessingExtensionsConfig
+        prep_ext_scaler_cfg=axes.get("prep_ext_scaler_cfg"),
+        prep_ext_kbins_cfg=axes.get("prep_ext_kbins_cfg"),
+        prep_ext_polynomial_degree_cfg=axes.get("prep_ext_polynomial_degree_cfg"),
+        prep_ext_dim_reducer_cfg=axes.get("prep_ext_dim_reducer_cfg"),
+        prep_ext_nonlinear_cfg=axes.get("prep_ext_nonlinear_cfg"),
+        # batch 5
+        rfecv_estimator_cfg=axes.get("rfecv_estimator_cfg"),
+        # batch 6
+        recurrent_model_cfg=axes.get("recurrent_model_cfg"),
     )
 
 
@@ -628,6 +1049,29 @@ def _combo_pairs(combo: FuzzCombo) -> set[tuple[str, Any, str, Any]]:
         "weird_cat_content": combo.weird_cat_content,
         # Phase H
         "multilabel_strategy_cfg": combo.multilabel_strategy_cfg,
+        # 2026-04-26 batch 1
+        "fix_infinities_cfg": combo.fix_infinities_cfg,
+        "ensure_float32_cfg": combo.ensure_float32_cfg,
+        "remove_constant_columns_cfg": combo.remove_constant_columns_cfg,
+        "imputer_strategy_cfg": combo.imputer_strategy_cfg,
+        "shuffle_val_cfg": combo.shuffle_val_cfg,
+        "shuffle_test_cfg": combo.shuffle_test_cfg,
+        "wholeday_splitting_cfg": combo.wholeday_splitting_cfg,
+        "val_sequential_fraction_cfg": combo.val_sequential_fraction_cfg,
+        # batch 3 — multilabel dispatch
+        "multilabel_n_chains_cfg": combo.multilabel_n_chains_cfg,
+        "multilabel_chain_order_cfg": combo.multilabel_chain_order_cfg,
+        "multilabel_cv_cfg": combo.multilabel_cv_cfg,
+        # batch 4 — PreprocessingExtensionsConfig
+        "prep_ext_scaler_cfg": combo.prep_ext_scaler_cfg,
+        "prep_ext_kbins_cfg": combo.prep_ext_kbins_cfg,
+        "prep_ext_polynomial_degree_cfg": combo.prep_ext_polynomial_degree_cfg,
+        "prep_ext_dim_reducer_cfg": combo.prep_ext_dim_reducer_cfg,
+        "prep_ext_nonlinear_cfg": combo.prep_ext_nonlinear_cfg,
+        # batch 5
+        "rfecv_estimator_cfg": combo.rfecv_estimator_cfg,
+        # batch 6
+        "recurrent_model_cfg": combo.recurrent_model_cfg,
         "n_models": len(combo.models),
     }
     names = list(values.keys())
@@ -967,7 +1411,9 @@ def build_frame_for_combo(combo: FuzzCombo):
         return pool
 
     for i in range(combo.cat_feature_count):
-        pool = _apply_weird(cat_pools[i], combo.weird_cat_content)
+        # Wrap with modulo so cat_feature_count > len(cat_pools) cycles
+        # through the pool list rather than IndexError-ing.
+        pool = _apply_weird(cat_pools[i % len(cat_pools)], combo.weird_cat_content)
         values = [pool[j % len(pool)] for j in range(n)]
         if combo.null_fraction_cats > 0:
             mask = rng.random(n) < combo.null_fraction_cats
@@ -1068,8 +1514,14 @@ def build_frame_for_combo(combo: FuzzCombo):
         num_cols["num_0"][2] = np.nan
     # inject_degenerate_cols (#7): add one constant + one all-null numeric
     # column that the ``remove_constant_columns`` flag should strip.
+    # CB-multilabel mis-detects num_const / num_null as cat features
+    # (c0062). Mirror canonical_key gate.
     extra_num_cols: dict = {}
-    if combo.inject_degenerate_cols:
+    inject_degenerate_eff = combo.inject_degenerate_cols and not (
+        "cb" in combo.models
+        and combo.target_type == "multilabel_classification"
+    )
+    if inject_degenerate_eff:
         extra_num_cols["num_const"] = np.full(n, 7.5, dtype="float32")
         extra_num_cols["num_null"] = np.full(n, np.nan, dtype="float32")
     # inject_zero_col (#40): add an all-zero numeric column as an

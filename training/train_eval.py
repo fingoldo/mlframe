@@ -34,6 +34,7 @@ from .configs import (
     LinearModelConfig,
     ModelHyperparamsConfig,
     TrainingBehaviorConfig,
+    MultilabelDispatchConfig,
 )
 from .io import load_mlframe_model, save_mlframe_model
 
@@ -246,6 +247,7 @@ def select_target(
     linear_model_config: Optional[LinearModelConfig] = None,
     train_df_size_bytes: Optional[float] = None,
     val_df_size_bytes: Optional[float] = None,
+    multilabel_dispatch_config: Optional["MultilabelDispatchConfig"] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     """Configure model parameters for a specific target variable.
 
@@ -444,6 +446,7 @@ def select_target(
         val_df_size_bytes=val_df_size_bytes,
         target_type=target_type,
         n_classes=_n_classes_from_target(target, target_type),
+        multilabel_dispatch_config=multilabel_dispatch_config,
         **effective_behavior_params,
     )
 

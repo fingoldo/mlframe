@@ -347,7 +347,16 @@ def report_regression_model_perf(
         targets = targets.values
 
     MAE = mean_absolute_error(y_true=targets, y_pred=preds)
-    MaxError = max_error(y_true=targets, y_pred=preds)
+    # sklearn's max_error refuses multioutput targets (2-D y) — it only
+    # supports a single output. Multilabel-classification + linear regressor
+    # routes (N, K) targets through this regression report; compute per-output
+    # max-error and report the worst, matching the metric's intent.
+    targets_arr = np.asarray(targets)
+    preds_arr = np.asarray(preds)
+    if targets_arr.ndim > 1 and targets_arr.shape[1] > 1:
+        MaxError = float(np.max(np.abs(targets_arr - preds_arr)))
+    else:
+        MaxError = max_error(y_true=targets, y_pred=preds)
     R2 = r2_score(y_true=targets, y_pred=preds)
     RMSE = root_mean_squared_error(y_true=targets, y_pred=preds)
 

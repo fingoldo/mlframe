@@ -28,6 +28,8 @@ import lightgbm as lgb
 import xgboost as xgb
 from xgboost.callback import TrainingCallback
 
+from sklearn.base import BaseEstimator, ClassifierMixin
+
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit
 
@@ -381,7 +383,15 @@ def _compute_chain_orders(n_labels, n_chains, order_strategy="random",
     return [np.random.RandomState(s).permutation(n_labels) for s in seeds]
 
 
-class _ChainEnsemble:
+class _ChainEnsemble(ClassifierMixin, BaseEstimator):
+    # sklearn 1.x requires ClassifierMixin to come BEFORE BaseEstimator
+    # in the MRO so that ClassifierMixin.__sklearn_tags__ correctly
+    # propagates ``estimator_type='classifier'`` via ``super()``. With the
+    # reverse order, get_tags() (and is_classifier()) return False, and
+    # downstream dispatchers (mlframe's report_model_perf) route through
+    # the regression report — visible in the fuzz suite as
+    # "x and y can be no greater than 2D" matplotlib errors.
+
     """Soft-voting ensemble of ``ClassifierChain`` instances for multilabel.
 
     sklearn's ``VotingClassifier(soft)`` does NOT accept multilabel y
@@ -393,6 +403,13 @@ class _ChainEnsemble:
     Empirical lift (sklearn docs ``plot_classifier_chain_yeast``):
     +2-5% Jaccard over ``MultiOutputClassifier`` on correlated labels;
     +cost is 3-5× training (one fit per chain).
+
+    Inherits BaseEstimator + ClassifierMixin so it survives
+    ``sklearn.base.clone`` (CalibratedClassifierCV, RFECV, GridSearchCV
+    all clone their inner estimator before fitting). All __init__ params
+    are stored verbatim on self for sklearn's get_params introspection;
+    chain construction is deferred to ``fit`` so cloning produces an
+    unfitted estimator with the same hyperparameters.
 
     Parameters
     ----------
@@ -409,60 +426,56 @@ class _ChainEnsemble:
         features to avoid training-data leak.
     """
 
-    def __init__(self, base_estimator, n_labels, *, n_chains=3, seeds=None,
+    def __init__(self, base_estimator, n_labels, n_chains=3, seeds=None,
                  order_strategy="random", user_orders=None, cv=5):
-        from sklearn.base import clone
-        from sklearn.multioutput import ClassifierChain
-
+        # All params stored as plain attributes — sklearn BaseEstimator
+        # reads them back via get_params() for cloning.
         self.base_estimator = base_estimator
         self.n_labels = n_labels
         self.n_chains = n_chains
-        self.seeds = seeds if seeds is not None else list(range(n_chains))
+        self.seeds = seeds
+        self.order_strategy = order_strategy
+        self.user_orders = user_orders
         self.cv = cv
-        # Compute orders eagerly (without y for non-by_frequency); resolve at fit
-        # for by_frequency.
-        self._orders_resolved = None
-        if order_strategy != "by_frequency":
-            self._orders_resolved = _compute_chain_orders(
-                n_labels, n_chains, order_strategy=order_strategy,
-                user_orders=user_orders, seeds=self.seeds,
-            )
-        self._order_strategy = order_strategy
-        self._user_orders = user_orders
-        self.chains_ = [
-            ClassifierChain(
-                clone(base_estimator),
-                order=(self._orders_resolved[i].tolist()
-                       if self._orders_resolved is not None else None),
-                cv=cv,
-                random_state=self.seeds[i],
-            )
-            for i in range(n_chains)
-        ]
 
     def fit(self, X, y, **fit_params):
         from sklearn.multioutput import ClassifierChain
         from sklearn.base import clone
 
-        if self._orders_resolved is None:
-            # by_frequency — needs y
-            self._orders_resolved = _compute_chain_orders(
-                self.n_labels, self.n_chains,
-                order_strategy=self._order_strategy,
-                user_orders=self._user_orders, seeds=self.seeds, y=y,
+        # Resolve seeds + per-chain orders lazily at fit time so that
+        # cloning (which calls __init__ with the params get_params returned)
+        # produces a fresh, unfitted estimator without inheriting cached
+        # state from the parent.
+        seeds_resolved = (
+            self.seeds if self.seeds is not None
+            else list(range(self.n_chains))
+        )
+        # by_frequency needs y; other strategies can be resolved without it.
+        orders_resolved = _compute_chain_orders(
+            self.n_labels, self.n_chains,
+            order_strategy=self.order_strategy,
+            user_orders=self.user_orders, seeds=seeds_resolved,
+            y=y if self.order_strategy == "by_frequency" else None,
+        )
+        self.chains_ = [
+            ClassifierChain(
+                clone(self.base_estimator),
+                order=orders_resolved[i].tolist(),
+                cv=self.cv, random_state=seeds_resolved[i],
             )
-            # Rebuild chains with the now-resolved orders.
-            self.chains_ = [
-                ClassifierChain(
-                    clone(self.base_estimator),
-                    order=self._orders_resolved[i].tolist(),
-                    cv=self.cv, random_state=self.seeds[i],
-                )
-                for i in range(self.n_chains)
-            ]
+            for i in range(self.n_chains)
+        ]
 
+        # ClassifierChain.fit in sklearn 1.x rejects extra kwargs unless
+        # `enable_metadata_routing=True` is set globally. Callers commonly
+        # pass eval_set / eval_metric / X_val / y_val for inner-model early
+        # stopping — those make no sense for ClassifierChain (the chain
+        # cross-validates internally via cv=) and can't be routed cleanly.
+        # Drop them; the inner estimator's hyperparameters are already
+        # baked in via clone(), which is the only thing fit_params used to
+        # influence in this codepath.
         for chain in self.chains_:
-            chain.fit(X, y, **fit_params)
+            chain.fit(X, y)
         # Mirror sklearn estimator API.
         self.classes_ = self.chains_[0].classes_
         return self
@@ -478,7 +491,12 @@ class _ChainEnsemble:
         return (proba >= threshold).astype(np.int8)
 
     def __sklearn_is_fitted__(self):
-        return all(hasattr(c, "estimators_") for c in self.chains_)
+        # chains_ is created in fit(); pre-fit (e.g. on a freshly-cloned
+        # instance) the attribute won't exist yet.
+        chains = getattr(self, "chains_", None)
+        if not chains:
+            return False
+        return all(hasattr(c, "estimators_") for c in chains)
 
 
 def _build_classifier_chain_ensemble(base_estimator, n_labels, *,

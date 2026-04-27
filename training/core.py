@@ -847,6 +847,7 @@ from .configs import (
     TargetTypes,
     LinearModelConfig,
     PreprocessingExtensionsConfig,
+    MultilabelDispatchConfig,
 )
 from .preprocessing import (
     load_and_prepare_dataframe,
@@ -1638,6 +1639,8 @@ def train_mlframe_models_suite(
     # Outlier detection (run once for all models)
     outlier_detector: Optional[Any] = None,
     od_val_set: bool = True,
+    # Multilabel dispatch (consulted only when target_type is MULTILABEL_CLASSIFICATION)
+    multilabel_dispatch_config: Optional["MultilabelDispatchConfig"] = None,
 ) -> Tuple[Dict, Dict]:
     """
     Train a suite of ML models on a dataset.
@@ -2922,6 +2925,7 @@ def train_mlframe_models_suite(
                     # outlier-filter shrinkage is small vs total size.
                     train_df_size_bytes=train_df_size_bytes_cached,
                     val_df_size_bytes=val_df_size_bytes_cached,
+                    multilabel_dispatch_config=multilabel_dispatch_config,
                 )
 
             if verbose:

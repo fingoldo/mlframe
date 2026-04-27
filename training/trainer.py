@@ -374,6 +374,7 @@ from .configs import (
     ConfidenceAnalysisConfig,
     PredictionsContainer,
     LinearModelConfig,
+    MultilabelDispatchConfig,
 )
 from .utils import log_ram_usage, get_categorical_columns, get_numeric_columns, filter_existing
 
@@ -898,9 +899,31 @@ def _apply_pre_pipeline_transforms(
                 if val_df is not None:
                     if verbose:
                         logger.info(f"Transforming val_df via pre_pipeline...")
-                    val_df = _passthrough_cols_fit_transform(
-                        pre_pipeline.transform, val_df, passthrough_cols=selector_passthrough_cols,
-                    )
+                    # Min-rows guard: an empty val window (occurs at the
+                    # edge config of inject_degenerate + cat_count>=20 +
+                    # backward placement + non-shuffled splits, fuzz
+                    # c0102) collapses to shape=(0, N) before reaching
+                    # this transform. SimpleImputer / polars-ds steps
+                    # raise ``Found array with 0 sample(s)`` on the empty
+                    # frame. Skip the transform when there's nothing to
+                    # transform; downstream code paths already accept a
+                    # None val_df (early-stopping just degrades) but we
+                    # preserve the empty frame here so callers that
+                    # explicitly check ``val_df is not None`` keep their
+                    # existing behaviour.
+                    if len(val_df) == 0:
+                        if verbose:
+                            logger.warning(
+                                "  val_df has 0 rows — skipping pre_pipeline "
+                                "transform. This usually points to a degenerate "
+                                "TrainingSplitConfig (val_placement=backward + "
+                                "non-shuffled splits + inject_degenerate-style "
+                                "row trimming); investigate the splitter."
+                            )
+                    else:
+                        val_df = _passthrough_cols_fit_transform(
+                            pre_pipeline.transform, val_df, passthrough_cols=selector_passthrough_cols,
+                        )
                     if verbose:
                         log_ram_usage()
             else:
@@ -920,9 +943,18 @@ def _apply_pre_pipeline_transforms(
                 if val_df is not None:
                     if verbose:
                         logger.info(f"Transforming val_df via pre_pipeline {pre_pipeline}...")
-                    val_df = _passthrough_cols_fit_transform(
-                        pre_pipeline.transform, val_df, passthrough_cols=selector_passthrough_cols,
-                    )
+                    # Min-rows guard mirrors the fit-transform branch above
+                    # (see comment there) — empty val window must skip the
+                    # transform to avoid SimpleImputer raising on shape=(0,N).
+                    if len(val_df) == 0:
+                        if verbose:
+                            logger.warning(
+                                "  val_df has 0 rows — skipping pre_pipeline transform."
+                            )
+                    else:
+                        val_df = _passthrough_cols_fit_transform(
+                            pre_pipeline.transform, val_df, passthrough_cols=selector_passthrough_cols,
+                        )
                     if verbose:
                         log_ram_usage()
             _maybe_clean_ram()
@@ -984,6 +1016,31 @@ def _setup_eval_set(
                 break
 
     if model_category is None or model_category not in eval_set_configs:
+        return
+
+    # Empty-val guard: when the splitter produces an empty val window
+    # (fuzz c0079 / earlier c0102 — small-n combos with heavy filtering
+    # like trainset_aging_limit + outlier_detection collapse the val
+    # slice to 0 rows), passing an empty (val_df, val_target) tuple to
+    # CB/XGB/LGB eval_set causes a misleading "Labels variable is empty"
+    # raise from CB's internal Pool init (the message is about VAL
+    # labels, not train). Skip the eval_set injection so the model
+    # trains without early-stopping val — that's the correct degraded
+    # behaviour for a degenerate split.
+    _val_n = (
+        val_df.shape[0] if val_df is not None and hasattr(val_df, "shape") else None
+    )
+    _val_tgt_n = (
+        len(val_target) if val_target is not None and hasattr(val_target, "__len__") else None
+    )
+    if (_val_n is not None and _val_n == 0) or (_val_tgt_n is not None and _val_tgt_n == 0):
+        logger.warning(
+            "[%s] empty val_df / val_target (rows=%s, target_len=%s) — "
+            "skipping eval_set injection. The model will train without "
+            "early-stopping validation. Investigate the splitter that "
+            "produced the degenerate val slice.",
+            model_category, _val_n, _val_tgt_n,
+        )
         return
 
     # 2026-04-24 Session 6: when the model is wrapped in MultiOutputClassifier
@@ -1871,6 +1928,23 @@ def _maybe_get_or_build_cb_pool(
     if model_type_name not in CATBOOST_MODEL_TYPES:
         return None
 
+    # Empty-target guard: if the caller passed a 0-length train_target
+    # (e.g. RFECV inner CV fold collapsed after MRMR dropped all rows of
+    # one class on rare-imbalance combos — fuzz c0079), skip the
+    # Pool-reuse fast-path and let CB raise a clearer error from the
+    # sklearn wrapper. Using the cached Pool would silently set an empty
+    # label and CB then crashes deep in ``_check_label_empty`` with no
+    # context about which combo / fold triggered it.
+    try:
+        if train_target is not None and hasattr(train_target, "__len__") and len(train_target) == 0:
+            logger.warning(
+                "[cb-pool-reuse] empty train_target — skipping Pool reuse "
+                "(would set zero-length label); deferring to sklearn fallback."
+            )
+            return None
+    except Exception:
+        pass
+
     # Filter cat/text/embedding features to only those actually present
     # in train_df. Motivation: MRMR and similar selectors can drop columns
     # AFTER fit_params was built, leaving stale feature lists that CB's
@@ -1928,6 +2002,27 @@ def _maybe_get_or_build_cb_pool(
         _shape_sig = None
     key = (id(train_df), _cols, _shape_sig, cat_features, text_features, embedding_features)
 
+    # Verify train_target length matches train_df row count BEFORE the
+    # Pool-reuse fast-path. RFECV's inner CV folds occasionally hand us
+    # train_target / train_df pairs whose lengths disagree (subset of
+    # rows but full target, or vice versa); the Pool then ends up with a
+    # stale label and CB.fit raises "Labels variable is empty" deep in
+    # C++ Pool init (fuzz c0079). Skip Pool reuse on mismatch and let
+    # the sklearn fallback path build a fresh Pool with the current
+    # (data, label) pair.
+    try:
+        _df_rows = train_df.shape[0] if hasattr(train_df, "shape") else None
+        _tg_len = len(train_target) if train_target is not None and hasattr(train_target, "__len__") else None
+        if _df_rows is not None and _tg_len is not None and _df_rows != _tg_len:
+            logger.warning(
+                "[cb-pool-reuse] train_df rows (%d) != train_target len (%d) "
+                "— skipping Pool reuse; deferring to sklearn fallback.",
+                _df_rows, _tg_len,
+            )
+            return None
+    except Exception:
+        pass
+
     cached = _CB_POOL_CACHE.get(key)
     if cached is not None:
         # Installed CatBoost 1.2.10 rejects ``Pool.set_label`` on a
@@ -1955,6 +2050,26 @@ def _maybe_get_or_build_cb_pool(
                 cached._mlframe_last_target_id = id(train_target)
             if sample_weight is not None:
                 cached.set_weight(sample_weight)
+            # Post-swap verification: confirm the cached Pool's label is
+            # non-empty (set_label can silently set a 0-length array if
+            # _label_for_swap was empty after some upstream filter, then
+            # CB.fit raises "Labels variable is empty" deep in _check_-
+            # label_empty with no diagnostics, fuzz c0079). Evict and
+            # rebuild on miss.
+            try:
+                _post_label = cached.get_label()
+                if _post_label is not None and hasattr(_post_label, "__len__") and len(_post_label) == 0:
+                    logger.info(
+                        "[cb-pool-reuse] cached Pool ended up with empty label after swap "
+                        "— evicting and rebuilding."
+                    )
+                    _CB_POOL_CACHE.pop(key, None)
+                    raise RuntimeError("empty cached label after set_label")
+            except Exception as _verify_exc:
+                if "empty cached label" in str(_verify_exc):
+                    raise
+                # get_label() not exposed on this CB build; trust set_label.
+                pass
             logger.info(
                 f"[cb-pool-reuse] hit key=(id={key[0]},cat={len(cat_features)},"
                 f"text={len(text_features)},emb={len(embedding_features)}) "
@@ -2222,8 +2337,8 @@ def _train_model_with_fallback(
     #     (short-circuits rebuild in ``_build_train_pool``).
     # XGB/LGB are not covered this round — their sklearn wrappers don't
     # accept pre-built DMatrix/Dataset yet (upstream FRs drafted in
-    # ``reproducers/upstream_feature_requests/``). Only the per-build
-    # logging from Fix 9.4.1 makes their rebuild cost visible.
+    # ``D:\Machine Learning\3rdParty\reproducers\upstream_feature_requests\``).
+    # Only the per-build logging from Fix 9.4.1 makes their rebuild cost visible.
     _cb_pool = _maybe_get_or_build_cb_pool(
         model_type_name=model_type_name,
         model=model,
@@ -2286,9 +2401,15 @@ def _train_model_with_fallback(
     # Look through MultiOutputClassifier wrapper for the polars-native check.
     # The wrapper's `estimator` is the per-label base; if the base is polars-native
     # (e.g. HGB), each per-label fit will accept polars too.
+    # _ChainEnsemble is the multilabel chain ensemble — its inner is exposed
+    # as `base_estimator` (cloned per chain at fit time).
     _effective_model_type_name = model_type_name
     if model_type_name in ("MultiOutputClassifier", "MultiOutputRegressor", "ClassifierChain"):
         inner = getattr(model, "estimator", None)
+        if inner is not None:
+            _effective_model_type_name = type(inner).__name__
+    elif model_type_name == "_ChainEnsemble":
+        inner = getattr(model, "base_estimator", None)
         if inner is not None:
             _effective_model_type_name = type(inner).__name__
     if _is_polars and not any(
@@ -2306,6 +2427,52 @@ def _train_model_with_fallback(
             f"pipeline_cache keys + id() — do NOT add another silent "
             f"self-heal."
         )
+
+    # Defensive null-fill for pandas categorical features handed to CatBoost.
+    # The polars-native path's ``_polars_fill_null_in_categorical`` plus
+    # ``prepare_df_for_catboost`` cover most cases, but the multilabel
+    # codepath (MultiOutputClassifier wrapping) re-slices the frame after
+    # those fills run — by the time the per-label CB fit lands here, val
+    # / test rows may carry raw NaN in cat columns and CB raises ``Invalid
+    # type for cat_feature ... =NaN`` (fuzz c0062). Mirror the polars
+    # __MISSING__ sentinel for the pandas surface so the bug is patched
+    # at the trainer boundary regardless of which upstream path led here.
+    if (
+        _is_pandas
+        and model_type_name in CATBOOST_MODEL_TYPES
+        and "cat_features" in fit_params
+        and fit_params["cat_features"]
+    ):
+        _cat_cols = [c for c in fit_params["cat_features"] if c in train_df.columns]
+        if _cat_cols:
+            for _c in _cat_cols:
+                _s = train_df[_c]
+                if _s.isna().any():
+                    train_df = train_df.copy() if not getattr(train_df, "_mlframe_filled", False) else train_df
+                    train_df[_c] = _s.astype("string").fillna("__MISSING__").astype("category")
+                    train_df._mlframe_filled = True
+            # Symmetric fill on eval_set so val/test slices don't trip the
+            # same NaN check during early-stopping evaluation.
+            _eval_set = fit_params.get("eval_set")
+            if _eval_set:
+                _new_eval_set = []
+                for pair in _eval_set:
+                    if isinstance(pair, tuple) and len(pair) == 2 and isinstance(pair[0], pd.DataFrame):
+                        _eval_df, _eval_y = pair
+                        _eval_df_filled = _eval_df
+                        for _c in _cat_cols:
+                            if _c in _eval_df_filled.columns and _eval_df_filled[_c].isna().any():
+                                if not getattr(_eval_df_filled, "_mlframe_filled", False):
+                                    _eval_df_filled = _eval_df_filled.copy()
+                                _eval_df_filled[_c] = (
+                                    _eval_df_filled[_c].astype("string")
+                                    .fillna("__MISSING__").astype("category")
+                                )
+                                _eval_df_filled._mlframe_filled = True
+                        _new_eval_set.append((_eval_df_filled, _eval_y))
+                    else:
+                        _new_eval_set.append(pair)
+                fit_params["eval_set"] = _new_eval_set
 
     try:
         with phase("model.fit", model=model_type_name,
@@ -2631,6 +2798,29 @@ def _compute_split_metrics(
     """Unified metrics computation for train/val/test splits."""
     # Only skip if we can't compute metrics (no probs AND no df to make predictions)
     if df is None and probs is None:
+        return preds, probs, []
+
+    # Min-rows guard: an empty split (e.g. val_df with shape=(0, N) from
+    # the splitter edge case fixed in _apply_pre_pipeline_transforms)
+    # propagates into report_model_perf -> classification_report which
+    # raises ``Found empty input array`` before we get a useful error.
+    # Symmetric guard at the metrics layer so the model still trains
+    # (already done) and the report is just skipped for the empty split.
+    if df is not None and hasattr(df, "shape") and df.shape[0] == 0:
+        logger.warning(
+            "  %s split has 0 rows — skipping metrics report. Upstream "
+            "splitter likely produced an empty window; investigate the "
+            "TrainingSplitConfig that fed this combo.", split_name,
+        )
+        return preds, probs, []
+    if (
+        target is not None
+        and hasattr(target, "__len__")
+        and len(target) == 0
+    ):
+        logger.warning(
+            "  %s split target is empty — skipping metrics report.", split_name,
+        )
         return preds, probs, []
 
     # Derive columns from df if available (for feature importance)
@@ -3727,6 +3917,7 @@ def configure_training_params(
     val_df_size_bytes: Optional[float] = None,
     target_type: Optional["TargetTypes"] = None,
     n_classes: Optional[int] = None,
+    multilabel_dispatch_config: Optional["MultilabelDispatchConfig"] = None,
 ):
     """Configure training parameters for all model types.
 
@@ -3979,7 +4170,11 @@ def configure_training_params(
                 estimator.set_params(**_patch)
             except Exception:
                 pass
-        return strategy_cls().wrap_multilabel(estimator, target_type, n_labels=n_classes)
+        return strategy_cls().wrap_multilabel(
+            estimator, target_type,
+            multilabel_config=multilabel_dispatch_config,
+            n_labels=n_classes,
+        )
 
     hgb_params = None
     if _should_create_model("hgb"):

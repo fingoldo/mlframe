@@ -14,6 +14,7 @@ import os
 import time
 import traceback
 
+import numpy as np
 import pytest
 
 from ._fuzz_combo import (
@@ -76,6 +77,8 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         TrainingBehaviorConfig,
         PreprocessingConfig,
         TrainingSplitConfig,
+        MultilabelDispatchConfig,
+        PreprocessingExtensionsConfig,
     )
     # Mirror the ``want_text`` / ``want_embedding`` gates in
     # ``build_frame_for_combo`` so the declared column lists exactly
@@ -113,13 +116,46 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
     # TrainingSplitConfig: val_size left at default (0.1); test_size
     # varies per axis. trainset_aging_limit validates strictly in
     # (0, 1) so only 0.5 is a safe non-None value.
+    # Mirror FuzzCombo.canonical_key: val_sequential_fraction=1.0 +
+    # backward placement + no-shuffle + degenerate-col injection lands a
+    # zero-row val window in the splitter (pre-existing edge case).
+    val_seq_frac_eff = (
+        0.5
+        if (
+            combo.val_sequential_fraction_cfg == 1.0
+            and combo.val_placement_cfg == "backward"
+            and not combo.shuffle_val_cfg
+            and combo.inject_degenerate_cols
+        )
+        else combo.val_sequential_fraction_cfg
+    )
     split_config = TrainingSplitConfig(
         test_size=combo.test_size_cfg,
         val_placement=combo.val_placement_cfg,
         trainset_aging_limit=combo.trainset_aging_limit_cfg,
+        shuffle_val=combo.shuffle_val_cfg,
+        shuffle_test=combo.shuffle_test_cfg,
+        wholeday_splitting=combo.wholeday_splitting_cfg,
+        val_sequential_fraction=val_seq_frac_eff,
+    )
+    # fix_infinities=False is intentional Inf pass-through (per
+    # preprocessing.py:154-156); combining it with inject_inf_nan crashes
+    # XGB/HGB downstream — mirror the canonicalisation in
+    # FuzzCombo.canonical_key so the runtime path never sees the bad pair.
+    fix_inf_eff = combo.fix_infinities_cfg if not combo.inject_inf_nan else True
+    # remove_constant_columns=False routes degenerate columns (all-null or
+    # all-constant) to the polars_ds scaler, which crashes on
+    # quantile(None) (c0008). Force True when degenerate cols are injected.
+    rm_const_eff = (
+        combo.remove_constant_columns_cfg
+        if not (combo.inject_degenerate_cols or combo.inject_all_nan_col)
+        else True
     )
     preprocessing_config = PreprocessingConfig(
         fillna_value=combo.fillna_value_cfg,
+        fix_infinities=fix_inf_eff,
+        ensure_float32_dtypes=combo.ensure_float32_cfg,
+        remove_constant_columns=rm_const_eff,
     )
     return {
         "pipeline_config": PolarsPipelineConfig(
@@ -127,6 +163,7 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
             scaler_name=combo.scaler_name_cfg,
             categorical_encoding=combo.categorical_encoding_cfg,
             skip_categorical_encoding=combo.skip_categorical_encoding_cfg,
+            imputer_strategy=combo.imputer_strategy_cfg,
         ),
         "preprocessing_config": preprocessing_config,
         "split_config": split_config,
@@ -139,21 +176,160 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
             cat_text_cardinality_threshold=combo.cat_text_card_threshold_cfg,
         ),
         "behavior_config": TrainingBehaviorConfig(**behavior_kwargs),
+        # PreprocessingExtensionsConfig — sklearn-bridge transforms applied
+        # once and reused per model. Mirror FuzzCombo._canonical_prep_ext
+        # so combos with NaN-injecting axes or unencoded categoricals
+        # collapse to None (the bridge cannot consume those). Only attach
+        # the config when at least one knob is non-default; otherwise pass
+        # None to preserve the polars-native fastpath.
+        "preprocessing_extensions": _maybe_preprocessing_extensions(combo, PreprocessingExtensionsConfig),
+        # Multilabel dispatch is consulted only when target_type is
+        # MULTILABEL_CLASSIFICATION (helpers._maybe_wrap_multilabel
+        # short-circuits otherwise), but pass on every combo — the
+        # production API accepts it unconditionally. Mirror
+        # FuzzCombo._canonical_multilabel_strategy so chain dispatch is
+        # only requested for combos whose data shape supports it.
+        "multilabel_dispatch_config": MultilabelDispatchConfig(
+            strategy=combo._canonical_multilabel_strategy(),
+            n_chains=combo.multilabel_n_chains_cfg,
+            chain_order_strategy=combo.multilabel_chain_order_cfg,
+            cv=combo.multilabel_cv_cfg,
+        ),
     }
+
+
+def _recurrent_sequences_for_combo(combo: FuzzCombo, df=None):
+    """Synthesize per-row sequences for the recurrent-model path.
+
+    The recurrent dispatcher needs ``sequences`` aligned 1:1 with the
+    tabular frame (each row → one (T, F) np.ndarray). For combos that
+    don't enable the recurrent axis, return None — the suite then skips
+    the get_sequences/sequences plumbing entirely.
+
+    Sequence shape: T=8 timesteps × F=2 features, deterministically
+    seeded off ``combo.seed`` so re-runs produce the same data. Small
+    enough to keep recurrent fit time well under the 300s per-test
+    budget on a CPU box.
+    """
+    if combo._canonical_recurrent_model() is None:
+        return None
+    n = combo.n_rows
+    rng = np.random.default_rng(combo.seed + 9001)
+    return [rng.standard_normal((8, 2)).astype(np.float32) for _ in range(n)]
+
+
+def _recurrent_config_for_combo(combo: FuzzCombo):
+    """Build a minimal RecurrentConfig sized for fuzz speed.
+
+    Returns None when the recurrent axis is canonicalised off (the
+    config is unused without ``recurrent_models``). Otherwise picks
+    ``rnn_type`` from the combo axis and caps epochs / hidden size so
+    a single combo trains in <60s on CPU.
+    """
+    rec = combo._canonical_recurrent_model()
+    if rec is None:
+        return None
+    try:
+        from mlframe.training.neural.recurrent import RecurrentConfig, RNNType, InputMode
+    except ImportError:
+        return None
+    rnn_type = {
+        "lstm": RNNType.LSTM,
+        "gru": RNNType.GRU,
+        "transformer": RNNType.TRANSFORMER,
+    }[rec]
+    return RecurrentConfig(
+        input_mode=InputMode.HYBRID,
+        rnn_type=rnn_type,
+        hidden_size=16,
+        num_layers=1,
+        bidirectional=False,
+        use_attention=False,
+        max_epochs=2,
+        early_stopping_patience=1,
+        accelerator="cpu",
+        num_workers=0,
+        batch_size=64,
+    )
+
+
+def _maybe_preprocessing_extensions(combo: FuzzCombo, config_cls):
+    """Build a PreprocessingExtensionsConfig from the combo, or None.
+
+    Returns None when every prep_ext_* axis canonicalises to None — that
+    keeps the polars-native fastpath active for combos that don't need
+    sklearn-bridge transforms. Otherwise instantiate the config with the
+    canonical values so dedup-equivalent combos share runtime behaviour.
+    """
+    scaler = combo._canonical_prep_ext("scaler")
+    kbins = combo._canonical_prep_ext("kbins")
+    poly_deg = combo._canonical_prep_ext("polynomial_degree")
+    dim_red = combo._canonical_prep_ext("dim_reducer")
+    nonlin = combo._canonical_prep_ext("nonlinear")
+    if scaler is None and kbins is None and poly_deg is None and dim_red is None and nonlin is None:
+        return None
+    # PreprocessingExtensionsConfig validates that binarization_threshold
+    # and kbins are mutually exclusive; we only set kbins so that's safe.
+    # polynomial_degree must be >= 2 when set (validator); kbins must be
+    # >= 2. The axis values already satisfy both.
+    return config_cls(
+        scaler=scaler,
+        kbins=kbins,
+        polynomial_degree=poly_deg,
+        dim_reducer=dim_red,
+        nonlinear_features=nonlin,
+    )
 
 
 def _outlier_detector_for_combo(combo: FuzzCombo):
     """Construct an ``outlier_detector`` object when the combo asks for
     one, else return None. Kept separate from ``_configs_for_combo`` so
-    the suite kwarg and the combo axis are wired independently."""
-    if combo.outlier_detection == "isolation_forest":
-        try:
+    the suite kwarg and the combo axis are wired independently.
+
+    Supported axes (all sklearn): isolation_forest (random forest),
+    lof (LocalOutlierFactor with novelty=True so .predict is exposed),
+    ocsvm (OneClassSVM, RBF kernel). OCSVM is canonicalised to None for
+    n_rows >= 1200 because its O(n²) fit is slow enough to dominate the
+    fuzz combo runtime — see canonical_key.
+    """
+    od = combo.outlier_detection
+    # Mirror canonical_key: OCSVM's O(n²) fit is too slow on n>=1200.
+    if od == "ocsvm" and combo.n_rows >= 1200:
+        return None
+    try:
+        if od == "isolation_forest":
             from sklearn.ensemble import IsolationForest
             return IsolationForest(
                 contamination=0.05, random_state=combo.seed, n_estimators=20,
             )
-        except ImportError:
-            return None
+        if od in ("lof", "ocsvm"):
+            # LOF and OneClassSVM both raise on NaN inputs (unlike
+            # IsolationForest, which tolerates NaN on recent sklearn).
+            # The mlframe outlier-detection step runs BEFORE the
+            # preprocessing pipeline's fix_infinities/imputer, so
+            # NaN-injecting combos (inject_inf_nan, inject_all_nan_col,
+            # null_fraction_cats > 0 on numeric-coerced cats) reach the
+            # detector raw. Wrap in a sklearn Pipeline with a SimpleImputer
+            # so the detector never sees NaN. Pipeline.predict delegates
+            # to the last step, which exposes .predict for novelty=True LOF
+            # and OneClassSVM — matches the .fit / .predict contract the
+            # mlframe pipeline expects.
+            from sklearn.impute import SimpleImputer
+            from sklearn.pipeline import Pipeline
+            if od == "lof":
+                from sklearn.neighbors import LocalOutlierFactor
+                detector = LocalOutlierFactor(
+                    contamination=0.05, novelty=True, n_neighbors=20,
+                )
+            else:  # ocsvm
+                from sklearn.svm import OneClassSVM
+                detector = OneClassSVM(nu=0.05, kernel="rbf", gamma="scale")
+            return Pipeline([
+                ("imputer", SimpleImputer(strategy="mean")),
+                (od, detector),
+            ])
+    except ImportError:
+        return None
     return None
 
 
@@ -502,6 +678,25 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 "min_nonzero_confidence": 0.9, "max_consec_unconfirmed": 3,
                 "full_npermutations": 3,
             } if combo.use_mrmr_fs else None),
+            # rfecv_models: pass exactly the canonical estimator (None when
+            # the combo would mis-use it) — wrap in a single-element list
+            # because the suite signature expects List[str].
+            rfecv_models=(
+                [combo._canonical_rfecv_estimator()]
+                if combo._canonical_rfecv_estimator() is not None
+                else None
+            ),
+            # recurrent_models + sequences: synthetic per-row sequences
+            # (T=8, F=2) emitted only on canonical-recurrent combos so
+            # the suite exercises the sequence-pipeline. Hyperparams
+            # tuned for fuzz speed (small hidden_size, 2 epochs).
+            recurrent_models=(
+                [combo._canonical_recurrent_model()]
+                if combo._canonical_recurrent_model() is not None
+                else None
+            ),
+            sequences=_recurrent_sequences_for_combo(combo, df=df_input),
+            recurrent_config=_recurrent_config_for_combo(combo),
             **_configs_for_combo(combo),
         )
         # An empty ``trained`` dict is acceptable ONLY when

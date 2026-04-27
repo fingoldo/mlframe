@@ -17,6 +17,7 @@ from typing import *
 import warnings
 from os.path import exists
 import pandas as pd, numpy as np
+import polars as pl
 try:
     import polars as _pl
 except ImportError:  # pragma: no cover
@@ -240,6 +241,21 @@ class RFECV(BaseEstimator, TransformerMixin):
     def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, **fit_params):
 
         # ----------------------------------------------------------------------------------------------------------------------------
+        # Polars -> pandas at entry. The whole RFECV path uses pandas /
+        # numpy idioms (KFold.split, current_features.index(...), pd-style
+        # passthrough_cols handling). Inner estimators run via .fit(X)
+        # also expect pandas; CatBoost on a polars Enum raises
+        # ``Unsupported data type Enum(categories=['', 'B', 'C',
+        # '__MISSING__']) for a numerical feature column`` (fuzz c0103 /
+        # c0102 / c0114 / c0147). Convert once here so every downstream
+        # caller sees pandas.
+        # ----------------------------------------------------------------------------------------------------------------------------
+        if isinstance(X, pl.DataFrame):
+            X = X.to_pandas()
+        if isinstance(y, pl.Series):
+            y = y.to_pandas()
+
+        # ----------------------------------------------------------------------------------------------------------------------------
         # Compute inputs/outputs signature
         # ----------------------------------------------------------------------------------------------------------------------------
 
@@ -283,6 +299,39 @@ class RFECV(BaseEstimator, TransformerMixin):
         verbose = self.verbose
         show_plot = self.show_plot
         cat_features = self.cat_features
+        # Strip cat_features whose columns have already been numerically
+        # encoded by an upstream pipeline step (e.g. CatBoostEncoder in
+        # init_common_params turns cat_0 -> float). With cat_0 still in
+        # cat_features, the inner CatBoost.fit hits the encoded float
+        # column with cat_features=['cat_0'] and raises ``Invalid type
+        # for cat_feature ... =0.49...`` (fuzz c0102 / c0114 / c0147 /
+        # c0056 / c0070 / c0151). Restrict to columns whose dtype is
+        # still categorical/object — those are the ones CB/XGB can
+        # actually consume as cat_features. LOCAL only — never mutate
+        # self.cat_features (back-to-back fits across encoded/un-encoded
+        # frames must each pick the right subset for their X).
+        if cat_features and isinstance(X, pd.DataFrame):
+            try:
+                _consumable_kinds = {"O", "U", "S"}
+                _consumable = []
+                for _c in cat_features:
+                    if _c not in X.columns:
+                        continue
+                    _dt = X[_c].dtype
+                    if str(_dt).startswith("category") or getattr(_dt, "kind", "") in _consumable_kinds:
+                        _consumable.append(_c)
+                if len(_consumable) != len(cat_features):
+                    if verbose:
+                        logger.info(
+                            "wrappers.fit: %d/%d cat_features kept after dtype check; "
+                            "the rest (%s) appear numerically encoded upstream and "
+                            "are skipped for the inner estimator.",
+                            len(_consumable), len(cat_features),
+                            [c for c in cat_features if c not in _consumable],
+                        )
+                    cat_features = _consumable
+            except Exception:
+                pass
         keep_estimators = self.keep_estimators
         feature_cost = self.feature_cost
         smooth_perf = self.smooth_perf
@@ -544,7 +593,40 @@ class RFECV(BaseEstimator, TransformerMixin):
                         early_stopping_rounds=early_stopping_rounds,
                         cat_features=temp_cat_features,
                     )  # crafts fit params with early stopping tailored to particular model type.
-                    temp_fit_params.update(fit_params)
+                    # Filter feature-list keys (cat_features / text_features /
+                    # embedding_features) coming in via fit_params to only
+                    # columns present in the current selector iteration.
+                    # Without this, names from the outer call reference
+                    # columns dropped by the current iteration, and CB
+                    # raises ``Error while processing column for feature
+                    # 'cat_0'`` (fuzz c0103 / c0102 / c0147 / c0114).
+                    #
+                    # cat_features handling: ``pack_val_set_into_fit_params``
+                    # above already injected index-based temp_cat_features
+                    # IFF that list was non-empty. When it's empty
+                    # (current_features doesn't intersect self.cat_features)
+                    # we MUST still pass a name-list filtered to current_-
+                    # features so CB doesn't fall back to auto-detect on
+                    # numerically-encoded category columns (target-encoded
+                    # cats look like floats and trip CB's "Invalid type for
+                    # cat_feature ... =0.49..." c0102 / c0147).
+                    _current_set = set(current_features)
+                    _filtered_fit_params = {}
+                    for _k, _v in fit_params.items():
+                        if _k == "cat_features":
+                            if "cat_features" in temp_fit_params:
+                                # temp's index-based cat_features wins; drop outer name list.
+                                continue
+                            if _v:
+                                _filtered = [c for c in _v if c in _current_set]
+                                _filtered_fit_params[_k] = _filtered or None
+                            continue
+                        if _k in ("text_features", "embedding_features") and _v:
+                            _filtered = [c for c in _v if c in _current_set]
+                            _filtered_fit_params[_k] = _filtered or None
+                            continue
+                        _filtered_fit_params[_k] = _v
+                    temp_fit_params.update(_filtered_fit_params)
 
                 else:
 
@@ -563,6 +645,26 @@ class RFECV(BaseEstimator, TransformerMixin):
                     fitted_estimator = estimator
 
                 model_type_name = type(fitted_estimator).__name__ if fitted_estimator is not None else ""
+                # Empty-train guard: heavy upstream filtering (small n +
+                # outlier_detection + trainset_aging_limit) can collapse
+                # X_train / y_train to 0 rows on a CV fold; CatBoost then
+                # raises "Labels variable is empty" deep in C++ Pool init
+                # (fuzz c0079). Skip the fold cleanly with a sentinel
+                # score so the FS loop continues; this matches sklearn's
+                # behaviour for degenerate folds.
+                _x_n = X_train.shape[0] if hasattr(X_train, "shape") else None
+                _y_n = len(y_train) if y_train is not None and hasattr(y_train, "__len__") else None
+                if (_x_n is not None and _x_n == 0) or (_y_n is not None and _y_n == 0):
+                    if verbose:
+                        logger.warning(
+                            "wrappers.fit: skipping fold %s — empty train slice "
+                            "(rows=%s, target_len=%s). Upstream filters reduced "
+                            "the train batch to zero.",
+                            nfold, _x_n, _y_n,
+                        )
+                    scores.append(np.nan)
+                    feature_importances[f"{len(current_features)}_{nfold}"] = {}
+                    continue
                 ctx = suppress_stdout_stderr() if model_type_name in CATBOOST_MODEL_TYPES else nullcontext()
                 with ctx:
                     fitted_estimator.fit(X=X_train, y=y_train, **temp_fit_params)
