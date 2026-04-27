@@ -57,6 +57,28 @@ def _build_extension_steps(config: PreprocessingExtensionsConfig, n_features: in
     """
     from sklearn.preprocessing import Binarizer, KBinsDiscretizer, PolynomialFeatures
     steps = []
+    # NaN-imputation guard 2026-04-27 (batch 3): KBinsDiscretizer,
+    # PolynomialFeatures, RBFSampler, Nystroem, and most sklearn
+    # decompositions (PCA, TruncatedSVD, FastICA, ...) reject NaN at
+    # fit time with ``ValueError: Input X contains NaN``. The
+    # mlframe upstream preprocessing handles NaN for the GBDT
+    # backends (CB / HGB / XGB) which tolerate NaN natively, so
+    # numeric NaN can survive into ``apply_preprocessing_extensions``
+    # untouched (fuzz seed=2024 c0040 — n=1000 polars_utf8 with
+    # inject_inf_nan + prep_ext_kbins=5). Prepend a SimpleImputer so
+    # any active extension step sees finite values; on clean data
+    # the imputer is a near-zero-cost no-op (one statistic per
+    # column).
+    if (
+        config.scaler is not None
+        or config.binarization_threshold is not None
+        or config.kbins is not None
+        or config.polynomial_degree is not None
+        or config.nonlinear_features is not None
+        or config.dim_reducer is not None
+    ):
+        from sklearn.impute import SimpleImputer
+        steps.append(("imputer", SimpleImputer(strategy="median")))
     if config.scaler is not None:
         steps.append(("scaler", _SCALER_FACTORIES[config.scaler]()))
     if config.binarization_threshold is not None:

@@ -1,4 +1,3 @@
-from mlframe.training import FeatureSelectionConfig, OutputConfig, ReportingConfig
 """Business-value integration tests for mlframe's feature-selection machinery.
 
 NOTE: These are regression sensors, not scientific benchmarks. Synthetic data parameters
@@ -42,6 +41,7 @@ import pytest
 
 from mlframe.training.configs import TargetTypes
 from mlframe.training.core import train_mlframe_models_suite
+from mlframe.training import FeatureSelectionConfig, OutputConfig, ReportingConfig
 
 from .shared import SimpleFeaturesAndTargetsExtractor
 

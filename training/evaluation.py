@@ -388,27 +388,45 @@ def report_regression_model_perf(
         title += f" MaxError={MaxError:.{report_ndigits}f}"
         title += f" R2={R2:.{report_ndigits}f}"
 
-        # Local RNG — do not pollute global numpy state. Cache by (n, size, seed)
-        # so repeated reports on the same prediction length reuse the sample.
-        idx = _get_cached_plot_idx(len(preds), plot_sample_size, DEFAULT_RANDOM_SEED)
-        idx = idx[np.argsort(preds[idx])]
-
-        fig = plt.figure(figsize=figsize)
-        plt.scatter(preds[idx], targets[idx], marker=plot_marker, alpha=0.3)
-        plt.plot(preds[idx], preds[idx], linestyle="--", color="green", label="Perfect fit")
-
-        plt.xlabel("Predictions")
-        plt.ylabel("True values")
-        plt.title(title)
-
-        if plot_file:
-            fig.savefig(plot_file)
-
-        if show_perf_chart:
-            plt.ion()
-            plt.show()
+        # 2026-04-27 (batch 3): for (N, K) multilabel-as-regression
+        # targets the scatter plot below would do
+        # ``np.argsort(preds[idx])`` on a 2-D array (which sorts rows
+        # element-wise instead of by-row), then ``plt.scatter`` would
+        # emit K overlapping point clouds with no visual separation.
+        # Skip the plot when targets are 2-D — title metrics already
+        # carry the per-output-aggregated MAE/RMSE/R2.
+        _is_multioutput = (
+            (targets_arr.ndim > 1 and targets_arr.shape[1] > 1)
+            or (preds_arr.ndim > 1 and preds_arr.shape[1] > 1)
+        )
+        if _is_multioutput:
+            if print_report:
+                print(
+                    f"  [multioutput regression: target shape={targets_arr.shape}, "
+                    f"skipping scatter plot — per-output plotting would mix K clouds]"
+                )
         else:
-            plt.close(fig)
+            # Local RNG — do not pollute global numpy state. Cache by (n, size, seed)
+            # so repeated reports on the same prediction length reuse the sample.
+            idx = _get_cached_plot_idx(len(preds), plot_sample_size, DEFAULT_RANDOM_SEED)
+            idx = idx[np.argsort(preds[idx])]
+
+            fig = plt.figure(figsize=figsize)
+            plt.scatter(preds[idx], targets[idx], marker=plot_marker, alpha=0.3)
+            plt.plot(preds[idx], preds[idx], linestyle="--", color="green", label="Perfect fit")
+
+            plt.xlabel("Predictions")
+            plt.ylabel("True values")
+            plt.title(title)
+
+            if plot_file:
+                fig.savefig(plot_file)
+
+            if show_perf_chart:
+                plt.ion()
+                plt.show()
+            else:
+                plt.close(fig)
 
     if print_report:
         print(report_title + " " + model_name)

@@ -679,13 +679,22 @@ class RFECV(BaseEstimator, TransformerMixin):
                 _x_n = X_train.shape[0] if hasattr(X_train, "shape") else None
                 _y_n = len(y_train) if y_train is not None and hasattr(y_train, "__len__") else None
                 if (_x_n is not None and _x_n == 0) or (_y_n is not None and _y_n == 0):
-                    if verbose:
-                        logger.warning(
-                            "wrappers.fit: skipping fold %s — empty train slice "
-                            "(rows=%s, target_len=%s). Upstream filters reduced "
-                            "the train batch to zero.",
-                            nfold, _x_n, _y_n,
-                        )
+                    # Always-on ERROR (was verbose-gated WARNING) so the
+                    # operator sees the empty-fold collapse without
+                    # extra verbosity. Continuing with NaN-score is the
+                    # right behavior — sklearn's RFECV does the same on
+                    # degenerate inner folds. Root cause is upstream
+                    # filter aggression (OD + trainset_aging_limit
+                    # together can shrink the inner-CV training fraction
+                    # below cv splits); fix that, not this guard.
+                    logger.error(
+                        "wrappers.fit: skipping fold %s - empty train slice "
+                        "(rows=%s, target_len=%s). Upstream filters reduced "
+                        "the train batch to zero. Investigate "
+                        "outlier_detection contamination + "
+                        "trainset_aging_limit interactions.",
+                        nfold, _x_n, _y_n,
+                    )
                     scores.append(np.nan)
                     feature_importances[f"{len(current_features)}_{nfold}"] = {}
                     continue
@@ -982,24 +991,34 @@ class RFECV(BaseEstimator, TransformerMixin):
                         selected_cols = [col for col, selected in zip(self.feature_names_in_, self.support_) if selected]
                     else:
                         selected_cols = [self.feature_names_in_[i] for i in self.support_]
-                # Tolerate column-set drift between fit-time and
-                # transform-time: e.g. a degenerate column injected for
-                # one fold (inject_zero_col, inject_degenerate_cols) gets
-                # captured into self.feature_names_in_ at fit, but the
-                # frame downstream callers hand back to .transform may
-                # have stripped it via remove_constant_columns or similar
-                # mid-pipeline cleanup. Skip the missing columns rather
-                # than raising ``KeyError: [...] not in index`` deep
-                # inside RFECV.transform (fuzz c0042).
+                # Column-set drift between fit-time and transform-time
+                # is silently surviving as logger.error 2026-04-27
+                # (batch 3): the fitted ``support_`` mask references
+                # ``feature_names_in_`` indices, so dropping those
+                # columns means the transformer's selection no longer
+                # corresponds to the physical columns it claimed to
+                # select. Tolerating it can let downstream feature-
+                # importance / SHAP / explanation paths reference
+                # WRONG columns by name. Log at ERROR (visible without
+                # extra verbosity) instead of WARNING; still degrade
+                # gracefully (drop missing) since raising would break
+                # all combos that legitimately strip degenerate columns
+                # mid-pipeline (fuzz c0042 — inject_zero_col +
+                # remove_constant_columns).
                 missing = [c for c in selected_cols if c not in X.columns]
                 if missing:
-                    logger.warning(
+                    logger.error(
                         "RFECV.transform: %d/%d selected columns missing "
-                        "from input X (%s); skipping them. Likely cause: "
-                        "an upstream cleanup (constant-col removal, "
-                        "imputer drop) deleted these between fit and "
-                        "transform. Investigate the pipeline if this is "
-                        "unexpected.", len(missing), len(selected_cols), missing,
+                        "from input X (%s); the fitted ``support_`` mask "
+                        "no longer reflects the physical columns. This "
+                        "indicates pipeline order is wrong: "
+                        "constant-col-removal / imputer-drop steps must "
+                        "come BEFORE RFECV.fit, not between fit and "
+                        "transform. Continuing with the surviving columns "
+                        "to avoid breaking the suite, but downstream "
+                        "feature-name-keyed analysis (importance, SHAP) "
+                        "may be incorrect.",
+                        len(missing), len(selected_cols), missing,
                     )
                     selected_cols = [c for c in selected_cols if c in X.columns]
                 return X[selected_cols]

@@ -1012,31 +1012,19 @@ def _apply_pre_pipeline_transforms(
                 if val_df is not None:
                     if verbose:
                         logger.info(f"Transforming val_df via pre_pipeline...")
-                    # Min-rows guard: an empty val window (occurs at the
-                    # edge config of inject_degenerate + cat_count>=20 +
-                    # backward placement + non-shuffled splits, fuzz
-                    # c0102) collapses to shape=(0, N) before reaching
-                    # this transform. SimpleImputer / polars-ds steps
-                    # raise ``Found array with 0 sample(s)`` on the empty
-                    # frame. Skip the transform when there's nothing to
-                    # transform; downstream code paths already accept a
-                    # None val_df (early-stopping just degrades) but we
-                    # preserve the empty frame here so callers that
-                    # explicitly check ``val_df is not None`` keep their
-                    # existing behaviour.
-                    if len(val_df) == 0:
-                        if verbose:
-                            logger.warning(
-                                "  val_df has 0 rows — skipping pre_pipeline "
-                                "transform. This usually points to a degenerate "
-                                "TrainingSplitConfig (val_placement=backward + "
-                                "non-shuffled splits + inject_degenerate-style "
-                                "row trimming); investigate the splitter."
-                            )
-                    else:
-                        val_df = _passthrough_cols_fit_transform(
-                            pre_pipeline.transform, val_df, passthrough_cols=selector_passthrough_cols,
-                        )
+                    # Historical 0-row val skip removed 2026-04-27 (batch 3).
+                    # The original empty-val window came from outlier
+                    # detection rejecting almost every val row; that's now
+                    # guarded at the source by the val-side ``min_keep``
+                    # floor + class-balance pre-check in
+                    # ``core._apply_outlier_detection_global``. If a 0-row
+                    # val still arrives here it's an upstream bug — letting
+                    # SimpleImputer raise ``Found array with 0 sample(s)``
+                    # surfaces it immediately instead of training a model
+                    # we can't evaluate.
+                    val_df = _passthrough_cols_fit_transform(
+                        pre_pipeline.transform, val_df, passthrough_cols=selector_passthrough_cols,
+                    )
                     if verbose:
                         log_ram_usage()
             else:
@@ -1056,18 +1044,11 @@ def _apply_pre_pipeline_transforms(
                 if val_df is not None:
                     if verbose:
                         logger.info(f"Transforming val_df via pre_pipeline {pre_pipeline}...")
-                    # Min-rows guard mirrors the fit-transform branch above
-                    # (see comment there) — empty val window must skip the
-                    # transform to avoid SimpleImputer raising on shape=(0,N).
-                    if len(val_df) == 0:
-                        if verbose:
-                            logger.warning(
-                                "  val_df has 0 rows — skipping pre_pipeline transform."
-                            )
-                    else:
-                        val_df = _passthrough_cols_fit_transform(
-                            pre_pipeline.transform, val_df, passthrough_cols=selector_passthrough_cols,
-                        )
+                    # Historical 0-row val skip removed 2026-04-27 (batch 3) —
+                    # see fit-transform branch comment for rationale.
+                    val_df = _passthrough_cols_fit_transform(
+                        pre_pipeline.transform, val_df, passthrough_cols=selector_passthrough_cols,
+                    )
                     if verbose:
                         log_ram_usage()
             _maybe_clean_ram()
@@ -2127,9 +2108,20 @@ def _maybe_get_or_build_cb_pool(
         _df_rows = train_df.shape[0] if hasattr(train_df, "shape") else None
         _tg_len = len(train_target) if train_target is not None and hasattr(train_target, "__len__") else None
         if _df_rows is not None and _tg_len is not None and _df_rows != _tg_len:
-            logger.warning(
+            # Length mismatch is a hard contract violation - logged at
+            # ERROR (was WARNING) so it surfaces in default-verbosity
+            # logs. Still graceful-fallback to the sklearn rebuild path
+            # rather than raising, because the sklearn fit will surface
+            # its own clear length-mismatch error if the upstream
+            # caller really wants the mismatch (vs us silently raising
+            # mid-Pool-cache-lookup with no diagnostic context).
+            # Investigate fuzz c0079-style upstream slicing if you see
+            # this in production.
+            logger.error(
                 "[cb-pool-reuse] train_df rows (%d) != train_target len (%d) "
-                "— skipping Pool reuse; deferring to sklearn fallback.",
+                "- this is a contract violation. Skipping Pool reuse; the "
+                "sklearn fallback will surface a clear error if the call "
+                "site really intended this mismatch.",
                 _df_rows, _tg_len,
             )
             return None

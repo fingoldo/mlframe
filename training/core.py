@@ -935,6 +935,7 @@ def _apply_outlier_detection_global(
     verbose: bool,
     baseline_rss_mb: float = 0.0,
     df_size_mb: float = 0.0,
+    targets_for_classbalance: Optional[Dict[str, Any]] = None,
 ) -> Tuple[
     pd.DataFrame,
     Optional[pd.DataFrame],
@@ -1014,9 +1015,65 @@ def _apply_outlier_detection_global(
 
     train_kept = train_od_idx.sum()
     if train_kept < len(train_df):
-        logger.info(f"Outlier rejection: {len(train_df):_} train samples -> {train_kept:_} kept.")
-        filtered_train_df = _filter_df_by_mask(train_df, train_od_idx)
-        filtered_train_idx = train_idx[train_od_idx]
+        # Class-balance pre-check 2026-04-27 (batch 3): when OD is fit on
+        # features that include a label-correlated leak feature
+        # (e.g. ``num_leak`` or any feature that's effectively the
+        # target with noise), the unsupervised detector flags the
+        # rare-class rows as outliers and removes them all. The
+        # surviving train then has only one unique target value and
+        # downstream CB/XGB classification crashes deep in C++ with
+        # ``Target contains only one unique value``. Detect this
+        # before propagating the filter; if any per-target check would
+        # destroy class diversity, silently SKIP the OD filter for
+        # train (val handled below). Fit stays intact for diagnostic
+        # logging via ``train_od_idx``.
+        _od_destroys_classes = False
+        if targets_for_classbalance:
+            for _tn, _tv in targets_for_classbalance.items():
+                if _tv is None:
+                    continue
+                try:
+                    _y_pre = (
+                        _tv[train_idx]
+                        if isinstance(_tv, (np.ndarray, pl.Series))
+                        else _tv.iloc[train_idx]
+                    )
+                    _y_post = (
+                        _tv[train_idx[train_od_idx]]
+                        if isinstance(_tv, (np.ndarray, pl.Series))
+                        else _tv.iloc[train_idx[train_od_idx]]
+                    )
+                    _arr_pre = np.asarray(_y_pre)
+                    _arr_post = np.asarray(_y_post)
+                    _flat_pre = _arr_pre.flatten() if _arr_pre.ndim > 1 else _arr_pre
+                    _flat_post = _arr_post.flatten() if _arr_post.ndim > 1 else _arr_post
+                    if len(np.unique(_flat_pre)) >= 2 and len(np.unique(_flat_post)) < 2:
+                        _od_destroys_classes = True
+                        logger.error(
+                            "Outlier detection would eliminate the entire minority "
+                            "class from train target '%s' (pre-OD unique=%d, post-OD "
+                            "unique=%d). Typical cause: a feature highly correlated "
+                            "with the target (e.g. label-leak feature) drives the "
+                            "unsupervised OD to flag the rare class as outliers. "
+                            "Skipping OD filter for train; original train_df retained.",
+                            _tn,
+                            len(np.unique(_flat_pre)),
+                            len(np.unique(_flat_post)),
+                        )
+                        break
+                except Exception as _exc:
+                    logger.debug("Class-balance pre-check failed for target %s: %s", _tn, _exc)
+        if not _od_destroys_classes:
+            logger.info(f"Outlier rejection: {len(train_df):_} train samples -> {train_kept:_} kept.")
+            filtered_train_df = _filter_df_by_mask(train_df, train_od_idx)
+            filtered_train_idx = train_idx[train_od_idx]
+        else:
+            # Reset train_kept and train_od_idx so the min_keep guard below
+            # sees the unfiltered count, and the downstream polars-fastpath
+            # filter at core.py:~2758 (``train_df_polars.filter(...)``)
+            # treats it as a no-op (all-True mask = keep all rows).
+            train_kept = len(train_df)
+            train_od_idx = np.ones(len(train_df), dtype=bool)
 
     # Guard against catastrophic outlier-detector misconfiguration where
     # ~every sample is flagged as an outlier. Previously this silently
@@ -1041,6 +1098,47 @@ def _apply_outlier_detection_global(
         is_inlier = outlier_detector.predict(_numeric_only_view(val_df))
         val_od_idx = is_inlier == 1
         val_kept = val_od_idx.sum()
+        # Class-balance pre-check on val (mirror of the train-side check
+        # above). If OD would eliminate the entire minority class from
+        # val, skip the filter — keep the unfiltered val_set so eval
+        # has class-diverse data.
+        if targets_for_classbalance and val_kept < len(val_df) and val_idx is not None:
+            for _tn, _tv in targets_for_classbalance.items():
+                if _tv is None:
+                    continue
+                try:
+                    _y_pre = (
+                        _tv[val_idx]
+                        if isinstance(_tv, (np.ndarray, pl.Series))
+                        else _tv.iloc[val_idx]
+                    )
+                    _y_post = (
+                        _tv[val_idx[val_od_idx]]
+                        if isinstance(_tv, (np.ndarray, pl.Series))
+                        else _tv.iloc[val_idx[val_od_idx]]
+                    )
+                    _arr_pre = np.asarray(_y_pre)
+                    _arr_post = np.asarray(_y_post)
+                    _flat_pre = _arr_pre.flatten() if _arr_pre.ndim > 1 else _arr_pre
+                    _flat_post = _arr_post.flatten() if _arr_post.ndim > 1 else _arr_post
+                    if len(np.unique(_flat_pre)) >= 2 and len(np.unique(_flat_post)) < 2:
+                        logger.error(
+                            "Outlier detection would eliminate the entire minority "
+                            "class from VAL target '%s' (pre-OD unique=%d, post-OD "
+                            "unique=%d). Skipping OD filter for val; original "
+                            "val_df retained for evaluation.",
+                            _tn,
+                            len(np.unique(_flat_pre)),
+                            len(np.unique(_flat_post)),
+                        )
+                        # Reset OD effect on val. Set val_od_idx to all-True
+                        # mask so the downstream polars filter at
+                        # core.py:~2760 stays a no-op (keep all rows).
+                        val_kept = len(val_df)
+                        val_od_idx = np.ones(len(val_df), dtype=bool)
+                        break
+                except Exception as _exc:
+                    logger.debug("Class-balance pre-check on val failed for target %s: %s", _tn, _exc)
         # Symmetric of the train-side ``min_keep`` guard at line ~1021.
         # If OD rejected almost all val rows (typically because train
         # was fit on a very different distribution and OD flags every
@@ -1962,10 +2060,57 @@ def train_mlframe_models_suite(
     t0_phase2 = timer()
     if verbose:
         logger.info(f"Making train_val_test split...")
+    # Auto-stratify by target for classification when no timestamps are
+    # available. Without this, the unstratified shuffle path can hand
+    # an unlucky val/test slice with zero minority-class rows for
+    # rare imbalance ratios (fuzz default-seed c0134, seed=99 c0040 —
+    # rare_1pct + binary class produces 50 positives out of 5000;
+    # random 400-row val_shuf can land all-class-0). Stratification
+    # preserves class proportions across train/val/test. Skipped when
+    # timestamps are present (the splitter prefers temporal ordering
+    # there) or for multitarget setups where picking ONE target as
+    # the stratify key is arbitrary.
+    _stratify_y = None
+    if timestamps is None and isinstance(target_by_type, dict):
+        _classification_targets = []
+        _has_multilabel = False
+        for _tt, _named in target_by_type.items():
+            _tt_name = getattr(_tt, "name", str(_tt)).upper()
+            if "MULTILABEL" in _tt_name:
+                _has_multilabel = True
+                break
+            if "CLASS" in _tt_name and isinstance(_named, dict):
+                for _tn, _tv in _named.items():
+                    if _tv is not None:
+                        _classification_targets.append(_tv)
+        # Multilabel stratification needs the optional ``iterative-
+        # stratification`` package. Skip it to avoid forcing the dep on
+        # users who don't have it (the ``MultilabelStratifiedShuffleSplit``
+        # branch raises ``ModuleNotFoundError`` deep in the splitter).
+        # Single-label classification (binary / multiclass) uses sklearn's
+        # built-in ``StratifiedShuffleSplit`` which is always available.
+        if _has_multilabel:
+            _stratify_y = None
+        elif len(_classification_targets) == 1:
+            try:
+                _arr = np.asarray(_classification_targets[0])
+                # Guard: only stratify when stratification is meaningful —
+                # all classes have at least 2 rows, otherwise sklearn's
+                # StratifiedShuffleSplit raises "least populated class has
+                # only 1 member". Also limit to 1-D targets — 2-D would
+                # route to the multilabel splitter (already excluded above
+                # but defense in depth).
+                if _arr.ndim == 1:
+                    _u, _c = np.unique(_arr, return_counts=True)
+                    if len(_u) >= 2 and _c.min() >= 2:
+                        _stratify_y = _arr
+            except Exception:
+                _stratify_y = None
     with phase("split_data"):
         train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
             df=df,
             timestamps=timestamps,
+            stratify_y=_stratify_y,
             **split_config.model_dump(),
         )
     if verbose:
@@ -2609,6 +2754,16 @@ def train_mlframe_models_suite(
     # 4.5 OUTLIER DETECTION (once, before model training loops)
     # ==================================================================================
 
+    # Pass per-target arrays into OD so the class-balance pre-check can
+    # detect when OD would eliminate the entire minority class for any
+    # classification target. Flatten the {target_type: {name: values}}
+    # dict to {name: values} for the inner check (target_name uniqueness
+    # is enforced upstream by the FTE).
+    _targets_flat_for_classbalance = {}
+    for _tt, _named in target_by_type.items():
+        if isinstance(_named, dict):
+            for _tn, _tv in _named.items():
+                _targets_flat_for_classbalance[f"{_tt}/{_tn}"] = _tv
     (filtered_train_df, filtered_val_df, filtered_train_idx, filtered_val_idx, train_od_idx, val_od_idx) = _apply_outlier_detection_global(
         train_df=train_df_pd,
         val_df=val_df_pd,
@@ -2619,6 +2774,7 @@ def train_mlframe_models_suite(
         verbose=verbose,
         baseline_rss_mb=baseline_rss_mb,
         df_size_mb=df_size_mb,
+        targets_for_classbalance=_targets_flat_for_classbalance or None,
     )
 
     # Single global OD result (not per-target)
@@ -3919,6 +4075,49 @@ def train_mlframe_models_suite(
 
     if verbose:
         logger.info("[phases] Top phases by wall-clock time:\n" + format_phase_summary())
+
+    # Surface the selected-features list per trained model so callers
+    # can introspect feature-selection outputs (MRMR / RFECV) without
+    # walking the nested entry namespace. Aggregate every entry's
+    # ``columns`` (post-pipeline feature list) under
+    # ``metadata['selected_features']`` keyed by ``f"{target_type}/{target_name}/{model_name}"``
+    # plus a flat ``metadata['all_selected_features']`` union for the
+    # common bizvalue pattern of "did any model keep the informative
+    # feature?". 2026-04-27 (batch 3): unblocks the three xfails in
+    # ``tests/training/test_bizvalue_feature_selection.py`` that
+    # previously said "selected features not surfaced on suite outputs".
+    _selected_features_per_model: dict = {}
+    _selected_features_union: set = set()
+    for _tt, _by_name in (models or {}).items():
+        if not isinstance(_by_name, dict):
+            continue
+        for _tn, _entries in _by_name.items():
+            if not isinstance(_entries, list):
+                continue
+            for _entry in _entries:
+                _cols = getattr(_entry, "columns", None)
+                _mn = getattr(_entry, "model_name", None) or ""
+                if _cols is None:
+                    continue
+                _key = f"{_tt}/{_tn}/{_mn}" if _mn else f"{_tt}/{_tn}"
+                _selected_features_per_model[_key] = list(_cols)
+                _selected_features_union.update(_cols)
+                # Also expose ``selected_features_`` directly on the
+                # entry so the standard sklearn-style probe finds it
+                # (matches ``getattr(entry, 'selected_features_')``).
+                try:
+                    _entry.selected_features_ = list(_cols)
+                except Exception:
+                    pass
+    if _selected_features_per_model:
+        # Flat sorted union (column names) — matches the existing
+        # ``_collect_selected_features`` probe in the bizvalue tests
+        # which does ``list(metadata['selected_features'])`` and
+        # checks INFORMATIVE_NAMES membership. Per-model breakdown
+        # surfaces under a separate key so callers wanting the
+        # diagnostic detail can find it.
+        metadata["selected_features"] = sorted(_selected_features_union)
+        metadata["selected_features_per_model"] = _selected_features_per_model
 
     return dict(models), metadata
 

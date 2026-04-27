@@ -1,4 +1,3 @@
-from mlframe.training import OutputConfig
 """Business-value integration tests for mlframe calibration and ensembling.
 
 NOTE: These are regression sensors, not scientific benchmarks. Synthetic data parameters
@@ -23,6 +22,7 @@ from sklearn.datasets import make_classification
 from sklearn.metrics import brier_score_loss, roc_auc_score
 
 from mlframe.training.core import train_mlframe_models_suite, predict_mlframe_models_suite
+from mlframe.training import OutputConfig
 from .shared import SimpleFeaturesAndTargetsExtractor
 
 

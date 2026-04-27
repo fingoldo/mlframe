@@ -1,5 +1,95 @@
 # Changelog
 
+## 2026-04-27 — Fuzz-uncovered batch 3: OD class-balance + stratify + KBins NaN + bizvalue xfails
+
+### Production fixes (each surfaced via multi-seed fuzz sweep)
+
+- **OD class-balance pre-check** in
+  ``core._apply_outlier_detection_global``: when the unsupervised
+  outlier detector is fit on features that include a label-correlated
+  leak feature (``num_leak`` etc), it tends to flag the entire
+  rare-class minority as outliers. With ``contamination=0.05``,
+  ``IsolationForest`` / ``OneClassSVM`` happily eliminate every
+  class-1 row from a rare_1pct binary classification target
+  (50/4950 → 0/3420 after OD on train + 0/380 after OD on val).
+  CB then crashes deep in C++ ``Target contains only one unique
+  value``. Fix: pre-check the per-target class diversity BEFORE
+  applying the OD filter; if filtering would collapse classes,
+  skip the filter (set ``train_od_idx`` / ``val_od_idx`` to all-True).
+  Surfaced fuzz seed=99 c0016. Each target's preservation is
+  independent — global OD fit stays intact.
+- **Auto-stratify train/val/test** in ``core.train_mlframe_models_suite``
+  when target is classification and no timestamps are provided. Without
+  stratification, the unstratified shuffle path can hand val_shuf an
+  unlucky 0-class-1 slice for rare imbalance ratios (fuzz default-seed
+  c0134). The ``make_train_test_split`` helper already supports
+  ``stratify_y``; just plumb it from the suite when meaningful
+  (single classification target, ≥2 classes with ≥2 members each).
+- **SimpleImputer prepend in PreprocessingExtensions pipeline**
+  (``training/pipeline._build_extension_steps``): KBinsDiscretizer,
+  PolynomialFeatures, RBFSampler, Nystroem, and most sklearn
+  decompositions (PCA, TruncatedSVD, FastICA, ...) reject NaN at
+  fit time. The mlframe upstream NaN handling targets the GBDT
+  backends (CB/HGB/XGB) which tolerate NaN natively; numeric NaN
+  could survive into ``apply_preprocessing_extensions``. Prepend
+  a ``SimpleImputer(strategy="median")`` whenever any extension
+  step is active so the sklearn-bridge sees finite values. Surfaced
+  fuzz seed=2024 c0040 / c0060 / c0148.
+- **Single-class target diagnostic guard** in
+  ``trainer._validate_target_values`` (committed earlier as
+  follow-up to batch 2): early ``ValueError`` with a clear "upstream
+  filter pipeline / rare imbalance" diagnostic instead of CB's opaque
+  C++ ``target_converter.cpp:404`` crash. ``is_classification`` flag
+  derived from ``model_type_name`` suffix at the call site.
+
+### Surfaced bizvalue improvements
+
+- **3 xfails in `test_bizvalue_feature_selection.py` retired**: the
+  suite now populates ``metadata['selected_features']`` (flat sorted
+  union of post-pipeline column names across every trained entry)
+  and ``metadata['selected_features_per_model']`` (per-model
+  detail). Each entry also gets ``selected_features_`` attribute so
+  the standard sklearn-style ``getattr(entry, 'selected_features_')``
+  probe finds it. ``test_mrmr_drops_uninformative_features``,
+  ``test_selected_features_surface_for_inspection``, and the third
+  xfail-tagged check all pass.
+- **Both `test_bizvalue_*` import order fixed**: stray ``from
+  mlframe.training import …`` lines BEFORE the module docstring
+  caused ``SyntaxError: from __future__ imports must occur at the
+  beginning of the file``. Imports moved below docstring.
+
+### Suite-internal hygiene
+
+- **0-row val dead-code guards removed** from
+  ``trainer._apply_pre_pipeline_transforms`` (both fit-transform
+  and transform branches). The OD val-side error+continue from
+  batch 2 prevents 0-row val at the source; if a 0-row val still
+  arrives, SimpleImputer's natural ``Found array with 0 sample(s)``
+  raise will surface the upstream bug immediately.
+- **RFECV column drift logging escalated** from WARNING to ERROR
+  (``feature_selection/wrappers.py``): a fitted ``support_`` mask
+  that no longer reflects the physical columns is a pipeline-order
+  bug (constant-col-removal must come BEFORE RFECV.fit, not
+  between fit and transform). Visible without extra verbosity.
+- **Pool-reuse X/y mismatch logging escalated** from WARNING to
+  ERROR (``trainer._maybe_get_or_build_cb_pool``): X/y length
+  mismatch is a hard contract violation; sklearn fallback path
+  surfaces a clear error if the call site really intended this.
+- **`report_regression_model_perf` (N,K) target plot skip**: when
+  multioutput target reaches the regression report (e.g. wrapped
+  multilabel via ChainEnsemble's regressor base), skip the scatter
+  plot rather than emit overlapping K-cloud nonsense. Title metrics
+  still carry the per-output-aggregated MAE/RMSE/R2.
+
+### Verification
+
+- Default seed (master_seed=20260422): 150/150 ✅
+- FUZZ_SEED=42: 150/150 ✅
+- FUZZ_SEED=99: 150/150 ✅ (was 1 fail c0016 pre-fix)
+- FUZZ_SEED=2024: 3 previously-failing combos pass ✅ (c0040/c0060/c0148);
+  full sweep TBD
+- bizvalue tests: 17/18 (1 perf-flake on MRMR runtime, not correctness)
+
 ## 2026-04-27 — Fuzz-uncovered batch 2: 4 production fixes + 4 retired masking canons
 
 ### Production fixes (each retires a fuzz-suite masking pattern)
