@@ -2875,6 +2875,97 @@ def _train_model_with_fallback(
     return model, best_iter
 
 
+def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=None):
+    """Make ``pd.CategoricalDtype`` columns use the SAME ``categories``
+    list across train / val / test so XGBoost's ``enable_categorical``
+    path doesn't reject val/test rows whose category was never seen
+    at fit time.
+
+    Background (fuzz seed=2024 c0060 / 2026-04-27): XGBoost stores the
+    category index from train at fit time. If a row in ``val_df`` /
+    ``test_df`` carries a category that wasn't in ``train_df``, the
+    XGBoost C++ ``cat_container.h:29`` raises
+    ``"Found a category not in the training set for the Nth column"``.
+    Typical sources: ``weird_cat_content`` axis injecting "" / null-like
+    values into a subset of rows that the train/val/test split
+    happens not to match across, or imbalanced rare cat levels that
+    randomly land in only val/test.
+
+    Fix: compute the UNION of category levels across all three splits
+    per column, then re-cast each split's column to that union. XGBoost
+    now sees val/test as a subset of the train cat universe — no
+    "unseen category" rejections.
+
+    No-op for non-XGB models. CB / HGB / LGB tolerate unseen
+    categories natively.
+
+    Returns ``(train_df, val_df, test_df)`` — frames are copied
+    in-place when an alignment happens, otherwise returned unchanged.
+    """
+    if model_type_name not in XGBOOST_MODEL_TYPES:
+        return train_df, val_df, test_df
+    if not isinstance(train_df, pd.DataFrame):
+        return train_df, val_df, test_df
+
+    cat_cols_to_align = []
+    for _col in train_df.columns:
+        try:
+            _dt = train_df[_col].dtype
+        except Exception:
+            continue
+        if isinstance(_dt, pd.CategoricalDtype):
+            cat_cols_to_align.append(_col)
+
+    if not cat_cols_to_align:
+        return train_df, val_df, test_df
+
+    def _ensure_copy(df, flag):
+        if df is None:
+            return df
+        if not getattr(df, flag, False):
+            df = df.copy()
+            try:
+                setattr(df, flag, True)
+            except Exception:
+                pass
+        return df
+
+    for _col in cat_cols_to_align:
+        # Union of categories across train + val + test, preserving
+        # train's order first (keeps the train-fit decision-tree splits
+        # using the same integer codes as before).
+        train_cats = list(train_df[_col].cat.categories)
+        union_cats = list(train_cats)
+        seen = set(train_cats)
+        for _other_df in (val_df, test_df):
+            if _other_df is None or not isinstance(_other_df, pd.DataFrame):
+                continue
+            if _col not in _other_df.columns:
+                continue
+            _other_dtype = _other_df[_col].dtype
+            if not isinstance(_other_dtype, pd.CategoricalDtype):
+                continue
+            for _cat in _other_dtype.categories:
+                if _cat not in seen:
+                    union_cats.append(_cat)
+                    seen.add(_cat)
+        if union_cats == train_cats:
+            continue  # No new categories — alignment unnecessary.
+        # Re-cast each split's column to the union categories.
+        train_df = _ensure_copy(train_df, "_mlframe_filled")
+        train_df[_col] = train_df[_col].cat.set_categories(union_cats)
+        if val_df is not None and isinstance(val_df, pd.DataFrame) and _col in val_df.columns:
+            if isinstance(val_df[_col].dtype, pd.CategoricalDtype):
+                val_df = _ensure_copy(val_df, "_mlframe_filled")
+                val_df[_col] = val_df[_col].cat.set_categories(union_cats)
+        if test_df is not None and isinstance(test_df, pd.DataFrame) and _col in test_df.columns:
+            if isinstance(test_df[_col].dtype, pd.CategoricalDtype):
+                test_df = _ensure_copy(test_df, "_mlframe_filled")
+                test_df[_col] = test_df[_col].cat.set_categories(union_cats)
+
+    return train_df, val_df, test_df
+
+
 def _decategorise_float_cat_columns(train_df, val_df=None, test_df=None):
     """Convert ``pd.CategoricalDtype`` columns whose underlying category
     values are floats back to plain numeric float columns.
@@ -3607,6 +3698,15 @@ def train_and_evaluate_model(
     # would otherwise reject them — fuzz c0102, see helper docstring).
     train_df, val_df, test_df = _decategorise_float_cat_columns(
         train_df, val_df=val_df, test_df=test_df,
+    )
+    # XGB cat-category alignment (no-op for non-XGB models): align the
+    # ``categories`` list across train / val / test so val/test rows
+    # whose category wasn't seen in train don't trip XGBoost's
+    # ``Found a category not in the training set`` rejection at
+    # predict time (fuzz seed=2024 c0060). Done before pre_pipeline
+    # so RFECV inner XGB also benefits.
+    train_df, val_df, test_df = _align_xgb_cat_categories(
+        model_type_name, train_df, val_df=val_df, test_df=test_df,
     )
 
     train_df, val_df = _apply_pre_pipeline_transforms(
