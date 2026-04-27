@@ -1156,6 +1156,93 @@ def get_training_configs(
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
+# CatBoost text-processing helper
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+# CB's default occurrence_lower_bound (CatBoost master, 2026). Words appearing
+# in fewer rows than this are pruned from the TF-IDF dictionary. On small
+# training sets the default is too aggressive and can either raise
+# "Dictionary size is 0" or — in the C++ _train loop — HANG indefinitely
+# while the empty dictionary stalls bag-of-words feature construction
+# (fuzz c0056 / c0070, observed 2026-04-26).
+CB_DEFAULT_OCCURRENCE_LOWER_BOUND = 50
+
+# Above this row count we keep CB's defaults — production-sized data needs
+# the original 50-occurrence floor to keep dictionaries bounded. Below it
+# we scale the floor down proportionally so RFECV inner CV folds and
+# small-n training runs do not collapse the dictionary.
+CB_TEXT_PROC_DEFAULT_THRESHOLD_ROWS = 1000
+
+# Fraction of training rows used for the occurrence floor when scaling.
+# 5% means: a word appearing in 5%+ of the fold survives the prune, even
+# with as few as 40 rows (where it becomes 2 — the absolute minimum that
+# still excludes truly singleton terms).
+CB_TEXT_PROC_OCCURRENCE_FRACTION = 0.05
+CB_TEXT_PROC_OCCURRENCE_FLOOR = 2
+
+
+def compute_cb_text_processing(n_train_rows: int) -> Optional[dict]:
+    """Return a CatBoost ``text_processing`` config that scales
+    ``occurrence_lower_bound`` to the training set size, or ``None`` if
+    CB's defaults are appropriate.
+
+    CatBoost's default ``occurrence_lower_bound=50`` rejects any token
+    that appears in fewer than 50 rows. On small training sets (RFECV
+    inner CV folds, single-pass training with ``n_train_rows`` < ~1000),
+    this default rejects the entire vocabulary and either:
+      * raises ``"Dictionary size is 0"`` — handled by the existing
+        fallback at ``trainer._train_model_with_fallback``; or
+      * hangs inside CB's C++ ``_train`` loop waiting for an empty
+        dictionary to materialise (fuzz c0056 / c0070).
+
+    The fix is a row-proportional floor: a word that appears in at least
+    5 % of the rows survives, clamped to >= 2 (so a single-occurrence
+    word never builds a dictionary entry — that would inflate the
+    artefact and cause zero generalisation).
+
+    Args:
+        n_train_rows: Number of rows in the *fit-time* training set. For
+            RFECV this is the inner-fold train size, NOT the outer suite
+            input size.
+
+    Returns:
+        ``text_processing`` dict suitable for ``CatBoost.set_params(
+        text_processing=...)`` / ``CatBoost.__init__(text_processing=...)``,
+        or ``None`` when defaults are fine (``n_train_rows`` >=
+        ``CB_TEXT_PROC_DEFAULT_THRESHOLD_ROWS``, or invalid input).
+    """
+    if not isinstance(n_train_rows, int) or n_train_rows <= 0:
+        return None
+    if n_train_rows >= CB_TEXT_PROC_DEFAULT_THRESHOLD_ROWS:
+        return None
+    olb = max(
+        CB_TEXT_PROC_OCCURRENCE_FLOOR,
+        int(round(n_train_rows * CB_TEXT_PROC_OCCURRENCE_FRACTION)),
+    )
+    return {
+        "tokenizers": [{"tokenizer_id": "Space", "delimiter": " "}],
+        "dictionaries": [
+            {
+                "dictionary_id": "Word",
+                "occurrence_lower_bound": str(olb),
+                "max_dictionary_size": "50000",
+                "gram_order": "1",
+            }
+        ],
+        "feature_processing": {
+            "default": [
+                {
+                    "tokenizers_names": ["Space"],
+                    "dictionaries_names": ["Word"],
+                    "feature_calcers": ["BoW"],
+                }
+            ]
+        },
+    }
+
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Training Set Feature Statistics
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 

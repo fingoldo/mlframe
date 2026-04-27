@@ -1780,7 +1780,16 @@ def train_mlframe_models_suite(
     # scalar keys). Built internally from the typed configs; no external dict
     # pass-through on the suite signature.
     common_params_dict: Dict[str, Any] = {}
-    common_params_dict.update(reporting_config.model_dump())
+    # ``title_metrics_tokens`` is a DERIVED field on ReportingConfig
+    # (auto-populated by the model_validator from
+    # ``title_metrics_template``). The deep consumer
+    # ``_build_configs_from_params`` only accepts the source field, so
+    # exclude the derived one to avoid an unexpected-kwarg TypeError;
+    # ``train_and_evaluate_model`` re-derives it from the rebuilt
+    # ReportingConfig object directly.
+    common_params_dict.update(
+        reporting_config.model_dump(exclude={"title_metrics_tokens"})
+    )
     if preprocessing_config.scaler is not None:
         common_params_dict["scaler"] = preprocessing_config.scaler
     if preprocessing_config.imputer is not None:

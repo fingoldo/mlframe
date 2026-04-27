@@ -26,6 +26,19 @@ from ._fuzz_combo import (
 )
 from .shared import SimpleFeaturesAndTargetsExtractor
 
+# 2026-04-27: train_mlframe_models_suite signature collapsed several
+# top-level kwargs (outlier_detector / data_dir / use_mrmr_fs / ...) into
+# typed configs (see CHANGELOG ``2026-04-27 — Calibration reporting
+# upgrades + suite-config sweep``). The fuzz suite uses these new
+# configs directly at the suite call site; module-level imports here so
+# the local imports inside ``_configs_for_combo`` aren't load-bearing.
+from mlframe.training import (
+    OutputConfig,
+    OutlierDetectionConfig,
+    FeatureSelectionConfig,
+    ReportingConfig,
+)
+
 # Enumerate once at import time — small, pure Python, no heavy deps.
 # FUZZ_SEED env var overrides the default (driver scripts use this to
 # sweep many seeds in sequence without editing the file; each pytest
@@ -158,25 +171,12 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         wholeday_splitting=combo.wholeday_splitting_cfg,
         val_sequential_fraction=val_seq_frac_eff,
     )
-    # fix_infinities=False is intentional Inf pass-through (per
-    # preprocessing.py:154-156); combining it with inject_inf_nan crashes
-    # XGB/HGB downstream — mirror the canonicalisation in
-    # FuzzCombo.canonical_key so the runtime path never sees the bad pair.
-    fix_inf_eff = combo.fix_infinities_cfg if not combo.inject_inf_nan else True
-    # remove_constant_columns=False routes degenerate columns (all-null or
-    # all-constant) to the polars_ds scaler, which crashes on
-    # quantile(None) (c0008). Force True when degenerate cols are injected.
-    rm_const_eff = (
-        combo.remove_constant_columns_cfg
-        if not (combo.inject_degenerate_cols or combo.inject_all_nan_col)
-        else True
-    )
-    preprocessing_config = PreprocessingConfig(
-        fillna_value=combo.fillna_value_cfg,
-        fix_infinities=fix_inf_eff,
-        ensure_float32_dtypes=combo.ensure_float32_cfg,
-        remove_constant_columns=rm_const_eff,
-    )
+    # PreprocessingConfig is built by ``_preprocessing_for_combo`` and
+    # passed explicitly at the suite call site (it owns the fix_inf_eff /
+    # rm_const_eff runtime canon AND the linear-model category-encoder
+    # branch). Don't include it here or we'd hit a duplicate-kwarg
+    # TypeError when this dict is **-splatted alongside the explicit
+    # ``preprocessing_config=...``.
     return {
         "pipeline_config": PolarsPipelineConfig(
             use_polarsds_pipeline=combo.use_polarsds_pipeline,
@@ -185,7 +185,6 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
             skip_categorical_encoding=combo.skip_categorical_encoding_cfg,
             imputer_strategy=combo.imputer_strategy_cfg,
         ),
-        "preprocessing_config": preprocessing_config,
         "split_config": split_config,
         "feature_types_config": FeatureTypesConfig(
             auto_detect_feature_types=combo.auto_detect_cats,
@@ -402,10 +401,28 @@ def _maybe_to_parquet(combo: FuzzCombo, df, tmp_path):
 
 
 def _preprocessing_for_combo(combo: FuzzCombo):
-    """PreprocessingConfig for a combo. Attaches a category encoder only when
-    a non-native-cat model (linear) is present — matches the prod config
-    pattern the existing integration tests use."""
+    """PreprocessingConfig for a combo. Combines the per-axis flags
+    (``fillna_value`` / ``fix_infinities`` / ``ensure_float32_dtypes`` /
+    ``remove_constant_columns`` plus the runtime-canon ``fix_inf_eff`` /
+    ``rm_const_eff`` rewrites that mirror ``_fuzz_combo.canonical_key``)
+    with a category encoder when a non-native-cat model (linear) is
+    present — matches the prod config pattern the existing integration
+    tests use.
+    """
     from mlframe.training.configs import PreprocessingConfig
+    # fix_infinities=False is intentional Inf pass-through (per
+    # preprocessing.py:154-156); combining it with inject_inf_nan crashes
+    # XGB/HGB downstream — mirror the canonicalisation in
+    # FuzzCombo.canonical_key so the runtime path never sees the bad pair.
+    fix_inf_eff = combo.fix_infinities_cfg if not combo.inject_inf_nan else True
+    # remove_constant_columns=False routes degenerate columns (all-null or
+    # all-constant) to the polars_ds scaler, which crashes on
+    # quantile(None) (c0008). Force True when degenerate cols are injected.
+    rm_const_eff = (
+        combo.remove_constant_columns_cfg
+        if not (combo.inject_degenerate_cols or combo.inject_all_nan_col)
+        else True
+    )
     if "linear" in combo.models and combo.cat_feature_count > 0:
         try:
             import category_encoders as ce
@@ -413,13 +430,23 @@ def _preprocessing_for_combo(combo: FuzzCombo):
             from sklearn.impute import SimpleImputer
             return PreprocessingConfig(
                 drop_columns=[],
+                fillna_value=combo.fillna_value_cfg,
+                fix_infinities=fix_inf_eff,
+                ensure_float32_dtypes=combo.ensure_float32_cfg,
+                remove_constant_columns=rm_const_eff,
                 category_encoder=ce.CatBoostEncoder(),
                 scaler=StandardScaler(),
                 imputer=SimpleImputer(strategy="mean"),
             )
         except ImportError:
             pass
-    return PreprocessingConfig(drop_columns=[])
+    return PreprocessingConfig(
+        drop_columns=[],
+        fillna_value=combo.fillna_value_cfg,
+        fix_infinities=fix_inf_eff,
+        ensure_float32_dtypes=combo.ensure_float32_cfg,
+        remove_constant_columns=rm_const_eff,
+    )
 
 
 def _skip_if_deps_missing(models: tuple[str, ...]) -> None:
@@ -709,7 +736,15 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 ),
                 custom_pre_pipelines=custom_pre or {},
             ),
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            # save_charts=False / show_perf_chart=False / show_fi=False:
+            # the fuzz suite runs ~150 combos × ~5 charts per combo. Each
+            # matplotlib figure leaks ~1-2 MB through plt.savefig + tight_-
+            # layout warnings. Across the run that compounds to >2 GB and
+            # blows up pytest's traceback formatter (``MemoryError: bad
+            # allocation`` / pytest INTERNALERROR observed 2026-04-27).
+            # We never look at the artefacts in fuzz; turn them off.
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False),
+            reporting_config=ReportingConfig(show_perf_chart=False, show_fi=False),
             # recurrent_models + sequences: synthetic per-row sequences
             # (T=8, F=2) emitted only on canonical-recurrent combos so
             # the suite exercises the sequence-pipeline. Hyperparams

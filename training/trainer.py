@@ -340,12 +340,39 @@ except ImportError:  # pragma: no cover
     torch = None  # type: ignore[assignment]
     nn = None  # type: ignore[assignment]
     F = None  # type: ignore[assignment]
-try:
-    from mlframe.training.neural import MLPNeuronsByLayerArchitecture
-    from mlframe.training.neural import PytorchLightningRegressor, PytorchLightningClassifier
-except ImportError:  # pragma: no cover
-    MLPNeuronsByLayerArchitecture = None  # type: ignore[assignment]
-    PytorchLightningRegressor = PytorchLightningClassifier = None  # type: ignore[assignment]
+# mlframe.training.neural eagerly imports lightning + torchmetrics at
+# module-load (see neural/base.py:32-45 for the chain). On Windows that
+# takes 30-180 s cold and consistently overshoots the per-test timeout
+# of the FIRST test in any pytest run that touches the trainer (fuzz
+# c0000 timeout, observed 2026-04-27). Defer the import to first MLP
+# fit via ``_get_neural_components()`` so typical users / fuzz tests
+# don't pay the cost. Sentinel ``None`` here; the getter populates the
+# tuple lazily on first call and caches.
+MLPNeuronsByLayerArchitecture = None  # type: ignore[assignment]
+PytorchLightningRegressor = PytorchLightningClassifier = None  # type: ignore[assignment]
+
+
+def _get_neural_components():
+    """Lazy-load ``MLPNeuronsByLayerArchitecture`` /
+    ``PytorchLightningRegressor`` / ``PytorchLightningClassifier`` on
+    first MLP fit. Returns the 3-tuple, or ``(None, None, None)`` if
+    the optional ``mlframe.training.neural`` extras are not installed.
+    Caches into the module-level globals so subsequent calls are free.
+    """
+    global MLPNeuronsByLayerArchitecture, PytorchLightningRegressor, PytorchLightningClassifier
+    if MLPNeuronsByLayerArchitecture is None:
+        try:
+            from mlframe.training.neural import (
+                MLPNeuronsByLayerArchitecture as _arch,
+                PytorchLightningRegressor as _reg,
+                PytorchLightningClassifier as _cls,
+            )
+            MLPNeuronsByLayerArchitecture = _arch
+            PytorchLightningRegressor = _reg
+            PytorchLightningClassifier = _cls
+        except ImportError:  # pragma: no cover
+            return None, None, None
+    return MLPNeuronsByLayerArchitecture, PytorchLightningRegressor, PytorchLightningClassifier
 
 from pyutilz.system import clean_ram, ensure_dir_exists, compute_total_gpus_ram, get_gpuinfo_gpu_info
 
@@ -3844,11 +3871,18 @@ def _configure_mlp_params(
     """Configure MLP (PyTorch Lightning) model parameters."""
     mlp_kwargs = config_params.get("mlp_kwargs", {})
 
+    _arch_cls, _reg_cls, _cls_cls = _get_neural_components()
+    if _arch_cls is None:
+        raise ImportError(
+            "MLP model requires the optional 'neural' extras "
+            "(lightning + torchmetrics). Install via "
+            "``pip install mlframe[neural]`` or omit ``mlp`` from mlframe_models."
+        )
     mlp_network_params = dict(
         nlayers=20,
         first_layer_num_neurons=100,
         min_layer_neurons=1,
-        neurons_by_layer_arch=MLPNeuronsByLayerArchitecture.Declining,
+        neurons_by_layer_arch=_arch_cls.Declining,
         consec_layers_neurons_ratio=1.5,
         activation_function=torch.nn.LeakyReLU,
         weights_init_fcn=partial(nn.init.kaiming_normal_, nonlinearity="leaky_relu", a=0.01),
@@ -3865,9 +3899,9 @@ def _configure_mlp_params(
         mlp_general_params["model_params"]["loss_fn"] = F.mse_loss
         mlp_general_params["datamodule_params"] = mlp_general_params.get("datamodule_params", {}).copy()
         mlp_general_params["datamodule_params"]["labels_dtype"] = torch.float32
-        mlp_model = PytorchLightningRegressor(network_params=mlp_network_params, **mlp_general_params)
+        mlp_model = _reg_cls(network_params=mlp_network_params, **mlp_general_params)
     else:
-        mlp_model = PytorchLightningClassifier(network_params=mlp_network_params, **mlp_general_params)
+        mlp_model = _cls_cls(network_params=mlp_network_params, **mlp_general_params)
 
     return dict(model=metamodel_func(mlp_model))
 

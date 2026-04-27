@@ -1,5 +1,83 @@
 # mlframe — project conventions
 
+## Fuzz / combo tests are bug DETECTORS, not bug HIDERS (CRITICAL)
+
+**The fuzz/combo suite (`tests/training/test_fuzz_suite.py` +
+`_fuzz_combo.py`) exists to find production bugs. Every test failure is a
+real prod bug unless you can prove otherwise. NEVER paper a failing combo
+over with any of the following without first fixing the underlying
+production code:**
+
+1. **Canonicalisation in `_fuzz_combo.py`** — `_canonical_*` methods and
+   `canonical_key` rules must collapse only **semantically-equivalent**
+   combos (e.g. `imbalance="balanced"` is the same regardless of the
+   imbalance-mode flag because at 50/50 the mode is meaningless). They
+   must NOT collapse a combo "because it crashes". A canon rule whose
+   justification is "fuzz cXXXX hangs / raises / produces empty val" is
+   **prohibited** — fix the prod code instead.
+2. **Runtime canonicalisations in `test_fuzz_suite.py`** — the
+   `*_eff = ... if condition else ...` rewrites at the top of
+   `test_fuzz_train_mlframe_models_suite` (before the suite call). Same
+   rule: legitimate only when the rewrite preserves semantics; never as
+   a guard against a real prod crash.
+3. **`pytest.mark.xfail` / `pytest.skip`** — reserved for genuine
+   third-party / OS / unfixable issues (Windows symlinks, optional
+   dep missing, sklearn API limitation). A test that surfaces an
+   mlframe-internal bug must be FIXED, not xfailed-with-TODO.
+4. **Defensive guards in production** (trainer.py `_apply_pre_pipeline_-
+   transforms`, wrappers.py CV-fold loop, etc.) — `if len(...) == 0:
+   skip` patterns are acceptable only when the empty path is a
+   legitimate user scenario. When the empty arises from an upstream
+   bug, the guard is a band-aid that hides the bug forever — fix
+   upstream.
+
+### Concrete examples from this codebase (do not repeat)
+
+- **Bad** (2026-04-26): `_canonical_text_col_count` zeroed text columns
+  for CB+small-n+heavy-NaN combos because CB's `occurrence_lower_bound=50`
+  produces an empty TF-IDF dictionary on tiny inner-CV folds. Hid a
+  real prod hang.
+  **Good** (2026-04-27): replaced with
+  `training/helpers.compute_cb_text_processing` which scales
+  `occurrence_lower_bound` proportionally to the fit-time row count;
+  wired into `trainer._train_model_with_fallback` and
+  `feature_selection/wrappers.py` RFECV inner-fold. Canon retired.
+- **Bad** (still active): `canonical_key:327-335` collapses
+  `inject_degenerate_cols=True` to `False` on CB+multilabel because CB
+  mis-detects `num_const`/`num_null` as cat features. Hides c0062.
+  **Owed fix**: explicit `cat_features=` arg in CB wrapper (or
+  type-cast guard) so CB doesn't auto-detect numeric columns as
+  categorical when `inject_degenerate_cols=True`.
+- **Bad** (still active): `canonical_key:406` forces
+  `remove_constant_columns_cfg=True` whenever degenerate / all-NaN
+  columns are injected. Hides polars-ds RobustScaler crashing on
+  zero-IQR (c0008/c0116).
+  **Owed fix**: zero-IQR guard in the polars-ds robust scaler wrapper
+  (skip / clip / fall back).
+- **Bad** (still active): four layered "0-row val" tolerances in
+  `trainer.py` (`_apply_pre_pipeline_transforms` ×2, `_setup_eval_set`,
+  `_compute_split_metrics`). All point at the same upstream defect:
+  outlier detection / aging-limit collapsing val to 0 rows silently.
+  **Owed fix**: `_apply_outlier_detection_global` should raise on
+  empty val (mirroring the train-side `min_keep` guard at core.py:1021).
+- **Bad** (deferred): two `_rule_cb_*` functions defined in
+  `_fuzz_combo.py` lines 833-868 with TODOs but NOT registered in
+  `KNOWN_XFAIL_RULES`. Either bugs are fixed (delete dead code) or
+  unfixed (silent fail in fuzz). Both were resolved 2026-04-27.
+
+### Process when a fuzz combo fails
+
+1. Read the traceback. Identify the prod-code line.
+2. Decide: is this a legitimate user-facing bug (yes → fix in prod) or
+   a genuine third-party limitation (yes → xfail with detailed reason
+   + open issue / link)?
+3. If you find yourself reaching for `_canonical_*`, ask: "would a real
+   user with these settings hit this same crash?" If yes, you are
+   masking a prod bug — STOP and fix prod instead.
+4. Fixing prod often retires multiple canon rules / guards / xfails at
+   once (e.g. fixing the splitter empty-val edge retires 4 trainer
+   guards + 1 runtime canon + 1 prod-config validator gap).
+
 ## Memory / RAM constraints (CRITICAL)
 
 **Frames in mlframe can be 100+ GB.** Never copy them to work around a bug.

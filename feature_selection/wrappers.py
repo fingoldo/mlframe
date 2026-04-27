@@ -38,6 +38,7 @@ from mlframe.votenrank import Leaderboard
 from mlframe.utils import set_random_seed
 from mlframe.baselines import get_best_dummy_score
 from mlframe.helpers import has_early_stopping_support
+from mlframe.training.helpers import compute_cb_text_processing
 from mlframe.preprocessing import pack_val_set_into_fit_params
 from mlframe.metrics import compute_probabilistic_multiclass_error
 
@@ -628,6 +629,29 @@ class RFECV(BaseEstimator, TransformerMixin):
                         _filtered_fit_params[_k] = _v
                     temp_fit_params.update(_filtered_fit_params)
 
+                    # Dynamic CB ``text_processing`` calibration for this
+                    # inner-CV fold. RFECV folds are typically much smaller
+                    # than the outer training set; with CB's default
+                    # ``occurrence_lower_bound=50`` words that occur < 50
+                    # times in the fold are pruned, leaving an empty
+                    # dictionary and HANGING CB's C++ ``_train`` loop
+                    # (fuzz c0056 / c0070). ``compute_cb_text_processing``
+                    # returns a config that scales the floor proportionally
+                    # to fold rows, or ``None`` (no-op) when the fold is
+                    # large enough for CB's defaults to work.
+                    _temp_text_feats = _filtered_fit_params.get("text_features") or []
+                    if _temp_text_feats and "CatBoost" in type(estimator).__name__:
+                        _fold_rows = X_train.shape[0] if hasattr(X_train, "shape") else None
+                        _tp = compute_cb_text_processing(_fold_rows) if _fold_rows is not None else None
+                        if _tp is not None and hasattr(estimator, "set_params"):
+                            try:
+                                estimator.set_params(text_processing=_tp)
+                            except Exception as _tp_exc:
+                                logger.warning(
+                                    "RFECV inner fold: failed to set CB text_processing "
+                                    "(fold_rows=%s, exc=%s).", _fold_rows, _tp_exc,
+                                )
+
                 else:
 
                     temp_fit_params = {}
@@ -958,6 +982,26 @@ class RFECV(BaseEstimator, TransformerMixin):
                         selected_cols = [col for col, selected in zip(self.feature_names_in_, self.support_) if selected]
                     else:
                         selected_cols = [self.feature_names_in_[i] for i in self.support_]
+                # Tolerate column-set drift between fit-time and
+                # transform-time: e.g. a degenerate column injected for
+                # one fold (inject_zero_col, inject_degenerate_cols) gets
+                # captured into self.feature_names_in_ at fit, but the
+                # frame downstream callers hand back to .transform may
+                # have stripped it via remove_constant_columns or similar
+                # mid-pipeline cleanup. Skip the missing columns rather
+                # than raising ``KeyError: [...] not in index`` deep
+                # inside RFECV.transform (fuzz c0042).
+                missing = [c for c in selected_cols if c not in X.columns]
+                if missing:
+                    logger.warning(
+                        "RFECV.transform: %d/%d selected columns missing "
+                        "from input X (%s); skipping them. Likely cause: "
+                        "an upstream cleanup (constant-col removal, "
+                        "imputer drop) deleted these between fit and "
+                        "transform. Investigate the pipeline if this is "
+                        "unexpected.", len(missing), len(selected_cols), missing,
+                    )
+                    selected_cols = [c for c in selected_cols if c in X.columns]
                 return X[selected_cols]
             else:
                 return X.iloc[:, self.support_]

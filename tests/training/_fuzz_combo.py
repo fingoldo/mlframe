@@ -1,4 +1,3 @@
-from mlframe.training import FeatureSelectionConfig
 """Combo enumerator + results log for train_mlframe_models_suite fuzzing.
 
 Design principles:
@@ -972,7 +971,7 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         n_rows=axes["n_rows"],
         cat_feature_count=axes["cat_feature_count"],
         null_fraction_cats=axes["null_fraction_cats"],
-        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=axes["use_mrmr_fs"]),
+        use_mrmr_fs=axes["use_mrmr_fs"],
         weight_schemas=axes["weight_schemas"],
         target_type=axes["target_type"],
         auto_detect_cats=axes["auto_detect_cats"],

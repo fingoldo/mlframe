@@ -1,5 +1,118 @@
 # Changelog
 
+## 2026-04-27 — Fuzz-uncovered batch 1: CB text-floor + cold-start lazy-imports + axes-tuning + suite-refactor sync
+
+### CB text-feature dictionary scaling (production fix)
+
+- New helper `training.helpers.compute_cb_text_processing(n_train_rows)`
+  returns a CatBoost `text_processing` config that scales
+  `occurrence_lower_bound` proportionally to the fit-time row count
+  (5% rule, floor=2). Wired into `trainer._train_model_with_fallback`
+  (before `model.fit`) and `feature_selection/wrappers.py` RFECV
+  inner-fold (after `text_features` filter, before estimator fit).
+- Without this, CB's default `occurrence_lower_bound=50` either raised
+  "Dictionary size is 0" or — in the C++ `_train` loop — hung
+  indefinitely on RFECV inner-folds smaller than 50 rows or training
+  sets where text columns lacked enough word repetition (fuzz
+  c0056 / c0070, observed 2026-04-26).
+- `_maybe_get_or_build_cb_pool` now caches `_mlframe_text_features` /
+  `_mlframe_cat_features` / `_mlframe_embedding_features` on the
+  built Pool so the dynamic-text-processing injection at fit time
+  can introspect them without round-tripping through fit_params
+  (which the Pool-reuse path strips).
+
+### Cold-start lazy-imports (Windows fix)
+
+- `flaml.default` and `mlframe.training.neural` (lightning + torchmetrics)
+  used to be eagerly imported at trainer module-load. On Windows cold
+  cache that pulled scipy / optuna / lightning chains taking 30-180 s,
+  consistently overshooting per-test timeouts on the FIRST test of any
+  pytest run that touched the trainer (fuzz `c0000` timeout). Defer
+  via new `_get_flaml_zeroshot()` and `_get_neural_components()`
+  getters that populate module globals on first actual use.
+- `tests/training/conftest.py` now pre-touches `flaml.default`,
+  `mlframe.training.neural`, and `networkx` at session import — moves
+  the cold-cache wallclock outside the per-test timeout window without
+  re-introducing the eager-import overhead in production code.
+
+### Anti-masking documentation (process fix)
+
+- `CLAUDE.md` got a new top-level section "Fuzz / combo tests are bug
+  DETECTORS, not bug HIDERS" with 4 forbidden patterns (canonicalisation,
+  runtime `*_eff` rewrites, `pytest.mark.xfail`, "0-row defensive
+  guards") and concrete examples from this codebase.
+- `tests/training/_fuzz_combo.py` docstring expanded with a
+  "Canonicalisation contract" section and the
+  legitimate-vs-illegitimate distinction.
+- Inline `text_col_count → 0` masking in `canonical_key:301-311` retired
+  (the production fix above replaces it). Two dead `_rule_cb_*`
+  functions (`_rule_cb_pool_reuse_with_mrmr_small_n_filtered`,
+  `_rule_cb_text_dict_collapse_with_full_quartet`) removed — both had
+  TODOs that the production-fix addresses.
+
+### Fuzz speedup (test-only)
+
+- `_config_for_models` now passes
+  `rfecv_kwargs={"max_noimproving_iters": 2, "cv_n_splits": 2,
+  "max_runtime_mins": 2}` so RFECV's heuristic feature search short-
+  circuits aggressively. Production users keep the library defaults
+  (`max_noimproving_iters=15`, `cv_n_splits=4`); fuzz-only override.
+- Axis-value tuning in `_fuzz_combo.py`: `n_rows` 1200→1000 (rare_5pct
+  still exercises at n=1000 per the existing canonical_imbalance
+  threshold), `cat_feature_count` 20→15 (one-hot blow-up code path
+  identical, smaller absolute count), `iterations` 30→15 (multi-iter
+  ES still triggers), `early_stopping_rounds_cfg` 20→10,
+  `multilabel_n_chains_cfg` (3,5)→(2,3), `multilabel_cv_cfg`
+  (3,5)→(2,3). MRMR `full_npermutations` 3→2,
+  `max_consec_unconfirmed` 3→2 in `test_fuzz_suite.py`. Each preserves
+  the tested code path; full 150-combo run dropped from 70 min to
+  ~19 min.
+- Charts off in fuzz: `OutputConfig(save_charts=False)` +
+  `ReportingConfig(show_perf_chart=False, show_fi=False)`. Each combo
+  was leaking 1-2 MB of matplotlib state per chart; over 150 combos
+  that compounded to >2 GB and tripped pytest's traceback-formatter
+  with `MemoryError: bad allocation` / INTERNALERROR.
+
+### Suite-refactor sync (catch-up to typed-config rebuild)
+
+- `mlframe.training.__init__` now re-exports `FeatureTypesConfig`
+  (was reachable only via `mlframe.training.configs`). Listed in the
+  module's `__all__`.
+- `core.train_mlframe_models_suite` `reporting_config.model_dump()`
+  was leaking the derived field `title_metrics_tokens` into the
+  `_build_configs_from_params(**kwargs)` call, causing
+  `TypeError: got an unexpected keyword argument 'title_metrics_tokens'`.
+  Fixed via `model_dump(exclude={"title_metrics_tokens"})`; the deep
+  consumer re-derives the tuple from the rebuilt ReportingConfig
+  object directly.
+- `ensembling.py:_process_single_ensemble_method` now pops the
+  `compute_{trainset,valset,testset}_metrics` keys off `kwargs_copy`
+  before splatting alongside the hard-coded `compute_valset_metrics=True`
+  (the reporting-config refactor put those fields into
+  `common_params_dict`, leading to
+  `TypeError: dict() got multiple values for keyword argument
+  'compute_valset_metrics'`). Same function migrated 7→8-tuple
+  unpacking from `_build_configs_from_params` (added `output_config`)
+  and switched `display=` → `reporting=` + `output=` keyword on
+  `train_and_evaluate_model`. `_process_uncertainty_split` block
+  migrated identically.
+- `tests/training/test_fuzz_suite.py` migrated to the new typed-config
+  surface: `_preprocessing_for_combo` extended to carry
+  `fix_inf_eff` / `rm_const_eff` / `fillna_value` /
+  `ensure_float32_dtypes` (the `_configs_for_combo` dict now omits
+  `preprocessing_config` to avoid duplicate-kwarg with the explicit
+  pass), module-level imports for `OutputConfig` /
+  `OutlierDetectionConfig` / `FeatureSelectionConfig` /
+  `ReportingConfig`.
+
+### Verification
+
+- 150/150 fuzz combos run end-to-end after the changes; only the
+  pre-existing `c0102` (XGB cat-with-float-dtype rejection after
+  MRMR/prep_ext target-encoding flip) still fails, with the same
+  signature as before. That one is its own production bug, scheduled
+  for the next batch.
+
 ## 2026-04-27 — Calibration reporting upgrades + suite-config sweep (BREAKING)
 
 ### Calibration reporting (mlframe.metrics)

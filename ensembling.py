@@ -828,6 +828,22 @@ def _process_single_ensemble_method(
     for _pipeline_kwarg in ("category_encoder", "scaler", "imputer"):
         kwargs_copy.pop(_pipeline_kwarg, None)
 
+    # 2026-04-27 typed-config refactor: ``compute_{trainset,valset,testset}_-
+    # metrics`` were lifted from trainer-internal to ``ReportingConfig``.
+    # core.py now seeds ``common_params_dict`` from ``reporting_config.model_dump()``,
+    # which makes those fields part of ``kwargs_copy``. Pop them before the
+    # ``dict(... compute_valset_metrics=True, **kwargs_copy)`` splat below to
+    # avoid ``TypeError: dict() got multiple values for keyword argument
+    # 'compute_valset_metrics'``. The ensemble scorer always wants val
+    # metrics on (irrespective of caller's reporting config), so the hard-
+    # coded ``compute_valset_metrics=True`` below is the source of truth.
+    for _metrics_kwarg in (
+        "compute_trainset_metrics",
+        "compute_valset_metrics",
+        "compute_testset_metrics",
+    ):
+        kwargs_copy.pop(_metrics_kwarg, None)
+
     # Build config objects from flat params
     flat_params = dict(
         df=None,
@@ -847,14 +863,15 @@ def _process_single_ensemble_method(
         **predictive_kwargs,
         **kwargs_copy,
     )
-    data, control, metrics_cfg, display, naming, confidence, predictions_cfg = _build_configs_from_params(**flat_params)
+    data, control, metrics_cfg, reporting_cfg, naming, confidence, predictions_cfg, output_cfg = _build_configs_from_params(**flat_params)
     next_ens_results = train_and_evaluate_model(
         model=None,
         data=data,
         control=control,
         metrics=metrics_cfg,
-        display=display,
+        reporting=reporting_cfg,
         naming=naming,
+        output=output_cfg,
         confidence=confidence,
         predictions=predictions_cfg,
     )
@@ -927,14 +944,15 @@ def _process_single_ensemble_method(
             **conf_target_kwargs,
             **kwargs_copy,
         )
-        conf_data, conf_control, conf_metrics, conf_display, conf_naming, conf_confidence, conf_predictions = _build_configs_from_params(**conf_flat_params)
+        conf_data, conf_control, conf_metrics, conf_reporting, conf_naming, conf_confidence, conf_predictions, conf_output = _build_configs_from_params(**conf_flat_params)
         conf_results = train_and_evaluate_model(
             model=None,
             data=conf_data,
             control=conf_control,
             metrics=conf_metrics,
-            display=conf_display,
+            reporting=conf_reporting,
             naming=conf_naming,
+            output=conf_output,
             confidence=conf_confidence,
             predictions=conf_predictions,
         )

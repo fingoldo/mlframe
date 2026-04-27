@@ -9,6 +9,32 @@ tests/conftest.py and apply to all test modules automatically.
 import matplotlib
 matplotlib.use('Agg')
 
+# Pre-warm heavy optional dependencies BEFORE the per-test pytest-timeout
+# clock starts. On Windows cold cache, the first import of
+# ``flaml.default`` / ``mlframe.training.neural`` (lightning + torchmetrics)
+# / networkx / matplotlib stylesheet pulls in tens of submodules off
+# disk and easily exceeds 180 s on the first test that hits them — that
+# blew up the fuzz-suite run on 2026-04-27. Lazy-import getters in
+# trainer.py defer the actual classes; this prewarm here just touches
+# disk so the OS file cache is hot before the first test starts. We
+# swallow ImportError because some of these are optional extras.
+try:
+    import flaml.default  # noqa: F401
+except ImportError:
+    pass
+try:
+    import mlframe.training.neural  # noqa: F401
+except ImportError:
+    pass
+try:
+    # networkx is pulled in transitively by some sklearn / pyutilz paths;
+    # touching it here lets the cold-cache wallclock land outside the
+    # per-test timeout window.
+    import networkx  # noqa: F401
+    import networkx.algorithms  # noqa: F401
+except ImportError:
+    pass
+
 import pytest
 import numpy as np
 import pandas as pd
