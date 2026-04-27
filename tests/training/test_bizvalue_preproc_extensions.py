@@ -1,3 +1,4 @@
+from mlframe.training import OutputConfig, ReportingConfig
 """Business-value integration tests for `preprocessing_extensions` at the
 suite level (`train_mlframe_models_suite`).
 
@@ -81,11 +82,10 @@ def _run_suite(df, models_list, tmp_path, ext_cfg, iters=80):
         model_name="bizvalue_preproc_test",
         features_and_targets_extractor=fte,
         mlframe_models=models_list,
-        init_common_params={"show_perf_chart": False, "show_fi": False},
+        reporting_config=ReportingConfig(show_perf_chart=False, show_fi=False),
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        data_dir=data_dir,
-        models_dir="models",
+        output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
         verbose=0,
         hyperparams_config={"iterations": iters},
         preprocessing_extensions=ext_cfg,
@@ -219,11 +219,10 @@ def test_tfidf_column_path_lifts_auroc(tmp_path, seed):
             model_name="bizvalue_tfidf_test",
             features_and_targets_extractor=fte,
             mlframe_models=["linear"],
-            init_common_params={"show_perf_chart": False, "show_fi": False},
+            reporting_config=ReportingConfig(show_perf_chart=False, show_fi=False),
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=str(tmp_path / ("B" if use_text else "A")),
-            models_dir="models",
+            output_config=OutputConfig(data_dir=str(tmp_path / ("B" if use_text else "A")), models_dir="models"),
             verbose=0,
             hyperparams_config={"iterations": 100},
             preprocessing_extensions=ext_cfg,

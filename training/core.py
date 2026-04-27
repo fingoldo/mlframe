@@ -841,6 +841,7 @@ from .configs import (
     TrainingSplitConfig,
     PolarsPipelineConfig,
     FeatureTypesConfig,
+    FeatureSelectionConfig,
     ModelHyperparamsConfig,
     TrainingBehaviorConfig,
     TrainingConfig,
@@ -848,6 +849,10 @@ from .configs import (
     LinearModelConfig,
     PreprocessingExtensionsConfig,
     MultilabelDispatchConfig,
+    ReportingConfig,
+    OutputConfig,
+    OutlierDetectionConfig,
+    ConfidenceAnalysisConfig,
 )
 from .preprocessing import (
     load_and_prepare_dataframe,
@@ -1095,7 +1100,7 @@ def _setup_model_directories(
 
 
 def _build_common_params_for_target(
-    init_common_params: Dict[str, Any],
+    common_params_dict: Dict[str, Any],
     trainset_features_stats: Optional[Dict],
     plot_file: Optional[str],
     train_od_idx: Optional[np.ndarray],
@@ -1110,7 +1115,11 @@ def _build_common_params_for_target(
     Build common_params and behavior_config for select_target call.
 
     Args:
-        init_common_params: Initial common parameters from caller
+        common_params_dict: Internal dict assembled from typed configs at the
+            suite entry. Carries reporting/scaler/imputer/encoder fields down
+            to the deep dict-key consumers in trainer.py. Built internally
+            from the typed configs; no external dict pass-through on the
+            suite signature.
         trainset_features_stats: Computed feature statistics
         plot_file: Path for saving plots
         train_od_idx: Outlier detection indices for training set
@@ -1136,14 +1145,14 @@ def _build_common_params_for_target(
         current_behavior_config = behavior_config
 
     # Build common_params dict
-    # Filter out train_target/val_target from init_common_params to avoid conflict when OD is applied
-    filtered_init_params = {k: v for k, v in init_common_params.items() if k not in ("train_target", "val_target")}
+    # Filter out train_target/val_target so they don't conflict when OD applies.
+    filtered_params = {k: v for k, v in common_params_dict.items() if k not in ("train_target", "val_target")}
     od_common_params = dict(
         trainset_features_stats=trainset_features_stats,
         plot_file=plot_file,
         train_od_idx=train_od_idx,  # Pass for metadata
         val_od_idx=val_od_idx,  # Pass for metadata
-        **filtered_init_params,
+        **filtered_params,
     )
 
     # When outlier detection is applied, pass targets directly to avoid re-subsetting
@@ -1353,15 +1362,22 @@ def _convert_dfs_to_pandas(
 
 
 def _get_pipeline_components(
-    init_common_params: Optional[Dict[str, Any]],
+    preprocessing_config: PreprocessingConfig,
     cat_features: List[str],
 ) -> Tuple[Optional[Any], SimpleImputer, StandardScaler]:
     """
-    Get pipeline components (category_encoder, imputer, scaler) from params or defaults.
+    Get pipeline components (category_encoder, imputer, scaler) from typed config or defaults.
+
+    Reads from ``preprocessing_config.{category_encoder, imputer, scaler}`` -
+    these three fields absorbed the only transformer overrides that had no
+    typed home before the 2026-04-27 refactor; everything else migrated to a
+    sibling typed config.
 
     Args:
-        init_common_params: Initial common parameters that may contain pipeline components.
-            Recognized keys: "category_encoder", "imputer", "scaler".
+        preprocessing_config: Typed PreprocessingConfig. ``None`` defaults on its
+            transformer fields trigger the context-aware default selection below
+            (CatBoostEncoder when cat features exist, SimpleImputer always,
+            StandardScaler always).
         cat_features: List of categorical feature names.
 
     Returns:
@@ -1371,12 +1387,9 @@ def _get_pipeline_components(
             - imputer: SimpleImputer instance for handling missing values.
             - scaler: StandardScaler instance for feature normalization.
     """
-    if init_common_params is None:
-        init_common_params = {}
-
-    category_encoder = init_common_params.get("category_encoder", None)
-    imputer = init_common_params.get("imputer", None)
-    scaler = init_common_params.get("scaler", None)
+    category_encoder = preprocessing_config.category_encoder
+    imputer = preprocessing_config.imputer
+    scaler = preprocessing_config.scaler
 
     # Initialize defaults if not provided
     if category_encoder is None and cat_features:
@@ -1501,7 +1514,7 @@ def _create_initial_metadata(
 
 
 def _initialize_training_defaults(
-    init_common_params: Optional[Dict[str, Any]],
+    common_params_dict: Optional[Dict[str, Any]],
     rfecv_models: Optional[List[str]],
     mrmr_kwargs: Optional[Dict[str, Any]],
 ) -> Tuple[Dict[str, Any], List[str], Dict[str, Any]]:
@@ -1509,18 +1522,18 @@ def _initialize_training_defaults(
     Initialize default values for training parameters.
 
     Args:
-        init_common_params: Initial common parameters (can be None).
+        common_params_dict: Internal common-params dict (can be None).
         rfecv_models: List of RFECV models (can be None).
         mrmr_kwargs: MRMR keyword arguments (can be None).
 
     Returns:
         Tuple of initialized values:
-        - init_common_params: Dict (never None)
+        - common_params_dict: Dict (never None)
         - rfecv_models: List (never None)
         - mrmr_kwargs: Dict (never None)
     """
-    if init_common_params is None:
-        init_common_params = {}
+    if common_params_dict is None:
+        common_params_dict = {}
 
     if rfecv_models is None:
         rfecv_models = []
@@ -1533,7 +1546,7 @@ def _initialize_training_defaults(
         )
 
     return (
-        init_common_params,
+        common_params_dict,
         rfecv_models,
         mrmr_kwargs,
     )
@@ -1606,46 +1619,34 @@ def train_mlframe_models_suite(
     target_name: str,
     model_name: str,
     features_and_targets_extractor: FeaturesAndTargetsExtractor,
-    # Model selection
+    # Model selection (top-level kwargs - these answer "what does this suite do")
     mlframe_models: Optional[List[str]] = None,
     recurrent_models: Optional[List[str]] = None,
     recurrent_config: Optional[Any] = None,
     sequences: Optional[List[np.ndarray]] = None,
     use_ordinary_models: bool = True,
     use_mlframe_ensembles: bool = True,
-    # Configurations (can be dicts or Pydantic objects)
+    # Existing typed configs (can be dicts or Pydantic objects)
     preprocessing_config: Optional[Union[PreprocessingConfig, Dict]] = None,
     split_config: Optional[Union[TrainingSplitConfig, Dict]] = None,
     pipeline_config: Optional[Union[PolarsPipelineConfig, Dict]] = None,
     preprocessing_extensions: Optional[Union["PreprocessingExtensionsConfig", Dict]] = None,
     feature_types_config: Optional[Union[FeatureTypesConfig, Dict]] = None,
-    # Model-specific configurations
     linear_model_config: Optional[LinearModelConfig] = None,
-    # Feature selection
-    use_mrmr_fs: bool = False,
-    mrmr_kwargs: Optional[Dict] = None,
-    rfecv_models: Optional[List[str]] = None,
-    custom_pre_pipelines: Optional[Dict[str, Any]] = None,
-    # Model hyperparameters and training behavior
     hyperparams_config: Optional[Union[ModelHyperparamsConfig, Dict]] = None,
     behavior_config: Optional[Union[TrainingBehaviorConfig, Dict]] = None,
-    init_common_params: Optional[Dict] = None,
-    # Paths
-    data_dir: str = "",
-    models_dir: str = "models",
-    save_charts: bool = True,
+    multilabel_dispatch_config: Optional["MultilabelDispatchConfig"] = None,
+    # 2026-04-27 typed configs (replace prior dict pass-through + 9 orphan kwargs)
+    reporting_config: Optional[Union["ReportingConfig", Dict]] = None,
+    output_config: Optional[Union["OutputConfig", Dict]] = None,
+    outlier_detection_config: Optional[Union["OutlierDetectionConfig", Dict]] = None,
+    feature_selection_config: Optional[Union[FeatureSelectionConfig, Dict]] = None,
+    confidence_analysis_config: Optional[Union["ConfidenceAnalysisConfig", Dict]] = None,
     # Misc
     verbose: int = 1,
-    # Outlier detection (run once for all models)
-    outlier_detector: Optional[Any] = None,
-    od_val_set: bool = True,
-    # Multilabel dispatch (consulted only when target_type is MULTILABEL_CLASSIFICATION)
-    multilabel_dispatch_config: Optional["MultilabelDispatchConfig"] = None,
 ) -> Tuple[Dict, Dict]:
     """
     Train a suite of ML models on a dataset.
-
-    This is the refactored main training function with cleaner, more modular code.
 
     Args:
         df: DataFrame or path to parquet file
@@ -1664,25 +1665,31 @@ def train_mlframe_models_suite(
         use_ordinary_models: Whether to train regular models
         use_mlframe_ensembles: Whether to create ensembles
 
-        preprocessing_config: Preprocessing configuration
+        preprocessing_config: Preprocessing configuration. Custom transformer overrides
+            (``scaler``, ``imputer``, ``category_encoder``) live here too; previously
+            these were dict-typed orphans without a typed home before the refactor.
         split_config: Train/val/test split configuration
         pipeline_config: Pipeline configuration
 
-        use_mrmr_fs: Whether to use MRMR feature selection
-        mrmr_kwargs: MRMR parameters
-        rfecv_models: Models to use for RFECV
-        custom_pre_pipelines: Dict mapping pipeline names to sklearn transformers.
-            Each transformer must implement fit() and transform() methods.
-            Example: {"pca50": IncrementalPCA(n_components=50)}
+        feature_selection_config: Feature selection configuration. Holds
+            ``use_mrmr_fs``, ``mrmr_kwargs``, ``rfecv_models``, ``rfecv_kwargs``,
+            ``custom_pre_pipelines``. Previously these were five separate top-level
+            kwargs of this function.
 
         hyperparams_config: Model hyperparameters (iterations, learning rate, per-model kwargs).
             Accepts ModelHyperparamsConfig or dict. Defaults are built in.
         behavior_config: Training behavior flags (GPU preference, calibration, fairness).
             Accepts TrainingBehaviorConfig or dict. Defaults are built in.
-        init_common_params: Common initialization parameters (pipeline components, etc.)
 
-        data_dir: Directory for saving artifacts
-        models_dir: Directory for saving models
+        reporting_config: Calibration / training-report look. Holds figure size,
+            chart toggles, the title-metrics template (``ICE BR_DECOMP ECE CMAEW
+            LL ROC_AUC PR_AUC`` by default), histogram subplot toggles, inline
+            population labels, FI plot config. Previously reachable only via the
+            dict-typed pass-through which has been deleted.
+        output_config: Filesystem destinations - ``data_dir``, ``models_dir``,
+            ``plot_file``, ``save_charts``. Previously these were top-level kwargs.
+        outlier_detection_config: Outlier-detector + ``apply_to_val`` (was
+            ``od_val_set``). Previously these were top-level kwargs.
 
         verbose: Verbosity level (0=silent, 1=info, 2=debug)
 
@@ -1699,6 +1706,11 @@ def train_mlframe_models_suite(
             mlframe_models=["linear", "ridge", "cb", "lgb"],
             preprocessing_config=PreprocessingConfig(fillna_value=0.0),
             split_config=TrainingSplitConfig(test_size=0.1, val_size=0.1),
+            reporting_config=ReportingConfig(
+                title_metrics_template="ICE BR_DECOMP ECE CMAEW",
+                show_prob_histogram=True,
+            ),
+            output_config=OutputConfig(data_dir="./artifacts", save_charts=True),
         )
         ```
     """
@@ -1740,6 +1752,54 @@ def train_mlframe_models_suite(
     split_config = _ensure_config(split_config, TrainingSplitConfig, {})
     hyperparams_config = _ensure_config(hyperparams_config, ModelHyperparamsConfig, {})
     behavior_config = _ensure_config(behavior_config, TrainingBehaviorConfig, {})
+    reporting_config = _ensure_config(reporting_config, ReportingConfig, {})
+    output_config = _ensure_config(output_config, OutputConfig, {})
+    outlier_detection_config = _ensure_config(outlier_detection_config, OutlierDetectionConfig, {})
+    feature_selection_config = _ensure_config(feature_selection_config, FeatureSelectionConfig, {})
+    confidence_analysis_config = _ensure_config(confidence_analysis_config, ConfidenceAnalysisConfig, {})
+
+    # 2026-04-27: pull scalar fields out of the typed configs for the existing
+    # downstream code that takes plain locals. The scalar names match the
+    # pre-refactor top-level kwargs so the ~100 sites of downstream code don't
+    # need any further churn this revision. Deeper refactors (push the typed
+    # configs down through select_target / process_model / train_and_evaluate_model)
+    # are separate PRs.
+    data_dir = output_config.data_dir
+    models_dir = output_config.models_dir
+    save_charts = output_config.save_charts
+    outlier_detector = outlier_detection_config.detector
+    od_val_set = outlier_detection_config.apply_to_val
+    use_mrmr_fs = feature_selection_config.use_mrmr_fs
+    mrmr_kwargs = feature_selection_config.mrmr_kwargs
+    rfecv_models = feature_selection_config.rfecv_models
+    custom_pre_pipelines = feature_selection_config.custom_pre_pipelines if feature_selection_config.custom_pre_pipelines else None
+
+    # Internal dict carrying ReportingConfig + PreprocessingConfig.{scaler,imputer,
+    # category_encoder} down to the deep dict-key consumers in trainer.py
+    # (_build_train_eval_configs assembles ReportingConfig / DataConfig from these
+    # scalar keys). Built internally from the typed configs; no external dict
+    # pass-through on the suite signature.
+    common_params_dict: Dict[str, Any] = {}
+    common_params_dict.update(reporting_config.model_dump())
+    if preprocessing_config.scaler is not None:
+        common_params_dict["scaler"] = preprocessing_config.scaler
+    if preprocessing_config.imputer is not None:
+        common_params_dict["imputer"] = preprocessing_config.imputer
+    if preprocessing_config.category_encoder is not None:
+        common_params_dict["category_encoder"] = preprocessing_config.category_encoder
+    # ConfidenceAnalysisConfig fields - dumped into common_params_dict because
+    # the deep consumer (_build_configs_from_params in trainer.py) reads scalar
+    # kwargs and assembles ConfidenceAnalysisConfig from them. Field names map
+    # 1:1 to the kwargs of that builder (`include_confidence_analysis`,
+    # `confidence_analysis_use_shap`, etc.).
+    common_params_dict["include_confidence_analysis"] = confidence_analysis_config.include
+    common_params_dict["confidence_analysis_use_shap"] = confidence_analysis_config.use_shap
+    common_params_dict["confidence_analysis_max_features"] = confidence_analysis_config.max_features
+    common_params_dict["confidence_analysis_cmap"] = confidence_analysis_config.cmap
+    common_params_dict["confidence_analysis_alpha"] = confidence_analysis_config.alpha
+    common_params_dict["confidence_analysis_ylabel"] = confidence_analysis_config.ylabel
+    common_params_dict["confidence_analysis_title"] = confidence_analysis_config.title
+    common_params_dict["confidence_model_kwargs"] = dict(confidence_analysis_config.model_kwargs)
 
     # Opt-in: install SIGSEGV/SIGABRT handler + suppress Windows WER
     # popup so native crashes (e.g. XGBoost bad_malloc on too-large
@@ -2341,17 +2401,17 @@ def train_mlframe_models_suite(
     # Initialize default values for training parameters
     with phase("initialize_training_defaults"):
         (
-            init_common_params,
+            common_params_dict,
             rfecv_models,
             mrmr_kwargs,
         ) = _initialize_training_defaults(
-            init_common_params=init_common_params,
+            common_params_dict=common_params_dict,
             rfecv_models=rfecv_models,
             mrmr_kwargs=mrmr_kwargs,
         )
 
-    # Get pipeline components (category_encoder, imputer, scaler) from params or defaults
-    category_encoder, imputer, scaler = _get_pipeline_components(init_common_params, cat_features)
+    # Get pipeline components (category_encoder, imputer, scaler) from typed config or defaults
+    category_encoder, imputer, scaler = _get_pipeline_components(preprocessing_config, cat_features)
 
     # Compute trainset stats (Polars is more efficient, but pandas works too)
     if isinstance(train_df, pl.DataFrame):
@@ -2882,7 +2942,7 @@ def train_mlframe_models_suite(
                 t0_select_target = timer()
                 # Build common_params and behavior_config for select_target
                 od_common_params, current_behavior_config = _build_common_params_for_target(
-                    init_common_params=init_common_params,
+                    common_params_dict=common_params_dict,
                     trainset_features_stats=trainset_features_stats,
                     plot_file=plot_file,
                     train_od_idx=train_od_idx,

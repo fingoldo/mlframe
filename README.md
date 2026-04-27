@@ -18,7 +18,7 @@ mlframe/
     automl.py            # AutoGluon / TPOT wrappers
     neural/              # LSTM, GRU, Transformer wrappers (PyTorch Lightning)
   feature_selection/     # MRMR, RFECV wrappers
-  metrics.py             # ICE, calibration metrics, custom scorers
+  metrics.py             # ICE, ECE, Brier decomposition (REL/RES/UNC), CMAEW, calibration plot
   tests/
     training/
       test_core.py       # Integration tests for train_mlframe_models_suite
@@ -197,9 +197,22 @@ matrix, full benchmark, and what these tools do NOT fix
   - `auto_detect_feature_types` — when `True` (default), auto-detects embeddings from `pl.List(pl.Float*)` and splits string columns into text vs categorical by cardinality
   - `cat_text_cardinality_threshold` — unique value count threshold (default 300): `<= threshold` → categorical, `> threshold` → text. Raised from 50 → 300 on 2026-04-19 (round 12) after a prod incident where mid-cardinality columns (`job_post_source:71`, `_raw_countries:2196`) got promoted to text_features and crashed CatBoost's TF-IDF estimator. 50-300 unique values are usually enum-like (country codes, categories) — tree models handle these natively as cats, no text extraction needed.
 - **`preprocessing_extensions`** — optional `PreprocessingExtensionsConfig` (or dict). Shared sklearn stack applied once after the Polars-ds pipeline; every model reuses the transformed frame. Covers scaler override (10 variants), `Binarizer`/`KBinsDiscretizer` (mutually exclusive), `PolynomialFeatures` with `memory_safety_max_features` guard, non-linear maps (`RBFSampler`/`Nystroem`/`AdditiveChi2Sampler`/`SkewedChi2Sampler`), TF-IDF, and dim reducers (PCA / KernelPCA / LDA / NMF / TruncatedSVD / FastICA / Isomap / UMAP / random projections / RandomTreesEmbedding / BernoulliRBM). `None` (default) is a byte-for-byte noop — the Polars-native fastpath is preserved. UMAP is gated via `importlib.util.find_spec` with an install-hint `ImportError`.
-- **`custom_pre_pipelines`** — dict of custom sklearn transformers (e.g., PCA)
-- **`save_charts`** — when `False` (default `True`), skips per-model chart file output. Useful for CI / fast runs where only metrics are needed.
+- **`feature_selection_config`** — feature selection configuration (`FeatureSelectionConfig` or dict): `use_mrmr_fs`, `mrmr_kwargs`, `rfecv_models`, `rfecv_kwargs`, and `custom_pre_pipelines` (dict of custom sklearn transformers like PCA).
+- **`reporting_config`** — calibration / training-report look (`ReportingConfig` or dict): figsize, chart toggles, the **title-metrics template** (`"ICE BR_DECOMP ECE CMAEW LL ROC_AUC PR_AUC"` by default - a single ordered string instead of 9 separate booleans, validated at config-construction time), **probability histogram subplot** under the reliability scatter (`show_prob_histogram`, `prob_histogram_yscale="auto"|"log"|"linear"`), inline per-bin population labels (`show_inline_population_labels`), and the typed `feature_importance_config`.
+- **`output_config`** — filesystem destinations (`OutputConfig` or dict): `data_dir`, `models_dir`, `plot_file`, `save_charts` (when `False`, skips per-model chart file output - useful for CI).
+- **`outlier_detection_config`** — outlier-detection settings (`OutlierDetectionConfig` or dict): `detector` (sklearn OutlierMixin), `apply_to_val`.
 - **`verbose`** — when `True`, logs timing and shape info for every major phase (data loading, splitting, pipeline, per-model training, metrics)
+
+### Calibration metrics emitted per class
+
+The per-class `class_metrics` dict carries (alongside `roc_auc`, `pr_auc`, `precision`, `recall`, `f1`):
+- `ice` — Integral Calibration Error (mlframe-native composite of CMAEW + ROC + PR + Brier)
+- `ece` — standard Expected Calibration Error
+- `calibration_mae`, `calibration_std` — CMAE/CMAEW (power-weighted by default; same bins as ECE)
+- `calibration_coverage` — fraction of bins populated
+- `brier_loss` — raw Brier score
+- `brier_reliability` (REL), `brier_resolution` (RES), `brier_uncertainty` (UNC) — Murphy 1973 decomposition. Identity `BinnedBrier == REL - RES + UNC` holds exactly to fp precision (raw Brier differs from binned Brier by within-bin prediction variance). REL high ⇒ calibration problem (try Platt/isotonic/postcalibration); RES low ⇒ ranker can't separate.
+- `log_loss` — None when single-class
 
 ### Hyperparameters notes
 

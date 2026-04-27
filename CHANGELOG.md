@@ -1,5 +1,210 @@
 # Changelog
 
+## 2026-04-27 — Calibration reporting upgrades + suite-config sweep (BREAKING)
+
+### Calibration reporting (mlframe.metrics)
+
+- **ECE always-computed**: standard Expected Calibration Error now lives next
+  to the existing CMAEW (mlframe-native power-weighted variant). Same bins so
+  values are directly comparable. Added new numba kernel
+  `compute_ece_and_brier_decomposition(y_true, y_pred, nbins)` which returns
+  `(ece, reliability, resolution, uncertainty, brier_binned)`. Kernel uses
+  per-bin mean predicted probability (not bin centre) so the Murphy 1973
+  identity `BinnedBrier == REL - RES + UNC` holds exactly to fp precision.
+  Raw Brier still differs from binned Brier by within-bin prediction variance;
+  the gap shrinks with finer binning.
+- **Brier score decomposition**: REL (reliability/calibration error) -
+  RES (resolution/separation) + UNC (uncertainty/base-rate entropy) added to
+  per-class `class_metrics` dict as `brier_reliability`, `brier_resolution`,
+  `brier_uncertainty`. Diagnostic interpretation: REL high ⇒ calibration
+  problem (try Platt/isotonic/postcalibration); RES low ⇒ ranker can't
+  separate (need feature work).
+- **Title metrics template**: 9 historical `show_*_in_title` booleans
+  (`show_brier_loss_in_title`, `show_cmaew_in_title`,
+  `show_roc_auc_in_title`, `show_pr_auc_in_title`, `show_logloss_in_title`,
+  `show_coverage_in_title`, `show_points_density_in_title`, plus the new
+  `show_ece_in_title` and `show_brier_decomp_in_title` we considered)
+  collapsed into one ordered string template
+  `title_metrics_template: str = "ICE BR_DECOMP ECE CMAEW LL ROC_AUC PR_AUC"`.
+  Token grammar (closed set: `ICE`, `BR`, `BR_DECOMP`, `ECE`, `CMAEW`, `COV`,
+  `LL`, `ROC_AUC`, `PR_AUC`, `DENS`) validated at config-construction time
+  via pydantic field/model validators - invalid templates fail before
+  training starts, never mid-figure. Users now control both metric
+  selection AND order with one parameter.
+- **Probability histogram subplot**: under the reliability scatter, sharing
+  the X axis. Y-scale auto-picks log when bin-population skew exceeds 100x
+  and linear otherwise; override via `prob_histogram_yscale="log"` /
+  `"linear"`. Toggle off via `show_prob_histogram=False`. Inline per-bin
+  population text labels next to the scatter points are independently
+  controlled by `show_inline_population_labels` so users can keep both,
+  drop both, or keep only one.
+- `fast_calibration_report` return tuple grew from 13 to 17 elements: the
+  four new fields (`ece`, `brier_reliability`, `brier_resolution`,
+  `brier_uncertainty`) sit between `calibration_coverage` and `roc_auc`.
+- `show_calibration_plot` got new kwargs (`show_prob_histogram`,
+  `prob_histogram_yscale`, `show_inline_population_labels`) - same defaults
+  as `ReportingConfig`. Histogram-OFF path is byte-for-byte unchanged
+  (verified by `tests/training/test_perf_edges.py::TestMatplotlibAggPath`).
+
+### Config refactor (mlframe.training.configs) — BREAKING
+
+- **`DisplayConfig` renamed to `ReportingConfig`** (all callers must update).
+  Scope slimmed to "look of the calibration / training performance report".
+  Filesystem paths moved out (see `OutputConfig`); feature-importance plot
+  parameters moved out (see `FeatureImportanceConfig`).
+- **New `OutputConfig`**: `data_dir`, `models_dir` (renamed from
+  `models_subdir` for symmetry with `data_dir`), `plot_file`, `save_charts`.
+  Holds path/output knobs.
+- **New `FeatureImportanceConfig`**: `num_factors`, `figsize`,
+  `positive_fi_only`, `show_plots`. Replaces the dict-typed `fi_kwargs`
+  that previously lived on `DisplayConfig`.
+- **New `OutlierDetectionConfig`**: `detector` (was `outlier_detector` at
+  the suite level), `apply_to_val` (was `od_val_set`).
+- **`FeatureSelectionConfig` extended**: added `custom_pre_pipelines`
+  field. Previously a top-level kwarg of the suite.
+- **`PreprocessingConfig` extended**: added unprefixed `scaler`, `imputer`,
+  `category_encoder` fields. Previously these were dict-typed orphans
+  reachable only via the deleted `init_common_params` pass-through. Default
+  `None` preserves the suite's context-aware default-selection logic.
+
+### `train_mlframe_models_suite` signature (mlframe.training.core) — BREAKING
+
+**Removed kwargs** (no back-compat shim, per user direction):
+- `init_common_params` (the dict-typed pass-through)
+- `data_dir`, `models_dir`, `save_charts` → `output_config=OutputConfig(...)`
+- `outlier_detector`, `od_val_set` → `outlier_detection_config=OutlierDetectionConfig(...)`
+- `use_mrmr_fs`, `mrmr_kwargs`, `rfecv_models`, `custom_pre_pipelines` → `feature_selection_config=FeatureSelectionConfig(...)`
+
+**Kept top-level** (model-selection knobs answer "what does this suite do"):
+`mlframe_models`, `use_ordinary_models`, `use_mlframe_ensembles`,
+`recurrent_models`, `recurrent_config`, `sequences`.
+
+**New top-level kwargs**:
+`reporting_config`, `output_config`, `outlier_detection_config`,
+`feature_selection_config`. All Pydantic-validated; accept dict or model
+instance via the existing `_ensure_config` helper.
+
+### Migration cookbook
+
+```python
+# BEFORE (pre-2026-04-27):
+train_mlframe_models_suite(
+    df=...,
+    init_common_params={
+        "show_perf_chart": False, "show_fi": False,
+        "scaler": custom_scaler,
+    },
+    data_dir="./artifacts",
+    models_dir="models",
+    save_charts=True,
+    outlier_detector=isolation_forest, od_val_set=True,
+    use_mrmr_fs=True, mrmr_kwargs={"features_to_select": 50},
+    rfecv_models=["cb"],
+    custom_pre_pipelines={"pca50": IncrementalPCA(50)},
+)
+
+# AFTER (2026-04-27+):
+train_mlframe_models_suite(
+    df=...,
+    reporting_config=ReportingConfig(
+        show_perf_chart=False, show_fi=False,
+        title_metrics_template="ICE BR_DECOMP ECE CMAEW",  # new: customise title metrics
+        show_prob_histogram=True,                          # new: histogram subplot
+    ),
+    preprocessing_config=PreprocessingConfig(scaler=custom_scaler),
+    output_config=OutputConfig(
+        data_dir="./artifacts", models_dir="models", save_charts=True,
+    ),
+    outlier_detection_config=OutlierDetectionConfig(
+        detector=isolation_forest, apply_to_val=True,
+    ),
+    feature_selection_config=FeatureSelectionConfig(
+        use_mrmr_fs=True, mrmr_kwargs={"features_to_select": 50},
+        rfecv_models=["cb"],
+        custom_pre_pipelines={"pca50": IncrementalPCA(50)},
+    ),
+)
+```
+
+### Severed-config wiring (audit + fixes)
+
+Audit of all 26 `*Config` classes in configs.py found one truly severed
+class after the suite signature rebuild:
+
+- **`ConfidenceAnalysisConfig`** was reachable only via the deleted dict
+  pass-through. Wired as new first-class kwarg `confidence_analysis_config`
+  on the suite. Internal dict gets fields dumped under their existing
+  scalar key names (`include_confidence_analysis`,
+  `confidence_analysis_use_shap`, etc.) so deep consumers in trainer.py
+  continue working unchanged.
+
+Plus three trainer-internal knobs lifted up to suite users via
+**`ReportingConfig`** (the natural home — these are all about what gets
+reported and how):
+
+- `compute_trainset_metrics` (default False), `compute_valset_metrics`
+  (default True), `compute_testset_metrics` (default True) — was hardcoded
+  in `_build_configs_from_params`. Users now control per-split metric
+  computation explicitly (skip train-set metrics for speed, or enable
+  them for overfit diagnostics).
+- `custom_ice_metric` / `custom_rice_metric` (default None → trainer
+  falls back to compute_probabilistic_multiclass_error) — was reachable
+  only via the deleted dict pass-through.
+
+`use_cache` default flip: `TrainingControlConfig.use_cache` and
+`_build_configs_from_params(use_cache=...)` both flipped from False to
+True for consistency with `train_eval.py:664`'s long-standing
+`.get("use_cache", True)` de-facto behaviour. Cache loading is almost
+always faster than retraining; users force a retrain by passing
+`use_cache=False` explicitly through their TrainingControlConfig
+(suite-level wiring intentionally deferred — model-loading is a
+trainer-internal concern, not a top-level user knob).
+
+Severed configs that audit found but **deliberately NOT wired** (each
+either dead code, wrong suite, or premature):
+- `FairnessConfig` — declared but never consumed; the actual fairness
+  mechanism is `TrainingBehaviorConfig.fairness_features` (flat list).
+  Refactor deferred to a follow-up PR.
+- `TreeModelConfig` / `MLPConfig` / `NGBConfig` — declared but never
+  instantiated; the dict-typed `ModelHyperparamsConfig.{cb,lgb,xgb,
+  hgb,mlp,ngb}_kwargs` is the real config surface today. Migrating
+  those dicts to typed configs is high-value but very-high-effort
+  (each lib has 100+ params, mirrors evolve upstream) — separate PR.
+- `EnsemblingConfig` — TODOs in ensembling.py reference its 3 fields
+  (`force_legacy`, `quantile_budget_bytes`, `accumulator`) but the
+  underlying logic isn't wired yet; promoting now would be premature.
+- `AutoMLConfig` — for `train_automl_models_suite`, not this suite.
+- `TrainingConfig` umbrella — documentation-only aggregator;
+  redundant given the 17 first-class typed kwargs the suite already has.
+- Trainer-internal `DataConfig`/`TrainingControlConfig`/`MetricsConfig`/
+  `NamingConfig` (other fields beyond what we promoted) — built inside
+  `_build_configs_from_params` from suite-level state; per-model flags
+  (`pre_pipeline`, `fit_params`, `model_category`, `model_name_prefix`,
+  `just_evaluate`) are auto-derived by the trainer and shouldn't be
+  user-exposed at the suite layer.
+
+### Tests
+
+- New: `tests/test_metrics.py::TestCalibration` — 16 added tests
+  (Murphy identity, ECE textbook formula, decomposition edge cases, return
+  tuple, title-template grammar, token rendering).
+- New: `tests/training/test_reporting_config.py` — 30 tests covering
+  template parsing, validation failure modes, histogram fields,
+  slimmed-config invariants, all 4 new sibling configs.
+- New: `tests/training/test_suite_config_migration.py` — asserts the
+  removed kwargs really are gone, the new typed configs are present, and
+  model-selection kwargs stay top-level.
+- New: `tests/test_calibration_plot_layout.py` — histogram subplot axes
+  count, inline-label independence, auto-yscale heuristic, explicit
+  override modes (matplotlib Agg path).
+- Existing tests/scripts mass-migrated: 39 files via automated pass for
+  `data_dir/models_dir/outlier_detector/use_mrmr_fs/rfecv_models` →
+  typed configs; `init_common_params=common_init_params` → `reporting_config=`;
+  `{**common_init_params, "scaler": X}` → split into `reporting_config` +
+  `preprocessing_config`. Residual rich-dict cases hand-edited or tagged
+  with TODO comments where the deep consumer was reading dict-only fields
+  that now lack a typed home (`include_confidence_analysis`).
+
 ## 2026-04-27 — Combo-fuzz expansion + 13 production fixes uncovered by the new axes
 
 Expanded `tests/training/test_fuzz_suite.py` from 43 → 61 axes via six

@@ -25,10 +25,16 @@ import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
 from ._fuzz_combo import FuzzCombo, build_frame_for_combo
+from mlframe.training import (
+    FeatureSelectionConfig,
+    OutlierDetectionConfig,
+    OutputConfig,
+)
+
 from .shared import SimpleFeaturesAndTargetsExtractor
 from .test_fuzz_suite import (
     _assert_prediction_invariants,
-    _common_init_for_combo,
+    _preprocessing_for_combo,
     _config_for_models,
     _configs_for_combo,
     _custom_pre_pipelines_for_combo,
@@ -125,15 +131,16 @@ def test_hypothesis_leaf_sampling(tmp_path_factory, leaf, discrete, seed):
             iterations=combo.iterations,
             early_stopping_rounds=combo.early_stopping_rounds_cfg,
         ),
-        init_common_params=_common_init_for_combo(combo),
+        preprocessing_config=_preprocessing_for_combo(combo),
+        verbose=0,
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        outlier_detector=outlier_detector,
-        custom_pre_pipelines=custom_pre,
-        data_dir=str(tmp_path),
-        models_dir="models",
-        verbose=0,
-        use_mrmr_fs=False,
+        outlier_detection_config=OutlierDetectionConfig(detector=outlier_detector),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'),
+        feature_selection_config=FeatureSelectionConfig(
+            use_mrmr_fs=False,
+            custom_pre_pipelines=custom_pre or {},
+        ),
         **_configs_for_combo(combo),
     )
     # Same invariants the pairwise suite asserts.

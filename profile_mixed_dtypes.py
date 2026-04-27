@@ -35,7 +35,9 @@ from tests.training.test_mixed_dtypes_training import _make_synthetic_mixed_df
 from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.configs import (
     ModelHyperparamsConfig,
+    OutputConfig,
     PolarsPipelineConfig,
+    ReportingConfig,
     TrainingBehaviorConfig,
     TrainingSplitConfig,
 )
@@ -85,8 +87,8 @@ def run_suite(tmp_path: Path) -> None:
         behavior_config=TrainingBehaviorConfig(
             prefer_calibrated_classifiers=False,
         ),
-        init_common_params={"show_perf_chart": True, "show_fi": True},
-        data_dir=str(tmp_path / "data"),
+        reporting_config=ReportingConfig(show_perf_chart=True, show_fi=True),
+        output_config=OutputConfig(data_dir=str(tmp_path / "data")),
         verbose=True,
     )
 

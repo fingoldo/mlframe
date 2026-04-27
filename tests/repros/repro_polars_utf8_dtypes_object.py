@@ -1,3 +1,4 @@
+from mlframe.training import FeatureSelectionConfig
 """Repro ValueError: DataFrame.dtypes for data must be int, float, bool or category."""
 import sys, os
 sys.path.insert(0, r'D:/Upd/Programming/PythonCodeRepository/mlframe')
@@ -18,7 +19,7 @@ c = FuzzCombo(
     n_rows=600,
     cat_feature_count=1,
     null_fraction_cats=0.1,
-    use_mrmr_fs=False,
+    feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
     weight_schemas=('uniform',),
     target_type='binary_classification',
     auto_detect_cats=False,
@@ -35,14 +36,18 @@ print(f'FOUND: models={c.models} input={c.input_type} polarsds={c.use_polarsds_p
 df, target_col, _ = build_frame_for_combo(c)
 
 fte = SimpleFeaturesAndTargetsExtractor(target_column=target_col, regression=c.target_type=='regression')
-init_params = {'drop_columns': [], 'verbose': 0}
+from mlframe.training import PreprocessingConfig, OutputConfig
+preprocessing_overrides = PreprocessingConfig(drop_columns=[])
 if 'linear' in c.models and c.cat_feature_count > 0:
     import category_encoders as ce
     from sklearn.preprocessing import StandardScaler
     from sklearn.impute import SimpleImputer
-    init_params['category_encoder'] = ce.CatBoostEncoder()
-    init_params['scaler'] = StandardScaler()
-    init_params['imputer'] = SimpleImputer(strategy='mean')
+    preprocessing_overrides = PreprocessingConfig(
+        drop_columns=[],
+        category_encoder=ce.CatBoostEncoder(),
+        scaler=StandardScaler(),
+        imputer=SimpleImputer(strategy='mean'),
+    )
 
 import tempfile
 tmp = tempfile.mkdtemp()
@@ -54,10 +59,10 @@ try:
         mlframe_models=list(c.models),
         hyperparams_config={'iterations': 3, 'cb_kwargs': {'task_type':'CPU','verbose':0},
             'xgb_kwargs': {'device':'cpu','verbosity':0}, 'lgb_kwargs':{'device_type':'cpu','verbose':-1}},
-        init_common_params=init_params,
-        use_mrmr_fs=c.use_mrmr_fs,
+        preprocessing_config=preprocessing_overrides,
+        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=c.use_mrmr_fs),
         use_ordinary_models=True, use_mlframe_ensembles=False,
-        data_dir=tmp, models_dir='models', verbose=1,
+        output_config=OutputConfig(data_dir=tmp, models_dir='models'), verbose=1,
         pipeline_config=PolarsPipelineConfig(use_polarsds_pipeline=c.use_polarsds_pipeline),
         feature_types_config=FeatureTypesConfig(
             auto_detect_feature_types=c.auto_detect_cats,

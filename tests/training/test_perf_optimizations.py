@@ -135,16 +135,7 @@ class TestSkipPandasConversion:
 
         df = _make_simple_polars_df()
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        train_mlframe_models_suite(
-            df=df, target_name="t", model_name="m",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 10},
-            behavior_config=CPU_BEHAVIOR,
-            use_ordinary_models=True, use_mlframe_ensembles=False,
-            data_dir=temp_data_dir, verbose=0,
-        )
+        train_mlframe_models_suite(df=df, target_name='t', model_name='m', features_and_targets_extractor=fte, mlframe_models=['cb'], reporting_config=common_init_params, hyperparams_config={'iterations': 10}, behavior_config=CPU_BEHAVIOR, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
         assert counter["n"] == 0, "pandas conversion fired despite all-Polars-native models"
 
     def test_pandas_conversion_when_mixed_models(self, temp_data_dir, common_init_params, monkeypatch):
@@ -178,16 +169,7 @@ class TestSkipPandasConversion:
 
         df = _make_simple_polars_df()
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        train_mlframe_models_suite(
-            df=df, target_name="t", model_name="m",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb", "ridge"],
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 10},
-            behavior_config=CPU_BEHAVIOR,
-            use_ordinary_models=True, use_mlframe_ensembles=False,
-            data_dir=temp_data_dir, verbose=0,
-        )
+        train_mlframe_models_suite(df=df, target_name='t', model_name='m', features_and_targets_extractor=fte, mlframe_models=['cb', 'ridge'], reporting_config=common_init_params, hyperparams_config={'iterations': 10}, behavior_config=CPU_BEHAVIOR, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
         assert counter["lazy"] + counter["upfront"] >= 1, (
             "ridge must have received pandas — either upfront or lazily. Neither "
             f"call fired: lazy={counter['lazy']}, upfront={counter['upfront']}"
@@ -235,16 +217,7 @@ class TestPlotFilePreserved:
 
         df = _make_simple_polars_df()
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        train_mlframe_models_suite(
-            df=df, target_name="t", model_name="plot_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 10},
-            behavior_config=CPU_BEHAVIOR,
-            use_ordinary_models=True, use_mlframe_ensembles=False,
-            data_dir=temp_data_dir, verbose=0,
-        )
+        train_mlframe_models_suite(df=df, target_name='t', model_name='plot_test', features_and_targets_extractor=fte, mlframe_models=['cb'], reporting_config=common_init_params, hyperparams_config={'iterations': 10}, behavior_config=CPU_BEHAVIOR, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
         # Any .png file saved under temp_data_dir counts as success.
         png_files = list(Path(temp_data_dir).rglob("*.png"))
         assert len(png_files) > 0, "no plot saved even though data_dir was set"
@@ -283,16 +256,7 @@ class TestArrowLargeStringCompat:
         df = _make_simple_polars_df()
         assert df.schema["cat_feat"] in (pl.Utf8, pl.String)
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        models, _ = train_mlframe_models_suite(
-            df=df, target_name="t", model_name="xgb_utf8",
-            features_and_targets_extractor=fte,
-            mlframe_models=["xgb"],
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 10},
-            behavior_config=CPU_BEHAVIOR,
-            use_ordinary_models=True, use_mlframe_ensembles=False,
-            data_dir=temp_data_dir, verbose=0,
-        )
+        models, _ = train_mlframe_models_suite(df=df, target_name='t', model_name='xgb_utf8', features_and_targets_extractor=fte, mlframe_models=['xgb'], reporting_config=common_init_params, hyperparams_config={'iterations': 10}, behavior_config=CPU_BEHAVIOR, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
         assert models is not None
         self._assert_lib_versions_logged()
 
@@ -311,16 +275,7 @@ class TestArrowLargeStringCompat:
         if hasattr(pl, "String"):
             df = df.with_columns(pl.col("cat_feat").cast(pl.String))
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        models, _ = train_mlframe_models_suite(
-            df=df, target_name="t", model_name=f"compat_{model_name}",
-            features_and_targets_extractor=fte,
-            mlframe_models=[model_name],
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 10},
-            behavior_config=CPU_BEHAVIOR,
-            use_ordinary_models=True, use_mlframe_ensembles=False,
-            data_dir=temp_data_dir, verbose=0,
-        )
+        models, _ = train_mlframe_models_suite(df=df, target_name='t', model_name=f'compat_{model_name}', features_and_targets_extractor=fte, mlframe_models=[model_name], reporting_config=common_init_params, hyperparams_config={'iterations': 10}, behavior_config=CPU_BEHAVIOR, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
         assert models is not None
         self._assert_lib_versions_logged()
 
@@ -348,30 +303,15 @@ class TestFeatureSelectorsWithTextEmbedding:
         pytest.importorskip("catboost")
         from .shared import SimpleFeaturesAndTargetsExtractor
         from mlframe.training.core import train_mlframe_models_suite
-        from mlframe.training.configs import (
+        from mlframe.training import (
+    
             PolarsPipelineConfig, FeatureTypesConfig, TargetTypes,
-        )
+    FeatureSelectionConfig
+)
 
         df = self._make_df().drop("emb_feat")
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        models, _ = train_mlframe_models_suite(
-            df=df, target_name="t", model_name="mrmr_txt",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            pipeline_config=PolarsPipelineConfig(use_polarsds_pipeline=True),
-            feature_types_config=FeatureTypesConfig(
-                text_features=["text_feat"],
-                auto_detect_feature_types=False,
-            ),
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 10},
-            behavior_config=CPU_BEHAVIOR,
-            use_ordinary_models=False,
-            use_mrmr_fs=True,
-            mrmr_kwargs={"max_runtime_mins": 0.2, "verbose": 0},
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir, verbose=0,
-        )
+        models, _ = train_mlframe_models_suite(df=df, target_name='t', model_name='mrmr_txt', features_and_targets_extractor=fte, mlframe_models=['cb'], pipeline_config=PolarsPipelineConfig(use_polarsds_pipeline=True), feature_types_config=FeatureTypesConfig(text_features=['text_feat'], auto_detect_feature_types=False), reporting_config=common_init_params, hyperparams_config={'iterations': 10}, behavior_config=CPU_BEHAVIOR, use_ordinary_models=False, feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={'max_runtime_mins': 0.2, 'verbose': 0}), use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
         assert TargetTypes.BINARY_CLASSIFICATION in models
 
     def test_mrmr_with_embedding_column(self, temp_data_dir, common_init_params):
@@ -384,24 +324,7 @@ class TestFeatureSelectorsWithTextEmbedding:
 
         df = self._make_df().drop("text_feat")
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        train_mlframe_models_suite(
-            df=df, target_name="t", model_name="mrmr_emb",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            pipeline_config=PolarsPipelineConfig(use_polarsds_pipeline=True),
-            feature_types_config=FeatureTypesConfig(
-                embedding_features=["emb_feat"],
-                auto_detect_feature_types=False,
-            ),
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 10},
-            behavior_config=CPU_BEHAVIOR,
-            use_ordinary_models=False,
-            use_mrmr_fs=True,
-            mrmr_kwargs={"max_runtime_mins": 0.2, "verbose": 0},
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir, verbose=0,
-        )
+        train_mlframe_models_suite(df=df, target_name='t', model_name='mrmr_emb', features_and_targets_extractor=fte, mlframe_models=['cb'], pipeline_config=PolarsPipelineConfig(use_polarsds_pipeline=True), feature_types_config=FeatureTypesConfig(embedding_features=['emb_feat'], auto_detect_feature_types=False), reporting_config=common_init_params, hyperparams_config={'iterations': 10}, behavior_config=CPU_BEHAVIOR, use_ordinary_models=False, feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={'max_runtime_mins': 0.2, 'verbose': 0}), use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
 
 # ======================================================================
@@ -418,26 +341,8 @@ class TestParallelMetricsEquivalence:
         df = _make_simple_polars_df(n=400)
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-        models1, meta1 = train_mlframe_models_suite(
-            df=df, target_name="t", model_name="par_eq_1",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 10, "random_seed": 42},
-            behavior_config=CPU_BEHAVIOR,
-            use_ordinary_models=True, use_mlframe_ensembles=False,
-            data_dir=temp_data_dir, verbose=0,
-        )
-        models2, meta2 = train_mlframe_models_suite(
-            df=df, target_name="t", model_name="par_eq_2",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 10, "random_seed": 42},
-            behavior_config=CPU_BEHAVIOR,
-            use_ordinary_models=True, use_mlframe_ensembles=False,
-            data_dir=temp_data_dir, verbose=0,
-        )
+        models1, meta1 = train_mlframe_models_suite(df=df, target_name='t', model_name='par_eq_1', features_and_targets_extractor=fte, mlframe_models=['cb'], reporting_config=common_init_params, hyperparams_config={'iterations': 10, 'random_seed': 42}, behavior_config=CPU_BEHAVIOR, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
+        models2, meta2 = train_mlframe_models_suite(df=df, target_name='t', model_name='par_eq_2', features_and_targets_extractor=fte, mlframe_models=['cb'], reporting_config=common_init_params, hyperparams_config={'iterations': 10, 'random_seed': 42}, behavior_config=CPU_BEHAVIOR, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
         # Reproducibility check — metrics should match across identical runs.
         # If parallel execution introduced nondeterminism, this would fail.
         from mlframe.training.configs import TargetTypes

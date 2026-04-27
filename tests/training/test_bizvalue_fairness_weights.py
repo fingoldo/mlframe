@@ -1,3 +1,4 @@
+from mlframe.training import OutputConfig
 """Business-value integration tests for mlframe fairness metrics and sample-weight schemas.
 
 NOTE: These are regression sensors, not scientific benchmarks. Synthetic data parameters
@@ -171,12 +172,11 @@ def test_fairness_features_emits_per_group_path(tmp_path, common_init_params, se
             model_name=model_name,
             features_and_targets_extractor=fte,
             mlframe_models=[mlframe_model],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             behavior_config=behavior_config,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
             verbose=0,
             hyperparams_config={"iterations": 80},
         )
@@ -292,11 +292,10 @@ def test_sample_weights_lift_minority_recall(tmp_path, common_init_params, seed,
             model_name=model_name,
             features_and_targets_extractor=fte,
             mlframe_models=[mlframe_model],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
             verbose=0,
             hyperparams_config={"iterations": 80},
         )

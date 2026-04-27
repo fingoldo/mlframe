@@ -1,3 +1,4 @@
+from mlframe.training import OutputConfig
 """Business-value integration tests for mlframe calibration and ensembling.
 
 NOTE: These are regression sensors, not scientific benchmarks. Synthetic data parameters
@@ -142,11 +143,10 @@ def _train_and_predict(
         model_name=model_name,
         features_and_targets_extractor=fte,
         mlframe_models=mlframe_models,
-        init_common_params=common_init_params,
+        reporting_config=common_init_params,
         use_ordinary_models=True,
         use_mlframe_ensembles=use_mlframe_ensembles,
-        data_dir=data_dir,
-        models_dir="models",
+        output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
         verbose=0,
         hyperparams_config=hp,
     )

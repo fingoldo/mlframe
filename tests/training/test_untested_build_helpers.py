@@ -52,7 +52,7 @@ def test_build_common_params_no_fairness_no_od():
     bc = TrainingBehaviorConfig()
     init = {"foo": 1, "train_target": [1, 2], "val_target": [3]}
     od_params, cur_bc = _build_common_params_for_target(
-        init_common_params=init,
+        common_params_dict=init,
         trainset_features_stats={"m": 1},
         plot_file="/tmp/p",
         train_od_idx=None,
@@ -76,7 +76,7 @@ def test_build_common_params_with_fairness():
     bc = TrainingBehaviorConfig()
     fairness = {"group1": {"idx": [0, 1]}}
     _, cur_bc = _build_common_params_for_target(
-        init_common_params={},
+        common_params_dict={},
         trainset_features_stats=None,
         plot_file=None,
         train_od_idx=None,
@@ -99,7 +99,7 @@ def test_build_common_params_with_od_passes_targets():
     tr_tgt = np.array([0, 1, 0])
     va_tgt = np.array([1, 0])
     od_params, _ = _build_common_params_for_target(
-        init_common_params={"train_target": "ignored"},
+        common_params_dict={"train_target": "ignored"},
         trainset_features_stats=None,
         plot_file=None,
         train_od_idx=np.array([True, False, True]),
@@ -114,7 +114,7 @@ def test_build_common_params_with_od_passes_targets():
     assert od_params["val_target"] is va_tgt
 
 
-# ----- _build_pre_pipelines -----
+# ----- _build_pre_pipelines (internal helper - takes scalar args, not config object) -----
 
 def test_build_pre_pipelines_ordinary_only():
     pipes, names = _build_pre_pipelines(

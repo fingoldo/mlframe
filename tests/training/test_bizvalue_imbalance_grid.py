@@ -1,3 +1,4 @@
+from mlframe.training import OutputConfig
 """Business-value integration tests for mlframe class-imbalance handling and run_grid sweeps.
 
 NOTE: These are regression sensors, not scientific benchmarks. Synthetic data parameters
@@ -135,11 +136,10 @@ def _train_and_predict_classification(
         model_name=model_name,
         features_and_targets_extractor=fte,
         mlframe_models=["lgb"],
-        init_common_params=common_init_params,
+        reporting_config=common_init_params,
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        data_dir=data_dir,
-        models_dir="models",
+        output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
         verbose=0,
         hyperparams_config=hp,
     )
@@ -274,7 +274,7 @@ def test_run_grid_sweep_beats_baseline_auroc(tmp_path, common_init_params, seed)
         target_name="test_target",
         features_and_targets_extractor=fte,
         mlframe_models=["lgb"],
-        init_common_params=common_init_params,
+        reporting_config=common_init_params,
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         models_dir="models",

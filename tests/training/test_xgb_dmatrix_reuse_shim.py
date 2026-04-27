@@ -481,7 +481,7 @@ class TestXGBShimIntegrationWithMlframeSuite:
         point and a future revert (after upstream PR lands) is one
         flag-flip away.
         """
-        from mlframe.training import trainer as tr_mod
+        from mlframe.training import OutputConfig, PreprocessingConfig, trainer as tr_mod
         monkeypatch.setattr(tr_mod, "USE_XGB_DMATRIX_REUSE_SHIM", False)
 
         clf = tr_mod._xgb_classifier_cls(use_flaml_zeroshot=False)
@@ -568,11 +568,10 @@ class TestXGBShimIntegrationWithMlframeSuite:
                 mlframe_models=["xgb"],
                 hyperparams_config={"iterations": 3},
                 behavior_config=bc,
-                init_common_params={"drop_columns": [], "verbose": 0},
+                preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                data_dir=str(tmp_path),
-                models_dir="models",
+                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
                 verbose=0,
             )
         finally:
@@ -668,7 +667,7 @@ class TestXGBShimCacheHandoffInCoreLoop:
         is the single switching point), not hardcode ``XGBClassifier``
         directly. Source-scan check."""
         import inspect
-        from mlframe.training import trainer as tr_mod
+        from mlframe.training import OutputConfig, PreprocessingConfig, trainer as tr_mod
 
         src = inspect.getsource(tr_mod._configure_xgboost_params)
         assert "_xgb_classifier_cls(" in src, (

@@ -17,7 +17,8 @@ import polars as pl
 import pytest
 
 from mlframe.training.core import train_mlframe_models_suite
-from mlframe.training.configs import (
+from mlframe.training import (
+    
     FeatureTypesConfig,
     ModelHyperparamsConfig,
     PolarsPipelineConfig,
@@ -25,6 +26,7 @@ from mlframe.training.configs import (
     TargetTypes,
     TrainingBehaviorConfig,
     TrainingSplitConfig,
+    OutputConfig,
 )
 from .shared import SimpleFeaturesAndTargetsExtractor, TimestampedFeaturesExtractor
 
@@ -41,74 +43,29 @@ class TestInputValidation:
         df, feature_names, y = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
         with pytest.raises(TypeError, match="df must be pandas DataFrame"):
-            train_mlframe_models_suite(
-                df=[1, 2, 3],
-                target_name="target",
-                model_name="test_model",
-                features_and_targets_extractor=extractor,
-                verbose=0,
-                use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                init_common_params=common_init_params,
-            )
+            train_mlframe_models_suite(df=[1, 2, 3], target_name='target', model_name='test_model', features_and_targets_extractor=extractor, verbose=0, use_mlframe_ensembles=False, reporting_config=common_init_params, output_config=OutputConfig(data_dir=temp_data_dir))
 
     def test_non_parquet_path_raises_value_error(self, sample_regression_data, temp_data_dir, common_init_params):
         extractor = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
         with pytest.raises(ValueError, match="File path must be a .parquet file"):
-            train_mlframe_models_suite(
-                df="data/my_file.csv",
-                target_name="target",
-                model_name="test_model",
-                features_and_targets_extractor=extractor,
-                verbose=0,
-                use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                init_common_params=common_init_params,
-            )
+            train_mlframe_models_suite(df='data/my_file.csv', target_name='target', model_name='test_model', features_and_targets_extractor=extractor, verbose=0, use_mlframe_ensembles=False, reporting_config=common_init_params, output_config=OutputConfig(data_dir=temp_data_dir))
 
     def test_empty_target_name_raises_value_error(self, sample_regression_data, temp_data_dir, common_init_params):
         df, feature_names, y = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
         with pytest.raises(ValueError, match="target_name cannot be empty"):
-            train_mlframe_models_suite(
-                df=df,
-                target_name="",
-                model_name="test_model",
-                features_and_targets_extractor=extractor,
-                verbose=0,
-                use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                init_common_params=common_init_params,
-            )
+            train_mlframe_models_suite(df=df, target_name='', model_name='test_model', features_and_targets_extractor=extractor, verbose=0, use_mlframe_ensembles=False, reporting_config=common_init_params, output_config=OutputConfig(data_dir=temp_data_dir))
 
     def test_empty_model_name_raises_value_error(self, sample_regression_data, temp_data_dir, common_init_params):
         df, feature_names, y = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
         with pytest.raises(ValueError, match="model_name cannot be empty"):
-            train_mlframe_models_suite(
-                df=df,
-                target_name="target",
-                model_name="",
-                features_and_targets_extractor=extractor,
-                verbose=0,
-                use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                init_common_params=common_init_params,
-            )
+            train_mlframe_models_suite(df=df, target_name='target', model_name='', features_and_targets_extractor=extractor, verbose=0, use_mlframe_ensembles=False, reporting_config=common_init_params, output_config=OutputConfig(data_dir=temp_data_dir))
 
     def test_none_extractor_raises_value_error(self, sample_regression_data, temp_data_dir, common_init_params):
         df, feature_names, y = sample_regression_data
         with pytest.raises(ValueError, match="features_and_targets_extractor is required"):
-            train_mlframe_models_suite(
-                df=df,
-                target_name="target",
-                model_name="test_model",
-                features_and_targets_extractor=None,
-                verbose=0,
-                use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                init_common_params=common_init_params,
-            )
+            train_mlframe_models_suite(df=df, target_name='target', model_name='test_model', features_and_targets_extractor=None, verbose=0, use_mlframe_ensembles=False, reporting_config=common_init_params, output_config=OutputConfig(data_dir=temp_data_dir))
 
     def test_int_df_raises_type_error(self, common_init_params):
         extractor = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
@@ -120,7 +77,7 @@ class TestInputValidation:
                 features_and_targets_extractor=extractor,
                 verbose=0,
                 use_mlframe_ensembles=False,
-                init_common_params=common_init_params,
+                reporting_config=common_init_params,
             )
 
     def test_parquet_path_loads_and_trains(self, sample_regression_data, tmp_path, temp_data_dir, common_init_params):
@@ -128,18 +85,7 @@ class TestInputValidation:
         parquet_path = tmp_path / "test.parquet"
         df.to_parquet(str(parquet_path), index=False)
         extractor = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
-        models, metadata = train_mlframe_models_suite(
-            df=str(parquet_path),
-            target_name="target",
-            model_name="test_parquet",
-            features_and_targets_extractor=extractor,
-            mlframe_models=["linear"],
-            verbose=0,
-            use_mlframe_ensembles=False,
-            hyperparams_config={"iterations": 10},
-            data_dir=temp_data_dir,
-            init_common_params=common_init_params,
-        )
+        models, metadata = train_mlframe_models_suite(df=str(parquet_path), target_name='target', model_name='test_parquet', features_and_targets_extractor=extractor, mlframe_models=['linear'], verbose=0, use_mlframe_ensembles=False, hyperparams_config={'iterations': 10}, reporting_config=common_init_params, output_config=OutputConfig(data_dir=temp_data_dir))
         assert isinstance(models, dict)
         assert isinstance(metadata, dict)
 
@@ -147,21 +93,7 @@ class TestInputValidation:
         """All configs passed as dicts are accepted and converted to Pydantic internally."""
         df, feature_names, y = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="target",
-            model_name="test_dict_configs",
-            features_and_targets_extractor=extractor,
-            mlframe_models=["linear"],
-            preprocessing_config={"fillna_value": 0.0},
-            split_config={"test_size": 0.1, "val_size": 0.1},
-            hyperparams_config={"iterations": 10},
-            behavior_config={"prefer_gpu": False},
-            verbose=0,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            init_common_params=common_init_params,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='target', model_name='test_dict_configs', features_and_targets_extractor=extractor, mlframe_models=['linear'], preprocessing_config={'fillna_value': 0.0}, split_config={'test_size': 0.1, 'val_size': 0.1}, hyperparams_config={'iterations': 10}, behavior_config={'prefer_gpu': False}, verbose=0, use_mlframe_ensembles=False, reporting_config=common_init_params, output_config=OutputConfig(data_dir=temp_data_dir))
         assert isinstance(models, dict)
 
 
@@ -172,75 +104,28 @@ class TestConfigurationSetup:
         df, feature_names, y = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
         preproc = PreprocessingConfig(fillna_value=-999.0)
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="target",
-            model_name="test_pydantic_preproc",
-            features_and_targets_extractor=extractor,
-            mlframe_models=["linear"],
-            preprocessing_config=preproc,
-            verbose=0,
-            use_mlframe_ensembles=False,
-            hyperparams_config={"iterations": 10},
-            data_dir=temp_data_dir,
-            init_common_params=common_init_params,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='target', model_name='test_pydantic_preproc', features_and_targets_extractor=extractor, mlframe_models=['linear'], preprocessing_config=preproc, verbose=0, use_mlframe_ensembles=False, hyperparams_config={'iterations': 10}, reporting_config=common_init_params, output_config=OutputConfig(data_dir=temp_data_dir))
         assert isinstance(models, dict)
 
     def test_pydantic_split_config_passthrough(self, sample_regression_data, temp_data_dir, common_init_params):
         df, feature_names, y = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
         split = TrainingSplitConfig(test_size=0.15, val_size=0.15)
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="target",
-            model_name="test_pydantic_split",
-            features_and_targets_extractor=extractor,
-            mlframe_models=["linear"],
-            split_config=split,
-            verbose=0,
-            use_mlframe_ensembles=False,
-            hyperparams_config={"iterations": 10},
-            data_dir=temp_data_dir,
-            init_common_params=common_init_params,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='target', model_name='test_pydantic_split', features_and_targets_extractor=extractor, mlframe_models=['linear'], split_config=split, verbose=0, use_mlframe_ensembles=False, hyperparams_config={'iterations': 10}, reporting_config=common_init_params, output_config=OutputConfig(data_dir=temp_data_dir))
         assert isinstance(models, dict)
 
     def test_pydantic_hyperparams_config_passthrough(self, sample_regression_data, temp_data_dir, common_init_params):
         df, feature_names, y = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
         hparams = ModelHyperparamsConfig(iterations=10)
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="target",
-            model_name="test_pydantic_hparams",
-            features_and_targets_extractor=extractor,
-            mlframe_models=["lasso"],
-            verbose=0,
-            use_mlframe_ensembles=False,
-            hyperparams_config=hparams,
-            data_dir=temp_data_dir,
-            init_common_params=common_init_params,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='target', model_name='test_pydantic_hparams', features_and_targets_extractor=extractor, mlframe_models=['lasso'], verbose=0, use_mlframe_ensembles=False, hyperparams_config=hparams, reporting_config=common_init_params, output_config=OutputConfig(data_dir=temp_data_dir))
         assert isinstance(models, dict)
 
     def test_pydantic_behavior_config_passthrough(self, sample_regression_data, temp_data_dir, common_init_params):
         df, feature_names, y = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
         behavior = TrainingBehaviorConfig(prefer_gpu=False)
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="target",
-            model_name="test_pydantic_behavior",
-            features_and_targets_extractor=extractor,
-            mlframe_models=["linear"],
-            verbose=0,
-            use_mlframe_ensembles=False,
-            hyperparams_config={"iterations": 10},
-            behavior_config=behavior,
-            data_dir=temp_data_dir,
-            init_common_params=common_init_params,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='target', model_name='test_pydantic_behavior', features_and_targets_extractor=extractor, mlframe_models=['linear'], verbose=0, use_mlframe_ensembles=False, hyperparams_config={'iterations': 10}, behavior_config=behavior, reporting_config=common_init_params, output_config=OutputConfig(data_dir=temp_data_dir))
         assert isinstance(models, dict)
 
 
@@ -258,38 +143,14 @@ class TestDataLoadingPreprocessing:
         df = df.copy()
         df.iloc[:10, 0] = np.nan
         extractor = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="target",
-            model_name="test_fillna",
-            features_and_targets_extractor=extractor,
-            mlframe_models=["ridge"],
-            preprocessing_config={"fillna_value": 0.0},
-            verbose=0,
-            use_mlframe_ensembles=False,
-            hyperparams_config={"iterations": 10},
-            data_dir=temp_data_dir,
-            init_common_params=common_init_params,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='target', model_name='test_fillna', features_and_targets_extractor=extractor, mlframe_models=['ridge'], preprocessing_config={'fillna_value': 0.0}, verbose=0, use_mlframe_ensembles=False, hyperparams_config={'iterations': 10}, reporting_config=common_init_params, output_config=OutputConfig(data_dir=temp_data_dir))
         assert metadata is not None
 
     def test_preprocessing_drop_columns(self, sample_regression_data, temp_data_dir, common_init_params):
         """Columns in preprocessing_config.drop_columns are removed before training."""
         df, feature_names, _ = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
-        _, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="target",
-            model_name="test_drop",
-            features_and_targets_extractor=extractor,
-            mlframe_models=["ridge"],
-            preprocessing_config={"drop_columns": ["feature_0"]},
-            verbose=0,
-            use_mlframe_ensembles=False,
-            hyperparams_config={"iterations": 10},
-            data_dir=temp_data_dir,
-            init_common_params=common_init_params,
-        )
+        _, metadata = train_mlframe_models_suite(df=df, target_name='target', model_name='test_drop', features_and_targets_extractor=extractor, mlframe_models=['ridge'], preprocessing_config={'drop_columns': ['feature_0']}, verbose=0, use_mlframe_ensembles=False, hyperparams_config={'iterations': 10}, reporting_config=common_init_params, output_config=OutputConfig(data_dir=temp_data_dir))
         cols = list(metadata["columns"])
         assert "feature_0" not in cols
 
@@ -300,19 +161,7 @@ class TestSplitting:
     def test_split_sizes_sum_to_total(self, sample_regression_data, temp_data_dir, common_init_params):
         df, _, _ = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
-        _, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="target",
-            model_name="test_split_sum",
-            features_and_targets_extractor=extractor,
-            mlframe_models=["ridge"],
-            split_config={"test_size": 0.2, "val_size": 0.2},
-            verbose=0,
-            use_mlframe_ensembles=False,
-            hyperparams_config={"iterations": 10},
-            data_dir=temp_data_dir,
-            init_common_params=common_init_params,
-        )
+        _, metadata = train_mlframe_models_suite(df=df, target_name='target', model_name='test_split_sum', features_and_targets_extractor=extractor, mlframe_models=['ridge'], split_config={'test_size': 0.2, 'val_size': 0.2}, verbose=0, use_mlframe_ensembles=False, hyperparams_config={'iterations': 10}, reporting_config=common_init_params, output_config=OutputConfig(data_dir=temp_data_dir))
         total = metadata["train_size"] + metadata["val_size"] + metadata["test_size"]
         assert total == len(df)
 
@@ -328,9 +177,8 @@ class TestSplitting:
             verbose=0,
             use_mlframe_ensembles=False,
             hyperparams_config={"iterations": 10},
-            data_dir=temp_data_dir,
-            models_dir="models",
-            init_common_params=common_init_params,
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
+            reporting_config=common_init_params,
         )
         saved_files = []
         for root, dirs, files in os.walk(temp_data_dir):
@@ -341,18 +189,7 @@ class TestSplitting:
         """When data_dir is empty string, no artifact files should be written to tmp_path."""
         df, _, _ = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
-        train_mlframe_models_suite(
-            df=df,
-            target_name="target",
-            model_name="test_no_artifacts",
-            features_and_targets_extractor=extractor,
-            mlframe_models=["ridge"],
-            verbose=0,
-            use_mlframe_ensembles=False,
-            hyperparams_config={"iterations": 10},
-            data_dir="",
-            init_common_params=common_init_params,
-        )
+        train_mlframe_models_suite(df=df, target_name='target', model_name='test_no_artifacts', features_and_targets_extractor=extractor, mlframe_models=['ridge'], verbose=0, use_mlframe_ensembles=False, hyperparams_config={'iterations': 10}, reporting_config=common_init_params, output_config=OutputConfig(data_dir=''))
         # tmp_path should be empty (nothing written there)
         saved_files = list(tmp_path.rglob("*"))
         assert len(saved_files) == 0
@@ -360,18 +197,7 @@ class TestSplitting:
     def test_split_metadata_keys_present(self, sample_regression_data, temp_data_dir, common_init_params):
         df, _, _ = sample_regression_data
         extractor = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
-        _, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="target",
-            model_name="test_split_keys",
-            features_and_targets_extractor=extractor,
-            mlframe_models=["ridge"],
-            verbose=0,
-            use_mlframe_ensembles=False,
-            hyperparams_config={"iterations": 10},
-            data_dir=temp_data_dir,
-            init_common_params=common_init_params,
-        )
+        _, metadata = train_mlframe_models_suite(df=df, target_name='target', model_name='test_split_keys', features_and_targets_extractor=extractor, mlframe_models=['ridge'], verbose=0, use_mlframe_ensembles=False, hyperparams_config={'iterations': 10}, reporting_config=common_init_params, output_config=OutputConfig(data_dir=temp_data_dir))
         for key in ("train_size", "val_size", "test_size"):
             assert key in metadata
 
@@ -389,11 +215,10 @@ class TestPipelineFitting:
             target_name="test_target",
             model_name="pipe_test",
             features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True),
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
             hyperparams_config={"iterations": 10},
         )
@@ -472,11 +297,10 @@ class TestFeatureTypeDetection:
             target_name="test_target",
             model_name="ftd_test",
             features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True),
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
             hyperparams_config={"iterations": 10},
         )
@@ -536,11 +360,10 @@ class TestModelTrainingLoop:
                 model_name="test_unknown_skip",
                 features_and_targets_extractor=fte,
                 mlframe_models=["ridge", "unknown_xyz_model"],
-                init_common_params=common_init_params,
+                reporting_config=common_init_params,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                models_dir="models",
+                output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
                 hyperparams_config={"iterations": 10},
                 verbose=0,
             )
@@ -559,11 +382,10 @@ class TestModelTrainingLoop:
             model_name="test_all_unknown",
             features_and_targets_extractor=fte,
             mlframe_models=["unknown_xyz_model"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             hyperparams_config={"iterations": 10},
             verbose=0,
         )
@@ -574,19 +396,7 @@ class TestModelTrainingLoop:
         """Empty sample_weights from FTE → uniform default → one model per type."""
         df, feature_names, y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
-        models, _ = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="test_uniform",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            hyperparams_config={"iterations": 10},
-            verbose=0,
-        )
+        models, _ = train_mlframe_models_suite(df=df, target_name='test_target', model_name='test_uniform', features_and_targets_extractor=fte, mlframe_models=['ridge'], reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, hyperparams_config={'iterations': 10}, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
         trained = models[TargetTypes.REGRESSION]["target"]
         assert len(trained) == 1
 
@@ -599,38 +409,14 @@ class TestModelTrainingLoop:
             regression=True,
             sample_weights={"uniform": None, "recency": np.ones(n_samples)},
         )
-        models, _ = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="test_two_weights",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            hyperparams_config={"iterations": 10},
-            verbose=0,
-        )
+        models, _ = train_mlframe_models_suite(df=df, target_name='test_target', model_name='test_two_weights', features_and_targets_extractor=fte, mlframe_models=['ridge'], reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, hyperparams_config={'iterations': 10}, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
         trained = models[TargetTypes.REGRESSION]["target"]
         assert len(trained) == 2
 
     def test_multiple_models_produce_multiple_entries(self, sample_regression_data, temp_data_dir, common_init_params):
         df, feature_names, y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
-        models, _ = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="test_multi",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge", "lasso"],
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            hyperparams_config={"iterations": 10},
-            verbose=0,
-        )
+        models, _ = train_mlframe_models_suite(df=df, target_name='test_target', model_name='test_multi', features_and_targets_extractor=fte, mlframe_models=['ridge', 'lasso'], reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, hyperparams_config={'iterations': 10}, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
         trained = models[TargetTypes.REGRESSION]["target"]
         assert len(trained) >= 2
 
@@ -643,57 +429,21 @@ class TestModelTrainingLoop:
             regression=True,
             sample_weights={"uniform": None, "recency": np.ones(n_samples)},
         )
-        models, _ = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="test_multi_x_weights",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge", "lasso"],
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            hyperparams_config={"iterations": 10},
-            verbose=0,
-        )
+        models, _ = train_mlframe_models_suite(df=df, target_name='test_target', model_name='test_multi_x_weights', features_and_targets_extractor=fte, mlframe_models=['ridge', 'lasso'], reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, hyperparams_config={'iterations': 10}, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
         trained = models[TargetTypes.REGRESSION]["target"]
         assert len(trained) == 4
 
     def test_ensemble_scored_with_multiple_models(self, sample_regression_data, temp_data_dir, common_init_params):
         df, feature_names, y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
-        models, _ = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="test_ensemble",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge", "lasso"],
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=True,
-            data_dir=temp_data_dir,
-            hyperparams_config={"iterations": 10},
-            verbose=0,
-        )
+        models, _ = train_mlframe_models_suite(df=df, target_name='test_target', model_name='test_ensemble', features_and_targets_extractor=fte, mlframe_models=['ridge', 'lasso'], reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=True, hyperparams_config={'iterations': 10}, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
         trained = models[TargetTypes.REGRESSION]["target"]
         assert len(trained) >= 2
 
     def test_ensemble_not_scored_single_model(self, sample_regression_data, temp_data_dir, common_init_params):
         df, feature_names, y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
-        models, _ = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="test_no_ens",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=True,
-            data_dir=temp_data_dir,
-            hyperparams_config={"iterations": 10},
-            verbose=0,
-        )
+        models, _ = train_mlframe_models_suite(df=df, target_name='test_target', model_name='test_no_ens', features_and_targets_extractor=fte, mlframe_models=['ridge'], reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=True, hyperparams_config={'iterations': 10}, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
         trained = models[TargetTypes.REGRESSION]["target"]
         assert len(trained) == 1
 
@@ -706,19 +456,7 @@ class TestModelTrainingLoop:
             regression=True,
             sample_weights={"uniform": None, "recency": np.ones(n_samples)},
         )
-        models, _ = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="test_clone",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            hyperparams_config={"iterations": 10},
-            verbose=0,
-        )
+        models, _ = train_mlframe_models_suite(df=df, target_name='test_target', model_name='test_clone', features_and_targets_extractor=fte, mlframe_models=['ridge'], reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, hyperparams_config={'iterations': 10}, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
         trained = models[TargetTypes.REGRESSION]["target"]
         assert len(trained) == 2
         m0 = getattr(trained[0], 'model', trained[0])
@@ -775,11 +513,10 @@ class TestRecurrentModels:
                     mlframe_models=["ridge"],
                     recurrent_models=["lstm"],
                     sequences=sequences,
-                    init_common_params=common_init_params,
+                    reporting_config=common_init_params,
                     use_ordinary_models=True,
                     use_mlframe_ensembles=False,
-                    data_dir=temp_data_dir,
-                    models_dir="models",
+                    output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
                     verbose=0,
                     hyperparams_config={"iterations": 10},
                 )
@@ -812,11 +549,10 @@ class TestRecurrentModels:
                 mlframe_models=["ridge"],
                 recurrent_models=["gru"],
                 sequences=sequences,
-                init_common_params=common_init_params,
+                reporting_config=common_init_params,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                models_dir="models",
+                output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
                 verbose=0,
                 hyperparams_config={"iterations": 10},
             )
@@ -841,11 +577,10 @@ class TestCrossCuttingParametrized:
             model_name=f"xcut_{model}_{df_type}",
             features_and_targets_extractor=fte,
             mlframe_models=[model],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
             hyperparams_config={"iterations": 10},
         )
@@ -868,11 +603,10 @@ class TestMetadataCompleteness:
             model_name="meta_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
             hyperparams_config={"iterations": 10},
         )

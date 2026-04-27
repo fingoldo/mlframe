@@ -812,9 +812,13 @@ class TestValPlacementBackwardIntegration:
         import re
 
         from mlframe.training.core import train_mlframe_models_suite
-        from mlframe.training.configs import (
+        from mlframe.training import (
+    
+    
             TrainingSplitConfig, TrainingBehaviorConfig,
-        )
+    OutputConfig,
+    PreprocessingConfig
+)
         from .shared import TimestampedFeaturesExtractor as SimpleFeaturesAndTargetsExtractor
 
         pl_df = self._make_temporal_polars_frame(n_days=60, rows_per_day=8)
@@ -845,11 +849,10 @@ class TestValPlacementBackwardIntegration:
             hyperparams_config={"iterations": 3},
             split_config=split_cfg,
             behavior_config=bc,
-            init_common_params={"drop_columns": [], "verbose": 0},
+            preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=str(tmp_path),
-            models_dir="models",
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
             verbose=0,
         )
         assert models, "suite returned no trained models"
@@ -891,9 +894,13 @@ class TestValPlacementBackwardIntegration:
         import re
 
         from mlframe.training.core import train_mlframe_models_suite
-        from mlframe.training.configs import (
+        from mlframe.training import (
+    
+    
             TrainingSplitConfig, TrainingBehaviorConfig,
-        )
+    OutputConfig,
+    PreprocessingConfig
+)
         from .shared import TimestampedFeaturesExtractor as SimpleFeaturesAndTargetsExtractor
 
         pl_df = self._make_temporal_polars_frame(n_days=60, rows_per_day=8)
@@ -921,11 +928,10 @@ class TestValPlacementBackwardIntegration:
             hyperparams_config={"iterations": 3},
             split_config=split_cfg,
             behavior_config=bc,
-            init_common_params={"drop_columns": [], "verbose": 0},
+            preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=str(tmp_path),
-            models_dir="models",
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
             verbose=0,
         )
         iso = re.compile(r"(\d{4}-\d{2}-\d{2})/(\d{4}-\d{2}-\d{2})")
@@ -952,9 +958,13 @@ class TestValPlacementBackwardIntegration:
         import logging as _logging
 
         from mlframe.training.core import train_mlframe_models_suite
-        from mlframe.training.configs import (
+        from mlframe.training import (
+    
+    
             TrainingSplitConfig, TrainingBehaviorConfig,
-        )
+    OutputConfig,
+    PreprocessingConfig
+)
         from .shared import TimestampedFeaturesExtractor as SimpleFeaturesAndTargetsExtractor
 
         pl_df = self._make_temporal_polars_frame(n_days=60, rows_per_day=8)
@@ -990,11 +1000,10 @@ class TestValPlacementBackwardIntegration:
                 hyperparams_config={"iterations": 3},
                 split_config=split_cfg,
                 behavior_config=bc,
-                init_common_params={"drop_columns": [], "verbose": 0},
+                preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                data_dir=str(tmp_path),
-                models_dir="models",
+                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
                 verbose=0,
             )
         except Exception:

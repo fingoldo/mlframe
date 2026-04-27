@@ -1,3 +1,4 @@
+from mlframe.training import FeatureSelectionConfig, OutputConfig
 """
 Integration tests for core training functionality.
 
@@ -33,11 +34,10 @@ class TestTrainMLFrameModelsSuiteBasic:
             model_name="test_model",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -67,11 +67,10 @@ class TestTrainMLFrameModelsSuiteBasic:
             model_name="test_model_classif",
             features_and_targets_extractor=fte,
             mlframe_models=["linear"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -97,11 +96,10 @@ class TestTrainMLFrameModelsSuiteBasic:
             model_name="multi_linear",
             features_and_targets_extractor=fte,
             mlframe_models=["linear", "ridge", "lasso"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -124,11 +122,10 @@ class TestTrainMLFrameModelsSuiteBasic:
             model_name="polars_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -172,11 +169,10 @@ class TestUnifiedTrainingLoop:
             model_name="unified_loop_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge", "cb"],  # LINEAR + TREE!
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=1,  # Show output to see both models training
             hyperparams_config={"iterations": 50},
         )
@@ -220,11 +216,10 @@ class TestUnifiedTrainingLoop:
             model_name="linear_lgb_test",
             features_and_targets_extractor=fte,
             mlframe_models=["linear", "lgb"],  # LINEAR + LGB!
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
             hyperparams_config={"iterations": 50},
         )
@@ -258,11 +253,10 @@ class TestTreeModelsWithEarlyStopping:
             model_name=f"{model_type}_early_stop_test",
             features_and_targets_extractor=fte,
             mlframe_models=[model_type],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=1,
             hyperparams_config={"iterations": 50},
             behavior_config={
@@ -291,11 +285,10 @@ class TestTrainMLFrameModelsSuiteEnsembles:
             model_name="ensemble_test",
             features_and_targets_extractor=fte,
             mlframe_models=["linear", "ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=True,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -321,11 +314,10 @@ class TestTrainMLFrameModelsSuiteMetadata:
             model_name="metadata_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -384,11 +376,10 @@ class TestTrainMLFrameModelsSuiteConfigurations:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             split_config=split_config,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -427,11 +418,10 @@ class TestTrainMLFrameModelsSuiteConfigurations:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             preprocessing_config=preprocessing_config,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -458,11 +448,10 @@ class TestTrainMLFrameModelsSuiteConfigurations:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             pipeline_config=pipeline_config,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -479,19 +468,7 @@ class TestTrainWithoutSaving:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
 
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="test_model",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=None,  # No charts saved
-            models_dir="models",
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='test_target', model_name='test_model', features_and_targets_extractor=fte, mlframe_models=['ridge'], reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=None, models_dir='models'))
 
         assert isinstance(models, dict)
         assert TargetTypes.REGRESSION in models
@@ -503,19 +480,7 @@ class TestTrainWithoutSaving:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
 
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="test_model",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir=None,  # No models saved
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='test_target', model_name='test_model', features_and_targets_extractor=fte, mlframe_models=['ridge'], reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir, models_dir=None))
 
         assert isinstance(models, dict)
         assert TargetTypes.REGRESSION in models
@@ -527,19 +492,7 @@ class TestTrainWithoutSaving:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column='target', regression=True)
 
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="test_model",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=None,  # No charts saved
-            models_dir=None,  # No models saved
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='test_target', model_name='test_model', features_and_targets_extractor=fte, mlframe_models=['ridge'], reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=None, models_dir=None))
 
         assert isinstance(models, dict)
         assert TargetTypes.REGRESSION in models
@@ -568,11 +521,10 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             model_name="small_data",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -592,11 +544,10 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             model_name="no_ensemble",
             features_and_targets_extractor=fte,
             mlframe_models=["linear", "ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -625,11 +576,10 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
                 model_name="single_row",
                 features_and_targets_extractor=fte,
                 mlframe_models=["ridge"],
-                init_common_params=common_init_params,
+                reporting_config=common_init_params,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                models_dir="models",
+                output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
                 verbose=0,
             )
             # Success path: assert we got models back
@@ -659,11 +609,10 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
                 model_name="very_few_samples",
                 features_and_targets_extractor=fte,
                 mlframe_models=["ridge"],
-                init_common_params=common_init_params,
+                reporting_config=common_init_params,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                models_dir="models",
+                output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
                 verbose=0,
             )
             # Success path: assert we got models back
@@ -692,11 +641,10 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
                 model_name="const_features",
                 features_and_targets_extractor=fte,
                 mlframe_models=["ridge"],
-                init_common_params=common_init_params,
+                reporting_config=common_init_params,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                models_dir="models",
+                output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
                 verbose=0,
             )
             # If it succeeds, check results
@@ -729,11 +677,10 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             model_name="high_nan",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -757,11 +704,10 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             model_name="imbalanced",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -786,11 +732,10 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             model_name="few_per_class",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -809,11 +754,10 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
                 model_name="empty_df",
                 features_and_targets_extractor=fte,
                 mlframe_models=["ridge"],
-                init_common_params=common_init_params,
+                reporting_config=common_init_params,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                models_dir="models",
+                output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
                 verbose=0,
             )
 
@@ -834,11 +778,10 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             model_name="single_feature",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -866,11 +809,10 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
                 model_name="nan_target",
                 features_and_targets_extractor=fte,
                 mlframe_models=["ridge"],
-                init_common_params=common_init_params,
+                reporting_config=common_init_params,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                models_dir="models",
+                output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
                 verbose=0,
             )
 
@@ -895,11 +837,10 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
                 model_name="inf_target",
                 features_and_targets_extractor=fte,
                 mlframe_models=["ridge"],
-                init_common_params=common_init_params,
+                reporting_config=common_init_params,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                models_dir="models",
+                output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
                 verbose=0,
             )
 
@@ -928,11 +869,10 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             preprocessing_config=preprocessing_config,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -956,11 +896,10 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
                 model_name="dup_cols",
                 features_and_targets_extractor=fte,
                 mlframe_models=["ridge"],
-                init_common_params=common_init_params,
+                reporting_config=common_init_params,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                models_dir="models",
+                output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
                 verbose=0,
             )
             # Success path: assert we got models back
@@ -989,11 +928,10 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             model_name="special_chars",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1018,11 +956,10 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             model_name="high_dim",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],  # Ridge handles high-dim well
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1031,10 +968,10 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
 
 
 class TestCustomTransformers:
-    """Test passing custom scaler, imputer, category_encoder via init_common_params."""
+    """Test passing custom scaler, imputer, category_encoder via PreprocessingConfig."""
 
     def test_custom_scaler(self, sample_regression_data, temp_data_dir, common_init_params):
-        """Test passing a custom scaler via init_common_params."""
+        """Test passing a custom scaler via PreprocessingConfig."""
         from sklearn.preprocessing import RobustScaler
 
         df, feature_names, y = sample_regression_data
@@ -1049,11 +986,10 @@ class TestCustomTransformers:
             model_name="custom_scaler_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params={**common_init_params, 'scaler': custom_scaler},
+            reporting_config=common_init_params, preprocessing_config=PreprocessingConfig(scaler=custom_scaler),
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1063,7 +999,7 @@ class TestCustomTransformers:
         assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_custom_imputer(self, sample_regression_data, temp_data_dir, common_init_params):
-        """Test passing a custom imputer via init_common_params."""
+        """Test passing a custom imputer via PreprocessingConfig."""
         from sklearn.impute import KNNImputer
 
         df, feature_names, y = sample_regression_data
@@ -1083,11 +1019,10 @@ class TestCustomTransformers:
             model_name="custom_imputer_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params={**common_init_params, 'imputer': custom_imputer},
+            reporting_config=common_init_params, preprocessing_config=PreprocessingConfig(imputer=custom_imputer),
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1097,7 +1032,7 @@ class TestCustomTransformers:
         assert len(models[TargetTypes.REGRESSION]["target"]) > 0
 
     def test_custom_category_encoder(self, sample_categorical_data, temp_data_dir, common_init_params):
-        """Test passing a custom category_encoder via init_common_params."""
+        """Test passing a custom category_encoder via PreprocessingConfig."""
         import category_encoders as ce
 
         df, feature_names, cat_features, y = sample_categorical_data
@@ -1112,11 +1047,10 @@ class TestCustomTransformers:
             model_name="custom_encoder_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params={**common_init_params, 'category_encoder': custom_encoder},
+            reporting_config=common_init_params, preprocessing_config=PreprocessingConfig(category_encoder=custom_encoder),
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1145,16 +1079,15 @@ class TestCustomTransformers:
             model_name="all_custom_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params={
-                **common_init_params,
-                'scaler': custom_scaler,
-                'imputer': custom_imputer,
-                'category_encoder': custom_encoder,
-            },
+            reporting_config=common_init_params,
+            preprocessing_config=PreprocessingConfig(
+                scaler=custom_scaler,
+                imputer=custom_imputer,
+                category_encoder=custom_encoder,
+            ),
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1175,11 +1108,10 @@ class TestCustomTransformers:
             model_name="default_transformers_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1216,11 +1148,10 @@ class TestCustomTransformers:
             model_name="mlp_scaler_test",
             features_and_targets_extractor=fte,
             mlframe_models=["mlp"],
-            init_common_params={**common_init_params, 'scaler': custom_scaler},
+            reporting_config=common_init_params, preprocessing_config=PreprocessingConfig(scaler=custom_scaler),
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1251,14 +1182,13 @@ class TestFairnessFeatures:
             model_name="no_fairness_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             behavior_config={
                 'fairness_features': [],  # explicitly empty
             },
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1281,14 +1211,13 @@ class TestCalibration:
             model_name="calibrated_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             behavior_config={
                 'prefer_calibrated_classifiers': True,
             },
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1320,14 +1249,13 @@ class TestCalibration:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             hyperparams_config={"iterations": 10},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             behavior_config={
                 'prefer_calibrated_classifiers': True,
             },
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1347,14 +1275,13 @@ class TestCalibration:
             model_name="uncalibrated",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             behavior_config={
                 'prefer_calibrated_classifiers': False,
             },
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1365,14 +1292,13 @@ class TestCalibration:
             model_name="calibrated",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             behavior_config={
                 'prefer_calibrated_classifiers': True,
             },
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1411,14 +1337,15 @@ class TestConfidenceAnalysis:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             hyperparams_config={"iterations": 10},
-            init_common_params={
-                **common_init_params,
-                'include_confidence_analysis': True,
-            },
+            reporting_config=common_init_params,
+            # TODO 2026-04-27: include_confidence_analysis was reachable only
+            # via the deleted dict pass-through; the deep consumer reads it
+            # from the internal common_params dict assembled in core.py.
+            # Restoring this needs a typed home for ConfidenceAnalysisConfig
+            # at the suite layer.
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1443,7 +1370,7 @@ class TestCustomMetrics:
             model_name="custom_scoring_reg",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             behavior_config={
                 'default_regression_scoring': dict(
                     score_func=mean_absolute_error,
@@ -1453,8 +1380,7 @@ class TestCustomMetrics:
             },
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1475,7 +1401,7 @@ class TestCustomMetrics:
             model_name="custom_scoring_clf",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             behavior_config={
                 'default_classification_scoring': dict(
                     score_func=f1_score,
@@ -1485,8 +1411,7 @@ class TestCustomMetrics:
             },
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1528,11 +1453,10 @@ class TestSampleWeights:
             model_name="sample_weights_test",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1574,11 +1498,10 @@ class TestSampleWeights:
             model_name="multi_weights_test",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1618,11 +1541,10 @@ class TestGroupIds:
             model_name="group_ids_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1657,15 +1579,14 @@ class TestFairnessFeaturesExtended:
             model_name="fairness_cat_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             behavior_config={
                 'fairness_features': ['category'],
                 'fairness_min_pop_cat_thresh': 10,  # Small threshold for test data
             },
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1691,15 +1612,14 @@ class TestFairnessFeaturesExtended:
             model_name="fairness_cont_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             behavior_config={
                 'fairness_features': ['feature_0'],  # Continuous feature will be binned
                 'fairness_min_pop_cat_thresh': 10,  # Small threshold for test data
             },
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1729,15 +1649,14 @@ class TestFairnessFeaturesExtended:
             model_name="fairness_param_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             behavior_config={
                 'fairness_features': [],
                 'fairness_min_pop_cat_thresh': 10,  # Verify this parameter is accepted
             },
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1768,11 +1687,10 @@ class TestPredictMLFrameModelsSuite:
             model_name="predict_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1822,11 +1740,10 @@ class TestPredictMLFrameModelsSuite:
             model_name="predict_regr_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1871,11 +1788,10 @@ class TestPredictMLFrameModelsSuite:
             model_name="load_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1916,22 +1832,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
         )
 
         # Train with MRMR feature selection
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="mrmr_polars_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],  # Tree model that doesn't need scaling
-            pipeline_config=pipeline_config,
-            init_common_params=common_init_params,
-            use_ordinary_models=False,  # Only use MRMR models
-            use_mrmr_fs=True,  # Enable MRMR
-            mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0},  # Quick run for tests
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
-            verbose=1,  # Show logs to verify MRMR is running
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='test_target', model_name='mrmr_polars_test', features_and_targets_extractor=fte, mlframe_models=['cb'], pipeline_config=pipeline_config, reporting_config=common_init_params, use_ordinary_models=False, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=1, feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={'max_runtime_mins': 0.5, 'verbose': 0}))
 
         # Verify training succeeded
         assert TargetTypes.REGRESSION in models
@@ -1963,13 +1864,11 @@ class TestFeatureSelectorsWithPolarsPipeline:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             pipeline_config=pipeline_config,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=False,
-            use_mrmr_fs=True,
-            mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0},
+            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0}),
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=1,
         )
 
@@ -2003,21 +1902,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
         )
 
         # Train with RFECV feature selection using CatBoost
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="rfecv_polars_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            pipeline_config=pipeline_config,
-            init_common_params=common_init_params,
-            use_ordinary_models=False,
-            rfecv_models=["cb_rfecv"],  # Enable RFECV with CatBoost
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
-            verbose=1,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='test_target', model_name='rfecv_polars_test', features_and_targets_extractor=fte, mlframe_models=['cb'], pipeline_config=pipeline_config, reporting_config=common_init_params, use_ordinary_models=False, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=1, feature_selection_config=FeatureSelectionConfig(rfecv_models=['cb_rfecv']))
 
         # Verify training succeeded
         assert TargetTypes.REGRESSION in models
@@ -2045,13 +1930,11 @@ class TestFeatureSelectorsWithPolarsPipeline:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             pipeline_config=pipeline_config,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=False,
-            use_mrmr_fs=True,
-            mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0},
+            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0}),
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=1,
         )
 
@@ -2074,22 +1957,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
         )
 
         # Train with both ordinary models AND MRMR models
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="mixed_mrmr_ordinary_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            pipeline_config=pipeline_config,
-            init_common_params=common_init_params,
-            use_ordinary_models=True,  # Also train without feature selection
-            use_mrmr_fs=True,  # Also train with MRMR
-            mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0},
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
-            verbose=1,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='test_target', model_name='mixed_mrmr_ordinary_test', features_and_targets_extractor=fte, mlframe_models=['cb'], pipeline_config=pipeline_config, reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=1, feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={'max_runtime_mins': 0.5, 'verbose': 0}))
 
         # Verify training succeeded
         assert TargetTypes.REGRESSION in models
@@ -2118,13 +1986,11 @@ class TestFeatureSelectorsWithPolarsPipeline:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             pipeline_config=pipeline_config,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=False,
-            use_mrmr_fs=True,
-            mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0},
+            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0}),
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=1,
         )
 
@@ -2157,13 +2023,11 @@ class TestFeatureSelectorsWithPolarsPipeline:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],  # Linear model needs scaling
             pipeline_config=pipeline_config,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=False,
-            use_mrmr_fs=True,
-            mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0},
+            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0}),
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=1,
         )
 
@@ -2225,13 +2089,11 @@ class TestMRMRBinaryClassificationEdgeCases:
             model_name=f"mrmr_perfect_clf_{use_simple_mode}",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=False,
-            use_mrmr_fs=True,
-            mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0, "use_simple_mode": use_simple_mode},
+            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={"max_runtime_mins": 0.5, "verbose": 0, "use_simple_mode": use_simple_mode}),
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -2252,18 +2114,19 @@ class TestMRMRBinaryClassificationEdgeCases:
             model_name=f"mrmr_noimpact_clf_{use_simple_mode}",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=False,
-            use_mrmr_fs=True,
-            mrmr_kwargs={
-                "max_runtime_mins": 0.5,
-                "verbose": 0,
-                "use_simple_mode": use_simple_mode,
-                "min_relevance_gain": 10.0,  # Very high threshold to ensure no features selected
-            },
+            feature_selection_config=FeatureSelectionConfig(
+                use_mrmr_fs=True,
+                mrmr_kwargs={
+                    "max_runtime_mins": 0.5,
+                    "verbose": 0,
+                    "use_simple_mode": use_simple_mode,
+                    "min_relevance_gain": 10.0,  # Very high threshold to ensure no features selected
+                },
+            ),
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -2286,20 +2149,7 @@ class TestCustomPrePipelines:
             "ipca5": IncrementalPCA(n_components=5),
         }
 
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="ipca_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            custom_pre_pipelines=custom_pipelines,
-            init_common_params=common_init_params,
-            use_ordinary_models=False,  # Only test custom pipeline
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
-            verbose=1,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='test_target', model_name='ipca_test', features_and_targets_extractor=fte, mlframe_models=['ridge'], reporting_config=common_init_params, use_ordinary_models=False, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=1, feature_selection_config=FeatureSelectionConfig(custom_pre_pipelines=custom_pipelines))
 
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
@@ -2316,20 +2166,7 @@ class TestCustomPrePipelines:
             "ipca5": IncrementalPCA(n_components=5),
         }
 
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="ipca_ordinary_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            custom_pre_pipelines=custom_pipelines,
-            init_common_params=common_init_params,
-            use_ordinary_models=True,  # Both ordinary + custom
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='test_target', model_name='ipca_ordinary_test', features_and_targets_extractor=fte, mlframe_models=['ridge'], reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=0, feature_selection_config=FeatureSelectionConfig(custom_pre_pipelines=custom_pipelines))
 
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
@@ -2348,20 +2185,7 @@ class TestCustomPrePipelines:
             "ipca5": IncrementalPCA(n_components=5),
         }
 
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="multi_ipca_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            custom_pre_pipelines=custom_pipelines,
-            init_common_params=common_init_params,
-            use_ordinary_models=False,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='test_target', model_name='multi_ipca_test', features_and_targets_extractor=fte, mlframe_models=['ridge'], reporting_config=common_init_params, use_ordinary_models=False, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=0, feature_selection_config=FeatureSelectionConfig(custom_pre_pipelines=custom_pipelines))
 
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
@@ -2379,20 +2203,7 @@ class TestCustomPrePipelines:
             "ipca5": IncrementalPCA(n_components=5),
         }
 
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="ipca_clf_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            custom_pre_pipelines=custom_pipelines,
-            init_common_params=common_init_params,
-            use_ordinary_models=False,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='test_target', model_name='ipca_clf_test', features_and_targets_extractor=fte, mlframe_models=['ridge'], reporting_config=common_init_params, use_ordinary_models=False, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=0, feature_selection_config=FeatureSelectionConfig(custom_pre_pipelines=custom_pipelines))
 
         assert TargetTypes.BINARY_CLASSIFICATION in models
         assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
@@ -2441,12 +2252,11 @@ class TestPolarsNativeFastpath:
             model_name="polars_fastpath_test",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             hyperparams_config={"iterations": 10},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -2497,12 +2307,11 @@ class TestPolarsNativeFastpath:
             model_name="hgb_polars_test",
             features_and_targets_extractor=fte,
             mlframe_models=["hgb"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             hyperparams_config={"iterations": 10},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -2553,12 +2362,11 @@ class TestPolarsNativeFastpath:
             model_name="hgb_cat_cast_test",
             features_and_targets_extractor=fte,
             mlframe_models=["hgb"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             hyperparams_config={"iterations": 10},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -2617,12 +2425,11 @@ class TestPolarsNativeFastpath:
             model_name=f"param_{model_name}_{'reg' if regression else 'cls'}",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             hyperparams_config={"iterations": 10},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -2674,12 +2481,11 @@ class TestPolarsNativeFastpath:
             model_name="mixed_types_test",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             hyperparams_config={"iterations": 10},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -2721,12 +2527,11 @@ class TestPolarsNativeFastpath:
             model_name="hgb_highcard_test",
             features_and_targets_extractor=fte,
             mlframe_models=["hgb"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             hyperparams_config={"iterations": 10},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -2790,12 +2595,11 @@ class TestPolarsNativeFastpath:
             model_name="multi_cat_test",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             hyperparams_config={"iterations": 10},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -2849,12 +2653,11 @@ class TestPolarsNativeFastpath:
             model_name="polars_weights_test",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             hyperparams_config={"iterations": 10},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -2903,12 +2706,11 @@ class TestPolarsNativeFastpath:
             model_name=f"polars_reg_{model_name}",
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             hyperparams_config={"iterations": 10},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -2956,11 +2758,10 @@ class TestPolarsNativeFastpath:
             model_name="polars_nonfastpath_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -3012,12 +2813,11 @@ class TestPolarsNativeFastpath:
             model_name="skip_catenc_test",
             features_and_targets_extractor=fte,
             mlframe_models=models,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             hyperparams_config={"iterations": 10},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -3059,12 +2859,11 @@ class TestPolarsNativeFastpath:
             model_name="mixed_models_test",
             features_and_targets_extractor=fte,
             mlframe_models=["cb", "ridge"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             hyperparams_config={"iterations": 10},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -3117,12 +2916,11 @@ class TestPolarsNativeFastpath:
             model_name="all_polars_native",
             features_and_targets_extractor=fte,
             mlframe_models=["cb", "xgb", "hgb"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             hyperparams_config={"iterations": 10},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -3160,12 +2958,11 @@ class TestPolarsNativeFastpath:
             model_name="preds_valid_test",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             hyperparams_config={"iterations": 20},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -3213,12 +3010,11 @@ class TestPolarsNativeFastpath:
             model_name="pandas_input_test",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             hyperparams_config={"iterations": 10},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -3265,12 +3061,11 @@ class TestPolarsNativeFastpath:
             model_name="high_card_cats_test",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             hyperparams_config={"iterations": 10},
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -3311,13 +3106,12 @@ class TestPolarsNativeFastpath:
             model_name="manual_skip_test",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             hyperparams_config={"iterations": 10},
             pipeline_config=PolarsPipelineConfig(skip_categorical_encoding=True),
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -3369,20 +3163,7 @@ class TestTextAndEmbeddingFeatures:
 
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
 
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="text_feat_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            feature_types_config=FeatureTypesConfig(text_features=["text_feat"]),
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 10},
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='text_feat_test', features_and_targets_extractor=fte, mlframe_models=['cb'], feature_types_config=FeatureTypesConfig(text_features=['text_feat']), reporting_config=common_init_params, hyperparams_config={'iterations': 10}, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         cb_entries = [(n, p) for n, p in captured_fit_params if "CatBoost" in n]
         assert len(cb_entries) > 0
@@ -3408,20 +3189,7 @@ class TestTextAndEmbeddingFeatures:
 
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
 
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="emb_feat_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            feature_types_config=FeatureTypesConfig(embedding_features=["emb_feat"]),
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 10},
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='emb_feat_test', features_and_targets_extractor=fte, mlframe_models=['cb'], feature_types_config=FeatureTypesConfig(embedding_features=['emb_feat']), reporting_config=common_init_params, hyperparams_config={'iterations': 10}, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         cb_entries = [(n, p) for n, p in captured_fit_params if "CatBoost" in n]
         assert len(cb_entries) > 0
@@ -3447,19 +3215,7 @@ class TestTextAndEmbeddingFeatures:
 
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
 
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="drop_text_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            feature_types_config=FeatureTypesConfig(text_features=["text_feat"]),
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='drop_text_test', features_and_targets_extractor=fte, mlframe_models=['ridge'], feature_types_config=FeatureTypesConfig(text_features=['text_feat']), reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         for model_name, cols in captured_dfs.items():
             assert "text_feat" not in cols, f"{model_name} received text_feat column — should have been dropped"
@@ -3483,19 +3239,7 @@ class TestTextAndEmbeddingFeatures:
 
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
 
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="drop_emb_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            feature_types_config=FeatureTypesConfig(embedding_features=["emb_feat"]),
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='drop_emb_test', features_and_targets_extractor=fte, mlframe_models=['ridge'], feature_types_config=FeatureTypesConfig(embedding_features=['emb_feat']), reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         for model_name, cols in captured_dfs.items():
             assert "emb_feat" not in cols, f"{model_name} received emb_feat column — should have been dropped"
@@ -3509,23 +3253,7 @@ class TestTextAndEmbeddingFeatures:
 
         # Same column in text AND embedding → must raise ValueError
         with pytest.raises(ValueError, match="text_features.*embedding_features"):
-            train_mlframe_models_suite(
-                df=pl_df,
-                target_name="test_target",
-                model_name="mutual_excl_test",
-                features_and_targets_extractor=fte,
-                mlframe_models=["cb"],
-                feature_types_config=FeatureTypesConfig(
-                    text_features=["text_feat"],
-                    embedding_features=["text_feat"],  # conflict!
-                ),
-                init_common_params=common_init_params,
-                hyperparams_config={"iterations": 10},
-                use_ordinary_models=True,
-                use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                verbose=0,
-            )
+            train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='mutual_excl_test', features_and_targets_extractor=fte, mlframe_models=['cb'], feature_types_config=FeatureTypesConfig(text_features=['text_feat'], embedding_features=['text_feat']), reporting_config=common_init_params, hyperparams_config={'iterations': 10}, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
     def test_embedding_auto_detection_polars(self, temp_data_dir, common_init_params):
         """pl.List(pl.Float64) columns are auto-detected as embedding features."""
@@ -3536,20 +3264,7 @@ class TestTextAndEmbeddingFeatures:
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
         # Don't specify embedding_features — let auto-detection find emb_feat
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="emb_autodetect",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            feature_types_config=FeatureTypesConfig(),  # auto_detect=True by default
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 10},
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='emb_autodetect', features_and_targets_extractor=fte, mlframe_models=['cb'], feature_types_config=FeatureTypesConfig(), reporting_config=common_init_params, hyperparams_config={'iterations': 10}, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         assert "emb_feat" in metadata.get("embedding_features", []), \
             f"emb_feat not auto-detected. embedding_features={metadata.get('embedding_features')}"
@@ -3561,19 +3276,7 @@ class TestTextAndEmbeddingFeatures:
         pl_df = _make_text_embedding_polars_df(n_text_unique=100)
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="text_autodetect",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            feature_types_config=FeatureTypesConfig(cat_text_cardinality_threshold=50),
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='text_autodetect', features_and_targets_extractor=fte, mlframe_models=['ridge'], feature_types_config=FeatureTypesConfig(cat_text_cardinality_threshold=50), reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         assert "text_feat" in metadata.get("text_features", []), \
             f"text_feat not auto-detected as text. text_features={metadata.get('text_features')}"
@@ -3585,19 +3288,7 @@ class TestTextAndEmbeddingFeatures:
         pl_df = _make_text_embedding_polars_df(n_cat_unique=5, n_text_unique=5)
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="low_card_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            feature_types_config=FeatureTypesConfig(cat_text_cardinality_threshold=50),
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='low_card_test', features_and_targets_extractor=fte, mlframe_models=['ridge'], feature_types_config=FeatureTypesConfig(cat_text_cardinality_threshold=50), reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         # With only 5 unique text values (< threshold=50), text_feat should NOT be in text_features
         text_feats = metadata.get("text_features", [])
@@ -3625,22 +3316,7 @@ class TestTextAndEmbeddingFeatures:
         pl_df = pl_df.with_columns(pl.col("text_feat").cast(pl.Categorical))
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="user_cat_preserved",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            feature_types_config=FeatureTypesConfig(
-                cat_text_cardinality_threshold=50,
-                honor_user_dtype=True,
-            ),
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='user_cat_preserved', features_and_targets_extractor=fte, mlframe_models=['ridge'], feature_types_config=FeatureTypesConfig(cat_text_cardinality_threshold=50, honor_user_dtype=True), reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
         text_feats = metadata.get("text_features", [])
         assert "text_feat" not in text_feats, (
             "User-declared pl.Categorical column (text_feat) was silently promoted to "
@@ -3666,23 +3342,7 @@ class TestTextAndEmbeddingFeatures:
 
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
 
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="text_emb_together",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            feature_types_config=FeatureTypesConfig(
-                text_features=["text_feat"],
-                embedding_features=["emb_feat"],
-            ),
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 10},
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='text_emb_together', features_and_targets_extractor=fte, mlframe_models=['cb'], feature_types_config=FeatureTypesConfig(text_features=['text_feat'], embedding_features=['emb_feat']), reporting_config=common_init_params, hyperparams_config={'iterations': 10}, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         cb_entries = [(n, p) for n, p in captured_fit_params if "CatBoost" in n]
         assert len(cb_entries) > 0
@@ -3711,23 +3371,7 @@ class TestTextAndEmbeddingFeatures:
 
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
 
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="mixed_text_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb", "ridge"],
-            feature_types_config=FeatureTypesConfig(
-                text_features=["text_feat"],
-                embedding_features=["emb_feat"],
-            ),
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 10},
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='mixed_text_test', features_and_targets_extractor=fte, mlframe_models=['cb', 'ridge'], feature_types_config=FeatureTypesConfig(text_features=['text_feat'], embedding_features=['emb_feat']), reporting_config=common_init_params, hyperparams_config={'iterations': 10}, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         # CatBoost should have text_feat and emb_feat
         cb_cols = [c for name, c in captured_dfs.items() if "CatBoost" in name]
@@ -3749,19 +3393,7 @@ class TestTextAndEmbeddingFeatures:
         pl_df = _make_text_embedding_polars_df(n_text_unique=20)
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="threshold_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            feature_types_config=FeatureTypesConfig(cat_text_cardinality_threshold=10),
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='threshold_test', features_and_targets_extractor=fte, mlframe_models=['ridge'], feature_types_config=FeatureTypesConfig(cat_text_cardinality_threshold=10), reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         assert "text_feat" in metadata.get("text_features", []), \
             f"With threshold=10 and 20 unique values, text_feat should be text. Got: {metadata.get('text_features')}"
@@ -3790,23 +3422,7 @@ class TestTextAndEmbeddingFeatures:
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
 
         # Pass Ridge FIRST in the list — but CatBoost should still train first (higher tier)
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="tier_order_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge", "cb"],
-            feature_types_config=FeatureTypesConfig(
-                text_features=["text_feat"],
-                embedding_features=["emb_feat"],
-            ),
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 10},
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='tier_order_test', features_and_targets_extractor=fte, mlframe_models=['ridge', 'cb'], feature_types_config=FeatureTypesConfig(text_features=['text_feat'], embedding_features=['emb_feat']), reporting_config=common_init_params, hyperparams_config={'iterations': 10}, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         cb_idx = next((i for i, n in enumerate(training_order) if "CatBoost" in n), None)
         ridge_idx = next((i for i, n in enumerate(training_order) if "Ridge" in n), None)
@@ -3832,22 +3448,7 @@ class TestTextAndEmbeddingFeatures:
 
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
 
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="tier_cache_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge", "lgb"],
-            feature_types_config=FeatureTypesConfig(
-                text_features=["text_feat"],
-                embedding_features=["emb_feat"],
-            ),
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='tier_cache_test', features_and_targets_extractor=fte, mlframe_models=['ridge', 'lgb'], feature_types_config=FeatureTypesConfig(text_features=['text_feat'], embedding_features=['emb_feat']), reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         # Both Ridge and Lasso are same tier — should receive same trimmed DF object
         ridge_ids = [v for k, v in captured_dfs.items() if "Ridge" in k]
@@ -3875,19 +3476,7 @@ class TestTextAndEmbeddingFeatures:
 
         monkeypatch.setattr(pl.DataFrame, "clone", _spy_clone)
 
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="no_clone_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],  # All Polars-native → skip_categorical_encoding=True → no clone
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 10},
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='no_clone_test', features_and_targets_extractor=fte, mlframe_models=['cb'], reporting_config=common_init_params, hyperparams_config={'iterations': 10}, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         assert len(clone_calls) == 0, \
             f"Expected 0 clone() calls (skip_categorical_encoding=True), got {len(clone_calls)}"
@@ -3907,19 +3496,7 @@ class TestTextAndEmbeddingFeatures:
 
         # Force clone by mixing polars-native and non-native models with encoding
         from mlframe.training.configs import PolarsPipelineConfig
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="post_pipeline_del_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            pipeline_config=PolarsPipelineConfig(categorical_encoding="ordinal"),
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='post_pipeline_del_test', features_and_targets_extractor=fte, mlframe_models=['ridge'], pipeline_config=PolarsPipelineConfig(categorical_encoding='ordinal'), reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         # If we got here without OOM, the test passes — the point is that
         # post-pipeline DFs were deleted. Hard to assert memory directly,
@@ -3943,19 +3520,7 @@ class TestTextAndEmbeddingFeatures:
 
         monkeypatch.setattr(CatBoostStrategy, "prepare_polars_dataframe", _spy_prepare)
 
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="prepare_cache_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 10},
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='prepare_cache_test', features_and_targets_extractor=fte, mlframe_models=['cb'], reporting_config=common_init_params, hyperparams_config={'iterations': 10}, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         # With 1 weight schema (uniform), prepare should be called exactly 3 times
         # (train, val, test) — NOT more from the weight loop
@@ -3981,22 +3546,7 @@ class TestTextAndEmbeddingFeatures:
 
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
 
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="select_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            feature_types_config=FeatureTypesConfig(
-                text_features=["text_feat"],
-                embedding_features=["emb_feat"],
-            ),
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='select_test', features_and_targets_extractor=fte, mlframe_models=['ridge'], feature_types_config=FeatureTypesConfig(text_features=['text_feat'], embedding_features=['emb_feat']), reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         # Ridge DF should have 2 fewer columns (text_feat + emb_feat dropped)
         for name, ncols in captured_ncols.items():
@@ -4025,23 +3575,7 @@ class TestTextAndEmbeddingFeatures:
 
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
 
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="tier_release_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb", "ridge"],
-            feature_types_config=FeatureTypesConfig(
-                text_features=["text_feat"],
-                embedding_features=["emb_feat"],
-            ),
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 10},
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='tier_release_test', features_and_targets_extractor=fte, mlframe_models=['cb', 'ridge'], feature_types_config=FeatureTypesConfig(text_features=['text_feat'], embedding_features=['emb_feat']), reporting_config=common_init_params, hyperparams_config={'iterations': 10}, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         # Both models should have trained successfully
         assert len(training_info) >= 2
@@ -4064,20 +3598,7 @@ class TestTextAndEmbeddingFeatures:
         pl_df = _make_text_embedding_polars_df(n=300)
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="gpu_text_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            feature_types_config=FeatureTypesConfig(text_features=["text_feat"]),
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 20},
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='gpu_text_test', features_and_targets_extractor=fte, mlframe_models=['cb'], feature_types_config=FeatureTypesConfig(text_features=['text_feat']), reporting_config=common_init_params, hyperparams_config={'iterations': 20}, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         assert TargetTypes.BINARY_CLASSIFICATION in models
         model_ns = models[TargetTypes.BINARY_CLASSIFICATION]["target"][0]
@@ -4092,20 +3613,7 @@ class TestTextAndEmbeddingFeatures:
         pl_df = _make_text_embedding_polars_df(n=300)
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="gpu_emb_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            feature_types_config=FeatureTypesConfig(embedding_features=["emb_feat"]),
-            init_common_params=common_init_params,
-            hyperparams_config={"iterations": 20},
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='gpu_emb_test', features_and_targets_extractor=fte, mlframe_models=['cb'], feature_types_config=FeatureTypesConfig(embedding_features=['emb_feat']), reporting_config=common_init_params, hyperparams_config={'iterations': 20}, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
 
         assert TargetTypes.BINARY_CLASSIFICATION in models
         model_ns = models[TargetTypes.BINARY_CLASSIFICATION]["target"][0]

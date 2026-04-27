@@ -1,3 +1,4 @@
+from mlframe.training import OutputConfig
 """End-to-end LGB tests with realistic prod-like Polars input.
 
 Why this file exists: production LGB crashes on 2026-04-22 with
@@ -139,11 +140,10 @@ def test_suite_polars_with_enum_cats_end_to_end(model_name, tmp_path):
         features_and_targets_extractor=fte,
         mlframe_models=[model_name],
         hyperparams_config=config_override,
-        init_common_params=common_init_params,
+        reporting_config=common_init_params,
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        data_dir=str(tmp_path),
-        models_dir="models",
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
         verbose=0,
     )
 

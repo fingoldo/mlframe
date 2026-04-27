@@ -341,8 +341,7 @@ def test_fix6_use_text_features_false_end_to_end_xgb_does_not_see_highcard(tmp_p
             imputer_strategy=None,
         ),
         feature_types_config=FeatureTypesConfig(use_text_features=False),
-        data_dir=str(tmp_path),
-        models_dir="models",
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
         verbose=0,
     )
 
@@ -757,12 +756,14 @@ def test_align_polars_categorical_dicts_no_test_leakage(tmp_path):
     column must NOT contain 'test_only_cat'."""
     pytest.importorskip("catboost")
     from mlframe.training.core import train_mlframe_models_suite
-    from mlframe.training.configs import (
+    from mlframe.training import (
+    
         FeatureTypesConfig,
         TrainingBehaviorConfig,
         PolarsPipelineConfig,
         TrainingSplitConfig,
-    )
+    OutputConfig
+)
     from .shared import SimpleFeaturesAndTargetsExtractor
 
     rng = np.random.default_rng(0)
@@ -814,8 +815,7 @@ def test_align_polars_categorical_dicts_no_test_leakage(tmp_path):
         ),
         feature_types_config=FeatureTypesConfig(use_text_features=True),
         hyperparams_config={"iterations": 3},
-        data_dir=str(tmp_path),
-        models_dir="models",
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
         verbose=0,
     )
 

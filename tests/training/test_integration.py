@@ -23,7 +23,7 @@ from mlframe.training.configs import (
     DataConfig,
     TrainingControlConfig,
     MetricsConfig,
-    DisplayConfig,
+    ReportingConfig,
     NamingConfig,
 )
 
@@ -63,7 +63,7 @@ def call_train_and_evaluate(
         compute_testset_metrics=compute_testset_metrics,
     )
     metrics = MetricsConfig()
-    display = DisplayConfig(
+    reporting = ReportingConfig(
         print_report=print_report,
         show_perf_chart=show_perf_chart,
         show_fi=show_fi,
@@ -75,7 +75,7 @@ def call_train_and_evaluate(
         data=data,
         control=control,
         metrics=metrics,
-        display=display,
+        reporting=reporting,
         naming=naming,
     )
 

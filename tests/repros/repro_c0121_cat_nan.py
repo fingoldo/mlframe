@@ -36,7 +36,7 @@ def _diag_pool(self, *args, **kwargs):
 cb.Pool.__init__ = _diag_pool
 
 # Intercept get_pandas_view_of_polars_df (ASCII only — Windows cp1251 safe)
-from mlframe.training import utils as _mlu
+from mlframe.training import FeatureSelectionConfig, utils as _mlu
 _orig_gpv = _mlu.get_pandas_view_of_polars_df
 def _diag_gpv(df, *a, **kw):
     res = _orig_gpv(df, *a, **kw)
@@ -61,9 +61,13 @@ c = next(x for x in combos if x.short_id() == 'c0088_2fa08bef')
 print(f'c0121: models={c.models} input={c.input_type} polarsds={c.use_polarsds_pipeline} autocat={c.auto_detect_cats}', flush=True)
 df, target_col, _ = build_frame_for_combo(c)
 fte = SimpleFeaturesAndTargetsExtractor(target_column=target_col, regression=c.target_type=='regression')
-init_params = {'drop_columns': [], 'verbose': 0,
-    'category_encoder': ce.CatBoostEncoder(),
-    'scaler': StandardScaler(), 'imputer': SimpleImputer(strategy='mean')}
+from mlframe.training import PreprocessingConfig, OutputConfig
+preprocessing_overrides = PreprocessingConfig(
+    drop_columns=[],
+    category_encoder=ce.CatBoostEncoder(),
+    scaler=StandardScaler(),
+    imputer=SimpleImputer(strategy='mean'),
+)
 
 import tempfile
 tmp = tempfile.mkdtemp()
@@ -76,14 +80,16 @@ try:
         features_and_targets_extractor=fte,
         mlframe_models=list(c.models),
         hyperparams_config={'iterations': 3, 'cb_kwargs': {'task_type':'CPU','verbose':0}},
-        init_common_params=init_params,
-        use_mrmr_fs=c.use_mrmr_fs,
-        mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1,
-            'quantization_nbins': 5, 'use_simple_mode': True,
-            'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3,
-            'full_npermutations': 3} if c.use_mrmr_fs else None,
+        preprocessing_config=preprocessing_overrides,
+        feature_selection_config=FeatureSelectionConfig(
+            use_mrmr_fs=c.use_mrmr_fs,
+            mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1,
+                'quantization_nbins': 5, 'use_simple_mode': True,
+                'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3,
+                'full_npermutations': 3} if c.use_mrmr_fs else None,
+        ),
         use_ordinary_models=True, use_mlframe_ensembles=False,
-        data_dir=tmp, models_dir='models', verbose=0,
+        output_config=OutputConfig(data_dir=tmp, models_dir='models'), verbose=0,
         pipeline_config=PolarsPipelineConfig(use_polarsds_pipeline=c.use_polarsds_pipeline),
         feature_types_config=FeatureTypesConfig(
             auto_detect_feature_types=c.auto_detect_cats,

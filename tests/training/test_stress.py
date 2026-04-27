@@ -1,3 +1,4 @@
+from mlframe.training import OutputConfig
 """
 Stress and performance tests for mlframe training module.
 
@@ -56,11 +57,10 @@ class TestMemoryStress:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             hyperparams_config={"iterations": 10},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -97,11 +97,10 @@ class TestMemoryStress:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             hyperparams_config={"iterations": 10},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -128,11 +127,10 @@ class TestMemoryStress:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             hyperparams_config={"iterations": 10},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -161,11 +159,10 @@ class TestMemoryStress:
                 features_and_targets_extractor=fte,
                 mlframe_models=["ridge"],
                 hyperparams_config={"iterations": 10},
-                init_common_params=common_init_params,
+                reporting_config=common_init_params,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                models_dir="models",
+                output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
                 verbose=0,
             )
 
@@ -222,11 +219,10 @@ class TestPerformance:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             hyperparams_config={"iterations": 10},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -261,11 +257,10 @@ class TestPerformance:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge", "lasso", "elasticnet"],
             hyperparams_config={"iterations": 10},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -311,11 +306,10 @@ class TestConcurrency:
                 mlframe_models=["ridge"],
                 pipeline_config=pipeline_config,
                 hyperparams_config={"iterations": 10},
-                init_common_params=common_init_params,
+                reporting_config=common_init_params,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                models_dir="models",
+                output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
                 verbose=0,
             )
 
@@ -337,11 +331,10 @@ class TestConcurrency:
                 features_and_targets_extractor=fte,
                 mlframe_models=["ridge"],
                 hyperparams_config={"iterations": 10},
-                init_common_params=common_init_params,
+                reporting_config=common_init_params,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                models_dir="models",
+                output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
                 verbose=0,
             )
 
@@ -383,11 +376,10 @@ class TestEdgeCaseStress:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             hyperparams_config={"iterations": 5},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -419,11 +411,10 @@ class TestEdgeCaseStress:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             hyperparams_config={"iterations": 5},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -453,11 +444,10 @@ class TestEdgeCaseStress:
                 features_and_targets_extractor=fte,
                 mlframe_models=["ridge"],
                 hyperparams_config={"iterations": 5},
-                init_common_params=common_init_params,
+                reporting_config=common_init_params,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                data_dir=temp_data_dir,
-                models_dir="models",
+                output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
                 verbose=0,
             )
             assert TargetTypes.REGRESSION in models
@@ -486,11 +476,10 @@ class TestEdgeCaseStress:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             hyperparams_config={"iterations": 5},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -517,11 +506,10 @@ class TestEdgeCaseStress:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             hyperparams_config={"iterations": 5},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 

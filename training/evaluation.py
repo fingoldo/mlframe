@@ -116,6 +116,10 @@ def report_model_perf(
     metrics: Optional[Dict[str, Any]] = None,
     group_ids: Optional[np.ndarray] = None,
     n_features: Optional[int] = None,
+    show_prob_histogram: bool = True,
+    prob_histogram_yscale: str = "auto",
+    show_inline_population_labels: bool = True,
+    title_metrics_tokens: Optional[Tuple[str, ...]] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """
     Generate a unified performance report for both classifiers and regressors.
@@ -233,6 +237,10 @@ def report_model_perf(
                 custom_ice_metric=custom_ice_metric,
                 custom_rice_metric=custom_rice_metric,
                 group_ids=group_ids,
+                show_prob_histogram=show_prob_histogram,
+                prob_histogram_yscale=prob_histogram_yscale,
+                show_inline_population_labels=show_inline_population_labels,
+                title_metrics_tokens=title_metrics_tokens,
             )
     else:
         with phase(
@@ -454,6 +462,10 @@ def report_probabilistic_model_perf(
     metrics: Optional[Dict[str, Any]] = None,
     group_ids: Optional[np.ndarray] = None,
     n_features: Optional[int] = None,
+    show_prob_histogram: bool = True,
+    prob_histogram_yscale: str = "auto",
+    show_inline_population_labels: bool = True,
+    title_metrics_tokens: Optional[Tuple[str, ...]] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Generate a detailed performance report for probabilistic classification models.
@@ -638,28 +650,41 @@ def report_probabilistic_model_perf(
             class_robust_integral_error = custom_rice_metric(y_true=y_true, y_score=y_score)
             title += f", RICE={class_robust_integral_error:.{calib_report_ndigits}f}"
 
+        # Build kwargs for fast_calibration_report. title_metrics_tokens is the
+        # post-validation tuple from ReportingConfig - if None, the function's
+        # own DEFAULT_TITLE_METRICS_TOKENS applies.
+        _fcr_kwargs = dict(
+            y_true=y_true,
+            y_pred=y_score,
+            use_weights=use_weights,
+            nbins=nbins,
+            group_ids=group_ids,
+            title=title,
+            figsize=figsize,
+            # NOTE: plot_file and show_perf_chart are intentionally independent.
+            # `plot_file` (derived from `data_dir`) controls whether plots are SAVED
+            # to disk. `show_perf_chart` controls only interactive DISPLAY (plt.show).
+            # Saving plots even when show_perf_chart=False is deliberate - users get
+            # artifacts on disk without GUI popups. The Agg save-only fastpath in
+            # show_calibration_plot handles this case without Qt overhead.
+            plot_file=plot_file + "_perfplot.png" if plot_file else "",
+            show_plots=show_perf_chart,
+            ndigits=calib_report_ndigits,
+            verbose=verbose,
+            show_prob_histogram=show_prob_histogram,
+            prob_histogram_yscale=prob_histogram_yscale,
+            show_inline_population_labels=show_inline_population_labels,
+        )
+        if title_metrics_tokens is not None:
+            _fcr_kwargs["title_metrics_tokens"] = title_metrics_tokens
+
         with phase("fast_calibration_report", class_id=str_class_name, n_rows=len(y_true)):
-            brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, precision, recall, f1, metrics_string, *_ = (
-                fast_calibration_report(
-                    y_true=y_true,
-                    y_pred=y_score,
-                    use_weights=use_weights,
-                    nbins=nbins,
-                    group_ids=group_ids,
-                    title=title,
-                    figsize=figsize,
-                    # NOTE: plot_file and show_perf_chart are intentionally independent.
-                    # `plot_file` (derived from `data_dir`) controls whether plots are SAVED
-                    # to disk. `show_perf_chart` controls only interactive DISPLAY (plt.show).
-                    # Saving plots even when show_perf_chart=False is deliberate — users get
-                    # artifacts on disk without GUI popups. The Agg save-only fastpath in
-                    # show_calibration_plot handles this case without Qt overhead.
-                    plot_file=plot_file + "_perfplot.png" if plot_file else "",
-                    show_plots=show_perf_chart,
-                    ndigits=calib_report_ndigits,
-                    verbose=verbose,
-                )
-            )
+            (
+                brier_loss, calibration_mae, calibration_std, calibration_coverage,
+                ece, brier_reliability, brier_resolution, brier_uncertainty,
+                roc_auc, pr_auc, ice, ll, precision, recall, f1,
+                metrics_string, _fig,
+            ) = fast_calibration_report(**_fcr_kwargs)
 
         if print_report:
             calibs.append(
@@ -683,6 +708,10 @@ def report_probabilistic_model_perf(
                 calibration_mae=calibration_mae,
                 calibration_std=calibration_std,
                 brier_loss=brier_loss,
+                ece=ece,
+                brier_reliability=brier_reliability,
+                brier_resolution=brier_resolution,
+                brier_uncertainty=brier_uncertainty,
                 log_loss=ll,
                 ice=ice,
                 class_integral_error=class_integral_error,

@@ -50,6 +50,19 @@ def _config_for_models(
         cfg["xgb_kwargs"] = {"device": "cpu", "verbosity": 0}
     if "cb" in models:
         cfg["cb_kwargs"] = {"task_type": "CPU", "verbose": 0}
+    # Fuzz-only RFECV speed-up: cap inner-CV iterations and no-improvement
+    # patience hard. The combo space includes rfecv_estimator_cfg=cb_rfecv
+    # variants where the heuristic feature search would otherwise evaluate
+    # 100+ feature subsets × cv folds × estimator fit and overshoot the
+    # per-test timeout (fuzz c0070, n=1200, 30 features, full quartet +
+    # cb_rfecv). Production users keep the library defaults
+    # (max_noimproving_iters=15, cv_n_splits=4); we strip both down to the
+    # bare minimum here so coverage remains complete and budget is sane.
+    cfg["rfecv_kwargs"] = {
+        "max_noimproving_iters": 2,
+        "cv_n_splits": 2,
+        "max_runtime_mins": 2,
+    }
     return cfg
 
 
@@ -71,7 +84,8 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
     high-cardinality string column it never learned was special.
     Matches the prod idiom: callers who turn off auto-detection
     typically do so BECAUSE they're declaring the lists manually."""
-    from mlframe.training.configs import (
+    from mlframe.training import (
+    
         PolarsPipelineConfig,
         FeatureTypesConfig,
         TrainingBehaviorConfig,
@@ -79,7 +93,10 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         TrainingSplitConfig,
         MultilabelDispatchConfig,
         PreprocessingExtensionsConfig,
-    )
+    FeatureSelectionConfig,
+    OutlierDetectionConfig,
+    OutputConfig
+)
     # Mirror the ``want_text`` / ``want_embedding`` gates in
     # ``build_frame_for_combo`` so the declared column lists exactly
     # match what the frame actually contains — no false positives,
@@ -384,22 +401,25 @@ def _maybe_to_parquet(combo: FuzzCombo, df, tmp_path):
     return path
 
 
-def _common_init_for_combo(combo: FuzzCombo) -> dict:
-    """init_common_params for a combo. Attaches a category encoder only when
+def _preprocessing_for_combo(combo: FuzzCombo):
+    """PreprocessingConfig for a combo. Attaches a category encoder only when
     a non-native-cat model (linear) is present — matches the prod config
     pattern the existing integration tests use."""
-    params: dict = {"drop_columns": [], "verbose": 0}
+    from mlframe.training.configs import PreprocessingConfig
     if "linear" in combo.models and combo.cat_feature_count > 0:
         try:
             import category_encoders as ce
             from sklearn.preprocessing import StandardScaler
             from sklearn.impute import SimpleImputer
-            params["category_encoder"] = ce.CatBoostEncoder()
-            params["scaler"] = StandardScaler()
-            params["imputer"] = SimpleImputer(strategy="mean")
+            return PreprocessingConfig(
+                drop_columns=[],
+                category_encoder=ce.CatBoostEncoder(),
+                scaler=StandardScaler(),
+                imputer=SimpleImputer(strategy="mean"),
+            )
         except ImportError:
             pass
-    return params
+    return PreprocessingConfig(drop_columns=[])
 
 
 def _skip_if_deps_missing(models: tuple[str, ...]) -> None:
@@ -666,29 +686,30 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 iterations=combo.iterations,
                 early_stopping_rounds=combo.early_stopping_rounds_cfg,
             ),
-            init_common_params=_common_init_for_combo(combo),
+            preprocessing_config=_preprocessing_for_combo(combo),
+            verbose=0,
             use_ordinary_models=True,
             use_mlframe_ensembles=combo.use_ensembles,
-            outlier_detector=outlier_detector,
-            custom_pre_pipelines=custom_pre,
-            data_dir=str(tmp_path),
-            models_dir="models",
-            verbose=0,
-            use_mrmr_fs=combo.use_mrmr_fs,
-            mrmr_kwargs=({
-                "verbose": 0, "max_runtime_mins": 1, "n_workers": 1,
-                "quantization_nbins": 5, "use_simple_mode": True,
-                "min_nonzero_confidence": 0.9, "max_consec_unconfirmed": 3,
-                "full_npermutations": 3,
-            } if combo.use_mrmr_fs else None),
-            # rfecv_models: pass exactly the canonical estimator (None when
-            # the combo would mis-use it) — wrap in a single-element list
-            # because the suite signature expects List[str].
-            rfecv_models=(
-                [combo._canonical_rfecv_estimator()]
-                if combo._canonical_rfecv_estimator() is not None
-                else None
+            outlier_detection_config=OutlierDetectionConfig(detector=outlier_detector),
+            feature_selection_config=FeatureSelectionConfig(
+                use_mrmr_fs=combo.use_mrmr_fs,
+                mrmr_kwargs=({
+                    "verbose": 0, "max_runtime_mins": 1, "n_workers": 1,
+                    "quantization_nbins": 5, "use_simple_mode": True,
+                    "min_nonzero_confidence": 0.9, "max_consec_unconfirmed": 2,
+                    "full_npermutations": 2,
+                } if combo.use_mrmr_fs else None),
+                # rfecv_models: pass exactly the canonical estimator (None when
+                # the combo would mis-use it) — wrap in a single-element list
+                # because the field expects List[str].
+                rfecv_models=(
+                    [combo._canonical_rfecv_estimator()]
+                    if combo._canonical_rfecv_estimator() is not None
+                    else None
+                ),
+                custom_pre_pipelines=custom_pre or {},
             ),
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
             # recurrent_models + sequences: synthetic per-row sequences
             # (T=8, F=2) emitted only on canonical-recurrent combos so
             # the suite exercises the sequence-pipeline. Hyperparams

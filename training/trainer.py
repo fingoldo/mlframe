@@ -283,7 +283,10 @@ def _xgb_classifier_cls(use_flaml_zeroshot: bool):
     ``USE_XGB_DMATRIX_REUSE_SHIM`` above for revert instructions.
     """
     if use_flaml_zeroshot:
-        return flaml_zeroshot.XGBClassifier
+        _fz = _get_flaml_zeroshot()
+        if _fz is None:
+            raise ImportError("use_flaml_zeroshot=True but flaml is not installed")
+        return _fz.XGBClassifier
     if USE_XGB_DMATRIX_REUSE_SHIM and XGBClassifierWithDMatrixReuse is not None:
         return XGBClassifierWithDMatrixReuse
     return XGBClassifier
@@ -293,7 +296,10 @@ def _xgb_regressor_cls(use_flaml_zeroshot: bool):
     """Return the XGBRegressor class to instantiate. Mirror of
     ``_xgb_classifier_cls``."""
     if use_flaml_zeroshot:
-        return flaml_zeroshot.XGBRegressor
+        _fz = _get_flaml_zeroshot()
+        if _fz is None:
+            raise ImportError("use_flaml_zeroshot=True but flaml is not installed")
+        return _fz.XGBRegressor
     if USE_XGB_DMATRIX_REUSE_SHIM and XGBRegressorWithDMatrixReuse is not None:
         return XGBRegressorWithDMatrixReuse
     return XGBRegressor
@@ -301,10 +307,31 @@ try:
     from ngboost import NGBClassifier, NGBRegressor
 except ImportError:  # pragma: no cover
     NGBClassifier = NGBRegressor = None  # type: ignore[assignment]
-try:
-    import flaml.default as flaml_zeroshot
-except ImportError:  # pragma: no cover
-    flaml_zeroshot = None  # type: ignore[assignment]
+# flaml.default is eagerly loaded by ``import flaml.default`` (it pulls in
+# flaml.tune.searcher.suggestion → optuna → scipy.stats.qmc), and that
+# import chain takes 30-180 s cold on Windows, blowing past per-test
+# timeouts on the FIRST test of any pytest run that touches the trainer.
+# Defer the import to first-actual-use via ``_get_flaml_zeroshot()`` so
+# typical users / fuzz tests don't pay the cost. Set to ``None`` here as
+# a sentinel; the getter populates it lazily.
+flaml_zeroshot = None  # type: ignore[assignment]
+
+
+def _get_flaml_zeroshot():
+    """Lazy-load ``flaml.default`` on first use.
+
+    Caches the result on the module-level ``flaml_zeroshot`` so subsequent
+    calls are free. Returns ``None`` if flaml is not installed (matching
+    the historical ``except ImportError`` behaviour).
+    """
+    global flaml_zeroshot
+    if flaml_zeroshot is None:
+        try:
+            import flaml.default as _flaml_default
+            flaml_zeroshot = _flaml_default
+        except ImportError:  # pragma: no cover
+            return None
+    return flaml_zeroshot
 try:
     import torch
     import torch.nn as nn
@@ -357,6 +384,8 @@ from .helpers import (
     LightGBMCallback,
     CatBoostCallback,
     XGBoostCallback,
+    compute_cb_text_processing,
+    CB_DEFAULT_OCCURRENCE_LOWER_BOUND,
 )
 
 # Fairness and feature importance functions from their respective modules
@@ -369,7 +398,9 @@ from .configs import (
     DataConfig,
     TrainingControlConfig,
     MetricsConfig,
-    DisplayConfig,
+    ReportingConfig,
+    FeatureImportanceConfig,
+    OutputConfig,
     NamingConfig,
     ConfidenceAnalysisConfig,
     PredictionsContainer,
@@ -2134,6 +2165,13 @@ def _maybe_get_or_build_cb_pool(
         return None
 
     pool._mlframe_last_target_id = id(train_target)
+    # Cache feature lists on the Pool so callers (notably the dynamic CB
+    # ``text_processing`` injection in ``_train_model_with_fallback``)
+    # can introspect them without round-tripping through fit_params,
+    # which the Pool-reuse path strips before fit.
+    pool._mlframe_text_features = list(text_features)
+    pool._mlframe_cat_features = list(cat_features)
+    pool._mlframe_embedding_features = list(embedding_features)
     _CB_POOL_CACHE[key] = pool
     logger.info(
         f"[cb-pool-reuse] miss; stored fresh Pool (cache size={len(_CB_POOL_CACHE)})"
@@ -2474,6 +2512,52 @@ def _train_model_with_fallback(
                         _new_eval_set.append(pair)
                 fit_params["eval_set"] = _new_eval_set
 
+    # Dynamic CB ``text_processing`` calibration: scale ``occurrence_lower_bound``
+    # to the training-row count whenever this is a CatBoost fit with text
+    # features. Default CB OLB=50 hangs on small folds (RFECV inner CV +
+    # outlier-detection trim, fuzz c0056/c0070); ``compute_cb_text_processing``
+    # returns None (no-op) when the row count is high enough to leave the
+    # default in place. Skipped when the user has explicitly set
+    # ``text_processing`` via cb_kwargs (already on the estimator's params).
+    if model_type_name in CATBOOST_MODEL_TYPES:
+        _has_text = bool(fit_params.get("text_features")) or (
+            _cb_pool is not None and bool(getattr(_cb_pool, "_mlframe_text_features", None))
+        )
+        if _has_text:
+            _cb_n_rows = (
+                train_df.shape[0] if hasattr(train_df, "shape")
+                else (len(_cb_pool) if _cb_pool is not None and hasattr(_cb_pool, "__len__") else None)
+            )
+            _user_text_proc = None
+            if hasattr(model, "get_params"):
+                try:
+                    _user_text_proc = model.get_params().get("text_processing")
+                except Exception:
+                    _user_text_proc = None
+            if _user_text_proc is None:
+                _tp = compute_cb_text_processing(_cb_n_rows) if _cb_n_rows is not None else None
+                if _tp is not None and hasattr(model, "set_params"):
+                    try:
+                        model.set_params(text_processing=_tp)
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "[%s] scaled CB text_processing.occurrence_lower_bound to %s "
+                                "(n_train=%s, default would be %s).",
+                                model_type_name,
+                                _tp["dictionaries"][0]["occurrence_lower_bound"],
+                                _cb_n_rows,
+                                CB_DEFAULT_OCCURRENCE_LOWER_BOUND,
+                            )
+                    except Exception as _tp_exc:
+                        # Non-fatal: if CB version rejects this shape we
+                        # fall back to the post-fit "Dictionary size is 0"
+                        # recovery path below.
+                        logger.warning(
+                            "[%s] failed to set scaled CB text_processing (%s); "
+                            "falling back to post-fit recovery.",
+                            model_type_name, _tp_exc,
+                        )
+
     try:
         with phase("model.fit", model=model_type_name,
                    n_rows=(train_df.shape[0] if hasattr(train_df, "shape") else None),
@@ -2794,6 +2878,10 @@ def _compute_split_metrics(
     details: str = "",
     has_other_splits: bool = False,
     n_features: int = None,
+    show_prob_histogram: bool = True,
+    prob_histogram_yscale: str = "auto",
+    show_inline_population_labels: bool = True,
+    title_metrics_tokens: Optional[Tuple[str, ...]] = None,
 ):
     """Unified metrics computation for train/val/test splits."""
     # Only skip if we can't compute metrics (no probs AND no df to make predictions)
@@ -2854,6 +2942,10 @@ def _compute_split_metrics(
         metrics=metrics_dict,
         group_ids=group_ids[idx] if group_ids is not None and idx is not None else None,
         n_features=n_features,
+        show_prob_histogram=show_prob_histogram,
+        prob_histogram_yscale=prob_histogram_yscale,
+        show_inline_population_labels=show_inline_population_labels,
+        title_metrics_tokens=title_metrics_tokens,
     )
     return preds, probs, columns
 
@@ -2977,7 +3069,11 @@ def _build_configs_from_params(
     n_features=None,
     # Control params
     verbose=False,
-    use_cache=False,
+    # 2026-04-27: use_cache default flipped False -> True for consistency
+    # with TrainingControlConfig.use_cache=True and the de-facto behavior
+    # of train_eval.py:664's .get("use_cache", True). Cache loading is
+    # almost always faster than retraining; force retrain via explicit False.
+    use_cache=True,
     just_evaluate=False,
     compute_trainset_metrics=False,
     compute_valset_metrics=True,
@@ -2996,17 +3092,25 @@ def _build_configs_from_params(
     train_details="",
     val_details="",
     test_details="",
-    # Display params
+    # Reporting / display params (the pre-2026-04-27 display config is now
+    # ReportingConfig - filesystem paths moved to OutputConfig; per-metric
+    # title toggles collapsed into the ordered string template
+    # `title_metrics_template`; histogram subplot toggles added; old fi_kwargs
+    # dict replaced by typed FeatureImportanceConfig).
     figsize=(15, 5),
     print_report=True,
     show_perf_chart=True,
     show_fi=True,
-    fi_kwargs=None,
+    feature_importance_config=None,
     plot_file="",
     data_dir="",
     models_subdir=MODELS_SUBDIR,
     display_sample_size=0,
     show_feature_names=False,
+    show_prob_histogram=True,
+    prob_histogram_yscale="auto",
+    show_inline_population_labels=True,
+    title_metrics_template="ICE BR_DECOMP ECE CMAEW LL ROC_AUC PR_AUC",
     # Naming params
     model_name="",
     model_name_prefix="",
@@ -3075,17 +3179,31 @@ def _build_configs_from_params(
         test_details=test_details,
     )
 
-    display_config = DisplayConfig(
+    if feature_importance_config is None:
+        fi_cfg = FeatureImportanceConfig()
+    elif isinstance(feature_importance_config, dict):
+        fi_cfg = FeatureImportanceConfig(**feature_importance_config)
+    else:
+        fi_cfg = feature_importance_config
+
+    reporting_config = ReportingConfig(
         figsize=figsize,
         print_report=print_report,
         show_perf_chart=show_perf_chart,
         show_fi=show_fi,
-        fi_kwargs=fi_kwargs or {},
-        plot_file=plot_file or "",
-        data_dir=data_dir or "",
-        models_subdir=models_subdir or "models",
+        feature_importance_config=fi_cfg,
         display_sample_size=display_sample_size,
         show_feature_names=show_feature_names,
+        show_prob_histogram=show_prob_histogram,
+        prob_histogram_yscale=prob_histogram_yscale,
+        show_inline_population_labels=show_inline_population_labels,
+        title_metrics_template=title_metrics_template,
+    )
+
+    output_config = OutputConfig(
+        plot_file=plot_file or "",
+        data_dir=data_dir or "",
+        models_dir=models_subdir or "models",
     )
 
     naming_config = NamingConfig(
@@ -3113,7 +3231,7 @@ def _build_configs_from_params(
         test_probs=test_probs,
     )
 
-    return data_config, control_config, metrics_config, display_config, naming_config, confidence_config, predictions_container
+    return data_config, control_config, metrics_config, reporting_config, naming_config, confidence_config, predictions_container, output_config
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -3126,8 +3244,9 @@ def train_and_evaluate_model(
     data: DataConfig,
     control: TrainingControlConfig,
     metrics: MetricsConfig,
-    display: DisplayConfig,
+    reporting: ReportingConfig,
     naming: NamingConfig,
+    output: Optional[OutputConfig] = None,
     confidence: Optional[ConfidenceAnalysisConfig] = None,
     predictions: Optional[PredictionsContainer] = None,
     train_od_idx: Optional[np.ndarray] = None,
@@ -3147,8 +3266,10 @@ def train_and_evaluate_model(
         Training control flags (verbose, cache, metrics computation).
     metrics : MetricsConfig
         Metrics configuration (nbins, custom metrics, subgroups).
-    display : DisplayConfig
-        Display configuration (figsize, plot settings, paths).
+    reporting : ReportingConfig
+        Reporting / display configuration (figsize, plot settings, title-metrics
+        template, histogram subplot, feature-importance config). Was
+        the pre-2026-04-27 display config (now renamed and slimmed).
     naming : NamingConfig
         Model naming configuration.
     confidence : ConfidenceAnalysisConfig, optional
@@ -3225,18 +3346,39 @@ def train_and_evaluate_model(
     test_details = metrics.test_details
 
     # ---------------------------------------------------------------------------
-    # Unpack display config
+    # Unpack reporting config (the pre-2026-04-27 display config). Filesystem paths read from
+    # control.* / direct trainer state now (data_dir/models_subdir/plot_file no
+    # longer live on the reporting config). FI plotting reads from a typed
+    # FeatureImportanceConfig instead of a stringly-typed dict.
     # ---------------------------------------------------------------------------
-    figsize = display.figsize
-    print_report = display.print_report
-    show_perf_chart = display.show_perf_chart
-    show_fi = display.show_fi
-    fi_kwargs = dict(display.fi_kwargs) if display.fi_kwargs else {}
-    plot_file = display.plot_file
-    data_dir = display.data_dir
-    models_subdir = display.models_subdir
-    display_sample_size = display.display_sample_size
-    show_feature_names = display.show_feature_names
+    figsize = reporting.figsize
+    print_report = reporting.print_report
+    show_perf_chart = reporting.show_perf_chart
+    show_fi = reporting.show_fi
+    fi_config = reporting.feature_importance_config or FeatureImportanceConfig()
+    fi_kwargs = dict(
+        figsize=fi_config.figsize,
+        num_factors=fi_config.num_factors,
+        positive_fi_only=fi_config.positive_fi_only,
+        show_plots=fi_config.show_plots,
+    )
+    display_sample_size = reporting.display_sample_size
+    show_feature_names = reporting.show_feature_names
+    show_prob_histogram = reporting.show_prob_histogram
+    prob_histogram_yscale = reporting.prob_histogram_yscale
+    show_inline_population_labels = reporting.show_inline_population_labels
+    title_metrics_tokens = reporting.title_metrics_tokens
+
+    # ---------------------------------------------------------------------------
+    # Unpack output config (was bundled into the display config pre-refactor). Default-construct
+    # if the caller didn't pass one - keeps train_eval.py:_run_v2_path callers
+    # that haven't migrated yet working with empty paths.
+    # ---------------------------------------------------------------------------
+    if output is None:
+        output = OutputConfig()
+    plot_file = output.plot_file
+    data_dir = output.data_dir
+    models_subdir = output.models_dir
 
     # ---------------------------------------------------------------------------
     # Unpack naming config
@@ -3477,6 +3619,10 @@ def train_and_evaluate_model(
             custom_ice_metric=custom_ice_metric,
             custom_rice_metric=custom_rice_metric,
             n_features=n_features,
+            show_prob_histogram=show_prob_histogram,
+            prob_histogram_yscale=prob_histogram_yscale,
+            show_inline_population_labels=show_inline_population_labels,
+            title_metrics_tokens=title_metrics_tokens,
         )
 
         has_val = (val_idx is not None and len(val_idx) > 0) or val_df is not None

@@ -1,3 +1,4 @@
+from mlframe.training import FeatureSelectionConfig, OutputConfig
 """
 Integration tests for feature selection components.
 
@@ -321,16 +322,12 @@ class TestFeatureSelectionIntegration:
             model_name="rfecv_classification",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            rfecv_models=["cb_rfecv"],
+            feature_selection_config=FeatureSelectionConfig(rfecv_models=["cb_rfecv"]),
             hyperparams_config={"iterations": fast_iterations},
-            init_common_params={
-                **common_init_params,
-                "rfecv_params": {"max_runtime_mins": 1, "max_refits": 3},
-            },
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -347,24 +344,7 @@ class TestFeatureSelectionIntegration:
         if check_lgb_gpu_available:
             rfecv_models.append("lgb_rfecv")
 
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="multi_rfecv",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            rfecv_models=rfecv_models,
-            hyperparams_config={"iterations": fast_iterations},
-            init_common_params={
-                **common_init_params,
-                "rfecv_params": {"max_runtime_mins": 1, "max_refits": 3},
-            },
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='test_target', model_name='multi_rfecv', features_and_targets_extractor=fte, mlframe_models=['cb'], hyperparams_config={'iterations': fast_iterations}, reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=0, feature_selection_config=FeatureSelectionConfig(rfecv_models=rfecv_models))
 
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
@@ -374,28 +354,7 @@ class TestFeatureSelectionIntegration:
         df, feature_names, y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="with_mrmr",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            use_mrmr_fs=True,
-            mrmr_kwargs={
-                "verbose": 0,
-                "max_runtime_mins": 1,
-                "n_workers": 1,
-                "quantization_nbins": 5,
-                "use_simple_mode": True,
-            },
-            hyperparams_config={"iterations": fast_iterations},
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='test_target', model_name='with_mrmr', features_and_targets_extractor=fte, mlframe_models=['cb'], feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True), hyperparams_config={'iterations': fast_iterations}, reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=0, feature_selection_config=FeatureSelectionConfig(mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True}))
 
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
@@ -408,27 +367,7 @@ class TestFeatureSelectionIntegration:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-        models, metadata = train_mlframe_models_suite(
-            df=numeric_df,
-            target_name="test_target",
-            model_name="mrmr_classification",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            use_mrmr_fs=True,
-            mrmr_kwargs={
-                "verbose": 0,
-                "max_runtime_mins": 1,
-                "n_workers": 1,
-                "quantization_nbins": 5,
-            },
-            hyperparams_config={"iterations": fast_iterations},
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=numeric_df, target_name='test_target', model_name='mrmr_classification', features_and_targets_extractor=fte, mlframe_models=['cb'], feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True), hyperparams_config={'iterations': fast_iterations}, reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=0, feature_selection_config=FeatureSelectionConfig(mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5}))
 
         assert TargetTypes.BINARY_CLASSIFICATION in models
         assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
@@ -448,32 +387,7 @@ class TestCombinedPipelines:
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Train with both MRMR (filter) and RFECV (wrapper) feature selection
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="mrmr_plus_rfecv",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            rfecv_models=["cb_rfecv"],  # RFECV wrapper
-            use_mrmr_fs=True,  # MRMR filter
-            mrmr_kwargs={
-                "verbose": 0,
-                "max_runtime_mins": 1,
-                "n_workers": 1,
-                "quantization_nbins": 5,
-                "use_simple_mode": True,
-            },
-            hyperparams_config={"iterations": fast_iterations},
-            init_common_params={
-                **common_init_params,
-                "rfecv_params": {"max_runtime_mins": 1, "max_refits": 3},
-            },
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='test_target', model_name='mrmr_plus_rfecv', features_and_targets_extractor=fte, mlframe_models=['cb'], hyperparams_config={'iterations': fast_iterations}, reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=0, feature_selection_config=FeatureSelectionConfig(rfecv_models=['cb_rfecv'], use_mrmr_fs=True, mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True}))
 
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
@@ -495,30 +409,7 @@ class TestCombinedPipelines:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="fs_with_fairness",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            use_mrmr_fs=True,
-            mrmr_kwargs={
-                "verbose": 0,
-                "max_runtime_mins": 1,
-                "n_workers": 1,
-            },
-            hyperparams_config={"iterations": fast_iterations},
-            init_common_params=common_init_params,
-            behavior_config={
-                'fairness_features': ['group_feature'],
-                'fairness_min_pop_cat_thresh': 10,  # Small threshold for test data
-            },
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=df, target_name='test_target', model_name='fs_with_fairness', features_and_targets_extractor=fte, mlframe_models=['cb'], feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True), hyperparams_config={'iterations': fast_iterations}, reporting_config=common_init_params, behavior_config={'fairness_features': ['group_feature'], 'fairness_min_pop_cat_thresh': 10}, use_ordinary_models=True, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=0, feature_selection_config=FeatureSelectionConfig(mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1}))
 
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
@@ -534,16 +425,12 @@ class TestCombinedPipelines:
             model_name="rfecv_polars",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            rfecv_models=["cb_rfecv"],
+            feature_selection_config=FeatureSelectionConfig(rfecv_models=["cb_rfecv"]),
             hyperparams_config={"iterations": fast_iterations},
-            init_common_params={
-                **common_init_params,
-                "rfecv_params": {"max_runtime_mins": 1, "max_refits": 3},
-            },
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -554,26 +441,7 @@ class TestCombinedPipelines:
         pl_df, feature_names, y = sample_polars_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(
-            df=pl_df,
-            target_name="test_target",
-            model_name="mrmr_polars",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            use_mrmr_fs=True,
-            mrmr_kwargs={
-                "verbose": 0,
-                "max_runtime_mins": 1,
-                "n_workers": 1,
-            },
-            hyperparams_config={"iterations": fast_iterations},
-            init_common_params=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
-            verbose=0,
-        )
+        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='mrmr_polars', features_and_targets_extractor=fte, mlframe_models=['cb'], feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True), hyperparams_config={'iterations': fast_iterations}, reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=0, feature_selection_config=FeatureSelectionConfig(mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1}))
 
         assert TargetTypes.REGRESSION in models
 
@@ -596,16 +464,12 @@ class TestCombinedPipelines:
             model_name="rfecv_small",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            rfecv_models=["cb_rfecv"],
+            feature_selection_config=FeatureSelectionConfig(rfecv_models=["cb_rfecv"]),
             hyperparams_config={"iterations": 5},
-            init_common_params={
-                **common_init_params,
-                "rfecv_params": {"max_runtime_mins": 0.5, "max_refits": 2, "cv": 2},
-            },
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -630,16 +494,12 @@ class TestCombinedPipelines:
             model_name="rfecv_many_features",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            rfecv_models=["cb_rfecv"],
+            feature_selection_config=FeatureSelectionConfig(rfecv_models=["cb_rfecv"]),
             hyperparams_config={"iterations": 5},
-            init_common_params={
-                **common_init_params,
-                "rfecv_params": {"max_runtime_mins": 2, "max_refits": 5},
-            },
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 

@@ -1,3 +1,4 @@
+from mlframe.training import FeatureSelectionConfig, OutlierDetectionConfig, OutputConfig
 """
 Comprehensive tests for all 13 mlframe model types.
 
@@ -77,11 +78,10 @@ class TestAllModelsRegression:
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
             hyperparams_config=config_override,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -107,11 +107,10 @@ class TestAllModelsRegression:
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
             hyperparams_config=config_override,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -146,11 +145,10 @@ class TestAllModelsClassification:
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
             hyperparams_config=config_override,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -178,11 +176,10 @@ class TestAllModelsClassification:
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
             hyperparams_config=config_override,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -232,11 +229,10 @@ class TestCategoricalFeatures:
             mlframe_models=[model_name],
             pipeline_config=pipeline_config,
             hyperparams_config=config_override,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -280,11 +276,10 @@ class TestCategoricalFeatures:
             mlframe_models=[model_name],
             pipeline_config=pipeline_config,
             hyperparams_config={"iterations": fast_iterations},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -323,11 +318,10 @@ class TestGPUSupport:
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
             hyperparams_config=config_override,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -362,11 +356,10 @@ class TestGPUSupport:
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
             hyperparams_config=config_override,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -391,11 +384,10 @@ class TestGPUSupport:
             features_and_targets_extractor=fte,
             mlframe_models=["lgb"],
             hyperparams_config=config_override,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -426,11 +418,10 @@ class TestGPUSupport:
             features_and_targets_extractor=fte,
             mlframe_models=["lgb"],
             hyperparams_config=config_override,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -462,11 +453,10 @@ class TestGPUSupport:
             features_and_targets_extractor=fte,
             mlframe_models=["mlp"],
             hyperparams_config=config_override,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -502,11 +492,10 @@ class TestGPUSupport:
             features_and_targets_extractor=fte,
             mlframe_models=["mlp"],
             hyperparams_config=config_override,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -557,11 +546,10 @@ class TestGPUSupport:
             features_and_targets_extractor=fte,
             mlframe_models=["mlp"],
             hyperparams_config=config_override,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -598,11 +586,10 @@ class TestGPUSupport:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             hyperparams_config=config_override,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -643,16 +630,15 @@ class TestFeatureSelection:
             model_name=f"cb_with_{estimator}",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],  # Use cb as final model
-            rfecv_models=[estimator],  # Vary the RFECV estimator
+            feature_selection_config=FeatureSelectionConfig(
+                rfecv_models=[estimator],  # Vary the RFECV estimator
+                rfecv_kwargs={"max_runtime_mins": 2},  # Limit RFECV runtime for tests
+            ),
             hyperparams_config=config_override,
-            init_common_params={
-                **common_init_params,
-                "rfecv_params": {"max_runtime_mins": 2},  # Limit RFECV runtime for tests
-            },
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -683,11 +669,10 @@ class TestSpecialCases:
             features_and_targets_extractor=fte,
             mlframe_models=["ransac"],
             hyperparams_config={"iterations": fast_iterations},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -709,11 +694,10 @@ class TestSpecialCases:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             hyperparams_config={"iterations": fast_iterations},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -735,11 +719,10 @@ class TestSpecialCases:
             features_and_targets_extractor=fte,
             mlframe_models=["sgd"],
             hyperparams_config={"iterations": fast_iterations},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -761,11 +744,10 @@ class TestSpecialCases:
             features_and_targets_extractor=fte,
             mlframe_models=["huber"],
             hyperparams_config={"iterations": fast_iterations},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -805,13 +787,12 @@ class TestOutlierDetection:
             model_name="outlier_detection_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],  # Simple model for fast test
-            outlier_detector=outlier_detector,
+            outlier_detection_config=OutlierDetectionConfig(detector=outlier_detector),
             hyperparams_config={"iterations": fast_iterations},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -847,13 +828,12 @@ class TestOutlierDetection:
             model_name="outlier_reduction_test",
             features_and_targets_extractor=fte,
             mlframe_models=["linear"],  # Simple model for fast test
-            outlier_detector=outlier_detector,
+            outlier_detection_config=OutlierDetectionConfig(detector=outlier_detector),
             hyperparams_config={"iterations": fast_iterations},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=1,  # Enable verbose to see outlier rejection messages
         )
 
@@ -884,13 +864,12 @@ class TestOutlierDetection:
             model_name="lof_outlier_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],  # Simple model for fast test
-            outlier_detector=outlier_detector,
+            outlier_detection_config=OutlierDetectionConfig(detector=outlier_detector),
             hyperparams_config={"iterations": fast_iterations},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -924,13 +903,12 @@ class TestOutlierDetection:
             model_name="outlier_polars_test",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            outlier_detector=outlier_detector,
+            outlier_detection_config=OutlierDetectionConfig(detector=outlier_detector),
             hyperparams_config=get_cpu_config("cb", fast_iterations),
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -961,11 +939,10 @@ class TestPredictionValidation:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             hyperparams_config={"iterations": fast_iterations},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -995,11 +972,10 @@ class TestPredictionValidation:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],  # CatBoost has good proba support
             hyperparams_config={"iterations": fast_iterations, "cb_kwargs": {"task_type": "CPU"}},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1031,11 +1007,10 @@ class TestPredictionValidation:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             hyperparams_config={"iterations": fast_iterations},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1062,11 +1037,10 @@ class TestPredictionValidation:
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
             hyperparams_config={"iterations": fast_iterations},
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1097,11 +1071,10 @@ class TestPredictionValidation:
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
             hyperparams_config=config_override,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1146,11 +1119,10 @@ class TestGPUUsageVerification:
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             hyperparams_config=config_override,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 
@@ -1194,11 +1166,10 @@ class TestGPUUsageVerification:
             features_and_targets_extractor=fte,
             mlframe_models=["xgb"],
             hyperparams_config=config_override,
-            init_common_params=common_init_params,
+            reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=temp_data_dir,
-            models_dir="models",
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
         )
 

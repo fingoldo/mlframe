@@ -1,3 +1,4 @@
+from mlframe.training import OutputConfig, PreprocessingConfig
 """Metamorphic fuzz tests for ``train_mlframe_models_suite`` (Fix D).
 
 A metamorphic test runs the suite twice under inputs that SHOULD yield
@@ -112,9 +113,8 @@ def _run_suite(combo: FuzzCombo, df, target_col: str, tmp_path) -> dict:
         features_and_targets_extractor=fte,
         mlframe_models=list(combo.models),
         hyperparams_config=hyper,
-        init_common_params={"drop_columns": [], "verbose": 0},
-        data_dir=tmp_path,
-        models_dir="models",
+        preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
+        output_config=OutputConfig(data_dir=tmp_path, models_dir="models"),
         verbose=0,
     )
     return trained

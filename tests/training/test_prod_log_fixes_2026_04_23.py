@@ -402,11 +402,10 @@ class TestPipelineCacheKindIsolation:
             mlframe_models=["cb", "xgb", "lgb"],
             hyperparams_config={"iterations": 3},
             behavior_config=bc,
-            init_common_params={"drop_columns": [], "verbose": 0},
+            preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            data_dir=str(tmp_path),
-            models_dir="models",
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
             verbose=0,
         )
         assert models, "train_mlframe_models_suite returned empty models"
@@ -660,11 +659,10 @@ class TestCategoryDriftHealingSuggestions:
                     mlframe_models=["cb"],
                     hyperparams_config={"iterations": 3},
                     behavior_config=bc,
-                    init_common_params={"drop_columns": [], "verbose": 1},
+                    preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=1,
                     use_ordinary_models=True,
                     use_mlframe_ensembles=False,
-                    data_dir=tmp,
-                    models_dir="models",
+                    output_config=OutputConfig(data_dir=tmp, models_dir="models"),
                     verbose=1,
                 )
             except Exception:
@@ -785,11 +783,10 @@ class TestLazyConversionDefenseInDepth:
                 mlframe_models=["lgb"],
                 hyperparams_config={"iterations": 3},
                 behavior_config=bc,
-                init_common_params={"drop_columns": [], "verbose": 0},
+                preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                data_dir=str(tmp_path),
-                models_dir="models",
+                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
                 verbose=0,
             )
         finally:
@@ -942,11 +939,10 @@ class TestPolarsReleaseBeforeNonNativeStrategy:
                 mlframe_models=["cb", "xgb", "lgb"],
                 hyperparams_config={"iterations": 3},
                 behavior_config=bc,
-                init_common_params={"drop_columns": [], "verbose": 1},
+                preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=1,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                data_dir=str(tmp_path),
-                models_dir="models",
+                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
                 verbose=1,
             )
         finally:
@@ -1051,7 +1047,7 @@ class TestCatBoostStickyFlagDefensiveAtLoad:
         # train_eval.py source to make sure the defensive set isn't
         # silently removed in a refactor.
         import inspect
-        from mlframe.training import train_eval as te_mod
+        from mlframe.training import OutputConfig, PreprocessingConfig, train_eval as te_mod
         src = inspect.getsource(te_mod.process_model)
         assert "_mlframe_polars_fastpath_broken" in src, (
             "process_model must defensively set "

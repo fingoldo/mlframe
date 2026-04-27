@@ -213,6 +213,19 @@ class PreprocessingConfig(BaseConfig):
     )
     columns: Optional[List[str]] = None
 
+    # 2026-04-27: previously the only path to override the suite's default
+    # transformer-selection logic was a dict-typed pass-through that has
+    # been deleted in this revision; these three transformers got a typed
+    # home here. None preserves the suite's
+    # context-aware default selection (different transformers per model
+    # type / cat-feature presence / polars-vs-pandas path) - concrete
+    # defaults can't express that branching honestly, plus sklearn imports
+    # at config-class load are a real cold-start tax we'd pay on every
+    # `import mlframe.training.configs`.
+    category_encoder: Optional[Any] = None
+    imputer: Optional[Any] = None
+    scaler: Optional[Any] = None
+
 
 class TrainingSplitConfig(BaseConfig):
     """Configuration for train/val/test data splitting.
@@ -544,6 +557,14 @@ class FeatureSelectionConfig(BaseConfig):
     mrmr_kwargs: Optional[Dict[str, Any]] = None  # keys: features_to_select, show_progress, redundancy_metric
     rfecv_models: Optional[List[str]] = None
     rfecv_kwargs: Optional[Dict[str, Any]] = None  # keys: step, min_features_to_select, cv, scoring
+    # 2026-04-27: pre-pipelines that wrap each model with custom feature
+    # selection / dimensionality reduction (sklearn TransformerMixin).
+    # Keys are pipeline names; values are unfitted transformer instances
+    # (e.g. {"pca50": IncrementalPCA(n_components=50)}). Was a top-level
+    # kwarg of train_mlframe_models_suite (`custom_pre_pipelines`); migrated
+    # into the typed config so visualization/IO/feature-selection knobs
+    # all live alongside their conceptual peers.
+    custom_pre_pipelines: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ModelConfig(BaseConfig):
@@ -1135,18 +1156,13 @@ class TrainingConfig(BaseConfig):
         Model hyperparameters (iterations, learning rate, per-model kwargs).
     behavior : TrainingBehaviorConfig
         Training behavior flags (GPU preference, calibration, fairness).
-    init_common_params : dict, optional
-        Common parameters for all models.
     verbose : int
         Verbosity level (default: 1).
-    imputer : Any, optional
-        sklearn-compatible imputer transformer.
-    scaler : Any, optional
-        sklearn-compatible scaler transformer.
-    category_encoder : Any, optional
-        sklearn-compatible category encoder.
     metamodel_func : Callable, optional
         Function to wrap models (e.g., for target transformation).
+        Note: ``imputer`` / ``scaler`` / ``category_encoder`` overrides moved to
+        ``PreprocessingConfig`` in 2026-04-27 (the dict-typed pass-through that
+        previously held them was deleted).
 
     Raises
     ------
@@ -1183,15 +1199,9 @@ class TrainingConfig(BaseConfig):
     # Typed configuration objects
     hyperparams: ModelHyperparamsConfig = Field(default_factory=ModelHyperparamsConfig)
     behavior: TrainingBehaviorConfig = Field(default_factory=TrainingBehaviorConfig)
-    init_common_params: Optional[Dict[str, Any]] = None  # keys: common params for all models
 
     # Misc
     verbose: int = 1
-
-    # Transformers (sklearn-like)
-    imputer: Optional[Any] = None  # sklearn imputer (SimpleImputer, etc.)
-    scaler: Optional[Any] = None  # sklearn scaler (StandardScaler, etc.)
-    category_encoder: Optional[Any] = None  # sklearn encoder (OrdinalEncoder, etc.)
 
     # Meta-model for target transformation
     metamodel_func: Optional[Callable] = None
@@ -1328,7 +1338,14 @@ class TrainingControlConfig(BaseConfig):
     """
 
     verbose: Union[bool, int] = False
-    use_cache: bool = False
+    # 2026-04-27: default flipped False -> True. Cache loading is almost
+    # always faster than retraining; the previous False default was
+    # inconsistent with train_eval.py:664 which already read the
+    # internal common_params dict with .get("use_cache", True). Making
+    # both ends agree on True; users who want force-retrain pass False
+    # explicitly via TrainingControlConfig (suite-level wiring deferred -
+    # remains internal-only).
+    use_cache: bool = True
     just_evaluate: bool = False
 
     # Metrics computation flags
@@ -1381,46 +1398,172 @@ class MetricsConfig(BaseConfig):
     test_details: str = ""
 
 
-class DisplayConfig(BaseConfig):
-    """Display and plotting configuration for train_and_evaluate_model.
+class FeatureImportanceConfig(BaseConfig):
+    """Configuration for feature-importance plots.
 
-    Controls figure sizes, report printing, and output paths.
+    Replaces the dict-typed ``fi_kwargs`` that previously lived on
+    pre-2026-04-27 ``ReportingConfig`` (it was a separate dict field then) and
+    was reachable from the suite layer only via the deleted dict-typed
+    pass-through. Fields mirror the kwargs of
+    ``mlframe.training.evaluation.plot_model_feature_importances``.
+    """
 
-    Parameters
-    ----------
-    figsize : tuple of int
-        Figure size for plots (width, height) (default: (15, 5)).
-    print_report : bool
-        Whether to print performance report (default: True).
-    show_perf_chart : bool
-        Whether to display performance charts (default: True).
-    show_fi : bool
-        Whether to show feature importances (default: True).
-    fi_kwargs : dict
-        Additional kwargs for feature importance plots.
-    plot_file : str
-        Base path for saving plot files.
-    data_dir : str
-        Base directory for data files.
-    models_subdir : str
-        Subdirectory for saved models (default: "models").
-    display_sample_size : int
-        Number of sample rows to display during training (default: 0 = disabled).
-    show_feature_names : bool
-        Whether to show feature names in training report (default: False).
+    num_factors: int = 40
+    figsize: Tuple[int, int] = (15, 10)
+    positive_fi_only: bool = False
+    show_plots: bool = True
+
+
+class OutputConfig(BaseConfig):
+    """Filesystem destinations for saved artifacts.
+
+    Holds path/output knobs that previously lived on the pre-2026-04-27
+    ReportingConfig (``plot_file``) or as top-level kwargs of ``train_mlframe_models_suite``
+    (``data_dir``, ``models_dir``, ``save_charts``). Pulled out so
+    ``ReportingConfig`` covers only "look of the report" and not "where
+    to write things".
+
+    ``models_dir`` was previously named ``models_subdir`` on the report config
+    and ``models_dir`` at the suite level. Renamed to ``models_dir`` for
+    symmetry with ``data_dir`` (both are typed peers of the same noun
+    pattern).
+    """
+
+    data_dir: str = ""
+    models_dir: str = "models"
+    plot_file: str = ""
+    save_charts: bool = True
+
+
+class OutlierDetectionConfig(BaseConfig):
+    """Configuration for the once-per-suite outlier-detection pass.
+
+    ``apply_to_val`` was previously named ``od_val_set`` at the suite
+    level - renamed for clarity.
+    """
+
+    detector: Optional[Any] = None  # sklearn OutlierMixin or None
+    apply_to_val: bool = True
+
+
+# Title-metrics token grammar - mirrors metrics.TITLE_METRIC_TOKENS but kept
+# duplicated here to avoid importing from metrics.py at config-class
+# definition time (import-cost concern, plus configs is a foundational
+# module). Keep these two sets in sync; the validator in ReportingConfig
+# falls back gracefully if a new token is added in metrics.py without here.
+_REPORTING_ALLOWED_TITLE_TOKENS: FrozenSet[str] = frozenset({
+    "ICE", "BR", "BR_DECOMP", "ECE", "CMAEW",
+    "COV", "LL", "ROC_AUC", "PR_AUC", "DENS",
+})
+
+
+class ReportingConfig(BaseConfig):
+    """Look of the calibration / training performance report.
+
+    Renamed from the pre-2026-04-27 display config. Scope is now strictly "report
+    appearance + per-metric title composition + histogram subplot
+    toggles". Filesystem paths moved to ``OutputConfig``; feature-importance
+    plot parameters moved to ``FeatureImportanceConfig`` (referenced via
+    ``feature_importance_config``).
+
+    The 9 historical ``show_*_in_title`` booleans (show_brier_loss,
+    show_cmaew, show_roc_auc, show_pr_auc, show_logloss, show_coverage,
+    show_points_density, plus the new show_ece and show_brier_decomp from
+    this revision) collapsed into one ordered string template
+    ``title_metrics_template``. The template grammar is validated at
+    config construction time so an invalid template fails before training
+    starts, not mid-figure.
+
+    Token grammar (closed set, case-insensitive on input):
+      - ``ICE``: integral calibration error
+      - ``BR``: Brier loss (bare)
+      - ``BR_DECOMP``: Brier with REL/RES/UNC decomposition parenthetical
+        (mutually exclusive with ``BR``)
+      - ``ECE``: standard expected calibration error
+      - ``CMAEW``: mlframe-native power-weighted calibration MAE
+      - ``COV``: bin coverage
+      - ``LL``: log loss
+      - ``ROC_AUC``: ROC AUC (with grouped variant in brackets when
+        group_ids supplied)
+      - ``PR_AUC``: PR AUC (followed by PR/RE/F1 trailing)
+      - ``DENS``: bin density [max;min]
+
+    Tokens render in the order given. Whitespace-separated. Duplicates
+    rejected. Unknown tokens rejected. Empty string is legal (title gets
+    only the user-supplied prefix).
+
+    Histogram subplot (``show_prob_histogram``, default True) draws a
+    predicted-probability histogram under the reliability scatter, sharing
+    the X axis. Y-scale auto-picks log when ``max(hits)/max(min(hits),1) >
+    100`` and linear otherwise; override via
+    ``prob_histogram_yscale="log" | "linear"``. Inline per-bin population
+    text labels next to scatter points are independently controlled by
+    ``show_inline_population_labels`` so users can keep both, drop both, or
+    keep only one.
     """
 
     figsize: Tuple[int, int] = (15, 5)
     print_report: bool = True
     show_perf_chart: bool = True
     show_fi: bool = True
-    fi_kwargs: Dict[str, Any] = Field(default_factory=dict)  # keys: max_features, plot_type
-
-    plot_file: str = ""
-    data_dir: str = ""
-    models_subdir: str = "models"
+    feature_importance_config: Optional[FeatureImportanceConfig] = None
     display_sample_size: int = 0
     show_feature_names: bool = False
+
+    # Per-split metric computation gates (lifted from the trainer-internal
+    # TrainingControlConfig so suite users can disable train-set metrics for
+    # speed, or enable them for overfit diagnostics). Defaults match the
+    # historical trainer-internal hardcoded defaults.
+    compute_trainset_metrics: bool = False
+    compute_valset_metrics: bool = True
+    compute_testset_metrics: bool = True
+
+    # Custom ICE / RICE metric callables (signature: (y_true, y_score) -> float).
+    # When None, the trainer falls back to the mlframe-native ICE built from
+    # compute_probabilistic_multiclass_error. Was reachable only via the
+    # deleted dict pass-through pre-2026-04-27.
+    custom_ice_metric: Optional[Callable] = None
+    custom_rice_metric: Optional[Callable] = None
+
+    # Histogram subplot - independent toggles for the histogram itself and
+    # for the inline population annotations on the scatter plot.
+    show_prob_histogram: bool = True
+    prob_histogram_yscale: Literal["auto", "log", "linear"] = "auto"
+    show_inline_population_labels: bool = True
+
+    # Title-metrics template. Validator parses + populates title_metrics_tokens.
+    title_metrics_template: str = "ICE BR_DECOMP ECE CMAEW LL ROC_AUC PR_AUC"
+    # Populated by the model_validator after title_metrics_template is validated.
+    # Stored as a tuple so downstream hot-path code (fast_calibration_report)
+    # never has to re-parse the string. Do not set directly - it is overwritten
+    # at construction.
+    title_metrics_tokens: Tuple[str, ...] = ()
+
+    @field_validator("title_metrics_template")
+    @classmethod
+    def _validate_title_template(cls, v: str) -> str:
+        toks = [t.strip().upper() for t in v.split() if t.strip()]
+        unknown = [t for t in toks if t not in _REPORTING_ALLOWED_TITLE_TOKENS]
+        if unknown:
+            raise ValueError(
+                f"Unknown title-metrics tokens {unknown}. "
+                f"Allowed: {sorted(_REPORTING_ALLOWED_TITLE_TOKENS)}"
+            )
+        if len(toks) != len(set(toks)):
+            dupes = sorted({t for t in toks if toks.count(t) > 1})
+            raise ValueError(f"Duplicate title-metrics tokens: {dupes}")
+        if "BR" in toks and "BR_DECOMP" in toks:
+            raise ValueError(
+                "BR and BR_DECOMP are mutually exclusive in title_metrics_template"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def _populate_title_tokens(self) -> "ReportingConfig":
+        toks = tuple(t.strip().upper() for t in self.title_metrics_template.split() if t.strip())
+        # Bypass validate_assignment for this derived field so we don't recurse.
+        object.__setattr__(self, "title_metrics_tokens", toks)
+        return self
 
 
 class ConfidenceAnalysisConfig(BaseConfig):
@@ -1581,7 +1724,10 @@ __all__ = [
     "DataConfig",
     "TrainingControlConfig",
     "MetricsConfig",
-    "DisplayConfig",
+    "ReportingConfig",
+    "FeatureImportanceConfig",
+    "OutputConfig",
+    "OutlierDetectionConfig",
     "ConfidenceAnalysisConfig",
     "NamingConfig",
     "PredictionsContainer",

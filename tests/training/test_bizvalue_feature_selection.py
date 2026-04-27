@@ -1,3 +1,4 @@
+from mlframe.training import FeatureSelectionConfig, OutputConfig, ReportingConfig
 """Business-value integration tests for mlframe's feature-selection machinery.
 
 NOTE: These are regression sensors, not scientific benchmarks. Synthetic data parameters
@@ -167,17 +168,17 @@ def _run_suite(df, tmp_path, *, use_mrmr=False, rfecv=False, iters=30):
         model_name="bizvalue_fs_test",
         features_and_targets_extractor=fte,
         mlframe_models=["lgb"],
-        init_common_params={"show_perf_chart": False, "show_fi": False},
+        reporting_config=ReportingConfig(show_perf_chart=False, show_fi=False),
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        data_dir=str(tmp_path),
-        models_dir="models",
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
         verbose=0,
         hyperparams_config={"iterations": iters},
     )
+    fs_kwargs = {}
     if use_mrmr:
-        kwargs["use_mrmr_fs"] = True
-        kwargs["mrmr_kwargs"] = {
+        fs_kwargs["use_mrmr_fs"] = True
+        fs_kwargs["mrmr_kwargs"] = {
             "verbose": 0,
             "max_runtime_mins": 1,
             "n_workers": 1,
@@ -195,11 +196,10 @@ def _run_suite(df, tmp_path, *, use_mrmr=False, rfecv=False, iters=30):
             "min_relevance_gain": 0.01,
         }
     if rfecv:
-        kwargs["rfecv_models"] = ["cb_rfecv"]
-        kwargs["init_common_params"] = {
-            **kwargs["init_common_params"],
-            "rfecv_params": {"max_runtime_mins": 1, "max_refits": 3, "cv": 2},
-        }
+        fs_kwargs["rfecv_models"] = ["cb_rfecv"]
+        fs_kwargs["rfecv_kwargs"] = {"max_runtime_mins": 1, "max_refits": 3, "cv": 2}
+    if fs_kwargs:
+        kwargs["feature_selection_config"] = FeatureSelectionConfig(**fs_kwargs)
     t0 = time.perf_counter()
     models, metadata = train_mlframe_models_suite(**kwargs)
     elapsed = time.perf_counter() - t0

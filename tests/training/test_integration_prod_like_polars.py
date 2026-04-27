@@ -44,6 +44,8 @@ import pandas as pd
 import polars as pl
 import pytest
 
+from mlframe.training import FeatureSelectionConfig, OutputConfig, PreprocessingConfig
+
 from .shared import SimpleFeaturesAndTargetsExtractor
 
 
@@ -112,7 +114,14 @@ def _polars_frame_with_high_card_text(n: int = 800, seed: int = 2) -> pl.DataFra
 # ---------------------------------------------------------------------------
 
 def _common_init_params():
-    return {"drop_columns": [], "verbose": 0}
+    """Returns a PreprocessingConfig the suite consumes via preprocessing_config kwarg.
+
+    Pre-2026-04-27 this returned a dict for the deleted init_common_params
+    pass-through; now returns a typed PreprocessingConfig. Callers also pass
+    ``verbose=0`` separately as a top-level kwarg.
+    """
+    from mlframe.training.configs import PreprocessingConfig
+    return PreprocessingConfig(drop_columns=[])
 
 
 def _config_for_model(model_name: str, iterations: int = 5) -> dict:
@@ -146,11 +155,10 @@ def _run_suite(df, *, mlframe_models, tmp_path, target_name="target",
         features_and_targets_extractor=fte,
         mlframe_models=mlframe_models,
         hyperparams_config=config,
-        init_common_params=_common_init_params(),
+        preprocessing_config=_common_init_params(),
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        data_dir=str(tmp_path),
-        models_dir="models",
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
         verbose=0,
     )
 
@@ -242,16 +250,7 @@ def test_multi_target_classification_then_regression(model_name, tmp_path):
     # Regression on same features
     from mlframe.training.core import train_mlframe_models_suite
     fte_reg = SimpleFeaturesAndTargetsExtractor(target_column="target_reg", regression=True)
-    models_reg = train_mlframe_models_suite(
-        df=df_reg, target_name=f"multitarget_reg_{model_name}",
-        model_name=f"multitarget_reg_{model_name}",
-        features_and_targets_extractor=fte_reg,
-        mlframe_models=[model_name],
-        hyperparams_config=_config_for_model(model_name),
-        init_common_params=_common_init_params(),
-        use_ordinary_models=True, use_mlframe_ensembles=False,
-        data_dir=str(tmp_path), models_dir="models", verbose=0,
-    )
+    models_reg = train_mlframe_models_suite(df=df_reg, target_name=f'multitarget_reg_{model_name}', model_name=f'multitarget_reg_{model_name}', features_and_targets_extractor=fte_reg, mlframe_models=[model_name], hyperparams_config=_config_for_model(model_name), preprocessing_config=_common_init_params(), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
     assert models_reg
 
 
@@ -324,7 +323,7 @@ def _run_combo(models, needs_encoder, tmp_path, label):
     # category encoder so those models receive numeric features. Tree models
     # still take the Polars fastpath separately (their strategy.supports_polars
     # gates around the encoder). This mirrors the prod config.
-    init_params = {"drop_columns": [], "verbose": 0}
+    preprocessing_overrides = PreprocessingConfig(drop_columns=[])
     if needs_encoder:
         import category_encoders as ce
         from sklearn.preprocessing import StandardScaler
@@ -339,18 +338,7 @@ def _run_combo(models, needs_encoder, tmp_path, label):
 
     from mlframe.training.core import train_mlframe_models_suite
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-    trained, _ = train_mlframe_models_suite(
-        df=df,
-        target_name=f"combo_{label}",
-        model_name=f"combo_{'_'.join(models)}",
-        features_and_targets_extractor=fte,
-        mlframe_models=models,
-        hyperparams_config=cfg,
-        init_common_params=init_params,
-        use_ordinary_models=True,
-        use_mlframe_ensembles=False,
-        data_dir=str(tmp_path), models_dir="models", verbose=0,
-    )
+    trained, _ = train_mlframe_models_suite(df=df, target_name=f'combo_{label}', model_name=f"combo_{'_'.join(models)}", features_and_targets_extractor=fte, mlframe_models=models, hyperparams_config=cfg, preprocessing_config=preprocessing_overrides, verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
     assert trained, f"No models trained for combo: {label}"
 
 
@@ -408,15 +396,7 @@ def test_polars_multi_weight_schemas(model_name, tmp_path):
                 pass
             return base
 
-    trained, _ = train_mlframe_models_suite(
-        df=df, target_name=f"mw_{model_name}", model_name=f"mw_{model_name}",
-        features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False),
-        mlframe_models=[model_name],
-        hyperparams_config=_config_for_model(model_name),
-        init_common_params={"drop_columns": [], "verbose": 0},
-        use_ordinary_models=True, use_mlframe_ensembles=False,
-        data_dir=str(tmp_path), models_dir="models", verbose=0,
-    )
+    trained, _ = train_mlframe_models_suite(df=df, target_name=f'mw_{model_name}', model_name=f'mw_{model_name}', features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False), mlframe_models=[model_name], hyperparams_config=_config_for_model(model_name), preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
     assert trained
 
 
@@ -478,14 +458,7 @@ def test_polars_multi_target_same_type(model_name, tmp_path):
         ("target2", TargetTypes.BINARY_CLASSIFICATION, lambda df_: df_["target2"].to_numpy()),
     ])
 
-    trained, _ = train_mlframe_models_suite(
-        df=pl_df, target_name=f"mt_{model_name}", model_name=f"mt_{model_name}",
-        features_and_targets_extractor=fte, mlframe_models=[model_name],
-        hyperparams_config=_config_for_model(model_name),
-        init_common_params=_common_init_params(),
-        use_ordinary_models=True, use_mlframe_ensembles=False,
-        data_dir=str(tmp_path), models_dir="models", verbose=0,
-    )
+    trained, _ = train_mlframe_models_suite(df=pl_df, target_name=f'mt_{model_name}', model_name=f'mt_{model_name}', features_and_targets_extractor=fte, mlframe_models=[model_name], hyperparams_config=_config_for_model(model_name), preprocessing_config=_common_init_params(), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
     assert trained
     # Must have trained under BINARY_CLASSIFICATION for both target names.
     assert TargetTypes.BINARY_CLASSIFICATION in trained
@@ -516,14 +489,7 @@ def test_polars_multi_target_types_clf_and_reg(model_name, tmp_path):
         ("target_reg", TargetTypes.REGRESSION,           lambda df_: df_["target_reg"].to_numpy()),
     ])
 
-    trained, _ = train_mlframe_models_suite(
-        df=pl_df, target_name=f"mtt_{model_name}", model_name=f"mtt_{model_name}",
-        features_and_targets_extractor=fte, mlframe_models=[model_name],
-        hyperparams_config=_config_for_model(model_name),
-        init_common_params=_common_init_params(),
-        use_ordinary_models=True, use_mlframe_ensembles=False,
-        data_dir=str(tmp_path), models_dir="models", verbose=0,
-    )
+    trained, _ = train_mlframe_models_suite(df=pl_df, target_name=f'mtt_{model_name}', model_name=f'mtt_{model_name}', features_and_targets_extractor=fte, mlframe_models=[model_name], hyperparams_config=_config_for_model(model_name), preprocessing_config=_common_init_params(), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
     assert trained
     assert TargetTypes.BINARY_CLASSIFICATION in trained
     assert TargetTypes.REGRESSION in trained
@@ -545,24 +511,7 @@ def test_polars_enum_with_mrmr_feature_selection(model_name, tmp_path):
     pl_df = _basic_polars_frame(n=600)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-    trained, _ = train_mlframe_models_suite(
-        df=pl_df,
-        target_name=f"mrmr_{model_name}",
-        model_name=f"mrmr_{model_name}",
-        features_and_targets_extractor=fte,
-        mlframe_models=[model_name],
-        hyperparams_config=_config_for_model(model_name),
-        init_common_params=_common_init_params(),
-        use_ordinary_models=True, use_mlframe_ensembles=False,
-        data_dir=str(tmp_path), models_dir="models", verbose=0,
-        use_mrmr_fs=True,
-        mrmr_kwargs={
-            "verbose": 0, "max_runtime_mins": 1, "n_workers": 1,
-            "quantization_nbins": 5, "use_simple_mode": True,
-            "min_nonzero_confidence": 0.9, "max_consec_unconfirmed": 3,
-            "full_npermutations": 3,
-        },
-    )
+    trained, _ = train_mlframe_models_suite(df=pl_df, target_name=f'mrmr_{model_name}', model_name=f'mrmr_{model_name}', features_and_targets_extractor=fte, mlframe_models=[model_name], hyperparams_config=_config_for_model(model_name), preprocessing_config=_common_init_params(), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True), output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'), feature_selection_config=FeatureSelectionConfig(mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3, 'full_npermutations': 3}))
     assert trained
 
 
@@ -599,24 +548,7 @@ def test_polars_kitchen_sink_all_trees_mrmr_multi_target_types(tmp_path):
     for m in ("cb", "xgb", "lgb"):
         cfg.update(_config_for_model(m))
 
-    trained, _ = train_mlframe_models_suite(
-        df=pl_df,
-        target_name="kitchen_sink",
-        model_name="kitchen_sink",
-        features_and_targets_extractor=fte,
-        mlframe_models=["cb", "xgb", "lgb"],
-        hyperparams_config=cfg,
-        init_common_params=_common_init_params(),
-        use_ordinary_models=True, use_mlframe_ensembles=False,
-        data_dir=str(tmp_path), models_dir="models", verbose=0,
-        use_mrmr_fs=True,
-        mrmr_kwargs={
-            "verbose": 0, "max_runtime_mins": 1, "n_workers": 1,
-            "quantization_nbins": 5, "use_simple_mode": True,
-            "min_nonzero_confidence": 0.9, "max_consec_unconfirmed": 3,
-            "full_npermutations": 3,
-        },
-    )
+    trained, _ = train_mlframe_models_suite(df=pl_df, target_name='kitchen_sink', model_name='kitchen_sink', features_and_targets_extractor=fte, mlframe_models=['cb', 'xgb', 'lgb'], hyperparams_config=cfg, preprocessing_config=_common_init_params(), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True), output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'), feature_selection_config=FeatureSelectionConfig(mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3, 'full_npermutations': 3}))
     assert trained
     assert TargetTypes.BINARY_CLASSIFICATION in trained
     assert TargetTypes.REGRESSION in trained

@@ -317,8 +317,14 @@ def check_catboost_gpu_available():
 
 @pytest.fixture(scope="session")
 def common_init_params():
-    """Common init_common_params to suppress matplotlib figures in tests."""
-    return {'show_perf_chart': False, 'show_fi': False}
+    """Common ReportingConfig to suppress matplotlib figures in tests.
+
+    Returns a typed ReportingConfig (was a dict pre-2026-04-27). Tests that
+    use this fixture should pass it as ``reporting_config=common_init_params``,
+    not as the deleted ``init_common_params=`` legacy kwarg.
+    """
+    from mlframe.training.configs import ReportingConfig
+    return ReportingConfig(show_perf_chart=False, show_fi=False)
 
 
 @pytest.fixture(scope="session")

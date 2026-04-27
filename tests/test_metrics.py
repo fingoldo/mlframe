@@ -28,11 +28,17 @@ from mlframe.metrics import (
     fast_aucs,
     fast_numba_aucs,
     brier_score_loss,
+    fast_brier_score_loss,
     fast_log_loss,
     compute_pr_recall_f1_metrics,
     fast_calibration_binning,
     fast_calibration_metrics,
     calibration_metrics_from_freqs,
+    compute_ece_and_brier_decomposition,
+    fast_calibration_report,
+    render_title_metric_token,
+    DEFAULT_TITLE_METRICS_TOKENS,
+    TITLE_METRIC_TOKENS,
     fast_precision,
     fast_classification_report,
     probability_separation_score,
@@ -513,6 +519,246 @@ class TestCalibration:
         assert mae_log >= 0
         assert mae_sqrt >= 0
         assert mae_power >= 0
+
+    # ============================================================
+    # ECE + Brier decomposition (added 2026-04-27)
+    # ============================================================
+
+    def _synthetic_binary_data(self, seed: int = 42, n: int = 5000, p_pos: float = 0.3, noise: float = 0.2):
+        rng = np.random.default_rng(seed)
+        y_true = (rng.random(n) < p_pos).astype(np.float64)
+        y_pred = np.clip(p_pos + 0.4 * (y_true - p_pos) + noise * rng.standard_normal(n), 0.001, 0.999)
+        return y_true, y_pred
+
+    def test_brier_decomposition_identity(self):
+        """Murphy 1973: BinnedBrier == REL - RES + UNC exactly to fp precision.
+
+        Identity is on the *binned* Brier (computed inside the kernel using
+        per-bin pred_means), not the raw Brier. Raw Brier differs by the
+        within-bin variance of predictions; that gap is small and shrinks
+        with finer binning.
+        """
+        for seed in (1, 7, 42, 123):
+            for p_pos in (0.05, 0.3, 0.5, 0.7):
+                y_true, y_pred = self._synthetic_binary_data(seed=seed, p_pos=p_pos)
+                _ece, rel, res, unc, br_binned = compute_ece_and_brier_decomposition(
+                    y_true=y_true, y_pred=y_pred, nbins=10,
+                )
+                assert abs(br_binned - (rel - res + unc)) < 1e-12, (
+                    f"identity broke: seed={seed} p_pos={p_pos} "
+                    f"br_binned={br_binned:.12f} REL-RES+UNC={rel-res+unc:.12f}"
+                )
+
+    def test_brier_decomp_perfect_calibration_zero_reliability(self):
+        """When predictions equal observed frequencies per bin, REL ~= 0."""
+        rng = np.random.default_rng(0)
+        n = 50000
+        y_pred = rng.random(n)
+        # Sample y_true from Bernoulli(p_pred) - perfectly calibrated by construction.
+        y_true = (rng.random(n) < y_pred).astype(np.float64)
+        _ece, rel, _res, _unc, _ = compute_ece_and_brier_decomposition(
+            y_true=y_true, y_pred=y_pred, nbins=20,
+        )
+        assert rel < 0.0005, f"REL should be tiny under perfect calibration, got {rel:.6f}"
+
+    def test_brier_decomp_constant_predictor_at_base_rate(self):
+        """A predictor that outputs the base rate has REL=0, RES=0, brier_binned=UNC."""
+        rng = np.random.default_rng(2)
+        n = 8000
+        base = 0.27
+        y_true = (rng.random(n) < base).astype(np.float64)
+        # All predictions the same -> single non-empty bin, p_mean exactly equals base rate.
+        y_pred = np.full(n, fill_value=float(np.mean(y_true)))
+        _ece, rel, res, unc, br_binned = compute_ece_and_brier_decomposition(
+            y_true=y_true, y_pred=y_pred, nbins=10,
+        )
+        assert rel < 1e-12
+        assert res < 1e-12
+        # UNC = base * (1 - base); equality up to fp.
+        assert abs(unc - float(np.mean(y_true)) * (1.0 - float(np.mean(y_true)))) < 1e-12
+        assert abs(br_binned - unc) < 1e-12
+
+    def test_ece_matches_textbook_formula_tiny_example(self):
+        """Hand-rolled ECE on a 4-bin example must match the kernel.
+
+        Bin assignment uses ``ind = floor((p - min) * multiplier)`` with
+        ``multiplier = (nbins - 1) / span``. With min=0.0, max=1.0,
+        span=1.0, multiplier=3.0 - bin 0 covers [0, 1/3), bin 1 [1/3, 2/3),
+        bin 2 [2/3, 1.0), bin 3 = {1.0}.
+        """
+        y_pred = np.array(
+            [0.0, 0.05, 0.4, 0.5, 0.7, 0.8, 1.0, 1.0],
+            dtype=np.float64,
+        )
+        y_true = np.array([0, 0, 0, 1, 1, 1, 1, 1], dtype=np.float64)
+        ece, _rel, _res, _unc, _ = compute_ece_and_brier_decomposition(
+            y_true=y_true, y_pred=y_pred, nbins=4,
+        )
+        # Hand-roll: 4 bins of 2 samples each, weight = 2/8 = 0.25 per bin.
+        # bin 0: pred_mean=(0.0+0.05)/2=0.025, acc=0     -> diff=0.025
+        # bin 1: pred_mean=(0.4+0.5)/2=0.45,   acc=0.5   -> diff=0.05
+        # bin 2: pred_mean=(0.7+0.8)/2=0.75,   acc=1     -> diff=0.25
+        # bin 3: pred_mean=(1.0+1.0)/2=1.0,    acc=1     -> diff=0
+        expected = 0.25 * (0.025 + 0.05 + 0.25 + 0.0)
+        assert abs(ece - expected) < 1e-9, f"got {ece}, expected {expected}"
+
+    def test_ece_kernel_handles_empty_input(self):
+        """Empty input returns (1.0, 1.0, 0.0, 0.0, 1.0) - matches degenerate handling."""
+        ece, rel, res, unc, br = compute_ece_and_brier_decomposition(
+            y_true=np.array([], dtype=np.float64),
+            y_pred=np.array([], dtype=np.float64),
+            nbins=10,
+        )
+        assert (ece, rel, res, unc, br) == (1.0, 1.0, 0.0, 0.0, 1.0)
+
+    def test_ece_kernel_handles_single_class(self):
+        """Single-class input - kernel computes; identity still holds (binned)."""
+        y_true = np.zeros(100, dtype=np.float64)
+        y_pred = np.linspace(0.0, 1.0, 100)
+        ece, rel, res, unc, br_binned = compute_ece_and_brier_decomposition(
+            y_true=y_true, y_pred=y_pred, nbins=10,
+        )
+        assert abs(br_binned - (rel - res + unc)) < 1e-12
+        # base_rate=0 -> UNC=0; resolution sums squared deviations of acc from 0,
+        # which equal acc^2 (and acc=0 in every bin since y_true is all-zeros) -> RES=0.
+        assert unc == 0.0
+        assert res == 0.0
+        # ECE = mean predicted prob (since acc=0 everywhere); positive.
+        assert ece > 0.0
+
+    def test_fast_calibration_report_returns_extended_tuple(self):
+        """The 17-tuple must include the four new fields between calibration_coverage and roc_auc."""
+        y_true, y_pred = self._synthetic_binary_data()
+        out = fast_calibration_report(
+            y_true=y_true, y_pred=y_pred, nbins=10,
+            show_plots=False, plot_file="",
+        )
+        assert len(out) == 17
+        # Positions: brier_loss(0), cal_mae(1), cal_std(2), cal_coverage(3),
+        # ece(4), brier_reliability(5), brier_resolution(6), brier_uncertainty(7),
+        # roc_auc(8), pr_auc(9), ice(10), ll(11), precision(12), recall(13), f1(14),
+        # metrics_string(15), fig(16).
+        ece, rel, res, unc = out[4], out[5], out[6], out[7]
+        # Values match a direct kernel call on the same inputs.
+        ece_k, rel_k, res_k, unc_k, _ = compute_ece_and_brier_decomposition(
+            y_true=y_true, y_pred=y_pred, nbins=10,
+        )
+        assert abs(ece - ece_k) < 1e-12
+        assert abs(rel - rel_k) < 1e-12
+        assert abs(res - res_k) < 1e-12
+        assert abs(unc - unc_k) < 1e-12
+
+    # ============================================================
+    # Title-metrics token rendering
+    # ============================================================
+
+    def test_token_set_complete(self):
+        """TITLE_METRIC_TOKENS frozenset is the canonical allowed set."""
+        assert TITLE_METRIC_TOKENS == frozenset({
+            "ICE", "BR", "BR_DECOMP", "ECE", "CMAEW",
+            "COV", "LL", "ROC_AUC", "PR_AUC", "DENS",
+        })
+
+    def test_default_token_sequence(self):
+        """Default mirrors the calibration report layout - ICE first, BR with decomp, then ECE."""
+        assert DEFAULT_TITLE_METRICS_TOKENS == ("ICE", "BR_DECOMP", "ECE", "CMAEW", "LL", "ROC_AUC", "PR_AUC")
+
+    def test_render_token_ice(self):
+        out = render_title_metric_token(
+            "ICE", ndigits=3, ice=0.123, brier_loss=0.0, ece=0.0,
+            brier_reliability=0.0, brier_resolution=0.0, brier_uncertainty=0.0,
+            calibration_mae=0.0, calibration_std=0.0, use_weights=True,
+            calibration_coverage=0.0, nbins=10, ll=None, max_hits=0, min_hits=0,
+            roc_auc=0.0, mean_group_roc_auc=None, pr_auc=0.0, mean_group_pr_auc=None,
+            precision=0.0, recall=0.0, f1=0.0,
+        )
+        assert out == "ICE=0.123"
+
+    def test_render_token_br_decomp_format(self):
+        out = render_title_metric_token(
+            "BR_DECOMP", ndigits=2, ice=0.0,
+            brier_loss=0.1234, ece=0.0,
+            brier_reliability=0.05, brier_resolution=0.10, brier_uncertainty=0.21,
+            calibration_mae=0.0, calibration_std=0.0, use_weights=True,
+            calibration_coverage=0.0, nbins=10, ll=None, max_hits=0, min_hits=0,
+            roc_auc=0.0, mean_group_roc_auc=None, pr_auc=0.0, mean_group_pr_auc=None,
+            precision=0.0, recall=0.0, f1=0.0,
+        )
+        # 0.1234 -> 12.34%, 0.05 -> 5.00%, 0.10 -> 10.00%, 0.21 -> 21.00%.
+        assert "BR=12.34%" in out
+        assert "REL=5.00%" in out
+        assert "RES=10.00%" in out
+        assert "UNC=21.00%" in out
+
+    def test_render_token_ll_skipped_when_none(self):
+        out = render_title_metric_token(
+            "LL", ndigits=3, ice=0.0, brier_loss=0.0, ece=0.0,
+            brier_reliability=0.0, brier_resolution=0.0, brier_uncertainty=0.0,
+            calibration_mae=0.0, calibration_std=0.0, use_weights=True,
+            calibration_coverage=0.0, nbins=10, ll=None, max_hits=0, min_hits=0,
+            roc_auc=0.0, mean_group_roc_auc=None, pr_auc=0.0, mean_group_pr_auc=None,
+            precision=0.0, recall=0.0, f1=0.0,
+        )
+        assert out == ""
+
+    def test_render_token_unknown_returns_empty(self):
+        # Defence-in-depth: unknown tokens should never reach this function in
+        # practice (ReportingConfig validates), but if one slips past, render
+        # returns "" so the title just skips it without crashing.
+        out = render_title_metric_token(
+            "FOO", ndigits=3, ice=0.0, brier_loss=0.0, ece=0.0,
+            brier_reliability=0.0, brier_resolution=0.0, brier_uncertainty=0.0,
+            calibration_mae=0.0, calibration_std=0.0, use_weights=True,
+            calibration_coverage=0.0, nbins=10, ll=None, max_hits=0, min_hits=0,
+            roc_auc=0.0, mean_group_roc_auc=None, pr_auc=0.0, mean_group_pr_auc=None,
+            precision=0.0, recall=0.0, f1=0.0,
+        )
+        assert out == ""
+
+    def test_title_string_contains_default_tokens_in_order(self):
+        """Smoke: title string after a real fast_calibration_report call has the default tokens in order."""
+        y_true, y_pred = self._synthetic_binary_data()
+        out = fast_calibration_report(
+            y_true=y_true, y_pred=y_pred, nbins=10,
+            show_plots=False, plot_file="",
+        )
+        title = out[15]
+        # The metric labels appear in the same order as DEFAULT_TITLE_METRICS_TOKENS.
+        # ECE label comes between BR-decomp's UNC=...) and CMAEW.
+        idx_ice = title.index("ICE=")
+        idx_br = title.index("BR=")
+        idx_ece = title.index("ECE=")
+        idx_cmaew = title.index("CMAEW=")
+        idx_ll = title.index("LL=")
+        idx_roc = title.index("ROC AUC=")
+        idx_pr = title.index("PR AUC=")
+        assert idx_ice < idx_br < idx_ece < idx_cmaew < idx_ll < idx_roc < idx_pr
+
+    def test_title_custom_token_subset(self):
+        """When passing fewer tokens, the title contains only those, in the chosen order."""
+        y_true, y_pred = self._synthetic_binary_data()
+        out = fast_calibration_report(
+            y_true=y_true, y_pred=y_pred, nbins=10,
+            show_plots=False, plot_file="",
+            title_metrics_tokens=("CMAEW", "ICE"),
+        )
+        title = out[15]
+        # CMAEW first, then ICE; nothing else.
+        assert title.startswith("CMAE")
+        assert title.index("ICE=") > title.index("CMAE")
+        assert "BR=" not in title
+        assert "ECE=" not in title
+        assert "ROC AUC=" not in title
+
+    def test_title_empty_tokens_yields_empty_metrics_string(self):
+        """Passing an empty token tuple yields an empty title metrics string."""
+        y_true, y_pred = self._synthetic_binary_data()
+        out = fast_calibration_report(
+            y_true=y_true, y_pred=y_pred, nbins=10,
+            show_plots=False, plot_file="",
+            title_metrics_tokens=(),
+        )
+        assert out[15] == ""
 
 
 # =============================================================================

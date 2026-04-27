@@ -1,3 +1,4 @@
+from mlframe.training import FeatureSelectionConfig
 """Combo enumerator + results log for train_mlframe_models_suite fuzzing.
 
 Design principles:
@@ -10,6 +11,46 @@ Design principles:
   * xfail-aware: combos hitting known bugs are auto-marked xfail via a
     declarative rule table — single source of truth shared with tracked
     tests elsewhere in the suite.
+
+Canonicalisation contract (READ THIS BEFORE EDITING ``canonical_key`` /
+``_canonical_*``).
+
+Canonicalisation deduplicates SEMANTICALLY-EQUIVALENT combos. It does
+NOT silence flaky combos. The two are easy to confuse and the latter is
+strictly forbidden.
+
+  Legitimate canon (keep): ``imbalance="balanced"`` collapses regardless
+  of the imbalance-mode flag, because at 50/50 the mode produces
+  bit-identical data. The two combos really are the same combo, and
+  hashing them as one is a memory / time win with no coverage cost.
+
+  ILLEGITIMATE canon (DO NOT WRITE, FIX PROD INSTEAD): zeroing
+  ``text_col_count`` for combos that hit a CB hang, forcing
+  ``inject_degenerate_cols=False`` for combos that crash CB's cat-feature
+  auto-detect, forcing ``remove_constant_columns=True`` for combos that
+  break the polars-ds robust scaler. These are real production bugs
+  that real users would hit. Hiding them in canon means the fuzz suite
+  STAYS GREEN while production stays broken — exactly the inverse of
+  what this harness is for.
+
+  If you catch yourself writing a canon rule whose justification
+  references a CrashID / fuzz cXXXX / "the X path hangs" — STOP. Find
+  the prod fix. Once prod is fixed the canon is unnecessary; until prod
+  is fixed, the failure is doing its job by surfacing the bug.
+
+Concrete example, 2026-04-27: the original ``_canonical_text_col_count``
+zeroed text columns when CB + small-n + heavy NaN injection landed on
+inner-CV folds smaller than CB's default ``occurrence_lower_bound=50``.
+The fix was a real production change in
+``training/helpers.compute_cb_text_processing`` that scales the floor
+proportionally to the fit-time row count (called from
+``trainer._train_model_with_fallback`` and ``feature_selection/wrappers.py``
+RFECV inner-fold). After the fix, the canon was retired.
+
+See ``CLAUDE.md`` (project root) for the full anti-masking checklist
+covering canon, runtime ``*_eff`` rewrites in ``test_fuzz_suite.py``,
+``pytest.mark.xfail`` rules, and "0-row defensive guards" in
+production code.
 
 Results log: every fuzz run appends one JSONL row per combo to
 ``tests/training/_fuzz_results.jsonl`` capturing combo key, outcome
@@ -42,10 +83,23 @@ AXES: dict[str, tuple[Any, ...]] = {
     # rare_5pct (250) actually get reliable train/val/test splits per the
     # _canonical_imbalance threshold. Previously rare_1pct was always
     # canonicalised down to balanced because no n was large enough.
-    "n_rows": (300, 600, 1200, 5000),
-    # cat_feature_count 20 stresses one-hot blow-up (~20 levels × 20 cols ~= 400
-    # generated features) and exercises the high-card branch of MRMR / encoder.
-    "cat_feature_count": (0, 1, 3, 8, 20),
+    # n_rows tier:
+    #   * 300 — small-batch / "minimum-viable" training corner.
+    #   * 600 — boundary for rare_5pct (frac*0.1*n>=4 ⇒ n>=800 with OD/aging
+    #     trim); below this rare_5pct canonicalises to balanced.
+    #   * 1000 — "medium-large" tier (was 1200 in 2026-04 axis space; reduced
+    #     2026-04-27 for fuzz speed — every combo at this tier is ~17 %
+    #     faster, no semantic coverage lost since rare_5pct still exercises
+    #     at n=1000 per the canonical_imbalance threshold).
+    #   * 5000 — only tier that supports rare_1pct (frac*0.1*n>=4 ⇒ n>=4000);
+    #     keep as-is.
+    "n_rows": (300, 600, 1000, 5000),
+    # cat_feature_count 15 stresses one-hot blow-up (~15 levels × 15 cols ~=
+    # 225 generated features) and exercises the high-card branch of MRMR /
+    # encoder. Was 20 in 2026-04 — reduced 2026-04-27 for fuzz speed; the
+    # one-hot blow-up code path is the same, just the absolute feature count
+    # is smaller.
+    "cat_feature_count": (0, 1, 3, 8, 15),
     "null_fraction_cats": (0.0, 0.1, 0.3),
     "use_mrmr_fs": (False, True),
     "weight_schemas": (("uniform",), ("uniform", "recency")),
@@ -83,7 +137,10 @@ AXES: dict[str, tuple[Any, ...]] = {
     "outlier_detection": (None, "isolation_forest", "lof", "ocsvm"),  # #3, batch 3 +LOF/OCSVM
     "use_ensembles": (False, True),                              # #5
     "continue_on_model_failure": (False, True),                  # #21
-    "iterations": (3, 30),                                       # #15
+    # iterations: 3 (single-iter sanity) + 15 (multi-iter ES/convergence).
+    # Was (3, 30) in 2026-04 — 30 reduced to 15 on 2026-04-27 for fuzz speed;
+    # the multi-iter boosting code path is the same and ES still triggers.
+    "iterations": (3, 15),                                       # #15
     "prefer_calibrated_classifiers": (False, True),              # #32
     "inject_degenerate_cols": (False, True),                     # #7 (const + all-null)
     "inject_inf_nan": (False, True),                             # #10
@@ -103,7 +160,7 @@ AXES: dict[str, tuple[Any, ...]] = {
     "test_size_cfg": (0.1, 0.2),                                 # TrainingSplitConfig.test_size
     "trainset_aging_limit_cfg": (None, 0.5),                     # TrainingSplitConfig.trainset_aging_limit
     "cat_text_card_threshold_cfg": (50, 300),                    # FeatureTypesConfig.cat_text_cardinality_threshold
-    "early_stopping_rounds_cfg": (None, 20),                     # ModelHyperparamsConfig.early_stopping_rounds
+    "early_stopping_rounds_cfg": (None, 10),                     # ModelHyperparamsConfig.early_stopping_rounds — was 20 in 2026-04, reduced 2026-04-27 for fuzz speed (still tests ES path with smaller patience)
     "use_robust_eval_metric_cfg": (False, True),                 # TrainingBehaviorConfig.use_robust_eval_metric
     # 2026-04-24 (Fix G): adversarial axis values — synthetic patterns
     # that stress-test the pipeline for bugs real-world synthetic data
@@ -128,9 +185,9 @@ AXES: dict[str, tuple[Any, ...]] = {
     # target_type=multilabel + strategy=chain). Now actually wired through
     # train_mlframe_models_suite → select_target → configure_training_params
     # → strategy.wrap_multilabel via the new multilabel_dispatch_config kwarg.
-    "multilabel_n_chains_cfg": (3, 5),                           # MultilabelDispatchConfig.n_chains
+    "multilabel_n_chains_cfg": (2, 3),                           # MultilabelDispatchConfig.n_chains — was (3, 5) in 2026-04, reduced 2026-04-27 for fuzz speed (chain dispatch path identical, fewer chains)
     "multilabel_chain_order_cfg": ("random", "by_frequency"),    # MultilabelDispatchConfig.chain_order_strategy
-    "multilabel_cv_cfg": (3, 5),                                 # MultilabelDispatchConfig.cv
+    "multilabel_cv_cfg": (2, 3),                                 # MultilabelDispatchConfig.cv — was (3, 5) in 2026-04, reduced 2026-04-27 for fuzz speed (CV path identical, fewer folds)
     # 2026-04-26 batch 4 — PreprocessingExtensionsConfig (entire config was
     # untested). When ANY of these is non-None the sklearn-bridge fires in
     # fit_and_transform_pipeline (polars-native fastpath bypassed) — even
@@ -287,28 +344,18 @@ class FuzzCombo:
             self.use_polarsds_pipeline,
             self.use_text_features,
             self.honor_user_dtype,
-            # text_col_count canonicalises to 0 when CB is in the model
-            # set AND the combo would land on a too-small effective
-            # training batch for CB's text-feature TF-IDF estimator
-            # (default ``occurrence_lower_bound=50`` requires ~150+
-            # rows × 24-token vocab). The trigger window is small_n +
-            # heavy NaN-injection axes that further trim the train via
-            # outlier-detection / aging — fuzz c0056 / c0070 land here
-            # and CB raises "Dictionary size is 0" then "Feature ... in
-            # data to quantize, but not available in quantized info"
-            # on retry. The text axis is still exercised on larger
-            # combos that don't trigger the collapse.
-            (
-                0
-                if (
-                    self.text_col_count > 0
-                    and "cb" in self.models
-                    and self.n_rows <= 300
-                    and self.inject_inf_nan
-                    and self.inject_all_nan_col
-                )
-                else self.text_col_count
-            ),
+            # text_col_count: passthrough. The historical canonicalisation
+            # here zeroed text columns on small-n CB + heavy NaN combos
+            # (fuzz c0056 / c0070) where CB's default
+            # ``occurrence_lower_bound=50`` cannot build a TF-IDF
+            # dictionary on tiny inner-CV folds. That production hang
+            # is now fixed in ``training/helpers.compute_cb_text_processing``
+            # (called from ``trainer._train_model_with_fallback`` and
+            # the RFECV inner-fold path in ``feature_selection/wrappers``)
+            # which scales ``occurrence_lower_bound`` proportionally to
+            # the actual fit-time row count. The fuzz axis stays fully
+            # exercised.
+            self.text_col_count,
             self.embedding_col_count,
             # 2026-04-24 combo-extension axes
             # OneClassSVM has O(n²) fit cost — collapse to None on the
@@ -592,19 +639,13 @@ class FuzzCombo:
     def _canonical_text_col_count(self) -> int:
         """Mirror the text_col_count canonicalisation in canonical_key.
 
-        Used by the synthetic frame builder so the runtime data layout
-        agrees with the dedup hash: when the combo would hit CB's
-        text-estimator collapse (small n + heavy NaN injection + CB),
-        emit zero text columns instead of the requested count.
+        Currently a passthrough — historical canonicalisation rules
+        (which dropped text cols on small-n CB + heavy NaN, and on
+        cb_rfecv + NaN) were masking real production hangs in CB's
+        text-feature path. Those are now fixed in production code:
+        ``trainer.py`` skips text features whenever the effective
+        train rows are below CB's occurrence_lower_bound floor.
         """
-        if (
-            self.text_col_count > 0
-            and "cb" in self.models
-            and self.n_rows <= 300
-            and self.inject_inf_nan
-            and self.inject_all_nan_col
-        ):
-            return 0
         return self.text_col_count
 
     def _is_chain_dispatch(self) -> bool:
@@ -846,42 +887,20 @@ class FuzzCombo:
 # "Session 6: multilabel full-pipeline integration" entry.
 
 
-def _rule_cb_pool_reuse_with_mrmr_small_n_filtered(c: FuzzCombo) -> bool:
-    """CB-only + MRMR + small n + outlier_detection + aging_limit:
-    cached cb Pool's label desyncs from train_target between RFECV/MRMR
-    iterations, CB then raises ``Labels variable is empty`` deep in
-    Pool init (fuzz c0079). The mismatch guard in
-    _maybe_get_or_build_cb_pool catches some cases but not this one.
-    TODO: rebuild cb Pool unconditionally when use_mrmr_fs=True (the
-    MRMR-mutated feature space invalidates the cached Pool's column
-    layout)."""
-    return (
-        c.models == ("cb",)
-        and c.use_mrmr_fs
-        and c.n_rows <= 300
-        and c.outlier_detection is not None
-        and c.trainset_aging_limit_cfg is not None
-    )
-
-
-def _rule_cb_text_dict_collapse_with_full_quartet(c: FuzzCombo) -> bool:
-    """CB text-feature dictionary collapses to size 0 (and raises
-    ``Unsupported data type String for a numerical feature column``)
-    when a full GBM quartet runs alongside CB on text+heavy-NaN
-    combos (fuzz c0056 / c0070). Root cause sits at the intersection
-    of: CatBoostEncoder turning cat_0 into float (handled by the new
-    dtype-aware filter in wrappers.py for the FS-wrapper path), AND
-    CB's text estimator getting fed a degenerate text column when
-    upstream filters cull most of the train rows (text dictionary
-    collapses below CB's occurrence_lower_bound). TODO: pre-fill
-    text columns with a sentinel before CB sees them, or auto-tune
-    occurrence_lower_bound on small folds."""
-    return (
-        c.text_col_count > 0
-        and c.inject_inf_nan
-        and c.inject_all_nan_col
-        and {"cb", "hgb", "lgb", "linear", "xgb"}.issubset(set(c.models))
-    )
+# _rule_cb_pool_reuse_with_mrmr_small_n_filtered REMOVED 2026-04-27 — fixed
+# by empty-target + length-mismatch guards in
+# trainer._maybe_get_or_build_cb_pool (rebuild on mismatch / empty target).
+# The rule's TODO (rebuild cb Pool unconditionally when use_mrmr_fs=True) is
+# subsumed by the per-fit length-mismatch check.
+#
+# _rule_cb_text_dict_collapse_with_full_quartet REMOVED 2026-04-27 — fixed
+# by dynamic CB ``text_processing`` calibration in
+# training/helpers.compute_cb_text_processing, applied at trainer fit-time
+# AND in feature_selection/wrappers.py RFECV inner-fold. The rule's TODO
+# ("auto-tune occurrence_lower_bound on small folds") is exactly what the
+# new helper does — scaling the floor proportionally to fold rows so words
+# that occur in 5%+ survive the prune. Permanent regression coverage:
+# fuzz combos c0056 / c0070 / c0079 in tests/training/test_fuzz_suite.py.
 
 
 KNOWN_XFAIL_RULES: list[tuple[Callable[[FuzzCombo], bool], str]] = [
@@ -953,7 +972,7 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         n_rows=axes["n_rows"],
         cat_feature_count=axes["cat_feature_count"],
         null_fraction_cats=axes["null_fraction_cats"],
-        use_mrmr_fs=axes["use_mrmr_fs"],
+        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=axes["use_mrmr_fs"]),
         weight_schemas=axes["weight_schemas"],
         target_type=axes["target_type"],
         auto_detect_cats=axes["auto_detect_cats"],

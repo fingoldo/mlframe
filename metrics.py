@@ -568,6 +568,103 @@ def jaccard_score_multilabel(y_true, y_pred, *, force_elementwise: bool = False)
     return _fast_jaccard_score_seq(yt, yp)
 
 
+# Closed set of title-metrics tokens recognised by render_title_metrics() and
+# validated by ReportingConfig at construction time. Order in DEFAULT matches
+# the historical title layout (ICE first, then BR with decomposition, ECE between
+# BR and CMAEW per spec, then LL, ROC_AUC, PR_AUC). Adding a new token requires:
+# 1) extending TITLE_METRIC_TOKENS, 2) adding a render_* branch in
+# render_title_metric_token, 3) updating ReportingConfig validator allowed-set.
+TITLE_METRIC_TOKENS: frozenset = frozenset({
+    "ICE", "BR", "BR_DECOMP", "ECE", "CMAEW",
+    "COV", "LL", "ROC_AUC", "PR_AUC", "DENS",
+})
+DEFAULT_TITLE_METRICS_TOKENS: tuple = ("ICE", "BR_DECOMP", "ECE", "CMAEW", "LL", "ROC_AUC", "PR_AUC")
+
+
+def render_title_metric_token(
+    token: str,
+    *,
+    ndigits: int,
+    ice: float,
+    brier_loss: float,
+    ece: float,
+    brier_reliability: float,
+    brier_resolution: float,
+    brier_uncertainty: float,
+    calibration_mae: float,
+    calibration_std: float,
+    use_weights: bool,
+    calibration_coverage: float,
+    nbins: int,
+    ll: Optional[float],
+    max_hits: int,
+    min_hits: int,
+    roc_auc: float,
+    mean_group_roc_auc: Optional[float],
+    pr_auc: float,
+    mean_group_pr_auc: Optional[float],
+    precision: float,
+    recall: float,
+    f1: float,
+) -> str:
+    """Render one calibration-report title fragment for a token.
+
+    Returns the empty string when the token has no usable data (e.g. LL with
+    single-class y_true). Tokens are validated by ReportingConfig at config
+    construction time, so unknown tokens cannot reach this function in practice -
+    the final ``return ""`` is a defence-in-depth against bypassed validation.
+    """
+    if token == "ICE":
+        return f"ICE={ice:.{ndigits}f}"
+    if token == "BR":
+        return f"BR={brier_loss * 100:.{ndigits}f}%"
+    if token == "BR_DECOMP":
+        return (
+            f"BR={brier_loss * 100:.{ndigits}f}% "
+            f"(REL={brier_reliability * 100:.{ndigits}f}%, "
+            f"RES={brier_resolution * 100:.{ndigits}f}%, "
+            f"UNC={brier_uncertainty * 100:.{ndigits}f}%)"
+        )
+    if token == "ECE":
+        return f"ECE={ece * 100:.{ndigits}f}%"
+    if token == "CMAEW":
+        return (
+            f"CMAE{'W' if use_weights else ''}="
+            f"{calibration_mae * 100:.{ndigits}f}%"
+            f"±{calibration_std * 100:.{ndigits}f}%"
+        )
+    if token == "COV":
+        # log10(nbins) decides COV's decimal precision; matches pre-template behaviour.
+        cov_prec = max(0, int(np.log10(max(nbins, 1))))
+        return f"COV={calibration_coverage * 100:.{cov_prec}f}%"
+    if token == "LL":
+        if ll is None:
+            return ""
+        return f"LL={ll:.{ndigits}f}"
+    if token == "DENS":
+        return f"DENS=[{max_hits:_};{min_hits:_}]"
+    if token == "ROC_AUC":
+        suffix = ""
+        if mean_group_roc_auc is not None and not np.isnan(mean_group_roc_auc):
+            suffix = f"[{mean_group_roc_auc:.{ndigits}f}]"
+        if np.isnan(roc_auc):
+            return f"ROC AUC=N/A{suffix}"
+        return f"ROC AUC={roc_auc:.{ndigits}f}{suffix}"
+    if token == "PR_AUC":
+        suffix = ""
+        if mean_group_pr_auc is not None and not np.isnan(mean_group_pr_auc):
+            suffix = f"[{mean_group_pr_auc:.{ndigits}f}]"
+        if np.isnan(pr_auc):
+            base = f"PR AUC=N/A{suffix}"
+        else:
+            base = f"PR AUC={pr_auc:.{ndigits}f}{suffix}"
+        return (
+            f"{base}, PR={precision * 100:.{ndigits}f}%,"
+            f"RE={recall * 100:.{ndigits}f}%,F1={f1 * 100:.{ndigits}f}%"
+        )
+    return ""
+
+
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
     """Computes bins of predicted vs actual events frequencies. Corresponds to sklearn's UNIFORM strategy."""
@@ -623,12 +720,47 @@ def show_calibration_plot(
     label_prob: str = "Predicted Probability",
     colorbar_label: str = "Bin population",
     use_size: bool = False,
+    show_prob_histogram: bool = True,
+    prob_histogram_yscale: str = "auto",
+    show_inline_population_labels: bool = True,
+    label_histogram: str = "Bin population",
 ):
-    """Plots reliability digaram from the binned predictions."""
+    """Plots reliability digaram from the binned predictions.
+
+    With ``show_prob_histogram=True`` (default) a probability-distribution
+    histogram is drawn under the reliability scatter, sharing the X axis.
+    Histogram bar heights are bin populations (``hits``); Y-scale auto-picks
+    log when ``max(hits)/max(min(hits),1) > 100`` and linear otherwise -
+    override with ``prob_histogram_yscale="log" | "linear"``.
+    Inline per-bin population annotations (the small text labels next to each
+    scatter point) are independently controlled by
+    ``show_inline_population_labels`` so users can keep both, drop both, or
+    keep only one.
+    """
 
     assert backend in ("plotly", "matplotlib")
+    assert prob_histogram_yscale in ("auto", "log", "linear")
 
     x_min, x_max = np.min(freqs_predicted), np.max(freqs_predicted)
+
+    # nbins-derived bar width: use the bin centre spacing as the bar width.
+    # When all bins have data this matches fast_calibration_binning's geometry;
+    # if some bins are empty (sparse hits filter at metrics.py:600) we fall back
+    # to the average centre spacing across present bins so bars don't overlap.
+    if len(freqs_predicted) > 1:
+        _bar_width = float(np.mean(np.diff(np.sort(freqs_predicted))))
+    else:
+        _bar_width = 0.05
+
+    def _resolve_yscale(hits_arr) -> str:
+        """auto -> log iff max/min skew > 100, else linear. Explicit modes pass through."""
+        if prob_histogram_yscale != "auto":
+            return prob_histogram_yscale
+        if len(hits_arr) == 0:
+            return "linear"
+        max_h = float(np.max(hits_arr))
+        min_h = max(float(np.min(hits_arr)), 1.0)
+        return "log" if (max_h / min_h) > 100.0 else "linear"
 
     if backend == "matplotlib":
         # Function to format hits values with B, M, K suffixes
@@ -642,18 +774,8 @@ def show_calibration_plot(
             else:
                 return f"{n:.0f}"
 
-        # Save-only fast path: bypass pyplot + GUI backend (Qt init costs ~1.7s per call).
-        # Using Figure + FigureCanvasAgg directly drops this to ~0.2s. Also thread-safe,
-        # which matters for parallel val/test evaluation.
-        if plot_file and not show_plots:
-            from matplotlib.figure import Figure
-            from matplotlib.backends.backend_agg import FigureCanvasAgg
-
-            fig = Figure(figsize=figsize)
-            FigureCanvasAgg(fig)
-            ax = fig.add_subplot(1, 1, 1)
-            # Use matplotlib.colormaps[...] instead of deprecated cm.get_cmap
-            # (mpl 3.9+ emits DeprecationWarning, future removal).
+        def _draw_calibration_axes(ax, fig, draw_xlabel: bool):
+            """Render the reliability scatter + perfect-calibration line + colorbar on ``ax``."""
             cm = matplotlib.colormaps["RdYlBu"]
             sc = ax.scatter(
                 x=freqs_predicted, y=freqs_true, marker="o",
@@ -664,45 +786,77 @@ def show_calibration_plot(
                 [min(freqs_predicted), max(freqs_predicted)],
                 "g--", label=label_perfect,
             )
-            ax.set_xlabel(label_prob)
+            if draw_xlabel:
+                ax.set_xlabel(label_prob)
             ax.set_ylabel(label_freq)
             cbar = fig.colorbar(sc, ax=ax)
             cbar.set_label(colorbar_label)
-            vertical_offset = 0.02
-            for x, y, hit in zip(freqs_predicted, freqs_true, hits):
-                ax.text(x, y + vertical_offset, format_population(hit),
-                        fontsize=8, ha="right", va="bottom")
-            if plot_title:
-                ax.set_title(plot_title)
+            if show_inline_population_labels:
+                vertical_offset = 0.02
+                for x, y, hit in zip(freqs_predicted, freqs_true, hits):
+                    ax.text(
+                        x, y + vertical_offset, format_population(hit),
+                        fontsize=8, ha="right", va="bottom",
+                    )
+
+        def _draw_histogram_axes(ax):
+            """Render the predicted-probability histogram under the calibration axes."""
+            ax.bar(
+                freqs_predicted, hits,
+                width=_bar_width, align="center",
+                color="steelblue", edgecolor="white", linewidth=0.5,
+            )
+            ax.set_xlabel(label_prob)
+            ax.set_ylabel(label_histogram)
+            ax.set_yscale(_resolve_yscale(hits))
+
+        # Save-only fast path: bypass pyplot + GUI backend (Qt init costs ~1.7s per call).
+        # Using Figure + FigureCanvasAgg directly drops this to ~0.2s. Also thread-safe,
+        # which matters for parallel val/test evaluation.
+        if plot_file and not show_plots:
+            from matplotlib.figure import Figure
+            from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+            fig = Figure(figsize=figsize)
+            FigureCanvasAgg(fig)
+            if show_prob_histogram:
+                gs = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.05)
+                ax_main = fig.add_subplot(gs[0, 0])
+                ax_hist = fig.add_subplot(gs[1, 0], sharex=ax_main)
+                _draw_calibration_axes(ax_main, fig, draw_xlabel=False)
+                _draw_histogram_axes(ax_hist)
+                # hide top axes' x tick labels since hist below carries them via sharex
+                plt.setp(ax_main.get_xticklabels(), visible=False)
+                if plot_title:
+                    ax_main.set_title(plot_title)
+            else:
+                ax = fig.add_subplot(1, 1, 1)
+                _draw_calibration_axes(ax, fig, draw_xlabel=True)
+                if plot_title:
+                    ax.set_title(plot_title)
             fig.tight_layout()
             fig.savefig(plot_file)
             return fig
 
         # Interactive path (show_plots=True) — keep pyplot so the GUI window is managed.
-        cm = matplotlib.colormaps["RdYlBu"]
-        fig = plt.figure(figsize=figsize)
-        sc = plt.scatter(x=freqs_predicted, y=freqs_true, marker="o", s=5000 * hits / hits.sum(), c=hits, label=label_freq, cmap=cm)
-        plt.plot([min(freqs_predicted), max(freqs_predicted)], [min(freqs_predicted), max(freqs_predicted)], "g--", label=label_perfect)
-        plt.xlabel(label_prob)
-        plt.ylabel(label_freq)
-        cbar = plt.colorbar(sc)
-        cbar.set_label(colorbar_label)
-
-        # Add population labels near each scatter point
-        vertical_offset = 0.02
-        for x, y, hit in zip(freqs_predicted, freqs_true, hits):
-            plt.text(
-                x,
-                y + vertical_offset,
-                format_population(hit),
-                fontsize=8,
-                ha="right",
-                va="bottom",
-                # bbox=dict(facecolor="white", alpha=0.8, edgecolor="none", pad=1),
+        if show_prob_histogram:
+            fig, (ax_main, ax_hist) = plt.subplots(
+                nrows=2, ncols=1,
+                figsize=figsize,
+                sharex=True,
+                gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05},
             )
-
-        if plot_title:
-            plt.title(plot_title)
+            _draw_calibration_axes(ax_main, fig, draw_xlabel=False)
+            _draw_histogram_axes(ax_hist)
+            plt.setp(ax_main.get_xticklabels(), visible=False)
+            if plot_title:
+                ax_main.set_title(plot_title)
+        else:
+            fig = plt.figure(figsize=figsize)
+            ax = fig.add_subplot(1, 1, 1)
+            _draw_calibration_axes(ax, fig, draw_xlabel=True)
+            if plot_title:
+                ax.set_title(plot_title)
 
         # Use constrained_layout to avoid issues with colorbar
         fig.tight_layout()
@@ -731,22 +885,54 @@ def show_calibration_plot(
             df["size"] = 5000 * hits / hits.sum()
             hover_data["size"] = False
 
-        fig = go.Figure()
-        # fig = px.scatter(data_frame=df ,x=label_prob,y=label_freq,size="size" if use_size else None, color="NCases", labels={'x':label_prob, 'y':label_freq},hover_data=hover_data)
+        if show_prob_histogram:
+            from plotly.subplots import make_subplots
+            fig = make_subplots(
+                rows=2, cols=1,
+                shared_xaxes=True,
+                row_heights=[0.75, 0.25],
+                vertical_spacing=0.05,
+            )
+            calib_row, hist_row = 1, 2
+        else:
+            fig = go.Figure()
+            calib_row = hist_row = None
+
         marker_dict = {"color": df["NCases"], "colorscale": "RdYlBu", "showscale": True}
         if use_size:
             marker_dict["size"] = df["size"]
-        fig.add_trace(
-            go.Scatter(
-                x=df[label_prob],
-                y=df[label_freq],
-                mode="markers",
-                marker=marker_dict,
-                name=label_real,
-                hovertemplate=f"{label_prob}: %{{x:.2%}}<br>{label_freq}: %{{y:.2%}}<br>NCases: %{{marker.color}}<extra></extra>",
-            )
+        scatter_trace = go.Scatter(
+            x=df[label_prob],
+            y=df[label_freq],
+            mode="markers",
+            marker=marker_dict,
+            name=label_real,
+            hovertemplate=f"{label_prob}: %{{x:.2%}}<br>{label_freq}: %{{y:.2%}}<br>NCases: %{{marker.color}}<extra></extra>",
         )
-        fig.add_trace(go.Scatter(x=[x_min, x_max], y=[x_min, x_max], line={"color": "green", "dash": "dash"}, name=label_perfect, mode="lines"))
+        perfect_trace = go.Scatter(
+            x=[x_min, x_max], y=[x_min, x_max],
+            line={"color": "green", "dash": "dash"}, name=label_perfect, mode="lines",
+        )
+        if show_prob_histogram:
+            fig.add_trace(scatter_trace, row=calib_row, col=1)
+            fig.add_trace(perfect_trace, row=calib_row, col=1)
+            fig.add_trace(
+                go.Bar(
+                    x=df[label_prob], y=df["NCases"], name=label_histogram,
+                    marker={"color": "steelblue"}, showlegend=False,
+                ),
+                row=hist_row, col=1,
+            )
+            fig.update_yaxes(title_text=label_freq, row=calib_row, col=1)
+            fig.update_yaxes(
+                title_text=label_histogram,
+                type=_resolve_yscale(hits),
+                row=hist_row, col=1,
+            )
+            fig.update_xaxes(title_text=label_prob, row=hist_row, col=1)
+        else:
+            fig.add_trace(scatter_trace)
+            fig.add_trace(perfect_trace)
         fig.update(layout_coloraxis_showscale=False)
 
         if plot_title:
@@ -838,6 +1024,95 @@ def calibration_metrics_from_freqs(
         calibration_mae, calibration_std = 1.0, 1.0
 
     return calibration_mae, calibration_std, calibration_coverage
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def compute_ece_and_brier_decomposition(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    nbins: int,
+):
+    """ECE plus Murphy 1973 Brier score decomposition.
+
+    Returns ``(ece, reliability, resolution, uncertainty, brier_binned)``.
+
+    ECE = sum_k (n_k / N) * |p_mean_k - acc_k|
+    BinnedBrier = REL - RES + UNC      (exact identity by construction)
+        REL = sum_k (n_k / N) * (p_mean_k - acc_k)^2
+        RES = sum_k (n_k / N) * (acc_k - base_rate)^2
+        UNC = base_rate * (1 - base_rate)
+    where p_mean_k is the *mean predicted probability* in bin k (NOT the bin
+    centre), acc_k is the observed positive rate in bin k, base_rate is the
+    overall positive rate.
+
+    The kernel does its own binning over [min(y_pred), max(y_pred)] using the
+    same data-adaptive grid as fast_calibration_binning - so ECE/REL bin
+    boundaries match CMAEW exactly. Per-bin p_mean (not bin centre) is used so
+    the Murphy identity ``BinnedBrier == REL - RES + UNC`` holds exactly to fp
+    precision; this matters for the test asserting the identity, and for users
+    checking REL when they care about absolute magnitude. Raw Brier (computed
+    by ``fast_brier_score_loss``) differs from BinnedBrier by the within-bin
+    variance of predictions; that gap shrinks with finer binning.
+
+    Returns 1.0/1.0/0.0/0.0/1.0 on empty input - mirrors degenerate handling
+    elsewhere in the calibration pipeline.
+    """
+    n = len(y_true)
+    if n == 0:
+        return 1.0, 1.0, 0.0, 0.0, 1.0
+
+    base_rate = 0.0
+    for i in range(n):
+        base_rate += y_true[i]
+    base_rate /= n
+
+    # Min/max span - same data-adaptive grid as fast_calibration_binning.
+    min_val = 1.0
+    max_val = 0.0
+    for i in range(n):
+        p = y_pred[i]
+        if p > max_val:
+            max_val = p
+        if p < min_val:
+            min_val = p
+    span = max_val - min_val
+
+    pred_sum = np.zeros(nbins, dtype=np.float64)
+    true_sum = np.zeros(nbins, dtype=np.float64)
+    counts = np.zeros(nbins, dtype=np.int64)
+
+    if span > 0:
+        multiplier = (nbins - 1) / span
+        for i in range(n):
+            p = y_pred[i]
+            ind = int(floor((p - min_val) * multiplier))
+            counts[ind] += 1
+            pred_sum[ind] += p
+            true_sum[ind] += y_true[i]
+    else:
+        # All predictions identical - one bin holds everything.
+        for i in range(n):
+            counts[0] += 1
+            pred_sum[0] += y_pred[i]
+            true_sum[0] += y_true[i]
+
+    ece = 0.0
+    reliability = 0.0
+    resolution = 0.0
+    inv_n = 1.0 / n
+    for k in range(nbins):
+        if counts[k] == 0:
+            continue
+        w = counts[k] * inv_n
+        p_mean = pred_sum[k] / counts[k]
+        acc = true_sum[k] / counts[k]
+        diff = p_mean - acc
+        ece += w * abs(diff)
+        reliability += w * diff * diff
+        resolution += w * (acc - base_rate) ** 2
+    uncertainty = base_rate * (1.0 - base_rate)
+    brier_binned = reliability - resolution + uncertainty
+    return ece, reliability, resolution, uncertainty, brier_binned
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -1177,13 +1452,10 @@ def fast_calibration_report(
     nbins: int = 10,
     show_plots: bool = True,
     #
-    show_points_density_in_title: bool = False,
-    show_brier_loss_in_title: bool = True,
-    show_cmaew_in_title: bool = True,
-    show_roc_auc_in_title: bool = True,
-    show_pr_auc_in_title: bool = True,
-    show_logloss_in_title: bool = True,
-    show_coverage_in_title: bool = False,
+    title_metrics_tokens: Sequence[str] = DEFAULT_TITLE_METRICS_TOKENS,
+    show_prob_histogram: bool = True,
+    prob_histogram_yscale: str = "auto",
+    show_inline_population_labels: bool = True,
     #
     plot_file: str = "",
     figsize: tuple = (15, 6),
@@ -1197,7 +1469,16 @@ def fast_calibration_report(
     **ice_kwargs,
 ):
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs.
-    Input arrays y_true and y_pred are 1d."""
+    Input arrays y_true and y_pred are 1d.
+
+    Title composition is controlled by ``title_metrics_tokens`` (an ordered tuple
+    of token names). ECE and Brier decomposition (REL/RES/UNC) are always
+    computed and returned regardless of which tokens render. The 9 historical
+    ``show_*_in_title`` booleans were collapsed into this one parameter so
+    callers get explicit control over both metric selection AND order.
+    Validation lives in ReportingConfig (training/configs.py); see the
+    ``TITLE_METRIC_TOKENS`` frozenset for the complete grammar.
+    """
 
     assert backend in ("plotly", "matplotlib")
     if len(y_true) == 0:
@@ -1213,8 +1494,14 @@ def fast_calibration_report(
             0.0,
         )
         roc_auc, pr_auc, ice, ll, precision, recall, f1 = 0.5, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0
+        ece, brier_reliability, brier_resolution, brier_uncertainty = 1.0, 1.0, 0.0, 0.0
         metrics_string, fig = "", None
-        return brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, precision, recall, f1, metrics_string, fig
+        return (
+            brier_loss, calibration_mae, calibration_std, calibration_coverage,
+            ece, brier_reliability, brier_resolution, brier_uncertainty,
+            roc_auc, pr_auc, ice, ll, precision, recall, f1,
+            metrics_string, fig,
+        )
 
     brier_loss = fast_brier_score_loss(y_true=y_true, y_prob=y_pred)
 
@@ -1225,6 +1512,13 @@ def fast_calibration_report(
     min_hits, max_hits = np.min(hits), np.max(hits)
     calibration_mae, calibration_std, calibration_coverage = calibration_metrics_from_freqs(
         freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, array_size=len(y_true), use_weights=use_weights
+    )
+
+    # Always compute ECE + Brier decomposition. Same data-adaptive bin grid as
+    # CMAEW (kernel re-bins internally so it can capture per-bin pred_means,
+    # which fast_calibration_binning doesn't expose). Cost is one short pass.
+    ece, brier_reliability, brier_resolution, brier_uncertainty, _brier_binned = compute_ece_and_brier_decomposition(
+        y_true=y_true, y_pred=y_pred, nbins=nbins,
     )
 
     roc_auc, pr_auc, group_aucs = fast_aucs_per_group_optimized(y_true=y_true, y_score=y_pred, group_ids=group_ids)
@@ -1247,35 +1541,36 @@ def fast_calibration_report(
 
     precision, recall, f1 = compute_pr_recall_f1_metrics(y_true=y_true, y_pred=y_pred >= binary_threshold)
 
-    metrics_string = f"ICE={ice:.{ndigits}f}"
-    if show_brier_loss_in_title:
-        metrics_string += f", BR={brier_loss*100:.{ndigits}f}%"
-    if show_cmaew_in_title:
-        metrics_string += f", CMAE{'W' if use_weights else ''}={calibration_mae*100:.{ndigits}f}%±{calibration_std*100:.{ndigits}f}%"
-    if show_coverage_in_title:
-        metrics_string += f", COV={calibration_coverage*100:.{int(np.log10(nbins))}f}%"
-    if show_logloss_in_title:
-        if ll is not None:
-            metrics_string += f", LL={ll:.{ndigits}f}"
-    if show_points_density_in_title:
-        metrics_string += f", DENS=[{max_hits:_};{min_hits:_}]"
-
-    if show_roc_auc_in_title:
-        if np.isnan(roc_auc):
-            metrics_string += ", ROC AUC=N/A"
-        else:
-            metrics_string += f", ROC AUC={roc_auc:.{ndigits}f}"
-        if mean_group_roc_auc is not None and not np.isnan(mean_group_roc_auc):
-            metrics_string += f"[{mean_group_roc_auc:.{ndigits}f}]"
-    if show_pr_auc_in_title:
-        if np.isnan(pr_auc):
-            metrics_string += ", PR AUC=N/A"
-        else:
-            metrics_string += f", PR AUC={pr_auc:.{ndigits}f}"
-        if mean_group_pr_auc is not None and not np.isnan(mean_group_pr_auc):
-            metrics_string += f"[{mean_group_pr_auc:.{ndigits}f}]"
-
-        metrics_string += f", PR={precision*100:.{ndigits}f}%,RE={recall*100:.{ndigits}f}%,F1={f1*100:.{ndigits}f}%"
+    fragments = []
+    for token in title_metrics_tokens:
+        rendered = render_title_metric_token(
+            token,
+            ndigits=ndigits,
+            ice=ice,
+            brier_loss=brier_loss,
+            ece=ece,
+            brier_reliability=brier_reliability,
+            brier_resolution=brier_resolution,
+            brier_uncertainty=brier_uncertainty,
+            calibration_mae=calibration_mae,
+            calibration_std=calibration_std,
+            use_weights=use_weights,
+            calibration_coverage=calibration_coverage,
+            nbins=nbins,
+            ll=ll,
+            max_hits=int(max_hits),
+            min_hits=int(min_hits),
+            roc_auc=roc_auc,
+            mean_group_roc_auc=mean_group_roc_auc,
+            pr_auc=pr_auc,
+            mean_group_pr_auc=mean_group_pr_auc,
+            precision=precision,
+            recall=recall,
+            f1=f1,
+        )
+        if rendered:
+            fragments.append(rendered)
+    metrics_string = ", ".join(fragments)
 
     fig = None
 
@@ -1295,9 +1590,17 @@ def fast_calibration_report(
             plot_file=plot_file,
             figsize=figsize,
             backend=backend,
+            show_prob_histogram=show_prob_histogram,
+            prob_histogram_yscale=prob_histogram_yscale,
+            show_inline_population_labels=show_inline_population_labels,
         )
 
-    return brier_loss, calibration_mae, calibration_std, calibration_coverage, roc_auc, pr_auc, ice, ll, precision, recall, f1, metrics_string, fig
+    return (
+        brier_loss, calibration_mae, calibration_std, calibration_coverage,
+        ece, brier_reliability, brier_resolution, brier_uncertainty,
+        roc_auc, pr_auc, ice, ll, precision, recall, f1,
+        metrics_string, fig,
+    )
 
 
 def fast_ice_only(

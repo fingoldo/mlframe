@@ -73,15 +73,19 @@ def _run_sensor_combo(combo: FuzzCombo, tmp_path):
     if "cb" in combo.models:
         cfg["cb_kwargs"] = {"task_type": "CPU", "verbose": 0}
 
-    init_params: dict = {"drop_columns": [], "verbose": 0}
+    from mlframe.training import PreprocessingConfig
+    preprocessing_overrides = PreprocessingConfig(drop_columns=[])
     if "linear" in combo.models and combo.cat_feature_count > 0:
         try:
             import category_encoders as ce
             from sklearn.preprocessing import StandardScaler
             from sklearn.impute import SimpleImputer
-            init_params["category_encoder"] = ce.CatBoostEncoder()
-            init_params["scaler"] = StandardScaler()
-            init_params["imputer"] = SimpleImputer(strategy="mean")
+            preprocessing_overrides = PreprocessingConfig(
+                drop_columns=[],
+                category_encoder=ce.CatBoostEncoder(),
+                scaler=StandardScaler(),
+                imputer=SimpleImputer(strategy="mean"),
+            )
         except ImportError:
             pass
 
@@ -99,9 +103,12 @@ def _run_sensor_combo(combo: FuzzCombo, tmp_path):
     # feature lists are declared explicitly (mirror the fuzz builder's
     # "emit only when cb is in models" gate) — otherwise a combo with
     # ``auto_detect_cats=False`` would orphan any emitted text/emb column.
-    from mlframe.training.configs import (
+    from mlframe.training import (
+    
         PolarsPipelineConfig, FeatureTypesConfig, TrainingBehaviorConfig,
-    )
+    FeatureSelectionConfig,
+    OutputConfig
+)
     emits_text = combo.text_col_count > 0 and "cb" in combo.models
     emits_emb = (
         combo.embedding_col_count > 0
@@ -118,14 +125,15 @@ def _run_sensor_combo(combo: FuzzCombo, tmp_path):
         features_and_targets_extractor=fte,
         mlframe_models=list(combo.models),
         hyperparams_config=cfg,
-        init_common_params=init_params,
+        preprocessing_config=preprocessing_overrides,
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        data_dir=str(tmp_path),
-        models_dir="models",
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
         verbose=0,
-        use_mrmr_fs=combo.use_mrmr_fs,
-        mrmr_kwargs=mrmr_kwargs,
+        feature_selection_config=FeatureSelectionConfig(
+            use_mrmr_fs=combo.use_mrmr_fs,
+            mrmr_kwargs=mrmr_kwargs,
+        ),
         pipeline_config=PolarsPipelineConfig(
             use_polarsds_pipeline=combo.use_polarsds_pipeline,
         ),
@@ -172,7 +180,7 @@ def test_sensor_tier_cache_polars_pandas_collision(tmp_path):
         n_rows=300,
         cat_feature_count=3,
         null_fraction_cats=0.0,
-        use_mrmr_fs=False,
+        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
         weight_schemas=("uniform",),
         target_type="binary_classification",
         auto_detect_cats=True,
@@ -394,7 +402,7 @@ def test_sensor_polars_utf8_nullable_cat_fills_before_cb(tmp_path):
         n_rows=600,
         cat_feature_count=3,
         null_fraction_cats=0.1,
-        use_mrmr_fs=False,
+        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
         weight_schemas=("uniform",),
         target_type="binary_classification",
         auto_detect_cats=True,
@@ -435,7 +443,7 @@ def test_sensor_linear_polars_gating_bug(tmp_path):
         n_rows=300,
         cat_feature_count=3,
         null_fraction_cats=0.0,
-        use_mrmr_fs=False,
+        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
         weight_schemas=("uniform",),
         target_type="binary_classification",
         auto_detect_cats=True,
@@ -471,7 +479,7 @@ def test_sensor_mrmr_transform_handles_missing_support_(tmp_path):
         n_rows=1200,
         cat_feature_count=1,
         null_fraction_cats=0.0,
-        use_mrmr_fs=True,
+        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True),
         weight_schemas=("uniform",),
         target_type="binary_classification",
         auto_detect_cats=True,
@@ -515,7 +523,7 @@ def test_sensor_safeunpickler_allows_category_encoders(tmp_path):
         n_rows=300,
         cat_feature_count=3,
         null_fraction_cats=0.0,
-        use_mrmr_fs=False,
+        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
         weight_schemas=("uniform",),
         target_type="binary_classification",
         auto_detect_cats=True,
@@ -584,7 +592,7 @@ def test_sensor_polarsds_does_not_encode_text_features(tmp_path):
         n_rows=300,
         cat_feature_count=8,
         null_fraction_cats=0.3,
-        use_mrmr_fs=True,
+        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True),
         weight_schemas=("uniform",),
         target_type="binary_classification",
         auto_detect_cats=False,
@@ -646,7 +654,7 @@ def test_sensor_enum_null_fill_reaches_lazy_pandas_conversion(tmp_path):
         n_rows=300,
         cat_feature_count=8,
         null_fraction_cats=0.3,
-        use_mrmr_fs=True,
+        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True),
         weight_schemas=("uniform",),
         target_type="binary_classification",
         auto_detect_cats=True,
@@ -698,7 +706,7 @@ def test_sensor_polars_utf8_cats_cast_before_lazy_pandas_conversion(tmp_path):
         n_rows=600,
         cat_feature_count=1,
         null_fraction_cats=0.1,
-        use_mrmr_fs=False,
+        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
         weight_schemas=("uniform",),
         target_type="binary_classification",
         auto_detect_cats=False,

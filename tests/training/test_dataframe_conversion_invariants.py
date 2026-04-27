@@ -1,3 +1,4 @@
+from mlframe.training import OutputConfig, PreprocessingConfig
 """
 Structural invariant tests — evergreen guards against the *class* of bugs
 that surfaced in the 2026-04-23 prod log review.
@@ -211,11 +212,10 @@ class TestNoDuplicateConversion:
                 mlframe_models=["cb", "xgb", "lgb"],
                 hyperparams_config={"iterations": 3},
                 behavior_config=bc,
-                init_common_params={"drop_columns": [], "verbose": 0},
+                preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
-                data_dir=str(tmp_path),
-                models_dir="models",
+                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
                 verbose=0,
             )
         finally:

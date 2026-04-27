@@ -303,10 +303,13 @@ class TestTrainSuiteRobustness:
     )
     def test_xgb_only_suite_completes(self, df: pl.DataFrame, tmp_path):
         from mlframe.training.core import train_mlframe_models_suite
-        from mlframe.training.configs import (
+        from mlframe.training import (
+    
             ModelHyperparamsConfig, TrainingBehaviorConfig,
             TrainingSplitConfig, PolarsPipelineConfig,
-        )
+    FeatureSelectionConfig,
+    OutputConfig
+)
         from .shared import TimestampedFeaturesExtractor
 
         fte = TimestampedFeaturesExtractor(
@@ -322,7 +325,7 @@ class TestTrainSuiteRobustness:
             mlframe_models=["xgb"],
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            use_mrmr_fs=False,
+            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
             hyperparams_config=ModelHyperparamsConfig(
                 iterations=5, early_stopping_rounds=3,
                 xgb_kwargs={"device": "cpu", "verbosity": 0},
@@ -343,8 +346,7 @@ class TestTrainSuiteRobustness:
                 test_size=0.1, val_size=0.1,
                 wholeday_splitting=False,  # not enough distinct days at fuzz scale
             ),
-            data_dir=str(tmp_path),
-            models_dir="models",
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
             verbose=0,
         )
         assert isinstance(models, dict)
@@ -367,10 +369,13 @@ class TestTrainSuiteRobustness:
         without falling back to pandas-path (or, if it does, without
         crashing)."""
         from mlframe.training.core import train_mlframe_models_suite
-        from mlframe.training.configs import (
+        from mlframe.training import (
+    
             ModelHyperparamsConfig, TrainingBehaviorConfig,
             TrainingSplitConfig, PolarsPipelineConfig,
-        )
+    FeatureSelectionConfig,
+    OutputConfig
+)
         from .shared import TimestampedFeaturesExtractor
 
         fte = TimestampedFeaturesExtractor(
@@ -386,7 +391,7 @@ class TestTrainSuiteRobustness:
             mlframe_models=["cb"],
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            use_mrmr_fs=False,
+            feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
             hyperparams_config=ModelHyperparamsConfig(
                 iterations=5, early_stopping_rounds=3,
                 cb_kwargs={"task_type": "CPU", "verbose": False},
@@ -407,8 +412,7 @@ class TestTrainSuiteRobustness:
                 test_size=0.1, val_size=0.1,
                 wholeday_splitting=False,
             ),
-            data_dir=str(tmp_path),
-            models_dir="models",
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
             verbose=0,
         )
         assert isinstance(models, dict)

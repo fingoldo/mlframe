@@ -526,7 +526,7 @@ def _call_train_evaluate_with_configs(
     all_params["verbose"] = verbose
 
     # Build config objects
-    data, control, metrics, display, naming, confidence, predictions = _build_configs_from_params(**all_params)
+    data, control, metrics, reporting, naming, confidence, predictions, output = _build_configs_from_params(**all_params)
 
     # Call train_and_evaluate_model with config objects
     return train_and_evaluate_model(
@@ -534,8 +534,9 @@ def _call_train_evaluate_with_configs(
         data=data,
         control=control,
         metrics=metrics,
-        display=display,
+        reporting=reporting,
         naming=naming,
+        output=output,
         confidence=confidence,
         predictions=predictions,
         train_od_idx=train_od_idx,
@@ -648,8 +649,10 @@ def process_model(
     #
     # Gating: historically this path loaded blindly whenever the .dump
     # existed. Preserve that as the default (suite-level cache is expected
-    # to "just work"), but now callers can opt out explicitly with
-    # ``init_common_params={"use_cache": False}`` for forced retrain.
+    # to "just work"); callers force a retrain via
+    # ``TrainingControlConfig(use_cache=False)`` (this flag is read off the
+    # internal ``common_params`` dict that the suite assembles from the
+    # typed configs).
     #
     # Schema validation: when the cache does load, validate the saved
     # model's feature list + cat_features against the current preprocessed
