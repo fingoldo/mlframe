@@ -149,19 +149,11 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
     # TrainingSplitConfig: val_size left at default (0.1); test_size
     # varies per axis. trainset_aging_limit validates strictly in
     # (0, 1) so only 0.5 is a safe non-None value.
-    # Mirror FuzzCombo.canonical_key: val_sequential_fraction=1.0 +
-    # backward placement + no-shuffle + degenerate-col injection lands a
-    # zero-row val window in the splitter (pre-existing edge case).
-    val_seq_frac_eff = (
-        0.5
-        if (
-            combo.val_sequential_fraction_cfg == 1.0
-            and combo.val_placement_cfg == "backward"
-            and not combo.shuffle_val_cfg
-            and combo.inject_degenerate_cols
-        )
-        else combo.val_sequential_fraction_cfg
-    )
+    # val_seq_frac runtime canon RETIRED 2026-04-27 (batch 2). Production
+    # fix: ``core._apply_outlier_detection_global`` now logs an error and
+    # falls back to the unfiltered val_set when OD would reject most val
+    # rows (the typical reason val_df collapsed to 0 in this combo
+    # window). Splitter still produces a non-empty val.
     split_config = TrainingSplitConfig(
         test_size=combo.test_size_cfg,
         val_placement=combo.val_placement_cfg,
@@ -169,7 +161,7 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         shuffle_val=combo.shuffle_val_cfg,
         shuffle_test=combo.shuffle_test_cfg,
         wholeday_splitting=combo.wholeday_splitting_cfg,
-        val_sequential_fraction=val_seq_frac_eff,
+        val_sequential_fraction=combo.val_sequential_fraction_cfg,
     )
     # PreprocessingConfig is built by ``_preprocessing_for_combo`` and
     # passed explicitly at the suite call site (it owns the fix_inf_eff /
@@ -410,19 +402,17 @@ def _preprocessing_for_combo(combo: FuzzCombo):
     tests use.
     """
     from mlframe.training.configs import PreprocessingConfig
-    # fix_infinities=False is intentional Inf pass-through (per
-    # preprocessing.py:154-156); combining it with inject_inf_nan crashes
-    # XGB/HGB downstream — mirror the canonicalisation in
-    # FuzzCombo.canonical_key so the runtime path never sees the bad pair.
-    fix_inf_eff = combo.fix_infinities_cfg if not combo.inject_inf_nan else True
-    # remove_constant_columns=False routes degenerate columns (all-null or
-    # all-constant) to the polars_ds scaler, which crashes on
-    # quantile(None) (c0008). Force True when degenerate cols are injected.
-    rm_const_eff = (
-        combo.remove_constant_columns_cfg
-        if not (combo.inject_degenerate_cols or combo.inject_all_nan_col)
-        else True
-    )
+    # fix_inf_eff / rm_const_eff runtime canons RETIRED 2026-04-27
+    # (batch 2). Production fixes:
+    #   * fix_infinities=False + inject_inf_nan: trainer pre-fit dtype
+    #     guard now catches ``np.inf``/``-np.inf`` in numeric columns
+    #     and replaces with NaN before XGB/HGB see them (the fix lives
+    #     in ``preprocessing.process_infinities`` plus PreprocessingConfig
+    #     validators).
+    #   * remove_constant_columns=False + inject_degenerate / inject_all_nan_col:
+    #     the polars-ds scaler now pre-filters zero-IQR / all-null
+    #     columns in ``training/pipeline._select_scalable_numeric_columns``
+    #     so ``robust_scale`` never sees a divide-by-zero.
     if "linear" in combo.models and combo.cat_feature_count > 0:
         try:
             import category_encoders as ce
@@ -431,9 +421,9 @@ def _preprocessing_for_combo(combo: FuzzCombo):
             return PreprocessingConfig(
                 drop_columns=[],
                 fillna_value=combo.fillna_value_cfg,
-                fix_infinities=fix_inf_eff,
+                fix_infinities=combo.fix_infinities_cfg,
                 ensure_float32_dtypes=combo.ensure_float32_cfg,
-                remove_constant_columns=rm_const_eff,
+                remove_constant_columns=combo.remove_constant_columns_cfg,
                 category_encoder=ce.CatBoostEncoder(),
                 scaler=StandardScaler(),
                 imputer=SimpleImputer(strategy="mean"),
@@ -443,9 +433,9 @@ def _preprocessing_for_combo(combo: FuzzCombo):
     return PreprocessingConfig(
         drop_columns=[],
         fillna_value=combo.fillna_value_cfg,
-        fix_infinities=fix_inf_eff,
+        fix_infinities=combo.fix_infinities_cfg,
         ensure_float32_dtypes=combo.ensure_float32_cfg,
-        remove_constant_columns=rm_const_eff,
+        remove_constant_columns=combo.remove_constant_columns_cfg,
     )
 
 

@@ -1041,7 +1041,33 @@ def _apply_outlier_detection_global(
         is_inlier = outlier_detector.predict(_numeric_only_view(val_df))
         val_od_idx = is_inlier == 1
         val_kept = val_od_idx.sum()
-        if val_kept < len(val_df):
+        # Symmetric of the train-side ``min_keep`` guard at line ~1021.
+        # If OD rejected almost all val rows (typically because train
+        # was fit on a very different distribution and OD flags every
+        # val row as an outlier), don't propagate a 0-row val_df:
+        # downstream pre_pipeline / eval_set / metrics paths cope poorly
+        # with empty val (4 separate "if len(val_df)==0: skip" guards
+        # in trainer.py historically masked this). Log and keep the
+        # ORIGINAL unfiltered val_df so evaluation has data; the user
+        # sees a clear error in the log to investigate fit-distribution
+        # mismatch between train and val.
+        val_min_keep = max(1, int(len(val_df) * 0.01))
+        if val_kept < val_min_keep:
+            logger.error(
+                "Outlier detector rejected %d of %d val samples, leaving "
+                "only %d rows (< %d, 1%% floor). Continuing with the "
+                "ORIGINAL (unfiltered) val_set so downstream evaluation "
+                "has data; investigate contamination / fit-distribution "
+                "mismatch between train and val.",
+                len(val_df) - val_kept, len(val_df), val_kept, val_min_keep,
+            )
+            # Reset OD effect on val: keep the raw val_df / val_idx and
+            # mark val_od_idx as None so downstream callers see "no OD
+            # applied to val" cleanly.
+            filtered_val_df = val_df
+            filtered_val_idx = val_idx
+            val_od_idx = None
+        elif val_kept < len(val_df):
             logger.info(f"Outlier rejection: {len(val_df):_} val samples -> {val_kept:_} kept.")
             filtered_val_df = _filter_df_by_mask(val_df, val_od_idx)
             filtered_val_idx = val_idx[val_od_idx]

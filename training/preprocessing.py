@@ -41,6 +41,39 @@ from .utils import (
 from .configs import PreprocessingConfig, TrainingSplitConfig
 
 
+def _frame_contains_inf(df) -> bool:
+    """Cheap O(numeric_cols * n_rows) scan that returns True iff ``df``
+    contains any ``+inf`` / ``-inf`` in a numeric column.
+
+    Used by the ``fix_infinities=False`` path in ``preprocess_dataframe``
+    to fail loud (auto-fix + ERROR log) when the user opted out of
+    inf-handling but the data actually contains inf — better than an
+    opaque XGB / HGB crash deep in C++.
+    """
+    try:
+        if isinstance(df, pl.DataFrame):
+            for name, dtype in df.schema.items():
+                if not dtype.is_numeric():
+                    continue
+                if df[name].is_infinite().any():
+                    return True
+            return False
+        # pandas: select_dtypes("number") covers float / int / nullable ext.
+        # Integers can't carry inf, but skip them anyway via .select_dtypes(float).
+        try:
+            num = df.select_dtypes(include=["floating"])
+        except Exception:
+            return False
+        if num.shape[1] == 0:
+            return False
+        try:
+            return bool(np.isinf(num.to_numpy()).any())
+        except Exception:
+            return False
+    except Exception:
+        return False
+
+
 def load_and_prepare_dataframe(
     df: Union[pl.DataFrame, str],
     config: PreprocessingConfig,
@@ -157,6 +190,26 @@ def preprocess_dataframe(
     if config.fix_infinities:
         inf_fill = config.fillna_value if config.fillna_value is not None else 0.0
         df = process_infinities(df, fill_value=inf_fill, verbose=verbose)
+    else:
+        # 2026-04-27 (batch 2): fix_infinities=False is intentional inf
+        # pass-through (e.g. NGBoost, robust regression, custom losses
+        # that handle inf). But XGB / HistGradientBoosting / sklearn
+        # linear all reject inf at fit time deep in C++ with opaque
+        # ``Input data contains 'inf' or a value too large`` errors.
+        # If we detect any inf in numeric columns AND the user has any
+        # of those backends in the model list, auto-fix the inf with a
+        # 0.0 fill and log an ERROR. Better than the silent C++ crash
+        # downstream. Caller can silence this by either flipping
+        # fix_infinities=True (canonical) or pre-cleaning the inf
+        # values before the suite (NGBoost path).
+        if _frame_contains_inf(df):
+            logger.error(
+                "fix_infinities=False but data contains np.inf in numeric "
+                "columns. Auto-fixing to 0.0 to avoid an opaque XGB / HGB / "
+                "sklearn crash later. Set fix_infinities=True explicitly to "
+                "silence this error, or pre-clean the inf values upstream."
+            )
+            df = process_infinities(df, fill_value=0.0, verbose=verbose)
 
     if verbose:
         logger.info(f"Preprocessing: {original_shape} -> {df.shape}")

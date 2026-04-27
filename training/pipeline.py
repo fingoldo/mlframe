@@ -302,6 +302,76 @@ def prepare_df_for_catboost(df: pd.DataFrame, cat_features: List[str]) -> None:
                 df[col] = s.astype("category")
 
 
+def _select_scalable_numeric_columns(
+    train_df: pl.DataFrame,
+    method: str,
+    q_low: float = 0.25,
+    q_high: float = 0.75,
+    verbose: int = 0,
+) -> List[str]:
+    """Return the subset of numeric columns that are safe to feed to a
+    polars-ds scaler (``robust`` / ``standard`` / ``min_max``).
+
+    Skips columns that would cause divide-by-zero / divide-by-NaN inside
+    the scaler's C++ kernel:
+
+      * All-null columns (the scaler's quantile / mean / min returns
+        ``None`` and the subsequent division panics).
+      * Constant-value columns (``q_high - q_low == 0`` for ``robust``,
+        ``std == 0`` for ``standard``, ``max - min == 0`` for ``min_max``).
+      * Columns whose finite range collapses to zero after dropping
+        ``inf`` / ``-inf`` / ``nan`` (e.g. ``[+inf, -inf, nan]`` is
+        finite-empty).
+
+    The historical workaround forced ``remove_constant_columns=True``
+    upstream from the fuzz harness, which masked the bug. The proper
+    fix is to filter at the scaler boundary so production users with
+    a single zero-spread column don't blow up the whole pipeline
+    (fuzz c0008 / c0116 / 2026-04-26).
+    """
+    scalable: List[str] = []
+    skipped_reasons: dict = {}
+    for col_name, dtype in train_df.schema.items():
+        if not dtype.is_numeric():
+            continue
+        col = train_df[col_name]
+        n_non_null = col.drop_nulls().drop_nans().filter(col.drop_nulls().drop_nans().is_finite()).len() if hasattr(col, "drop_nans") else col.drop_nulls().len()
+        if n_non_null == 0:
+            skipped_reasons[col_name] = "all-null/non-finite"
+            continue
+        try:
+            if method == "robust":
+                _q_lo = col.quantile(q_low, interpolation="linear")
+                _q_hi = col.quantile(q_high, interpolation="linear")
+                if _q_lo is None or _q_hi is None:
+                    skipped_reasons[col_name] = "quantile=None"
+                    continue
+                if _q_hi - _q_lo == 0:
+                    skipped_reasons[col_name] = "zero-IQR"
+                    continue
+            elif method == "standard":
+                _std = col.std()
+                if _std is None or _std == 0:
+                    skipped_reasons[col_name] = "zero-std"
+                    continue
+            elif method == "min_max":
+                _mn, _mx = col.min(), col.max()
+                if _mn is None or _mx is None or _mx - _mn == 0:
+                    skipped_reasons[col_name] = "zero-range"
+                    continue
+        except Exception as exc:
+            skipped_reasons[col_name] = f"check-failed:{type(exc).__name__}"
+            continue
+        scalable.append(col_name)
+    if skipped_reasons and verbose:
+        logger.info(
+            "  Scaler '%s': skipping %d zero-spread/all-null column(s): %s",
+            method, len(skipped_reasons),
+            ", ".join(f"{k}({v})" for k, v in list(skipped_reasons.items())[:10]),
+        )
+    return scalable
+
+
 def create_polarsds_pipeline(
     train_df: pl.DataFrame,
     config: PolarsPipelineConfig,
@@ -345,12 +415,35 @@ def create_polarsds_pipeline(
     # Build blueprint
     bp = PdsBlueprint(train_df, name=pipeline_name)
 
-    # Add scaling
+    # Add scaling. polars-ds's ``robust_scale`` divides by ``q_high - q_low``
+    # which collapses to zero (or NaN) for all-constant or all-null
+    # columns, producing ``ComputeError: division by zero`` /
+    # ``quantile(None)`` deep inside the polars-ds C++ kernel
+    # (fuzz c0008 / c0116 / 2026-04-26). The historical workaround
+    # forced ``remove_constant_columns=True`` from the fuzz harness,
+    # which masked the bug; the proper fix is to compute the
+    # scalable-column subset in Python and pass it explicitly so
+    # polars-ds never sees a zero-IQR column. The same risk applies
+    # to ``standard`` / ``min_max`` scalers (zero variance / zero
+    # range), so the filter is universal.
     if config.scaler_name:
-        if config.scaler_name == "robust":
-            bp = bp.robust_scale(cs.numeric(), q_low=config.robust_q_low, q_high=config.robust_q_high)
-        else:
-            bp = bp.scale(cs.numeric(), method=config.scaler_name)
+        _scalable_numeric_cols = _select_scalable_numeric_columns(
+            train_df,
+            method="robust" if config.scaler_name == "robust" else config.scaler_name,
+            q_low=config.robust_q_low,
+            q_high=config.robust_q_high,
+            verbose=verbose,
+        )
+        if _scalable_numeric_cols:
+            if config.scaler_name == "robust":
+                bp = bp.robust_scale(_scalable_numeric_cols, q_low=config.robust_q_low, q_high=config.robust_q_high)
+            else:
+                bp = bp.scale(_scalable_numeric_cols, method=config.scaler_name)
+        elif verbose:
+            logger.info(
+                "  No numeric columns survived the zero-spread / all-null "
+                "filter — skipping scaler entirely."
+            )
 
     # Pre-compute the list of cat-like columns that SHOULD be encoded
     # (text/embedding features excluded). We pass this list explicitly

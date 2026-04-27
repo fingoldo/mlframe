@@ -365,20 +365,14 @@ class FuzzCombo:
             self.continue_on_model_failure,
             self.iterations,
             self.prefer_calibrated_classifiers,
-            # CB on multilabel with degenerate cols mis-detects num_const /
-            # num_null as cat features (CB hits "Invalid type for
-            # cat_feature ... NaN" — c0062). Pre-existing CB+multilabel
-            # path bug; canonicalise the combination away to keep fuzz
-            # green while it's investigated separately.
-            (
-                False
-                if (
-                    self.inject_degenerate_cols
-                    and "cb" in self.models
-                    and self.target_type == "multilabel_classification"
-                )
-                else self.inject_degenerate_cols
-            ),
+            # CB+multilabel+degenerate canon RETIRED 2026-04-27 (batch 2).
+            # Production fix: explicit cat_features list now drops columns
+            # whose dtype is numeric (via the existing dtype-aware filter
+            # in feature_selection/wrappers.py + the new num-degenerate
+            # guard in trainer._train_model_with_fallback). The fuzz axis
+            # exercises the full inject_degenerate_cols × CB × multilabel
+            # cross-product again.
+            self.inject_degenerate_cols,
             self.inject_inf_nan,
             self.with_datetime_col,
             self.inject_zero_col,
@@ -1575,14 +1569,11 @@ def build_frame_for_combo(combo: FuzzCombo):
         num_cols["num_0"][2] = np.nan
     # inject_degenerate_cols (#7): add one constant + one all-null numeric
     # column that the ``remove_constant_columns`` flag should strip.
-    # CB-multilabel mis-detects num_const / num_null as cat features
-    # (c0062). Mirror canonical_key gate.
+    # The CB+multilabel canon at canonical_key was retired 2026-04-27
+    # (batch 2): the production fix landed in trainer / wrappers.py
+    # ensures num_const / num_null aren't mis-promoted to cat_features.
     extra_num_cols: dict = {}
-    inject_degenerate_eff = combo.inject_degenerate_cols and not (
-        "cb" in combo.models
-        and combo.target_type == "multilabel_classification"
-    )
-    if inject_degenerate_eff:
+    if combo.inject_degenerate_cols:
         extra_num_cols["num_const"] = np.full(n, 7.5, dtype="float32")
         extra_num_cols["num_null"] = np.full(n, np.nan, dtype="float32")
     # inject_zero_col (#40): add an all-zero numeric column as an

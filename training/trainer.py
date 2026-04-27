@@ -2828,6 +2828,69 @@ def _train_model_with_fallback(
     return model, best_iter
 
 
+def _decategorise_float_cat_columns(train_df, val_df=None, test_df=None):
+    """Convert ``pd.CategoricalDtype`` columns whose underlying category
+    values are floats back to plain numeric float columns.
+
+    Background (fuzz c0102 / 2026-04-27): after ``CatBoostEncoder`` /
+    target encoders / RFECV-driven re-encodings, a column may end up
+    as a categorical whose category levels are floats (e.g. target-
+    encoded means ``[0.13, 0.42, ...]`` were ``.astype("category")``
+    boxed). At that point the column is *semantically numeric* — the
+    "categories" are continuous target encodings — but the dtype still
+    says "categorical". Both downstream backends reject this:
+      * XGBoost's columnar reader (``columnar.h:134``):
+        ``"Category index from DataFrame has floating point dtype,
+        consider using strings or integers instead"``.
+      * CatBoost (``_catboost.pyx``): ``"bad object for id: 0.0"`` —
+        CB's hash-map lookup of a float as a categorical id fails.
+    The proper fix is to honour the semantics: drop the categorical
+    wrapper and expose the float values as a regular numeric column.
+    Apply uniformly to train + val + test so downstream
+    ``enable_categorical`` / ``cat_features`` filters see consistent
+    dtypes across the fit / predict boundary.
+
+    Returns ``(train_df, val_df, test_df)`` — frames are copied when a
+    decategorise happens, otherwise returned unchanged.
+    """
+    def _decat(df):
+        if df is None or not isinstance(df, pd.DataFrame):
+            return df
+        decat_cols = []
+        for _col in df.columns:
+            try:
+                _dt = df[_col].dtype
+            except Exception:
+                continue
+            if not isinstance(_dt, pd.CategoricalDtype):
+                continue
+            try:
+                _cat_kind = _dt.categories.dtype.kind
+            except Exception:
+                continue
+            # 'f'=float, 'c'=complex. Both signal a target-encoded
+            # column that's been mis-tagged as categorical.
+            if _cat_kind in ("f", "c"):
+                decat_cols.append(_col)
+        if not decat_cols:
+            return df
+        if not getattr(df, "_mlframe_filled", False):
+            df = df.copy()
+            df._mlframe_filled = True
+        for _col in decat_cols:
+            # ``.astype(_dt.categories.dtype)`` materialises the
+            # underlying floats and drops the CategoricalDtype wrapper.
+            _src_dtype = df[_col].dtype.categories.dtype
+            df[_col] = df[_col].astype(_src_dtype)
+        return df
+
+    if isinstance(train_df, pd.DataFrame):
+        train_df = _decat(train_df)
+    val_df = _decat(val_df)
+    test_df = _decat(test_df)
+    return train_df, val_df, test_df
+
+
 def _filter_categorical_features(fit_params, train_df, val_df=None, test_df=None):
     """Filter cat_features to only include actual categorical columns.
 
@@ -3491,6 +3554,13 @@ def train_and_evaluate_model(
             train_df = _subset_dataframe(df, train_idx, real_drop_columns)
         if val_df is None and val_idx is not None:
             val_df = _subset_dataframe(df, val_idx, real_drop_columns)
+
+    # Decategorise float-typed pandas categorical columns BEFORE the
+    # pre_pipeline runs (RFECV inner CB / XGB inside the pre_pipeline
+    # would otherwise reject them — fuzz c0102, see helper docstring).
+    train_df, val_df, test_df = _decategorise_float_cat_columns(
+        train_df, val_df=val_df, test_df=test_df,
+    )
 
     train_df, val_df = _apply_pre_pipeline_transforms(
         model=model,

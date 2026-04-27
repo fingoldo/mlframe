@@ -1,5 +1,81 @@
 # Changelog
 
+## 2026-04-27 — Fuzz-uncovered batch 2: 4 production fixes + 4 retired masking canons
+
+### Production fixes (each retires a fuzz-suite masking pattern)
+
+- **`_decategorise_float_cat_columns`** in `training/trainer.py`: when
+  ``CatBoostEncoder`` / target encoders / RFECV-driven re-encodings produce
+  a ``pd.CategoricalDtype`` column whose category levels are floats
+  (``[0.13, 0.42, ...]`` boxed via ``.astype("category")``), the column is
+  semantically numeric — drop the categorical wrapper and expose the
+  raw floats. Both XGBoost (``columnar.h:134: "Category index from
+  DataFrame has floating point dtype"``) and CatBoost
+  (``_catboost.pyx: "bad object for id: 0.0"``) reject these columns;
+  HGB and sklearn happily accept them as numeric. Applied **before**
+  ``_apply_pre_pipeline_transforms`` so the fix also covers the
+  RFECV inner CB / XGB inside the pre_pipeline. Fuzz c0102 now passes.
+- **OD val-side error+continue** in
+  ``core._apply_outlier_detection_global``: mirrors the train-side
+  ``min_keep`` floor at line 1021. If the outlier detector rejects
+  >99% of val rows (typically because train was fit on a very
+  different distribution), don't propagate an empty val_df — log an
+  ``ERROR`` and keep the original unfiltered val_set so downstream
+  evaluation has data. The error message points at fit-distribution
+  mismatch as the likely culprit. Replaces the ``val_seq_frac_eff``
+  runtime canon in ``test_fuzz_suite.py`` and obsoletes the four
+  layered ``if len(val_df) == 0: skip`` guards in trainer.py (they
+  remain as harmless dead code paths until the next cleanup).
+- **`_select_scalable_numeric_columns`** in `training/pipeline.py`:
+  pre-filters numeric columns that would crash the polars-ds scaler's
+  C++ kernel:
+  - All-null / non-finite columns (``quantile()``/``mean()``/``min()``
+    return ``None``).
+  - Zero-spread columns (``q_high - q_low == 0`` for ``robust``,
+    ``std == 0`` for ``standard``, ``max - min == 0`` for ``min_max``).
+  Applied universally to all polars-ds scaler methods so the
+  ``ComputeError: division by zero`` deep in the C++ scaler is no
+  longer reachable. Replaces the ``rm_const_eff`` runtime canon in
+  ``test_fuzz_suite.py``.
+- **`fix_infinities=False` auto-recovery** in
+  ``training/preprocessing.preprocess_dataframe``: when the user
+  opts out of inf-handling but the data actually contains
+  ``np.inf`` / ``-np.inf`` in numeric columns, log an ``ERROR`` and
+  auto-fix anyway with a 0.0 fill. Better than the opaque XGB / HGB
+  / sklearn C++ crash deep in the fit path. Caller can silence by
+  flipping ``fix_infinities=True`` (canonical) or pre-cleaning the
+  inf values upstream. New helper ``_frame_contains_inf`` does the
+  cheap ``O(numeric_cols * n_rows)`` scan. Replaces the
+  ``fix_inf_eff`` runtime canon in ``test_fuzz_suite.py``.
+
+### Suite-internal cleanup
+
+- **`XGBOOST_MODEL_TYPES` extended** in ``config.py`` to include the
+  DMatrix-reuse shims ``XGBClassifierWithDMatrixReuse`` /
+  ``XGBRegressorWithDMatrixReuse``. The pre-fix tuple only listed the
+  base sklearn classes, which silently skipped EVERY
+  ``model_type_name in XGBOOST_MODEL_TYPES`` check downstream for the
+  shim variants — including the new cat-with-float-dtype guard that
+  surfaced the real bug.
+- **Retired three masking canons in `_fuzz_combo.py:canonical_key`
+  + their synthetic-data mirrors**:
+  - ``inject_degenerate_cols → False`` for CB+multilabel: replaced by
+    the existing dtype-aware ``cat_features`` filter in
+    ``feature_selection/wrappers.py`` plus the new num-degenerate
+    handling in trainer.
+  - ``val_sequential_fraction → 0.5`` for backward+no-shuffle+degenerate:
+    replaced by the OD val-side error+continue fix above.
+  - ``remove_constant_columns → True`` for inject_degenerate /
+    inject_all_nan_col: replaced by the polars-ds zero-spread filter.
+- The fuzz axis space now exercises every previously-canonised
+  cross-product end-to-end without rewriting.
+
+### Verification
+
+- **150/150 combos pass** in 17:50 with all four prod fixes applied
+  and the four masking canons retired (full pairwise-covered fuzz
+  surface, 0 failures, 0 timeouts, 0 INTERNALERROR).
+
 ## 2026-04-27 — Fuzz-uncovered batch 1: CB text-floor + cold-start lazy-imports + axes-tuning + suite-refactor sync
 
 ### CB text-feature dictionary scaling (production fix)
