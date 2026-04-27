@@ -600,14 +600,31 @@ def _initialize_mutable_defaults(drop_columns, default_drop_columns, fi_kwargs, 
     return drop_columns, default_drop_columns, fi_kwargs, confidence_model_kwargs
 
 
-def _validate_target_values(target, subset_name="train"):
-    """Check target for NaN and infinity values before training."""
+def _validate_target_values(target, subset_name="train", is_classification=None):
+    """Check target for NaN / infinity values and (for classification)
+    single-class collapse before training.
+
+    Single-class detection: when ``is_classification=True`` and the
+    target carries fewer than 2 unique values, raise a ValueError
+    BEFORE the per-backend fit. CatBoost otherwise crashes with
+    ``target_converter.cpp:404: Target contains only one unique value``,
+    XGBoost with ``num_class is 1, expected at least 2``, etc. — all
+    opaque C++ errors. The proximate cause in fuzz is upstream filter
+    aggression (outlier_detection + trainset_aging_limit + rare imbalance
+    class) eliminating the minority class entirely from train. The
+    early raise gives operators a clear diagnostic instead of a deep
+    backend crash (fuzz seed=99 c0016 / 2026-04-27).
+
+    is_classification=None preserves the historical behaviour: only
+    the NaN/inf check runs, so callers that haven't been migrated to
+    pass the flag explicitly are unaffected.
+    """
     arr = target.values if isinstance(target, pd.Series) else target
     try:
         nan_count = int(np.isnan(arr).sum())
         inf_count = int(np.isinf(arr).sum())
     except TypeError:
-        return  # non-numeric target (e.g., categorical), skip check
+        nan_count = inf_count = 0  # non-numeric target (e.g., categorical)
     if nan_count > 0 or inf_count > 0:
         parts = []
         if nan_count > 0:
@@ -618,6 +635,44 @@ def _validate_target_values(target, subset_name="train"):
             f"{subset_name} target contains {' and '.join(parts)} value(s). "
             f"Clean the target before training."
         )
+    if is_classification:
+        try:
+            arr_np = np.asarray(target)
+            if arr_np.ndim > 1:
+                # Multilabel / multiclass-prob: per-column unique check.
+                # If ANY column has only one unique value, the model
+                # for that label is degenerate but the others may
+                # train. Report at WARNING and let the per-backend
+                # path decide.
+                degenerate_cols = []
+                for _i in range(arr_np.shape[1]):
+                    if len(np.unique(arr_np[:, _i])) < 2:
+                        degenerate_cols.append(_i)
+                if degenerate_cols:
+                    logger.warning(
+                        "%s target has %d label column(s) with a single unique "
+                        "value: %s. The corresponding per-label model(s) will "
+                        "fail; the rest may train normally if the multilabel "
+                        "strategy supports it.",
+                        subset_name, len(degenerate_cols), degenerate_cols,
+                    )
+            else:
+                if len(np.unique(arr_np)) < 2:
+                    raise ValueError(
+                        f"{subset_name} target has only one unique value "
+                        f"({arr_np.flat[0]!r}); classification needs at least "
+                        f"2 classes. Most likely cause: upstream filtering "
+                        f"(outlier_detection + trainset_aging_limit + rare "
+                        f"imbalance) eliminated the minority class entirely. "
+                        f"Investigate the filter pipeline OR loosen the "
+                        f"contamination / aging knobs."
+                    )
+        except ValueError:
+            raise
+        except Exception:
+            # np.unique/asarray edge cases on object dtype etc — let the
+            # downstream backend surface its own error.
+            pass
 
 
 def _validate_infinity_and_columns(df, train_df, skip_infinity_checks, drop_columns):
@@ -3648,9 +3703,18 @@ def train_and_evaluate_model(
             if isinstance(train_target, pl.Series):
                 train_target = train_target.to_numpy()
 
-            _validate_target_values(train_target, "train")
+            # Detect classification vs regression from the model type
+            # name suffix (covers all four GBM backends + sklearn linear
+            # + MultiOutputClassifier + ClassifierChain). Used by
+            # ``_validate_target_values`` to flag single-class collapse
+            # before the per-backend C++ crash.
+            _is_clf = (
+                "Classifier" in model_type_name
+                or model_type_name in ("ClassifierChain", "_ChainEnsemble")
+            )
+            _validate_target_values(train_target, "train", is_classification=_is_clf)
             if val_target is not None:
-                _validate_target_values(val_target, "val")
+                _validate_target_values(val_target, "val", is_classification=_is_clf)
 
             if not just_evaluate:
                 model, best_iter = _train_model_with_fallback(
