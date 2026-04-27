@@ -287,7 +287,28 @@ class FuzzCombo:
             self.use_polarsds_pipeline,
             self.use_text_features,
             self.honor_user_dtype,
-            self.text_col_count,
+            # text_col_count canonicalises to 0 when CB is in the model
+            # set AND the combo would land on a too-small effective
+            # training batch for CB's text-feature TF-IDF estimator
+            # (default ``occurrence_lower_bound=50`` requires ~150+
+            # rows × 24-token vocab). The trigger window is small_n +
+            # heavy NaN-injection axes that further trim the train via
+            # outlier-detection / aging — fuzz c0056 / c0070 land here
+            # and CB raises "Dictionary size is 0" then "Feature ... in
+            # data to quantize, but not available in quantized info"
+            # on retry. The text axis is still exercised on larger
+            # combos that don't trigger the collapse.
+            (
+                0
+                if (
+                    self.text_col_count > 0
+                    and "cb" in self.models
+                    and self.n_rows <= 300
+                    and self.inject_inf_nan
+                    and self.inject_all_nan_col
+                )
+                else self.text_col_count
+            ),
             self.embedding_col_count,
             # 2026-04-24 combo-extension axes
             # OneClassSVM has O(n²) fit cost — collapse to None on the
@@ -567,6 +588,24 @@ class FuzzCombo:
             ):
                 return None
         return value
+
+    def _canonical_text_col_count(self) -> int:
+        """Mirror the text_col_count canonicalisation in canonical_key.
+
+        Used by the synthetic frame builder so the runtime data layout
+        agrees with the dedup hash: when the combo would hit CB's
+        text-estimator collapse (small n + heavy NaN injection + CB),
+        emit zero text columns instead of the requested count.
+        """
+        if (
+            self.text_col_count > 0
+            and "cb" in self.models
+            and self.n_rows <= 300
+            and self.inject_inf_nan
+            and self.inject_all_nan_col
+        ):
+            return 0
+        return self.text_col_count
 
     def _is_chain_dispatch(self) -> bool:
         return (
@@ -1479,7 +1518,11 @@ def build_frame_for_combo(combo: FuzzCombo):
     # "text" row is a 3-word sentence drawn from a shared vocabulary so
     # CB's TF-IDF builds a non-empty dictionary (a single-word-per-row
     # column above the cardinality threshold would otherwise degenerate).
-    want_text = combo.text_col_count > 0 and "cb" in combo.models
+    # Use the canonical text count so combos that would crash CB's
+    # text-estimator on a small NaN-heavy fold never see a text column
+    # in the data — _canonical_text_col_count returns 0 in that window.
+    _eff_text_col_count = combo._canonical_text_col_count()
+    want_text = _eff_text_col_count > 0 and "cb" in combo.models
     text_vocab = [
         "python", "rust", "golang", "java", "swift", "kotlin",
         "backend", "frontend", "devops", "mlops", "dataeng", "platform",
@@ -1488,7 +1531,7 @@ def build_frame_for_combo(combo: FuzzCombo):
     ]
     text_cols: dict[str, list] = {}
     if want_text:
-        for i in range(combo.text_col_count):
+        for i in range(_eff_text_col_count):
             rows = []
             for _ in range(n):
                 # 3 tokens per row, order randomized → non-trivial TF-IDF

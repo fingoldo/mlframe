@@ -84,14 +84,17 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
     # ``build_frame_for_combo`` so the declared column lists exactly
     # match what the frame actually contains — no false positives,
     # no false negatives.
-    emits_text = combo.text_col_count > 0 and "cb" in combo.models
+    # Mirror FuzzCombo._canonical_text_col_count so the FeatureTypesConfig
+    # text_features list agrees with what the frame builder emitted.
+    _eff_text_count = combo._canonical_text_col_count()
+    emits_text = _eff_text_count > 0 and "cb" in combo.models
     emits_emb = (
         combo.embedding_col_count > 0
         and "cb" in combo.models
         and combo.input_type != "pandas"
     )
     text_features = (
-        [f"text_{i}" for i in range(combo.text_col_count)] if emits_text else None
+        [f"text_{i}" for i in range(_eff_text_count)] if emits_text else None
     )
     embedding_features = (
         [f"emb_{i}" for i in range(combo.embedding_col_count)] if emits_emb else None
