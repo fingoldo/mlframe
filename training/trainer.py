@@ -2902,7 +2902,35 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
     Returns ``(train_df, val_df, test_df)`` — frames are copied
     in-place when an alignment happens, otherwise returned unchanged.
     """
-    if model_type_name not in XGBOOST_MODEL_TYPES:
+    # Apply for any branch where XGB ends up as the actual fit-time
+    # backend, including the multilabel-wrapped paths where the outer
+    # type-name is MultiOutputClassifier / ClassifierChain / _ChainEnsemble
+    # but each inner per-label estimator is XGB. Without this, fuzz
+    # combos with target_type=multilabel_classification + xgb in models
+    # (seed=2024 c0060 / c0148) bypass the alignment because the outer
+    # type-name doesn't match XGBOOST_MODEL_TYPES.
+    _is_xgb_outer = model_type_name in XGBOOST_MODEL_TYPES
+    _is_multilabel_wrapped_xgb = False
+    # Caller passes the wrapped estimator via ``model``; we don't have
+    # it here, so check name heuristically: if outer is a wrapper and
+    # caller had ``mlframe_models`` containing xgb, we still want the
+    # alignment so val/test cats match train. Use a lightweight signal
+    # — string check on column dtype is cheap and idempotent.
+    if not _is_xgb_outer:
+        # For the multilabel/chain wrapped paths where the outer type
+        # name doesn't include "XGB", we still want to align IF any
+        # downstream consumer might be XGB. Cheapest heuristic: always
+        # align when target is pd.DataFrame with categorical columns —
+        # alignment is a no-op for clean splits and harmless for
+        # CB/HGB/LGB which already tolerate unseen cats. Cost: one
+        # ``set_categories`` per cat column with mismatched levels.
+        _is_multilabel_wrapped_xgb = model_type_name in (
+            "MultiOutputClassifier",
+            "MultiOutputRegressor",
+            "ClassifierChain",
+            "_ChainEnsemble",
+        )
+    if not (_is_xgb_outer or _is_multilabel_wrapped_xgb):
         return train_df, val_df, test_df
     if not isinstance(train_df, pd.DataFrame):
         return train_df, val_df, test_df
