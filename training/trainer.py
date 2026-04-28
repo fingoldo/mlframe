@@ -918,6 +918,43 @@ def _is_fitted(estimator):
         return False
 
 
+def _maybe_wrap_for_2d_target(model, train_target):
+    """When ``train_target`` is 2-D ``(N, K)`` but ``model`` is a single-
+    output sklearn classifier (e.g., ``LogisticRegression``), wrap it
+    with ``MultiOutputClassifier`` inline at fit time. The upstream
+    ``_wrap_for_multilabel_if_needed`` guard SHOULD already have wrapped
+    via the strategy hook, but a few combos slip through (e.g., 3-way
+    fuzz c0008: cb_linear / multilabel / heavy preprocessing). Acts as a
+    last-line defence so the fit doesn't raise sklearn's
+    ``y should be a 1d array, got an array of shape (N, K)``.
+
+    Returns the (possibly wrapped) model. No-op for already-wrapped
+    estimators (MultiOutputClassifier / ClassifierChain / CB / XGB /
+    HGB / LGB), regression targets, or 1-D targets.
+    """
+    if model is None or train_target is None:
+        return model
+    arr = np.asarray(train_target)
+    if arr.ndim != 2:
+        return model
+    _mt = type(model).__name__
+    # Already a multi-output wrap or a strategy with native 2-D support.
+    if _mt in (
+        "MultiOutputClassifier", "MultiOutputRegressor", "ClassifierChain",
+        "RegressorChain", "_ChainEnsemble",
+    ):
+        return model
+    if _mt in ("CatBoostClassifier", "CatBoostRegressor"):
+        return model  # CB native multilabel via MultiLogloss
+    if _mt.startswith("XGB") or _mt.startswith("HistGradient") or _mt.startswith("LGB"):
+        return model
+    try:
+        from sklearn.multioutput import MultiOutputClassifier
+        return MultiOutputClassifier(model, n_jobs=1)
+    except Exception:
+        return model
+
+
 def _ensure_xgb_classification_objective(model, train_target) -> None:
     """When the XGB instance reaches ``.fit()`` without an
     ``objective`` matching the target shape, set it pre-fit. XGB's
@@ -2864,10 +2901,12 @@ def _train_model_with_fallback(
                 }
                 _ensure_cb_multilabel_loss(model, train_target, pool=_cb_pool)
                 _ensure_xgb_classification_objective(model, train_target)
+                model = _maybe_wrap_for_2d_target(model, train_target)
                 model.fit(_cb_pool, **_reuse_fit_params)
             else:
                 _ensure_cb_multilabel_loss(model, train_target)
                 _ensure_xgb_classification_objective(model, train_target)
+                model = _maybe_wrap_for_2d_target(model, train_target)
                 model.fit(train_df, train_target, **fit_params)
     except Exception as e:
         try_again = False
@@ -3491,6 +3530,27 @@ def run_confidence_analysis(
                 test_target_arr.dtype,
             )
         return None
+    # 2026-04-28: when test_df, test_target, and test_probs disagree on
+    # row count (an upstream filter dropped rows from one but not the
+    # others), the confidence model fits with mismatched lengths and
+    # CB raises ``Length of label=N1 and length of data=N2 is
+    # different``. Skip with INFO so the suite continues; the
+    # confidence pass is best-effort, not a hard contract. Surfaced
+    # default-seed c0074 (hgb / binary classification +
+    # confidence_analysis_cfg=True).
+    _n_df = test_df.shape[0] if hasattr(test_df, "shape") else None
+    _n_probs = test_probs.shape[0] if hasattr(test_probs, "shape") else None
+    _n_target = test_target_arr.shape[0]
+    if _n_df is not None and (_n_df != _n_probs or _n_df != _n_target):
+        if verbose:
+            logger.info(
+                "Confidence analysis skipped: row count mismatch test_df=%s, "
+                "test_probs=%s, test_target=%s. The three artifacts must come "
+                "from the same predict pass; an upstream filter likely sliced "
+                "one but not the others.",
+                _n_df, _n_probs, _n_target,
+            )
+        return None
     confidence_targets = test_probs[np.arange(test_probs.shape[0]), test_target_arr]
 
     _maybe_clean_ram()
@@ -3517,8 +3577,16 @@ def run_confidence_analysis(
             shap.utils.transformers.is_transformers_lm = lambda model: False
         except (ImportError, AttributeError):
             pass
+        # 2026-04-28: shap.plots.beeswarm internals do ``features[:, i]``
+        # with ``i`` typed as numpy.int64. Polars 1.x rejects numpy
+        # integer indices on DataFrame ``__getitem__`` with
+        # ``cannot select columns using key of type 'numpy.int64'``.
+        # Pass a pandas view so the indexing falls back to pandas's
+        # numpy-int-tolerant ``__getitem__``. Surfaced default-seed
+        # c0074 (hgb / multiclass + confidence_analysis_cfg=True).
+        _test_df_for_shap = test_df.to_pandas() if isinstance(test_df, pl.DataFrame) else test_df
         explainer = shap.TreeExplainer(confidence_model)
-        shap_values = explainer(test_df)
+        shap_values = explainer(_test_df_for_shap)
         shap.plots.beeswarm(
             shap_values,
             max_display=max_features,

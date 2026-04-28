@@ -371,7 +371,17 @@ class FuzzCombo:
             use_ensembles,
             self.continue_on_model_failure,
             self.iterations,
-            self.prefer_calibrated_classifiers,
+            # ``prefer_calibrated_classifiers=True`` + multilabel raises
+            # ``NotImplementedError`` at trainer.py:_validate_multilabel_calibration_compat
+            # (CalibratedClassifierCV is single-output only). Canonicalise
+            # to False for multilabel combos so dedup collapses the
+            # known-incompatible variant. Surfaced 2026-04-28 default seed
+            # c0060 (lgb_xgb / multilabel + prefer_calibrated=True) -
+            # previously masked because the polars ``pl.List`` -> pandas
+            # roundtrip presented as 1-D, and the calibration guard
+            # didn't fire; with the multilabel target normalised the
+            # guard correctly rejects, so the canon owns the dedup.
+            False if (self.prefer_calibrated_classifiers and self.target_type == "multilabel_classification") else self.prefer_calibrated_classifiers,
             # CB+multilabel+degenerate canon RETIRED 2026-04-27 (batch 2).
             # Production fix: explicit cat_features list now drops columns
             # whose dtype is numeric (via the existing dtype-aware filter

@@ -137,10 +137,19 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         if combo.fairness_col is not None and combo.cat_feature_count > 0
         else None
     )
+    # 2026-04-28: ``prefer_calibrated_classifiers=True`` + multilabel target
+    # is a known-incompatible combination (CalibratedClassifierCV is
+    # single-output only; mlframe raises NotImplementedError). Force False
+    # for multilabel combos so the suite call doesn't trip the guard.
+    # Mirrors the canon in ``FuzzCombo.canonical_key``.
+    _effective_prefer_calibrated = (
+        False if (combo.prefer_calibrated_classifiers and combo.target_type == "multilabel_classification")
+        else combo.prefer_calibrated_classifiers
+    )
     behavior_kwargs: dict = {
         "align_polars_categorical_dicts": combo.align_polars_categorical_dicts,
         "continue_on_model_failure": combo.continue_on_model_failure,
-        "prefer_calibrated_classifiers": combo.prefer_calibrated_classifiers,
+        "prefer_calibrated_classifiers": _effective_prefer_calibrated,
         # 2026-04-24 round 2
         "use_robust_eval_metric": combo.use_robust_eval_metric_cfg,
     }
