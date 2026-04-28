@@ -568,7 +568,7 @@ class TestXGBShimIntegrationWithMlframeSuite:
                 mlframe_models=["xgb"],
                 hyperparams_config={"iterations": 3},
                 behavior_config=bc,
-                preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
+                preprocessing_config=PreprocessingConfig(drop_columns=[]),
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
                 output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),

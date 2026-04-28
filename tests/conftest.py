@@ -179,6 +179,45 @@ def cleanup_memory():
 
     yield
 
+    # 2026-04-28 (batch 4): purge polars StringCache between fuzz
+    # combos. Polars' GLOBAL cat StringCache interns categorical level
+    # strings across all DataFrames in the process. When combo N
+    # creates pl.Categorical with unusual values (e.g. unicode +
+    # emoji from weird_cat_content=unicode), the StringCache retains
+    # those entries; combo N+1 building a fresh pandas frame with
+    # different cat values can still see leaked level-id assignments
+    # via polars→pandas roundtrip (pandas Categorical's underlying
+    # codes index into a categories list pulled from the cache).
+    # Surfaced by fuzz seed=2024 c0009 (polars_nullable + unicode) →
+    # c0060 (pandas, weird=empty) — XGB on c0060 saw values from
+    # c0009's cat pool. ``pl.disable_string_cache`` is a no-op when
+    # cache is already disabled but resets when global state was
+    # touched indirectly via `with pl.StringCache(): ...`.
+    try:
+        import polars as _pl_cleanup
+        if hasattr(_pl_cleanup, "disable_string_cache"):
+            _pl_cleanup.disable_string_cache()
+    except Exception:
+        pass
+
+    # PyArrow memory pool: polars→pandas conversions allocate Categorical
+    # arrays into pyarrow's default memory pool, which keeps used pages
+    # cached across calls. Across fuzz combos with different cat-pool
+    # values (e.g. seed=2024 c0009 unicode → c0060 empty), released
+    # arrays' bytes can be re-served to a later combo's cat-dictionary
+    # allocation, producing pd.Categorical whose ``categories`` array
+    # silently contains leaked strings from the previous combo. Force
+    # pyarrow to release pool pages so no allocation re-uses bytes from
+    # a stale Categorical (seed=2024 c0060 flake).
+    try:
+        import pyarrow as _pa_cleanup
+        try:
+            _pa_cleanup.default_memory_pool().release_unused()
+        except Exception:
+            pass
+    except ImportError:
+        pass
+
     gc.collect()
 
     # Clear GPU memory. Distributed process-group teardown is the responsibility

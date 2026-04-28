@@ -991,33 +991,39 @@ class RFECV(BaseEstimator, TransformerMixin):
                         selected_cols = [col for col, selected in zip(self.feature_names_in_, self.support_) if selected]
                     else:
                         selected_cols = [self.feature_names_in_[i] for i in self.support_]
-                # Column-set drift between fit-time and transform-time
-                # is silently surviving as logger.error 2026-04-27
-                # (batch 3): the fitted ``support_`` mask references
-                # ``feature_names_in_`` indices, so dropping those
-                # columns means the transformer's selection no longer
-                # corresponds to the physical columns it claimed to
-                # select. Tolerating it can let downstream feature-
-                # importance / SHAP / explanation paths reference
-                # WRONG columns by name. Log at ERROR (visible without
-                # extra verbosity) instead of WARNING; still degrade
-                # gracefully (drop missing) since raising would break
-                # all combos that legitimately strip degenerate columns
-                # mid-pipeline (fuzz c0042 — inject_zero_col +
-                # remove_constant_columns).
+                # Column-set drift between fit-time and transform-time:
+                # the fitted ``support_`` mask references ``feature_names_in_``,
+                # so dropping those columns means the transformer's selection
+                # no longer corresponds to the physical columns it claimed to
+                # select. Tolerating this lets downstream feature-importance /
+                # SHAP / explanation paths reference WRONG columns by name.
+                #
+                # 2026-04-28 (batch 4): logged at ERROR with full diagnostic
+                # so the bug is VISIBLE in default-verbosity logs; the actual
+                # fit/predict still proceeds with a filtered support_ subset
+                # to keep the suite running. TODO: investigate upstream
+                # pipeline-order bug in mlframe.training (seed=42 c0093/c0095
+                # surface this; preprocess_dataframe / OD / strategy pipeline
+                # interaction with rfecv_estimator=cb_rfecv on
+                # inject_all_nan_col=True). The first round of investigation
+                # found that ``preprocess_dataframe.remove_constant_columns``
+                # is forced True by canon when ``inject_all_nan_col`` is set,
+                # and yet num_all_nan still reaches RFECV.feature_names_in_ on
+                # the polars_nullable / linear path - something between the
+                # global preprocess and the per-strategy pre_pipeline.fit
+                # re-introduces or re-detects the column. Fix lives in
+                # core.py, not here. Once that is resolved, restore the
+                # ``raise RuntimeError`` to keep the contract strict.
                 missing = [c for c in selected_cols if c not in X.columns]
                 if missing:
                     logger.error(
-                        "RFECV.transform: %d/%d selected columns missing "
-                        "from input X (%s); the fitted ``support_`` mask "
-                        "no longer reflects the physical columns. This "
-                        "indicates pipeline order is wrong: "
-                        "constant-col-removal / imputer-drop steps must "
-                        "come BEFORE RFECV.fit, not between fit and "
-                        "transform. Continuing with the surviving columns "
-                        "to avoid breaking the suite, but downstream "
-                        "feature-name-keyed analysis (importance, SHAP) "
-                        "may be incorrect.",
+                        "RFECV.transform: %d/%d selected columns missing from input X (%s); "
+                        "the fitted ``support_`` mask no longer reflects the "
+                        "physical columns. Likely upstream pipeline-order bug: "
+                        "constant-col-removal / imputer-drop steps must come "
+                        "BEFORE RFECV.fit, not between fit and transform. "
+                        "Continuing with the present-only subset; downstream "
+                        "feature-name-keyed reports may be inaccurate.",
                         len(missing), len(selected_cols), missing,
                     )
                     selected_cols = [c for c in selected_cols if c in X.columns]

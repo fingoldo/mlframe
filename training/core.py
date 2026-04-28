@@ -3260,6 +3260,15 @@ def train_mlframe_models_suite(
                     reverse=True,  # (True, True) before (False, False)
                 )
                 tier_dfs_cache = {}  # feature_tier -> {train_df, val_df, test_df}
+                # 2026-04-28: Enum-map cache parallel to tier_dfs_cache.
+                # XGBoostStrategy.prepare_polars_dataframe needs a leak-free
+                # pl.Enum dict built from the train+val UNION (test EXCLUDED
+                # to avoid label-time leakage). The map only depends on
+                # (feature_tier, strategy class) — invariant across the
+                # weight-schema loop and across multiple models that share
+                # a tier. Cache here so we compute it at most once per
+                # (target, tier, strategy) instead of once per model.
+                tier_enum_map_cache: Dict[tuple, Optional[Dict[str, Any]]] = {}
                 prev_tier = None
 
                 for mlframe_model_name in tqdmu_lazy_start(sorted_models, desc="mlframe model"):
@@ -3295,6 +3304,7 @@ def train_mlframe_models_suite(
                         del train_df_polars, val_df_polars, test_df_polars
                         train_df_polars = val_df_polars = test_df_polars = None
                         tier_dfs_cache.clear()
+                        tier_enum_map_cache.clear()
                         baseline_rss_mb = maybe_clean_ram_and_gpu(
                             baseline_rss_mb, df_size_mb,
                             verbose=verbose,
@@ -3407,9 +3417,43 @@ def train_mlframe_models_suite(
                             tier_base, strategy, text_features, embedding_features, tier_dfs_cache, verbose=verbose,
                         )
 
-                        prepared_train = strategy.prepare_polars_dataframe(tier_polars["train_df"], _cat_features)
-                        prepared_val = strategy.prepare_polars_dataframe(tier_polars["val_df"], _cat_features) if tier_polars.get("val_df") is not None else None
-                        prepared_test = strategy.prepare_polars_dataframe(tier_polars["test_df"], _cat_features) if tier_polars.get("test_df") is not None else None
+                        # 2026-04-28: leak-free pl.Enum map from train+val
+                        # UNION of unique categorical values (test EXCLUDED).
+                        # Strategy-class+tier-keyed cache so the map is built
+                        # once per (target, tier, strategy) and reused across
+                        # the weight-schema loop and any sibling-tier models.
+                        _enum_cache_key = (strategy.feature_tier(), type(strategy).__name__)
+                        if _enum_cache_key in tier_enum_map_cache:
+                            _xgb_category_map = tier_enum_map_cache[_enum_cache_key]
+                        elif hasattr(strategy, "build_polars_enum_map"):
+                            try:
+                                _xgb_category_map = strategy.build_polars_enum_map(
+                                    tier_polars["train_df"],
+                                    tier_polars.get("val_df"),
+                                    _cat_features,
+                                )
+                            except Exception as _emb_exc:
+                                logger.warning(
+                                    "build_polars_enum_map failed for %s; "
+                                    "falling back to per-DF Enum cast: %s",
+                                    type(strategy).__name__, _emb_exc,
+                                )
+                                _xgb_category_map = None
+                            tier_enum_map_cache[_enum_cache_key] = _xgb_category_map
+                        else:
+                            _xgb_category_map = None
+                            tier_enum_map_cache[_enum_cache_key] = None
+
+                        def _prep_polars(_df):
+                            if _df is None:
+                                return None
+                            if _xgb_category_map is not None:
+                                return strategy.prepare_polars_dataframe(_df, _cat_features, category_map=_xgb_category_map)
+                            return strategy.prepare_polars_dataframe(_df, _cat_features)
+
+                        prepared_train = _prep_polars(tier_polars["train_df"])
+                        prepared_val = _prep_polars(tier_polars.get("val_df"))
+                        prepared_test = _prep_polars(tier_polars.get("test_df"))
 
                         # Null-fill text features for CatBoost (requires no nulls in text columns).
                         # Also cast Polars Categorical/Enum to pl.String: CatBoost's Polars
@@ -3907,6 +3951,7 @@ def train_mlframe_models_suite(
                             del train_df_polars, val_df_polars, test_df_polars
                             train_df_polars = val_df_polars = test_df_polars = None
                             tier_dfs_cache.clear()
+                            tier_enum_map_cache.clear()
                             baseline_rss_mb = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="tier transition")
                             if verbose:
                                 logger.info("  Released pre-pipeline Polars originals (tier transition)")

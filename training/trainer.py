@@ -1112,30 +1112,14 @@ def _setup_eval_set(
     if model_category is None or model_category not in eval_set_configs:
         return
 
-    # Empty-val guard: when the splitter produces an empty val window
-    # (fuzz c0079 / earlier c0102 — small-n combos with heavy filtering
-    # like trainset_aging_limit + outlier_detection collapse the val
-    # slice to 0 rows), passing an empty (val_df, val_target) tuple to
-    # CB/XGB/LGB eval_set causes a misleading "Labels variable is empty"
-    # raise from CB's internal Pool init (the message is about VAL
-    # labels, not train). Skip the eval_set injection so the model
-    # trains without early-stopping val — that's the correct degraded
-    # behaviour for a degenerate split.
-    _val_n = (
-        val_df.shape[0] if val_df is not None and hasattr(val_df, "shape") else None
-    )
-    _val_tgt_n = (
-        len(val_target) if val_target is not None and hasattr(val_target, "__len__") else None
-    )
-    if (_val_n is not None and _val_n == 0) or (_val_tgt_n is not None and _val_tgt_n == 0):
-        logger.warning(
-            "[%s] empty val_df / val_target (rows=%s, target_len=%s) — "
-            "skipping eval_set injection. The model will train without "
-            "early-stopping validation. Investigate the splitter that "
-            "produced the degenerate val slice.",
-            model_category, _val_n, _val_tgt_n,
-        )
-        return
+    # Historical 0-row val skip in _setup_eval_set removed 2026-04-28
+    # (batch 4). The original empty-val window came from outlier
+    # detection rejecting almost every val row; that's now guarded at
+    # the source in ``core._apply_outlier_detection_global`` (val-side
+    # min_keep floor + class-balance pre-check). If a 0-row val still
+    # arrives here it's an upstream bug — let CB raise its own
+    # "Labels variable is empty" so the bug surfaces immediately
+    # instead of silently training without early-stopping val.
 
     # 2026-04-24 Session 6: when the model is wrapped in MultiOutputClassifier
     # (multilabel path), eval_set / X_val / y_val keyword args propagate
@@ -2104,29 +2088,24 @@ def _maybe_get_or_build_cb_pool(
     # C++ Pool init (fuzz c0079). Skip Pool reuse on mismatch and let
     # the sklearn fallback path build a fresh Pool with the current
     # (data, label) pair.
-    try:
-        _df_rows = train_df.shape[0] if hasattr(train_df, "shape") else None
-        _tg_len = len(train_target) if train_target is not None and hasattr(train_target, "__len__") else None
-        if _df_rows is not None and _tg_len is not None and _df_rows != _tg_len:
-            # Length mismatch is a hard contract violation - logged at
-            # ERROR (was WARNING) so it surfaces in default-verbosity
-            # logs. Still graceful-fallback to the sklearn rebuild path
-            # rather than raising, because the sklearn fit will surface
-            # its own clear length-mismatch error if the upstream
-            # caller really wants the mismatch (vs us silently raising
-            # mid-Pool-cache-lookup with no diagnostic context).
-            # Investigate fuzz c0079-style upstream slicing if you see
-            # this in production.
-            logger.error(
-                "[cb-pool-reuse] train_df rows (%d) != train_target len (%d) "
-                "- this is a contract violation. Skipping Pool reuse; the "
-                "sklearn fallback will surface a clear error if the call "
-                "site really intended this mismatch.",
-                _df_rows, _tg_len,
-            )
-            return None
-    except Exception:
-        pass
+    _df_rows = train_df.shape[0] if hasattr(train_df, "shape") else None
+    _tg_len = len(train_target) if train_target is not None and hasattr(train_target, "__len__") else None
+    if _df_rows is not None and _tg_len is not None and _df_rows != _tg_len:
+        # Hard contract violation — raised 2026-04-28 (batch 4, was
+        # logger.error+fallback). X/y length mismatch reaching this
+        # point means an upstream slicing bug (fuzz c0079-style: RFECV
+        # inner CV producing inconsistent train_target / train_df
+        # lengths). Fall back to sklearn would just delay the same
+        # error with less context; raise here gives a stack trace
+        # rooted in mlframe's flow, not deep in CB's C++ ``Labels
+        # variable is empty`` (which is misleading — it's about
+        # length, not emptiness).
+        raise RuntimeError(
+            f"[cb-pool-reuse] train_df rows ({_df_rows}) != "
+            f"train_target len ({_tg_len}). This is a hard contract "
+            f"violation; investigate upstream slicing (RFECV inner CV / "
+            f"OD filter / aging trim) that produced the mismatch."
+        )
 
     cached = _CB_POOL_CACHE.get(key)
     if cached is not None:
@@ -2633,6 +2612,38 @@ def _train_model_with_fallback(
                         )
 
     try:
+        # 2026-04-28 (batch 4): final cat alignment right before fit, by
+        # which point any upstream polars→pandas conversion has run.
+        # Targets the seed=2024 c0060 flake: c0009 (polars_nullable
+        # multilabel) leaves the polars_nullable→pandas conversion in
+        # a state where c0060's pandas frame ends up with a
+        # pd.CategoricalDtype whose categories list disagrees between
+        # train and val/test. Re-align here so XGB's stored cat index
+        # matches at predict.
+        _eval_set_for_align = fit_params.get("eval_set")
+        _val_df_from_eval = None
+        if _eval_set_for_align:
+            _pairs = _eval_set_for_align if isinstance(_eval_set_for_align, list) else [_eval_set_for_align]
+            for _p in _pairs:
+                if isinstance(_p, tuple) and len(_p) == 2 and isinstance(_p[0], pd.DataFrame):
+                    _val_df_from_eval = _p[0]
+                    break
+        if isinstance(train_df, pd.DataFrame) and _val_df_from_eval is not None:
+            train_df, _aligned_val, _ = _align_xgb_cat_categories(
+                model_type_name, train_df, val_df=_val_df_from_eval, test_df=None,
+            )
+            # Refresh eval_set if val_df was modified (set_categories
+            # returns a new Series; the eval_set tuple needs the new
+            # frame reference).
+            if _aligned_val is not None and _aligned_val is not _val_df_from_eval:
+                if isinstance(_eval_set_for_align, list):
+                    fit_params["eval_set"] = [
+                        (_aligned_val, _p[1]) if isinstance(_p, tuple) and _p[0] is _val_df_from_eval else _p
+                        for _p in _eval_set_for_align
+                    ]
+                elif isinstance(_eval_set_for_align, tuple):
+                    fit_params["eval_set"] = (_aligned_val, _eval_set_for_align[1])
+
         with phase("model.fit", model=model_type_name,
                    n_rows=(train_df.shape[0] if hasattr(train_df, "shape") else None),
                    n_cols=(train_df.shape[1] if hasattr(train_df, "shape") else None)):
@@ -2911,6 +2922,20 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
     # (no mismatched cat levels = no copy, no set_categories call) and
     # harmless for CB/HGB/LGB (they tolerate unseen cats but accept the
     # union dtype identically). Cost: one cat-column scan per frame.
+    if os.environ.get("MLFRAME_CAT_DIAG"):
+        print(f"[CAT-DIAG-ENTER] model={model_type_name}, train_df type={type(train_df).__name__}, is_pandas={isinstance(train_df, pd.DataFrame)}, is_polars={isinstance(train_df, pl.DataFrame)}", flush=True)
+
+    # Polars frames: alignment is now done UPSTREAM by
+    # ``XGBoostStrategy.prepare_polars_dataframe`` + ``build_polars_enum_map``
+    # in ``training.core`` (built once from the train+val union, leak-free).
+    # Doing it again here would, for non-XGB models in mixed suites, undo
+    # the CB-specific ``Enum→String`` text-feature cast that core.py
+    # applies at line ~3466 — surfaced 2026-04-28 as fuzz c0025
+    # (cb_hgb_lgb_xgb / pl_enum) failing with
+    # ``Unsupported data type Enum(...) for a text feature column``.
+    if isinstance(train_df, pl.DataFrame):
+        return train_df, val_df, test_df
+
     if not isinstance(train_df, pd.DataFrame):
         return train_df, val_df, test_df
 
@@ -2922,6 +2947,20 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
             continue
         if isinstance(_dt, pd.CategoricalDtype):
             cat_cols_to_align.append(_col)
+
+    # DIAG (2026-04-28): print full cat layout to localise c0060 flake.
+    if os.environ.get("MLFRAME_CAT_DIAG"):
+        try:
+            for _df_name, _df in (("train", train_df), ("val", val_df), ("test", test_df)):
+                if _df is None:
+                    continue
+                for _c in cat_cols_to_align:
+                    if _c in _df.columns:
+                        _cats = list(_df[_c].cat.categories)
+                        _vals_unique = sorted(set(str(v) for v in _df[_c].dropna()))
+                        print(f"[CAT-DIAG] model={model_type_name} {_df_name}.{_c}: dtype.categories={_cats}, actual_unique={_vals_unique}", flush=True)
+        except Exception as _exc:
+            print(f"[CAT-DIAG] failed: {_exc}", flush=True)
 
     if not cat_cols_to_align:
         return train_df, val_df, test_df
@@ -3123,28 +3162,13 @@ def _compute_split_metrics(
     if df is None and probs is None:
         return preds, probs, []
 
-    # Min-rows guard: an empty split (e.g. val_df with shape=(0, N) from
-    # the splitter edge case fixed in _apply_pre_pipeline_transforms)
-    # propagates into report_model_perf -> classification_report which
-    # raises ``Found empty input array`` before we get a useful error.
-    # Symmetric guard at the metrics layer so the model still trains
-    # (already done) and the report is just skipped for the empty split.
-    if df is not None and hasattr(df, "shape") and df.shape[0] == 0:
-        logger.warning(
-            "  %s split has 0 rows — skipping metrics report. Upstream "
-            "splitter likely produced an empty window; investigate the "
-            "TrainingSplitConfig that fed this combo.", split_name,
-        )
-        return preds, probs, []
-    if (
-        target is not None
-        and hasattr(target, "__len__")
-        and len(target) == 0
-    ):
-        logger.warning(
-            "  %s split target is empty — skipping metrics report.", split_name,
-        )
-        return preds, probs, []
+    # Historical 0-row split skip removed 2026-04-28 (batch 4). The
+    # original empty-split window came from outlier detection
+    # (val-side) or splitter edge cases; both are now guarded at the
+    # source. If a 0-row split still arrives here, the metrics layer
+    # would crash with ``Found empty input array`` from
+    # classification_report — a clear signal of an upstream bug rather
+    # than silently dropping the split's contribution to the report.
 
     # Derive columns from df if available (for feature importance)
     columns = list(df.columns) if df is not None and hasattr(df, "columns") else []

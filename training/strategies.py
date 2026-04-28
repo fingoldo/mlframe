@@ -456,22 +456,135 @@ class XGBoostStrategy(TreeModelStrategy):
             multilabel_config=multilabel_config, n_labels=n_labels,
         )
 
-    def prepare_polars_dataframe(self, df: "pl.DataFrame", cat_features: List[str]) -> "pl.DataFrame":
-        """Cast string columns to pl.Categorical for XGBoost auto-detection.
+    def prepare_polars_dataframe(
+        self,
+        df: "pl.DataFrame",
+        cat_features: List[str],
+        category_map: Optional[Dict[str, "pl.Enum"]] = None,
+    ) -> "pl.DataFrame":
+        """Cast string columns to a categorical dtype for XGBoost auto-detection.
 
-        XGBoost detects pl.Categorical natively when enable_categorical=True
-        but does NOT handle raw pl.String columns.
+        XGBoost detects polars categorical/Enum dtypes natively when
+        ``enable_categorical=True`` but does not handle raw ``pl.String``.
+
+        Why ``pl.Enum`` over ``pl.Categorical`` (2026-04-28):
+        Polars 1.x has the global string cache enabled by default and
+        ``pl.disable_string_cache()`` is a no-op. Every ``pl.Categorical``
+        Series in the process therefore shares one monotonically growing
+        dictionary. Across pytest runs this lets categories from earlier
+        tests bleed into a later test's column dtype: train_df might be
+        fitted when the global dict is small, val_df at predict time has
+        the same column with a larger dtype.cats list, and XGBoost's
+        ``cat_container`` raises "Found a category not in the training
+        set" for the ghost levels even when the actual values column is
+        clean. ``pl.Enum`` is per-Series (no shared cache), so the dtype
+        is fully determined by the levels we pass in.
+
+        ``category_map`` (preferred): a {col -> pl.Enum} dict the caller
+        builds from the union of train+val unique values (test must be
+        excluded to avoid label leakage). When supplied, all string /
+        Categorical / existing-Enum columns named in the map are cast
+        to that exact Enum, giving train/val/test (and predict-time
+        frames) identical, leak-free dtypes.
+
+        Fallback (no map): cast each column to a per-DF Enum built from
+        its own unique values. This still avoids the global-cache leak,
+        but train/val/test produced from independent calls will have
+        different Enum dtypes — fine when the caller only ever passes
+        one frame, but at predict time XGBoost will reject any val/test
+        category not present in the train Enum. Use the explicit
+        ``category_map`` route for predict-time correctness.
         """
         import polars as pl
 
+        # When a leak-free pl.Enum map is supplied, cast every named
+        # column (cat or already-categorical) to that exact Enum so
+        # train/val/test dtypes match across calls.
+        if category_map is not None:
+            exprs: List[Any] = []
+            for c, enum_dtype in category_map.items():
+                if c in df.columns:
+                    exprs.append(pl.col(c).cast(pl.String).cast(enum_dtype).alias(c))
+            if exprs:
+                df = df.with_columns(exprs)
+            # Still need to cover any pl.String / pl.Utf8 not present in
+            # the map (e.g. brand-new columns surfacing only after the
+            # map was built) — fall back to per-DF Enum.
+            remaining = {
+                name for name, dtype in df.schema.items()
+                if (dtype in (pl.Utf8, pl.String)) and name not in category_map
+            }
+            if remaining:
+                fallback_exprs = []
+                for c in remaining:
+                    vals = df[c].drop_nulls().unique().cast(pl.String).to_list()
+                    enum_dtype = pl.Enum(sorted(set(vals)))
+                    fallback_exprs.append(pl.col(c).cast(pl.String).cast(enum_dtype).alias(c))
+                df = df.with_columns(fallback_exprs)
+            return df
+
+        # No map supplied: legacy behaviour, but using pl.Enum (not
+        # pl.Categorical) so the cast doesn't pollute polars 1.x's
+        # default global string cache. ``pl.String`` / ``pl.Utf8``
+        # columns get an Enum built from their own unique values.
         schema_cats = {
             name for name, dtype in df.schema.items()
             if dtype in (pl.Utf8, pl.String)
         }
-        cols_to_cast = schema_cats | {c for c in (cat_features or []) if c in df.columns and df[c].dtype in (pl.Utf8, pl.String)}
+        cols_to_cast = schema_cats | {
+            c for c in (cat_features or [])
+            if c in df.columns and df[c].dtype in (pl.Utf8, pl.String)
+        }
         if not cols_to_cast:
             return df
-        return df.with_columns([pl.col(c).cast(pl.Categorical) for c in cols_to_cast])
+        exprs = []
+        for c in cols_to_cast:
+            vals = df[c].drop_nulls().unique().cast(pl.String).to_list()
+            enum_dtype = pl.Enum(sorted(set(vals)))
+            exprs.append(pl.col(c).cast(pl.String).cast(enum_dtype).alias(c))
+        return df.with_columns(exprs)
+
+    def build_polars_enum_map(
+        self,
+        train_df: "pl.DataFrame",
+        val_df: "Optional[pl.DataFrame]",
+        cat_features: List[str],
+    ) -> "Dict[str, pl.Enum]":
+        """Build per-column ``pl.Enum`` dtypes from the union of train+val
+        unique values. Test data is intentionally excluded — letting test
+        levels widen the Enum would leak label-time information back into
+        the model's accepted-category set.
+
+        Returns ``{col_name: pl.Enum([...])}`` for every string /
+        Categorical / Enum column present in ``train_df``. Columns absent
+        from ``val_df`` contribute only their train levels (still safe).
+        """
+        import polars as pl
+
+        cat_features = cat_features or []
+        candidate_cols = [
+            name for name, dtype in train_df.schema.items()
+            if dtype in (pl.Utf8, pl.String)
+            or dtype == pl.Categorical
+            or isinstance(dtype, pl.Enum)
+            or name in cat_features
+        ]
+        candidate_cols = [c for c in candidate_cols if c in train_df.columns]
+
+        out: Dict[str, "pl.Enum"] = {}
+        for col in candidate_cols:
+            levels: set = set()
+            try:
+                levels.update(train_df[col].drop_nulls().unique().cast(pl.String).to_list())
+            except Exception:
+                continue
+            if val_df is not None and col in val_df.columns:
+                try:
+                    levels.update(val_df[col].drop_nulls().unique().cast(pl.String).to_list())
+                except Exception:
+                    pass
+            out[col] = pl.Enum(sorted(levels))
+        return out
 
 
 class HGBStrategy(ModelPipelineStrategy):

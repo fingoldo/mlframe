@@ -362,6 +362,23 @@ def report_regression_model_perf(
     targets_arr = np.asarray(targets)
     preds_arr = np.asarray(preds)
     if targets_arr.ndim > 1 and targets_arr.shape[1] > 1:
+        # 2026-04-28 (batch 4): WARN-loud when this band-aid path fires.
+        # Multilabel classification SHOULD route to
+        # ``report_probabilistic_model_perf`` via the
+        # ``is_classifier(model)`` dispatch upstream; (N, K) reaching the
+        # regression path means a classifier-mixin wasn't recognised
+        # (likely a model wrapped in something that strips
+        # ClassifierMixin). The downstream metrics will still compute
+        # per-output, but the dispatch root cause needs fixing.
+        logger.warning(
+            "report_regression_model_perf received a multioutput target "
+            "(shape=%s); this almost certainly indicates an upstream "
+            "is_classifier dispatch bug for a multilabel-wrapped "
+            "estimator. The metrics will compute per-output but the "
+            "dispatch should route to report_probabilistic_model_perf "
+            "instead.",
+            targets_arr.shape,
+        )
         MaxError = float(np.max(np.abs(targets_arr - preds_arr)))
     else:
         MaxError = max_error(y_true=targets, y_pred=preds)

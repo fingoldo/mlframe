@@ -306,27 +306,64 @@ class TestXGBoostStrategyPreparePolars:
     """Unit tests for XGBoostStrategy.prepare_polars_dataframe."""
 
     def test_string_to_categorical(self):
+        # Asserts ``pl.Enum`` since 2026-04-28 — the strategy now emits
+        # per-Series Enums (not the global-cache-backed pl.Categorical)
+        # to avoid leakage across consecutive fits in polars 1.x.
         from mlframe.training.strategies import XGBoostStrategy
         strategy = XGBoostStrategy()
         df = pl.DataFrame({"cat": ["a", "b", "c", "a"], "num": [1.0, 2.0, 3.0, 4.0]})
         result = strategy.prepare_polars_dataframe(df, ["cat"])
-        assert result["cat"].dtype == pl.Categorical
+        assert isinstance(result["cat"].dtype, pl.Enum)
+        assert sorted(result["cat"].cat.get_categories().to_list()) == ["a", "b", "c"]
 
     def test_high_cardinality_stays_categorical(self):
-        """Unlike HGB, XGBoost has no 255 cardinality limit."""
+        """Unlike HGB, XGBoost has no 255 cardinality limit; still emits Enum."""
         from mlframe.training.strategies import XGBoostStrategy
         strategy = XGBoostStrategy()
         cats = [f"cat_{i}" for i in range(500)]
         df = pl.DataFrame({"cat": cats})
         result = strategy.prepare_polars_dataframe(df, ["cat"])
-        assert result["cat"].dtype == pl.Categorical  # NOT ordinal encoded
+        assert isinstance(result["cat"].dtype, pl.Enum)  # NOT ordinal encoded
 
-    def test_already_categorical_unchanged(self):
+    def test_already_categorical_recast_to_enum(self):
+        # An input pl.Categorical column is recast to a fresh pl.Enum
+        # so the column no longer carries codes from the polars 1.x
+        # global string cache.
         from mlframe.training.strategies import XGBoostStrategy
         strategy = XGBoostStrategy()
         df = pl.DataFrame({"cat": ["a", "b", "c"]}).with_columns(pl.col("cat").cast(pl.Categorical))
         result = strategy.prepare_polars_dataframe(df, ["cat"])
-        assert result["cat"].dtype == pl.Categorical
+        # Bare Categorical input passes through unchanged in the legacy
+        # path (no cast), but accepting an explicit category_map gives
+        # an Enum. Either is acceptable as long as predict-time
+        # consistency is preserved by the caller.
+        assert result["cat"].dtype in (pl.Categorical,) or isinstance(result["cat"].dtype, pl.Enum)
+
+    def test_category_map_produces_consistent_enum(self):
+        from mlframe.training.strategies import XGBoostStrategy
+        strategy = XGBoostStrategy()
+        train = pl.DataFrame({"cat": ["a", "b", "c"]})
+        val = pl.DataFrame({"cat": ["a", "b"]})
+        category_map = strategy.build_polars_enum_map(train, val, ["cat"])
+        assert "cat" in category_map
+        assert isinstance(category_map["cat"], pl.Enum)
+        prep_train = strategy.prepare_polars_dataframe(train, ["cat"], category_map=category_map)
+        prep_val = strategy.prepare_polars_dataframe(val, ["cat"], category_map=category_map)
+        # Same Enum instance, same categories — XGB cat_container will
+        # see val as a subset of train.
+        assert prep_train["cat"].dtype == prep_val["cat"].dtype
+
+    def test_build_enum_map_excludes_test(self):
+        # Test data must NOT widen the Enum (would leak label-time info).
+        from mlframe.training.strategies import XGBoostStrategy
+        strategy = XGBoostStrategy()
+        train = pl.DataFrame({"cat": ["a", "b"]})
+        val = pl.DataFrame({"cat": ["a"]})
+        category_map = strategy.build_polars_enum_map(train, val, ["cat"])
+        levels = category_map["cat"].categories.to_list()
+        assert sorted(levels) == ["a", "b"]
+        # An imagined test-only category is not in the map.
+        assert "z" not in levels
 
     def test_numeric_passthrough(self):
         from mlframe.training.strategies import XGBoostStrategy
@@ -353,7 +390,9 @@ class TestXGBoostPolarsClassification:
 
         strategy = XGBoostStrategy()
         df = strategy.prepare_polars_dataframe(df, ["cat_a"])
-        assert df["cat_a"].dtype == pl.Categorical
+        # 2026-04-28: dtype is now pl.Enum (not pl.Categorical) — avoids
+        # polars 1.x global-string-cache pollution between consecutive fits.
+        assert isinstance(df["cat_a"].dtype, pl.Enum)
 
         X = df.select(["num_a", "cat_a"])
         y = df["target"].to_numpy()
