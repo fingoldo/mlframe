@@ -638,6 +638,21 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
     if is_classification:
         try:
             arr_np = np.asarray(target)
+            # Object dtype with nested arrays (polars ``pl.List`` roundtrip
+            # for multilabel) presents as 1-D but each cell is itself an
+            # array. Stack to a true 2-D shape so the per-label degenerate
+            # check below works without ``np.unique`` choking on cell-array
+            # comparison ("truth value ambiguous", surfaced 3-way fuzz
+            # c0000).
+            if arr_np.dtype == object and arr_np.ndim == 1 and arr_np.shape[0] > 0:
+                _first = arr_np[0]
+                if hasattr(_first, "shape") or (
+                    hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
+                ):
+                    try:
+                        arr_np = np.stack([np.asarray(c) for c in arr_np], axis=0)
+                    except Exception:
+                        pass
             if arr_np.ndim > 1:
                 # Multilabel / multiclass-prob: per-column unique check.
                 # If ANY column has only one unique value, the model
@@ -4445,6 +4460,38 @@ def configure_training_params(
     if cb_fit_params is None:
         cb_fit_params = {}
 
+    # ---- multilabel + post-hoc calibration safety gate ----
+    # ``CalibratedClassifierCV`` is single-output only; combining it with a
+    # MULTILABEL target silently fails inside the wrapper (label-list shape
+    # mismatch deep in sklearn). Honour ``MultilabelDispatchConfig.
+    # allow_uncalibrated_multi``: when False (default — strict), refuse the
+    # combo loudly so the misconfiguration is visible at config time; when
+    # True, drop the calibration request with a warning and continue. No-op
+    # when target is not multilabel or no MultilabelDispatchConfig was
+    # supplied (legacy call path stays unchanged).
+    if (
+        target_type is not None
+        and prefer_calibrated_classifiers
+        and multilabel_dispatch_config is not None
+    ):
+        from .configs import TargetTypes as _TT
+        if target_type == _TT.MULTILABEL_CLASSIFICATION:
+            if not multilabel_dispatch_config.allow_uncalibrated_multi:
+                raise NotImplementedError(
+                    "prefer_calibrated_classifiers=True is incompatible with "
+                    "MULTILABEL_CLASSIFICATION (CalibratedClassifierCV is "
+                    "single-output only). Set MultilabelDispatchConfig."
+                    "allow_uncalibrated_multi=True to drop calibration with a "
+                    "warning instead of raising."
+                )
+            logger.warning(
+                "Multilabel target + prefer_calibrated_classifiers=True; "
+                "dropping calibration (MultilabelDispatchConfig."
+                "allow_uncalibrated_multi=True). Trained models will be "
+                "uncalibrated."
+            )
+            prefer_calibrated_classifiers = False
+
     # 2026-04-24 Session 6: route target_type/n_classes into get_training_configs
     # so the per-strategy classification dispatch (CB MultiLogloss, XGB
     # multi:softprob+num_class, LGB multiclass+num_class) gets injected.
@@ -4461,8 +4508,26 @@ def configure_training_params(
             # Multi-output safe label count: 2-D multilabel uses n_columns;
             # 1-D binary/multiclass uses unique value count.
             target_arr = np.asarray(target) if target is not None else None
+            # Multilabel detection: explicit 2-D, OR 1-D object dtype where
+            # each cell is itself an array (the polars ``pl.List(pl.Int8)``
+            # roundtrip lands here). Without the second clause,
+            # ``np.unique(target_arr)`` raised ``truth value of array
+            # ambiguous`` on the per-cell-array comparison surfaced fuzz
+            # 3-way c0000 (cb / pandas / multilabel target).
+            _is_object_of_arrays = False
+            if target_arr is not None and target_arr.dtype == object and target_arr.ndim == 1 and target_arr.shape[0] > 0:
+                _first = target_arr[0]
+                _is_object_of_arrays = hasattr(_first, "shape") or (
+                    hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
+                )
             if target_arr is not None and target_arr.ndim == 2:
                 nlabels = target_arr.shape[1] + 1  # treat as ">2" → multiclass-style metrics
+            elif _is_object_of_arrays:
+                try:
+                    _first = target_arr[0]
+                    nlabels = (len(_first) if hasattr(_first, "__len__") else int(np.asarray(_first).size)) + 1
+                except Exception:
+                    nlabels = 3
             elif target_arr is not None:
                 nlabels = len(np.unique(target_arr))
             else:

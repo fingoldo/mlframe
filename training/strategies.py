@@ -611,20 +611,31 @@ class HGBStrategy(ModelPipelineStrategy):
     # HGB max_bins is capped at 255 in sklearn
     _MAX_CATEGORICAL_CARDINALITY = 255
 
-    def prepare_polars_dataframe(self, df: "pl.DataFrame", cat_features: List[str]) -> "pl.DataFrame":
-        """Cast categorical columns for HGB compatibility.
+    def prepare_polars_dataframe(
+        self,
+        df: "pl.DataFrame",
+        cat_features: List[str],
+        category_map: Optional[Dict[str, "pl.Enum"]] = None,
+    ) -> "pl.DataFrame":
+        """Cast categorical columns for HGB compatibility, using leak-free
+        ``pl.Enum`` (not ``pl.Categorical``) for the same reason XGB does:
+        polars 1.x's default global string cache makes every
+        ``pl.Categorical`` Series in the process share one growing
+        dictionary, so the column's physical codes drift across runs.
+        sklearn HGB reads the underlying integer codes directly when
+        the dtype reports as categorical, so cross-run code drift is a
+        latent pickle-reload hazard.
 
-        - Cardinality <= 255: cast pl.String → pl.Categorical (HGB auto-detects via from_dtype)
-        - Cardinality > 255: ordinal-encode to pl.UInt32 (HGB treats as continuous, bins into histogram)
+        - Cardinality <= 255: cast to ``pl.Enum`` (HGB auto-detects via from_dtype)
+        - Cardinality > 255: ordinal-encode to ``pl.UInt32`` (treated as continuous)
 
-        Detects columns from both the provided cat_features list AND the DF schema
-        (pl.String/pl.Utf8/pl.Categorical columns), so it works even when the pipeline
-        has already converted some columns.
+        ``category_map`` (preferred): a {col -> pl.Enum} dict the caller
+        builds from the union of train+val unique values via
+        ``build_polars_enum_map``. When supplied, train/val/test cast to
+        the SAME Enum so codes are consistent across splits.
         """
         import polars as pl
 
-        # Detect all string/categorical columns from schema (may include columns
-        # not in cat_features if pipeline didn't detect them)
         from .utils import filter_existing
 
         schema_cats = set(get_polars_cat_columns(df))
@@ -636,23 +647,75 @@ class HGBStrategy(ModelPipelineStrategy):
         casts = []
         for col in existing:
             dtype = df[col].dtype
-            if dtype == pl.Categorical:
-                n_unique = df[col].n_unique()
-                if n_unique > self._MAX_CATEGORICAL_CARDINALITY:
-                    # Too many categories — ordinal encode to integer
-                    casts.append(pl.col(col).cast(pl.String).cast(pl.Categorical).to_physical().cast(pl.UInt32).alias(col))
-                # else: already pl.Categorical with acceptable cardinality, keep as-is
-            elif dtype == pl.String or dtype == pl.Utf8:
-                n_unique = df[col].n_unique()
-                if n_unique <= self._MAX_CATEGORICAL_CARDINALITY:
-                    casts.append(pl.col(col).cast(pl.Categorical).alias(col))
+            n_unique = df[col].n_unique()
+            high_card = n_unique > self._MAX_CATEGORICAL_CARDINALITY
+            if category_map is not None and col in category_map:
+                enum_dt = category_map[col]
+                if high_card:
+                    casts.append(
+                        pl.col(col).cast(pl.String).cast(enum_dt).to_physical().cast(pl.UInt32).alias(col)
+                    )
                 else:
-                    # Ordinal encode high-cardinality strings
-                    casts.append(pl.col(col).cast(pl.Categorical).to_physical().cast(pl.UInt32).alias(col))
+                    casts.append(pl.col(col).cast(pl.String).cast(enum_dt).alias(col))
+                continue
+            # No supplied map: build a per-DF Enum from this frame's own values.
+            try:
+                vals = df[col].drop_nulls().unique().cast(pl.String).to_list()
+            except Exception:
+                vals = []
+            local_enum = pl.Enum(sorted(set(vals))) if vals else None
+            if local_enum is None:
+                continue
+            if high_card:
+                casts.append(
+                    pl.col(col).cast(pl.String).cast(local_enum).to_physical().cast(pl.UInt32).alias(col)
+                )
+            else:
+                casts.append(pl.col(col).cast(pl.String).cast(local_enum).alias(col))
 
         if casts:
             df = df.with_columns(casts)
         return df
+
+    def build_polars_enum_map(
+        self,
+        train_df: "pl.DataFrame",
+        val_df: "Optional[pl.DataFrame]",
+        cat_features: List[str],
+    ) -> "Dict[str, pl.Enum]":
+        """Mirror of ``XGBoostStrategy.build_polars_enum_map``: leak-free
+        per-column Enum from train+val UNION (test EXCLUDED). HGB's
+        cardinality split into Enum vs UInt32 happens at
+        ``prepare_polars_dataframe`` time using the same map - the map
+        always carries the FULL value set, the cardinality decision is
+        applied per frame.
+        """
+        import polars as pl
+
+        cat_features = cat_features or []
+        candidate_cols = [
+            name for name, dtype in train_df.schema.items()
+            if dtype in (pl.Utf8, pl.String)
+            or dtype == pl.Categorical
+            or isinstance(dtype, pl.Enum)
+            or name in cat_features
+        ]
+        candidate_cols = [c for c in candidate_cols if c in train_df.columns]
+
+        out: Dict[str, "pl.Enum"] = {}
+        for col in candidate_cols:
+            levels: set = set()
+            try:
+                levels.update(train_df[col].drop_nulls().unique().cast(pl.String).to_list())
+            except Exception:
+                continue
+            if val_df is not None and col in val_df.columns:
+                try:
+                    levels.update(val_df[col].drop_nulls().unique().cast(pl.String).to_list())
+                except Exception:
+                    pass
+            out[col] = pl.Enum(sorted(levels))
+        return out
 
 
 class NeuralNetStrategy(ModelPipelineStrategy):

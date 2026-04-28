@@ -257,6 +257,46 @@ class RFECV(BaseEstimator, TransformerMixin):
             y = y.to_pandas()
 
         # ----------------------------------------------------------------------------------------------------------------------------
+        # Zero-variance / all-null column filter (2026-04-28 batch 4 followup)
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Drop columns RFECV cannot meaningfully evaluate BEFORE we record
+        # ``feature_names_in_``. Without this, an all-NaN or single-value
+        # column entered ``feature_names_in_`` and could end up in
+        # ``support_`` (the inner CB ranker doesn't reject zero-info
+        # columns deterministically). Then a downstream pipeline step
+        # whose ``transform`` silently dropped the column (e.g.
+        # ``SimpleImputer(strategy='mean')`` with ``keep_empty_features=False``,
+        # the sklearn 1.x default) left ``RFECV.transform`` looking for a
+        # column the caller's frame no longer has - which surfaced as
+        # ``RFECV.transform: 1/N selected columns missing from input X``
+        # on fuzz seed=42 c0093 / c0095 (polars_nullable + cb_rfecv +
+        # inject_all_nan_col=True). The fix at the wrapper level is
+        # immune to whether upstream ``remove_constant_columns`` ran;
+        # zero-info columns simply never enter the selector's universe.
+        if isinstance(X, pd.DataFrame) and X.shape[1] > 0:
+            num_cols = X.select_dtypes(include="number").columns
+            degenerate = []
+            for _c in num_cols:
+                _s = X[_c]
+                if _s.isna().all():
+                    degenerate.append(_c)
+                else:
+                    try:
+                        if _s.nunique(dropna=True) <= 1:
+                            degenerate.append(_c)
+                    except TypeError:
+                        pass
+            if degenerate:
+                if getattr(self, "verbose", 0):
+                    logger.info(
+                        "RFECV: dropping %d zero-variance / all-null column(s) "
+                        "before fit so they cannot leak into ``support_`` or "
+                        "trip a transform-time column-set drift later: %s",
+                        len(degenerate), degenerate,
+                    )
+                X = X.drop(columns=degenerate)
+
+        # ----------------------------------------------------------------------------------------------------------------------------
         # Compute inputs/outputs signature
         # ----------------------------------------------------------------------------------------------------------------------------
 
@@ -991,42 +1031,27 @@ class RFECV(BaseEstimator, TransformerMixin):
                         selected_cols = [col for col, selected in zip(self.feature_names_in_, self.support_) if selected]
                     else:
                         selected_cols = [self.feature_names_in_[i] for i in self.support_]
-                # Column-set drift between fit-time and transform-time:
-                # the fitted ``support_`` mask references ``feature_names_in_``,
-                # so dropping those columns means the transformer's selection
-                # no longer corresponds to the physical columns it claimed to
-                # select. Tolerating this lets downstream feature-importance /
-                # SHAP / explanation paths reference WRONG columns by name.
-                #
-                # 2026-04-28 (batch 4): logged at ERROR with full diagnostic
-                # so the bug is VISIBLE in default-verbosity logs; the actual
-                # fit/predict still proceeds with a filtered support_ subset
-                # to keep the suite running. TODO: investigate upstream
-                # pipeline-order bug in mlframe.training (seed=42 c0093/c0095
-                # surface this; preprocess_dataframe / OD / strategy pipeline
-                # interaction with rfecv_estimator=cb_rfecv on
-                # inject_all_nan_col=True). The first round of investigation
-                # found that ``preprocess_dataframe.remove_constant_columns``
-                # is forced True by canon when ``inject_all_nan_col`` is set,
-                # and yet num_all_nan still reaches RFECV.feature_names_in_ on
-                # the polars_nullable / linear path - something between the
-                # global preprocess and the per-strategy pre_pipeline.fit
-                # re-introduces or re-detects the column. Fix lives in
-                # core.py, not here. Once that is resolved, restore the
-                # ``raise RuntimeError`` to keep the contract strict.
+                # Column-set drift between fit-time and transform-time is
+                # a hard error: the fit-time zero-variance filter (added
+                # 2026-04-28 batch 4 followup) ensures ``feature_names_in_``
+                # never contains columns sklearn pipeline steps may
+                # silently drop. If we still see drift, an upstream step
+                # is mutating the schema between fit and transform - that
+                # is a real pipeline-order bug we want surfaced loud
+                # rather than silently masked.
                 missing = [c for c in selected_cols if c not in X.columns]
                 if missing:
-                    logger.error(
-                        "RFECV.transform: %d/%d selected columns missing from input X (%s); "
-                        "the fitted ``support_`` mask no longer reflects the "
-                        "physical columns. Likely upstream pipeline-order bug: "
-                        "constant-col-removal / imputer-drop steps must come "
-                        "BEFORE RFECV.fit, not between fit and transform. "
-                        "Continuing with the present-only subset; downstream "
-                        "feature-name-keyed reports may be inaccurate.",
-                        len(missing), len(selected_cols), missing,
+                    raise RuntimeError(
+                        f"RFECV.transform: {len(missing)}/{len(selected_cols)} "
+                        f"selected columns missing from input X ({missing}); "
+                        f"the fitted ``support_`` mask no longer reflects the "
+                        f"physical columns. The zero-variance filter at "
+                        f"``RFECV.fit`` already excludes constant / all-null "
+                        f"columns from ``feature_names_in_``, so this drift "
+                        f"means an upstream step (constant-col-removal / "
+                        f"imputer-drop / OD filter) is mutating the column "
+                        f"set BETWEEN fit and transform. Investigate."
                     )
-                    selected_cols = [c for c in selected_cols if c in X.columns]
                 return X[selected_cols]
             else:
                 return X.iloc[:, self.support_]

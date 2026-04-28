@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-04-28 - RFECV zero-variance preventive filter + HGB pl.Enum + 1 stale test fixed
+
+### A: RFECV zero-variance fit-time filter (closed batch-4 TODO)
+
+``feature_selection/wrappers.py::RFECV.fit`` now drops zero-variance / all-null numeric columns from ``X`` BEFORE storing ``feature_names_in_``. The selector cannot meaningfully evaluate constant columns; including them in ``feature_names_in_`` (and possibly ``support_``) was the precondition for the seed=42 c0093 / c0095 ``RFECV.transform: 1/N selected columns missing from input X`` failure. With the preventive filter the column-set drift is physically impossible at the wrapper level, regardless of upstream ``remove_constant_columns`` flag value or per-pipeline-step drop semantics. The strict ``raise RuntimeError`` on column-set drift is restored - any drift now signals a real upstream pipeline-order bug worth surfacing loud.
+
+### D: HGBStrategy uses pl.Enum (was pl.Categorical) for the same global-cache reason as XGB
+
+``training/strategies.py::HGBStrategy.prepare_polars_dataframe`` now emits per-Series ``pl.Enum`` for low-cardinality columns and uses Enum.to_physical().cast(UInt32) for high-cardinality columns. Same rationale as the XGB fix in batch 4: polars 1.x default global string cache makes every ``pl.Categorical`` Series in the process share one growing dictionary, so the column's physical codes drift across runs (latent pickle-reload hazard). New ``HGBStrategy.build_polars_enum_map`` lets the strategy participate in the same train+val-union, test-excluded enum-map cache as ``XGBoostStrategy`` (wired in ``training/core.py`` since batch 4 via ``hasattr(strategy, "build_polars_enum_map")``).
+
+Existing HGB unit tests in ``tests/training/test_catboost_polars.py`` updated to assert ``pl.Enum`` (low-cardinality) - high-cardinality / boundary tests unchanged (still asserts ``pl.UInt32``).
+
+### E: ``test_align_polars_categorical_dicts_no_test_leakage`` re-greened
+
+The test was failing pre-existing (also under master before batch 4): the suite's auto-stratify gate (added 2026-04-27 batch 3) shuffles binary-classification rows across train/val/test, putting ``test_only_cat`` rows into train and defeating the chronological-split scenario the test was written under. Switched the test's extractor to ``TimestampedFeaturesExtractor`` with a strictly-monotonic ``ts`` column so the splitter takes the temporal-ordering path and preserves the original construction. The production align block in ``core.py`` was always correct - the test stopped exercising the right scenario after batch 3 landed.
+
+### C: 3-way fuzz suite validation surfaces multilabel object-dtype detection bug (3 sites)
+
+Running ``test_fuzz_3way_suite.py`` (60-combo smoke) with the newly-added ``include_confidence_analysis_cfg`` axis surfaced an existing structural issue: when a multilabel target survives the polars ``pl.List(pl.Int8)`` -> pandas object-dtype roundtrip, it presents as a 1-D array whose cells are themselves arrays. ``ndim == 2`` checks miss this shape, routing the target into binary / single-label code paths that then choke on ``arr == 1`` or ``np.unique(arr)`` ambiguity. Fixed at three call sites:
+
+- ``training/drift_report.py::compute_label_distribution_drift``: ``is_multilabel`` detection now also matches object-dtype-of-arrays. ``_multilabel_split_summary`` stacks the cells to a true 2-D array before summing. ``return`` overrides ``target_type`` to ``"multilabel_classification"`` when the data shape forced the multilabel branch, so ``format_label_distribution_drift_report`` reads the right keys.
+- ``training/trainer.py::_validate_target_values``: the same stacking before the ``arr_np.ndim > 1`` per-column degenerate check, so ``np.unique`` doesn't see object-cell arrays.
+- ``training/trainer.py`` (``catboost_custom_classif_metrics`` block): explicit branch for object-of-arrays so ``nlabels`` comes from the cell width, not from ``np.unique`` on a non-comparable object array.
+
+3-way smoke pass rate went from 7/15 fail (47%) to 3/15 fail (20%) with these fixes. The remaining 3 combos fail on a separate CatBoost ``'str' object cannot be interpreted as an integer`` issue with class labels - pre-existing, unrelated to the axis change.
+
 ## 2026-04-28 - Fuzz axis expansion + 1 surfaced multilabel bug
 
 - **New axis** ``include_confidence_analysis_cfg`` in ``tests/training/_fuzz_combo.py`` (and added to ``_3WAY_AXES`` for 3-way pairwise coverage). Wired through ``test_fuzz_suite.py`` to ``ConfidenceAnalysisConfig(include=...)`` so the fuzz suite exercises the test-set confidence-analysis pass at ``trainer.py::_report_confidence_analysis`` - a distinct code path with its own metrics/report side-effects that prior fuzz never touched.

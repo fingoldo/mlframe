@@ -757,14 +757,12 @@ def test_align_polars_categorical_dicts_no_test_leakage(tmp_path):
     pytest.importorskip("catboost")
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training import (
-    
         FeatureTypesConfig,
         TrainingBehaviorConfig,
         PolarsPipelineConfig,
         TrainingSplitConfig,
-    OutputConfig
-)
-    from .shared import SimpleFeaturesAndTargetsExtractor
+        OutputConfig,
+    )
 
     rng = np.random.default_rng(0)
     # Construct a frame where:
@@ -780,13 +778,35 @@ def test_align_polars_categorical_dicts_no_test_leakage(tmp_path):
         rng.choice(["A", "B"], size=n_vl),
         np.array(["test_only_cat"] * n_te, dtype=object),
     ])
+    # 2026-04-28: include a strictly-monotonic timestamps column so the
+    # splitter takes the temporal-ordering path rather than the
+    # auto-stratify path that batch 3 added for classification targets.
+    # Auto-stratify would shuffle rows across train/val/test and put
+    # ``test_only_cat`` rows into train (defeating the test scenario,
+    # which assumes chronological splitting). Timestamps force the
+    # chronological branch, preserving the original construction.
+    import datetime as _dt
+    ts = pl.Series(
+        [_dt.datetime(2026, 1, 1) + _dt.timedelta(minutes=i) for i in range(n)],
+        dtype=pl.Datetime,
+    )
     df = pl.DataFrame({
+        "ts": ts,
         "f_num": rng.random(n).astype(np.float32),
         "my_cat": pl.Series(cat_vals, dtype=pl.Categorical),
         "target": rng.integers(0, 2, size=n).astype(np.int64),
     })
 
-    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+    # Use the timestamped extractor variant so the suite's auto-stratify
+    # gate (added 2026-04-27 batch 3) sees ``timestamps is not None`` and
+    # takes the temporal-ordering split path. Without timestamps, the
+    # binary-classification target triggers ``StratifiedShuffleSplit``,
+    # which scatters ``test_only_cat`` rows into train and defeats this
+    # test's chronological-split scenario.
+    from .shared import TimestampedFeaturesExtractor
+    fte = TimestampedFeaturesExtractor(
+        target_column="target", regression=False, ts_field="ts",
+    )
 
     _, metadata = train_mlframe_models_suite(
         df=df,

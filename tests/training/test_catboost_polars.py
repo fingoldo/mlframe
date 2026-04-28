@@ -411,12 +411,15 @@ class TestXGBoostPolarsClassification:
 class TestHGBStrategyPreparePolars:
     """Unit tests for HGBStrategy.prepare_polars_dataframe."""
 
-    def test_string_to_categorical_low_cardinality(self):
+    def test_string_to_enum_low_cardinality(self):
+        # 2026-04-28: HGBStrategy now emits ``pl.Enum`` (not ``pl.Categorical``)
+        # to avoid polars 1.x global-string-cache code drift; the rest of
+        # the cardinality-split logic is unchanged.
         from mlframe.training.strategies import HGBStrategy
         strategy = HGBStrategy()
         df = pl.DataFrame({"cat": ["a", "b", "c", "a", "b"], "num": [1.0, 2.0, 3.0, 4.0, 5.0]})
         result = strategy.prepare_polars_dataframe(df, ["cat"])
-        assert result["cat"].dtype == pl.Categorical
+        assert isinstance(result["cat"].dtype, pl.Enum)
 
     def test_string_to_ordinal_high_cardinality(self):
         from mlframe.training.strategies import HGBStrategy
@@ -427,12 +430,12 @@ class TestHGBStrategyPreparePolars:
         result = strategy.prepare_polars_dataframe(df, ["cat"])
         assert result["cat"].dtype == pl.UInt32
 
-    def test_already_categorical_low_cardinality_unchanged(self):
+    def test_already_categorical_low_cardinality_recast_to_enum(self):
         from mlframe.training.strategies import HGBStrategy
         strategy = HGBStrategy()
         df = pl.DataFrame({"cat": ["a", "b", "c"]}).with_columns(pl.col("cat").cast(pl.Categorical))
         result = strategy.prepare_polars_dataframe(df, ["cat"])
-        assert result["cat"].dtype == pl.Categorical
+        assert isinstance(result["cat"].dtype, pl.Enum)
 
     def test_already_categorical_high_cardinality_ordinal(self):
         from mlframe.training.strategies import HGBStrategy
@@ -462,7 +465,7 @@ class TestHGBStrategyPreparePolars:
         cats = [f"c{i}" for i in range(255)]
         df = pl.DataFrame({"cat": cats})
         result = strategy.prepare_polars_dataframe(df, ["cat"])
-        assert result["cat"].dtype == pl.Categorical  # exactly 255 = OK
+        assert isinstance(result["cat"].dtype, pl.Enum)  # exactly 255 = OK, fits in Enum
 
     def test_boundary_256_categories(self):
         from mlframe.training.strategies import HGBStrategy

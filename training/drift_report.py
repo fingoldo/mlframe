@@ -80,7 +80,21 @@ def _multiclass_split_summary(arr: np.ndarray, classes: Sequence) -> Dict[str, A
 
 
 def _multilabel_split_summary(arr: np.ndarray) -> Dict[str, Any]:
-    """For (N, K) label matrix, compute per-label positive rate."""
+    """For (N, K) label matrix, compute per-label positive rate.
+
+    Handles three input shapes:
+      - 2-D ndarray (N, K) - canonical
+      - 1-D ndarray (N,) - single-label, reshaped to (N, 1)
+      - 1-D object ndarray of per-row arrays - stacked to (N, K).
+        The polars ``pl.List(pl.Int8)`` roundtrip lands here when a
+        multilabel target column survives the polars->pandas conversion
+        as object dtype with nested ``np.ndarray`` cells.
+    """
+    if hasattr(arr, "dtype") and arr.dtype == object and arr.ndim == 1 and arr.shape[0] > 0:
+        try:
+            arr = np.stack([np.asarray(c) for c in arr], axis=0)
+        except Exception:
+            pass
     n, k = (int(arr.shape[0]), int(arr.shape[1])) if arr.ndim == 2 else (int(arr.shape[0]), 1)
     if arr.ndim == 1:
         arr = arr.reshape(-1, 1)
@@ -177,9 +191,31 @@ def compute_label_distribution_drift(
             "warn_threshold_pp": warn_threshold_pp,
         }
 
+    # Detect multilabel: explicit target_type label, or 2-D ndarray, or
+    # 1-D object dtype where each cell is itself an array (the polars
+    # ``pl.List(pl.Int8)`` -> object-cell roundtrip surfacing in 3-way
+    # fuzz: target_type sometimes arrives as ``"binary_classification"``
+    # but the actual values came through as a 1-D object array of
+    # per-row label vectors). Without the third clause, the routing
+    # fell into ``_binary_split_summary``'s ``arr == 1`` and raised
+    # ``truth value of an array ambiguous``.
+    def _is_object_of_arrays(_a) -> bool:
+        try:
+            if not hasattr(_a, "dtype"):
+                return False
+            if _a.dtype != object or _a.ndim != 1 or _a.shape[0] == 0:
+                return False
+            _first = _a[0]
+            return hasattr(_first, "shape") or (
+                hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
+            )
+        except Exception:
+            return False
+
     is_multilabel = (
         target_type == "multilabel_classification"
         or (hasattr(train, "ndim") and train.ndim == 2)
+        or _is_object_of_arrays(train)
     )
     is_regression = (target_type == "regression")
     is_multiclass = (target_type == "multiclass_classification")
@@ -283,8 +319,14 @@ def compute_label_distribution_drift(
             default=0.0,
         )
 
+    # Report target_type that matches the splits format the formatter
+    # expects: when shape detection routed to the multilabel branch but
+    # the caller-supplied ``target_type`` was something else (binary /
+    # unlabelled / mismatched), reflect the actual format used so
+    # ``format_label_distribution_drift_report`` reads the right keys.
+    effective_target_type = "multilabel_classification" if is_multilabel else target_type
     return {
-        "target_type": target_type,
+        "target_type": effective_target_type,
         "splits": splits,
         "drifts": drifts,
         "warnings": warnings,
