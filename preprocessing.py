@@ -61,7 +61,13 @@ def prepare_df_for_catboost(
         if is_polars:
             df = df.drop([c for c in columns_to_drop if c in df.columns])
         else:
-            df.drop(columns=columns_to_drop, inplace=True)
+            # Don't mutate the caller's DataFrame in place: the docstring
+            # already promises ``Always use the return value``, and an
+            # ``inplace=True`` drop on a slice/view raises
+            # ``SettingWithCopyWarning``. Drop+rebind is identical from
+            # the caller's perspective (they consume the return) and
+            # avoids the noise.
+            df = df.drop(columns=[c for c in columns_to_drop if c in df.columns])
 
     cols = set(df.columns)
 

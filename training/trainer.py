@@ -923,8 +923,14 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
             out = out.with_columns([held[c] for c in present])
         else:
             held_pd = held.to_pandas() if is_polars else held
+            # ``out`` may be a view/slice of an inner sklearn pipeline result
+            # (e.g. a SelectorMixin returning ``X.iloc[:, support_]``); a
+            # bare ``out[c] = ...`` then triggers ``SettingWithCopyWarning``
+            # 18x per fuzz combo. Materialise an owning copy once before
+            # the assignment loop so the writes target known-private memory.
+            out = out.copy()
             for c in present:
-                out[c] = held_pd[c].values if hasattr(held_pd[c], "values") else held_pd[c]
+                out.loc[:, c] = held_pd[c].values if hasattr(held_pd[c], "values") else held_pd[c]
     elif isinstance(out, np.ndarray) and out.ndim == 2:
         # Reconstruct a DataFrame using the reduced-input column names when the
         # transformer preserved the column count. If the shape differs (e.g. a
