@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-04-28 - Fuzz axis expansion + 1 surfaced multilabel bug
+
+- **New axis** ``include_confidence_analysis_cfg`` in ``tests/training/_fuzz_combo.py`` (and added to ``_3WAY_AXES`` for 3-way pairwise coverage). Wired through ``test_fuzz_suite.py`` to ``ConfidenceAnalysisConfig(include=...)`` so the fuzz suite exercises the test-set confidence-analysis pass at ``trainer.py::_report_confidence_analysis`` - a distinct code path with its own metrics/report side-effects that prior fuzz never touched.
+- **``use_cache`` axis NOT added**: the flag lives on ``TrainingControlConfig`` which is per-model not suite-level; ``train_mlframe_models_suite`` doesn't accept it. A literal cache-HIT is also unreachable in the fuzz harness (each combo runs against a fresh ``tmp_path``). Adding an axis that toggles a flag none of the fuzz call paths read would be theatre. Left as-is.
+- **Surfaced bug, fix included** at ``trainer.py::_report_confidence_analysis``: ``test_probs[np.arange(...), test_target]`` to pull each row's true-class probability is well-defined only when ``test_target`` is 1-D class indices. Multilabel targets carry shape ``(N, K)`` binary indicators - the indexing raised ``IndexError: shape mismatch (N,) (N, K)``. Regression targets carry float values where the indexing makes no sense semantically. Added an early-return with INFO log for both shapes. Surfaced fuzz default seed c0000 (multilabel + confidence_analysis_cfg=True) - exactly the kind of cross-axis interaction the new axis was supposed to find.
+
+3-way enumerator coverage with the new axis: 15816 / 15819 (100.0%, 3 missing - canonicalisation-blocked).
+
+## 2026-04-28 — Static meta-test: Pydantic config field consumption parity
+
+### Added
+
+- **`tests/test_meta/test_config_field_consumption.py`** — static check that every Pydantic `Field` declared in `mlframe/training/configs.py` is referenced by at least one production consumer (anything under `mlframe/` outside `tests/`). The test enumerates every `BaseConfig` subclass via `inspect`, walks `model_fields`, and asserts each field name appears in at least one of: attribute access (`cfg.foo`), bracket lookup (`d["foo"]`), or kwarg passthrough (`foo=`). Runs in <1 s; no fixtures, no DB, no training code exercised. The whitelist `_KNOWN_INDIRECT_CONSUMERS` covers fields consumed via indirect routes (e.g. `getattr(cfg, name)` in a loop) — each entry must cite the consumer file:line.
+
+Catches the failure mode where a Field is added to a config model but never threaded into the trainer/strategy/pipeline that should read it. Common symptom: "I set this flag and nothing happened" debugging sessions, plus the slower decay of config bloat that obscures the real surface area of the public API.
+
+Ported pattern from a sister project's audit of dead loader-return-dict keys; the ML-framework analogue is dead Pydantic field bloat. README updated with usage notes (under `## Running tests` → `### Static meta-tests`).
+
 ## 2026-04-28 — Fuzz-uncovered batch 4: polars 1.x global-string-cache leak in XGB + 5 hardenings
 
 ### Headline fix - polars 1.x ``pl.Categorical`` global-string-cache leak (XGB only)

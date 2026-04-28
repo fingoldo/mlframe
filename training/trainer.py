@@ -3257,7 +3257,38 @@ def run_confidence_analysis(
 
     fit_params_copy["plot"] = False
 
-    confidence_targets = test_probs[np.arange(test_probs.shape[0]), test_target]
+    # Confidence analysis pulls the predicted probability of the TRUE class
+    # for each row (``test_probs[i, test_target[i]]``). That fancy-index
+    # is well-defined only for single-label targets where ``test_target``
+    # is a 1-D vector of integer class indices. For multilabel
+    # classification ``test_target`` is (N, K) binary indicators, and for
+    # regression there's no probability concept at all - in both cases
+    # ``confidence_targets`` is ill-defined. Skip with an INFO log so the
+    # caller's ``include_confidence_analysis=True`` is honoured for the
+    # cases where it makes sense and silently no-op for the cases where
+    # it cannot. Surfaced fuzz seed=default c0000 (multilabel target +
+    # confidence_analysis_cfg=True): IndexError shape mismatch (N,) (N,K).
+    test_target_arr = np.asarray(test_target)
+    if test_target_arr.ndim != 1:
+        if verbose:
+            logger.info(
+                "Confidence analysis skipped: test_target has shape %s "
+                "(multilabel / multi-output target). The confidence-target "
+                "construction ``test_probs[arange, test_target]`` is only "
+                "defined for 1-D class-index targets.",
+                test_target_arr.shape,
+            )
+        return None
+    if not np.issubdtype(test_target_arr.dtype, np.integer):
+        if verbose:
+            logger.info(
+                "Confidence analysis skipped: test_target dtype is %s, "
+                "not an integer class index (regression target?). "
+                "Confidence analysis applies only to classification.",
+                test_target_arr.dtype,
+            )
+        return None
+    confidence_targets = test_probs[np.arange(test_probs.shape[0]), test_target_arr]
 
     _maybe_clean_ram()
     try:

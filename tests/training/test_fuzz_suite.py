@@ -37,6 +37,7 @@ from mlframe.training import (
     OutlierDetectionConfig,
     FeatureSelectionConfig,
     ReportingConfig,
+    ConfidenceAnalysisConfig,
 )
 
 # Enumerate once at import time — small, pure Python, no heavy deps.
@@ -746,6 +747,12 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             ),
             sequences=_recurrent_sequences_for_combo(combo, df=df_input),
             recurrent_config=_recurrent_config_for_combo(combo),
+            # 2026-04-28 batch 4 followup - confidence-analysis axis exercises
+            # the test-set confidence pass at trainer.py:4019 (distinct code
+            # path with its own metrics/report side-effects). ``use_cache``
+            # is per-model not suite-level, so it stays out of the fuzz
+            # axis space.
+            confidence_analysis_config=ConfidenceAnalysisConfig(include=combo.include_confidence_analysis_cfg),
             **_configs_for_combo(combo),
         )
         # An empty ``trained`` dict is acceptable ONLY when

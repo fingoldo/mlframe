@@ -209,6 +209,11 @@ AXES: dict[str, tuple[Any, ...]] = {
     # axes break the sequence-builder contract (multilabel target,
     # text/embedding cols, large n_rows where training time blows up).
     "recurrent_model_cfg": (None, "lstm", "gru", "transformer"),
+    # 2026-04-28 batch 4 followup - ConfidenceAnalysisConfig.include adds
+    # the test-set confidence pass at ``trainer.py:4019`` (distinct code
+    # path with its own metrics/report side-effects). ``use_cache`` is
+    # per-model not suite-level, so it stays out of the fuzz axis space.
+    "include_confidence_analysis_cfg": (False, True),
 }
 
 
@@ -295,6 +300,8 @@ class FuzzCombo:
     rfecv_estimator_cfg: "str | None" = None
     # 2026-04-26 batch 6 — recurrent
     recurrent_model_cfg: "str | None" = None
+    # 2026-04-28 batch 4 followup — confidence analysis
+    include_confidence_analysis_cfg: bool = False
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -797,6 +804,8 @@ class FuzzCombo:
             "rfecv_estimator_cfg": self.rfecv_estimator_cfg,
             # batch 6
             "recurrent_model_cfg": self.recurrent_model_cfg,
+            # 2026-04-28 batch 4 followup
+            "include_confidence_analysis_cfg": self.include_confidence_analysis_cfg,
         }
 
 
@@ -1032,6 +1041,8 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         rfecv_estimator_cfg=axes.get("rfecv_estimator_cfg"),
         # batch 6
         recurrent_model_cfg=axes.get("recurrent_model_cfg"),
+        # 2026-04-28 batch 4 followup
+        include_confidence_analysis_cfg=axes.get("include_confidence_analysis_cfg", False),
     )
 
 
@@ -1123,6 +1134,8 @@ def _combo_pairs(combo: FuzzCombo) -> set[tuple[str, Any, str, Any]]:
         "rfecv_estimator_cfg": combo.rfecv_estimator_cfg,
         # batch 6
         "recurrent_model_cfg": combo.recurrent_model_cfg,
+        # 2026-04-28 batch 4 followup
+        "include_confidence_analysis_cfg": combo.include_confidence_analysis_cfg,
         "n_models": len(combo.models),
     }
     names = list(values.keys())
@@ -1229,6 +1242,11 @@ _3WAY_AXES: tuple[str, ...] = (
     "inject_label_leak",
     "inject_rank_deficient",
     "inject_all_nan_col",
+    # 2026-04-28 batch 4 followup - the confidence-analysis path interacts
+    # with the test-set metrics, the calibration loop, and SHAP/permutation
+    # paths; keep it triple-covered against the load-bearing axes that
+    # historically interact with that side of the pipeline.
+    "include_confidence_analysis_cfg",
 )
 
 
