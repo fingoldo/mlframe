@@ -1693,6 +1693,26 @@ def compute_probabilistic_multiclass_error(
 
     # Auto-detect multilabel from shape: a 2D y_true with width matching probs count is
     # an indicator matrix; caller can also set ``multilabel=True`` explicitly.
+    # Object-dtype-of-arrays (``pl.List`` -> pandas roundtrip) presents as 1-D
+    # but each cell is a per-row label vector - stack to 2-D so the shape
+    # check below activates the multilabel branch correctly. Surfaced 3-way
+    # fuzz c0000 / c0008 (cb / multilabel target) - without the stack, the
+    # ``y_true == class_id`` fall-through raised ``truth value of array
+    # ambiguous`` on the cell-array comparison.
+    if (
+        isinstance(y_true, np.ndarray)
+        and y_true.dtype == object
+        and y_true.ndim == 1
+        and y_true.shape[0] > 0
+    ):
+        _first = y_true[0]
+        if hasattr(_first, "shape") or (
+            hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
+        ):
+            try:
+                y_true = np.stack([np.asarray(c) for c in y_true], axis=0)
+            except Exception:
+                pass
     if not multilabel and isinstance(y_true, np.ndarray) and y_true.ndim == 2 and y_true.shape[1] == len(probs):
         multilabel = True
         logger.debug("compute_probabilistic_multiclass_error: detected multilabel y_true shape, enabling multilabel mode.")

@@ -120,6 +120,7 @@ def report_model_perf(
     prob_histogram_yscale: str = "auto",
     show_inline_population_labels: bool = True,
     title_metrics_tokens: Optional[Tuple[str, ...]] = None,
+    multilabel_dispatch_config: Optional["MultilabelDispatchConfig"] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """
     Generate a unified performance report for both classifiers and regressors.
@@ -241,6 +242,7 @@ def report_model_perf(
                 prob_histogram_yscale=prob_histogram_yscale,
                 show_inline_population_labels=show_inline_population_labels,
                 title_metrics_tokens=title_metrics_tokens,
+                multilabel_dispatch_config=multilabel_dispatch_config,
             )
     else:
         with phase(
@@ -501,6 +503,7 @@ def report_probabilistic_model_perf(
     prob_histogram_yscale: str = "auto",
     show_inline_population_labels: bool = True,
     title_metrics_tokens: Optional[Tuple[str, ...]] = None,
+    multilabel_dispatch_config: Optional["MultilabelDispatchConfig"] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Generate a detailed performance report for probabilistic classification models.
@@ -596,16 +599,44 @@ def report_probabilistic_model_perf(
     if preds is None:
         # 2026-04-24 Session 6: multilabel target → (N, K) probs, threshold
         # each column independently; do NOT argmax (collapses to single class).
+        # 2026-04-28: also treat object-dtype-of-arrays as 2-D (the
+        # ``pl.List`` -> pandas roundtrip). Without this, preds was
+        # computed via argmax (1-D class index) while targets stayed
+        # multilabel-indicator (2-D), and ``classification_report`` raised
+        # ``mix of multilabel-indicator and multiclass targets``.
         _targets_2d = (
             isinstance(targets, np.ndarray) and targets.ndim == 2
         ) or (
             isinstance(targets, pd.DataFrame)
+        ) or (
+            isinstance(targets, np.ndarray)
+            and targets.dtype == object
+            and targets.ndim == 1
+            and targets.shape[0] > 0
+            and (hasattr(targets[0], "shape") or (
+                hasattr(targets[0], "__len__")
+                and not isinstance(targets[0], (str, bytes))
+            ))
         )
         if _targets_2d:
             # MultiOutputClassifier returns list[(N,2)] for predict_proba — canonicalize to (N, K).
-            from .helpers import _canonical_predict_proba_shape
+            from .helpers import _canonical_predict_proba_shape, _predict_from_probs
+            from .configs import TargetTypes as _TT
             probs = _canonical_predict_proba_shape(probs)
-            preds = (probs >= 0.5).astype(np.int8)
+            # Honour MultilabelDispatchConfig.per_label_thresholds when
+            # supplied: per-column decision threshold tuned for label
+            # imbalance (defaults to 0.5 across all labels otherwise).
+            # ``_predict_from_probs`` already broadcasts a scalar 0.5 vs
+            # accepts a (K,) vector — same downstream shape (N, K).
+            _per_label_thr = (
+                multilabel_dispatch_config.per_label_thresholds
+                if (multilabel_dispatch_config is not None
+                    and multilabel_dispatch_config.per_label_thresholds is not None)
+                else 0.5
+            )
+            preds = _predict_from_probs(
+                probs, _TT.MULTILABEL_CLASSIFICATION, threshold=_per_label_thr,
+            )
         elif probs.shape[1] == 2:
             # For binary classification, use threshold=0.5 on class 1 probability
             # This ensures consistency with calibration metrics in fast_calibration_report
@@ -631,7 +662,21 @@ def report_probabilistic_model_perf(
     # column is an independent binary label; the per-class loop below uses
     # the column directly instead of `targets == class_name` (which would
     # broadcast a 2-D bool against a 1-D y_score and crash).
+    # 2026-04-28: also detect object-dtype-of-arrays (the polars
+    # ``pl.List(pl.Int8)`` -> pandas object roundtrip), stack to 2-D so
+    # ``targets_arr[:, class_id]`` works in the multilabel branch.
+    # Surfaced 3-way fuzz c0000 / c0008 (cb / multilabel target).
     targets_arr = np.asarray(targets) if not isinstance(targets, np.ndarray) else targets
+    if targets_arr.dtype == object and targets_arr.ndim == 1 and targets_arr.shape[0] > 0:
+        _first = targets_arr[0]
+        if hasattr(_first, "shape") or (
+            hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
+        ):
+            try:
+                targets_arr = np.stack([np.asarray(c) for c in targets_arr], axis=0)
+                targets = targets_arr  # rebind so downstream uses the stacked form
+            except Exception:
+                pass
     is_multilabel = targets_arr.ndim == 2
 
     integral_error = custom_ice_metric(y_true=targets, y_score=probs) if custom_ice_metric else 0.0

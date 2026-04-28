@@ -755,6 +755,34 @@ def _disable_xgboost_early_stopping_if_needed(model_type_name, model_obj):
             model_obj.set_params(early_stopping_rounds=None)
 
 
+def _normalize_multilabel_target(target):
+    """Stack a 1-D object array of per-row label arrays (the polars
+    ``pl.List(pl.Int8)`` -> pandas object roundtrip) into a true 2-D
+    ndarray ``(N, K)``. Returns ``target`` unchanged for any other shape.
+
+    Performed once per split so every downstream consumer (sklearn
+    estimators, MultiOutputClassifier, drift_report, evaluation,
+    metrics, CB Pool, XGB) sees a canonical 2-D multilabel target
+    instead of an object-of-arrays trap. Surfaced 3-way fuzz c0008
+    where sklearn ``check_X_y`` -> ``_object_dtype_isnan(y)`` did
+    ``y != y`` on the cell-array column and raised ``truth value of
+    array ambiguous``.
+    """
+    if target is None or not isinstance(target, np.ndarray):
+        return target
+    if target.dtype != object or target.ndim != 1 or target.shape[0] == 0:
+        return target
+    _first = target[0]
+    if not (hasattr(_first, "shape") or (
+        hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
+    )):
+        return target
+    try:
+        return np.stack([np.asarray(c) for c in target], axis=0)
+    except Exception:
+        return target
+
+
 def _extract_targets_from_indices(target, train_idx, val_idx, test_idx, train_target, val_target, test_target):
     """Extract train/val/test targets from main target using indices."""
     if target is not None:
@@ -764,6 +792,9 @@ def _extract_targets_from_indices(target, train_idx, val_idx, test_idx, train_ta
             val_target = _extract_target_subset(target, val_idx)
         if test_target is None and (test_idx is not None):
             test_target = _extract_target_subset(target, test_idx)
+    train_target = _normalize_multilabel_target(train_target) if isinstance(train_target, np.ndarray) else train_target
+    val_target = _normalize_multilabel_target(val_target) if isinstance(val_target, np.ndarray) else val_target
+    test_target = _normalize_multilabel_target(test_target) if isinstance(test_target, np.ndarray) else test_target
     return train_target, val_target, test_target
 
 
@@ -887,6 +918,152 @@ def _is_fitted(estimator):
         return False
 
 
+def _ensure_xgb_classification_objective(model, train_target) -> None:
+    """When the XGB instance reaches ``.fit()`` without an
+    ``objective`` matching the target shape, set it pre-fit. XGB's
+    sklearn wrapper relies on its constructor-time ``objective`` (or
+    auto-fills binary:logistic). For multiclass / multilabel that
+    default produces an internal preds buffer of size ``N*K`` while
+    labels stay ``N``, and XGB's C++ regression-obj guard raises
+    ``Invalid shape of labels (N vs N*K)``. Surfaced 3-way fuzz c0005
+    (cb_xgb / multiclass).
+
+    No-op when ``objective`` is already a multiclass / multilabel
+    flavour, when the model isn't an XGB classifier, or when target
+    inspection fails.
+    """
+    if model is None:
+        return
+    _mt = type(model).__name__
+    if "XGB" not in _mt or "Classifier" not in _mt:
+        return
+    try:
+        params = model.get_params() if hasattr(model, "get_params") else {}
+    except Exception:
+        return
+    obj = params.get("objective")
+    if isinstance(obj, str) and ("multi" in obj or "multilabel" in obj):
+        return
+    arr = np.asarray(train_target) if train_target is not None else None
+    if arr is None:
+        return
+    if arr.dtype == object and arr.ndim == 1 and arr.shape[0] > 0:
+        _first = arr[0]
+        if hasattr(_first, "shape") or (
+            hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
+        ):
+            try:
+                arr = np.stack([np.asarray(c) for c in arr], axis=0)
+            except Exception:
+                return
+    new_kwargs = {}
+    if arr.ndim == 2 and arr.shape[1] >= 2:
+        # multilabel: K independent binary heads
+        new_kwargs["objective"] = "binary:logistic"
+        try:
+            new_kwargs["num_class"] = None
+        except Exception:
+            pass
+    elif arr.ndim == 1:
+        try:
+            n_classes = int(np.unique(arr).size)
+        except Exception:
+            return
+        if n_classes > 2:
+            new_kwargs["objective"] = "multi:softprob"
+            new_kwargs["num_class"] = n_classes
+    if not new_kwargs:
+        return
+    try:
+        model.set_params(**new_kwargs)
+    except Exception:
+        pass
+
+
+def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
+    """When the target is multilabel-shaped but the CatBoost instance was
+    instantiated without ``loss_function``, set
+    ``loss_function='MultiLogloss'`` (and a compatible ``eval_metric``)
+    pre-fit. CatBoost's ``_get_loss_function_for_train`` auto-infers the
+    loss from the first label cell - on a 2-D label matrix it does
+    ``len(set(label)) > 2`` which raises ``unhashable type: 'numpy.ndarray'``
+    when the cells are 1-D rows. Surfaced 3-way fuzz c0000 / c0008 (cb /
+    multilabel target).
+
+    No-op for binary / multiclass / regression. Respects an explicit
+    user-supplied ``loss_function`` (won't override).
+    """
+    if model is None:
+        return
+    if type(model).__name__ != "CatBoostClassifier":
+        return
+    try:
+        get = getattr(model, "get_param", None) or getattr(model, "get_params", None)
+        params = get() if callable(get) else {}
+    except Exception:
+        params = {}
+    if params.get("loss_function") is not None:
+        return
+    label_arr = None
+    if pool is not None:
+        try:
+            label_arr = np.asarray(pool.get_label())
+        except Exception:
+            label_arr = None
+    if label_arr is None:
+        label_arr = np.asarray(train_target) if train_target is not None else None
+        if label_arr is not None and label_arr.dtype == object and label_arr.ndim == 1 and label_arr.shape[0] > 0:
+            try:
+                label_arr = np.stack([np.asarray(c) for c in label_arr], axis=0)
+            except Exception:
+                label_arr = None
+    if label_arr is None or label_arr.ndim != 2:
+        return
+    try:
+        model.set_params(loss_function="MultiLogloss", eval_metric="HammingLoss")
+    except Exception:
+        try:
+            model._init_params["loss_function"] = "MultiLogloss"
+            model._init_params["eval_metric"] = "HammingLoss"
+        except Exception:
+            pass
+
+
+def _coerce_label_for_cb_pool(target):
+    """Convert ``target`` to the dtype/shape the CatBoost ``Pool`` expects.
+
+    CatBoost's ``_PoolBase.get_label`` reads the first label cell to infer
+    the loss family (Logloss / RMSE / MultiLogloss). It chokes with
+    ``'str' object cannot be interpreted as an integer`` when the cell is
+    a Python list (the polars ``pl.List(pl.Int8)`` -> pandas object-dtype
+    roundtrip, or fuzz's
+    ``pd.array([row.tolist() for row in target], dtype=object)``). Stack
+    object-of-arrays into a true 2-D ``(N, K)`` label matrix so CB sees
+    the multilabel shape and routes to ``MultiLogloss``. Then cast to
+    ``np.float32`` (CB's preferred internal dtype - integer / boolean /
+    non-fp-32 floats round-trip through Python and trigger redundant
+    copies inside the Pool C++ layer).
+
+    Falls through unchanged if ``target`` isn't an ndarray-like or the
+    object-cell stack fails.
+    """
+    arr = np.asarray(target)
+    if arr.dtype == object and arr.ndim == 1 and arr.shape[0] > 0:
+        _first = arr[0]
+        if hasattr(_first, "shape") or (
+            hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
+        ):
+            try:
+                arr = np.stack([np.asarray(c) for c in arr], axis=0)
+            except Exception:
+                pass
+    if arr.dtype.kind in ("i", "u", "b"):
+        arr = arr.astype(np.float32)
+    elif arr.dtype.kind == "f" and arr.dtype != np.float32:
+        arr = arr.astype(np.float32)
+    return arr
+
+
 def _multilabel_target_to_1d_for_supervised_encoders(target):
     """Collapse a 2-D multilabel target to a 1-D signal for supervised encoders.
 
@@ -895,11 +1072,28 @@ def _multilabel_target_to_1d_for_supervised_encoders(target):
     For multilabel data the natural reduction is "any positive label", which
     keeps a useful signal for target-mean encoders without crashing the fit.
 
-    Returns ``target`` unchanged when it isn't a 2-D ndarray/DataFrame.
+    Handles three input shapes:
+      - 2-D ndarray (N, K): canonical multilabel
+      - 1-D object ndarray of per-row arrays: stacked first, then collapsed
+        (the polars ``pl.List(pl.Int8)`` -> pandas object roundtrip lands
+        here; surfaced 3-way fuzz c0008 (cb_linear / multilabel target)
+        where the encoder rejected the object-cell column with
+        ``Encoders require their input argument must be uniformly strings
+        or numbers. Got ['ndarray']``)
+      - Anything else: returned unchanged.
     """
     if target is None:
         return target
     arr = np.asarray(target) if not isinstance(target, np.ndarray) else target
+    if arr.dtype == object and arr.ndim == 1 and arr.shape[0] > 0:
+        _first = arr[0]
+        if hasattr(_first, "shape") or (
+            hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
+        ):
+            try:
+                arr = np.stack([np.asarray(c) for c in arr], axis=0)
+            except Exception:
+                return target
     if arr.ndim != 2:
         return target
     return (arr.sum(axis=1) > 0).astype(np.int8)
@@ -2210,11 +2404,7 @@ def _maybe_get_or_build_cb_pool(
     # round-trips integer dtype via the Python-level ``target_type``
     # shadow on the Pool.
     try:
-        _label_for_pool = np.asarray(train_target)
-        if _label_for_pool.dtype.kind in ("i", "u", "b"):
-            _label_for_pool = _label_for_pool.astype(np.float32)
-        elif _label_for_pool.dtype != np.float32 and _label_for_pool.dtype.kind == "f":
-            _label_for_pool = _label_for_pool.astype(np.float32)
+        _label_for_pool = _coerce_label_for_cb_pool(train_target)
     except Exception:
         _label_for_pool = train_target
 
@@ -2322,9 +2512,7 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: Dict[str, Any]) -> None:
             try:
                 if last_target_id != id(val_target):
                     try:
-                        _lab = np.asarray(val_target)
-                        if _lab.dtype != np.float32:
-                            _lab = _lab.astype(np.float32)
+                        _lab = _coerce_label_for_cb_pool(val_target)
                     except Exception:
                         _lab = val_target
                     cached.set_label(_lab)
@@ -2349,11 +2537,7 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: Dict[str, Any]) -> None:
             _CB_VAL_POOL_CACHE.pop(next(iter(_CB_VAL_POOL_CACHE)))
 
         try:
-            _lab_build = np.asarray(val_target)
-            if _lab_build.dtype.kind in ("i", "u", "b"):
-                _lab_build = _lab_build.astype(np.float32)
-            elif _lab_build.dtype.kind == "f" and _lab_build.dtype != np.float32:
-                _lab_build = _lab_build.astype(np.float32)
+            _lab_build = _coerce_label_for_cb_pool(val_target)
         except Exception:
             _lab_build = val_target
 
@@ -2678,8 +2862,12 @@ def _train_model_with_fallback(
                     k: v for k, v in fit_params.items()
                     if k not in ("sample_weight", "cat_features", "text_features", "embedding_features")
                 }
+                _ensure_cb_multilabel_loss(model, train_target, pool=_cb_pool)
+                _ensure_xgb_classification_objective(model, train_target)
                 model.fit(_cb_pool, **_reuse_fit_params)
             else:
+                _ensure_cb_multilabel_loss(model, train_target)
+                _ensure_xgb_classification_objective(model, train_target)
                 model.fit(train_df, train_target, **fit_params)
     except Exception as e:
         try_again = False
