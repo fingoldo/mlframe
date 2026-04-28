@@ -3462,6 +3462,8 @@ def run_confidence_analysis(
     test_target: np.ndarray,
     test_probs: np.ndarray,
     cat_features: List[str] = None,
+    text_features: List[str] = None,
+    embedding_features: List[str] = None,
     confidence_model_kwargs: dict = None,
     fit_params: dict = None,
     use_shap: bool = True,
@@ -3491,6 +3493,46 @@ def run_confidence_analysis(
         fit_params_copy = copy.copy(fit_params)
         if "eval_set" in fit_params_copy:
             del fit_params_copy["eval_set"]
+
+    # 2026-04-28: drop text / embedding columns from test_df upfront.
+    # SHAP's TreeExplainer rebuilds a CatBoost Pool using ONLY
+    # ``cat_features`` from the model (no text awareness), so text
+    # columns reaching Pool as numeric raise ``Bad value for
+    # num_feature ...: Cannot convert '<text>' to float`` (default-seed
+    # c0016 / c0017). Free-text TF-IDF features aren't analysable by
+    # SHAP anyway, so dropping is the right scope reduction. Done at
+    # the test_df level so the confidence_model is trained on the same
+    # schema SHAP will see.
+    #
+    # Also detect string-typed columns directly: when the surrounding
+    # model is XGB/HGB, ``text_features`` doesn't propagate via
+    # fit_params (those models don't accept the kwarg), so an
+    # auto-promoted text column survives in test_df as ``object`` /
+    # ``string`` dtype and chokes the confidence Pool the same way.
+    _drop_for_conf = []
+    if text_features:
+        _drop_for_conf.extend([c for c in text_features if c in test_df.columns])
+    if embedding_features:
+        _drop_for_conf.extend([c for c in embedding_features if c in test_df.columns])
+    if isinstance(test_df, pd.DataFrame):
+        for _c in test_df.columns:
+            if _c in _drop_for_conf:
+                continue
+            if cat_features and _c in cat_features:
+                continue
+            try:
+                _dt = test_df[_c].dtype
+            except Exception:
+                continue
+            if _dt == object or str(_dt) in ("string", "string[python]", "string[pyarrow]"):
+                _drop_for_conf.append(_c)
+    if _drop_for_conf:
+        if isinstance(test_df, pd.DataFrame):
+            test_df = test_df.drop(columns=_drop_for_conf)
+        else:
+            test_df = test_df.drop([c for c in _drop_for_conf if c in test_df.columns])
+        if cat_features is not None:
+            cat_features = [c for c in cat_features if c not in _drop_for_conf]
 
     if cat_features is not None:
         fit_params_copy["cat_features"] = cat_features
@@ -4330,6 +4372,8 @@ def train_and_evaluate_model(
                     test_target=test_target,
                     test_probs=test_probs,
                     cat_features=fit_params.get("cat_features") if fit_params else None,
+                    text_features=fit_params.get("text_features") if fit_params else None,
+                    embedding_features=fit_params.get("embedding_features") if fit_params else None,
                     confidence_model_kwargs=confidence_model_kwargs,
                     fit_params=fit_params if model_type_name == "CatBoostRegressor" else None,
                     use_shap=confidence_analysis_use_shap,

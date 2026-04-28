@@ -842,7 +842,17 @@ def get_categorical_columns(df: Union[pl.DataFrame, pd.DataFrame], include_strin
         if include_string:
             return get_polars_cat_columns(df)
         else:
-            return [name for name, dtype in df.schema.items() if dtype == pl.Categorical]
+            # 2026-04-28: also include pl.Enum (instance-level dtype, doesn't
+            # compare ``== pl.Categorical``). Without it, CB confidence
+            # model receives pl.Enum cat columns as numeric features and
+            # raises ``Unsupported data type Enum(...) for a numerical
+            # feature column``. Surfaced default-seed c0043 / c0049 / c0050
+            # (hgb / pl.Enum cat columns + confidence_analysis_cfg=True).
+            return [
+                name for name, dtype in df.schema.items()
+                if dtype == pl.Categorical
+                or (hasattr(pl, "Enum") and isinstance(dtype, pl.Enum))
+            ]
     else:
         # Function-local import (see note above) — breaks strategies↔utils cycle.
         from .strategies import PANDAS_CATEGORICAL_DTYPES

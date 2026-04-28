@@ -1010,6 +1010,19 @@ class RFECV(BaseEstimator, TransformerMixin):
             )
 
     def transform(self, X, y=None):
+        # 2026-04-28: when ``X`` arrives as a polars DataFrame (callers
+        # like ``_passthrough_cols_fit_transform`` keep the native
+        # frame), the legacy ``X[:, self.support_]`` mask path raises
+        # ``expected N values when selecting columns by boolean mask,
+        # got M`` if the polars schema has more cols than the fit-time
+        # ``support_`` (because ``RFECV.fit`` dropped zero-variance cols
+        # at entry, see line 256). Convert to pandas so the name-keyed
+        # transform path below kicks in and the column-set drift becomes
+        # a clear ``RuntimeError`` instead of an opaque polars index
+        # mismatch. Surfaced default-seed c0016
+        # (cb_hgb_xgb / pl_nullable / confidence_analysis_cfg=True).
+        if isinstance(X, pl.DataFrame):
+            X = X.to_pandas()
         # Use getattr to handle unfitted RFECV (support_ not yet set)
         support = getattr(self, 'support_', None)
         if support is None:
