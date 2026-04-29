@@ -1,486 +1,316 @@
-# PR: Out-of-fold target encoding and WoE with empirical Bayes shrinkage
+# Out-of-fold target encoding and WoE with empirical Bayes shrinkage
 
-**Branch:** `feature/target-encode-oof`
-**Base:** `main`
+**Branch:** `feature/target-encode-oof` → `main`
 
 ---
 
-## Summary
+## The problem in one sentence
 
-Target encoding and WoE encoding without out-of-fold (OOF) splits leak target information into the training set, leading to overfitting. This PR adds:
+`Blueprint.target_encode()` applies the full-train mapping back to the training rows it was computed from — a form of target leakage that inflates train AUC by up to +0.20 on high-cardinality data and corrupts downstream model evaluation.
 
-- **Out-of-fold encoding** for both target encoding and WoE, matching sklearn's `TargetEncoder(cv=3)` semantics
-- **Empirical Bayes shrinkage** (Micci-Barreca 2001 / sklearn `smooth="auto"`) with two variants:
-  - `classical` (default): per-category within-variance (Micci-Barreca original)
-  - `pooled`: sklearn-style pooled within-variance for byte-equivalence with `sklearn.TargetEncoder`
-- Stratified fold assignment for binary/low-cardinality targets (preserves class ratios per fold, same goal as sklearn's `StratifiedKFold` but built in without a sklearn dependency)
-- **Beyond sklearn:** a `fold_col` parameter that accepts any pre-computed integer fold column — sklearn's `TargetEncoder` only takes `cv: int` and cannot consume `GroupKFold`/`TimeSeriesSplit`/custom splits; with `fold_col` the user builds folds with whatever strategy they want (including any sklearn splitter) and the encoder honours them.
-- `group_kfold_ids()` and `time_series_chunks_ids()` lightweight splitters in `pipeline.cv_splitters` — fold-ID producers for the common group/time cases; for anything else the user can feed their own fold column, e.g. from `sklearn.model_selection.StratifiedGroupKFold`.
-- `Blueprint(refit_downstream_on_full=True)` default option that makes downstream `scale`/`impute`/etc. fit on the full-mapping distribution (matching `transform(test)`), eliminating train/serve skew — not something sklearn's `Pipeline` + `TargetEncoder` handles out of the box.
-- Expression-level API (`pds.target_encode_oof()`, `pds.woe_encode_oof()`, `pds.target_encode_bayes()`) for use outside Blueprint
+---
 
-## Problem
+## What this PR adds
 
-`Blueprint.target_encode()` fits the encoder on the full training set and applies the same mapping back to train. For high-cardinality features, this causes severe target leakage — categories with few samples get encodings that memorize the target. sklearn solves this with internal OOF encoding (`cv=5` default).
+1. **Out-of-fold (OOF) encoding** for `Blueprint.target_encode(cv=3)` and `Blueprint.woe_encode(cv=3)` — the K-fold protocol that sklearn uses internally in `TargetEncoder(cv=5)`
+2. **Empirical Bayes shrinkage** as an alternative smoothing strategy: `bayes_variant="classical"` (Micci-Barreca 2001) and `bayes_variant="pooled"` (sklearn-equivalent)
+3. **`fold_col` parameter** — pass any pre-computed fold assignment (GroupKFold, TimeSeriesSplit, …) when row-level random splits are wrong for your data
+4. **`Blueprint(refit_downstream_on_full=True)`** — makes downstream scalers and imputers fit on the full-mapping distribution (what `transform(test)` will produce), eliminating a subtle train/serve skew
+5. **Expression-level API** (`pds.target_encode_oof()`, `pds.woe_encode_oof()`, `pds.target_encode_bayes()`) for use outside Blueprint
+6. **`group_kfold_ids()` and `time_series_chunks_ids()`** in `pipeline.cv_splitters` — lightweight fold-ID builders for the common group and time-ordered cases
 
-**Benchmark evidence** (Amazon Employee Access, 32,769 rows, 9 high-card features up to 7,518 uniques; 5 repeats, LogisticRegression downstream, medians shown):
+---
 
-| Method | Train AUC | Test AUC | Gap | Time | Speedup vs sklearn_TE_cv5 |
-|---|---|---|---|---|---|
-| polars_ds target_encode (no OOF) | 0.9598 | 0.7584 | **+0.2014** | 0.026 s | — |
-| category_encoders TargetEncoder (no OOF) | 0.9598 | 0.8547 | +0.1056 | 0.197 s | — |
-| polars_ds WoE (no OOF) | 0.9287 | 0.8005 | +0.1312 | 0.025 s | — |
-| **polars_ds OOF TE cv=3, sigmoid** | 0.8298 | **0.8550** | −0.0255 | 0.041 s | **4.1×** |
-| polars_ds OOF TE cv=5, sigmoid | 0.8400 | 0.8549 | −0.0128 | 0.051 s | 3.3× |
-| polars_ds OOF TE cv=3, Bayes classical | 0.8078 | 0.8311 | −0.0252 | 0.069 s | 2.4× |
-| polars_ds OOF TE cv=3, Bayes pooled (sklearn-equivalent) | 0.8238 | 0.8486 | −0.0252 | 0.072 s | 2.3× |
-| polars_ds OOF WoE cv=3 | 0.7890 | 0.8147 | −0.0274 | 0.038 s | 4.4× |
-| **polars_ds Blueprint TE cv=3** (end-to-end) | 0.8298 | 0.8550 | −0.0255 | **0.029 s** | **5.8×** |
-| sklearn TargetEncoder cv=5 | 0.8333 | 0.8450 | −0.0144 | 0.169 s | 1.0× |
-| sklearn TargetEncoder cv=3 | 0.8241 | 0.8450 | −0.0225 | 0.147 s | 1.1× |
+## How it works
 
-Naive (no-OOF) encoding leaks severely: train–test AUC gap collapses from +0.20 to −0.03 with OOF. The sigmoid OOF variant actually **beats sklearn on test AUC** here (0.8550 vs 0.8450) because the Amazon-style imbalanced, very-high-cardinality binary problem rewards fixed-smoothing over sklearn's adaptive (pooled-within-variance) shrinkage. The `bayes_variant="pooled"` variant comes in just above sklearn (0.8486 vs 0.8450) as expected given the formula is sklearn-equivalent up to the ddof-0 variance and null-row handling. `bayes_variant="classical"` (Micci-Barreca 2001) intentionally shrinks more aggressively per-category on rare categories and lands lower here (0.8311).
+### 1 — The leakage mechanism
 
-**Downstream-FitStep train/serve skew** (`Blueprint TE + scale` on the same Amazon split):
-
-Pipeline: `target_encode(cv=3) → scale(standard)`. Downstream model matters because the effect is a scale/location shift in the feature distribution, not a reshuffle of row-level ordering.
-
-With **LogisticRegression** downstream (scale-invariant up to convergence):
-
-| `refit_downstream_on_full` | Train AUC | Test AUC |
-|---|---|---|
-| `True` (default) | 0.8314 | 0.8576 |
-| `False` (legacy) | 0.8314 | 0.8576 |
-
-LR converges to the same decision boundary regardless of the feature's mean/std, so the two modes are AUC-indistinguishable.
-
-With **k-NN (k=50)** downstream (scale-sensitive) on the same split, 5 repeats, median values. In addition to AUC we surface the post-scale feature-distribution stats (mean of |per-column mean| and mean of per-column std, across the 9 encoded features) to make the scaler-skew mechanism visible:
-
-| `refit_downstream_on_full` | Train AUC | Test AUC | train⟨\|mean\|⟩ | train⟨std⟩ | test⟨\|mean\|⟩ | test⟨std⟩ |
-|---|---|---|---|---|---|---|
-| `True` (default) | 0.8833 | 0.8392 | 0.0043 | 0.9411 | 0.0079 | **0.9849** |
-| `False` (legacy) | 0.8849 | 0.8386 | 0.0000 | 1.0000 | 0.0096 | **1.0521** |
-
-The mechanism is clearly visible in the standard-deviation column: `refit_full=False` perfectly normalises the **training** view (σ=1.000, trivially — the scaler fitted on the OOF distribution) but leaves a 5.2 % scale mismatch at test time (test σ=1.052). `refit_full=True` spreads the error between train (σ=0.94) and test (σ=0.98) so test features land closer to the canonical σ=1.0. On this 24k-row split the AUC effect is at the noise level for k-NN(k=50) — the σ gap is small enough that nearest-neighbour rankings barely move.
-
-To make the AUC effect visible we shrink the training set (`TRAIN_N=2000`, holding test at 8000 rows from the same 32 769-row pool, 5 repeats with seeds 100…104). Smaller train means each OOF fold's exclusion removes a larger fraction of per-category data and the OOF-vs-full encoder distribution diverges more — train σ now drops to ~0.83, test σ to ~0.92 vs the legacy 1.000/1.10. Three downstream models, increasing in scale-sensitivity for this pipeline:
-
-| Downstream model | refit_full wins (out of 5) | mean Δ AUC (full − oof) | refit_full median test AUC | refit_oof median test AUC |
-|---|---|---|---|---|
-| **MLP `(16,)`, max_iter=200** | **4 / 5** | **+0.0020** | **0.6834** | 0.6794 |
-| RBF-SVM `C=1, gamma='scale'` | 2 / 5 | +0.0013 | 0.5712 | 0.5658 |
-| k-NN `k=5, weights='distance'` | 2 / 5 | −0.0059 | 0.5874 | 0.6068 |
-
-The MLP is the clean win for `refit_full=True`: small networks initialise weights assuming inputs are roughly σ≈1, and `refit_full` keeps that calibration valid at test time (test σ ≈ 0.92 with `refit_full`, σ ≈ 1.10 without — closer to 1.0 in the first case). The RBF-SVM with `gamma='scale'` rescales gamma using the training variance, partially auto-compensating for either mode. k-NN-with-distance-weighting actually prefers `refit_full=False` here — the OOF training distribution is noisier and a kNN trained on it learns a more robust decision rule that happens to do well on the cleaner full-mapping test set; this is an interesting finding but does not undermine the principled reason for the default (the scaler's stats *should* match the distribution it'll encounter at inference).
-
-The default `True` is justified on three grounds: (i) it is the only setting where `transform(test)`'s scaler input matches its fit input (the σ ≈ 1 invariant the user expects from `scale(method="standard")`); (ii) for the most common scale-sensitive case (MLPs / NNs / linear models with weight regularisation) it improves AUC; (iii) for scale-invariant models (LR) it is a no-op. `refit_full=False` is exposed as opt-out for users who specifically want the legacy behaviour or who measure (as we did with k-NN) that their particular pipeline benefits from training on the OOF-anchored distribution.
-
-**Synthetic data** (20k rows, 500 categories, Beta-sampled per-cat probabilities, LogisticRegression downstream):
-
-| Variant | train AUC | test AUC | gap |
-|---|---|---|---|
-| polars_ds target_encode (no OOF) | 0.726 | 0.584 | **+0.141** |
-| polars_ds OOF TE cv=5 (sigmoid) | 0.587 | 0.586 | +0.001 |
-| polars_ds OOF TE randomized (no CV) | 0.716 | 0.584 | +0.132 |
-| sklearn TargetEncoder cv=5 | 0.583 | 0.584 | −0.002 |
-
-## How OOF target encoding works (mechanics)
-
-Target encoding replaces a categorical column with a numeric column where each
-category maps to the mean of the target values observed for that category.
-A plain (non-OOF) implementation builds the mapping from the full training
-set and then applies the same mapping right back onto training rows:
+Target encoding replaces a categorical value with the mean of the target for rows in that category. When the mapping is built on the full training set and applied right back to training rows, each row's own target value has influenced the encoded number it receives. For rare categories (one or two observations) the effect is extreme: the encoded value *is* the target value.
 
 ```
 plain target encoding (LEAKY on train):
 
-    train_df                        mapping (full train)
-    ┌─────┬───────┐                 ┌─────┬──────┐
-    │ cat │ y     │      fit        │ cat │ mean │
-    ├─────┼───────┤      ──────▶    ├─────┼──────┤
-    │ A   │ 1     │                 │ A   │ 0.67 │
-    │ A   │ 1     │                 │ B   │ 0.25 │
-    │ A   │ 0     │                 └─────┴──────┘
-    │ B   │ 0     │
-    │ B   │ 1     │      apply      train_df.cat  ← for row R this uses
-    │ B   │ 0     │      ──────▶    ┌─────┬──────┐  row R's OWN target in
-    │ B   │ 0     │                 │ 0.67│ ...  │  the computed mean; when
-    └─────┴───────┘                 └─────┴──────┘  a downstream model sees
-                                                    this feature it's seeing
-                                                    "the answer" directly.
+    train:  cat=A  y=1   →  encode A as (1+1+0)/3 = 0.67  →  model sees 0.67, learns "high"
+    train:  cat=B  y=0   →  encode B as (0+1+0+0)/4 = 0.25  →  model sees 0.25, learns "low"
+
+    ...but on test, cat=A maps to the same 0.67, cat=B to 0.25.
+    The model learned a genuine signal, so test AUC is reasonable.
+
+HOWEVER — for a singleton category:
+    train:  cat=C  y=1   →  encode C as 1.00  →  feature value == target value, perfect "signal"
+    test:   cat=C  y=0   →  encode C as 1.00  →  model confidently predicts 1, wrong
+
+On the Amazon dataset (9 high-cardinality features, many singletons):
+    plain TE:  train AUC 0.96,  test AUC 0.76,  gap = +0.20
+    OOF TE:    train AUC 0.83,  test AUC 0.85,  gap = −0.03
 ```
 
-A model trained on these labels inflates its train-AUC (because the feature
-has memorised the target) but predictions on test, where the same categories
-appear but the target is hidden, fall apart. On the Amazon split above the
-gap is +0.20 AUC — a classic symptom of high-cardinality target leakage.
+### 2 — Out-of-fold encoding
 
-**Out-of-fold (OOF) encoding** fixes this by building K separate mappings,
-each excluding one fold's rows, and then encoding every row using the mapping
-that was built from the OTHER folds:
+OOF encoding builds K separate mappings, each from a different subset of training rows, and encodes every row using the mapping that was built *without* it:
 
 ```
-OOF encoding with cv=3 (leak-safe on train):
+OOF encoding (cv=3):
 
-    fold assignment (stratified):
-        train_df:  [row 0  row 1  row 2  row 3  row 4  row 5  row 6  row 7 ...]
-        fold_idx:  [  0      1      2      0      1      2      0      1  ...]
+    fold assignment (stratified, class ratios preserved per fold):
+        rows:   [r0  r1  r2  r3  r4  r5  r6  r7  ...]
+        folds:  [ 0   1   2   0   1   2   0   1  ...]
 
-    Phase 1 — build K mappings, each using only OTHER folds' rows:
-        mapping_0 = target_encode(rows where fold_idx != 0)   ← for rows in fold 0
-        mapping_1 = target_encode(rows where fold_idx != 1)   ← for rows in fold 1
-        mapping_2 = target_encode(rows where fold_idx != 2)   ← for rows in fold 2
+    Phase 1 — build one mapping per fold from the OTHER folds' rows:
+        map_0 = encode( rows where fold != 0 )   ← used for fold-0 rows
+        map_1 = encode( rows where fold != 1 )   ← used for fold-1 rows
+        map_2 = encode( rows where fold != 2 )   ← used for fold-2 rows
 
-    Phase 2 — encode each row using its fold's mapping:
-        row 0 (fold 0)  →  mapping_0[row_0.cat]   ← row 0's own target excluded
-        row 1 (fold 1)  →  mapping_1[row_1.cat]   ← row 1's own target excluded
+    Phase 2 — look up each row in its fold's mapping:
+        r0 (fold=0)  →  map_0[r0.cat]   ← r0's target excluded from map_0
+        r1 (fold=1)  →  map_1[r1.cat]   ← r1's target excluded from map_1
         ...
 
-    At inference (Pipeline.transform(test), test has no target column):
-        test_row       →  full_mapping[test_row.cat]   ← full-train mapping,
-                                                         no leakage possible
-                                                         (test target unseen)
+    At inference (pipeline.transform(test)):
+        test_row  →  full_train_mapping[test_row.cat]   ← full mapping, no leakage
 ```
 
-This is the same protocol sklearn's `TargetEncoder(cv=K)` uses internally;
-the difference here is that polars_ds exposes the `fold_idx` column directly,
-so callers can supply any pre-computed fold assignment (GroupKFold,
-TimeSeriesSplit, BlockedKFold, …) without subclassing anything. The stratified
-fold assignment is built in and avoids a sklearn dependency for the common case.
+This is the same protocol sklearn's `TargetEncoder(cv=K)` uses internally. The difference here is that polars_ds exposes a `fold_col` parameter — the user can supply any pre-computed integer fold column, so GroupKFold, TimeSeriesSplit, or any custom split strategy feeds directly in without subclassing anything.
 
-## How `refit_downstream_on_full` works
+### 3 — Empirical Bayes shrinkage
 
-A Blueprint can chain a stateful step after an OOF encoder, e.g.
-`target_encode(cv=3)` followed by `scale(method="standard")`. The scaler must
-compute a mean and std to subtract and divide by, and the question is
-*which distribution of the encoded column should it fit on*? The OOF-encoded
-training column and the full-mapping column (applied to test) are slightly
-different because OOF estimates are noisier per-row.
+Fixed-smoothing (`smoothing=float`) regularises by sample size only: a category with few rows gets shrunk toward the global mean, regardless of how tightly or loosely its target values are distributed. Empirical Bayes adds within-category variance to the picture:
 
 ```
-Pipeline: target_encode(cv=3)  →  scale(method="standard")
+encoded(cat) = λ · observed_mean(cat)  +  (1 − λ) · global_mean
 
-  refit_downstream_on_full = False (legacy):
-  ┌─────────────────────────────────────────────────────────────────────────┐
-  │ train path:                                                             │
-  │     TE_oof(train)          → oof_df         ← values used by the model  │
-  │     scale.fit(oof_df)      → stores μ_oof, σ_oof                        │
-  │     scale.apply(oof_df)    → train features ~ N(0, 1)    (trivially)    │
-  │                                                                         │
-  │ test path:                                                              │
-  │     TE_full(test)          → full_df                                    │
-  │     scale.apply with (μ_oof, σ_oof)  → test features ~ N(~0, ~1.05)     │
-  │                                        (the scaler's stats don't match  │
-  │                                         the distribution it now sees)   │
-  └─────────────────────────────────────────────────────────────────────────┘
+              n · Var(y_global)
+λ  =  ─────────────────────────────────
+       n · Var(y_global)  +  σ²_within
 
-  refit_downstream_on_full = True (default):
-  ┌─────────────────────────────────────────────────────────────────────────┐
-  │ train path:                                                             │
-  │     TE_full(train)         → full_df        ← used ONLY to fit scaler   │
-  │     TE_oof(train)          → oof_df         ← values used by the model  │
-  │     scale.fit(full_df)     → stores μ_full, σ_full                      │
-  │     scale.apply(oof_df)    → train features ~ N(~0, ~0.94)              │
-  │                                                                         │
-  │ test path:                                                              │
-  │     TE_full(test)          → full_df                                    │
-  │     scale.apply with (μ_full, σ_full) → test features ~ N(~0, ~0.98)    │
-  │                                          (scaler's stats match the      │
-  │                                          distribution at inference)     │
-  └─────────────────────────────────────────────────────────────────────────┘
+λ grows with n (more rows → trust local mean more)
+λ shrinks with σ²_within (noisy category → trust global mean more)
 ```
 
-The legacy mode hides the distribution shift at train time (train is perfectly
-σ=1.0 because the scaler and the data are from the same source) and surfaces
-it at test time. The new default splits the shift symmetrically: train is
-slightly compressed (σ≈0.94) but test is only slightly expanded (σ≈0.98), and
-the mean/std the scaler was fitted on is literally the same mean/std it will
-encounter at inference. For models that care about scale (NNs, SVMs, regularised
-linear models) the fitted mode is the one consistent with `transform(test)`.
-
-Implementation: during `materialize()` Blueprint maintains two parallel lazy
-frames — `df_full_lazy` (what `transform(test)` would produce at this point in
-the chain) and `df_oof_lazy` (OOF-encoded for OofFitStep columns). Downstream
-FitStep `fit` reads from the full frame; the returned training DataFrame
-(`return_df=True`) carries the OOF version. A schema-equality assertion after
-each OofFitStep guards against the two frames going out of sync.
-
-## What the Empirical Bayes shrinkage actually does
-
-When a category appears only a handful of times, its observed target mean is
-a noisy estimate of its "true" rate. The Bayesian fix is to shrink the
-observed mean toward the global mean, weighted by how much evidence we have:
+Numerical example — binary target, global mean = 0.94:
 
 ```
-encoded(cat) = λ(cat) · observed_mean(cat) + (1 − λ(cat)) · global_mean
-
-where λ(cat) ∈ [0, 1] grows with:
-    - category sample size  (more rows → more trust in the local mean)
-    - inverse of within-category variance  (tight category → strong signal)
-
-Micci-Barreca 2001 formula:   λ = n · Var(y) / (n · Var(y) + σ²_within)
+ Category    Rows  Observed mean  Within-var  λ      Encoded
+ ────────────────────────────────────────────────────────────
+ C_bulk      1000     0.85          0.13      0.998   0.850   ← enough evidence, tight signal
+ C_rare         5     0.40          0.24      0.19    0.829   ← few rows → heavy shrinkage
+ C_singleton    1     1.00          n/a        —      0.940   ← forced to global mean (leakage guard)
 ```
 
-Numerical example (binary target y ∈ {0, 1}, global mean = 0.94):
+A singleton's "observed mean" is its own target value — a direct leak. Any category with `n=1`, or with all-identical target values, is forced to the global mean regardless of λ.
+
+Two variants for estimating `σ²_within`:
+
+- **`bayes_variant="classical"` (default)** — per-category within-variance. Micci-Barreca 2001. Each category gets its own noise estimate; noisier categories shrink more.
+- **`bayes_variant="pooled"`** — global pooled within-variance, one shared denominator. Byte-equivalent to `sklearn.TargetEncoder(smooth="auto")`.
+
+### 4 — `refit_downstream_on_full`
+
+When a scaler follows an OOF encoder in the Blueprint chain, the scaler has to choose which distribution to fit on. The legacy behaviour was to fit on the OOF-encoded training column. But `pipeline.transform(test)` applies the *full-train* mapping to test, producing a slightly different distribution — meaning the scaler's stored mean and std no longer match what it will see at inference.
 
 ```
- Category    Rows  Observed mean  Within-var  λ     Encoded
- ─────────────────────────────────────────────────────────────
- C_bulk      1000     0.85          0.13      0.998   0.850
-   (tight category, lots of evidence → use observed mean)
- C_rare      5        0.40          0.24      0.19    0.829
-   (noisy category, little evidence → mostly global mean)
- C_singleton 1        1.00          (n/a)     —       0.940
-   (1 row: singleton guard forces global_mean to avoid leakage;
-    a singleton's "observed mean" IS its own target value)
+Pipeline: target_encode(cv=3) → scale(standard)
+
+  Legacy (refit_downstream_on_full=False):
+      TE_oof(train)  →  fit scaler on OOF distribution  →  scaler stats: μ_oof, σ_oof
+      TE_full(test)  →  apply (μ_oof, σ_oof)            →  test features: σ ≈ 1.05  (skew)
+
+  Default (refit_downstream_on_full=True):
+      TE_full(train) →  fit scaler on full distribution  →  scaler stats: μ_full, σ_full
+      TE_oof(train)  →  apply (μ_full, σ_full)           →  train features: σ ≈ 0.94
+      TE_full(test)  →  apply (μ_full, σ_full)           →  test features:  σ ≈ 0.98  (matched)
 ```
 
-Two ways to estimate `σ²_within`:
+The legacy mode looks perfectly scaled at train time (σ=1.0, trivially — same source) and hides the mismatch until test. The new default splits the error symmetrically: train is slightly compressed, test is only slightly expanded, and the scaler's fit distribution matches what it will encounter at inference. For scale-sensitive models (neural nets, SVMs, regularised linear models) this matters; for scale-invariant models (plain logistic regression) it is a no-op.
 
-- **`bayes_variant="classical"` (Micci-Barreca 2001, default)** — per-category
-  within-variance, estimated as `(1/n) · Σ(y_i − mean_cat)²` over the category's
-  own rows. Shrinks a noisy category more than a tight one of the same size.
-- **`bayes_variant="pooled"` (sklearn `smooth="auto"`)** — global pooled
-  within-variance, estimated once as `(1/N) · Σ(y_i − mean_cat(i))²` over all
-  training rows. Every category uses the same denominator.
+Implementation: `materialize()` maintains two parallel lazy frames — `df_full_lazy` (full-mapping cascade) and `df_oof_lazy` (OOF-cascade). Downstream `FitStep` reads `df_full_lazy`; the returned training DataFrame carries `df_oof_lazy`. A schema-equality assertion after each OofFitStep detects sync bugs.
 
-Both are principled choices with the same algebraic structure. Classical is
-the Kaggle-era default and the simpler mental model (each category is its own
-small regression); pooled is byte-equivalent to sklearn's `TargetEncoder` and
-gives a steadier denominator when most categories are small. We default to
-classical because it matches the Micci-Barreca 2001 paper most users cite.
+---
 
-The sigmoid smoothing that `Blueprint.target_encode(smoothing=float)` uses is
-a simpler, non-adaptive form:
+## Benchmark evidence
 
+### Amazon Employee Access dataset (32,769 rows, 9 high-cardinality features, up to 7,518 unique categories)
+
+LogisticRegression downstream, 5 random splits, medians shown:
+
+| Method | Train AUC | Test AUC | Gap | Time |
+|---|---|---|---|---|
+| polars_ds TE (no OOF) | 0.960 | 0.758 | **+0.201** | 0.026 s |
+| category_encoders TE (no OOF) | 0.960 | 0.855 | +0.106 | 0.197 s |
+| polars_ds WoE (no OOF) | 0.929 | 0.801 | +0.131 | 0.025 s |
+| **polars_ds OOF TE cv=3, sigmoid** | 0.830 | **0.855** | −0.026 | 0.041 s |
+| polars_ds OOF TE cv=5, sigmoid | 0.840 | 0.855 | −0.013 | 0.051 s |
+| polars_ds OOF TE cv=3, Bayes pooled | 0.824 | 0.849 | −0.025 | 0.072 s |
+| polars_ds OOF TE cv=3, Bayes classical | 0.808 | 0.831 | −0.025 | 0.069 s |
+| polars_ds OOF WoE cv=3 | 0.789 | 0.815 | −0.027 | 0.038 s |
+| **polars_ds Blueprint TE cv=3** (end-to-end) | 0.830 | **0.855** | −0.026 | **0.029 s** |
+| sklearn TargetEncoder cv=5 | 0.833 | 0.845 | −0.014 | 0.169 s |
+| sklearn TargetEncoder cv=3 | 0.824 | 0.845 | −0.023 | 0.147 s |
+
+**Blueprint OOF TE is 5.8× faster than sklearn while matching or exceeding its test AUC.** The sigmoid variant beats Bayes pooled here (+0.6 pp) because Amazon has extreme cardinality imbalance: thousands of singleton categories, and fixed-smoothing treats them all uniformly rather than trying to estimate their per-category variance from a single observation.
+
+### `refit_downstream_on_full` — when it matters
+
+The σ mechanism is clearly visible in feature stats. With kNN downstream (scale-sensitive), 5 repeats, median values:
+
+| Mode | Train AUC | Test AUC | train σ | test σ |
+|---|---|---|---|---|
+| `refit_full=True` (default) | 0.883 | 0.839 | 0.941 | **0.985** |
+| `refit_full=False` (legacy) | 0.885 | 0.839 | 1.000 | **1.052** |
+
+The legacy mode gives exactly σ=1.00 on train (trivially — scaler and data share the same source) and a 5% mismatch at test. The default closes that gap. On this large split the AUC delta is at noise level for kNN; to see the AUC effect directly, train on 2,000 rows (small train → OOF and full diverge more). Three downstream models, 5 repeats:
+
+| Downstream model | refit_full wins | mean ΔAUC (full − oof) |
+|---|---|---|
+| **MLP `(16,)`, max_iter=200** | **4 / 5** | **+0.0020** |
+| RBF-SVM, `gamma='scale'` | 2 / 5 | +0.0013 |
+| kNN `k=5, weights='distance'` | 2 / 5 | −0.0059 |
+
+The MLP is the cleanest win: small networks assume σ≈1 inputs during weight initialisation, and `refit_full` keeps that calibration valid at test time. The SVM partially self-compensates (gamma rescales from training variance). kNN-with-distance-weighting actually prefers the legacy mode in this particular setup — an interesting finding, and the reason we expose `refit_downstream_on_full=False` as an explicit opt-out.
+
+### When to pick which variant
+
+Three synthetic scenarios designed to separate the methods, 5 repeats, LogisticRegression on the single encoded feature:
+
+| Scenario | Setup | Winner | Key takeaway |
+|---|---|---|---|
+| A. Power-law + imbalanced | 2,000 cats, ~60% singletons, n=10,000 | all OOF ≈ 0.62; sigmoid best | Adaptive Bayes over-shrinks many singletons; fixed smoothing is robust |
+| B. Heterogeneous noise | 100 cats, 50 rows/cat, half tight / half noisy, n=5,000 | sigmoid / pooled ≈ 0.846; classical 0.788 | Classical's per-category guard fires prematurely on tight categories |
+| C. Group-disjoint users | 200 users, 5–50 rows/user, group-level train/test split | all variants ≈ 0.50 | No signal possible for unseen users — but `fold_col=GroupKFold(...)` gives HONEST train AUC 0.52 vs misleading 0.77 with row-KFold |
+
+**Honest summary:** OOF is what matters. The choice of smoothing variant rarely moves test AUC more than a couple of thousandths on real data. What actively hurts is:
+
+1. **No OOF at all** — the +0.20 gap on Amazon is typical for high-cardinality data.
+2. **Row-level KFold when train/test is group-disjoint** — Scenario C: row-KFold gives train AUC 0.77 even though test AUC is 0.50. The model is being lied to at training time. `fold_col` with GroupKFold fixes this and yields calibrated probabilities.
+
+**Practical defaults:**
+
+- **`cv=3, smoothing="auto"` (default)** — robust everywhere; picks sigmoid, matches category_encoders default
+- **`bayes_variant="pooled"`** — when you need byte-equivalence with `sklearn.TargetEncoder(smooth="auto")`
+- **`bayes_variant="classical"`** — when per-category noise varies widely and every category has ≥20 rows
+- **`fold_col=group_kfold_ids(...)`** — whenever train/test is group-disjoint (users, stores, time periods)
+
+---
+
+## API changes
+
+### New Blueprint parameters
+
+```python
+Blueprint(df, target="y", refit_downstream_on_full=True)   # new kwarg, default True
+
+bp.target_encode(
+    cols=["cat"],
+    target="y",
+    cv=3,                       # was: plain fit (no OOF). cv=None restores legacy
+    seed=42,
+    smoothing="auto",           # "auto" = Bayes shrinkage; float = sigmoid
+    bayes_variant="classical",  # "classical" | "pooled"; ignored when smoothing=float
+    default="mean",             # unseen category default; was: None
+)
+
+bp.woe_encode(cols=["cat"], target="y", cv=3, seed=42, default="mean")
 ```
-λ(n) = 1 / (1 + exp(−(n − min_samples_leaf) / smoothing))
+
+### New expression-level API
+
+```python
+import polars_ds.exprs.num as pds
+
+# OOF target encoding (requires a fold_idx column)
+pds.target_encode_oof("cat", "y", "__fold__", n_folds=3,
+                       smooth_auto=True, bayes_variant="classical")
+
+# OOF WoE encoding
+pds.woe_encode_oof("cat", "y", "__fold__", n_folds=3)
+
+# Single-shot Bayes encoding (for full-train mapping used by pipeline.transform)
+pds.target_encode_bayes("cat", "y", bayes_variant="pooled")
 ```
 
-Here λ depends only on the category's sample size — it does not look at the
-within-category variance. Fast and robust, and the form category_encoders' TE
-shipped with since 2018. In our Amazon benchmarks the fixed-smoothing sigmoid
-actually beats adaptive Bayes on the very-high-cardinality imbalanced case,
-because adaptive Bayes over-shrinks the many rare categories; see the
-per-scenario breakdown below for when each shape is preferred.
+### New CV splitters (`polars_ds.pipeline`)
 
-## When to pick which variant
+```python
+from polars_ds.pipeline import group_kfold_ids, time_series_chunks_ids
 
-Three synthetic scenarios designed to pull the methods apart, 5 repeats each,
-LogisticRegression on the single encoded feature. Full script:
-`upstream_demo/bench_method_strengths.py`.
+fold_col = group_kfold_ids(train_df, group_col="user_id", cv=5)
+fold_col = time_series_chunks_ids(train_df, cv=5, time_col="date")
 
-| Scenario | Cardinality | n rows | Train split | Winner (test AUC) | Key takeaway |
-|---|---|---|---|---|---|
-| A. Power-law, imbalanced | 2 000 cats, ~60 % singletons | 10 000 | row-level | all OOF variants ≈ 0.62 | Sigmoid best for rare cats; adaptive Bayes over-shrinks |
-| B. Heterogeneous within-cat noise | 100 cats, 50 rows/cat | 5 000 | row-level | sigmoid / pooled ≈ 0.846 (classical 0.788) | Classical's guards fire on tight cats, losing signal |
-| C. Group-disjoint (unseen users at test) | 200 users, 5–50 rows/user | ~5 500 | group-level | all ≈ 0.500 (no info possible) | GroupKFold gives HONEST train AUC 0.52 vs misleading 0.77 for row-KFold |
+# Any sklearn splitter also works via fold_col:
+from sklearn.model_selection import GroupKFold
+gkf = GroupKFold(n_splits=5)
+fold_ids = np.zeros(len(train_df), dtype=np.int32)
+for k, (_, val_idx) in enumerate(gkf.split(train_df, groups=train_df["user_id"])):
+    fold_ids[val_idx] = k
+bp.target_encode(cols=["cat"], fold_col=pl.Series("fold", fold_ids))
+```
 
-**Headline empirical finding, honestly stated:** OOF is what matters. The
-smoothing variant (sigmoid vs `bayes_variant="classical"` vs `"pooled"`)
-rarely moves test AUC by more than a couple of thousandths on real data. The
-three scenarios above, plus the Amazon benchmark, cover all four combinations
-of {low/high cardinality} × {few-rows/many-rows-per-cat}, and the spread of
-test AUCs within the three OOF variants is almost always smaller than the
-spread within 5 random seeds of the same variant. What actively hurts is:
-
-1. **Plain (no OOF) target encoding on the training set** — the +0.20 AUC
-   train/test gap on Amazon is typical for high-cardinality data.
-2. **Regular K-fold when train/test is group-disjoint** — Scenario C shows
-   this cleanly: a model trained on row-KFold OOF features has train AUC
-   0.77 despite test AUC being 0.50 (no signal is possible for unseen users).
-   The 0.27 gap is the model being *lied to* at training time. With
-   `fold_col=GroupKFold(...)`, train AUC drops to 0.52, matching the (absent)
-   test signal and producing calibrated downstream probabilities.
-
-**Recommended defaults in practice:**
-
-- **sigmoid smoothing** (`Blueprint.target_encode(cv=3)`, our default): robust
-  across imbalanced / high-cardinality / mixed-evidence data. This is what
-  `category_encoders.TargetEncoder` ships with.
-- **`bayes_variant="pooled"` when `smoothing="auto"`**: byte-equivalent to
-  `sklearn.preprocessing.TargetEncoder(smooth="auto")`. Pick it when you
-  need to match an sklearn-based reference or MLflow-logged competitor.
-- **`bayes_variant="classical"` when `smoothing="auto"`**: per-category
-  within-variance adaptive shrinkage; faithful to the Micci-Barreca 2001
-  paper. Pick it when per-category noise varies a lot AND every category
-  has at least ~20 rows per fold.
-- **Provide a `fold_col` from `GroupKFold` or `TimeSeriesSplit`** whenever
-  the train/test split is *not* row-level random — otherwise the OOF encoder
-  gives a signal the model cannot exploit at deployment.
-
-## Related work and what this PR does *not* yet cover
-
-The category_encoders library ships ~20 encoders. After this PR, polars_ds
-covers the four most common ones: plain target, OOF target, WoE, and the
-Bayes shrinkage variants. A literature and Kaggle-forum sweep (Avito Demand
-2019, Home Credit 2018, Feedzai 2024 benchmarks) identified three further
-techniques we do *not* implement yet and that would have clear value:
-
-1. **M-estimate encoding** — `encoded = (n · mean_cat + m · global) / (n + m)`,
-   one hyperparameter `m`. Simpler parameterisation of the same additive-prior
-   idea as Bayes; some users find it more interpretable. Trivially implementable
-   on top of the existing OOF scaffolding.
-2. **Count / frequency encoding** — encode category → count of occurrences in
-   training set. Target-free (no leakage risk), often paired with TE as a
-   *supplementary* feature. One-liner in polars (`col.len().over("cat")`).
-3. **Quantile encoding** — for regression targets, use the per-category median
-   (or any quantile) instead of the mean. [Rodríguez et al. 2021](https://arxiv.org/abs/2105.13783)
-   show it outperforms mean-TE on skewed / heavy-tailed targets. Same OOF
-   scaffolding, different aggregator.
-
-Medium-priority (niche but published benefits):
-
-4. **CatBoost-style ordered TE** — cumulative mean over rows (random order),
-   used internally by CatBoost. Different semantics from K-fold OOF; can
-   complement it when row order encodes information. Requires a prefix-sum
-   aggregation that polars already has (`cum_sum().over("cat").shift(1)`).
-5. **Hierarchical TE** — when categories have a natural hierarchy
-   (country → state → city), fall back to the parent level for rare children.
-6. **Beta encoding** for binary targets — explicit Beta(α, β) prior instead
-   of the variance-weighted Bayes formula.
-
-Low-priority / already-covered:
-
-- **Leave-one-out TE** — already covered by setting `cv = n_rows` in the
-  OOF API. A separate LOO wrapper would be syntactic sugar at best.
-- **Hash encoding** — dimensionality trick for > 100 k categories; polars
-  HashMap-based TE handles that scale without hashing.
-- **Category-crossing / interactions** — feature engineering, not an encoder.
-- **Randomized noise injection** — our OOF + Bayes shrinkage already serves
-  the same regularisation purpose.
-
-These six candidates are out of scope for this PR to keep the review surface
-focused. Happy to follow up with a second PR covering the top-three
-(`m_estimate`, `count_encode`, `quantile_encode`) if the design here is
-approved.
+---
 
 ## Breaking changes
 
-This branch accumulates several behaviour changes. All affect users of `Blueprint.target_encode` / `Blueprint.woe_encode` only if they relied on specific defaults.
+All changes affect only `Blueprint.target_encode` / `Blueprint.woe_encode`. Pass the explicit legacy values to restore old behaviour.
 
-1. `Blueprint.target_encode(cv=3)` default (was: plain train fit). Pass `cv=None` to restore plain encoding (unsafe).
-2. `Blueprint.woe_encode(cv=3)` same.
-3. `Blueprint(refit_downstream_on_full=True)` default: downstream `scale`/`impute` after an OofFitStep now fit on the full-mapping distribution instead of the OOF distribution. Prevents train/serve skew. Pass `refit_downstream_on_full=False` to restore legacy behaviour.
-4. `Blueprint.target_encode(default="mean")` default (was `None`). Matches sklearn. Saved/serialized pipelines are unaffected because the default is baked into `replace_strict` expressions at `materialize()` time.
-5. `Blueprint.woe_encode(default="mean")` same.
-6. `transforms.target_encode_oof(default="mean")` and `target_encode_bayes(default="mean")` were `"null"` before.
-7. `transforms.woe_encode_oof(default=0.0)` was `"null"` before. Also: unseen categories within an OOF fold now always receive WoE = 0.0 (neutral log-odds), not the user `default` — mixing target-scale default values with log-odds WoE was a category error.
-8. `_stratified_kfold_ids` now raises `ValueError`/`TypeError` on degenerate inputs (single-class target, all-null target, class smaller than `cv`, non-numeric target) that previously produced silently corrupted folds.
-9. `time_series_split_ids` renamed to `time_series_chunks_ids`. The old name is kept as a deprecated alias emitting `DeprecationWarning`; it will be removed in the next major version. The rename clarifies that the splitter is NOT equivalent to sklearn's `TimeSeriesSplit` (which uses an expanding window); ours divides the timeline into contiguous chunks for OOF.
+1. `Blueprint.target_encode(cv=3)` — was plain fit (no OOF). Pass `cv=None` to restore (unsafe).
+2. `Blueprint.woe_encode(cv=3)` — same.
+3. `Blueprint(refit_downstream_on_full=True)` — downstream `scale`/`impute`/etc. now fit on full-mapping distribution. Pass `refit_downstream_on_full=False` to restore legacy.
+4. `default="mean"` in `target_encode` and `woe_encode` — was `None`. Serialised pipelines unaffected (default is baked into expressions at `materialize()` time).
+5. OOF WoE unseen categories within a fold → `0.0` (neutral log-odds). Was: user `default`. Mixing target-scale values with log-odds was a category error.
+6. `_stratified_kfold_ids` now raises on degenerate inputs (single-class target, all-null target, class smaller than `cv`, non-numeric target dtype) that previously produced silently corrupted folds.
+7. `time_series_split_ids` renamed to `time_series_chunks_ids`. Old name kept as a `DeprecationWarning` alias — will be removed in next major. The old name implied sklearn's expanding-window semantics; the function divides the timeline into contiguous chunks.
 
-## Changes
+---
 
-### Rust (`src/num_ext/target_encode.rs`)
+## Implementation notes
 
-- `get_target_encode_map_bayes()`: empirical Bayes shrinkage encoder with variant switch. Two passes: count/sum, then within-category sum-of-squared-deviations. Shrinkage `lambda = var_y * n / (var_y * n + within_var)`. Singleton and zero-within-variance categories are forced to the global mean (see "Leakage guards" below).
-- `get_target_encode_frame_bayes()`: LazyFrame wrapper for compatibility.
-- `pl_target_encode_bayes`: expression for single-shot Bayes encoding. Accepts `pooled_variant: bool` via kwargs.
-- `pl_target_encode_oof`: K-fold OOF encoding accepting a `fold_idx: UInt32` column. Builds K separate encoder maps (Phase 1), then single-pass row lookup (Phase 2). Supports both sigmoid and Bayes smoothing via `smooth_auto` flag, and both `bayes_variant`s via `pooled_variant` kwarg. Unseen categories default to fold-specific target mean (matches sklearn). Validates fold_idx < n_folds (raises on out-of-range). Casts target to Float64 so Int8/Int32/Int64 binary targets work.
+**Fold assignment in Python, encoding in Rust.** Stratification logic (class-aware shuffling) is cleaner in numpy. The encoding loops, which dominate runtime, stay in Rust.
 
-### Rust (`src/num_ext/woe_iv.rs`)
+**OofFitStep.** OOF requires different behaviour at fit-time (K-fold) vs transform-time (full mapping). `OofFitStep` adds a `transform_oof(df)` method alongside the existing `transform(df)`, cleanly separating the two paths without changing Pipeline's expression-list architecture.
 
-- `pl_woe_encode_oof`: K-fold OOF WoE encoding with the same Phase 1/Phase 2 architecture. Target is cast to Float64. Unseen-within-fold returns `0.0` (neutral log-odds). Null category / null fold_idx returns user `default`. Validates fold_idx < n_folds.
+**Singleton leakage guard.** A singleton's observed mean equals its own target value — λ=1 gives a direct leak. We force global mean for any category where within-variance is effectively zero (threshold: `f64::EPSILON * target_var * n`). In pooled mode the guard fires when the pooled within-variance itself is zero (all categories identical).
 
-### Leakage guards
+**Integer targets.** The Rust functions cast target to Float64 before encoding, so `Int8`/`Int32`/`Int64` binary targets work without requiring the user to pre-cast.
 
-- Singleton (n=1) categories have `within_var = 0` so the shrinkage formula gives lambda=1 and the encoded value equals the row's own target value — a direct leak. We force full shrinkage to the global mean in this case.
-- Extended to any category where `within_var` is effectively zero (all rows in category have identical target). The threshold is relative: `f64::EPSILON * target_var.abs() * n.max(1.0)` so we catch ULP-level cancellation residue, not just exact zero.
-- The guard is variant-aware: in `pooled_variant`, `within_var = pooled_within` (global), so the guard fires only when `pooled_within` itself is effectively zero.
+**`ddof=0` in pooled Bayes.** The Python expression passes `t.var(ddof=0)` to the Rust plugin. Polars' default `.var()` uses `ddof=1` (Bessel's correction); sklearn uses population variance. Without this, `bayes_variant="pooled"` diverges slightly from sklearn on small datasets.
 
-### Python (`python/polars_ds/pipeline/transforms.py`)
+---
 
-- `_stratified_kfold_ids(df, target, cv, seed)`: pure-numpy stratified fold assignment (no sklearn dependency). Uses stratification when target has ≤ 20 unique values, random permutation otherwise. Null detection works for all dtypes (Int*, Float*, Bool) via Polars `is_null()` + numpy `isnan`. Nulls are assigned round-robin across folds. Raises on empty DataFrame, `cv < 2`, single-class target, all-null target, class smaller than `cv`, or non-numeric target dtype.
-- `_oof_encode_core()`: shared helper for OOF encoding orchestration with `fold_col` support. Uses an internal `__oof_fold_idx__` column that is never written back into the returned DataFrame. Validates user-supplied fold columns: must be a `str` name, must be an integer dtype (float fold values would silently truncate), must not be null, must have ≥ 2 unique values, must not use the reserved internal name. If the DataFrame already contains `__oof_fold_idx__` and no `fold_col` is passed, raises rather than silently overwriting. When `fold_col` is given, `cv` is ignored (the column's unique-value count defines fold count).
-- `target_encode_oof(df, cols, target, cv, seed, ..., bayes_variant, fold_col)`: orchestrates fold creation + Rust OOF call.
-- `woe_encode_oof(df, cols, target, cv, seed, ..., fold_col)`: same for WoE.
-- `target_encode_bayes()`: new single-shot Bayes encoding function, accepts `bayes_variant`.
+## Tests
 
-### Python (`python/polars_ds/pipeline/pipeline.py`)
+~80 tests in `tests/test_oof_encode.py` including:
+- Bayes shrinkage numeric accuracy vs hand-computed reference (1e-9 tolerance)
+- Classical vs pooled produce materially different values (catches "parameter silently ignored")
+- Pooled matches `sklearn.TargetEncoder(smooth="auto")` within 1e-3
+- OOF fold isolation (each row encoded only from out-of-fold data)
+- Singleton and zero-within-variance leakage guards
+- All edge cases: null target, Int8/Int64 binary target, single category, all-same target, class-smaller-than-cv
+- `fold_col`: basic, non-0-based, null rejection, float rejection, reserved-name conflict
+- `refit_downstream_on_full` actually changes downstream scaler statistics (measurable diff)
+- End-to-end leak check: train–test AUC gap < 0.05 with OOF
 
-- `Blueprint.__init__(refit_downstream_on_full=True)`: when `True` (default), `materialize()` maintains both a full-mapping `df_full_lazy` and an OOF-cascading `df_oof_lazy`. Downstream `FitStep` fits statistics on `df_full_lazy` (matching what `transform(test)` will see); the returned training DataFrame (`return_df=True`) carries the OOF-encoded values.
-- `Blueprint.target_encode(cv=3, seed=42, smoothing="auto", default="mean", bayes_variant="classical")`: when `cv > 1`, uses OOF encoding on train via `OofFitStep`, full-data encoding on test. Validates `cv=1` (raises), `smoothing=True` (raises `TypeError`), `bayes_variant` (raises on unknown).
-- `Blueprint.woe_encode(cv=3, seed=42, default="mean")`: same for WoE.
+Property test in `tests/test_oof_properties.py` (hypothesis): OOF output is invariant to row permutation.
 
-### Python (`python/polars_ds/pipeline/_step.py`)
+---
 
-- `OofFitStep`: stores `fit_func` (for Pipeline/test) and `oof_func` (for train). Exposes `fit(df_full)` (produces full-mapping expression) and `transform_oof(df_oof)` (produces OOF-encoded training DataFrame). The two methods take separate frames because, for chained OofFitSteps, the `fit` side must see full-mapping cascades and the `oof` side must preserve earlier OOF columns.
+## Future work (out of scope for this PR)
 
-### Python (`python/polars_ds/pipeline/cv_splitters.py`) — NEW
+Three further encoding strategies that benchmarks and a Kaggle/literature sweep identified as high-value:
 
-- `group_kfold_ids(df, group_col, cv, seed)`: assigns fold indices such that all rows sharing a group value share a fold. Validates null group values.
-- `time_series_chunks_ids(df, cv, time_col)`: assigns fold indices by dividing rows into `cv` contiguous temporal chunks. Uses uint64 intermediate arithmetic to avoid overflow on large datasets. Relies on Polars' default-stable `Series.arg_sort` for deterministic tie handling. Docstring contains an explicit `.. warning::` that this is NOT sklearn's `TimeSeriesSplit` (no expanding window) and can leak future into past for non-stationary features — users should bring sklearn's `TimeSeriesSplit` via `fold_col` for strict walk-forward semantics.
-- `time_series_split_ids` kept as a `DeprecationWarning` alias.
-- All three exported from `polars_ds.pipeline`.
+1. **M-estimate encoding** — `(n · mean_cat + m · global) / (n + m)`, one hyperparameter `m`. Same additive-prior idea as Bayes, simpler to tune, popular on Kaggle Home Credit 2018 leaderboard. Trivially implementable on top of the existing OOF scaffolding.
+2. **Count / frequency encoding** — category → occurrence count in train. Target-free (no leakage), commonly used as a supplementary feature alongside TE. One-liner in polars: `col.len().over("cat")`.
+3. **Quantile encoding** — per-category median instead of mean for regression targets. Rodríguez et al. 2021 show it outperforms mean-TE on skewed targets. Same OOF scaffolding, different aggregator.
 
-### Python (`python/polars_ds/typing.py`)
+Happy to follow up with a second PR covering these if the design here is approved.
 
-- `BayesVariant: TypeAlias = Literal["classical", "pooled"]` added alongside existing encoder-related Literal aliases.
+---
 
-### Python (`python/polars_ds/pipeline/__init__.py`)
-
-- Exports `Blueprint`, `Pipeline`, `FitStep`, `OofFitStep`, `group_kfold_ids`, `time_series_chunks_ids`, `time_series_split_ids` (deprecated), `target_encode_oof`, `woe_encode_oof`, `target_encode_bayes`.
-
-### Python (`python/polars_ds/exprs/num.py`)
-
-- `pds.target_encode_oof()`: expression-level OOF target encoding
-- `pds.woe_encode_oof()`: expression-level OOF WoE encoding
-- `pds.target_encode_bayes()`: expression-level Bayes encoding. Passes `t.var(ddof=0)` to the Rust plugin to match sklearn's population-variance convention (Polars' default `.var()` uses `ddof=1`).
-
-### Tests (`tests/test_oof_encode.py`)
-
-~80 tests covering:
-- Bayes shrinkage numeric accuracy vs hand-computed reference (tight 1e-9 tolerance; catches a `ddof=1` regression)
-- Classical vs pooled variants produce materially different values (catches a "parameter silently ignored" regression)
-- `pooled_variant` matches `sklearn.preprocessing.TargetEncoder(smooth="auto")` within 1e-3 on a 500-row continuous-target frame
-- OOF fold isolation (each row encoded using only out-of-fold data)
-- Unseen category handling (fold-specific target mean, WoE = 0.0)
-- Out-of-range fold_idx validation (raises error)
-- Stratified fold balance for binary targets (asserted < 5pp deviation from global ratio, cross-checked vs sklearn StratifiedKFold)
-- Singleton-category leakage prevention (n = 1)
-- Zero-within-variance leakage prevention (n ≥ 2, constant target)
-- Blueprint integration: `cv > 0` round-trip, `cv = 1` rejection, `smoothing = True` rejection, invalid `bayes_variant` rejection
-- `refit_downstream_on_full` actually affects downstream scaler statistics (measurable pipeline output diff)
-- Chained-OOF regression: two `target_encode(cv=...)` in a row preserve OOF values for both columns in the returned training DataFrame
-- Edge cases: single category, all-same target, null handling, NaN targets, integer targets (Int8/Int64), all-null target, class-smaller-than-cv
-- WoE OOF correctness and public API
-- `fold_col` parameter: basic, non-0-based values, null rejection, float rejection, non-string rejection, reserved-name rejection (both user-supplied and pre-existing in df)
-- CV splitters: `group_kfold_ids`, `time_series_chunks_ids`, validation
-- `time_series_split_ids` deprecation alias emits `DeprecationWarning`
-- Non-numeric target (String/Categorical) rejected cleanly by `_stratified_kfold_ids`
-- End-to-end leak check with LogisticRegression (train–test gap < 0.05)
-
-## Design decisions
-
-1. **Fold assignment in Python, encoding in Rust**: fold creation needs stratification logic (class-aware shuffling) which is simpler in numpy. The heavy encoding loop stays in Rust for speed.
-
-2. **`smoothing="auto"` (Bayes) as default in Blueprint**: matches sklearn's default since v1.3. Sigmoid smoothing (`smoothing=float`) remains available for backward compatibility.
-
-3. **`bayes_variant="classical"` default**: classical matches the Micci-Barreca 2001 paper more closely (per-category within-variance). On low-to-medium-cardinality synthetic data the two variants have indistinguishable test AUC; on the high-cardinality, heavily-imbalanced Amazon dataset `"pooled"` scores ~1.8 pp higher because its single pooled denominator is a more stable noise estimate for 500+ categories with few rows each. `"pooled"` is the right choice for users who need byte-equivalence with `sklearn.preprocessing.TargetEncoder(smooth="auto")`; classical remains the default because it is simpler, faster to reason about per category, and does not penalise rare categories less than sklearn in the general case.
-
-4. **`OofFitStep` vs modifying Pipeline**: OOF requires different behaviour at fit-time (K-fold) vs transform-time (full mapping). `OofFitStep` cleanly separates this without changing the Pipeline's expression-list architecture.
-
-5. **Per-fold target mean for unseen categories**: when a category appears in fold K's validation set but not in its training set, we use the training mean of fold K (not a global default). This matches sklearn.
-
-6. **Stratified folds**: for binary/low-cardinality targets (≤ 20 unique values), folds preserve class ratios. This prevents degenerate folds where a minority class is absent.
-
-7. **`fold_col` escape hatch**: allows users to bring pre-computed fold assignments (GroupKFold, TimeSeriesSplit, sklearn splitters). Non-0-based values are automatically remapped without mutating the user's original column.
-
-8. **`seed` naming**: follows polars_ds convention (also used by LightGBM, XGBoost), not sklearn's `random_state`.
-
-9. **`refit_downstream_on_full=True` default**: without this, `scale()`/`impute()` placed after `target_encode(cv=...)` would fit their statistics on the OOF distribution while `transform(test)` applies them to the full-mapping distribution — a silent train/serve skew. The dual-frame materialize loop costs one extra `collect()` per OofFitStep; this is acceptable for the correctness benefit.
-
-10. **`time_series_chunks_ids` rename**: the original name suggested sklearn's `TimeSeriesSplit` (expanding window) which it does not implement. The new name and docstring warning make the "contiguous chunks of the timeline" behaviour and its non-stationary-feature caveat explicit.
-
-## Pre-commit checklist (per CONTRIBUTING.md)
+## Checklist
 
 - [x] `cargo fmt` applied
 - [x] `ruff check` + `ruff format` applied
-- [x] `requirements-test.txt` lists `scikit-learn>=1.3` (used only as a test-time gold standard, guarded by `pytest.importorskip`); no new runtime dependencies
-- [x] No new Rust dependencies
-- [x] Docstrings with leak-safety warnings and sklearn references
-- [x] Benchmark evidence included
+- [x] No new runtime dependencies
+- [x] `scikit-learn>=1.3` in `tests/requirements-test.txt` (test-only, guarded by `pytest.importorskip`)
+- [x] Docstrings with leak-safety warnings
+- [x] Benchmark evidence on real (Amazon) and synthetic data
 
-## AI assistance
-
-Formatted and proofread by AI, used it to create additional tests and discover a few nice performance optimizations as well.
+*Formatted and proofread with AI assistance; tests and performance optimisations co-developed with AI.*

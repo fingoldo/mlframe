@@ -159,12 +159,14 @@ def find_impactful_features(
     normalize: bool = True,
     train_or_test="train",
     verbose: bool = True,
-    fit_params: dict = {},
+    fit_params: dict = None,
 ) -> dict:
     """
     Create a dict of inputs impacting every and all target (multitarget supported).
     Wrapped models are not supported (like TransformedTargetRegressor).
     """
+    if fit_params is None:
+        fit_params = {}
 
     if verbose:
         logger.info("Starting impact analysis for %s row(s), %s feature(s), %s target(s)", X.shape[0], X.shape[1], Y.shape[1])
@@ -520,9 +522,11 @@ def mi_direct(
     freqs_y: np.ndarray = None,
     n_workers: int = 1,
     workers_pool: object = None,
-    parallel_kwargs: dict = {},
+    parallel_kwargs: dict = None,
 ) -> tuple:
 
+    if parallel_kwargs is None:
+        parallel_kwargs = {}
     classes_x, freqs_x, _ = merge_vars(factors_data=factors_data, vars_indices=x, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
     if classes_y is None:
         classes_y, freqs_y, _ = merge_vars(factors_data=factors_data, vars_indices=y, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
@@ -789,12 +793,14 @@ def get_fleuret_criteria_confidence_parallel(
     cached_cond_MIs: dict = None,
     n_workers: int = 1,
     workers_pool: object = None,
-    parallel_kwargs: dict = {},
+    parallel_kwargs: dict = None,
     entropy_cache: dict = None,
     extra_x_shuffling: bool = True,
     dtype=np.int32,
 ) -> tuple:
 
+    if parallel_kwargs is None:
+        parallel_kwargs = {}
     nfailed = 0
 
     if workers_pool is None:
@@ -1531,7 +1537,7 @@ def screen_predictors(
     selected_vars = []  # stores just indices. can't use set 'cause the order is important for efficient computing
     predictors = []  # stores more details.
 
-    # Observability flag — true if the inner confirmation loop hit the
+    # Observability flag -- true if the inner confirmation loop hit the
     # ``max_consec_unconfirmed`` patience threshold at least once. Prior
     # to 2026-04-19, patience-triggered early exits only logged at
     # verbose>=1; at default verbosity, MRMR silently returned a
@@ -2071,7 +2077,7 @@ def screen_predictors(
                         details = f" Total candidates disproved: {total_disproved:_}/{total_checked:_} ({total_disproved*100/total_checked:.2f}%)"
                     else:
                         details = ""
-                    logger.info(f"Can't add anything valuable anymore for interactions_order={interactions_order}.{details}")
+                    logger.info("Can't add anything valuable anymore for interactions_order=%s.%s", interactions_order, details)
                 predictors_pbar.total = len(candidates)
                 predictors_pbar.close()
                 break
@@ -2083,13 +2089,13 @@ def screen_predictors(
 
     # Termination-reason summary (always emitted, even at verbose=0).
     # Two distinct termination modes:
-    #   patience_triggered=True — ``max_consec_unconfirmed`` hit; MRMR
+    #   patience_triggered=True -- ``max_consec_unconfirmed`` hit; MRMR
     #     gave up confirming more candidates. Returned set may be smaller
     #     than what a more patient search would have found.
-    #   patience_triggered=False — natural exhaustion: remaining
+    #   patience_triggered=False -- natural exhaustion: remaining
     #     candidates fell below ``min_relevance_gain`` threshold. This is
     #     the "done" case, not an early stop.
-    # Operators tuning MRMR on noisy data need to distinguish the two —
+    # Operators tuning MRMR on noisy data need to distinguish the two --
     # if patience keeps tripping, they need a higher ``max_consec_unconfirmed``
     # or smoother relevance signals, not a higher feature budget.
     if patience_triggered:
@@ -2406,16 +2412,20 @@ def categorize_1d_array(vals: np.ndarray, min_ncats: int, method: str, astropy_s
 def categorize_dataset_old(
     df: pd.DataFrame,
     method: str = "discretizer",
-    method_kwargs: dict = dict(strategy="quantile", n_bins=4),
+    method_kwargs: dict = None,
     min_ncats: int = 50,
     astropy_sample_size: int = 10_000,
     dtype=np.int16,
     n_jobs: int = -1,
-    parallel_kwargs: dict = {},
+    parallel_kwargs: dict = None,
 ):
     """
     Convert dataframe into ordinal-encoded one.
     """
+    if method_kwargs is None:
+        method_kwargs = dict(strategy="quantile", n_bins=4)
+    if parallel_kwargs is None:
+        parallel_kwargs = {}
 
     data = None
     numerical_cols = []
@@ -2637,10 +2647,10 @@ def categorize_dataset(
     Does not care for min_cats yet.
 
     Accepts either a pandas DataFrame or a polars DataFrame. On the polars
-    path no `.to_pandas()` copy is made — numeric columns are extracted
+    path no `.to_pandas()` copy is made -- numeric columns are extracted
     via `.to_numpy()` (zero-copy for Arrow-backed numerics), categorical
     columns via `ordinal_encoder.fit_transform` on a select-projected
-    subset (per-cat-col copies, bounded by cat-col count × n_rows, much
+    subset (per-cat-col copies, bounded by cat-col count x n_rows, much
     smaller than a full-frame materialization).
     """
 
@@ -2655,7 +2665,7 @@ def categorize_dataset(
         _is_polars = False
 
     if _is_polars:
-        # Polars schema-driven column selection — no pandas API calls.
+        # Polars schema-driven column selection -- no pandas API calls.
         # IMPORTANT: we cannot put dtype *instances* in a set for membership
         # because instance hash differs from the class. `pl.Categorical` class
         # and a concrete `Categorical(ordering=...)` instance return different
@@ -2691,7 +2701,7 @@ def categorize_dataset(
             # pl.Enum columns already store integer codes in their physical
             # representation (UInt32). For pl.Utf8 / pl.String we cast to
             # Categorical first to obtain codes. Booleans are trivially 0/1.
-            # No OrdinalEncoder, no .to_pandas() — nothing copied.
+            # No OrdinalEncoder, no .to_pandas() -- nothing copied.
             cast_exprs = []
             for c in categorical_cols_detected:
                 dt = df.schema[c]
@@ -2865,7 +2875,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         if self.skip_retraining_on_same_shape:
             if signature == self.signature:
                 if self.verbose:
-                    logger.info(f"Skipping retraining on the same inputs signature {signature}")
+                    logger.info("Skipping retraining on the same inputs signature %s", signature)
                 return self
 
         # ---------------------------------------------------------------------------------------------------------------
@@ -2900,7 +2910,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # (X.iloc[:, i].values at filters.py:~3184, 3324, 3537, 3623,
         # 3679; X[col] = vals at ~3324). Adapting all of these to polars
         # is a separate large refactor. For now, gracefully disable FE
-        # when the input is polars — the selector itself still works and
+        # when the input is polars -- the selector itself still works and
         # uses the zero-copy polars categorize_dataset path. Log once so
         # it's visible that FE was skipped.
         fe_min_nonzero_confidence = self.fe_min_nonzero_confidence
@@ -2933,7 +2943,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 cv = KFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
             
             if verbose:
-                logger.info(f"Using cv={cv}")
+                logger.info("Using cv=%s", cv)
         """
 
         # Convert numpy array to DataFrame if needed
@@ -2965,7 +2975,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             vals = vals.astype(np.int16)
 
         # 2026-04-22 (Fix 10 addendum to jolly-wishing-deer plan): native
-        # Polars support — no `.to_pandas()` copy. mlframe production
+        # Polars support -- no `.to_pandas()` copy. mlframe production
         # frames are 100+ GB, and a full materialization would OOM on
         # the prod box. CLAUDE.md forbids caller-visible copies; use
         # Polars-native ops when the input is pl.DataFrame.
@@ -2977,11 +2987,11 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         if _is_polars_input:
             # Polars is immutable; `with_columns` returns a new frame that
-            # shares buffers with X — no data copy. Caller's X is not mutated.
+            # shares buffers with X -- no data copy. Caller's X is not mutated.
             target_series = [pl.Series(name, vals[:, i] if vals.ndim == 2 else vals) for i, name in enumerate(target_names)]
             X = X.with_columns(target_series)
         else:
-            # 2026-04-24 Session 6: multilabel target → vals is (N, K). Pass it
+            # 2026-04-24 Session 6: multilabel target -> vals is (N, K). Pass it
             # through unchanged so each column maps to its target_names entry.
             # The previous .reshape(-1, 1) was right ONLY for 1-D y (single
             # column with shape (N, 1)) and crashed on multilabel with
@@ -2997,7 +3007,7 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         logger.info("categorizing dataset...")
         if _is_polars_input:
-            # Polars: fill_null forward-then-backward — no-copy lazy op.
+            # Polars: fill_null forward-then-backward -- no-copy lazy op.
             _filled = X.fill_null(strategy="forward").fill_null(strategy="backward")
         else:
             _filled = X.ffill().bfill()
@@ -3437,7 +3447,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                             nbins = nbins + new_nbins
                             cols = cols + new_cols
                             if _is_polars_input:
-                                # Polars is immutable — accumulate new cols
+                                # Polars is immutable -- accumulate new cols
                                 # via with_columns (returns a new frame
                                 # sharing buffers with X). Caller's original
                                 # frame is never mutated.
@@ -3481,7 +3491,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # injected ``targ_<id>`` columns attached. They then leaked into the
         # downstream sklearn pipeline: imputer/scaler recorded ``targ_<id>``
         # in ``feature_names_in_`` and raised on the next transform call.
-        # Fix: drop in place (pandas) or rebind (polars — immutable, caller's
+        # Fix: drop in place (pandas) or rebind (polars -- immutable, caller's
         # X was never mutated so nothing to clean).
         if _is_polars_input:
             X = X.drop(target_names)  # no-copy lazy op; caller's X untouched
@@ -3577,7 +3587,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ``support_`` attribute => pass-through, matching the
         # "no selection yet" semantics of ``support_ is None``. Without
         # this, ``transform`` raises AttributeError on a freshly-cloned
-        # MRMR that sklearn Pipeline (re)uses across fit→transform calls.
+        # MRMR that sklearn Pipeline (re)uses across fit->transform calls.
         support = getattr(self, "support_", None)
         if support is None:
             return X
@@ -3607,7 +3617,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                     import logging as _lg
                     _lg.getLogger(__name__).warning(
                         "MRMR.transform: %d selected col(s) missing from input "
-                        "X — degrading to the intersection. Missing: %s",
+                        "X -- degrading to the intersection. Missing: %s",
                         len(missing), missing[:8],
                     )
                     selected_cols = [c for c in selected_cols if c in X.columns]
@@ -3680,7 +3690,7 @@ def check_prospective_fe_pairs(
                         # dtypes. When ``vals`` is object/string (e.g. a
                         # polars_utf8 cat column that wasn't encoded before
                         # reaching FE), calling them inside the error-log
-                        # formatter itself raises — masking the real
+                        # formatter itself raises -- masking the real
                         # transformation error and aborting MRMR entirely.
                         # Compute numeric-only diagnostics conditionally.
                         if np.issubdtype(vals.dtype, np.floating):
@@ -3995,7 +4005,7 @@ def njit_functions_dict(dict, exceptions: Sequence = ("grad1", "grad2", "sinc", 
 
 def smart_log(x: np.ndarray) -> np.ndarray:
     # Preserve input dtype (previous cast to float32 silently demoted float64
-    # inputs). A single nanmin pass plus a branch is enough — no second pass.
+    # inputs). A single nanmin pass plus a branch is enough -- no second pass.
     x_min = np.nanmin(x)
     if x_min > 0:
         return np.log(x)

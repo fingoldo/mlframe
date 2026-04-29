@@ -5,16 +5,16 @@ Compares ML predictive power (AUC) and encoding speed on a real-world dataset fr
 Dataset: OpenML "adult" (Census Income, 48842 rows, 8 categorical features).
 
 Variants tested:
-  1. pds_TE_plain         — polars_ds target_encode, no OOF (leaky baseline)
-  2. pds_OOF_TE_cv3       — polars_ds Rust OOF target_encode, cv=3
-  3. pds_OOF_TE_cv5       — polars_ds Rust OOF target_encode, cv=5
-  4. sklearn_TE_cv5        — sklearn.TargetEncoder(cv=5) (built-in cross-fitting)
-  5. sklearn_TE_cv3        — sklearn.TargetEncoder(cv=3)
-  6. catenc_TE_plain       — category_encoders.TargetEncoder (no OOF, leaky)
-  7. pds_WoE_plain         — polars_ds woe_encode, no OOF
-  8. pds_OOF_WoE_cv3       — polars_ds Rust OOF woe_encode, cv=3
-  9. catenc_WoE_plain      — category_encoders.WOEEncoder (no OOF)
-  10. pds_Blueprint_cv3    — Blueprint.target_encode(cv=3) end-to-end
+  1. pds_TE_plain         -- polars_ds target_encode, no OOF (leaky baseline)
+  2. pds_OOF_TE_cv3       -- polars_ds Rust OOF target_encode, cv=3
+  3. pds_OOF_TE_cv5       -- polars_ds Rust OOF target_encode, cv=5
+  4. sklearn_TE_cv5        -- sklearn.TargetEncoder(cv=5) (built-in cross-fitting)
+  5. sklearn_TE_cv3        -- sklearn.TargetEncoder(cv=3)
+  6. catenc_TE_plain       -- category_encoders.TargetEncoder (no OOF, leaky)
+  7. pds_WoE_plain         -- polars_ds woe_encode, no OOF
+  8. pds_OOF_WoE_cv3       -- polars_ds Rust OOF woe_encode, cv=3
+  9. catenc_WoE_plain      -- category_encoders.WOEEncoder (no OOF)
+  10. pds_Blueprint_cv3    -- Blueprint.target_encode(cv=3) end-to-end
 
 Results: train AUC, test AUC, gap, encode_time_s (median of N_REPEATS).
 """

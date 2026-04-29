@@ -33,7 +33,7 @@ def _build_source(n_rows, n_cat_short, n_cat_long, short_cardinality, long_cardi
 
     # long-strings cat columns (typical text features: descriptions, blurbs)
     for i in range(n_cat_long):
-        # Build pool of long strings — e.g. 500-char blurbs
+        # Build pool of long strings -- e.g. 500-char blurbs
         base_long = ("lorem ipsum dolor sit amet " * 30)[:long_len]
         pool = np.array([f"{base_long[:-8]}_{j:07d}" for j in range(long_cardinality)])
         data[f"cat_L_{i:02d}"] = pl.Series(
@@ -75,7 +75,7 @@ def main():
     total_a = run_once("short-only", src_a, n_rows)
     del src_a
 
-    print("\nSCENARIO B: long strings (long_len=500, cardinality 20k, 4 cols — prod-like)")
+    print("\nSCENARIO B: long strings (long_len=500, cardinality 20k, 4 cols -- prod-like)")
     src_b = _build_source(n_rows=n_rows, n_cat_short=0, n_cat_long=4,
                            short_cardinality=0, long_cardinality=20_000,
                            long_len=500)

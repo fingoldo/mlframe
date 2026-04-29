@@ -1012,7 +1012,7 @@ def compute_numaggs(
     max_modes: int = 10,
     sampling_frequency: int = 100,
     spectral_method: str = "welch",
-    hurst_kwargs: dict = dict(min_window=10, max_window=None, windows_log_step=0.25, take_diffs=False),
+    hurst_kwargs: dict = None,
     directional_only: bool = False,
     whiten_means: bool = True,
     return_distributional: bool = False,
@@ -1029,6 +1029,8 @@ def compute_numaggs(
     """Compute a plethora of numerical aggregates for all values in an array.
     Converts an arbitrarily length array into fixed number of aggregates.
     """
+    if hurst_kwargs is None:
+        hurst_kwargs = dict(min_window=10, max_window=None, windows_log_step=0.25, take_diffs=False)
     if len(arr) <= 1:
         return (np.nan,) * len(
             get_numaggs_names(
@@ -1249,7 +1251,7 @@ def compute_numaggs_parallel(
     values: np.ndarray = None,
     use_diffs: bool = False,
     rolling_ma: int = 0,
-    numagg_params: dict = {},
+    numagg_params: dict = None,
     dtype=np.float32,
     n_jobs=-1,
     prefetch_factor: int = 2,
@@ -1258,6 +1260,8 @@ def compute_numaggs_parallel(
     """Computes numaggs over columns of a dataframe, in parallel fashion.
     Example of parallel_kwargs: numaggs_over_df_columns_parallel(df=X, cols=cols, temp_folder=r'R:\Temp')
     """
+    if numagg_params is None:
+        numagg_params = {}
     if n_jobs <= 0:
         n_jobs = psutil.cpu_count(logical=False)
 

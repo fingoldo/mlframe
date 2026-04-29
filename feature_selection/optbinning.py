@@ -31,12 +31,11 @@ def get_binningprocess_featureselectors(
     features: pd.DataFrame,
     memory: str = None,
     n_jobs: int = -1,
-    iv_kwargs: dict = {
-        "min": 0.02,
-        "strategy": "highest",
-    },
+    iv_kwargs: dict = None,
 ) -> tuple:
     """Returns binningprocess pipelines for a specific featureset. Inserts categorical encoders where needed."""
+    if iv_kwargs is None:
+        iv_kwargs = {"min": 0.02, "strategy": "highest"}
     all_cols = features.columns.tolist()
 
     bp_withcats_fs = Pipeline(

@@ -1,5 +1,88 @@
 # Changelog
 
+## 2026-04-28 — Meta-test suite v3: A+C+D+E+F batches + shared utils
+
+### Added — 11 new meta-tests + a shared-utils library + drift tracking
+
+This batch consolidates per-repo meta-test plumbing into a reusable
+library and adds 11 new tests covering ML-specific invariants,
+universal library quality, and meta-meta self-checks. Total mlframe
+meta-test footprint after this batch: 26 files, 74 tests, ≈ 61 s.
+
+**A — Shared infrastructure**
+
+- **`pyutilz.dev.meta_test_utils`** (new module in pyutilz) — all the building blocks every meta-test reaches for: `consumer_corpus`, `enumerate_test_files`, `public_top_level_symbols`, `strip_lineno`, `capture_signature`, `capture_module_surface`, `scan_todo_markers`, `count_user_deferred_entries`, `snake_case_variants_of`, `safe_import`. Removed ~400 LOC of duplication across mlframe and pyutilz meta-test directories; bug-fixes in one place propagate to both.
+- **`tests/test_meta/test_deferred_drift.py`** (A2) — counts entries in every `_USER_DEFERRED_*` / `_GRANDFATHERED` whitelist via AST, compares against a stored baseline (`_debt_baseline.json`), fails on growth. Net counter visible per run; refresh via `--refresh-debt-baseline` after intentionally accepting more debt. mlframe baseline: 6 whitelists, 36 entries.
+
+**C — ML-specific tests**
+
+- **`test_reproducibility.py`** (C1) — every linear model (ridge / lasso / elasticnet / sgd) yields bit-identical predictions when refit with the same `random_state`; `_predict_from_probs` is a pure function; `apply_preprocessing_extensions` is reproducible. Catches non-deterministic global state pollution (e.g. polars 1.x string cache).
+- **`test_public_api_contract.py`** (C2) — every value in `VALID_LINEAR_MODEL_TYPES` actually fits + predicts on a tiny synthetic dataset (10 parametrized cases). Goes one step beyond MT-1's structural check by exercising the runtime path.
+- **`test_memory_budgets.py`** (C3) — every linear model's fit + predict on a 200×8 dataset stays under 30 MB peak via `tracemalloc`; `_predict_from_probs` on 50K×10 stays under 5 MB. Catches accidental allocator regressions (≈ 5x increases) without false-flagging micro-perf noise.
+- **`test_calibration_monotonicity.py`** (C4) — Hypothesis-driven: post-hoc isotonic calibration never increases per-label Brier on its own training set (Murphy 1973); calibrator falls back to identity on constant-label folds.
+
+**D — pyutilz library QA** (added in pyutilz, not mlframe)
+
+**E — Universal library tests**
+
+- **`test_version_consistency.py`** (E3) — `mlframe.__version__` matches `version.py`'s `__version__` (and would also check `pyproject.toml::[project].version` if/when added). Catches "I bumped one version source but not the other".
+- **`test_no_import_cycles.py`** (E4) — Tarjan's SCC over the AST-built import graph; flags multi-node cycles. Surfaced 3 real cycles in mlframe (`feature_selection.wrappers` ↔ `filters` ↔ `training.helpers` ↔ `strategies` ↔ `utils`; `evaluation` ↔ `trainer`; `neural.flat` ↔ `neural.base`) — held in `_USER_DEFERRED_CYCLES` for restructuring later.
+- **`test_no_unicode_in_console_output.py`** (E5) — every `print(...)` / `logger.*(...)` call's first arg is ASCII-only. Snapshot-based: 74 existing offenders captured in baseline; new commits adding non-ASCII fail. Critical for Windows cp1251 stdout (per `feedback_windows_encoding`).
+- **`test_public_docstrings.py`** (E1) — every public top-level `def` / `class` in production code has a docstring. Snapshot-based (baseline: 832 undocumented) — additions silent, new violations fail.
+- **`test_public_annotations.py`** (E2) — every public function has return annotation + every non-self/cls parameter is typed. Snapshot-based (baseline: 1356 unannotated) — additions silent, new violations fail.
+
+**F — Meta-meta tests**
+
+- **`test_meta_meta.py`** (F1+F2+F3) — every `pytest.fail(...)` in the meta-test directory has actionable text (file paths, fix verbs, or dynamic message); meta-tests don't import private internals from production code without an entry in `_PERMITTED_PRIVATE_IMPORTS` (6 mlframe-specific entries cite `_predict_from_probs`, `_canonical_predict_proba_shape`, `_PerClassIsotonicCalibrator` — those ARE the surface under audit); per-test perf-budget overrides match real test names.
+
+### Tests added in pyutilz (not mlframe — listed for cross-reference)
+
+D1 (provider contract — interface coverage), D2 (file-open encoding kwarg), D3 (provider cache thread safety), plus PT-1..PT-9. See `pyutilz/CHANGELOG.md`.
+
+### Total meta-test footprint after this batch: 26 files, 74 tests, ≈ 61 s wall-clock.
+
+## 2026-04-28 — Meta-test suite v2: MT-1..MT-7 + W1..W2 + ``hgb`` made public
+
+### Added — 9 new meta-tests + 1 pre-commit hook
+
+- **`tests/test_meta/test_strategy_registration.py` (MT-1)** — every model-type alias accepted by ``VALID_MODEL_TYPES`` / ``VALID_LINEAR_MODEL_TYPES`` resolves to a real ``ModelPipelineStrategy`` instance via ``MODEL_STRATEGIES``. Surfaced **a real bug**: ``hgb`` had a strategy and per-model kwargs but was missing from ``VALID_MODEL_TYPES`` so users couldn't pass ``mlframe_models=["hgb"]``. **Fix landed:** ``hgb`` added to ``VALID_MODEL_TYPES``, exposing HistGradientBoosting via the public validator.
+- **`tests/test_meta/test_config_docstring_drift.py` (MT-2)** — every parameter listed in a config-class docstring's numpydoc ``Parameters ----------`` section is a real field on that class; warning-only counterpart flags configs that document <50% of their fields.
+- **`tests/test_meta/test_config_round_trip.py` (MT-3)** — ``cls(**cls().model_dump()) == cls()`` for every default-constructable Pydantic config (catches mutable-default sharing, ``model_dump`` losing fields, non-deterministic ``@model_validator(mode="after")``). Companion test asserts no two fresh instances share the same list/dict default object.
+- **`tests/test_meta/test_field_bound_enforcement.py` (MT-4)** — every numeric-bounded field (``Field(ge=0, le=1)``) and every Literal-typed field actually rejects out-of-bounds inputs at construction time.
+- **`tests/test_meta/test_mutual_exclusion_validators.py` (MT-5)** — every "X and Y are mutually exclusive" claim in a config docstring or ``@model_validator`` raise message is enforced empirically.
+- **`tests/test_meta/test_validator_coverage.py` (MT-6)** — fields whose docstring promises a normalisation ("Case-insensitive, normalized to lowercase") have a ``@field_validator`` actually applying a normalising op.
+- **`tests/test_meta/test_todo_hygiene.py` (MT-7)** — every ``TODO`` / ``FIXME`` / ``XXX`` / ``HACK`` comment carries an attribution (assignee in parens or ISO date). Surfaced 5 bare markers held in ``_GRANDFATHERED`` for the maintainer to drain over time.
+- **`tests/test_meta/test_api_stability.py` (W2)** — captures the public surface of ``mlframe.training`` into ``_api_snapshot.json``. Renames / removals fail; additions are silent. Refresh via ``pytest ... --refresh-api-snapshot``.
+- **`.pre-commit-config.yaml` (W1)** — runs the meta-test suite on every commit (≈ 1 min); ``manual``-stage variant skips Hypothesis tests for tight inner-loop work.
+
+### Public API change
+
+- ``hgb`` (HistGradientBoosting) added to ``VALID_MODEL_TYPES`` — was wired in the trainer all along but rejected by the public validator. Users can now pass ``mlframe_models=["hgb"]`` directly.
+
+### Total meta-test footprint after this batch: 40 tests across 14 files, ≈ 66s wall-clock.
+
+## 2026-04-28 — Meta-test suite expansion + 3 wired config fields
+
+### Added — 7 new meta-tests under `tests/test_meta/`
+
+- **`test_config_field_consumption.py`** hardened: corpus self-test (`test_consumer_corpus_is_substantial`, `test_known_consumed_fields_actually_grep`) refuses to silently pass when `MLFRAME_DIR` mis-resolves to an empty directory; `model_dump()`-splat detector exempts whole-class fields auto-consumed via `**cfg.model_dump(...)` patterns (`hyperparams_config`, `behavior_config`, `linear_model_config`, etc.); `_USER_DEFERRED_DEAD` whitelist keeps the test green on 11 fields the maintainer chose to defer cleanup on (each entry cites reasoning).
+- **`test_estimator_kwarg_parity.py`** — every `<flavor>_kwargs` field on every config (`cb_kwargs`, `lgb_kwargs`, `xgb_kwargs`, `hgb_kwargs`, `mlp_kwargs`, `ngb_kwargs`, `rfecv_kwargs`) must reach a constructor via `**field_name`, `.update(field_name)`, `field_name.get(...)`, or extract-then-splat. Catches the audit-2026-04-28 finding where `ModelHyperparamsConfig.{hgb,ngb}_kwargs` were declared but never threaded into helpers.py.
+- **`test_subconfig_wiring_parity.py`** — every BaseModel-typed field on a parent config (e.g. `TrainingConfig.linear_config: LinearModelConfig`) must show up as a bare attribute access or kwarg in production. Catches the orphaning pattern where `TrainingConfig` declared sub-configs but the trainer accepted standalone parameters with similar-but-different names.
+- **`test_dead_helpers.py`** — public top-level `def`/`class` symbols inside `training/` and `feature_selection/` must be referenced ≥ 2× in the production corpus (definition + ≥ 1 call). Top-level `mlframe/*.py` modules excluded by design (they are the public-API surface for notebook users). Surfaces 9 candidates currently held in `_USER_DEFERRED_DEAD_HELPERS`.
+- **`test_metric_invariants.py`** — Hypothesis-driven property tests on `mlframe.metrics`: Brier decomposition identity (`BinnedBrier == REL - RES + UNC`, Murphy 1973), all decomposition components in `[0, 1]`, AUC bounds + monotonic-affine invariance, perfect-prediction Brier=0, log-loss non-negativity, hamming/jaccard/subset-accuracy bounds, plus `_predict_from_probs` boundary cases (threshold=0 → all positive, threshold>1 → all negative, NaN-safe behaviour).
+- **`test_enum_exhaustiveness.py`** — every `Literal[...]` / `StrEnum` string value declared on a config field must appear quoted somewhere in the production corpus (i.e. is dispatched on, not just accepted-then-ignored).
+- **`test_utility_fuzz.py`** — targeted Hypothesis fuzz on the prepare-for-estimator transforms: `prepare_df_for_catboost` (NaN handling at varying null fractions, missing-column noop), `_canonical_predict_proba_shape` (dense 2-D round-trip, multilabel `list[(N,2)]` → `(N,K)` reduction), `_predict_from_probs` (boundary thresholds, NaN-safe).
+
+### Wired (B1 / B2 / C from the audit)
+
+- **`PreprocessingExtensionsConfig.verbose_logging`** now gates the per-stage `logger.info(...)` in `apply_preprocessing_extensions` (`training/pipeline.py`). WARN paths (TF-IDF column typo / split mismatch) intentionally bypass the gate — those are config errors that must always surface.
+- **`MultilabelDispatchConfig.allow_uncalibrated_multi`** now gates a new safety check at the top of `configure_training_params` (`training/trainer.py`): `MULTILABEL_CLASSIFICATION + prefer_calibrated_classifiers=True` raises `NotImplementedError` (default — strict) unless the flag is True, in which case calibration is silently dropped with a WARN. Solves the silent-fail mode where users wrapped a multilabel estimator with `CalibratedClassifierCV` and got an opaque shape error deep in sklearn.
+- **`MultilabelDispatchConfig.per_label_thresholds`** now reaches `report_probabilistic_model_perf` and `report_model_perf` (`training/evaluation.py`); the multilabel decision rule routes through `_predict_from_probs` (which already supported per-label vector thresholds) instead of the inline `(probs >= 0.5).astype(np.int8)`.
+
+### Bug fix — meta-test path resolution
+
+`test_config_field_consumption.py::MLFRAME_DIR` previously computed `Path(__file__).parents[2] / "mlframe"`, which resolved to a non-existent nested `mlframe/mlframe/` directory in this flat-layout repo. The corpus loaded zero bytes, every Field looked "unused" (266 false positives). Now derived from the imported package itself: `Path(mlframe.__file__).parent`. The corpus-self-test added in this same change refuses to pass with under 100 KB of source, preventing the silent-degradation regression.
+
 ## 2026-04-28 - RFECV zero-variance preventive filter + HGB pl.Enum + 1 stale test fixed
 
 ### A: RFECV zero-variance fit-time filter (closed batch-4 TODO)

@@ -98,7 +98,7 @@ def replay_cv_results(fname: str, trusted_root: Optional[str] = None):
     return cv_results
 
 
-def optimize_pipeline_by_gridsearch(X, Y, title: str, cv_func: object, cv_results: dict = {}, possible_pipeline_blocks: dict = {}, constants: dict = {}, output_dir: Optional[str] = None):
+def optimize_pipeline_by_gridsearch(X, Y, title: str, cv_func: object, cv_results: dict = None, possible_pipeline_blocks: dict = None, constants: dict = None, output_dir: Optional[str] = None):
     """For a given dataset, checks all possible combinations of the pipeline blocks,
     starting from the least comp. expensive: no FS, no HPT, no OD.
     Saves results on each cycle, summarizes by desired params like estimator type (even over different CVs) etc.
@@ -116,6 +116,12 @@ def optimize_pipeline_by_gridsearch(X, Y, title: str, cv_func: object, cv_result
     Must support exclusion rules, eg, feature_selection_optimistic only has sense if feature_selection_trials is >0
 
     """
+    if constants is None:
+        constants = {}
+    if cv_results is None:
+        cv_results = {}
+    if possible_pipeline_blocks is None:
+        possible_pipeline_blocks = {}
     if not possible_pipeline_blocks:
         # what's this paramset unique (but meaningful) hash?
         paramset_hash = get_fqn(constants)
@@ -191,8 +197,10 @@ def visualize_prediction_vs_truth(
     y_preds,
     samples=(1, 50, 75),
     title="",
-    metrics: dict = {},
+    metrics: dict = None,
 ) -> dict:
+    if metrics is None:
+        metrics = {}
     fig, axs = plt.subplots(1, len(samples), sharey=False, figsize=(20, 5))
 
     title_line = title

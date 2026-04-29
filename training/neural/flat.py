@@ -325,7 +325,7 @@ def generate_mlp(
         model.apply(init_weights)
         # Handle logging for partial functions
         init_name = weights_init_fcn.func.__name__ if isinstance(weights_init_fcn, partial) else weights_init_fcn.__name__
-        logger.info(f"Applied {init_name} initialization to Linear weights; normal_/constant_ for BatchNorm weights/biases and Linear biases")
+        logger.info("Applied %s initialization to Linear weights; normal_/constant_ for BatchNorm weights/biases and Linear biases", init_name)
 
     model.example_input_array = torch.zeros(1, num_features)
 
@@ -432,7 +432,7 @@ class MLPTorchModel(L.LightningModule):
 
         try:
             self.network = torch.compile(self.network, mode=self.hparams.compile_network)
-            logger.info(f"Applied torch.compile with mode='{self.hparams.compile_network}'")
+            logger.info("Applied torch.compile with mode='%s'", self.hparams.compile_network)
         except Exception as e:
             logger.warning(f"Failed to apply torch.compile: {e}. Using uncompiled network.")
 
@@ -529,7 +529,7 @@ class MLPTorchModel(L.LightningModule):
 
         if self.hparams.log_lr:
             current_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
-            logger.info(f"Epoch {self.current_epoch}, Step {self.global_step}: LR = {current_lr:.2e}")
+            logger.info("Epoch %s, Step %s: LR = %.2e", self.current_epoch, self.global_step, current_lr)
 
         if not self.hparams.compute_trainset_metrics:
             return
@@ -682,10 +682,10 @@ class MLPTorchModel(L.LightningModule):
             total_steps = self.trainer.max_epochs * steps_per_epoch
 
             logger.info(f"OneCycleLR config:")
-            logger.info(f"  - Steps per epoch: {steps_per_epoch}")
-            logger.info(f"  - Max epochs: {self.trainer.max_epochs}")
-            logger.info(f"  - Total steps: {total_steps}")
-            logger.info(f"  - Interval: {self.hparams.lr_scheduler_interval}")
+            logger.info("  - Steps per epoch: %s", steps_per_epoch)
+            logger.info("  - Max epochs: %s", self.trainer.max_epochs)
+            logger.info("  - Total steps: %s", total_steps)
+            logger.info("  - Interval: %s", self.hparams.lr_scheduler_interval)
 
             # Update kwargs with calculated values
             scheduler_kwargs = {
@@ -712,7 +712,7 @@ class MLPTorchModel(L.LightningModule):
         if self.hparams.lr_scheduler_monitor:
             scheduler_config["monitor"] = self.hparams.lr_scheduler_monitor
 
-        logger.info(f"LR scheduler config: {scheduler_config}")
+        logger.info("LR scheduler config: %s", scheduler_config)
         return {"optimizer": optimizer, "lr_scheduler": scheduler_config}
 
     def on_train_end(self) -> None:
@@ -744,7 +744,7 @@ class MLPTorchModel(L.LightningModule):
         # Log checkpoint info
         best_score = checkpoint_callback.best_model_score
         score_str = f"{best_score:.4f}" if best_score is not None else "N/A"
-        logger.info(f"Loading best model from {best_model_path} (score: {score_str})")
+        logger.info("Loading best model from %s (score: %s)", best_model_path, score_str)
 
         try:
             checkpoint = torch.load(best_model_path, map_location=self.device, weights_only=True)
@@ -764,7 +764,7 @@ class MLPTorchModel(L.LightningModule):
             # Store best epoch info
             if "epoch" in checkpoint:
                 self.best_epoch = checkpoint["epoch"]
-                logger.info(f"Loaded weights from epoch {self.best_epoch}")
+                logger.info("Loaded weights from epoch %s", self.best_epoch)
 
         except Exception as e:
             logger.error(f"Failed to load checkpoint: {e}", exc_info=True)

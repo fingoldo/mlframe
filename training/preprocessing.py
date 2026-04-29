@@ -100,7 +100,7 @@ def load_and_prepare_dataframe(
     # Load from file if path provided
     if isinstance(df, str):
         if verbose:
-            logger.info(f"Loading dataframe from {df} with Polars...")
+            logger.info("Loading dataframe from %s with Polars...", df)
 
         if not df.lower().endswith(".parquet"):
             raise ValueError(f"Only parquet format supported, got: {df}")
@@ -112,7 +112,7 @@ def load_and_prepare_dataframe(
         if config.n_rows:
             load_params["n_rows"] = config.n_rows
             if verbose:
-                logger.info(f"Loading first {config.n_rows} rows...")
+                logger.info("Loading first %s rows...", config.n_rows)
 
         # Use columns at load time for efficiency
         if config.columns:
@@ -132,7 +132,7 @@ def load_and_prepare_dataframe(
     # Apply tail if specified (after loading)
     if config.tail:
         if verbose:
-            logger.info(f"Taking last {config.tail} rows...")
+            logger.info("Taking last %s rows...", config.tail)
         df = df.tail(config.tail)
 
     if isinstance(df, pl.LazyFrame):
@@ -212,7 +212,7 @@ def preprocess_dataframe(
             df = process_infinities(df, fill_value=0.0, verbose=verbose)
 
     if verbose:
-        logger.info(f"Preprocessing: {original_shape} -> {df.shape}")
+        logger.info("Preprocessing: %s -> %s", original_shape, df.shape)
         log_ram_usage()
 
     return df

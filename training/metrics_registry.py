@@ -71,7 +71,7 @@ def iter_extra_metrics(
             value = fn(y_true, probs_NK, preds_NK)
             yield name, value
         except Exception as e:
-            logger.debug(f"metric {name!r} failed: {e}")
+            logger.debug("metric %r failed: %s", name, e)
 
 
 def list_registered(target_type: TargetTypes) -> list:

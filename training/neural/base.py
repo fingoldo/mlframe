@@ -180,7 +180,7 @@ class PytorchLightningEstimator(BaseEstimator):
             assert self.float32_matmul_precision in "highest high medium".split()
             if hasattr(torch, "set_float32_matmul_precision"):
                 torch.set_float32_matmul_precision(self.float32_matmul_precision)
-                logger.info(f"Enabled float32_matmul_precision={self.float32_matmul_precision}")
+                logger.info("Enabled float32_matmul_precision=%s", self.float32_matmul_precision)
 
         # Check validation availability once
         has_validation = eval_set[0] is not None
@@ -306,7 +306,7 @@ class PytorchLightningEstimator(BaseEstimator):
 
             lr_finder = tuner.lr_find(self.model, datamodule=dm, num_training=300)
             new_lr = lr_finder.suggestion()
-            logger.info(f"Using suggested LR={new_lr}")
+            logger.info("Using suggested LR=%s", new_lr)
             self.model.hparams.learning_rate = new_lr
 
             if is_partial_fit:
@@ -319,14 +319,14 @@ class PytorchLightningEstimator(BaseEstimator):
         # Prefer model.best_epoch over callback.best_epoch for distributed training compatibility
         if hasattr(self.model, "best_epoch") and self.model.best_epoch is not None:
             self.best_epoch = self.model.best_epoch
-            logger.info(f"Best epoch recorded: {self.best_epoch}")
+            logger.info("Best epoch recorded: %s", self.best_epoch)
         else:
             # Fallback to callback for backward compatibility
             for callback in trainer.callbacks:
                 if isinstance(callback, BestEpochModelCheckpoint):
                     self.best_epoch = callback.best_epoch
                     if self.best_epoch is not None:
-                        logger.info(f"Best epoch recorded from callback: {self.best_epoch}")
+                        logger.info("Best epoch recorded from callback: %s", self.best_epoch)
                     break
 
         # Clean up to avoid pickle issues and free memory
@@ -421,7 +421,7 @@ class PytorchLightningEstimator(BaseEstimator):
 
         # Determine batch size for prediction (allow override for larger batches)
         pred_batch_size = batch_size if batch_size is not None else self.datamodule_params.get("batch_size", 64)
-        logger.info(f"Using batch_size={pred_batch_size} for prediction")
+        logger.info("Using batch_size=%s for prediction", pred_batch_size)
 
         # Setup prediction dataset
         datamodule.setup_predict(X, batch_size=pred_batch_size)
@@ -503,7 +503,7 @@ class PytorchLightningEstimator(BaseEstimator):
         else:
             raise TypeError(f"Unexpected prediction type: {type(predictions[0])}")
 
-        logger.info(f"Generated predictions with shape {predictions.shape}")
+        logger.info("Generated predictions with shape %s", predictions.shape)
 
         return predictions
 
@@ -641,7 +641,7 @@ class BestEpochModelCheckpoint(ModelCheckpoint):
         else:
             raise ValueError(f"Unsupported mode: {mode}")
 
-        logger.info(f"Initialized BestEpochModelCheckpoint with monitor={monitor}, mode={mode}")
+        logger.info("Initialized BestEpochModelCheckpoint with monitor=%s, mode=%s", monitor, mode)
 
     def on_validation_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
         """
@@ -666,7 +666,7 @@ class BestEpochModelCheckpoint(ModelCheckpoint):
             self.best_epoch = trainer.current_epoch
             # Also set on pl_module for DDP synchronization
             pl_module.best_epoch = self.best_epoch
-            logger.info(f"New best model at epoch {self.best_epoch} with {self.monitor}={self.best_score:.4f}")
+            logger.info("New best model at epoch %s with %s=%.4f", self.best_epoch, self.monitor, self.best_score)
 
 
 class PeriodicLearningRateFinder(LearningRateFinder):

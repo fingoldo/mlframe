@@ -414,7 +414,7 @@ def load_stopwords(lang: str = "english") -> set:
 
     try:
         nlp_stopwords = set(sorted(adv.stopwords[lang]))
-        logging.info(f"Loaded stopwords for {lang}")
+        logging.info("Loaded stopwords for %s", lang)
         return True
     except Exception as e:
         logging.warning(f"Could not load stopwords for {lang}")
@@ -1161,15 +1161,19 @@ class TargetEncodingTransformer(BaseEstimator):
     def __init__(
         self,
         cat_columns="all",
-        num_columns=[],
+        num_columns=None,
         interactions_degree=1,
-        target_stats=[np.mean],
+        target_stats=None,
         cat_low_thresh=0.1,
         num_nbins=10,
         noise=0,
         smooth=False,
         verbose=1,
     ):
+        if num_columns is None:
+            num_columns = []
+        if target_stats is None:
+            target_stats = [np.mean]
         import inspect
 
         # np.min,np.max,percentile50

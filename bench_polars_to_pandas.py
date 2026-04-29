@@ -3,13 +3,13 @@
 1. End-to-end CatBoost ``fit`` + ``predict_proba`` with identical
    hyperparameters on (a) the native Polars DataFrame and (b) the same
    data converted to pandas via mlframe's ``get_pandas_view_of_polars_df``.
-   This is what actually matters — it shows whether skipping CatBoost's
+   This is what actually matters -- it shows whether skipping CatBoost's
    internal per-column Polars materialization (``rechunk`` +
    ``to_physical().to_numpy()`` for each Categorical,
    ``_catboost.pyx:3199`` / ``:3288``) buys wall-clock time on a real
    train/predict path. **This is the default mode.**
 
-2. Conversion-only microbench: just the Polars→pandas step (mlframe's
+2. Conversion-only microbench: just the Polars->pandas step (mlframe's
    ``to_arrow`` + batched ``pa.compute.cast`` vs a Python re-implementation
    of CatBoost's per-column loop), without any model call. Useful to
    isolate the conversion cost from model execution.
@@ -96,7 +96,7 @@ def make_synthetic_df(n_rows: int, seed: int = 42) -> pl.DataFrame:
 
 
 def mlframe_approach(df: pl.DataFrame):
-    """Our method: to_arrow → pa.compute.cast dict→string → to_pandas."""
+    """Our method: to_arrow -> pa.compute.cast dict->string -> to_pandas."""
     return get_pandas_view_of_polars_df(df)
 
 
@@ -197,7 +197,7 @@ def run_breakdown() -> None:
 
     total = t_to_arrow + t_cast + t_to_pd
     print(f"  to_arrow():                {t_to_arrow:6.3f}s ({100*t_to_arrow/total:4.1f}%)")
-    print(f"  per-column dict→string cast: {t_cast:6.3f}s ({100*t_cast/total:4.1f}%)")
+    print(f"  per-column dict->string cast: {t_cast:6.3f}s ({100*t_cast/total:4.1f}%)")
     print(f"  table.to_pandas():          {t_to_pd:6.3f}s ({100*t_to_pd/total:4.1f}%)")
     print(f"  TOTAL:                      {total:6.3f}s")
     print(f"  resulting pandas shape: {pandas_df.shape}")
@@ -257,7 +257,7 @@ def run_catboost_end_to_end() -> None:
     try:
         from catboost import CatBoostClassifier
     except ImportError:
-        print("catboost not installed — skipping end-to-end bench.")
+        print("catboost not installed -- skipping end-to-end bench.")
         return
 
     print("=" * 72)
@@ -269,7 +269,7 @@ def run_catboost_end_to_end() -> None:
     df_pl = make_synthetic_df(N_ROWS)
     y = _make_target(df_pl)
 
-    # CatBoost doesn't consume Datetime columns directly — drop them, matching
+    # CatBoost doesn't consume Datetime columns directly -- drop them, matching
     # the production pipeline (where ``job_posted_at`` is listed in
     # columns_to_drop). This keeps the bench focused on Categorical overhead.
     dt_cols = [c for c, dt in zip(df_pl.columns, df_pl.dtypes) if dt.is_temporal()]
@@ -287,7 +287,7 @@ def run_catboost_end_to_end() -> None:
           f"cat_features={len(cat_cols)}, dropped_datetime={len(dt_cols)}")
 
     # Build pandas-view *once per repeat* to fairly include conversion cost.
-    # Note: pre-2026-04-17 the "mlframe-pandas" path cast dict→string, which
+    # Note: pre-2026-04-17 the "mlframe-pandas" path cast dict->string, which
     # was ~37% slower and OOMed at 450k+ rows. That variant was removed after
     # the optimization landed in get_pandas_view_of_polars_df.
     timings: Dict[str, Dict[str, List[float]]] = {
@@ -307,7 +307,7 @@ def run_catboost_end_to_end() -> None:
     for repeat in range(1, N_REPEATS + 1):
         print(f"\n--- Repeat {repeat}/{N_REPEATS} ---")
 
-        # Variant A: native Polars input — CatBoost does its own conversion.
+        # Variant A: native Polars input -- CatBoost does its own conversion.
         gc.collect()
         t_total = timer()
         t_conv = 0.0  # no explicit conversion step; CatBoost does it internally
@@ -323,7 +323,7 @@ def run_catboost_end_to_end() -> None:
               f"total={total_pl:6.2f}s")
         del clf_pl
 
-        # Variant B: mlframe pandas view — explicit conversion then train/predict.
+        # Variant B: mlframe pandas view -- explicit conversion then train/predict.
         gc.collect()
         t_total = timer()
         t0 = timer()

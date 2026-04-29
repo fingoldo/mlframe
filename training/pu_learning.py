@@ -3,24 +3,24 @@
 Use case (the one that prompted this module):
 - You have ground-truth positives from a source that mostly only surfaces
   positives (e.g. a marketplace that only lists hired jobs).
-- For most periods the dataset is positive-only — non-positives are
+- For most periods the dataset is positive-only -- non-positives are
   systematically MISSING because you never observed them.
 - For a SUBSET of periods you have full labels (you scraped *all* rows
   including unhired ones during a 1-month window).
-- A naive classifier on the combined data sees P(y=1) ≈ 95% in train,
+- A naive classifier on the combined data sees P(y=1) ~= 95% in train,
   predicts ~95% on everything, and gets blown out on TEST when the
   true prior is ~40%.
 
 This module ships three strategies, picked via the ``strategy`` kwarg
 on :class:`PULearningWrapper`:
 
-1. ``"unbiased_only"`` — train the base classifier on the unbiased
+1. ``"unbiased_only"`` -- train the base classifier on the unbiased
    subset only. Simplest and best calibration when the unbiased subset
    is reasonably sized (>1k positive samples). Ignores biased data
    entirely. Works because the unbiased subset is a clean i.i.d.
    sample of the true population.
 
-2. ``"prior_shift_correction"`` — train on the full data normally,
+2. ``"prior_shift_correction"`` -- train on the full data normally,
    then apply Saerens-Latinne-Decaestecker (2002) prior-shift
    correction at inference time:
    ``P_target(y=1|x) ∝ P_train(y=1|x) * (P_target(y)/P_train(y))``.
@@ -31,7 +31,7 @@ on :class:`PULearningWrapper`:
    the bias is a label-selection mechanism and not a feature-distribution
    shift.
 
-3. ``"elkan_noto"`` — Elkan & Noto (KDD 2008) PU classifier. Trains a
+3. ``"elkan_noto"`` -- Elkan & Noto (KDD 2008) PU classifier. Trains a
    proxy ``g(x) = P(s=1|x)`` with balanced sample weights (mandatory
    when s is severely skewed, which is the typical case here),
    estimates ``c = P(s=1|y=1)`` from the unbiased positives, and
@@ -40,14 +40,14 @@ on :class:`PULearningWrapper`:
    subset is small.
 
 Default is ``"auto"``: chooses ``unbiased_only`` if the unbiased subset
-has ≥ 2 × ``min_unbiased_positives`` rows on each class, otherwise
+has >= 2 x ``min_unbiased_positives`` rows on each class, otherwise
 falls back to ``prior_shift_correction``.
 
 Naive importance-weighting (downweight biased positives by
 ``true_prior / observed_pos_rate``) is intentionally NOT shipped: when
 biased data is positive-only (the common case), the effective weighted
 prior remains near ~0.9 even with the "correct" weight, because the
-denominator (sum of weights × P(y=1)) is dominated by biased y=1 rows.
+denominator (sum of weights x P(y=1)) is dominated by biased y=1 rows.
 Saerens prior-shift correction is the inference-time-equivalent fix
 that actually achieves target prior recovery.
 
@@ -60,8 +60,8 @@ References:
     procedure." Neural Computation 14(1).
 
 Public surface:
-- PULearningWrapper — sklearn-style wrapper with the three strategies.
-- estimate_c_from_unbiased_positives — standalone c estimator (Elkan-Noto).
+- PULearningWrapper -- sklearn-style wrapper with the three strategies.
+- estimate_c_from_unbiased_positives -- standalone c estimator (Elkan-Noto).
 """
 from __future__ import annotations
 
@@ -95,7 +95,7 @@ def estimate_c_from_unbiased_positives(
     method : {"mean_unbiased_pos", "max_unbiased_pos", "median_unbiased_pos"}
         Aggregation rule. Mean (default) is the lowest-variance estimator
         but biased toward 0 if the proxy is noisy. Max is the original
-        Elkan-Noto Method 2 — robust to label noise on negatives but
+        Elkan-Noto Method 2 -- robust to label noise on negatives but
         very high variance. Median is a compromise.
 
     Returns
@@ -105,7 +105,7 @@ def estimate_c_from_unbiased_positives(
         c <= 0 / c > 1.
     """
     if proxy_probs.size == 0:
-        raise ValueError("proxy_probs is empty — cannot estimate c.")
+        raise ValueError("proxy_probs is empty -- cannot estimate c.")
     if method == "mean_unbiased_pos":
         return float(np.mean(proxy_probs))
     if method == "max_unbiased_pos":
@@ -172,7 +172,7 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
     estimated_prior_ : float
         Implied / target population P(y=1). Useful for sanity-checking.
     classes_ : ndarray
-        ``[0, 1]`` — binary by construction.
+        ``[0, 1]`` -- binary by construction.
     """
 
     def __init__(
@@ -238,7 +238,7 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
         biased = ~is_unbiased
         if biased.sum() > 0 and y[biased].min() < 1:
             logger.warning(
-                "%d biased rows have y=0 — selection-bias theory assumes "
+                "%d biased rows have y=0 -- selection-bias theory assumes "
                 "biased rows are observed-positive only (y=1). The "
                 "strategy will treat these as positives for proxy / "
                 "weighting purposes; your `is_unbiased` flag may be "
@@ -253,7 +253,7 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
             raise ValueError(
                 f"Need >= {self.min_unbiased_positives} unbiased positive "
                 f"samples; got {n_ub_pos}. Either lower min_unbiased_positives "
-                "at your own risk, or collect more fully-labeled data — the "
+                "at your own risk, or collect more fully-labeled data -- the "
                 "model can't learn calibration without it."
             )
 
@@ -320,7 +320,7 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
         train_prior = float((y == 1).mean())
         if train_prior <= 0 or train_prior >= 1:
             raise ValueError(
-                f"Train P(y=1)={train_prior} is degenerate — Saerens "
+                f"Train P(y=1)={train_prior} is degenerate -- Saerens "
                 "correction needs both classes in train."
             )
 
@@ -344,7 +344,7 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
             if n0 == 0:
                 raise ValueError(
                     "elkan_noto requires at least one s=0 row (i.e. an "
-                    "unbiased negative). Found none — switch to "
+                    "unbiased negative). Found none -- switch to "
                     "unbiased_only or check is_unbiased flag."
                 )
             sample_weight = np.where(s == 1, 1.0 / n1, 1.0 / n0).astype(np.float32)
@@ -382,7 +382,7 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
 
         if self.c_ < self.min_c_warn:
             logger.warning(
-                "Estimated c=%.4f is below %.2f — recovered probabilities "
+                "Estimated c=%.4f is below %.2f -- recovered probabilities "
                 "f(x)=g(x)/c will be sensitive to noise in g(x). Consider "
                 "switching to unbiased_only or importance_weighted; both "
                 "tend to beat elkan_noto when the unbiased subset is small.",
@@ -393,7 +393,7 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
     # Inference
     # ------------------------------------------------------------------
     def predict_proba(self, X: Any) -> np.ndarray:
-        """Returns calibrated P(y=1|x) — strategy-specific recovery.
+        """Returns calibrated P(y=1|x) -- strategy-specific recovery.
 
         Returns
         -------

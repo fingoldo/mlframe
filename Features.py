@@ -48,10 +48,22 @@ def StringOrFuncName(the_list, feature, MA, pure_funcs):
     return column_names_real, pure_funcs_real
 
 
-def EnrichTSDatasetWithRollingStats(ds, MAs=[5, 10], lags=[], exclude_features=['hour', 'weekday'],
-                                        targets=['up_val', 'down_val'], normalize='ratio',
-                                        funcs=['mean', 'std', 'min', 'max', 'median', 'skew', 'kurt', mode],
-                                        pure_funcs=['skew', 'kurt'], drop_original_featurs=False):
+def EnrichTSDatasetWithRollingStats(ds, MAs=None, lags=None, exclude_features=None,
+                                        targets=None, normalize='ratio',
+                                        funcs=None,
+                                        pure_funcs=None, drop_original_featurs=False):
+    if MAs is None:
+        MAs = [5, 10]
+    if exclude_features is None:
+        exclude_features = ['hour', 'weekday']
+    if funcs is None:
+        funcs = ['mean', 'std', 'min', 'max', 'median', 'skew', 'kurt', mode]
+    if lags is None:
+        lags = []
+    if pure_funcs is None:
+        pure_funcs = ['skew', 'kurt']
+    if targets is None:
+        targets = ['up_val', 'down_val']
     import numpy as np
     import pandas as pd
     from copy import deepcopy

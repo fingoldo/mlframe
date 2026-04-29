@@ -39,7 +39,7 @@ def _polars_categorical_dtypes():
 def is_polars_categorical(dtype) -> bool:
     """Check whether a Polars dtype is categorical/string.
 
-    Also accepts ``pl.Enum`` — a fixed-domain categorical type whose
+    Also accepts ``pl.Enum`` -- a fixed-domain categorical type whose
     instance-level dtype object doesn't compare equal to the class-level
     entry in ``_polars_categorical_dtypes()``. Round-9 probe (2026-04-19)
     found this gap: HGBStrategy's cardinality cast branch was keyed off
@@ -115,7 +115,7 @@ class ModelPipelineStrategy(ABC):
     # Strategies override these to opt INTO native dispatch. Default False
     # means the dispatcher falls back to wrapper-based handling
     # (MultiOutputClassifier for multilabel, default sklearn for
-    # multiclass — most libraries already support multiclass natively
+    # multiclass -- most libraries already support multiclass natively
     # via library-specific objective kwargs in helpers._classif_objective_kwargs).
 
     @property
@@ -223,7 +223,7 @@ class ModelPipelineStrategy(ABC):
                 Pipeline's ``set_output(transform=...)`` so DataFrame dtypes
                 survive the chain. Choose ``"polars"`` when the downstream
                 consumer is Polars-native (CB / XGB Polars fastpath, HGB) and
-                you want to skip the arrow→pandas bridge; ``"pandas"`` for LGB
+                you want to skip the arrow->pandas bridge; ``"pandas"`` for LGB
                 and other pandas-only consumers. Requires sklearn >= 1.4 for
                 ``"polars"`` support.
 
@@ -258,7 +258,7 @@ class ModelPipelineStrategy(ABC):
         # declares ``requires_encoding=True`` AND there are cat_features
         # in the data BUT the caller passed ``category_encoder=None``,
         # silently skipping the step meant unbounded categorical string
-        # values fed to a model that expected numeric — sklearn then
+        # values fed to a model that expected numeric -- sklearn then
         # raised opaquely inside ``LinearRegression.fit`` / etc. Now: WARN
         # so operators see the missing dependency at the source. We don't
         # raise because some tests/callers legitimately pre-encode cats
@@ -271,7 +271,7 @@ class ModelPipelineStrategy(ABC):
                 _logging.getLogger(__name__).warning(
                     "%s.build_pipeline: requires_encoding=True and %d "
                     "categorical feature(s) present, but category_encoder "
-                    "is None. Encoding step skipped — downstream model.fit "
+                    "is None. Encoding step skipped -- downstream model.fit "
                     "may raise on raw string categoricals. Supply a "
                     "category_encoder (e.g. sklearn.preprocessing."
                     "OrdinalEncoder) or pre-encode cats upstream.",
@@ -301,14 +301,14 @@ class ModelPipelineStrategy(ABC):
 
         pipeline = Pipeline(steps=steps)
         # Ensure DataFrame dtypes (pd.Categorical, object, pl.Enum) survive the chain.
-        # sklearn's default returns numpy, which destroys categoricals — LGB/CB/XGB
+        # sklearn's default returns numpy, which destroys categoricals -- LGB/CB/XGB
         # then receive numpy with string values and crash on Dataset construction
         # (e.g. "could not convert string to float: 'HOURLY'"). set_output keeps
         # the frame as the requested type so downstream isinstance(X, pd_DataFrame)
         # / pl.DataFrame branches take the native fastpath. Best-effort: some
         # nested transformers (custom, third-party) don't declare
         # get_feature_names_out and sklearn refuses to configure; swallow and
-        # continue. "polars" requires sklearn >= 1.4 — older versions raise.
+        # continue. "polars" requires sklearn >= 1.4 -- older versions raise.
         try:
             pipeline = pipeline.set_output(transform=output_format)
         except Exception:
@@ -338,7 +338,7 @@ class TreeModelStrategy(ModelPipelineStrategy):
     requires_encoding = False
     requires_imputation = False
     # All tree models (CB/LGB/XGB) support multiclass natively via library
-    # objective kwargs. Multilabel native is CB-only — overridden in
+    # objective kwargs. Multilabel native is CB-only -- overridden in
     # CatBoostStrategy. LGB has no native multilabel (issue #524 since 2017),
     # XGB 3.x experimental but unstable.
     supports_native_multiclass = True
@@ -392,7 +392,7 @@ class XGBoostStrategy(TreeModelStrategy):
     supports_polars = True
     # XGB has native multiclass via objective='multi:softprob'+num_class.
     # XGB 3.x has experimental multi_strategy='multi_output_tree' for
-    # multilabel — opt-in via MultilabelDispatchConfig.force_native_xgb_multilabel
+    # multilabel -- opt-in via MultilabelDispatchConfig.force_native_xgb_multilabel
     # (default False, uses MultiOutputClassifier wrapper). Marked WIP by
     # upstream until v3.1 stable; opting in earlier accepts the upstream
     # stability risk for vector-output trees (smaller model, integrated
@@ -400,7 +400,7 @@ class XGBoostStrategy(TreeModelStrategy):
     supports_native_multiclass = True
     # supports_native_multilabel: declared False at class level (matches the
     # ABC default + tells callers "wrapper by default"). The actual native-
-    # multilabel decision is dynamic — see wrap_multilabel + get_classif_
+    # multilabel decision is dynamic -- see wrap_multilabel + get_classif_
     # objective_kwargs overrides below, which BOTH consult the runtime
     # MultilabelDispatchConfig.force_native_xgb_multilabel flag.
     # Inherits cache_key = "tree" from TreeModelStrategy.
@@ -417,7 +417,7 @@ class XGBoostStrategy(TreeModelStrategy):
            'tree_method': 'hist'}
 
         Otherwise falls back to the base dispatcher (which returns ``{}``
-        for multilabel — wrapper path takes over).
+        for multilabel -- wrapper path takes over).
         """
         from .configs import TargetTypes as _TT, MultilabelDispatchConfig
         if (
@@ -439,7 +439,7 @@ class XGBoostStrategy(TreeModelStrategy):
         """Override base to opt into native XGB multilabel when configured.
 
         When ``force_native_xgb_multilabel=True``, return ``estimator``
-        unchanged (no MultiOutputClassifier wrapper) — the kwargs from
+        unchanged (no MultiOutputClassifier wrapper) -- the kwargs from
         ``get_classif_objective_kwargs`` already configured the native
         multi-output tree path.
         """
@@ -490,7 +490,7 @@ class XGBoostStrategy(TreeModelStrategy):
         Fallback (no map): cast each column to a per-DF Enum built from
         its own unique values. This still avoids the global-cache leak,
         but train/val/test produced from independent calls will have
-        different Enum dtypes — fine when the caller only ever passes
+        different Enum dtypes -- fine when the caller only ever passes
         one frame, but at predict time XGBoost will reject any val/test
         category not present in the train Enum. Use the explicit
         ``category_map`` route for predict-time correctness.
@@ -509,7 +509,7 @@ class XGBoostStrategy(TreeModelStrategy):
                 df = df.with_columns(exprs)
             # Still need to cover any pl.String / pl.Utf8 not present in
             # the map (e.g. brand-new columns surfacing only after the
-            # map was built) — fall back to per-DF Enum.
+            # map was built) -- fall back to per-DF Enum.
             remaining = {
                 name for name, dtype in df.schema.items()
                 if (dtype in (pl.Utf8, pl.String)) and name not in category_map
@@ -551,7 +551,7 @@ class XGBoostStrategy(TreeModelStrategy):
         cat_features: List[str],
     ) -> "Dict[str, pl.Enum]":
         """Build per-column ``pl.Enum`` dtypes from the union of train+val
-        unique values. Test data is intentionally excluded — letting test
+        unique values. Test data is intentionally excluded -- letting test
         levels widen the Enum would leak label-time information back into
         the model's accepted-category set.
 
@@ -749,7 +749,7 @@ class LinearModelStrategy(ModelPipelineStrategy):
     requires_encoding = True
     requires_imputation = True
     # sklearn LogisticRegression supports multiclass natively via
-    # multi_class='multinomial'. No native multilabel — uses
+    # multi_class='multinomial'. No native multilabel -- uses
     # MultiOutputClassifier.
     supports_native_multiclass = True
 

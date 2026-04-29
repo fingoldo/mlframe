@@ -4,12 +4,12 @@
 - синтетический датасет: 3 категориальных признака с кардинальностью 500, слабый истинный сигнал.
 - 4 ветки:
   (a) no-encoding baseline: LogReg на численных признаках + OHE cat (для reference)
-  (b) plain polars_ds target_encode (БЕЗ OOF) → fit_transform на train
-  (c) OOFTargetEncoder(cv=5) → fit_transform на train с OOF
-  (d) sklearn.TargetEncoder(cv=5, target_type='binary') — референс industry-standard
+  (b) plain polars_ds target_encode (БЕЗ OOF) -> fit_transform на train
+  (c) OOFTargetEncoder(cv=5) -> fit_transform на train с OOF
+  (d) sklearn.TargetEncoder(cv=5, target_type='binary') -- референс industry-standard
 
 Для каждой ветки: train AUC, test AUC, gap. Наличие большого gap для (b) и маленького для (c)/(d)
-— эмпирическое подтверждение leakage без OOF.
+-- эмпирическое подтверждение leakage без OOF.
 
 Также замер времени fit_transform.
 """
@@ -95,7 +95,7 @@ def run(n=20000, cardinality=500, n_cat=3, signal=0.3, seed=7):
         "fit_transform_s": t_d,
     }
 
-    # (e) randomized=True — дешёвая регуляризация (WOEEncoder-style)
+    # (e) randomized=True -- дешёвая регуляризация (WOEEncoder-style)
     t0 = time.perf_counter()
     enc2 = OOFTargetEncoder(cols=cat_cols, cv=0, randomized=True, sigma=0.05,
                              min_samples_leaf=20, smoothing=10.0, random_state=1)
@@ -126,8 +126,8 @@ def main():
         out["variants"][name] = {**r, "gap": gap}
     print("=" * 76)
     print("Интерпретация:")
-    print(" * plain_polars_ds_TE: train_AUC >> test_AUC → target leakage без OOF")
-    print(" * OOFTargetEncoder_cv5: train_AUC ≈ test_AUC → OOF защищает от leakage")
+    print(" * plain_polars_ds_TE: train_AUC >> test_AUC -> target leakage без OOF")
+    print(" * OOFTargetEncoder_cv5: train_AUC ≈ test_AUC -> OOF защищает от leakage")
     print(" * sklearn_TargetEncoder_cv5: industry reference")
     print(" * OOFTargetEncoder_randomized: дёшево и работает частично (как WOEEncoder.randomized)")
     save_result(RESULTS, out)

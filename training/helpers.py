@@ -704,13 +704,13 @@ def get_training_configs(
     CB_CLASSIF = CB_GENERAL_PARAMS.copy()
     CB_CLASSIF.update({"eval_metric": def_classif_metric})
     # NOTE: custom_metric breaks sklearn.clone() - CatBoost modifies this param after init.
-    # TODO: Raise issue at https://github.com/catboost/catboost/issues
+    # TODO(2026-04-28): Raise issue at https://github.com/catboost/catboost/issues
     # "custom_metric": tuple(catboost_custom_classif_metrics or [])
 
     CB_REGR = CB_GENERAL_PARAMS.copy()
     CB_REGR.update({"eval_metric": def_regr_metric})
     # NOTE: custom_metric breaks sklearn.clone() - CatBoost modifies this param after init.
-    # TODO: Raise issue at https://github.com/catboost/catboost/issues
+    # TODO(2026-04-28): Raise issue at https://github.com/catboost/catboost/issues
     # "custom_metric": tuple(catboost_custom_regr_metrics or [])
 
     HGB_GENERAL_PARAMS = dict(
@@ -846,7 +846,7 @@ def get_training_configs(
             # Fallback 1: Not enough data for any splits
             if n < min_samples_per_split:
                 if verbose:
-                    logger.info(f"make_robust_ts_metric: n={n} < min_samples_per_split={min_samples_per_split}, using full data")
+                    logger.info("make_robust_ts_metric: n=%s < min_samples_per_split=%s, using full data", n, min_samples_per_split)
                 return metric_fn(y_true, y_score, *args, **kwargs)
 
             # Compute actual number of splits we can do
@@ -855,7 +855,7 @@ def get_training_configs(
             # Fallback 2: Can only do 1 split
             if actual_splits <= 1:
                 if verbose:
-                    logger.info(f"make_robust_ts_metric: actual_splits={actual_splits} <= 1, using full data")
+                    logger.info("make_robust_ts_metric: actual_splits=%s <= 1, using full data", actual_splits)
                 return metric_fn(y_true, y_score, *args, **kwargs)
 
             # Split into consecutive intervals
@@ -878,7 +878,7 @@ def get_training_configs(
                 # Skip split if single class (classification only)
                 if ensure_enough_classes and len(np.unique(y_true_split)) < 2:
                     if verbose:
-                        logger.info(f"make_robust_ts_metric: split {i} skipped, single class in y_true")
+                        logger.info("make_robust_ts_metric: split %s skipped, single class in y_true", i)
                     continue
 
                 val = metric_fn(y_true_split, y_score_split, *args, **kwargs)
@@ -894,7 +894,7 @@ def get_training_configs(
             # Fallback 4: Only one valid split
             if len(values) == 1:
                 if verbose:
-                    logger.info(f"make_robust_ts_metric: only 1 valid split, returning {values[0]:.6f}")
+                    logger.info("make_robust_ts_metric: only 1 valid split, returning %.6f", values[0])
                 return values[0]
 
             mean_val = np.mean(values)
@@ -1387,7 +1387,7 @@ class UniversalCallback:
             for metric, value in metrics_dict[dataset].items():
                 self.metric_history[dataset].setdefault(metric, []).append(value)
         if self.verbose > 1:
-            logger.debug(f"Updated metric history: {metrics_dict}")
+            logger.debug("Updated metric history: %s", metrics_dict)
 
     def derive_mode(self, metric_name: str) -> str:
         known_metric_modes = {
@@ -1425,7 +1425,7 @@ class UniversalCallback:
         if self.monitor_dataset not in metrics_dict:
             raise ValueError(f"Monitor dataset '{self.monitor_dataset}' not found in metrics.")
         available_metrics = list(metrics_dict[self.monitor_dataset].keys())
-        logger.info(f"available_metrics={available_metrics}")
+        logger.info("available_metrics=%s", available_metrics)
         for preferred in ["ICE", "integral_calibration_error", "auc", "AUC"]:
             if preferred in available_metrics:
                 self.monitor_metric = preferred
@@ -1434,7 +1434,7 @@ class UniversalCallback:
             self.monitor_metric = available_metrics[0]
         self.mode = self.derive_mode(self.monitor_metric)
         if self.verbose > 0:
-            logger.info(f"Auto-selected monitor_metric: {self.monitor_metric}, mode: {self.mode}")
+            logger.info("Auto-selected monitor_metric: %s, mode: %s", self.monitor_metric, self.mode)
 
     def _get_state(self, current_value: float) -> str:
         return f"iter={self.iter:_}, {self.monitor_dataset} {self.monitor_metric}: current={current_value:.{self.ndigits}f}, best={self.best_metric:.{self.ndigits}f} @{self.best_iter:_}. RAM usage {get_own_memory_usage():.1f}GB."
@@ -1446,7 +1446,7 @@ class UniversalCallback:
             elapsed = cur_ts - self.start_time
             if elapsed > self.time_budget_mins * 60:
                 if self.verbose > 0:
-                    logger.info(f"Stopping early due to time budget exceeded ({elapsed:.2f} sec).")
+                    logger.info("Stopping early due to time budget exceeded (%.2f sec).", elapsed)
                 return True
 
         if self.stop_flag():

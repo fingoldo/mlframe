@@ -180,7 +180,7 @@ def estimate_features_relevancy(
 
         if len(all_permuted_mis[target_name]) == 0 or len(current_permuted_mis[target_name]) == 0:
             if verbose:
-                logger.info(f"Skipping target={target_name}: no permuted MI samples collected (likely hit max_runtime_mins before the first permutation).")
+                logger.info("Skipping target=%s: no permuted MI samples collected (likely hit max_runtime_mins before the first permutation).", target_name)
             continue
 
         all_permuted_mis[target_name] = np.hstack(all_permuted_mis[target_name])
@@ -190,7 +190,7 @@ def estimate_features_relevancy(
         # (e.g. single-column frames where np.delete strips the only entry).
         if all_permuted_mis[target_name].size == 0 or current_permuted_mis[target_name].size == 0:
             if verbose:
-                logger.info(f"Skipping target={target_name}: permuted MI array is empty after stacking.")
+                logger.info("Skipping target=%s: permuted MI array is empty after stacking.", target_name)
             continue
 
         if not permuted_max_mi_quantile:

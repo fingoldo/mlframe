@@ -128,7 +128,7 @@ def train_autogluon_model(
                     auc = roc_auc_score(test_target, test_probs, multi_class='ovr')
                 else:
                     auc = roc_auc_score(test_target, test_probs[:, 1])
-                logger.info(f"AutoGluon test AUC: {auc:.4f}")
+                logger.info("AutoGluon test AUC: %.4f", auc)
                 metrics["test_auc"] = auc
             except (ValueError, TypeError) as e:
                 # ValueError: Only one class present in y_true or invalid input
@@ -267,7 +267,7 @@ def train_lama_model(
                     auc = roc_auc_score(test_target, test_probs, multi_class='ovr')
                 else:
                     auc = roc_auc_score(test_target, test_probs[:, 1])
-                logger.info(f"LAMA test AUC: {auc:.4f}")
+                logger.info("LAMA test AUC: %.4f", auc)
                 metrics["test_auc"] = auc
             except (ValueError, TypeError) as e:
                 # ValueError: Only one class present in y_true or invalid input

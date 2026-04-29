@@ -109,7 +109,7 @@ def prepare_df_for_catboost(
                     cat_exprs.append(pl.col(var).cast(pl.String).fill_null(na_filler).cast(pl.Categorical))
                 if var not in cat_features:
                     if verbose:
-                        logging.info(f"{var} appended to cat_features")
+                        logging.info("%s appended to cat_features", var)
                     cat_features.append(var)
             elif var in cat_features:
                 expr = pl.col(var)
@@ -163,7 +163,7 @@ def prepare_df_for_catboost(
                     df[var] = df[var].fillna(na_filler)
                 if var not in cat_features:
                     if verbose:
-                        logging.info(f"{var} appended to cat_features")
+                        logging.info("%s appended to cat_features", var)
                     cat_features.append(var)
             else:
                 if var in cat_features:
@@ -247,7 +247,7 @@ def prepare_df_for_xgboost(
     for var in tqdmu(cols, desc="Processing categorical features for XGBoost...", leave=False):
         if isinstance(df[var].dtype, pd.CategoricalDtype):
             if var not in cat_features:
-                logger.info(f"{var} appended to cat_features")
+                logger.info("%s appended to cat_features", var)
                 cat_features.append(var)
         else:
             if var in cat_features and ensure_categorical:

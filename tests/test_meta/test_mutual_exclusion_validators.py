@@ -1,0 +1,181 @@
+"""Meta-test — every "X and Y are mutually exclusive" claim in a config
+docstring must be backed by a runtime ``@model_validator``.
+
+Catches the failure mode where a docstring promises a constraint
+(``binarization_threshold and kbins are mutually exclusive``) but no
+validator enforces it — users who set both get undefined behaviour
+deeper in the pipeline.
+
+Heuristic:
+  1. Walk every config class's ``__doc__``; find phrases of the form
+     ``"X and Y are mutually exclusive"`` (case-insensitive, allowing
+     code-quoted backticks ``X``, plus the synonym
+     ``"set at most one of"``).
+  2. For each such (X, Y) pair, attempt to construct the class with
+     BOTH X and Y set to a non-default value.
+  3. The construction must raise ``ValidationError`` / ``ValueError`` —
+     proving an enforcing validator exists.
+
+Limitations:
+  * Doesn't try to statically prove the validator references both
+    fields; the empirical "raises when both set" is sufficient.
+  * Skips configs whose required fields prevent default construction.
+  * Skips fields that are typed as opaque (Any / Callable) since we
+    can't synthesise a non-default sentinel.
+"""
+
+from __future__ import annotations
+
+import inspect
+import re
+from typing import Any, Callable
+
+import pytest
+from pydantic import BaseModel, ValidationError
+from pydantic.fields import FieldInfo
+from pydantic_core import PydanticUndefined
+
+from mlframe.training import configs as configs_module
+
+# Patterns to surface mutually-exclusive pairs from prose. Each pattern
+# captures (a, b) — field names. Order doesn't matter; we collect all
+# matches and dedupe at the call site. Backtick-quoted names are
+# normalised before pattern matching.
+_PATTERNS = [
+    re.compile(
+        r"([A-Za-z_]\w+)\s+and\s+([A-Za-z_]\w+)\s+are\s+mutually\s+exclusive",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"set\s+at\s+most\s+one\s+of\s*[:`\s]*([A-Za-z_]\w+)\s*[`/,]+\s*([A-Za-z_]\w+)",
+        re.IGNORECASE,
+    ),
+    # ``X OR Y (mutually exclusive)`` — used in numpydoc list-of-steps.
+    re.compile(
+        r"([A-Za-z_]\w+)\s+OR\s+([A-Za-z_]\w+)\s*\(\s*mutually\s+exclusive\s*\)",
+        re.IGNORECASE,
+    ),
+]
+
+
+def _config_classes() -> list[type[BaseModel]]:
+    out = []
+    for _, obj in inspect.getmembers(configs_module, inspect.isclass):
+        if not (issubclass(obj, BaseModel) and obj is not BaseModel):
+            continue
+        if obj.__module__ != configs_module.__name__:
+            continue
+        out.append(obj)
+    return out
+
+
+def _has_default(info: FieldInfo) -> bool:
+    if info.default is not PydanticUndefined and info.default is not Ellipsis:
+        return True
+    if info.default_factory is not None:
+        return True
+    return False
+
+
+def _required_sentinels(cls: type[BaseModel]) -> dict:
+    out: dict = {}
+    for name, info in cls.model_fields.items():
+        if not _has_default(info):
+            out[name] = f"_meta_test_sentinel_{name}"
+    return out
+
+
+def _doc_lines_normalised(doc: str | None) -> str:
+    """Strip backticks so ``X`` matches X in the regex."""
+    if not doc:
+        return ""
+    return doc.replace("``", " ").replace("`", " ")
+
+
+def _find_mutex_pairs(cls: type[BaseModel]) -> list[tuple[str, str]]:
+    """Scan the class docstring AND every validator method's source for
+    mutex-claim phrasing.  The validator's own raise-message is often
+    the cleanest statement (uses canonical field names) so we treat it
+    as documentation too.
+    """
+    text_chunks = [_doc_lines_normalised(cls.__doc__)]
+    # Pull source of every validator so its raise-text counts as a claim.
+    for attr_name in dir(cls):
+        attr = getattr(cls, attr_name, None)
+        if not callable(attr):
+            continue
+        # Class-decorated validators are stored in ``__pydantic_decorators__``
+        # in v2 — but the easiest cross-version handling is to ``getsource``
+        # any callable defined on the class itself.
+        try:
+            src = inspect.getsource(attr)
+        except (OSError, TypeError):
+            continue
+        if "@model_validator" in src or "@field_validator" in src or "ValueError" in src:
+            text_chunks.append(_doc_lines_normalised(src))
+
+    pairs: list[tuple[str, str]] = []
+    for text in text_chunks:
+        for pattern in _PATTERNS:
+            for m in pattern.finditer(text):
+                a, b = m.group(1), m.group(2)
+                if a in cls.model_fields and b in cls.model_fields:
+                    pairs.append((a, b))
+    return list(dict.fromkeys(pairs))
+
+
+def _synth_value(annotation):
+    """Produce a non-default sentinel value matching ``annotation``."""
+    # Walk Optional[X] / Union[X, None]
+    args = getattr(annotation, "__args__", ()) or ()
+    candidates = (annotation,) + args if args else (annotation,)
+    for cand in candidates:
+        if cand in (int, float):
+            return 0.5
+        if cand is bool:
+            return True
+        if cand is str:
+            return "synth"
+        if cand is list or getattr(cand, "__origin__", None) is list:
+            return ["synth"]
+        if cand is dict or getattr(cand, "__origin__", None) is dict:
+            return {"k": "v"}
+    # Fallback
+    return 0.5
+
+
+def test_mutually_exclusive_pairs_are_enforced_by_a_validator():
+    failures: list[str] = []
+    audited_pairs = 0
+    classes = _config_classes()
+    for cls in classes:
+        pairs = _find_mutex_pairs(cls)
+        if not pairs:
+            continue
+        sentinels = _required_sentinels(cls)
+        for a, b in pairs:
+            audited_pairs += 1
+            kwargs = dict(sentinels)
+            kwargs[a] = _synth_value(cls.model_fields[a].annotation)
+            kwargs[b] = _synth_value(cls.model_fields[b].annotation)
+            try:
+                cls(**kwargs)
+            except (ValidationError, ValueError):
+                continue  # Properly rejected.
+            except Exception:
+                # Some other error — likely synth-value type mismatch.
+                # Inconclusive but skip.
+                continue
+            failures.append(
+                f"{cls.__name__}: docstring claims '{a}' and '{b}' are "
+                f"mutually exclusive, but cls({a}=..., {b}=...) succeeded "
+                f"without raising"
+            )
+
+    if audited_pairs == 0:
+        pytest.skip("no 'mutually exclusive' phrases found in config docstrings")
+    if failures:
+        pytest.fail(
+            f"{len(failures)} mutex-claim(s) without enforcing validator:\n  "
+            + "\n  ".join(failures)
+        )

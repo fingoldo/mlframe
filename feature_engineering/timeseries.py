@@ -58,8 +58,12 @@ cCOMPACT_WAVELETS = True
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
-def get_numaggs_metadata(numaggs_kwds: dict = {}, numaggs_names: list = []):
+def get_numaggs_metadata(numaggs_kwds: dict = None, numaggs_names: list = None):
 
+    if numaggs_kwds is None:
+        numaggs_kwds = {}
+    if numaggs_names is None:
+        numaggs_names = []
     if not numaggs_names:
         numaggs_names = list(get_numaggs_names(**numaggs_kwds))
 
@@ -166,36 +170,31 @@ def create_aggregated_features(
     ratios_features: bool = False,
     robust_features: bool = False,
     weighting_vars: Sequence = (),
-    na_fills: dict = {"": 1e3},
-    span_corrections: dict = {"": 1e2},
+    na_fills: dict = None,
+    span_corrections: dict = None,
     ewma_alphas: Sequence = (),
     rolling: Sequence = (),  # method_params can also include engine="numba", engine_kwargs={"parallel": True}
-    nonlinear_transforms=[np.cbrt],
+    nonlinear_transforms=None,
     nonnormal_vars: Sequence = (),
     waveletnames="",  # "rbio3.1",
-    wavelets_correction_numaggs_kwds=dict(
-        return_hurst=False,
-        return_entropy=False,
-        return_drawdown_stats=False,
-        return_lintrend_approx_stats=False,
-    ),
-    numaggs_kwds: dict = {},
-    splitting_vars: dict = {},
+    wavelets_correction_numaggs_kwds=None,
+    numaggs_kwds: dict = None,
+    splitting_vars: dict = None,
     drawdown_vars: Sequence = (),
     lintrend_approx_vars: Sequence = (),
-    groupby_vars: dict = {},  # {'ticker':['Volume']}=deals.groupby("ticker").Volume.agg("sum").values / deals.Volume.sum()
+    groupby_vars: dict = None,  # {'ticker':['Volume']}=deals.groupby("ticker").Volume.agg("sum").values / deals.Volume.sum()
     return_n_finite: bool = False,
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # categoricals
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     process_categoricals: bool = False,  # categoricals will be processed as counts data
     counts_processing_mask_regexp: object = None,  # separate variables can be processed as counts as well
-    countaggs_kwds: dict = {},
+    countaggs_kwds: dict = None,
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # subsets
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
-    subsets: dict = {},
-    checked_subsets: list = [],
+    subsets: dict = None,
+    checked_subsets: list = None,
     subset_token: str = "_",
     nested_subsets: bool = False,
 ):
@@ -216,6 +215,31 @@ def create_aggregated_features(
         9*) possibly, ratios of numfeatures over raw values of a smaller window compared to bigger windows
         10*) lags: closest same day of month, week, year. at least for Price! pd.offsets.DateOffset(months=1)
     """
+    if checked_subsets is None:
+        checked_subsets = []
+    if countaggs_kwds is None:
+        countaggs_kwds = {}
+    if groupby_vars is None:
+        groupby_vars = {}
+    if na_fills is None:
+        na_fills = {"": 1e3}
+    if nonlinear_transforms is None:
+        nonlinear_transforms = [np.cbrt]
+    if numaggs_kwds is None:
+        numaggs_kwds = {}
+    if wavelets_correction_numaggs_kwds is None:
+        wavelets_correction_numaggs_kwds = dict(
+            return_hurst=False,
+            return_entropy=False,
+            return_drawdown_stats=False,
+            return_lintrend_approx_stats=False,
+        )
+    if span_corrections is None:
+        span_corrections = {"": 1e2}
+    if splitting_vars is None:
+        splitting_vars = {}
+    if subsets is None:
+        subsets = {}
     # assert len(window_df)>1
 
     if numaggs_kwds:
@@ -536,8 +560,8 @@ def create_windowed_features(
     targets_creation_fcn: object = None,
     step_size: int = 1,
     nrecords_per_period: int = 1,  # use when fixed number of records belongs to the same period, for example, features contains values for 24 consecutive hours of a day.
-    past_windows: dict = {},  # example: {"": [7, 31, 31 * 12], "Load_West": [200e3, 1e6, 5e6]},
-    future_windows: dict = {},  # example: {"": [7, 31, 31 * 12], "Load_West": [200e3, 1e6, 5e6]},
+    past_windows: dict = None,  # example: {"": [7, 31, 31 * 12], "Load_West": [200e3, 1e6, 5e6]},
+    future_windows: dict = None,  # example: {"": [7, 31, 31 * 12], "Load_West": [200e3, 1e6, 5e6]},
     window_index_name: str = "",  # example: D for days, or T for Ticks
     overlapping: bool = False,
     dtype=np.float32,
@@ -563,6 +587,10 @@ def create_windowed_features(
 
 
     """
+    if future_windows is None:
+        future_windows = {}
+    if past_windows is None:
+        past_windows = {}
     logger.info("got ranges from %s to %s", start_index, end_index)
 
     targets = []
@@ -818,11 +846,13 @@ def compute_corr(dependent_vals: np.ndarray, independent_vals: np.ndarray, decid
 
 
 def general_acf(
-    Y: np.ndarray, X: np.ndarray = None, windows: dict = {}, deciding_func: object = np.corrcoef, lag_len: int = 30, min_samples=500, absolutize: bool = True
+    Y: np.ndarray, X: np.ndarray = None, windows: dict = None, deciding_func: object = np.corrcoef, lag_len: int = 30, min_samples=500, absolutize: bool = True
 ):
     """Advanced ACF(nonlinear, +over variables with non-fixed offsets).
     windows={var: {from,to,nsteps]}, ie {"Load":{"from":40_000,"to":1e6,"nsteps":100}}
     """
+    if windows is None:
+        windows = {}
     res = {}
 
     if lag_len:

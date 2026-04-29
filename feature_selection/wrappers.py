@@ -229,7 +229,7 @@ class RFECV(BaseEstimator, TransformerMixin):
             if not (frac > 0.0 and frac < 1.0):
                 raise ValueError(f"frac must be between 0 and 1, got {frac}")
             if verbose:
-                logging.info(f"Using {frac} fraction of the training dataset.")
+                logging.info("Using %s fraction of the training dataset.", frac)
 
         # assert isinstance(estimator, (BaseEstimator,))
 
@@ -300,7 +300,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         # Compute inputs/outputs signature
         # ----------------------------------------------------------------------------------------------------------------------------
 
-        # Shape alone is not sufficient — two datasets with identical (n, p) but
+        # Shape alone is not sufficient -- two datasets with identical (n, p) but
         # different column identities must trigger a retrain; otherwise
         # `self.support_` silently applies stale column selections.
         if isinstance(X, pd.DataFrame):
@@ -311,7 +311,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         if self.skip_retraining_on_same_shape:
             if signature == self.signature:
                 if self.verbose:
-                    logger.info(f"Skipping retraining on the same inputs signature {signature}")
+                    logger.info("Skipping retraining on the same inputs signature %s", signature)
                 return self
 
         # ---------------------------------------------------------------------------------------------------------------
@@ -347,8 +347,8 @@ class RFECV(BaseEstimator, TransformerMixin):
         # column with cat_features=['cat_0'] and raises ``Invalid type
         # for cat_feature ... =0.49...`` (fuzz c0102 / c0114 / c0147 /
         # c0056 / c0070 / c0151). Restrict to columns whose dtype is
-        # still categorical/object — those are the ones CB/XGB can
-        # actually consume as cat_features. LOCAL only — never mutate
+        # still categorical/object -- those are the ones CB/XGB can
+        # actually consume as cat_features. LOCAL only -- never mutate
         # self.cat_features (back-to-back fits across encoded/un-encoded
         # frames must each pick the right subset for their X).
         if cat_features and isinstance(X, pd.DataFrame):
@@ -385,7 +385,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         ran_out_of_time = False
         if max_runtime_mins:
             if verbose:
-                logger.info(f"max_runtime_mins={max_runtime_mins:.2f}")
+                logger.info("max_runtime_mins=%.2f", max_runtime_mins)
 
         if random_state is not None:
             set_random_seed(random_state)
@@ -423,7 +423,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     else:
                         cv = KFold(n_splits=cv, shuffle=False)
             if verbose:
-                logger.info(f"Using cv={cv}")
+                logger.info("Using cv=%s", cv)
 
         if early_stopping_val_nsplits:
             try:
@@ -432,7 +432,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 val_cv = copy.copy(cv)
                 val_cv.n_splits = early_stopping_val_nsplits
             if not early_stopping_rounds:
-                early_stopping_rounds = 20  # TODO: derive as 1/5 of nestimators'
+                early_stopping_rounds = 20  # TODO(2026-04-28): derive as 1/5 of n_estimators
         else:
             val_cv = None
 
@@ -463,7 +463,7 @@ class RFECV(BaseEstimator, TransformerMixin):
             self.scoring = scoring
 
         if verbose:
-            logger.info(f"Scoring={scoring}")
+            logger.info("Scoring=%s", scoring)
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Init importance_getter
@@ -701,7 +701,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 # Fit our estimator on current train fold. Score on test & and get its feature importances.
                 # ----------------------------------------------------------------------------------------------------------------------------
 
-                # TODO! invoke different hyper parameters generation here
+                # TODO(2026-04-28): invoke different hyper parameters generation here
 
                 if keep_estimators:
                     fitted_estimator = copy.copy(estimator)
@@ -722,7 +722,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     # Always-on ERROR (was verbose-gated WARNING) so the
                     # operator sees the empty-fold collapse without
                     # extra verbosity. Continuing with NaN-score is the
-                    # right behavior — sklearn's RFECV does the same on
+                    # right behavior -- sklearn's RFECV does the same on
                     # degenerate inner folds. Root cause is upstream
                     # filter aggression (OD + trainset_aging_limit
                     # together can shrink the inner-CV training fraction
@@ -846,7 +846,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
             if max_noimproving_iters and n_noimproving_iters >= max_noimproving_iters:
                 if verbose:
-                    logger.info(f"Max # of noimproved iters reached: {n_noimproving_iters}")
+                    logger.info("Max # of noimproved iters reached: %s", n_noimproving_iters)
                 break
 
             if self.special_feature_indices is not None:
@@ -1109,7 +1109,7 @@ def split_into_train_test(
             else:
                 cols_sel = [str(c) for c in fi]
             # ``df.select(cols)[rows]`` = column-first then row-slice; avoids
-            # materialising an (n_rows × n_all_cols) intermediate.
+            # materialising an (n_rows x n_all_cols) intermediate.
             X_train = X.select(cols_sel)[tr_idx]
             X_test = X.select(cols_sel)[te_idx]
         # y for polars CV usually arrives as numpy already, but handle
@@ -1143,7 +1143,7 @@ def store_averaged_cv_scores(pos: int, scores: list, evaluated_scores_mean: dict
     # fold and returned NaN) poisons ``scores_mean`` / ``final_score``.
     # Downstream ``final_score > best_score`` with NaN is always False, so
     # RFECV's early-stop patience counter (n_noimproving_iters) gets
-    # consumed every iteration — the search eventually terminates via
+    # consumed every iteration -- the search eventually terminates via
     # max_noimproving_iters, but spends many CV rounds producing no
     # signal. Surface this explicitly so operators can fix the scorer
     # (e.g., switch to stratified CV) rather than silently eating it.
@@ -1153,7 +1153,7 @@ def store_averaged_cv_scores(pos: int, scores: list, evaluated_scores_mean: dict
         _logging.getLogger(__name__).warning(
             "store_averaged_cv_scores @ pos=%d: %d / %d CV fold score(s) are NaN. "
             "Final score will be NaN and every ``final_score > best_score`` check "
-            "below will be False — RFECV will run until max_noimproving_iters "
+            "below will be False -- RFECV will run until max_noimproving_iters "
             "without improvement. Likely cause: single-class CV fold (stratified "
             "split would fix it) or scorer returning NaN on degenerate folds.",
             pos, n_nan, scores.size,
@@ -1194,7 +1194,7 @@ def get_feature_importances(
     # (e.g. CatBoost on a single-class target, LightGBM on constant y).
     # Downstream ``get_actual_features_ranking`` then folds NaN into
     # the per-feature aggregate, poisoning the rank for every feature
-    # that appeared in that fold — silent, indistinguishable from "zero
+    # that appeared in that fold -- silent, indistinguishable from "zero
     # importance". We already warn on NaN scoring; pair it here.
     try:
         res_arr = np.asarray(res, dtype=float)

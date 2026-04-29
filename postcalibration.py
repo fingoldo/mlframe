@@ -292,13 +292,17 @@ def compare_postcalibrators(
     calib_type: str = "test",
     plot_file: str = "",
     report_params: dict = None,
-    include_patterns: list = [],
-    skip_patterns: list = [r"netcal\.BetaCalibrationDependent", r"netcal\.ENIR", r"netcal\.NearIsotonicRegression"],  # r"BetaCalibration\[variant=ab\]"
+    include_patterns: list = None,
+    skip_patterns: list = None,  # r"BetaCalibration\[variant=ab\]"
 ) -> tuple:
     """Given calibration and OOS probabilities and true targets,
     fits a number of calibrator models  on the calib set and computes ML metrics on the OOS set.
     returns a pandas dataframe of ML metrics by calibrator name.
     """
+    if include_patterns is None:
+        include_patterns = []
+    if skip_patterns is None:
+        skip_patterns = [r"netcal\.BetaCalibrationDependent", r"netcal\.ENIR", r"netcal\.NearIsotonicRegression"]
 
     logger.info(f"Calib set size={len(calib_target):_}, oos set size={len(oos_target) if oos_target is not None else 0:_}, num_bins={num_bins}.")
 
@@ -406,7 +410,7 @@ def train_postcalibrators(
     target_name: str,
     featureset_name: str,
     task_type=TargetTypes.BINARY_CLASSIFICATION,
-    include_patterns=[r"SplineCalib", r"pycalib.BetaCalibration"],
+    include_patterns=None,
     max_mae: float = None,
     max_std: float = None,
     ensembling_method="harm",
@@ -426,6 +430,8 @@ def train_postcalibrators(
     arguments; this orchestrator intentionally passes ``oos_probs=None`` because calibrators
     are persisted for later inference, not measured here.
     """
+    if include_patterns is None:
+        include_patterns = [r"SplineCalib", r"pycalib.BetaCalibration"]
     ensembled_test_predictions, confident_test_indices = ensemble_probabilistic_predictions(
         *(el.test_probs for el in models.values()),
         ensemble_method=ensembling_method,

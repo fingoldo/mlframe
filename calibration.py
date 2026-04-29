@@ -87,15 +87,21 @@ def make_custom_calibration_plot(
     y: np.ndarray,
     probs: np.ndarray,
     nclasses: int,
-    classes=[],
+    classes=None,
     nbins: int = 100,
-    competing_probs: list = [],
+    competing_probs: list = None,
     X: np.ndarray = None,
-    display_labels: dict = {},
+    display_labels: dict = None,
     figsize: tuple = (15, 5),
     skip_plotting: bool = False,
 ):
     """Custom implementation of calibration plot"""
+    if classes is None:
+        classes = []
+    if competing_probs is None:
+        competing_probs = []
+    if display_labels is None:
+        display_labels = {}
 
     metrics = {}
     if not classes:

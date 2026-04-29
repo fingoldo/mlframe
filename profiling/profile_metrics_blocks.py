@@ -1,15 +1,15 @@
 """Profile the four "medium-impact" blocks from the 2026-04-19 timing
 analysis:
 
-  - ``compute_split_metrics``          — 3.0 s/call × 4
-  - ``fast_calibration_report``        — 1.9 s/call × 4
-  - ``plot_feature_importances``       — 1.5 s/call × 2
-  - ``report_probabilistic_model_perf``— 2.3 s/call × 4
+  - ``compute_split_metrics``          -- 3.0 s/call x 4
+  - ``fast_calibration_report``        -- 1.9 s/call x 4
+  - ``plot_feature_importances``       -- 1.5 s/call x 2
+  - ``report_probabilistic_model_perf``-- 2.3 s/call x 4
 
 Synthetic data is sized and shaped to match the production prod_jobsdetails
 frame as closely as is reasonable for a single-host profile run:
 
-  - 810_000 × 100 columns
+  - 810_000 x 100 columns
   - mixed dtypes: Float32, Int16, Boolean, Categorical (some with nulls),
     one or two long-string "text blob" columns
 
@@ -36,7 +36,7 @@ from typing import List, Optional
 import numpy as np
 import polars as pl
 
-# Windows cp1251 stdout is incompatible with our log arrows/emoji — be safe.
+# Windows cp1251 stdout is incompatible with our log arrows/emoji -- be safe.
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
@@ -64,7 +64,7 @@ def create_synthetic_data(n_rows: int = 810_000) -> pl.DataFrame:
       - 1 timestamp column (for time-based split)
       - 2 targets (one binary, one regression)
     """
-    print(f"Building synthetic {n_rows:,} × ~100 frame...")
+    print(f"Building synthetic {n_rows:,} x ~100 frame...")
     np.random.seed(42)
     cols = {}
 
@@ -80,7 +80,7 @@ def create_synthetic_data(n_rows: int = 810_000) -> pl.DataFrame:
     for i in range(15):
         cols[f"bool_{i}"] = np.random.choice([True, False], size=n_rows)
 
-    # 8 "clean" Categoricals (no nulls, 3-15 unique values — enum-like)
+    # 8 "clean" Categoricals (no nulls, 3-15 unique values -- enum-like)
     for i in range(8):
         k = np.random.randint(3, 15)
         pool = [f"cat{i}_v{j}" for j in range(k)]
@@ -89,13 +89,13 @@ def create_synthetic_data(n_rows: int = 810_000) -> pl.DataFrame:
             np.random.choice(pool, size=n_rows),
         ).cast(pl.Categorical)
 
-    # 6 "null-heavy" Categoricals (10-70% nulls) — matches prod where
+    # 6 "null-heavy" Categoricals (10-70% nulls) -- matches prod where
     # hourly_budget_type, contractor_tier, etc. have null_count in
     # the hundreds-of-thousands range.
     for i in range(6):
         k = int(np.random.randint(3, 10))
         pool = [f"ncat{i}_v{j}" for j in range(k)]
-        null_frac = 0.1 + 0.6 * (i / 5)  # 0.1 … 0.7
+        null_frac = 0.1 + 0.6 * (i / 5)  # 0.1 ... 0.7
         picks = np.random.choice(pool, size=n_rows).tolist()
         null_mask = np.random.random(n_rows) < null_frac
         for idx, is_null in enumerate(null_mask):
@@ -115,7 +115,7 @@ def create_synthetic_data(n_rows: int = 810_000) -> pl.DataFrame:
     ]
     cols["skills_text"] = pl.Series("skills_text", text_vals, dtype=pl.String)
 
-    # Timestamp for ordered split — must span enough distinct days for
+    # Timestamp for ordered split -- must span enough distinct days for
     # wholeday_splitting to produce non-empty train/val/test. At 100k rows
     # we spread over ~35 days (30 s/row).
     start = datetime(2020, 1, 1)
@@ -161,7 +161,7 @@ def _capture_print(stats: pstats.Stats, call, *args) -> str:
 def print_block_stats(stats: pstats.Stats, target_fn_name: str, top_callees: int = 15) -> None:
     """Print the block's own cumulative/total time and its heaviest callees.
 
-    Uses pstats' built-in regex restriction — first arg to print_stats /
+    Uses pstats' built-in regex restriction -- first arg to print_stats /
     print_callees is a regex matched against the full "path:line(name)"
     label. The function-name substring is a reliable match.
     """
@@ -171,11 +171,11 @@ def print_block_stats(stats: pstats.Stats, target_fn_name: str, top_callees: int
 
     stats.sort_stats("cumulative")
 
-    # 1) The block itself — matches wrapper + the real function.
+    # 1) The block itself -- matches wrapper + the real function.
     itself = _capture_print(stats, stats.print_stats, target_fn_name, 5)
     print(itself)
 
-    # 2) Callees — what each instance of the function spent time in.
+    # 2) Callees -- what each instance of the function spent time in.
     callees = _capture_print(stats, stats.print_callees, target_fn_name, top_callees)
     lines = callees.splitlines()
     max_lines = 80
@@ -190,7 +190,7 @@ def main():
     print("Numba cache warmed.\n")
 
     # Use a smaller frame (100k) for tractable local profiling while
-    # still exercising every block ≥ 4× (2 targets × 2 splits).
+    # still exercising every block >= 4x (2 targets x 2 splits).
     n_rows = int(os.environ.get("PROFILE_N_ROWS", "100000"))
     df = create_synthetic_data(n_rows=n_rows)
 
@@ -247,7 +247,7 @@ def main():
         # Dump the full profile into pstats for analysis.
         stats = pstats.Stats(profiler)
 
-        # High-level top 20 by cumulative time — gives the big picture.
+        # High-level top 20 by cumulative time -- gives the big picture.
         print("=" * 84)
         print("TOP 25 FUNCTIONS BY CUMULATIVE TIME")
         print("=" * 84)

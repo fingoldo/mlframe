@@ -64,7 +64,7 @@ def _build_extension_steps(config: PreprocessingExtensionsConfig, n_features: in
     # mlframe upstream preprocessing handles NaN for the GBDT
     # backends (CB / HGB / XGB) which tolerate NaN natively, so
     # numeric NaN can survive into ``apply_preprocessing_extensions``
-    # untouched (fuzz seed=2024 c0040 — n=1000 polars_utf8 with
+    # untouched (fuzz seed=2024 c0040 -- n=1000 polars_utf8 with
     # inject_inf_nan + prep_ext_kbins=5). Prepend a SimpleImputer so
     # any active extension step sees finite values; on clean data
     # the imputer is a near-zero-cost no-op (one statistic per
@@ -138,7 +138,7 @@ def _build_dim_reducer(name: str, n_components: int, random_state: int):
         "Isomap": lambda: Isomap(n_components=n_components),
         "GaussianRandomProjection": lambda: GaussianRandomProjection(n_components=n_components, random_state=random_state),
         "SparseRandomProjection": lambda: SparseRandomProjection(n_components=n_components, random_state=random_state),
-        # RandomTreesEmbedding exposes `n_estimators` (trees), not `n_components` — the
+        # RandomTreesEmbedding exposes `n_estimators` (trees), not `n_components` -- the
         # output dim is controlled by tree leaves. Map our `n_components` knob to
         # `n_estimators` for consistency with other dim_reducer factories.
         "RandomTreesEmbedding": lambda: RandomTreesEmbedding(n_estimators=n_components, random_state=random_state),
@@ -162,7 +162,7 @@ def apply_preprocessing_extensions(
     """
     if config is None:
         return train_df, val_df, test_df, None
-    # Polars input → convert to pandas (extensions use sklearn; mixing with
+    # Polars input -> convert to pandas (extensions use sklearn; mixing with
     # the polars-native fastpath would defeat the point if user opted in).
     def _to_pandas(df):
         if df is None:
@@ -187,7 +187,7 @@ def apply_preprocessing_extensions(
     # user typo in ``tfidf_columns`` matching only train's schema). Then
     # the downstream sklearn Pipeline, fit on train with e.g. 5050
     # columns, tried ``pipe.transform(val_with_50_cols)`` and raised a
-    # shape-mismatch error that traced back to the scaler — not TF-IDF.
+    # shape-mismatch error that traced back to the scaler -- not TF-IDF.
     # Now: if a tfidf_column is missing from val/test, we skip it on
     # train too (WARN with the consequence) so all three splits stay
     # aligned. If it's a user typo, the typo WARN fires instead.
@@ -225,7 +225,7 @@ def apply_preprocessing_extensions(
         if skipped_split_mismatch:
             logger.warning(
                 "TF-IDF: %d column(s) present in train but missing from a "
-                "non-train split (val/test) — skipping entirely to keep "
+                "non-train split (val/test) -- skipping entirely to keep "
                 "splits column-aligned for downstream sklearn transforms: "
                 "%s. If these columns should be universally present, fix "
                 "the upstream split so all three frames share the schema.",
@@ -259,7 +259,7 @@ def apply_preprocessing_extensions(
     steps = _build_extension_steps(config, n_features=n_features)
     if not steps:
         if tfidf_pipes:
-            # TF-IDF was applied but no other steps — return TF-IDF-augmented frames.
+            # TF-IDF was applied but no other steps -- return TF-IDF-augmented frames.
             return train, val, test, tfidf_pipes
         return train_df, val_df, test_df, None
 
@@ -285,10 +285,15 @@ def apply_preprocessing_extensions(
     train_out = _to_df(train_arr, train)
     val_out = _to_df(val_arr, val)
     test_out = _to_df(test_arr, test)
-    if verbose:
+    # Two-level verbosity: caller-side ``verbose`` (function-level kill switch)
+    # AND ``config.verbose_logging`` (per-config opt-out for this stage when
+    # batching many folds whose output would drown the log). WARN paths above
+    # (skipped_typo / split_mismatch) are intentionally NOT gated -- those are
+    # configuration errors the user must see.
+    if verbose and config.verbose_logging:
         elapsed = timer() - t0
         logger.info(
-            "Applied preprocessing extensions (%d stages) — train %s, %.2fs",
+            "Applied preprocessing extensions (%d stages) -- train %s, %.2fs",
             len(steps), train_out.shape, elapsed,
         )
     return train_out, val_out, test_out, pipe
@@ -413,7 +418,7 @@ def create_polarsds_pipeline(
             must NOT be ordinal/onehot-encoded. polars-ds's ``ordinal_encode(cols=None)``
             encodes ALL string-like columns it finds, which includes user-declared
             text_features like ``skills_text`` or synthetic fuzz ``text_0``
-            (discovered 2026-04-23 on fuzz c0085/c0049 → CB Pool build failed with
+            (discovered 2026-04-23 on fuzz c0085/c0049 -> CB Pool build failed with
             ``Invalid type for text_feature ... =187.0 : text_features must have
             string type`` because the text column arrived as float32 ordinal
             codes). When this set is non-empty, pass an explicit ``cols=`` list
@@ -464,7 +469,7 @@ def create_polarsds_pipeline(
         elif verbose:
             logger.info(
                 "  No numeric columns survived the zero-spread / all-null "
-                "filter — skipping scaler entirely."
+                "filter -- skipping scaler entirely."
             )
 
     # Pre-compute the list of cat-like columns that SHOULD be encoded
@@ -518,7 +523,7 @@ def create_polarsds_pipeline(
 
     if verbose:
         bp_elapsed = timer() - t0_bp
-        logger.info(f"  Polars-ds pipeline created — scaler={config.scaler_name or 'none'}, encoding={config.categorical_encoding or 'none'}, {bp_elapsed:.1f}s")
+        logger.info(f"  Polars-ds pipeline created -- scaler={config.scaler_name or 'none'}, encoding={config.categorical_encoding or 'none'}, {bp_elapsed:.1f}s")
         log_ram_usage()
 
     return pipeline
@@ -543,14 +548,14 @@ def _warn_on_schema_drift(
         or downcast truncation.
 
     This helper emits one WARN per failing category with the column
-    names and diff. Does NOT raise — some callers intentionally drop
+    names and diff. Does NOT raise -- some callers intentionally drop
     derived columns that the pipeline reconstructs. The WARN lets
     operators trace opaque downstream errors back here.
     """
     try:
         other_schema = dict(other_df.schema)
     except Exception:
-        return  # not a polars frame or schema unavailable — skip silently
+        return  # not a polars frame or schema unavailable -- skip silently
 
     train_cols = set(train_schema.keys())
     other_cols = set(other_schema.keys())
@@ -625,7 +630,7 @@ def fit_and_transform_pipeline(
     # 2026-04-24: datetime column decomposition moved to
     # ``train_mlframe_models_suite`` (core.py) BEFORE the pre-pipeline
     # polars-clone point so the clone inherits the numeric decomposition.
-    # Calling it here too would be a no-op — the caller has already
+    # Calling it here too would be a no-op -- the caller has already
     # decomposed any datetime columns by the time we run.
 
     # Handle Polars DataFrames with polars-ds
@@ -672,12 +677,12 @@ def fit_and_transform_pipeline(
 
             if verbose:
                 transform_elapsed = timer() - t0_transform
-                logger.info(f"  Polars-ds transform done — train: {train_df.shape[0]:_}×{train_df.shape[1]}, {transform_elapsed:.1f}s")
+                logger.info(f"  Polars-ds transform done -- train: {train_df.shape[0]:_}x{train_df.shape[1]}, {transform_elapsed:.1f}s")
                 logger.info(f"  train_df dtypes after pipeline: {Counter(train_df.dtypes)}")
 
         # Detect categorical features from schema (works whether pipeline succeeded or not)
         # This ensures cat_features is populated even if polars-ds is not available.
-        # Prefer the ORIGINAL cat columns (captured before transform) — after ordinal/onehot
+        # Prefer the ORIGINAL cat columns (captured before transform) -- after ordinal/onehot
         # encoding they're no longer Categorical/Utf8 in the transformed frame.
         post_cat = [c for c in get_polars_cat_columns(train_df) if c not in _exclude_from_encoding]
         cat_features = _orig_cat_features if _orig_cat_features else post_cat
@@ -723,7 +728,7 @@ def fit_and_transform_pipeline(
 
             if verbose:
                 encode_elapsed = timer() - t0_encode
-                logger.info(f"  Encoding done — train: {train_df.shape[0]:_}×{train_df.shape[1]}, {encode_elapsed:.1f}s")
+                logger.info(f"  Encoding done -- train: {train_df.shape[0]:_}x{train_df.shape[1]}, {encode_elapsed:.1f}s")
 
             # After encoding, cat_features are no longer categorical (they're numeric)
             cat_features = []
@@ -746,7 +751,7 @@ def fit_and_transform_pipeline(
 
     # gc.collect on a 20-30GB heap with Arrow buffers can take a full minute
     # after a just-freed raw DataFrame. Previously this was the mystery "PHASE 3
-    # black box" — a minute passed between "Detected N categorical features"
+    # black box" -- a minute passed between "Detected N categorical features"
     # and "Done. RAM usage:" with no log. Now wrapped so we can see it and
     # reason about disabling for polars-fastpath runs.
     t0_gc = timer()
@@ -754,7 +759,7 @@ def fit_and_transform_pipeline(
     gc_elapsed = timer() - t0_gc
     if verbose:
         if gc_elapsed > 1.0:
-            logger.info(f"  maybe_clean_ram_adaptive took {gc_elapsed:.1f}s (gc + arena trim)")
+            logger.info("  maybe_clean_ram_adaptive took %.1fs (gc + arena trim)", gc_elapsed)
         log_ram_usage()
 
     return train_df, val_df, test_df, pipeline, cat_features

@@ -2,8 +2,8 @@
 about pa.large_string() vs pa.string()?
 
 Approach: isolate the Arrow string variant as the ONLY variable.
-Build the same data two ways — once with pa.string() dictionary values,
-once with pa.large_string() dictionary values — and fit CatBoost / XGBoost
+Build the same data two ways -- once with pa.string() dictionary values,
+once with pa.large_string() dictionary values -- and fit CatBoost / XGBoost
 on each. If my hypothesis is correct, pa.string() succeeds and
 pa.large_string() fails with the specific errors observed in production.
 """
@@ -27,7 +27,7 @@ def build_pa_table_with_string_type(string_type):
 
     Three test columns:
       - num: float64 (plain numeric)
-      - cat: Dictionary<int32, {string|large_string}> — what Polars
+      - cat: Dictionary<int32, {string|large_string}> -- what Polars
         would emit for a pl.Categorical
       - s:   the raw string type (plain, not dictionary)
     """
@@ -43,7 +43,7 @@ def build_pa_table_with_string_type(string_type):
 
 
 def pa_table_to_polars(tbl):
-    """pyarrow.Table → Polars DataFrame. Use pl.from_arrow which
+    """pyarrow.Table -> Polars DataFrame. Use pl.from_arrow which
     preserves the original Arrow type variant. If we use to_arrow()
     afterwards, we round-trip the type."""
     return pl.from_arrow(tbl)
@@ -120,7 +120,7 @@ def main():
     for i, name in enumerate(tbl_large.column_names):
         print(f"  {name}: {tbl_large.column(i).type}")
 
-    # Convert both to Polars DataFrames — check if the Arrow type
+    # Convert both to Polars DataFrames -- check if the Arrow type
     # survives the round-trip.
     df_small = pa_table_to_polars(tbl_small)
     df_large = pa_table_to_polars(tbl_large)
@@ -168,7 +168,7 @@ def main():
         "cat": pl.Series("cat", np.random.choice(["a", "b", "c"], size=100)).cast(pl.Categorical),
     })
     native_arrow = native.to_arrow()
-    print("Native pl.Categorical → arrow export:")
+    print("Native pl.Categorical -> arrow export:")
     for i, name in enumerate(native_arrow.column_names):
         print(f"  {name}: {native_arrow.column(i).type}")
     probe("native pl.Categorical DF", native)

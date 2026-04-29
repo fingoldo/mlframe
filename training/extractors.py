@@ -594,7 +594,7 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
     def add_features(self, df: Union[pd.DataFrame, pl.DataFrame]) -> Union[pd.DataFrame, pl.DataFrame]:
         if self.ts_field and self.datetime_features:
             if self.verbose:
-                logger.info(f"create_date_features {self.datetime_features} over column {self.ts_field}...")
+                logger.info("create_date_features %s over column %s...", self.datetime_features, self.ts_field)
             df = create_date_features(df, cols=[self.ts_field], delete_original_cols=False, methods=self.datetime_features)
         return df        
 

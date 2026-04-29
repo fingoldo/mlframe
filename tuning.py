@@ -171,7 +171,7 @@ def generate_valid_candidates(
     random_state: Union[int, np.random.Generator, None] = None,
 ):
     rng = np.random.default_rng(random_state)
-    logging.info(f"Generating {n} valid candidates...")
+    logging.info("Generating %s valid candidates...", n)
     approved = []
     attempts = 0
     inner_n = n
@@ -209,7 +209,7 @@ def preprocess_df(df, cat_features):
 
 
 def prepare_trials_dataset(experiment_name: str, objective_name: str) -> pd.DataFrame:
-    logging.info(f"Getting trials for experiment {experiment_name}...")
+    logging.info("Getting trials for experiment %s...", experiment_name)
     res = []
     for id, node, params, results in db.safe_execute("select id,node,params,results from experiments where  project=%s", (experiment_name,)):
         if objective_name in results:
@@ -284,16 +284,16 @@ def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv
 
             if expected_score >= min_score:
                 if len(trials) - num_trials > max_new_trials:
-                    logging.info(f"Model for experiment {experiment_name} found, but it needs updating with new data")
+                    logging.info("Model for experiment %s found, but it needs updating with new data", experiment_name)
                 else:
-                    logging.info(f"Passing model for experiment {experiment_name} found ;-)")
+                    logging.info("Passing model for experiment %s found ;-)", experiment_name)
                     should_retrain = False
             else:
                 if len(trials) == num_trials:
-                    logging.info(f"Model for experiment {experiment_name} found, but score was bad, and since then no new trials data arrived (")
+                    logging.info("Model for experiment %s found, but score was bad, and since then no new trials data arrived (", experiment_name)
                     should_retrain = False
                 else:
-                    logging.info(f"Model for experiment {experiment_name} found, score was bad, but since then new trials data has arrived!")
+                    logging.info("Model for experiment %s found, score was bad, but since then new trials data has arrived!", experiment_name)
 
     y = trials.pop("target").values
     if should_retrain:
@@ -333,7 +333,7 @@ def justify_estimator(
     mean_score = np.mean(cv_results["test_score"])
 
     if mean_score >= min_score:
-        logging.info(f"OOS mean {scoring}={mean_score}, so ML can be used.")
+        logging.info("OOS mean %s=%s, so ML can be used.", scoring, mean_score)
         if refit:
             logging.info(f"Fitting a model")
 
@@ -352,7 +352,7 @@ def justify_estimator(
         else:
             est = None
     else:
-        logging.info(f"OOS mean {scoring}={mean_score}, so ML can't be used (yet).")
+        logging.info("OOS mean %s=%s, so ML can't be used (yet).", scoring, mean_score)
         est = None
     return est, mean_score
 

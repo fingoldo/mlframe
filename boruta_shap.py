@@ -64,7 +64,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         verbose: bool = True,
         stratify=None,
         optimistic: bool = True,
-        fit_params: dict = {},
+        fit_params: dict = None,
     ):
         """
         Parameters
@@ -89,6 +89,8 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             to reject and accept features.
 
         """
+        if fit_params is None:
+            fit_params = {}
 
         self.importance_measure = importance_measure.lower()
         self.percentile = percentile
@@ -966,7 +968,9 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         ax.set_ylabel("Z-Score")
         ax.set_xlabel("Features")
 
-    def create_mapping_of_features_to_attribute(self, maps=[]):
+    def create_mapping_of_features_to_attribute(self, maps=None):
+        if maps is None:
+            maps = []
         rejected = list(self.rejected)
         tentative = list(self.tentative)
         accepted = list(self.accepted)

@@ -51,11 +51,13 @@ def compute_shap_on_cv(
     show_oos_metrics: bool = True,
     show_classification_report: bool = False,
     oos_ts_max_size: int = None,
-    display_labels: dict = {},
+    display_labels: dict = None,
     gen_params: object = None,
     plot: bool = True,
 ) -> Tuple[np.ndarray]:
     """Also computes oos Performance"""
+    if display_labels is None:
+        display_labels = {}
     import shap  # pylint: disable=import-outside-toplevel
     from catboost import EFstrType, Pool  # pylint: disable=import-outside-toplevel
     from imblearn.pipeline import Pipeline  # pylint: disable=import-outside-toplevel

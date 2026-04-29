@@ -74,10 +74,12 @@ def embed_website_to_mlflow(url:str,fname:str="url",extension:str='.html',width:
     with open(fname+extension, "w", encoding="utf-8") as f:
         f.write(website_embed)
 
-def get_or_create_mlflow_run(run_name: str, parent_run_id: str = None, experiment_name: str = None, experiment_id: str = None,tags:dict={}) -> Tuple[object, bool]:
+def get_or_create_mlflow_run(run_name: str, parent_run_id: str = None, experiment_name: str = None, experiment_id: str = None,tags:dict=None) -> Tuple[object, bool]:
     """Tries to find a run by name within current mlflow experiment.
     If not found, creates new one.
     """
+    if tags is None:
+        tags = {}
     # Escape embedded double-quotes/backslashes so user-controlled run_name can't
     # break out of the mlflow DSL filter literal.
     def _dsl_escape(s: object) -> str:
@@ -130,7 +132,9 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: str = None, experimen
                 break
         return run, False
     
-def create_mlflow_run_label(params: dict={}, category: str = None) -> str:
+def create_mlflow_run_label(params: dict=None, category: str = None) -> str:
+    if params is None:
+        params = {}
     label = []
     for key, value in params.items():
         if value:

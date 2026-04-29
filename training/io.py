@@ -159,7 +159,7 @@ def save_mlframe_model(
         atomic_write_bytes(file, _writer)
         if verbose > 0:
             size_mb = os.path.getsize(file) / (1024 * 1024)
-            logger.info(f"Model saved successfully to {file}. Size: {size_mb:.2f} Mb")
+            logger.info("Model saved successfully to %s. Size: %.2f Mb", file, size_mb)
         return True
     except Exception as e:
         logger.error(f"Could not save model to file {file}: {e}")

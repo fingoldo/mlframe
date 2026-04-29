@@ -43,7 +43,7 @@ def _stratified_split(
 
     Returns
     -------
-    (left_idx, right_idx) — both are slices of ``indices``, not 0..M-1.
+    (left_idx, right_idx) -- both are slices of ``indices``, not 0..M-1.
     """
     if stratify_y.ndim == 1:
         from sklearn.model_selection import StratifiedShuffleSplit
@@ -114,16 +114,16 @@ def make_train_test_split(
         wholeday_splitting: If True and timestamps provided, split by whole days.
         random_seed: Random seed for reproducibility.
         val_placement: Temporal placement of val relative to train/test.
-            - "forward" (default): ``[train] [val] [test]`` — val immediately
+            - "forward" (default): ``[train] [val] [test]`` -- val immediately
               precedes test on the timeline (conventional time-series split).
-            - "backward": ``[val] [train] [test]`` — val precedes train
+            - "backward": ``[val] [train] [test]`` -- val precedes train
               ("First test then train", Mazzanti 2024). Chosen when you want
               val-metric to approximate deployment-time performance under
-              drift: forward's val→train gap is ~0 while train→prod gap is
+              drift: forward's val->train gap is ~0 while train->prod gap is
               large, so val overstates prod; backward mirrors the gaps so
               val-metric is sampled from the same drift-distance regime as
               deployment. Only meaningful when ``timestamps`` is provided
-              — without time axis, placement is ill-defined and this
+              -- without time axis, placement is ill-defined and this
               argument is ignored (caller gets a plain sklearn shuffle
               split). Also a no-op when ``val_size`` is 0.
 
@@ -131,7 +131,7 @@ def make_train_test_split(
         Tuple of (train_idx, val_idx, test_idx, train_details, val_details, test_details)
         where *_idx are sorted numpy arrays of indices and *_details are description strings.
     """
-    # Local RNG — never mutate global numpy random state (policy).
+    # Local RNG -- never mutate global numpy random state (policy).
     rng = np.random.default_rng(random_seed)
     # Derive a 32-bit int seed for sklearn splitters that need an integer seed.
     sklearn_seed = int(rng.integers(0, 2**32 - 1)) if random_seed is not None else None
@@ -157,7 +157,7 @@ def make_train_test_split(
 
     # Backward placement is time-axis-specific. Without timestamps there is
     # no "before/after" to place val relative to train, so we silently fall
-    # back to forward — the sklearn-shuffle path below doesn't order rows
+    # back to forward -- the sklearn-shuffle path below doesn't order rows
     # by time anyway. ``val_size=0`` makes placement moot too.
     _effective_val_placement = val_placement
     if timestamps is None or val_size == 0:
@@ -184,14 +184,14 @@ def make_train_test_split(
         logger.info("val_placement=%r (Mazzanti backward layout)", val_placement)
 
     if _effective_val_placement == "backward" and trainset_aging_limit is not None:
-        # Aging trims the OLDEST train rows — which in backward layout are
+        # Aging trims the OLDEST train rows -- which in backward layout are
         # the ones closest to the (earlier) val block. Trimming them
-        # widens the val→train gap silently, defeating the "gap mirror"
+        # widens the val->train gap silently, defeating the "gap mirror"
         # whole point of the Mazzanti split. Refuse explicitly rather
         # than produce a subtly wrong split.
         raise ValueError(
             "val_placement='backward' is incompatible with "
-            "trainset_aging_limit — aging removes the oldest train rows, "
+            "trainset_aging_limit -- aging removes the oldest train rows, "
             "which are the ones adjacent to the backward-placed val. "
             "Drop one of the two."
         )
@@ -230,7 +230,7 @@ def make_train_test_split(
         test_list = []
         val_list = []
 
-        # Sequential test (most recent) — same for both placements.
+        # Sequential test (most recent) -- same for both placements.
         if n_test_seq > 0:
             test_seq = remaining[-n_test_seq:]
             test_list.append(test_seq)
@@ -274,8 +274,8 @@ def make_train_test_split(
         *outside* the sequential date window, mixed into this split." It lets
         the user know at a glance that the split is not purely contiguous.
         ``unit`` is a single letter:
-          * ``R`` — ``N`` additional **rows** (row-based splitting)
-          * ``D`` — ``N`` additional **days** (whole-day splitting)
+          * ``R`` -- ``N`` additional **rows** (row-based splitting)
+          * ``D`` -- ``N`` additional **days** (whole-day splitting)
 
         Example: ``90_000 val rows 2014-01-20/2014-04-05 +45000R`` =
         45k val rows from outside the Jan-Apr 2014 window were shuffled in
@@ -295,7 +295,7 @@ def make_train_test_split(
     # Calculate split sizes
     if wholeday_splitting and timestamps is not None:
         # `.dt.floor('D')` is vectorized over datetime64 and stays in datetime dtype
-        # (unlike `.dt.date` which yields a Python-object Series — much slower for isin).
+        # (unlike `.dt.date` which yields a Python-object Series -- much slower for isin).
         dates = pd.to_datetime(timestamps).dt.floor("D")
         unique_dates = dates.unique()
         n_total = len(unique_dates)
@@ -321,7 +321,7 @@ def make_train_test_split(
             if n_dates_to_keep > 0:
                 train_dates = np.sort(train_dates)[-n_dates_to_keep:]
 
-        # Map dates → split label once, then derive all index arrays from the cached
+        # Map dates -> split label once, then derive all index arrays from the cached
         # label array. Each `dates.isin(...)` call would re-hash the full Series; doing
         # it once via a unique-date categorical keeps the work O(n) instead of O(n*k).
         # Label convention: 0=train, 1=val, 2=test, -1=dropped by aging.
@@ -378,7 +378,7 @@ def make_train_test_split(
 
     else:
         # Row-based splitting without timestamps (fallback to sklearn).
-        # 2026-04-24: stratify_y support — when provided, route through
+        # 2026-04-24: stratify_y support -- when provided, route through
         # sklearn StratifiedShuffleSplit (1-D y) or
         # iterstrat.MultilabelStratifiedShuffleSplit (2-D y, multilabel).
         # Both REQUIRE shuffle (cannot stratify a sequential split). When
@@ -389,7 +389,7 @@ def make_train_test_split(
 
         if stratify_y is not None and timestamps is not None:
             logger.warning(
-                "stratify_y provided but timestamps active — stratification "
+                "stratify_y provided but timestamps active -- stratification "
                 "ignored (stratification is ill-defined for time-based splits)."
             )
             _stratify_active = None

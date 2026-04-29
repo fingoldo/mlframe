@@ -77,8 +77,8 @@ class ESTransformedTargetRegressor(TransformedTargetRegressor):
             y_2d = y            
         # transform y and convert back to 1d array if needed
         y_trans = self.transformer_.transform(y_2d)
-        # FIXME: a FunctionTransformer can return a 1D array even when validate
-        # is set to True. Therefore, we need to check the number of dimension
+        # FIXME(2026-04-28): a FunctionTransformer can return a 1D array even
+        # when validate is set to True. Therefore, we need to check the dim
         # first.
         if y_trans.ndim == 2 and y_trans.shape[1] == 1:
             y_trans = y_trans.squeeze(axis=1)

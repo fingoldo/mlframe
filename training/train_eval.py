@@ -74,7 +74,7 @@ def _validate_cached_model_schema(
 
     The latter produces a cryptic
     ``CatBoostError: Unsupported data type Categorical for a numerical feature column``
-    deep inside CatBoost's pyx layer — this pre-flight check catches it.
+    deep inside CatBoost's pyx layer -- this pre-flight check catches it.
     """
     m = getattr(loaded_model, "model", None)
     if m is None:
@@ -353,7 +353,7 @@ def select_target(
         # early-stopping / ICE / RFECV all silently break in downstream
         # layers (some of which we already added NaN observability for).
         # Better to WARN loud right here so the operator can fix the
-        # threshold or data selection. We do NOT abort — in rare cases
+        # threshold or data selection. We do NOT abort -- in rare cases
         # (sanity runs, debugging) training a model on a single-class
         # target is intentional, and a hard raise would regress
         # legitimate callers.
@@ -376,7 +376,7 @@ def select_target(
                 "pre-filter the data upstream.",
                 model_name, perc * 100,
             )
-    logger.debug(f"select_target: model_name={model_name}")
+    logger.debug("select_target: model_name=%s", model_name)
 
     # Ensure configs have defaults
     if hyperparams_config is None:
@@ -387,7 +387,7 @@ def select_target(
     # Convert Pydantic configs to dicts for configure_training_params
     # exclude_none=True: downstream functions handle missing keys with their own defaults
     effective_config_params = hyperparams_config.model_dump(exclude_none=True)
-    # Only include defined fields — exclude any extra fields (e.g. _precomputed_fairness_subgroups).
+    # Only include defined fields -- exclude any extra fields (e.g. _precomputed_fairness_subgroups).
     # Also exclude suite-level meta-flags that have no meaning to
     # configure_training_params (crash reporting + per-model
     # continue-on-failure are consumed directly by
@@ -657,7 +657,7 @@ def process_model(
     # Schema validation: when the cache does load, validate the saved
     # model's feature list + cat_features against the current preprocessed
     # DataFrame. A mismatch usually means preprocessing or the feature set
-    # changed between runs — the classic symptom being a cryptic
+    # changed between runs -- the classic symptom being a cryptic
     # ``Unsupported data type Categorical for a numerical feature column``
     # crash deep in CatBoost's Polars fastpath. Invalidate the stale cache
     # and retrain rather than bubble the opaque backend error.
@@ -665,7 +665,7 @@ def process_model(
     use_cached_model = use_cache_flag and bool(fpath and exists(fpath))
     if use_cached_model:
         if verbose:
-            logger.info(f"Loading model from file {fpath}")
+            logger.info("Loading model from file %s", fpath)
         loaded_model = load_mlframe_model(fpath)
         if loaded_model is None:
             # Load returned None (e.g. _SafeUnpickler rejected an unsafe class,
@@ -674,7 +674,7 @@ def process_model(
             # half-loaded artifact and tripping AttributeError downstream on
             # loaded_model.model.
             logger.warning(
-                f"Cached model load returned None at {fpath} — "
+                f"Cached model load returned None at {fpath} -- "
                 f"retraining. (Check earlier WARN for the real cause: "
                 f"unsafe class blocked by allowlist, corrupted file, etc.)"
             )
@@ -696,7 +696,7 @@ def process_model(
                 # 2026-04-23 prod log: ``cb_recency`` reload still hit the
                 # ``predict_proba RAISED TypeError`` polars-fastpath miss
                 # despite the original CB instance having had the flag set
-                # at fit time). Set it defensively for any reloaded CB —
+                # at fit time). Set it defensively for any reloaded CB --
                 # we know CB 1.2.x's polars fastpath has dispatch gaps on
                 # nullable Categorical / Enum columns, and a wasted retry
                 # on every VAL/TEST/ensemble call burns a WARN + ~1-2 s.
@@ -711,7 +711,7 @@ def process_model(
                         model_obj._mlframe_polars_fastpath_broken = True
                     except Exception:
                         # CB Python class is permissive about attributes,
-                        # but slot-restricted forks could refuse — degrade
+                        # but slot-restricted forks could refuse -- degrade
                         # to "pay one extra retry" rather than fail.
                         pass
     if not use_cached_model:

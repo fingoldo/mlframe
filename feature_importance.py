@@ -128,10 +128,12 @@ def explain_top_feature_importances(
     model: object,
     model_name: str,
     df: pd.DataFrame,
-    beeswarm_plot_params: dict = dict(max_display=30, group_remaining_features=False),
+    beeswarm_plot_params: dict = None,
     save_chart: bool = True,
     figsize: tuple = (15, 20),
 ) -> None:
+    if beeswarm_plot_params is None:
+        beeswarm_plot_params = dict(max_display=30, group_remaining_features=False)
     fig, ax = plt.subplots(figsize=figsize)
     show_shap_beeswarm_plot(model.model, df, ax=ax, plot_size=None, show=False, **beeswarm_plot_params)
     fi_name = f"{model_name} {type(model.model).__name__} @iter={model.metrics.get('best_iter','')} [{len(model.columns):_}F]"

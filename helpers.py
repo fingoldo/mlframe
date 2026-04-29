@@ -93,8 +93,8 @@ def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_fil
     """Replace ±inf with ``nans_filler`` in float columns.
 
     Only **float** columns can hold infinity, so integer / boolean / category /
-    datetime columns are skipped — including pandas nullable extension types
-    like ``Int8`` (which the polars→pandas bridge produces for nullable
+    datetime columns are skipped -- including pandas nullable extension types
+    like ``Int8`` (which the polars->pandas bridge produces for nullable
     Boolean inputs since 2026-04-23). Earlier versions called
     ``df[num_cols].to_numpy()`` over all numeric dtypes, which on an Int8
     column with ``pd.NA`` materializes a Python-object array and then crashed
@@ -121,7 +121,7 @@ def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_fil
         dt = s.dtype
         try:
             if pd.api.types.is_extension_array_dtype(dt):
-                # Float64Dtype / Float32Dtype with pd.NA → cast to numpy
+                # Float64Dtype / Float32Dtype with pd.NA -> cast to numpy
                 # float, replacing pd.NA with NaN. NaN is not inf, so this
                 # doesn't change the inf-detection answer.
                 arr = s.to_numpy(dtype=np.float64, na_value=np.nan)
@@ -134,11 +134,11 @@ def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_fil
             if np.isinf(arr).any():
                 inf_cols.append(col)
         except (TypeError, ValueError) as exc:
-            # Don't let a single weird column abort the whole pre-fit check —
+            # Don't let a single weird column abort the whole pre-fit check --
             # log and move on. The column will simply not be sanitised.
             if verbose:
                 logger.warning(
-                    "ensure_no_infinity_pd: skipped %r (dtype=%s) — "
+                    "ensure_no_infinity_pd: skipped %r (dtype=%s) -- "
                     "isinf check failed: %s",
                     col, dt, exc,
                 )

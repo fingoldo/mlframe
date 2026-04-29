@@ -63,10 +63,10 @@ def run_grid(
             raise ValueError(f"duplicate grid label: {label!r}")
         labels.append(label)
         merged = {**base_kwargs, **overrides}
-        logger.info("[run_grid] variant %d/%s — %s", idx + 1, label, sorted(overrides.keys()))
+        logger.info("[run_grid] variant %d/%s -- %s", idx + 1, label, sorted(overrides.keys()))
         try:
             results[label] = suite_fn(**merged)
-        except Exception as exc:  # noqa: BLE001 — we deliberately keep going
+        except Exception as exc:  # noqa: BLE001 -- we deliberately keep going
             logger.exception("[run_grid] variant %s raised %s", label, type(exc).__name__)
             if stop_on_error:
                 raise

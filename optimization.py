@@ -731,7 +731,7 @@ def optimize_finite_onedimensional_search_space(
 
         if max_noimproving_iters and optimizer.n_noimproving_iters >= max_noimproving_iters:
             if verbose:
-                logger.info(f"Max # of noimproved iters reached: {optimizer.n_noimproving_iters}")
+                logger.info("Max # of noimproved iters reached: %s", optimizer.n_noimproving_iters)
             break
 
     return (optimizer.best_candidate, optimizer.best_evaluation), optimizer.evaluated_candidates

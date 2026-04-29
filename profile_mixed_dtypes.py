@@ -97,7 +97,7 @@ profiler = cProfile.Profile()
 
 with tempfile.TemporaryDirectory() as tmp:
     log.info("=" * 80)
-    log.info(f"Starting train_mlframe_models_suite (iterations={ITERATIONS}, early_stop={EARLY_STOPPING_ROUNDS})")
+    log.info("Starting train_mlframe_models_suite (iterations=%s, early_stop=%s)", ITERATIONS, EARLY_STOPPING_ROUNDS)
     log.info("=" * 80)
     t_start = timer()
     profiler.enable()

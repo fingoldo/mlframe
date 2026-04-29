@@ -1,5 +1,5 @@
 """Verify null-in-Categorical behavior for XGBoost 3.x and sklearn HGB
-(HistGradientBoostingClassifier) — the other two polars-capable
+(HistGradientBoostingClassifier) -- the other two polars-capable
 strategies in mlframe (alongside CatBoost).
 
 Upstream fill in core.py applies to the base Polars DFs BEFORE tier
@@ -54,8 +54,8 @@ def fit_xgb(df: pl.DataFrame):
 
 def fit_hgb(df):
     """sklearn HGB requires a pandas DataFrame (even when we call it
-    'polars-capable' — mlframe's HGBStrategy casts to pandas internally
-    before fit). Try direct polars → see what happens, then try
+    'polars-capable' -- mlframe's HGBStrategy casts to pandas internally
+    before fit). Try direct polars -> see what happens, then try
     via pandas (the actual mlframe path)."""
     from sklearn.ensemble import HistGradientBoostingClassifier
     y = np.random.randint(0, 2, size=df.height)
@@ -89,7 +89,7 @@ def main():
     print(f"  dirty cat: {'OK' if ok else 'FAIL'} {err or ''}")
     print()
 
-    print("sklearn HGB (direct polars → fit):")
+    print("sklearn HGB (direct polars -> fit):")
     ok, err = fit_hgb(df_clean)
     print(f"  clean cat: {'OK' if ok else 'FAIL'} {err or ''}")
     ok, err = fit_hgb(df_dirty)

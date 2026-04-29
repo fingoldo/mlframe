@@ -1,0 +1,8 @@
+{
+  "test_config_field_consumption::_USER_DEFERRED_DEAD": 11,
+  "test_dead_helpers::_USER_DEFERRED_DEAD_HELPERS": 11,
+  "test_estimator_kwarg_parity::_USER_DEFERRED_KWARGS": 1,
+  "test_no_import_cycles::_USER_DEFERRED_CYCLES": 0,
+  "test_subconfig_wiring_parity::_USER_DEFERRED_SUBCONFIGS": 5,
+  "test_todo_hygiene::_GRANDFATHERED": 0
+}

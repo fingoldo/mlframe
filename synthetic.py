@@ -18,8 +18,8 @@ def sample_random_variable(
     size: int = 1000,
     shift: float = 0,
     scale: float = 1.0,
-    include: set = set(),
-    exclude: set = set(["ksone", "gausshyper", "kstwo", "cosine", "frechet_l", "frechet_r"]),
+    include: set = None,
+    exclude: set = None,
     max_time_per10k: float = 1.0,
     randomize_params: bool = True,
     random_state=None,
@@ -27,6 +27,10 @@ def sample_random_variable(
     """
         Samples from a specified categorical or continuous distribution.
     """
+    if exclude is None:
+        exclude = set(["ksone", "gausshyper", "kstwo", "cosine", "frechet_l", "frechet_r"])
+    if include is None:
+        include = set()
     # All random draws go through this generator so callers can reproduce results.
     generator = check_random_state(random_state)
 
@@ -94,7 +98,7 @@ def generate_modelling_data(
     # how to create cat features?
     min_cardinality: int = 2,
     max_cardinality: int = None,
-    include_distributions: set = set([]),
+    include_distributions: set = None,
     return_dataframe: bool = True,
 ):
     """
@@ -114,6 +118,8 @@ def generate_modelling_data(
         
         Attempt to model a situation in sports, where bookies odds are said to be the only and the best estimates of the winning probability.
     """
+    if include_distributions is None:
+        include_distributions = set([])
     if n_classes > 0:
         if n_informative > n_classes:
             raise ValueError(f"n_informative ({n_informative}) must be <= n_classes ({n_classes})")

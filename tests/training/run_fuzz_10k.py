@@ -7,10 +7,10 @@ seed, accumulate the JSONL rows into
 >= ``--target`` unique canonical combos or exhausted the seed budget.
 
 Background: the fuzz suite hits a native SIGSEGV after ~70-90 combos
-in a single pytest invocation (state accumulation — known issue
+in a single pytest invocation (state accumulation -- known issue
 documented in ``test_fuzz_suite.py``). Spawning a fresh subprocess
 per seed sidesteps this entirely: each subprocess gets a clean
-process image, so 150 combos × N seeds are fully exercised.
+process image, so 150 combos x N seeds are fully exercised.
 
 Usage (foreground for dev):
     python -m mlframe.tests.training.run_fuzz_10k --target 10000
@@ -47,8 +47,8 @@ def _count_unique_combos() -> int:
                 r = json.loads(line)
             except Exception:
                 continue
-            # Canonical key proxy — short_id is sha-prefixed over
-            # canonical_key, so same short_id ⇒ same canonical combo.
+            # Canonical key proxy -- short_id is sha-prefixed over
+            # canonical_key, so same short_id => same canonical combo.
             seen.add(r.get("short_id"))
     return len(seen)
 
@@ -78,7 +78,7 @@ def _file_size() -> int:
 
 
 def _all_fail_classes() -> set[str]:
-    """Every error_class ever seen across the JSONL — used to flag NEW
+    """Every error_class ever seen across the JSONL -- used to flag NEW
     classes that appear in a given batch."""
     classes: set[str] = set()
     if not RESULTS_LOG.exists():
@@ -145,7 +145,7 @@ def main() -> int:
     ap.add_argument("--target", type=int, default=10_000,
                     help="stop after this many unique canonical combos covered (default 10_000)")
     ap.add_argument("--max-seeds", type=int, default=200,
-                    help="hard cap on number of seeds to iterate (default 200 → 30k combo cap)")
+                    help="hard cap on number of seeds to iterate (default 200 -> 30k combo cap)")
     ap.add_argument("--seed-start", type=int, default=2026_04_22,
                     help="first master_seed to run (default 20260422)")
     ap.add_argument("--per-seed-timeout-s", type=int, default=1800,
@@ -173,14 +173,14 @@ def main() -> int:
         rc, tail = _run_one_seed(seed, args.per_seed_timeout_s)
         # Retry once on fast-fail: when pytest exits nonzero under
         # 120 s AND produced zero new combo rows, the cause is almost
-        # always a flaky import during collection (shap, transformers —
+        # always a flaky import during collection (shap, transformers --
         # seen 2026-04-23 on Windows in ~50% of subprocess spawns). A
         # fresh subprocess usually succeeds. Cap at one retry to avoid
         # burning wallclock on genuinely-broken seeds.
         dur = time.time() - t_seed
         if rc != 0 and dur < 120 and _file_size() == size_before:
             print(f"[driver]   fast-fail detected ({dur:.1f}s, no combos logged) "
-                  f"— retrying seed {seed} once.", flush=True)
+                  f"-- retrying seed {seed} once.", flush=True)
             rc, tail = _run_one_seed(seed, args.per_seed_timeout_s)
             dur = time.time() - t_seed
 
@@ -199,7 +199,7 @@ def main() -> int:
             print(f"[driver]   *** NEW FAIL CLASSES: {sorted(new_fail_classes)} ***", flush=True)
         if rc != 0:
             # Pytest non-zero is expected (fails emitted). Native SIGSEGV
-            # may leave rc=3221225477 or similar. Keep going — another
+            # may leave rc=3221225477 or similar. Keep going -- another
             # seed in a fresh process image will pick up.
             print(f"[driver]   (pytest rc={rc}; tail below)", flush=True)
             print("\n".join(tail.splitlines()[-15:]), flush=True)

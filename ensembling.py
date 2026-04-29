@@ -37,24 +37,24 @@ basic_features_names = get_basic_feature_names(
 
 
 # =============================================================================
-# Streaming-accumulator Protocol — 2026-04-24 Session 2
+# Streaming-accumulator Protocol -- 2026-04-24 Session 2
 # =============================================================================
 #
 # Pluggable interface for ensemble aggregation that consumes one (N, K)
 # probability matrix at a time, without materialising the full (M, N, K)
 # tensor. Today's `ensemble_probabilistic_predictions` uses materialised
-# `_preds_arr` (1 copy peak) — fine up to ~M=6, N=1M, K=5 (~240MB). For
+# `_preds_arr` (1 copy peak) -- fine up to ~M=6, N=1M, K=5 (~240MB). For
 # bigger frames (prod 9M-row), implementations of this Protocol drop the
 # peak to O(N*K) by streaming.
 #
 # Currently provided:
-# - `_WelfordAccumulator` — single-pass mean / variance via Welford. Used
+# - `_WelfordAccumulator` -- single-pass mean / variance via Welford. Used
 #   directly by future big-frame ensembling path.
 #
 # Planned:
-# - `_KahanTwoPassAccumulator` — exact mean+var via Kahan-2pass (best precision)
-# - `_PSquaredQuantileAccumulator` — fixed-memory streaming quantile for median
-# - `_TDigestAccumulator` — alternative quantile sketch
+# - `_KahanTwoPassAccumulator` -- exact mean+var via Kahan-2pass (best precision)
+# - `_PSquaredQuantileAccumulator` -- fixed-memory streaming quantile for median
+# - `_TDigestAccumulator` -- alternative quantile sketch
 #
 # See docs/NUMERICAL_STABILITY_REPORT.md for empirical comparison of
 # Welford / Kahan / naive on 7 synthetic distributions.
@@ -83,14 +83,14 @@ class _WelfordAccumulator(StreamingAccumulator):
     """Welford single-pass mean+var+min+max for (N, K) probability matrices.
 
     Extends the classical scalar Welford to elementwise (N, K) updates.
-    Memory: 4 persistent arrays of (N, K) — mean, M2, min, max.
+    Memory: 4 persistent arrays of (N, K) -- mean, M2, min, max.
 
     Numerical stability: same as scalar Welford (each delta = arr - mean
     operates on differences of similar magnitude to var, no catastrophic
     cancellation). Per benchmarks (docs/NUMERICAL_STABILITY_REPORT.md):
     Welford recovers 19-37x precision on long arrays of well-conditioned
     data; loses to Kahan-2pass on extreme cancellation cases (large mean +
-    smooth variance) — for those use ``_KahanTwoPassAccumulator`` (TBD).
+    smooth variance) -- for those use ``_KahanTwoPassAccumulator`` (TBD).
 
     Usage::
 
@@ -163,35 +163,35 @@ class _WelfordAccumulator(StreamingAccumulator):
         return out
 
 
-# P²-Quantile streaming sketch (Jain & Chlamtac 1985) DEFERRED.
+# P^2-Quantile streaming sketch (Jain & Chlamtac 1985) DEFERRED.
 #
 # Honest ROI assessment after prototyping:
 # - For mlframe ensembling (typical M=5-10 models per suite), exact
 #   materialised median via `np.quantile(preds, 0.5)` is already O(1)
 #   in wallclock (sort of 5-10 floats per cell is ~instant) and O(M*N*K)
 #   in memory (fine up to N*K*8*M < ~500MB, covers the typical case).
-# - P² gives O(1) memory and O(1) time per sample, useful for **big-M**
+# - P^2 gives O(1) memory and O(1) time per sample, useful for **big-M**
 #   streams (CV with 100+ folds, online feature quantiles over huge N)
 #   but NOT for the M=5-10 ensembling regime.
 # - Correct vectorisation over (N, K) cells requires per-cell state
 #   transitions that don't reduce to numpy broadcasts (each cell has
 #   its own marker trajectory + different bucket placement per update).
 #   A naive scalar-per-i vectorisation (attempted Session 4) gave ~100%
-#   relative error — the per-cell direction `d_sign` varies across cells,
+#   relative error -- the per-cell direction `d_sign` varies across cells,
 #   breaking the scalar marker-shift logic.
 #
 # Correct implementation paths:
 # - numba-jitted per-cell loop (O(1) per cell, full N*K parallel via
-#   @numba.njit(parallel=True)) — ~1h focused work + bench
-# - pure-python per-cell loop (O(N*K) Python overhead per push — slow)
-# - existing `crick.TDigest` / `pytdigest` C++ binding — external dep
+#   @numba.njit(parallel=True)) -- ~1h focused work + bench
+# - pure-python per-cell loop (O(N*K) Python overhead per push -- slow)
+# - existing `crick.TDigest` / `pytdigest` C++ binding -- external dep
 #
 # When the big-M case arises in prod, revisit. Leaving the Welford
 # primitive (this module's `_WelfordAccumulator`) as the streaming
 # aggregator for mean/std/min/max. Median in streaming mode raises
 # NotImplementedError in `ensemble_probabilistic_predictions_streaming`.
 #
-# Tracked as: TODO(session-5+) P²-Quantile numba-jit per-cell impl
+# Tracked as: TODO(session-5+) P^2-Quantile numba-jit per-cell impl
 
 # *****************************************************************************************************************************************************
 # Core ensembling functionality
@@ -308,23 +308,23 @@ def ensemble_probabilistic_predictions(
         Two threshold styles are supported and **applied with OR-semantics**
         (a member is excluded if ANY active threshold is exceeded):
 
-        1. ``max_mae`` / ``max_std`` — absolute thresholds in probability
-           units. Default 0.0 ⇒ disabled. Use when you know an upper-bound
+        1. ``max_mae`` / ``max_std`` -- absolute thresholds in probability
+           units. Default 0.0 => disabled. Use when you know an upper-bound
            on acceptable per-row drift in your domain (e.g. calibrated
            classifiers within 5 pp).
 
-        2. ``max_mae_relative`` / ``max_std_relative`` — multiples of the
-           **median MAE / STD** across all members. Default 2.5 ⇒ exclude a
-           member whose distance is more than 2.5× the typical member's.
+        2. ``max_mae_relative`` / ``max_std_relative`` -- multiples of the
+           **median MAE / STD** across all members. Default 2.5 => exclude a
+           member whose distance is more than 2.5x the typical member's.
            Default 0.0 disables.
 
            Adaptive to suite composition: a 6-tree-model suite (CB / XGB /
-           LGB × 2 weight schemas) where every member has MAE 0.025-0.054
+           LGB x 2 weight schemas) where every member has MAE 0.025-0.054
            against median had max_mae=0.04 absolute trigger excluding all
-           6 members (2026-04-24 prod log) — making the filter a no-op +
+           6 members (2026-04-24 prod log) -- making the filter a no-op +
            36 noisy WARN lines per ensemble. Relative threshold 2.5 keeps
            the typical members and excludes a true outlier (e.g. a single
-           MLP that's 5× off).
+           MLP that's 5x off).
 
     The previous defaults (``max_mae=0.04`` / ``max_std=0.06`` absolute) are
     kept reachable by passing them explicitly; defaults are now relative.
@@ -338,17 +338,17 @@ def ensemble_probabilistic_predictions(
 
     # 2026-04-24: dedup memory churn. Pre-2026-04-24, this function called
     # `np.array(preds)` ~9 times across the various ensemble methods,
-    # outlier-filter, and confidence paths — each call materialised a full
-    # (M, N, K) tensor, peaking RAM at ~9× the steady-state cost. On
-    # multi_5 × ensembles × 2-weight_schemas (M=6, N=600, K=5) the peak hit
+    # outlier-filter, and confidence paths -- each call materialised a full
+    # (M, N, K) tensor, peaking RAM at ~9x the steady-state cost. On
+    # multi_5 x ensembles x 2-weight_schemas (M=6, N=600, K=5) the peak hit
     # native C++ allocator's Win32 4GB ceiling and OOM'd. Materialising
-    # ONCE here eliminates that churn — full Welford-streaming refactor
+    # ONCE here eliminates that churn -- full Welford-streaming refactor
     # for the big-N case (N=9M+) is tracked as TODO below.
     #
     # TODO(future): For N*K*M*8 > EnsemblingConfig.quantile_budget_bytes,
     # switch to streaming Welford accumulators (mean/std/geomean via
-    # log-mean/M2) + P²-Quantile sketch for median/quantile aggregations.
-    # Estimated gain: ~5× peak-memory drop on prod-sized frames; not
+    # log-mean/M2) + P^2-Quantile sketch for median/quantile aggregations.
+    # Estimated gain: ~5x peak-memory drop on prod-sized frames; not
     # needed for fuzz-sized data.
     _preds_arr = np.asarray(preds, dtype=np.float64)
 
@@ -364,7 +364,7 @@ def ensemble_probabilistic_predictions(
         median_preds = np.quantile(_preds_arr, 0.5, axis=0)
 
         # Per-member distance summary (vectorised over all columns at once).
-        # Old code did a Python loop over columns; on 6-member × 1-column
+        # Old code did a Python loop over columns; on 6-member x 1-column
         # ensembles that's only 6 iterations, but on multi-output cases this
         # is cleaner and ~free.
         per_member_mae = np.empty(len(preds), dtype=np.float64)
@@ -421,7 +421,7 @@ def ensemble_probabilistic_predictions(
                 preds = [el for i, el in enumerate(preds) if i not in skipped_preds_indices]
                 if verbose:
                     print(f"Using {len(preds)} members of ensemble")
-                # Members were dropped — re-materialise the cached tensor
+                # Members were dropped -- re-materialise the cached tensor
                 # so downstream aggregations see only kept members.
                 _preds_arr = np.asarray(preds, dtype=np.float64)
             else:
@@ -435,7 +435,7 @@ def ensemble_probabilistic_predictions(
     if ensemble_method == "harm":
         # Harmonic mean: if any model predicts exactly 0, HM is defined as 0.
         # Plain ``1 / pred`` triggers RuntimeWarning ("divide by zero") and
-        # produces ``inf``, which ``1/mean(...)`` then maps back to 0 — correct
+        # produces ``inf``, which ``1/mean(...)`` then maps back to 0 -- correct
         # numerically but noisy in logs (observed 2026-04-23 prod run). Mask the
         # zeros explicitly so the common path stays warning-free.
         any_zero = (_preds_arr == 0).any(axis=0)
@@ -466,7 +466,7 @@ def ensemble_probabilistic_predictions(
         arith_mean = np.mean(_preds_arr, axis=0)
         n_replaced = np.sum(non_finite_mask)
         if verbose:
-            logger.info(f"{n_replaced} non-finite values replaced with arithmetic mean")
+            logger.info("%s non-finite values replaced with arithmetic mean", n_replaced)
         ensembled_predictions = np.where(non_finite_mask, arith_mean, ensembled_predictions)
 
     if ensure_prob_limits:
@@ -506,21 +506,21 @@ def ensemble_probabilistic_predictions_streaming(
     ensure_prob_limits: bool = True,
     verbose: bool = True,
 ) -> tuple:
-    """Streaming ensemble aggregation — one (N, K) at a time via
+    """Streaming ensemble aggregation -- one (N, K) at a time via
     ``_WelfordAccumulator``.
 
     Supports the moment-based methods that Welford / log-mean-of-log
     exactly accommodate:
-      - ``arithm`` — mean via Welford
-      - ``harm``   — harmonic mean via Welford on ``1/p``
-      - ``quad``   — quadratic mean via Welford on ``p^2``
-      - ``qube``   — cubic mean via Welford on ``p^3``
-      - ``geo``    — geometric mean via Welford on ``log(p)`` (1e-300 clip)
+      - ``arithm`` -- mean via Welford
+      - ``harm``   -- harmonic mean via Welford on ``1/p``
+      - ``quad``   -- quadratic mean via Welford on ``p^2``
+      - ``qube``   -- cubic mean via Welford on ``p^3``
+      - ``geo``    -- geometric mean via Welford on ``log(p)`` (1e-300 clip)
 
     Not supported here (require cross-member sort / quantile sketch):
-      - ``median`` — raises ``NotImplementedError``; use
+      - ``median`` -- raises ``NotImplementedError``; use
         ``ensemble_probabilistic_predictions`` (materialised) or wait for
-        Session-3 P²-Quantile accumulator.
+        Session-3 P^2-Quantile accumulator.
 
     Memory: O(N*K) for the single Welford instance; constant across M.
     Materialised path (used by ``ensemble_probabilistic_predictions``)
@@ -528,7 +528,7 @@ def ensemble_probabilistic_predictions_streaming(
     ~2.2GB peak.
 
     Outlier-member filter (cross-member distance to median) is not
-    applied in streaming mode — emits a WARN when ``len(preds) > 2`` so
+    applied in streaming mode -- emits a WARN when ``len(preds) > 2`` so
     the caller knows. For small-M / small-N use cases, call the
     materialised path instead.
 
@@ -547,7 +547,7 @@ def ensemble_probabilistic_predictions_streaming(
     if ensemble_method == "median":
         raise NotImplementedError(
             "ensemble_probabilistic_predictions_streaming: 'median' requires "
-            "a cross-member quantile sketch (e.g. P²-Quantile) not yet "
+            "a cross-member quantile sketch (e.g. P^2-Quantile) not yet "
             "available. Use ensemble_probabilistic_predictions (materialised) "
             "or pick a moment-based method (arithm/harm/quad/qube/geo)."
         )
@@ -568,7 +568,7 @@ def ensemble_probabilistic_predictions_streaming(
     first = np.asarray(preds[0])
     shape = first.shape if first.ndim == 2 else (first.shape[0], 1)
 
-    # Primary aggregator — the ensemble method's target statistic
+    # Primary aggregator -- the ensemble method's target statistic
     primary_acc = _WelfordAccumulator(shape=shape)
     # Also accumulate raw preds mean + std for uncertainty reporting
     raw_acc = _WelfordAccumulator(shape=shape)
@@ -617,7 +617,7 @@ def ensemble_probabilistic_predictions_streaming(
         arith_mean = raw_acc.mean
         n_replaced = int(np.sum(non_finite_mask))
         if verbose:
-            logger.info(f"{n_replaced} non-finite values replaced with arithmetic mean")
+            logger.info("%s non-finite values replaced with arithmetic mean", n_replaced)
         ensembled_predictions = np.where(non_finite_mask, arith_mean, ensembled_predictions)
 
     if ensure_prob_limits:
@@ -655,11 +655,11 @@ def build_predictive_kwargs(train_data, test_data, val_data, is_regression: bool
     """
 
     def process(data, flatten=False):
-        # Case 1: None → None
+        # Case 1: None -> None
         if data is None:
             return None
 
-        # Case 2: Tuple or list → try to unpack (preds, indices)
+        # Case 2: Tuple or list -> try to unpack (preds, indices)
         if isinstance(data, (tuple, list)):
             if len(data) == 2:
                 preds, indices = data
@@ -804,7 +804,7 @@ def _process_single_ensemble_method(
     # ``drop_columns=[]`` below then collides with the ``**kwargs_copy``
     # splat two positions later, raising
     # ``TypeError: dict() got multiple values for keyword argument 'drop_columns'``.
-    # Pop the caller's value — the ensemble scorer intentionally sets
+    # Pop the caller's value -- the ensemble scorer intentionally sets
     # ``drop_columns=[]`` to avoid dropping anything its sub-models
     # already trained on (columns already stripped upstream).
     kwargs_copy.pop("drop_columns", None)
@@ -818,7 +818,7 @@ def _process_single_ensemble_method(
     #     }
     # Suite threads these into common_params so per-model pre_pipeline
     # builders pick them up. But the ensemble-scoring helper calls
-    # ``_build_configs_from_params(**kwargs_copy)`` — a function with a
+    # ``_build_configs_from_params(**kwargs_copy)`` -- a function with a
     # declared signature that raises TypeError on any kwarg it doesn't
     # know about. Pop pipeline-component kwargs here so the ensemble
     # path doesn't leak them into the config builder. This isn't
@@ -904,7 +904,7 @@ def _process_single_ensemble_method(
 
         # Report the confidence-filter coverage right in the model name so
         # log-grep immediately shows that e.g. "Conf Ensemble ... [VAL
-        # COV=10%]" is computed on just 10 % of VAL rows — previously the
+        # COV=10%]" is computed on just 10 % of VAL rows -- previously the
         # 99.77 % accuracy number in the Conf Ensemble block was easy to
         # misread as a headline, because coverage only appeared inside the
         # calibration subsection as ``COV=XX%`` (2026-04-23 review finding).
@@ -920,7 +920,7 @@ def _process_single_ensemble_method(
                 _cov_src = (_label, 100.0 * len(_conf) / len(_full))
                 break
         # Trailing space so the downstream concat ``f"...{ensemble_name}{_cov_tag}"``
-        # doesn't slam the next token onto the closing bracket — the 2026-04-24
+        # doesn't slam the next token onto the closing bracket -- the 2026-04-24
         # prod log showed ``[VAL COV=10%]notext prod_jobsdetails ...`` (no space
         # before "notext"). Empty tag stays empty (no double-space when off).
         _cov_tag = f" [{_cov_src[0]} COV={_cov_src[1]:.0f}%] " if _cov_src else ""
@@ -974,10 +974,10 @@ def score_ensemble(
     target_label_encoder: object = None,
     # Outlier-member-filter thresholds. The historical absolute defaults
     # (``max_mae=0.05``, ``max_std=0.06``) excluded all 6 members of a
-    # uniform tree-model suite (CB / XGB / LGB × 2 weight schemas) on
-    # the 2026-04-24 prod log — turning the filter into a no-op + 36
+    # uniform tree-model suite (CB / XGB / LGB x 2 weight schemas) on
+    # the 2026-04-24 prod log -- turning the filter into a no-op + 36
     # noisy WARN lines per ensemble. Defaults flipped to relative
-    # (``2.5×median``); pass non-zero ``max_mae`` / ``max_std`` to keep
+    # (``2.5xmedian``); pass non-zero ``max_mae`` / ``max_std`` to keep
     # the legacy behaviour.
     max_mae: float = 0.0,
     max_std: float = 0.0,
@@ -1087,14 +1087,14 @@ def score_ensemble(
                 pickle.dumps((custom_ice_metric, custom_rice_metric, kwargs))
             except (pickle.PicklingError, AttributeError, TypeError) as exc:
                 logger.warning(
-                    "ensembling: falling back to sequential — one of "
+                    "ensembling: falling back to sequential -- one of "
                     "custom_ice_metric / custom_rice_metric / kwargs is not picklable: %s",
                     exc,
                 )
                 effective_n_jobs = 1
 
         if len(ensembling_methods) > 1 and effective_n_jobs > 1:
-            # Parallel processing — loky + tiny max_nbytes keeps arrays in-memory (no spill) per pre-existing tuning
+            # Parallel processing -- loky + tiny max_nbytes keeps arrays in-memory (no spill) per pre-existing tuning
             results = parallel_run(
                 [delayed(_process_single_ensemble_method)(ensemble_method=method, **common_params) for method in ensembling_methods],
                 n_jobs=effective_n_jobs,

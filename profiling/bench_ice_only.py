@@ -46,7 +46,7 @@ def fast_ice_only(
 ) -> float:
     """Proposed lite path: compute ICE without log_loss/PR/F1/title.
 
-    Matches fast_calibration_report's ICE computation exactly — same
+    Matches fast_calibration_report's ICE computation exactly -- same
     helpers, same ICE formula, same kwargs plumbing.
     """
     if len(y_true) == 0:
@@ -81,7 +81,7 @@ def fast_ice_only(
 
 def bench(n_samples: int, n_iters: int) -> None:
     rng = np.random.default_rng(42)
-    # Imbalanced binary — closer to prod fairness-bin data
+    # Imbalanced binary -- closer to prod fairness-bin data
     y_true = (rng.random(n_samples) < 0.3).astype(np.int8)
     y_pred = np.clip(
         0.3 + 0.25 * y_true + rng.normal(0, 0.2, n_samples), 0.01, 0.99
@@ -116,10 +116,10 @@ def bench(n_samples: int, n_iters: int) -> None:
     drift = abs(ice_full_last - ice_lite_last)
     print(f"  full: {t_full*1000:7.1f} ms ({t_full/n_iters*1e6:6.1f} µs/call)")
     print(f"  lite: {t_lite*1000:7.1f} ms ({t_lite/n_iters*1e6:6.1f} µs/call)")
-    print(f"  speedup: {t_full/t_lite:.2f}×")
+    print(f"  speedup: {t_full/t_lite:.2f}x")
     print(f"  ICE match:  full={ice_full_last:.10f}  lite={ice_lite_last:.10f}  drift={drift:.2e}")
-    assert drift < 1e-9, f"ICE value drifted by {drift:.2e} — lite path is NOT equivalent"
-    print("  ✓ equivalence asserted (drift < 1e-9)")
+    assert drift < 1e-9, f"ICE value drifted by {drift:.2e} -- lite path is NOT equivalent"
+    print("  [v] equivalence asserted (drift < 1e-9)")
 
 
 if __name__ == "__main__":

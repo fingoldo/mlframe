@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, ConfigDict, model_validator, field_valida
 
 
 # =============================================================================
-# Preprocessing extensions (Audit #02 phase 3) — single shared pipeline surface.
+# Preprocessing extensions (Audit #02 phase 3) -- single shared pipeline surface.
 #
 # Wired into `fit_and_transform_pipeline` so every model in the suite reuses one
 # transformed frame. A None config preserves the existing polars-native fastpath
@@ -45,7 +45,7 @@ DEFAULT_RFECV_CV_SPLITS = 4
 DEFAULT_RFECV_MAX_NOIMPROVING_ITERS = 15
 """Default max non-improving iterations for RFECV early stopping."""
 
-VALID_MODEL_TYPES = {"cb", "lgb", "xgb", "mlp", "ngb", "linear", "ridge", "lasso", "elasticnet", "huber", "ransac", "sgd"}
+VALID_MODEL_TYPES = {"cb", "lgb", "xgb", "hgb", "mlp", "ngb", "linear", "ridge", "lasso", "elasticnet", "huber", "ransac", "sgd"}
 """Valid model type identifiers for mlframe_models parameter."""
 
 VALID_LINEAR_MODEL_TYPES = {"linear", "ridge", "lasso", "elasticnet", "huber", "ransac", "sgd"}
@@ -168,7 +168,7 @@ class BaseConfig(BaseModel):
         if unknown:
             import logging as _logging
             _logging.getLogger(__name__).warning(
-                "%s received unknown field(s) %s — these are accepted (extra='allow') "
+                "%s received unknown field(s) %s -- these are accepted (extra='allow') "
                 "but NOT declared on the model. If this is a typo for a real field, "
                 "the value will have no effect. Known pass-through extras: %s",
                 type(self).__name__, sorted(unknown), sorted(known) or "(none declared)",
@@ -200,7 +200,7 @@ class PreprocessingConfig(BaseConfig):
     # 2026-04-21: promoted from implicit always-on behaviour to an
     # explicit toggle. Default True preserves the pre-flag behaviour
     # (constant columns dropped during preprocess_dataframe). Set False
-    # to keep constant columns — useful for downstream consumers that
+    # to keep constant columns -- useful for downstream consumers that
     # rely on a fixed column layout across train/val/test splits.
     remove_constant_columns: bool = True
     n_rows: Optional[int] = Field(
@@ -258,7 +258,7 @@ class TrainingSplitConfig(BaseConfig):
         (default: "forward"). "forward" = conventional [train][val][test];
         "backward" = [val][train][test] ("First test then train", Mazzanti
         2024). Backward testing gives a better proxy of deployment error
-        under drift but conflicts with recency weighting — see the field
+        under drift but conflicts with recency weighting -- see the field
         comments below for the full trade-off analysis.
 
     Raises
@@ -296,20 +296,20 @@ class TrainingSplitConfig(BaseConfig):
     wholeday_splitting: bool = True
     random_seed: int = DEFAULT_RANDOM_SEED
 
-    # "First test then train" — Mazzanti 2024 (Medium, 58-dataset benchmark).
+    # "First test then train" -- Mazzanti 2024 (Medium, 58-dataset benchmark).
     # When ``val_placement="backward"`` with time-indexed data, val is placed
     # BEFORE train on the timeline:
     #
-    #   forward  (default):  [ train ] [ val ]   [ test ]   ← conventional
-    #   backward          :  [ val   ] [ train ] [ test ]   ← Mazzanti
+    #   forward  (default):  [ train ] [ val ]   [ test ]   <- conventional
+    #   backward          :  [ val   ] [ train ] [ test ]   <- Mazzanti
     #
-    # Rationale: in forward-testing the val→train temporal gap is ~0 while
-    # the train→prod gap is large (weeks / months), so val-metric is sampled
+    # Rationale: in forward-testing the val->train temporal gap is ~0 while
+    # the train->prod gap is large (weeks / months), so val-metric is sampled
     # from the "near" edge of the drift trajectory and overstates prod
     # performance. The 2026-04-23 prod log on jobsdetails showed this
-    # vividly — VAL ROC AUC 0.999 vs TEST 0.71. Backward-testing mirrors
-    # the val→train gap against the train→prod gap, so val-metric is
-    # sampled from the same drift-distance regime as deployment — an
+    # vividly -- VAL ROC AUC 0.999 vs TEST 0.71. Backward-testing mirrors
+    # the val->train gap against the train->prod gap, so val-metric is
+    # sampled from the same drift-distance regime as deployment -- an
     # empirically better proxy (38 % vs 51 % mean deviation over 58
     # datasets in Mazzanti's benchmark).
     #
@@ -391,7 +391,7 @@ class PreprocessingExtensionsConfig(BaseConfig):
 
     When ``None`` is passed to ``train_mlframe_models_suite``, no extension runs
     and the Polars-native fastpath is preserved. Setting any field here
-    activates the sklearn bridge inside ``fit_and_transform_pipeline`` — even
+    activates the sklearn bridge inside ``fit_and_transform_pipeline`` -- even
     tree models will then consume the shared transformed frame.
 
     Order of application (each step is optional):
@@ -399,8 +399,8 @@ class PreprocessingExtensionsConfig(BaseConfig):
       2. Scaler (overrides the Polars-ds scaler when set).
       3. Binarizer OR KBinsDiscretizer (mutually exclusive).
       4. PolynomialFeatures (guarded by ``memory_safety_max_features``).
-      5. Non-linear feature map (RBFSampler / Nystroem / …).
-      6. Dim reducer (PCA / UMAP / …).
+      5. Non-linear feature map (RBFSampler / Nystroem / ...).
+      6. Dim reducer (PCA / UMAP / ...).
     """
 
     scaler: Optional[Literal[
@@ -473,14 +473,14 @@ class FeatureTypesConfig(BaseConfig):
         pipeline is the training bottleneck (e.g. ``skills_text`` with 2M
         unique values) and the user prefers cat-feature treatment across
         the whole suite. Same caveat as other flags: changing this between
-        runs invalidates cached models — see Fix 8 schema fingerprint.
+        runs invalidates cached models -- see Fix 8 schema fingerprint.
     cat_text_cardinality_threshold : int
         String columns with ``n_unique <= threshold`` are treated as categorical
         (existing pipeline). Columns with ``n_unique > threshold`` are treated
         as text features. Only applies when ``auto_detect_feature_types=True``
         (default: 300).
 
-        Default raised from 50 → 300 on 2026-04-19 after a prod incident
+        Default raised from 50 -> 300 on 2026-04-19 after a prod incident
         (round 12): two columns with ``n_unique`` just above the old
         50 floor (``job_post_source:71``, ``_raw_countries:2196``) got
         promoted to text_features, crashing CatBoost's TF-IDF estimator
@@ -520,7 +520,7 @@ class FeatureTypesConfig(BaseConfig):
     # When False (default, current behaviour), any text-like column
     # (pl.String / pl.Utf8 / pl.Categorical / pl.Enum / pandas object|
     # string|category) with n_unique > threshold gets auto-promoted to
-    # text_features — even if the user explicitly cast it to
+    # text_features -- even if the user explicitly cast it to
     # pl.Categorical / pl.Enum / pd.Categorical. When True, a column
     # whose incoming dtype ALREADY encodes a categorical intent
     # (pl.Categorical, pl.Enum, pandas ``category``) is treated as
@@ -911,7 +911,7 @@ class ModelHyperparamsConfig(BaseConfig):
     })
 
     has_time: bool = False
-    # Range validators added 2026-04-19 — previously any garbage
+    # Range validators added 2026-04-19 -- previously any garbage
     # (learning_rate=-0.1, iterations=0, etc.) propagated silently to the
     # tree backends and surfaced as confusing errors much later.
     learning_rate: float = Field(default=0.2, gt=0.0, le=1.0)
@@ -978,7 +978,7 @@ class TrainingBehaviorConfig(BaseConfig):
         Use FLAML zero-shot models for XGBoost/LightGBM.
     enable_crash_reporting : bool
         Default True. At suite start, enable faulthandler (SIGSEGV /
-        SIGABRT → Python traceback) and on Windows suppress the
+        SIGABRT -> Python traceback) and on Windows suppress the
         "Python has stopped working" WER popup so Jupyter kernels exit
         cleanly instead of hanging. No-op if already enabled in the
         process.
@@ -988,7 +988,7 @@ class TrainingBehaviorConfig(BaseConfig):
         the suite with the next model/weighting instead of aborting
         the whole run. Crashes that kill the process at the OS level
         (access violation in a worker thread that faulthandler can't
-        catch) will still terminate — for true isolation use subprocess
+        catch) will still terminate -- for true isolation use subprocess
         training, which this flag does NOT provide.
     """
 
@@ -1010,7 +1010,7 @@ class TrainingBehaviorConfig(BaseConfig):
     cb_fit_params: Optional[Dict[str, Any]] = None
     use_flaml_zeroshot: bool = False
     # Default True: faulthandler + Windows WER suppression are pure
-    # diagnostics — they don't change training behavior, only replace
+    # diagnostics -- they don't change training behavior, only replace
     # the "Python has stopped working" modal with a Python traceback.
     # Users who rely on the WER popup (rare) can opt out.
     enable_crash_reporting: bool = True
@@ -1022,7 +1022,7 @@ class TrainingBehaviorConfig(BaseConfig):
     # model training. Mechanism not fully understood but empirically
     # prevents a silent process kill on Windows when XGB constructs
     # val IterativeDMatrix with ref=train on large frames (7.3M+ rows,
-    # 15+ cat features) — observed 2026-04-20 on prod_jobsdetails.
+    # 15+ cat features) -- observed 2026-04-20 on prod_jobsdetails.
     # Theory: pl.Categorical assigns physical codes per-Series
     # (order-of-first-occurrence), so the same string can have
     # different physical codes in train vs val vs test. XGB's native
@@ -1055,10 +1055,10 @@ class MultilabelDispatchConfig(BaseConfig):
 
     Strategy choices
     ----------------
-    auto      : let the strategy pick — CatBoost uses native MultiLogloss,
+    auto      : let the strategy pick -- CatBoost uses native MultiLogloss,
                 everyone else uses ``MultiOutputClassifier(estimator)`` (OvR)
     wrapper   : force ``MultiOutputClassifier(estimator)`` even on CB
-                (degrades CB native to OvR — useful for A/B vs native)
+                (degrades CB native to OvR -- useful for A/B vs native)
     chain     : ``_ChainEnsemble`` of ``n_chains`` random-ordered
                 ``ClassifierChain(estimator, cv=cv)`` instances; averages
                 ``predict_proba`` outputs. Empirically +2-5% Jaccard on
@@ -1073,13 +1073,13 @@ class MultilabelDispatchConfig(BaseConfig):
     chain_order_strategy: str = "random"  # Literal["random","by_frequency","user"]
     chain_order_user: Optional[List[List[int]]] = None  # one ordering per chain
     chain_seeds: Optional[List[int]] = None
-    cv: Optional[int] = 5  # ClassifierChain.cv — 5 cross-validates chain features
+    cv: Optional[int] = 5  # ClassifierChain.cv -- 5 cross-validates chain features
     per_label_thresholds: Optional[List[float]] = None  # decision-rule thresholds
     wrapper_n_jobs: Union[int, str] = "auto"  # MultiOutputClassifier n_jobs
     allow_uncalibrated_multi: bool = False  # downgrade post-hoc calib skip from raise to warn
     # 2026-04-24 Session-2: opt-in for native XGB multilabel (multi_strategy=
     # 'multi_output_tree' + objective='binary:logistic'). XGB 3.x ships this
-    # as experimental — vector-output trees share structure across labels
+    # as experimental -- vector-output trees share structure across labels
     # (smaller model, integrated GPU/SHAP, faster inference). Marked WIP
     # by upstream until v3.1; default False uses MultiOutputClassifier
     # wrapper. Set True to opt in (only takes effect with strategy='native'

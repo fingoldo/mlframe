@@ -944,22 +944,22 @@ bNormalization=False,bBinarization=False,bKBinsDiscretization=False,
         ####################################################################################################################################        
         #Just want to get a comprehensive cross-validation score...
         ####################################################################################################################################                        
-        logger.debug("%s Starting Deep Cross-Validation of %s" % (startTime,type(base_model).__name__))
+        logger.debug("%s Starting Deep Cross-Validation of %s", startTime,type(base_model).__name__)
         cvl = cross_validate(grid_search,x_train,y_train,groups=groups,cv=outer_cv,scoring=scoring,return_train_score=False) #n_jobs=nJobs НЕ СТАВИМ!!
         cv_scores=cvl['test_score']
-        logger.debug("Deep Cross-Validation ROC-AUC of gridsearch: %0.3f \u00B1 %0.3f (%s))" % (cv_scores.mean(),cv_scores.std(),cv_scores))
+        logger.debug("Deep Cross-Validation ROC-AUC of gridsearch: %0.3f \u00B1 %0.3f (%s))", cv_scores.mean(),cv_scores.std(),cv_scores)
     else:
         ####################################################################################################################################        
         #Need to find best model
         ####################################################################################################################################                                
-        logger.info("%s Starting Grid Search of %s" % (startTime,type(base_model).__name__))            
+        logger.info("%s Starting Grid Search of %s", startTime,type(base_model).__name__)
         
         grid_search.fit(x_train, y_train, groups=groups)
         
         cv_perf=grid_search.best_score_
         if scoring._sign==-1:cv_perf=-cv_perf        
         
-        logger.debug("Best avg. CV score: %s" % cv_perf)
+        logger.debug("Best avg. CV score: %s", cv_perf)
         logger.debug("Best_estimator:" + str(grid_search.best_estimator_))
         
         ####################################################################################################################################        
@@ -1137,11 +1137,11 @@ def AssembleTrainingDataForLevel(currentLevelFolder,preprocessorScriptFile,bUseB
                 np.savetxt(currentLevelFolder+'\\'+'train_'+str(nextStackLevelDataPercent)+'.idx',trainIndices,fmt='%i')         
             if len(y)>0:            
                 np.savetxt(currentLevelFolder+'\\'+'testY_'+str(nextStackLevelDataPercent)+'.dat',y[testIndices]) 
-            logger.debug("Train/Test indices [%d/%d] were created and saved" % (len(trainIndices),len(testIndices)))
+            logger.debug("Train/Test indices [%d/%d] were created and saved", len(trainIndices),len(testIndices))
         else:
             #all indices were loaded and now need to make sure they fit the data
             assert len(trainIndices)+len(testIndices)==len(x)
-            logger.debug("Train/Test indices [%d/%d] were loaded and tested" % (len(trainIndices),len(testIndices)))
+            logger.debug("Train/Test indices [%d/%d] were loaded and tested", len(trainIndices),len(testIndices))
         test_size=len(testIndices)
         x_train,x_test=x[trainIndices],x[testIndices]
         y_train,y_test=y[trainIndices],y[testIndices]

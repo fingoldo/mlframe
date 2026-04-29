@@ -1,0 +1,547 @@
+{
+  "AutoMLConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "CatBoostCallback": {
+    "kind": "class",
+    "module": "mlframe.training.helpers",
+    "mro": [
+      "mlframe.training.helpers.UniversalCallback",
+      "builtins.object"
+    ]
+  },
+  "ConfidenceAnalysisConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "DataConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "EnsemblingConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "FairnessConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "FeatureImportanceConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "FeatureSelectionConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "FeatureTypesConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "LINEAR_MODEL_TYPES": {
+    "kind": "value",
+    "type": "set"
+  },
+  "LightGBMCallback": {
+    "kind": "class",
+    "module": "mlframe.training.helpers",
+    "mro": [
+      "mlframe.training.helpers.UniversalCallback",
+      "builtins.object"
+    ]
+  },
+  "LinearModelConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.ModelConfig",
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "MLPConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.ModelConfig",
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "MetricsConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "ModelHyperparamsConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "MultilabelDispatchConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "NGBConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.ModelConfig",
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "NamingConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "OutlierDetectionConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "OutputConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "PULearningWrapper": {
+    "kind": "class",
+    "module": "mlframe.training.pu_learning",
+    "mro": [
+      "sklearn.base.BaseEstimator",
+      "sklearn.utils._repr_html.base.ReprHTMLMixin",
+      "sklearn.utils._repr_html.base._HTMLDocumentationLinkMixin",
+      "sklearn.utils._metadata_requests._MetadataRequester",
+      "sklearn.base.ClassifierMixin",
+      "builtins.object"
+    ]
+  },
+  "PolarsPipelineConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "PredictionsContainer": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "PreprocessingConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "PreprocessingExtensionsConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "ReportingConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "TargetTypes": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "enum.StrEnum",
+      "builtins.str",
+      "enum.ReprEnum",
+      "enum.Enum",
+      "builtins.object"
+    ]
+  },
+  "TrainingBehaviorConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "TrainingConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "TrainingControlConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "TrainingSplitConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "TreeModelConfig": {
+    "kind": "class",
+    "module": "mlframe.training.configs",
+    "mro": [
+      "mlframe.training.configs.ModelConfig",
+      "mlframe.training.configs.BaseConfig",
+      "pydantic.main.BaseModel",
+      "builtins.object"
+    ]
+  },
+  "XGBoostCallback": {
+    "kind": "class",
+    "module": "mlframe.training.helpers",
+    "mro": [
+      "mlframe.training.helpers.UniversalCallback",
+      "xgboost.callback.TrainingCallback",
+      "abc.ABC",
+      "builtins.object"
+    ]
+  },
+  "canonical_predict_proba_shape": {
+    "kind": "callable",
+    "module": "mlframe.training.helpers",
+    "signature": "(probs:any:0, classes_:any:1)"
+  },
+  "clean_ram_and_gpu": {
+    "kind": "callable",
+    "module": "mlframe.training.utils",
+    "signature": "(verbose:any:1)"
+  },
+  "compute_label_distribution_drift": {
+    "kind": "callable",
+    "module": "mlframe.training.drift_report",
+    "signature": "(train_target:any:0, val_target:any:0, test_target:any:0, target_type:any:0, warn_threshold_pp:kw:1, regression_mean_z_threshold:kw:1, multi_warn_threshold_pp:kw:1)"
+  },
+  "config_from_dict": {
+    "kind": "callable",
+    "module": "mlframe.training.configs",
+    "signature": "(config_class:any:0, params:any:0)"
+  },
+  "configure_training_params": {
+    "kind": "callable",
+    "module": "mlframe.training.trainer",
+    "signature": "(df:any:1, train_df:any:1, test_df:any:1, val_df:any:1, target:any:1, target_label_encoder:any:1, train_target:any:1, test_target:any:1, val_target:any:1, train_idx:any:1, val_idx:any:1, test_idx:any:1, cat_features:any:1, text_features:any:1, embedding_features:any:1, fairness_features:any:1, cont_nbins:any:1, fairness_min_pop_cat_thresh:any:1, use_robust_eval_metric:any:1, sample_weight:any:1, prefer_gpu_configs:any:1, nbins:any:1, use_regression:any:1, verbose:any:1, rfecv_model_verbose:any:1, prefer_cpu_for_lightgbm:any:1, prefer_cpu_for_xgboost:any:1, xgboost_verbose:any:1, cb_fit_params:any:1, prefer_calibrated_classifiers:any:1, default_regression_scoring:any:1, default_classification_scoring:any:1, train_details:any:1, val_details:any:1, test_details:any:1, group_ids:any:1, model_name:any:1, common_params:any:1, config_params:any:1, metamodel_func:any:1, use_flaml_zeroshot:any:1, _precomputed_fairness_subgroups:any:1, mlframe_models:any:1, linear_model_config:any:1, callback_params:any:1, train_df_size_bytes:any:1, val_df_size_bytes:any:1, target_type:any:1, n_classes:any:1, multilabel_dispatch_config:any:1)"
+  },
+  "create_linear_model": {
+    "kind": "callable",
+    "module": "mlframe.training.models",
+    "signature": "(model_type:any:0, config:any:0, use_regression:any:1)"
+  },
+  "create_polarsds_pipeline": {
+    "kind": "callable",
+    "module": "mlframe.training.pipeline",
+    "signature": "(train_df:any:0, config:any:0, pipeline_name:any:1, verbose:any:1, exclude_from_encoding:any:1)"
+  },
+  "create_split_dataframes": {
+    "kind": "callable",
+    "module": "mlframe.training.preprocessing",
+    "signature": "(df:any:0, train_idx:any:0, val_idx:any:0, test_idx:any:0)"
+  },
+  "drop_columns_from_dataframe": {
+    "kind": "callable",
+    "module": "mlframe.training.utils",
+    "signature": "(df:any:0, additional_columns_to_drop:any:1, config_drop_columns:any:1, verbose:any:1)"
+  },
+  "estimate_c_from_unbiased_positives": {
+    "kind": "callable",
+    "module": "mlframe.training.pu_learning",
+    "signature": "(proxy_probs:any:0, method:any:1)"
+  },
+  "estimate_df_size_mb": {
+    "kind": "callable",
+    "module": "mlframe.training.utils",
+    "signature": "(df:any:0)"
+  },
+  "evaluate_model": {
+    "kind": "callable",
+    "module": "mlframe.training.evaluation",
+    "signature": "(model:any:0, model_name:any:0, targets:any:0, columns:any:0, preds:any:1, probs:any:1, df:any:1, show_fi:any:1, verbose:any:1, kwargs:**kw:0)"
+  },
+  "filter_existing": {
+    "kind": "callable",
+    "module": "mlframe.training.utils",
+    "signature": "(df:any:0, cols:any:0)"
+  },
+  "fit_and_transform_pipeline": {
+    "kind": "callable",
+    "module": "mlframe.training.pipeline",
+    "signature": "(train_df:any:0, val_df:any:0, test_df:any:0, config:any:0, ensure_float32:any:1, verbose:any:1, text_features:any:1, embedding_features:any:1)"
+  },
+  "format_drift_report": {
+    "kind": "callable",
+    "module": "mlframe.training.drift_report",
+    "signature": "(report:any:0, target_name:any:1)"
+  },
+  "get_categorical_columns": {
+    "kind": "callable",
+    "module": "mlframe.training.utils",
+    "signature": "(df:any:0, include_string:any:1)"
+  },
+  "get_numeric_columns": {
+    "kind": "callable",
+    "module": "mlframe.training.utils",
+    "signature": "(df:any:0)"
+  },
+  "get_pandas_view_of_polars_df": {
+    "kind": "callable",
+    "module": "mlframe.training.utils",
+    "signature": "(df:any:0, self_destruct:any:1, log_threshold_seconds:any:1)"
+  },
+  "get_process_rss_mb": {
+    "kind": "callable",
+    "module": "mlframe.training.utils",
+    "signature": "()"
+  },
+  "get_training_configs": {
+    "kind": "callable",
+    "module": "mlframe.training.helpers",
+    "signature": "(iterations:any:1, early_stopping_rounds:any:1, validation_fraction:any:1, use_explicit_early_stopping:any:1, has_time:any:1, has_gpu:any:1, subgroups:any:1, learning_rate:any:1, def_regr_metric:any:1, def_classif_metric:any:1, target_type:any:1, n_classes:any:1, catboost_custom_classif_metrics:any:1, catboost_custom_regr_metrics:any:1, random_seed:any:1, verbose:any:1, method:any:1, mae_weight:any:1, std_weight:any:1, roc_auc_weight:any:1, pr_auc_weight:any:1, brier_loss_weight:any:1, min_roc_auc:any:1, roc_auc_penalty:any:1, use_weighted_calibration:any:1, weight_by_class_npositives:any:1, nbins:any:1, robustness_num_ts_splits:any:1, robustness_std_coeff:any:1, robustness_greater_is_better:any:1, cb_kwargs:any:1, hgb_kwargs:any:1, lgb_kwargs:any:1, xgb_kwargs:any:1, mlp_kwargs:any:1, ngb_kwargs:any:1, rfecv_kwargs:any:1)"
+  },
+  "get_trainset_features_stats": {
+    "kind": "callable",
+    "module": "mlframe.training.helpers",
+    "signature": "(train_df:any:0, max_ncats_to_track:any:1)"
+  },
+  "get_trainset_features_stats_polars": {
+    "kind": "callable",
+    "module": "mlframe.training.helpers",
+    "signature": "(train_df:any:0, max_ncats_to_track:any:1)"
+  },
+  "is_linear_model": {
+    "kind": "callable",
+    "module": "mlframe.training.models",
+    "signature": "(model_name:any:0)"
+  },
+  "is_neural_model": {
+    "kind": "callable",
+    "module": "mlframe.training.models",
+    "signature": "(model_name:any:0)"
+  },
+  "is_tree_model": {
+    "kind": "callable",
+    "module": "mlframe.training.models",
+    "signature": "(model_name:any:0)"
+  },
+  "load_and_prepare_dataframe": {
+    "kind": "callable",
+    "module": "mlframe.training.preprocessing",
+    "signature": "(df:any:0, config:any:0, verbose:any:1)"
+  },
+  "load_mlframe_model": {
+    "kind": "callable",
+    "module": "mlframe.training.io",
+    "signature": "(file:any:0, safe:any:1)"
+  },
+  "log_phase": {
+    "kind": "callable",
+    "module": "mlframe.training.utils",
+    "signature": "(msg:any:0, n:any:1)"
+  },
+  "log_ram_usage": {
+    "kind": "callable",
+    "module": "mlframe.training.utils",
+    "signature": "()"
+  },
+  "make_train_test_split": {
+    "kind": "callable",
+    "module": "mlframe.training.splitting",
+    "signature": "(df:any:0, test_size:any:1, val_size:any:1, shuffle_val:any:1, shuffle_test:any:1, val_sequential_fraction:any:1, test_sequential_fraction:any:1, trainset_aging_limit:any:1, timestamps:any:1, wholeday_splitting:any:1, random_seed:any:1, val_placement:any:1, stratify_y:any:1)"
+  },
+  "maybe_clean_ram_and_gpu": {
+    "kind": "callable",
+    "module": "mlframe.training.utils",
+    "signature": "(baseline_rss_mb:any:0, df_size_mb:any:0, verbose:any:1, reason:any:1)"
+  },
+  "parse_catboost_devices": {
+    "kind": "callable",
+    "module": "mlframe.training.helpers",
+    "signature": "(devices:any:0, all_gpus:any:1)"
+  },
+  "predict_from_probs": {
+    "kind": "callable",
+    "module": "mlframe.training.helpers",
+    "signature": "(probs_NK:any:0, target_type:any:0, classes_:any:1, threshold:any:1)"
+  },
+  "prepare_df_for_catboost": {
+    "kind": "callable",
+    "module": "mlframe.training.pipeline",
+    "signature": "(df:any:0, cat_features:any:0)"
+  },
+  "preprocess_dataframe": {
+    "kind": "callable",
+    "module": "mlframe.training.preprocessing",
+    "signature": "(df:any:0, config:any:0, verbose:any:1)"
+  },
+  "process_infinities": {
+    "kind": "callable",
+    "module": "mlframe.training.utils",
+    "signature": "(df:any:0, fill_value:any:1, verbose:any:1)"
+  },
+  "process_model": {
+    "kind": "callable",
+    "module": "mlframe.training.train_eval",
+    "signature": "(model_file:any:0, model_name:any:0, model_file_name:any:0, target_type:any:0, pre_pipeline:any:0, pre_pipeline_name:any:0, cur_target_name:any:0, trainset_features_stats:any:0, models:any:0, model_params:any:0, common_params:any:0, ens_models:any:0, verbose:any:0, skip_pre_pipeline_transform:any:1, skip_preprocessing:any:1, cached_train_df:any:1, cached_val_df:any:1, cached_test_df:any:1, optimize_storage:any:1, metadata_columns:any:1)"
+  },
+  "process_nans": {
+    "kind": "callable",
+    "module": "mlframe.training.utils",
+    "signature": "(df:any:0, fill_value:any:1, verbose:any:1)"
+  },
+  "process_nulls": {
+    "kind": "callable",
+    "module": "mlframe.training.utils",
+    "signature": "(df:any:0, fill_value:any:1, verbose:any:1)"
+  },
+  "remove_constant_columns": {
+    "kind": "callable",
+    "module": "mlframe.training.utils",
+    "signature": "(df:any:0, verbose:any:1)"
+  },
+  "run_grid": {
+    "kind": "callable",
+    "module": "mlframe.training.grid",
+    "signature": "(base_kwargs:any:0, grid:any:0, suite_fn:kw:1, stop_on_error:kw:1)"
+  },
+  "save_mlframe_model": {
+    "kind": "callable",
+    "module": "mlframe.training.io",
+    "signature": "(model:any:0, file:any:0, zstd_kwargs:any:1, verbose:any:1)"
+  },
+  "save_series_or_df": {
+    "kind": "callable",
+    "module": "mlframe.training.utils",
+    "signature": "(obj:any:0, file:any:0, compression:any:1, name:any:1)"
+  },
+  "save_split_artifacts": {
+    "kind": "callable",
+    "module": "mlframe.training.preprocessing",
+    "signature": "(train_idx:any:0, val_idx:any:0, test_idx:any:0, timestamps:any:0, group_ids_raw:any:0, artifacts:any:0, data_dir:any:0, models_dir:any:0, target_name:any:0, model_name:any:0, compression:any:1)"
+  },
+  "select_target": {
+    "kind": "callable",
+    "module": "mlframe.training.train_eval",
+    "signature": "(model_name:any:0, target:any:0, target_type:any:0, df:any:0, train_df:any:1, test_df:any:1, val_df:any:1, train_idx:any:1, val_idx:any:1, test_idx:any:1, train_details:any:1, val_details:any:1, test_details:any:1, group_ids:any:1, cat_features:any:1, text_features:any:1, embedding_features:any:1, hyperparams_config:any:1, behavior_config:any:1, common_params:any:1, sample_weight:any:1, mlframe_models:any:1, linear_model_config:any:1, train_df_size_bytes:any:1, val_df_size_bytes:any:1, multilabel_dispatch_config:any:1)"
+  },
+  "should_clean_ram": {
+    "kind": "callable",
+    "module": "mlframe.training.utils",
+    "signature": "(baseline_rss_mb:any:0, df_size_mb:any:0, min_growth_mb:any:1)"
+  },
+  "train_and_evaluate_model": {
+    "kind": "callable",
+    "module": "mlframe.training.trainer",
+    "signature": "(model:any:0, data:any:0, control:any:0, metrics:any:0, reporting:any:0, naming:any:0, output:any:1, confidence:any:1, predictions:any:1, train_od_idx:any:1, val_od_idx:any:1, trainset_features_stats:any:1, trusted_root:any:1)"
+  },
+  "train_automl_models_suite": {
+    "kind": "callable",
+    "module": "mlframe.training.automl",
+    "signature": "(train_df:any:0, test_df:any:1, target_name:any:1, config:any:1, verbose:any:1)"
+  },
+  "train_mlframe_models_suite": {
+    "kind": "callable",
+    "module": "mlframe.training.core",
+    "signature": "(df:any:0, target_name:any:0, model_name:any:0, features_and_targets_extractor:any:0, mlframe_models:any:1, recurrent_models:any:1, recurrent_config:any:1, sequences:any:1, use_ordinary_models:any:1, use_mlframe_ensembles:any:1, preprocessing_config:any:1, split_config:any:1, pipeline_config:any:1, preprocessing_extensions:any:1, feature_types_config:any:1, linear_model_config:any:1, hyperparams_config:any:1, behavior_config:any:1, multilabel_dispatch_config:any:1, reporting_config:any:1, output_config:any:1, outlier_detection_config:any:1, feature_selection_config:any:1, confidence_analysis_config:any:1, verbose:any:1)"
+  }
+}

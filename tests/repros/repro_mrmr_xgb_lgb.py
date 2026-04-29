@@ -23,7 +23,7 @@ from mlframe.training.core import train_mlframe_models_suite
 
 try:
     trained, _ = train_mlframe_models_suite(df=df, target_name='repro', model_name='repro', features_and_targets_extractor=fte, mlframe_models=['lgb', 'xgb'], hyperparams_config={'iterations': 3, 'xgb_kwargs': {'device': 'cpu', 'verbosity': 0}, 'lgb_kwargs': {'device_type': 'cpu', 'verbose': -1}}, preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True), output_config=OutputConfig(data_dir='D:/Temp/repro_mrmr_xgb_lgb_models', models_dir='models'), feature_selection_config=FeatureSelectionConfig(mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3, 'full_npermutations': 3}))
-    print(f"PASS — trained {len(trained) if trained else 0} target_type(s)")
+    print(f"PASS -- trained {len(trained) if trained else 0} target_type(s)")
 except Exception as e:
     import traceback
     print(f"FAIL: {type(e).__name__}: {e}")

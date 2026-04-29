@@ -50,7 +50,7 @@ def get_best_dummy_score(
         model.fit(X=X_train, y=y_train)
         dummy_score = scoring(model, X_test, y_test)
         if verbose:
-            logger.info(f"strategy={strategy}, score={dummy_score:.6f}")
+            logger.info("strategy=%s, score=%.6f", strategy, dummy_score)
         if dummy_score > best_dummy_score:
             best_dummy_score = dummy_score
 

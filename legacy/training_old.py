@@ -514,7 +514,7 @@ def load_production_models(
 
     from mlframe.ensembling import SIMPLE_ENSEMBLING_METHODS
 
-    logger.info(f"Loading trained production {featureset_name} {task_type} models for target {target_name}...")
+    logger.info("Loading trained production %s %s models for target %s...", featureset_name, task_type, target_name)
 
     featureset_dir = join(models_dir, slugify(target_name), slugify(featureset_name), task_type)
     trainset_features_stats = None

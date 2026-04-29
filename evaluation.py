@@ -87,8 +87,8 @@ def evaluate_estimators(
     X_test,
     y_train=None,
     y_test=None,
-    estimators: Sequence = [],
-    pre_pipeline: Sequence = [],
+    estimators: Sequence = None,
+    pre_pipeline: Sequence = None,
     val_size: float = 0.5,
     shuffle: bool = True,
     target_names: dict = None,
@@ -114,7 +114,7 @@ def evaluate_estimators(
     target_wrapper: object = None,
     caption: str = None,
     figsize: tuple = (15, 5),
-    competing_probs: list = [],
+    competing_probs: list = None,
     stratify=None,
     plot: bool = True,
     init_model: object = None,
@@ -127,6 +127,12 @@ def evaluate_estimators(
 
     target_wrapper: lambda est: TransformedTargetRegressor(regressor=est,func=np.log1p,inverse_func=np.expm1)
     """
+    if competing_probs is None:
+        competing_probs = []
+    if estimators is None:
+        estimators = []
+    if pre_pipeline is None:
+        pre_pipeline = []
 
     pipe, classification_report_text, classification_report_dict, cm = None, None, None, None
 
@@ -350,11 +356,13 @@ def evaluate_estimators(
 
 
 def evaluate_grouped(
-    pipe: object, X_test: object, y_test: object, by_column: str = "Вакансия_Должность", ntop: int = 100, min_population=100, all_cats: dict = {}
+    pipe: object, X_test: object, y_test: object, by_column: str = "Вакансия_Должность", ntop: int = 100, min_population=100, all_cats: dict = None
 ):
     """
     Показать точность обученной простой модели в разбивке по Должностям
     """
+    if all_cats is None:
+        all_cats = {}
     from sklearn.metrics import classification_report
 
     target_names = {k: v for k, v in sorted(all_cats.items(), key=lambda item: item[1])}
