@@ -31,7 +31,7 @@ DEFAULT_FIGSIZE = (15, 5)
 DEFAULT_FI_FIGSIZE = (15, 10)
 
 # Module-level cache for the plot-sample index. Hot report paths re-draw the same
-# scatter repeatedly with identical (len(preds), seed) — caching the choice avoids
+# scatter repeatedly with identical (len(preds), seed) -- caching the choice avoids
 # rebuilding the RNG and resampling each call.
 _PLOT_IDX_CACHE: "dict[tuple, np.ndarray]" = {}
 
@@ -216,8 +216,8 @@ def report_model_perf(
 
     # sklearn>=1.6 raises AttributeError when is_classifier(None) triggers
     # get_tags(None) (formerly just returned False). The just_evaluate=True
-    # path passes model=None with pre-computed preds/probs — infer task type
-    # from whether probs were supplied (presence of probs ⇒ classification).
+    # path passes model=None with pre-computed preds/probs -- infer task type
+    # from whether probs were supplied (presence of probs => classification).
     if model is None:
         is_probabilistic = probs is not None
     else:
@@ -296,7 +296,7 @@ def report_regression_model_perf(
     """
     Generate a detailed performance report for regression models.
 
-    Computes and optionally displays MAE, RMSE, MaxError, R² metrics,
+    Computes and optionally displays MAE, RMSE, MaxError, R^2 metrics,
     scatter plots of predictions vs actuals, and fairness analysis.
 
     Parameters
@@ -346,7 +346,7 @@ def report_regression_model_perf(
     if preds is None:
         # Wrap in _predict_with_fallback so CatBoost's Polars fastpath
         # dispatcher misses ("No matching signature found") trigger a
-        # symmetric pandas fallback — same pattern as fit. Without this
+        # symmetric pandas fallback -- same pattern as fit. Without this
         # wrap, a polars val/test DF + a CB model whose fit path fell
         # back to pandas would crash at predict time with the identical
         # opaque TypeError (2026-04-19 prod incident).
@@ -357,7 +357,7 @@ def report_regression_model_perf(
         targets = targets.values
 
     MAE = mean_absolute_error(y_true=targets, y_pred=preds)
-    # sklearn's max_error refuses multioutput targets (2-D y) — it only
+    # sklearn's max_error refuses multioutput targets (2-D y) -- it only
     # supports a single output. Multilabel-classification + linear regressor
     # routes (N, K) targets through this regression report; compute per-output
     # max-error and report the worst, matching the metric's intent.
@@ -412,7 +412,7 @@ def report_regression_model_perf(
         # ``np.argsort(preds[idx])`` on a 2-D array (which sorts rows
         # element-wise instead of by-row), then ``plt.scatter`` would
         # emit K overlapping point clouds with no visual separation.
-        # Skip the plot when targets are 2-D — title metrics already
+        # Skip the plot when targets are 2-D -- title metrics already
         # carry the per-output-aggregated MAE/RMSE/R2.
         _is_multioutput = (
             (targets_arr.ndim > 1 and targets_arr.shape[1] > 1)
@@ -422,10 +422,10 @@ def report_regression_model_perf(
             if print_report:
                 print(
                     f"  [multioutput regression: target shape={targets_arr.shape}, "
-                    f"skipping scatter plot — per-output plotting would mix K clouds]"
+                    f"skipping scatter plot -- per-output plotting would mix K clouds]"
                 )
         else:
-            # Local RNG — do not pollute global numpy state. Cache by (n, size, seed)
+            # Local RNG -- do not pollute global numpy state. Cache by (n, size, seed)
             # so repeated reports on the same prediction length reuse the sample.
             idx = _get_cached_plot_idx(len(preds), plot_sample_size, DEFAULT_RANDOM_SEED)
             idx = idx[np.argsort(preds[idx])]
@@ -579,7 +579,7 @@ def report_probabilistic_model_perf(
             # with fit's fallback. Any OTHER error (model has no
             # predict_proba, returns NotImplemented, or a non-CB TypeError)
             # bubbles to the outer except and hits the predict() fallback
-            # path below — with the same Polars fallback wrapping so we
+            # path below -- with the same Polars fallback wrapping so we
             # don't retry into the same dispatcher miss (2026-04-19 bug).
             probs = _predict_with_fallback(model, df, method="predict_proba")
         except (AttributeError, TypeError, NotImplementedError) as e:
@@ -597,7 +597,7 @@ def report_probabilistic_model_perf(
             probs[np.arange(len(preds_fallback)), class_indices] = 1.0
 
     if preds is None:
-        # 2026-04-24 Session 6: multilabel target → (N, K) probs, threshold
+        # 2026-04-24 Session 6: multilabel target -> (N, K) probs, threshold
         # each column independently; do NOT argmax (collapses to single class).
         # 2026-04-28: also treat object-dtype-of-arrays as 2-D (the
         # ``pl.List`` -> pandas roundtrip). Without this, preds was
@@ -619,7 +619,7 @@ def report_probabilistic_model_perf(
             ))
         )
         if _targets_2d:
-            # MultiOutputClassifier returns list[(N,2)] for predict_proba — canonicalize to (N, K).
+            # MultiOutputClassifier returns list[(N,2)] for predict_proba -- canonicalize to (N, K).
             from .helpers import _canonical_predict_proba_shape, _predict_from_probs
             from .configs import TargetTypes as _TT
             probs = _canonical_predict_proba_shape(probs)
@@ -627,7 +627,7 @@ def report_probabilistic_model_perf(
             # supplied: per-column decision threshold tuned for label
             # imbalance (defaults to 0.5 across all labels otherwise).
             # ``_predict_from_probs`` already broadcasts a scalar 0.5 vs
-            # accepts a (K,) vector — same downstream shape (N, K).
+            # accepts a (K,) vector -- same downstream shape (N, K).
             _per_label_thr = (
                 multilabel_dispatch_config.per_label_thresholds
                 if (multilabel_dispatch_config is not None
@@ -805,7 +805,31 @@ def report_probabilistic_model_perf(
 
     if print_report:
         print(report_title + " " + model_name)
-        print(classification_report(targets, preds, zero_division=0, digits=report_ndigits))
+        # 2026-04-29: replace sklearn's ``classification_report`` with the
+        # njit-backed ``format_classification_report``. cProfile of fuzz
+        # c0014 traced 90ms (55 %) of the warm-path
+        # ``report_probabilistic_model_perf`` to sklearn's
+        # ``precision_recall_fscore_support`` + ``multilabel_confusion_matrix``
+        # path, which is overkill for single-label classification. The
+        # njit version computes the same numbers in ~1ms warm and formats
+        # to the identical text shape.
+        try:
+            from mlframe.metrics import format_classification_report
+            _y_true = np.asarray(targets).astype(np.int64) if not is_multilabel else None
+            _y_pred = np.asarray(preds).astype(np.int64) if not is_multilabel else None
+            if (
+                _y_true is not None and _y_pred is not None
+                and _y_true.ndim == 1 and _y_pred.ndim == 1
+                and len(_y_true) == len(_y_pred)
+            ):
+                _nclasses = max(int(_y_true.max()) + 1, int(_y_pred.max()) + 1, 2) if len(_y_true) else 2
+                print(format_classification_report(
+                    _y_true, _y_pred, nclasses=_nclasses, digits=report_ndigits, zero_division=0,
+                ))
+            else:
+                print(classification_report(targets, preds, zero_division=0, digits=report_ndigits))
+        except Exception:
+            print(classification_report(targets, preds, zero_division=0, digits=report_ndigits))
         print(f"ROC AUCs: {', '.join(roc_aucs)}")
         print(f"PR AUCs: {', '.join(pr_aucs)}")
         print(f"CALIBRATIONs: \n{', '.join(calibs)}")
@@ -824,7 +848,7 @@ def report_probabilistic_model_perf(
         # (registered in mlframe.training.metrics_registry) when the
         # report-caller context indicates a multilabel target. Additional
         # metrics can be registered externally via
-        # ``register_metric(target_type, name, fn)`` — no code change to
+        # ``register_metric(target_type, name, fn)`` -- no code change to
         # this report function required.
         try:
             from .metrics_registry import iter_extra_metrics
@@ -843,7 +867,7 @@ def report_probabilistic_model_perf(
                             print(f"\t{name}={val}")
         except Exception as e:
             # Never fail a report because of metrics-registry plumbing.
-            logger.debug(f"multilabel metrics registry skipped: {e}")
+            logger.debug("multilabel metrics registry skipped: %s", e)
 
     if subgroups:
         subgroups_metrics = {"ICE": custom_ice_metric}
@@ -1068,7 +1092,7 @@ def post_calibrate_model(
         )
         from mlframe.training.configs import TargetTypes
         # Infer target_type from labels: if y_true is (N, K) indicator
-        # matrix → multilabel; otherwise multiclass.
+        # matrix -> multilabel; otherwise multiclass.
         y_test_full = target_series.iloc[test_idx].values
         if y_test_full.ndim == 2 or (
             hasattr(y_test_full, "dtype") and y_test_full.dtype == object
@@ -1091,7 +1115,7 @@ def post_calibrate_model(
             model, calibrator, _target_type,
             classes_=getattr(model, "classes_", None),
         )
-        # Copy val_preds/test_preds forward — they're caller-provided and
+        # Copy val_preds/test_preds forward -- they're caller-provided and
         # decoupled from the probability calibration.
         return (
             wrapped_model, test_preds, meta_test_probs,

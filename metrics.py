@@ -1419,6 +1419,77 @@ def compute_mean_aucs_per_group(group_aucs: dict) -> tuple:
     return mean_roc_auc, mean_pr_auc
 
 
+def format_classification_report(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    nclasses: int = 2,
+    digits: int = 4,
+    target_names: Optional[Sequence] = None,
+    zero_division: int = 0,
+) -> str:
+    """Drop-in replacement for ``sklearn.metrics.classification_report``.
+
+    Computes precision / recall / f1 / support per class plus accuracy /
+    macro-avg / weighted-avg via the @njit ``fast_classification_report``
+    kernel and formats the result as the same fixed-width text block
+    sklearn produces. Used by ``evaluation.py`` instead of sklearn's
+    Python-side ``precision_recall_fscore_support`` + multilabel
+    confusion-matrix machinery, which dominated 90 ms of every
+    ``report_probabilistic_model_perf`` warm call (cProfile of fuzz
+    combo c0014: 4 calls * 22ms each, 55 % of the warm 164ms suite cost
+    after the GPU-probe cache landed).
+
+    The numerics match sklearn's ``classification_report`` for the
+    common single-label classification path; weighted/macro avg
+    formulas mirror sklearn's exactly. The helper drops support for
+    sklearn's multilabel-indicator input (use sklearn directly for that)
+    and ``output_dict=True`` (use ``fast_classification_report`` for the
+    raw arrays).
+    """
+    hits, misses, accuracy, balanced_accuracy, supports, precisions, recalls, f1s, macro_averages, weighted_averages = (
+        fast_classification_report(y_true, y_pred, nclasses=nclasses, zero_division=zero_division)
+    )
+    if target_names is None:
+        target_names = [str(i) for i in range(nclasses)]
+
+    n_total = int(supports.sum())
+    label_width = max(len("weighted avg"), max((len(str(t)) for t in target_names), default=1))
+    head = " " * (label_width + 2)
+    head += f"{'precision':>{digits + 5}} {'recall':>{digits + 5}} {'f1-score':>{digits + 5}} {'support':>{digits + 6}}"
+    lines = [head, ""]
+    for i, name in enumerate(target_names):
+        lines.append(
+            f"{str(name):>{label_width}}  "
+            f"{precisions[i]:>{digits + 5}.{digits}f} "
+            f"{recalls[i]:>{digits + 5}.{digits}f} "
+            f"{f1s[i]:>{digits + 5}.{digits}f} "
+            f"{int(supports[i]):>{digits + 6}}"
+        )
+    lines.append("")
+    lines.append(
+        f"{'accuracy':>{label_width}}  "
+        f"{'':>{digits + 5}} "
+        f"{'':>{digits + 5}} "
+        f"{accuracy:>{digits + 5}.{digits}f} "
+        f"{n_total:>{digits + 6}}"
+    )
+    lines.append(
+        f"{'macro avg':>{label_width}}  "
+        f"{macro_averages[0]:>{digits + 5}.{digits}f} "
+        f"{macro_averages[1]:>{digits + 5}.{digits}f} "
+        f"{macro_averages[2]:>{digits + 5}.{digits}f} "
+        f"{n_total:>{digits + 6}}"
+    )
+    lines.append(
+        f"{'weighted avg':>{label_width}}  "
+        f"{weighted_averages[0]:>{digits + 5}.{digits}f} "
+        f"{weighted_averages[1]:>{digits + 5}.{digits}f} "
+        f"{weighted_averages[2]:>{digits + 5}.{digits}f} "
+        f"{n_total:>{digits + 6}}"
+    )
+    return "\n".join(lines) + "\n"
+
+
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def compute_pr_recall_f1_metrics(y_true, y_pred):
     TP = 0
@@ -1756,7 +1827,7 @@ def compute_probabilistic_multiclass_error(
                     roc_auc_weight=roc_auc_weight, pr_auc_weight=pr_auc_weight,
                     min_roc_auc=min_roc_auc, roc_auc_penalty=roc_auc_penalty,
                 )
-                logger.info(f"\t class_id={class_id}, {metrics_string}")
+                logger.info("\t class_id=%s, %s", class_id, metrics_string)
                 class_error = ice
             else:
                 class_error = fast_ice_only(
@@ -2095,13 +2166,15 @@ def create_fairness_subgroups(
 
 
 def create_fairness_subgroups_indices(
-    subgroups: dict, train_idx: np.ndarray, val_idx: np.ndarray, test_idx: np.ndarray, group_weights: dict = {}, cont_nbins: int = 3
+    subgroups: dict, train_idx: np.ndarray, val_idx: np.ndarray, test_idx: np.ndarray, group_weights: dict = None, cont_nbins: int = 3
 ) -> dict:
     """Create index mappings for fairness subgroups across train/val/test splits.
 
     Converts fairness subgroups (demographic/categorical bins) into index arrays
     for each data split, enabling per-subgroup metric computation.
     """
+    if group_weights is None:
+        group_weights = {}
     res = {}
     if len(val_idx) == len(test_idx):
         logger.warning(f"Validation and test sets have the same size. Fairness subgroups estimation will be incorrect.")
