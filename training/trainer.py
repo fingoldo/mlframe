@@ -30,7 +30,7 @@ import joblib
 # lazy-loading style in `mlframe.training.__init__.__getattr__`.
 try:
     import matplotlib.pyplot as plt  # only used in a handful of plotting branches
-except ImportError:  # pragma: no cover — optional backend
+except ImportError:  # pragma: no cover -- optional backend
     plt = None  # type: ignore[assignment]
 
 from sklearn.base import ClassifierMixin, RegressorMixin, TransformerMixin, is_classifier
@@ -49,7 +49,7 @@ from sklearn.ensemble import HistGradientBoostingRegressor, HistGradientBoosting
 from sklearn.utils.validation import check_is_fitted
 from sklearn.exceptions import NotFittedError
 
-# Optional model backends — lazy/tolerant of missing deps, matching __init__.py style.
+# Optional model backends -- lazy/tolerant of missing deps, matching __init__.py style.
 try:
     from catboost import CatBoostRegressor, CatBoostClassifier
 except ImportError:  # pragma: no cover
@@ -69,9 +69,9 @@ def _patch_lgb_feature_names_in_setter() -> None:
     non-pandas input such as a Polars DataFrame or numpy array) calls
     ``self.feature_names_in_ = X.columns``, which raises
     ``AttributeError: property 'feature_names_in_' of 'LGBMClassifier'
-    object has no setter`` — aborting the run 5 seconds in.
+    object has no setter`` -- aborting the run 5 seconds in.
 
-    The primary fix is Fix 1 (ensure LGB receives pandas → sklearn path
+    The primary fix is Fix 1 (ensure LGB receives pandas -> sklearn path
     skipped at ``lightgbm/sklearn.py:948``). This setter patch is a
     belt-and-braces guard for cases where a future code path slips a
     non-pandas input past the lazy-conversion hook. Storing the value in
@@ -170,7 +170,7 @@ def _patch_dataset_constructors_with_logging() -> None:
     def _wrap_init(cls, label: str):
         if cls is None:
             return
-        # Check the marker on ``cls.__dict__`` specifically — a subclass
+        # Check the marker on ``cls.__dict__`` specifically -- a subclass
         # (e.g. ``xgboost.QuantileDMatrix`` extending ``DMatrix``) inherits
         # its parent's marker via attribute lookup, which would otherwise
         # cause us to skip wrapping the subclass and log only the parent's
@@ -238,7 +238,7 @@ except ImportError:  # pragma: no cover
 
 # DMatrix-reuse shim (2026-04-24). Subclasses XGBClassifier / XGBRegressor
 # to cache QuantileDMatrix across consecutive ``.fit()`` calls on the same
-# feature matrix — saves ~100 s per repeated fit on multi-GB train frames.
+# feature matrix -- saves ~100 s per repeated fit on multi-GB train frames.
 # Toggle via ``USE_XGB_DMATRIX_REUSE_SHIM`` below.
 try:
     from mlframe.training.xgb_shim import (
@@ -254,11 +254,11 @@ except ImportError:  # pragma: no cover
 # Feature flag: which XGBoost class do we instantiate in
 # ``_configure_xgboost_params``?
 #
-#   True  → use the DMatrix-reuse shim. Reuses QuantileDMatrix across
+#   True  -> use the DMatrix-reuse shim. Reuses QuantileDMatrix across
 #           weight-schema iterations and target swaps on the same feature
-#           matrix (the 2026-04-24 prod log saving target — ~100 s per
+#           matrix (the 2026-04-24 prod log saving target -- ~100 s per
 #           rebuild eliminated).
-#   False → fall back to vanilla ``XGBClassifier`` / ``XGBRegressor``.
+#   False -> fall back to vanilla ``XGBClassifier`` / ``XGBRegressor``.
 #           Use this if the shim regresses behaviour or once XGBoost
 #           upstream lands the equivalent fix natively.
 #
@@ -279,7 +279,7 @@ USE_XGB_DMATRIX_REUSE_SHIM: bool = _XGB_SHIM_AVAILABLE
 def _xgb_classifier_cls(use_flaml_zeroshot: bool):
     """Return the XGBClassifier class to instantiate.
 
-    Single dispatch point for the shim toggle — see
+    Single dispatch point for the shim toggle -- see
     ``USE_XGB_DMATRIX_REUSE_SHIM`` above for revert instructions.
     """
     if use_flaml_zeroshot:
@@ -308,7 +308,7 @@ try:
 except ImportError:  # pragma: no cover
     NGBClassifier = NGBRegressor = None  # type: ignore[assignment]
 # flaml.default is eagerly loaded by ``import flaml.default`` (it pulls in
-# flaml.tune.searcher.suggestion → optuna → scipy.stats.qmc), and that
+# flaml.tune.searcher.suggestion -> optuna -> scipy.stats.qmc), and that
 # import chain takes 30-180 s cold on Windows, blowing past per-test
 # timeouts on the FIRST test of any pytest run that touches the trainer.
 # Defer the import to first-actual-use via ``_get_flaml_zeroshot()`` so
@@ -608,7 +608,7 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
     target carries fewer than 2 unique values, raise a ValueError
     BEFORE the per-backend fit. CatBoost otherwise crashes with
     ``target_converter.cpp:404: Target contains only one unique value``,
-    XGBoost with ``num_class is 1, expected at least 2``, etc. — all
+    XGBoost with ``num_class is 1, expected at least 2``, etc. -- all
     opaque C++ errors. The proximate cause in fuzz is upstream filter
     aggression (outlier_detection + trainset_aging_limit + rare imbalance
     class) eliminating the minority class entirely from train. The
@@ -685,7 +685,7 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
         except ValueError:
             raise
         except Exception:
-            # np.unique/asarray edge cases on object dtype etc — let the
+            # np.unique/asarray edge cases on object dtype etc -- let the
             # downstream backend surface its own error.
             pass
 
@@ -891,11 +891,11 @@ def _is_fitted(estimator):
     if estimator is None:
         return False
     # For a sklearn Pipeline, ``check_is_fitted`` passes as long as ANY step
-    # has fitted state — even if later steps are still unfitted. That bit
+    # has fitted state -- even if later steps are still unfitted. That bit
     # us on 2026-04-22 (fuzz c0031): LinearModelStrategy's pre_pipeline had
     # a fitted MRMR step (reused from a prior CB iteration) but un-fitted
-    # encoder/imputer/scaler. _is_fitted returned True → code took the
-    # ".transform only" branch → imputer.transform raised ValueError 'The
+    # encoder/imputer/scaler. _is_fitted returned True -> code took the
+    # ".transform only" branch -> imputer.transform raised ValueError 'The
     # feature names should match those that were passed during fit'.
     # Require every non-trivial step to be fitted.
     try:
@@ -946,8 +946,16 @@ def _maybe_wrap_for_2d_target(model, train_target):
         return model
     if _mt in ("CatBoostClassifier", "CatBoostRegressor"):
         return model  # CB native multilabel via MultiLogloss
-    if _mt.startswith("XGB") or _mt.startswith("HistGradient") or _mt.startswith("LGB"):
-        return model
+    # HGB / LGB / Linear / XGB sklearn wrappers all require 1-D y for
+    # classifiers. XGB has native multi-output via the binary:logistic
+    # loss but the sklearn wrapper still rejects 2-D y; only the native
+    # ``xgb.train()`` API takes (N, K) labels directly. So wrap every
+    # non-CB classifier inline as the safe last-line defense (the
+    # upstream ``_wrap_for_multilabel_if_needed`` strategy hook already
+    # wraps these in the happy path; this guard catches the combos that
+    # slip through). Surfaced 3-way fuzz c0036 (cb_hgb_lgb_linear_xgb /
+    # pl_enum / multilabel) - HGB raised ``y should be a 1d array, got
+    # an array of shape (N, K)`` before this guard.
     try:
         from sklearn.multioutput import MultiOutputClassifier
         return MultiOutputClassifier(model, n_jobs=1)
@@ -1140,12 +1148,12 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     """Run a selector fit/transform on df with passthrough_cols hidden, then re-attach them.
 
     Feature selectors (MRMR, RFECV) can't encode text or list-of-float embedding columns;
-    catboost needs them back intact for fit. Hide → run → re-attach preserves both.
+    catboost needs them back intact for fit. Hide -> run -> re-attach preserves both.
 
     Numpy-output fallback (2026-04-22): if the inner ``fn`` is a default sklearn
     Pipeline (no ``set_output(transform="pandas")``), ``out`` comes back as a numpy
     array. The original code detected this via ``hasattr(out, "columns")`` and
-    silently returned numpy — dropping ``passthrough_cols`` and, worse, collapsing
+    silently returned numpy -- dropping ``passthrough_cols`` and, worse, collapsing
     pd.Categorical dtypes in the selected columns to numpy object strings, which
     crashes LGB's Dataset construction on the ``'HOURLY'`` path. We now rebuild a
     pd.DataFrame from the reduced-input column names so passthrough_cols re-attach
@@ -1180,7 +1188,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     elif isinstance(out, np.ndarray) and out.ndim == 2:
         # Reconstruct a DataFrame using the reduced-input column names when the
         # transformer preserved the column count. If the shape differs (e.g. a
-        # feature selector dropped columns), we can't safely name them — fall
+        # feature selector dropped columns), we can't safely name them -- fall
         # back to positional names and warn via debug log.
         reduced_cols = list(reduced.columns)
         if out.shape[1] == len(reduced_cols):
@@ -1225,14 +1233,14 @@ def _apply_pre_pipeline_transforms(
                 if feature_selector is not None:
                     if _is_fitted(feature_selector):
                         if verbose:
-                            logger.info(f"Using pre-fitted feature selector (transform only): {feature_selector}")
+                            logger.info("Using pre-fitted feature selector (transform only): %s", feature_selector)
                         train_df = _passthrough_cols_fit_transform(
                             feature_selector.transform, train_df,
                             passthrough_cols=selector_passthrough_cols,
                         )
                     else:
                         if verbose:
-                            logger.info(f"Fitting feature selector: {feature_selector}")
+                            logger.info("Fitting feature selector: %s", feature_selector)
                         train_df = _passthrough_cols_fit_transform(
                             feature_selector.fit_transform, train_df,
                             passthrough_cols=selector_passthrough_cols, fit=True, target=train_target,
@@ -1253,7 +1261,7 @@ def _apply_pre_pipeline_transforms(
             elif _is_fitted(pre_pipeline):
                 if verbose:
                     try:
-                        logger.info(f"Using pre-fitted pipeline (transform only): {pre_pipeline}")
+                        logger.info("Using pre-fitted pipeline (transform only): %s", pre_pipeline)
                     except (ValueError, TypeError):
                         pass
                 train_df = _passthrough_cols_fit_transform(
@@ -1270,7 +1278,7 @@ def _apply_pre_pipeline_transforms(
                     # guarded at the source by the val-side ``min_keep``
                     # floor + class-balance pre-check in
                     # ``core._apply_outlier_detection_global``. If a 0-row
-                    # val still arrives here it's an upstream bug — letting
+                    # val still arrives here it's an upstream bug -- letting
                     # SimpleImputer raise ``Found array with 0 sample(s)``
                     # surfaces it immediately instead of training a model
                     # we can't evaluate.
@@ -1281,11 +1289,11 @@ def _apply_pre_pipeline_transforms(
                         log_ram_usage()
             else:
                 if verbose:
-                    logger.info(f"Fitting & transforming train_df via pre_pipeline {pre_pipeline}...")
+                    logger.info("Fitting & transforming train_df via pre_pipeline %s...", pre_pipeline)
                 # 2026-04-24 Session 6: supervised encoders (category_encoders
                 # TargetEncoder, polars-ds supervised steps) reject 2-D y. Collapse
                 # multilabel targets to "any positive label" for the encoder fit
-                # only — actual model still trains on the full (N, K) target.
+                # only -- actual model still trains on the full (N, K) target.
                 _enc_target = _multilabel_target_to_1d_for_supervised_encoders(train_target)
                 train_df = _passthrough_cols_fit_transform(
                     pre_pipeline.fit_transform, train_df,
@@ -1295,8 +1303,8 @@ def _apply_pre_pipeline_transforms(
                     log_ram_usage()
                 if val_df is not None:
                     if verbose:
-                        logger.info(f"Transforming val_df via pre_pipeline {pre_pipeline}...")
-                    # Historical 0-row val skip removed 2026-04-27 (batch 3) —
+                        logger.info("Transforming val_df via pre_pipeline %s...", pre_pipeline)
+                    # Historical 0-row val skip removed 2026-04-27 (batch 3) --
                     # see fit-transform branch comment for rationale.
                     val_df = _passthrough_cols_fit_transform(
                         pre_pipeline.transform, val_df, passthrough_cols=selector_passthrough_cols,
@@ -1305,8 +1313,8 @@ def _apply_pre_pipeline_transforms(
                         log_ram_usage()
             _maybe_clean_ram()
             if verbose:
-                shape_str = f"{train_df.shape[0]:_}×{train_df.shape[1]}" if hasattr(train_df, "shape") else ""
-                logger.info(f"  pre_pipeline done — train: {shape_str}, {timer() - t0_pre:.1f}s")
+                shape_str = f"{train_df.shape[0]:_}x{train_df.shape[1]}" if hasattr(train_df, "shape") else ""
+                logger.info(f"  pre_pipeline done -- train: {shape_str}, {timer() - t0_pre:.1f}s")
 
     return train_df, val_df
 
@@ -1369,7 +1377,7 @@ def _setup_eval_set(
     # detection rejecting almost every val row; that's now guarded at
     # the source in ``core._apply_outlier_detection_global`` (val-side
     # min_keep floor + class-balance pre-check). If a 0-row val still
-    # arrives here it's an upstream bug — let CB raise its own
+    # arrives here it's an upstream bug -- let CB raise its own
     # "Labels variable is empty" so the bug surfaces immediately
     # instead of silently training without early-stopping val.
 
@@ -1377,7 +1385,7 @@ def _setup_eval_set(
     # (multilabel path), eval_set / X_val / y_val keyword args propagate
     # verbatim to each per-label inner estimator. y_val stays 2-D and crashes
     # the inner fit ("y should be a 1d array, got an array of shape (n,K)").
-    # Skip the eval_set injection for wrapped models — inner estimators must
+    # Skip the eval_set injection for wrapped models -- inner estimators must
     # rely on their own internal early-stopping (HGB validation_fraction,
     # or no early stopping for LGB/XGB/Linear).
     if model_type_name in ("MultiOutputClassifier", "MultiOutputRegressor", "ClassifierChain"):
@@ -1466,7 +1474,7 @@ class _PostHocCalibratedModel:
 
     Added 2026-04-15 to make ``prefer_calibrated_classifiers=True`` actually
     calibrate tree classifiers. Prior behavior only swapped the early-stopping
-    eval_metric, which was a no-op when early stopping did not trigger — so
+    eval_metric, which was a no-op when early stopping did not trigger -- so
     calibrated and uncalibrated runs produced bit-identical probabilities.
 
     The wrapper delegates every attribute to the underlying ``base`` model
@@ -1536,7 +1544,7 @@ class _PerClassIsotonicCalibrator:
         re-normalisation (labels are independent).
 
     Numerical guards:
-      - Each per-class isotonic needs ≥2 samples of both classes in
+      - Each per-class isotonic needs >=2 samples of both classes in
         training; if a class is near-constant in the calibration set,
         we skip that class's calibrator (identity mapping applied).
       - Output clipped to [0, 1] post-isotonic (isotonic can over/
@@ -1713,18 +1721,18 @@ def _polars_schema_diagnostic(
     sub-variant that matters for CB's dispatcher:
 
       - ``pl.Categorical`` with a validity bitmap (``null_count > 0``)
-        — verified 2026-04-19 culprit: CB 1.2.10 has no dispatch overload
+        -- verified 2026-04-19 culprit: CB 1.2.10 has no dispatch overload
         for nullable Categorical. `_polars_nullable_categorical_cols` +
         `fill_null` is the fix.
-      - ``pl.Enum`` without nulls — empirically works on the CB 1.2.10
-        fastpath (reproduced 2026-04-21 — fit + eval_set succeed). Still
+      - ``pl.Enum`` without nulls -- empirically works on the CB 1.2.10
+        fastpath (reproduced 2026-04-21 -- fit + eval_set succeed). Still
         reported in the dump for visibility, but not automatically
         flagged as the culprit.
-      - ``pl.List[...]`` — nested types not supported in fastpath.
+      - ``pl.List[...]`` -- nested types not supported in fastpath.
 
     Keeps output compact: logs up to ``max_cols_logged`` cat_features
     verbatim; the rest are summarised by dtype count. Safe to call in
-    error paths — swallows exceptions and returns a note instead.
+    error paths -- swallows exceptions and returns a note instead.
     """
     try:
         import polars as _pl
@@ -1808,7 +1816,7 @@ def _polars_schema_diagnostic(
 
 
 def _polars_nullable_categorical_cols(df: Any, cat_features: Optional[List[str]] = None) -> "List[str]":
-    """Return cat_feature column names with ``null_count > 0`` — the
+    """Return cat_feature column names with ``null_count > 0`` -- the
     set of columns that trigger CatBoost 1.2.x's Polars fastpath
     dispatch miss.
 
@@ -1818,17 +1826,17 @@ def _polars_nullable_categorical_cols(df: Any, cat_features: Optional[List[str]]
     fused cpdef) has no dispatch signature for a Polars Categorical
     column carrying a validity bitmap. A single null anywhere in any
     cat_feature raises ``TypeError: No matching signature found``.
-    Fix: ``pl.col(c).fill_null("__MISSING__")`` before fit — Polars
+    Fix: ``pl.col(c).fill_null("__MISSING__")`` before fit -- Polars
     auto-extends the category dict, the column loses its validity
     bitmap, CB's fastpath matches the non-nullable signature.
 
     Null-fraction sweep:
-        0.0   → OK        0.5   → FAIL
-        0.1   → FAIL      0.99  → FAIL
-                          1.0   → FAIL
+        0.0   -> OK        0.5   -> FAIL
+        0.1   -> FAIL      0.99  -> FAIL
+                          1.0   -> FAIL
 
     Performance: uses ``df.select(cat_cols).null_count()`` which runs a
-    SINGLE polars query — one scan over the selected columns, polars
+    SINGLE polars query -- one scan over the selected columns, polars
     computes per-column null counts in parallel. The previous
     per-column implementation (``df[c].null_count()`` in a Python loop)
     cost N separate queries and showed up in prod profiling on
@@ -1842,7 +1850,7 @@ def _polars_nullable_categorical_cols(df: Any, cat_features: Optional[List[str]]
     Returns:
         List of nullable Categorical column names (order-preserving
         against ``cat_features`` when provided). Empty list on any
-        exception or non-Polars input — callers can use the list's
+        exception or non-Polars input -- callers can use the list's
         truthiness directly, so the function doubles as a boolean
         detector without requiring a separate wrapper.
     """
@@ -1854,7 +1862,7 @@ def _polars_nullable_categorical_cols(df: Any, cat_features: Optional[List[str]]
         schema = df.schema
         # 2026-04-23: extended to include pl.Utf8 / pl.String. Raw Utf8
         # cat_features with nulls trigger the same CB 'Invalid type for
-        # cat_feature ... NaN' error on the Polars fastpath — the
+        # cat_feature ... NaN' error on the Polars fastpath -- the
         # fill_null('__MISSING__') pre-fit pass must cover them too.
         # Fuzz c0061/c0084/c0096 (cb + polars_utf8 + nulls) all crashed
         # because Utf8 cols weren't in this candidate list.
@@ -1889,7 +1897,7 @@ def _polars_nullable_categorical_cols(df: Any, cat_features: Optional[List[str]]
 
 
 def _polars_df_has_null_in_categorical(df: Any, cat_features: Optional[List[str]] = None) -> bool:
-    """Boolean wrapper around ``_polars_nullable_categorical_cols`` —
+    """Boolean wrapper around ``_polars_nullable_categorical_cols`` --
     kept for callers that only need the yes/no answer."""
     return bool(_polars_nullable_categorical_cols(df, cat_features=cat_features))
 
@@ -1903,18 +1911,18 @@ def _polars_fill_null_in_categorical(
     Categorical columns on a Polars DataFrame.
 
     Separated out so the same expression set can be reused across
-    train / val / test (same sentinel → same category code across
+    train / val / test (same sentinel -> same category code across
     splits) without rebuilding the expr list per split.
 
     Returns df unchanged if ``nullable_cat_cols`` is empty or df is
-    not a Polars DataFrame — caller can unconditionally wrap
+    not a Polars DataFrame -- caller can unconditionally wrap
     train/val/test without pre-checking.
 
     2026-04-23 (fuzz c0088 / c0121): ``fill_null(sentinel)`` on a
     ``pl.Enum`` whose category list does NOT already include the
-    sentinel is a SILENT NO-OP in polars 1.40 — no error, no warning,
+    sentinel is a SILENT NO-OP in polars 1.40 -- no error, no warning,
     nulls survive. The caller then hands the still-nullable Enum to
-    CB's pandas fallback, which converts null→NaN and crashes with
+    CB's pandas fallback, which converts null->NaN and crashes with
     ``Invalid type for cat_feature ... =NaN``. Guard: for Enum
     columns we rebuild the Enum with the sentinel appended BEFORE
     filling. For ``pl.Categorical`` the Arrow-level dict auto-extends
@@ -1938,7 +1946,7 @@ def _polars_fill_null_in_categorical(
                         _pl.col(c).cast(new_enum).fill_null(sentinel).alias(c)
                     )
                     continue
-                # Enum already allowed the sentinel — plain fill_null works.
+                # Enum already allowed the sentinel -- plain fill_null works.
             fill_exprs.append(_pl.col(c).fill_null(sentinel))
         return df.with_columns(fill_exprs)
     except Exception:
@@ -1950,15 +1958,15 @@ def _recover_cb_feature_names(model: Any) -> Tuple[List[str], List[str]]:
     fitted CatBoost model.
 
     At predict time we don't have the original Python-side cat_features /
-    text_features lists — the caller is evaluation code with no knowledge
+    text_features lists -- the caller is evaluation code with no knowledge
     of how the model was trained. CatBoost exposes its internal
     per-feature metadata via:
-      - ``_get_cat_feature_indices()``  — integer indices into feature_names_
-      - ``_get_text_feature_indices()`` — ditto
-      - ``feature_names_``              — list of column names
+      - ``_get_cat_feature_indices()``  -- integer indices into feature_names_
+      - ``_get_text_feature_indices()`` -- ditto
+      - ``feature_names_``              -- list of column names
 
     Returns ``([], [])`` on any failure (e.g. non-fitted model, non-CB
-    estimator, older CB builds without those private hooks) — callers
+    estimator, older CB builds without those private hooks) -- callers
     wrap the fallback so missing names just means a less-specific prep
     path, not a crash.
     """
@@ -1981,7 +1989,7 @@ def _predict_with_fallback(
     method: str = "predict_proba",
     verbose: bool = False,
 ) -> np.ndarray:
-    """Call ``model.{method}(X)`` with automatic Polars → pandas fallback
+    """Call ``model.{method}(X)`` with automatic Polars -> pandas fallback
     on CatBoost's Polars-fastpath dispatcher misses.
 
     Symmetric to ``_train_model_with_fallback``. CatBoost 1.2.x's Polars
@@ -1995,7 +2003,7 @@ def _predict_with_fallback(
 
     Prior behavior: the caller's ``except (AttributeError, TypeError,
     NotImplementedError)`` block caught the predict_proba failure and
-    retried with ``model.predict(X)`` on the SAME pl.DataFrame — which
+    retried with ``model.predict(X)`` on the SAME pl.DataFrame -- which
     hit the same dispatcher and raised again. Not a fallback; a retry
     into the same hole. (2026-04-19 prod log.)
 
@@ -2009,9 +2017,9 @@ def _predict_with_fallback(
     n_rows = len(X) if hasattr(X, "__len__") else None
 
     # Self-heal for LGB / sklearn / linear: their sklearn wrappers receive
-    # the X arg through _LGBMValidateData → check_array which converts
-    # pd.Categorical to numpy object arrays of strings — crashes on the first
-    # non-numeric cell. Convert Polars → pandas up front so the wrapper takes
+    # the X arg through _LGBMValidateData -> check_array which converts
+    # pd.Categorical to numpy object arrays of strings -- crashes on the first
+    # non-numeric cell. Convert Polars -> pandas up front so the wrapper takes
     # its native pandas fastpath. (Mirrors the model.fit self-heal in
     # _train_model_with_fallback.)
     _model_type = type(model).__name__
@@ -2030,8 +2038,8 @@ def _predict_with_fallback(
     # ``(id(val_df), cols, shape, cat_features, text_features,
     #   embedding_features)``. Prior to this fix the metrics path
     # called ``model.predict_proba(val_df)`` with a raw DataFrame,
-    # which dispatches into CB's sklearn wrapper → rebuilds a fresh
-    # Pool from the frame → on 7.3M rows, 53–66 s wasted per metrics
+    # which dispatches into CB's sklearn wrapper -> rebuilds a fresh
+    # Pool from the frame -> on 7.3M rows, 53–66 s wasted per metrics
     # invocation (observed on prod 2026-04-22 log: 53 s at fit, then
     # another 66.7 s at VAL metrics computation for the identical
     # frame). CB's sklearn wrapper short-circuits rebuild when it
@@ -2047,7 +2055,7 @@ def _predict_with_fallback(
     # shape+columns frame. Two-stage lookup: try ``id(X)`` first
     # (fast path), fall back on a content signature (cols + shape +
     # dtypes) when no id match. The content fallback is safe for
-    # predict-only reuse — the comment above already documented
+    # predict-only reuse -- the comment above already documented
     # "stale cache entry ... is still fine for predict (they don't
     # read the label)". Adding dtypes to the fingerprint guards
     # against a same-shape-different-content collision (rare but
@@ -2082,7 +2090,7 @@ def _predict_with_fallback(
                     _hit_via = "id"
                     break
             # Stage 2: content-based fallback (id miss but cols + shape +
-            # dtypes match → predict_proba is safe to short-circuit, see
+            # dtypes match -> predict_proba is safe to short-circuit, see
             # comment above).
             if _hit is None and _shape_sig is not None and _dtypes_sig is not None:
                 for key, pool in _CB_VAL_POOL_CACHE.items():
@@ -2097,7 +2105,7 @@ def _predict_with_fallback(
                         break
             if _hit is not None:
                 logger.info(
-                    "[cb-val-pool-reuse] %s hit on cached val Pool via %s — "
+                    "[cb-val-pool-reuse] %s hit on cached val Pool via %s -- "
                     "skipping redundant Pool rebuild (saves the 53-66s "
                     "observed on 7M-row prod)",
                     method, _hit_via,
@@ -2105,7 +2113,7 @@ def _predict_with_fallback(
                 with phase(method, model=_model_type, n_rows=n_rows):
                     return fn(_hit)
     except Exception as _exc:
-        # Any lookup failure is benign — fall through to normal path.
+        # Any lookup failure is benign -- fall through to normal path.
         logger.debug(
             f"[cb-val-pool-reuse] {method} cache probe failed "
             f"({type(_exc).__name__}: {_exc}); falling through."
@@ -2145,7 +2153,7 @@ def _predict_with_fallback(
         err_str = str(e)
         # Only catch the specific Polars fastpath dispatch miss on a CB
         # model with a pl.DataFrame input. Everything else bubbles up
-        # — otherwise we'd mask real type bugs.
+        # -- otherwise we'd mask real type bugs.
         if (
             model_type_name not in CATBOOST_MODEL_TYPES
             or not isinstance(X, pl.DataFrame)
@@ -2164,7 +2172,7 @@ def _predict_with_fallback(
         try:
             model._mlframe_polars_fastpath_broken = True
         except Exception:
-            # Non-settable classes (frozen dataclasses, slots) — we simply
+            # Non-settable classes (frozen dataclasses, slots) -- we simply
             # keep paying the TypeError-retry cost. Not fatal.
             pass
 
@@ -2181,15 +2189,15 @@ def _predict_with_fallback(
         from mlframe.preprocessing import prepare_df_for_catboost as _prep_cb
 
         t0 = timer()
-        shape_str = f"{X.shape[0]:_}×{X.shape[1]}" if hasattr(X, "shape") else "?"
+        shape_str = f"{X.shape[0]:_}x{X.shape[1]}" if hasattr(X, "shape") else "?"
         X_pd = get_pandas_view_of_polars_df(X)
         logger.info(
-            "  [predict fallback] polars→pandas(%s) %s in %.1fs",
+            "  [predict fallback] polars->pandas(%s) %s in %.1fs",
             method, shape_str, timer() - t0,
         )
 
         # Decategorize text columns BEFORE prepare_df_for_catboost
-        # (same ordering as _train_model_with_fallback — prep_cb would
+        # (same ordering as _train_model_with_fallback -- prep_cb would
         # otherwise hit the CategoricalDtype text cols and either rebuild
         # them via the slow astype path or reject them outright).
         if text_feat:
@@ -2211,7 +2219,7 @@ def _predict_with_fallback(
 # of (id(df), cols, shape, sorted cat/text/embedding features). Values:
 # the Pool object whose label/weight we mutate in place between fits.
 # The train-side cache survives weight schemas and same-type targets;
-# the val-side cache adds ~2× on top (val eval_set is rebuilt on every
+# the val-side cache adds ~2x on top (val eval_set is rebuilt on every
 # fit by _setup_eval_set). Entries stay valid as long as the Python df
 # reference is alive; the next train_mlframe_models_suite call produces
 # fresh dfs with new id()s and the cache naturally evolves (also
@@ -2260,7 +2268,7 @@ def _maybe_get_or_build_cb_pool(
 
     # Empty-target guard: if the caller passed a 0-length train_target
     # (e.g. RFECV inner CV fold collapsed after MRMR dropped all rows of
-    # one class on rare-imbalance combos — fuzz c0079), skip the
+    # one class on rare-imbalance combos -- fuzz c0079), skip the
     # Pool-reuse fast-path and let CB raise a clearer error from the
     # sklearn wrapper. Using the cached Pool would silently set an empty
     # label and CB then crashes deep in ``_check_label_empty`` with no
@@ -2268,7 +2276,7 @@ def _maybe_get_or_build_cb_pool(
     try:
         if train_target is not None and hasattr(train_target, "__len__") and len(train_target) == 0:
             logger.warning(
-                "[cb-pool-reuse] empty train_target — skipping Pool reuse "
+                "[cb-pool-reuse] empty train_target -- skipping Pool reuse "
                 "(would set zero-length label); deferring to sklearn fallback."
             )
             return None
@@ -2281,7 +2289,7 @@ def _maybe_get_or_build_cb_pool(
     # Pool rejects with ``ValueError: 'feat' is not in list`` from the
     # sklearn-wrapper's ``_get_cat_feature_indices`` (observed 2026-04-21
     # on ``test_mrmr_with_text_column`` / ``_embedding_column``). Applied
-    # to CB only — XGB/LGB have their own handling for missing cols.
+    # to CB only -- XGB/LGB have their own handling for missing cols.
     try:
         _df_cols = set(train_df.columns) if hasattr(train_df, "columns") else None
     except Exception:
@@ -2317,7 +2325,7 @@ def _maybe_get_or_build_cb_pool(
 
     # Cache key: id(df) alone is unsafe because Python reuses ids after
     # GC. Two tests in the same process that each build a fresh frame
-    # may land on the same ``id(train_df)`` value — hitting a cache entry
+    # may land on the same ``id(train_df)`` value -- hitting a cache entry
     # built for a DIFFERENT frame with DIFFERENT cat_features/columns.
     # Include a content signature (columns tuple) so collisions with
     # distinct data produce a miss instead of a corrupted reuse.
@@ -2343,14 +2351,14 @@ def _maybe_get_or_build_cb_pool(
     _df_rows = train_df.shape[0] if hasattr(train_df, "shape") else None
     _tg_len = len(train_target) if train_target is not None and hasattr(train_target, "__len__") else None
     if _df_rows is not None and _tg_len is not None and _df_rows != _tg_len:
-        # Hard contract violation — raised 2026-04-28 (batch 4, was
+        # Hard contract violation -- raised 2026-04-28 (batch 4, was
         # logger.error+fallback). X/y length mismatch reaching this
         # point means an upstream slicing bug (fuzz c0079-style: RFECV
         # inner CV producing inconsistent train_target / train_df
         # lengths). Fall back to sklearn would just delay the same
         # error with less context; raise here gives a stack trace
         # rooted in mlframe's flow, not deep in CB's C++ ``Labels
-        # variable is empty`` (which is misleading — it's about
+        # variable is empty`` (which is misleading -- it's about
         # length, not emptiness).
         raise RuntimeError(
             f"[cb-pool-reuse] train_df rows ({_df_rows}) != "
@@ -2362,17 +2370,17 @@ def _maybe_get_or_build_cb_pool(
     cached = _CB_POOL_CACHE.get(key)
     if cached is not None:
         # Installed CatBoost 1.2.10 rejects ``Pool.set_label`` on a
-        # classification Pool (target type ``Integer``) — the C++
+        # classification Pool (target type ``Integer``) -- the C++
         # ``SetNumericTarget`` path only accepts numeric / unset targets.
         # That means we can only reuse across WEIGHT swaps, not label
         # swaps, for classification pools. Strategy: skip ``set_label``
         # unless the caller actually supplied a different target (by id
-        # against the last target we stored). Always mutate weight —
+        # against the last target we stored). Always mutate weight --
         # ``set_weight`` has no target-type restriction.
         last_target_id = getattr(cached, "_mlframe_last_target_id", None)
         try:
             if last_target_id is None or id(train_target) != last_target_id:
-                # Label swap. Cast to float32 — the Pool was built with a
+                # Label swap. Cast to float32 -- the Pool was built with a
                 # float32 label (see build path below), and CB's C++
                 # ``SetNumericTarget`` rejects anything but Float/None. If
                 # rejection happens anyway, fall through to rebuild.
@@ -2397,7 +2405,7 @@ def _maybe_get_or_build_cb_pool(
                 if _post_label is not None and hasattr(_post_label, "__len__") and len(_post_label) == 0:
                     logger.info(
                         "[cb-pool-reuse] cached Pool ended up with empty label after swap "
-                        "— evicting and rebuilding."
+                        "-- evicting and rebuilding."
                     )
                     _CB_POOL_CACHE.pop(key, None)
                     raise RuntimeError("empty cached label after set_label")
@@ -2423,8 +2431,8 @@ def _maybe_get_or_build_cb_pool(
             )
             _CB_POOL_CACHE.pop(key, None)
 
-    # Simple FIFO eviction — unlikely to hit during normal runs (<= N
-    # models × N tiers entries), but keeps the cache from growing
+    # Simple FIFO eviction -- unlikely to hit during normal runs (<= N
+    # models x N tiers entries), but keeps the cache from growing
     # unboundedly across long-running sessions.
     while len(_CB_POOL_CACHE) >= _CB_POOL_CACHE_MAX_ENTRIES:
         _CB_POOL_CACHE.pop(next(iter(_CB_POOL_CACHE)))
@@ -2432,7 +2440,7 @@ def _maybe_get_or_build_cb_pool(
     # Cast label to float32 at build time. CatBoost stores the label's
     # raw type on the Pool (Integer vs Float) and later ``Pool.set_label``
     # validates ``ERawTargetType == Float or None`` inside C++
-    # ``SetNumericTarget`` — if we built with Integer labels, subsequent
+    # ``SetNumericTarget`` -- if we built with Integer labels, subsequent
     # label swaps across classification targets would raise
     # ``SetNumericTarget requires numeric or unset target type, got
     # Integer``. Building with float32 pins the Pool's target type to
@@ -2598,7 +2606,7 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: Dict[str, Any]) -> None:
         # Stash a content-fingerprint on the Pool so the predict-side
         # lookup in ``_predict_with_fallback`` can do a cols + shape +
         # dtypes content match when ``id(val_df)`` has shifted between
-        # fit and metrics phases (2026-04-24 prod regression — same
+        # fit and metrics phases (2026-04-24 prod regression -- same
         # frame, different Python object due to upstream pre_pipeline
         # transforms).
         try:
@@ -2618,7 +2626,7 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: Dict[str, Any]) -> None:
         )
 
     if changed:
-        # Preserve original shape — single-tuple or list.
+        # Preserve original shape -- single-tuple or list.
         if len(rewritten) == 1 and not isinstance(es, list):
             fit_params["eval_set"] = rewritten[0]
         else:
@@ -2668,7 +2676,7 @@ def _train_model_with_fallback(
     #     ``Pool.set_weight`` (callable);
     #   * ``CatBoostClassifier.fit(X=Pool)`` is the idiomatic native path
     #     (short-circuits rebuild in ``_build_train_pool``).
-    # XGB/LGB are not covered this round — their sklearn wrappers don't
+    # XGB/LGB are not covered this round -- their sklearn wrappers don't
     # accept pre-built DMatrix/Dataset yet (upstream FRs drafted in
     # ``D:\Machine Learning\3rdParty\reproducers\upstream_feature_requests\``).
     # Only the per-build logging from Fix 9.4.1 makes their rebuild cost visible.
@@ -2683,13 +2691,13 @@ def _train_model_with_fallback(
     # Rewrites fit_params['eval_set'] from (val_df, val_target) to a
     # cached Pool so CB's sklearn wrapper short-circuits the val-side
     # rebuild too. Only fires when _cb_pool is active (train-side reuse
-    # succeeded) — otherwise the mixed-container path (train=df,
+    # succeeded) -- otherwise the mixed-container path (train=df,
     # eval_set=pool) confuses CB's fit signature.
     if _cb_pool is not None and model_type_name in CATBOOST_MODEL_TYPES:
         _maybe_rewrite_eval_set_as_cb_pool(fit_params)
     # Diagnostic: log the type+module of train_df right before model.fit so
     # silent type drift is visible in the log (Polars vs pandas vs numpy).
-    # Critical: type(pl.DataFrame).__name__ == "DataFrame" — same as pandas —
+    # Critical: type(pl.DataFrame).__name__ == "DataFrame" -- same as pandas --
     # so we log the module too, otherwise "DataFrame" can hide a Polars frame
     # that should have been converted upstream.
     _is_polars = isinstance(train_df, pl.DataFrame)
@@ -2709,19 +2717,19 @@ def _train_model_with_fallback(
                 _dtype_summary += f", ... ({len(train_df.columns)} cols total)"
         else:
             _dtype_summary = ""
-        logger.info(f"  [pre-fit] train_df type={_kind}, {_dtype_summary}")
+        logger.info("  [pre-fit] train_df type=%s, %s", _kind, _dtype_summary)
     except Exception:
         pass
 
     # Polars-frame contract: only CatBoost, XGBoost, and HistGradientBoosting
-    # accept a Polars frame natively at fit time — their strategies carry
+    # accept a Polars frame natively at fit time -- their strategies carry
     # ``supports_polars=True``. Everyone else (LGB, sklearn, linear, ridge,
     # ...) MUST arrive with pandas; if a pl.DataFrame gets here for them, the
-    # upstream lazy-conversion → pipeline_cache → process_model chain has a
-    # leak. Previously the trainer silently ran a second polars→pandas
-    # conversion as a "self-heal" — which hid the 2026-04-23 regression where
+    # upstream lazy-conversion -> pipeline_cache -> process_model chain has a
+    # leak. Previously the trainer silently ran a second polars->pandas
+    # conversion as a "self-heal" -- which hid the 2026-04-23 regression where
     # ``pipeline_cache`` crossed streams between XGB (polars-native,
-    # ``cache_key="tree" + tier(False,False)``) and LGB (same key) — LGB kept
+    # ``cache_key="tree" + tier(False,False)``) and LGB (same key) -- LGB kept
     # pulling XGB's polars frame out of cache and paying a duplicate 224 s
     # conversion. The pipeline_cache fix (container-kind in key, core.py) is
     # the real fix; this raise is the guard that ensures future leaks are
@@ -2734,7 +2742,7 @@ def _train_model_with_fallback(
     # Look through MultiOutputClassifier wrapper for the polars-native check.
     # The wrapper's `estimator` is the per-label base; if the base is polars-native
     # (e.g. HGB), each per-label fit will accept polars too.
-    # _ChainEnsemble is the multilabel chain ensemble — its inner is exposed
+    # _ChainEnsemble is the multilabel chain ensemble -- its inner is exposed
     # as `base_estimator` (cloned per chain at fit time).
     _effective_model_type_name = model_type_name
     if model_type_name in ("MultiOutputClassifier", "MultiOutputRegressor", "ClassifierChain"):
@@ -2752,12 +2760,12 @@ def _train_model_with_fallback(
             f"{model_type_name} received pl.DataFrame at fit time "
             f"(shape={train_df.shape}, id={id(train_df)}). Only Polars-native "
             f"strategies (CatBoost, XGBoost, HistGradientBoosting) may receive "
-            f"polars — everyone else needs pandas via the core.py lazy-"
+            f"polars -- everyone else needs pandas via the core.py lazy-"
             f"conversion path. Most likely cause: ``pipeline_cache`` returned "
             f"a polars frame cached by a polars-native strategy under a "
             f"``cache_key`` that collides with this strategy's key (see the "
             f"2026-04-23 kind-suffix fix in core.py). Diagnose via "
-            f"pipeline_cache keys + id() — do NOT add another silent "
+            f"pipeline_cache keys + id() -- do NOT add another silent "
             f"self-heal."
         )
 
@@ -2765,7 +2773,7 @@ def _train_model_with_fallback(
     # The polars-native path's ``_polars_fill_null_in_categorical`` plus
     # ``prepare_df_for_catboost`` cover most cases, but the multilabel
     # codepath (MultiOutputClassifier wrapping) re-slices the frame after
-    # those fills run — by the time the per-label CB fit lands here, val
+    # those fills run -- by the time the per-label CB fit lands here, val
     # / test rows may carry raw NaN in cat columns and CB raises ``Invalid
     # type for cat_feature ... =NaN`` (fuzz c0062). Mirror the polars
     # __MISSING__ sentinel for the pandas surface so the bug is patched
@@ -2855,9 +2863,9 @@ def _train_model_with_fallback(
 
     try:
         # 2026-04-28 (batch 4): final cat alignment right before fit, by
-        # which point any upstream polars→pandas conversion has run.
+        # which point any upstream polars->pandas conversion has run.
         # Targets the seed=2024 c0060 flake: c0009 (polars_nullable
-        # multilabel) leaves the polars_nullable→pandas conversion in
+        # multilabel) leaves the polars_nullable->pandas conversion in
         # a state where c0060's pandas frame ends up with a
         # pd.CategoricalDtype whose categories list disagrees between
         # train and val/test. Re-align here so XGB's stored cat index
@@ -2906,7 +2914,22 @@ def _train_model_with_fallback(
             else:
                 _ensure_cb_multilabel_loss(model, train_target)
                 _ensure_xgb_classification_objective(model, train_target)
+                _model_pre_wrap_type = type(model).__name__
                 model = _maybe_wrap_for_2d_target(model, train_target)
+                # 2026-04-29: when ``_maybe_wrap_for_2d_target`` introduced a
+                # MultiOutputClassifier wrapper, strip ``eval_set`` from
+                # fit_params - MOC doesn't slice eval_set per label, so the
+                # inner estimator would see a 2-D val y and raise
+                # ``y should be a 1d array``. The inner HGB / LGB / Linear
+                # classifiers don't accept eval_set anyway. Surfaced 3-way
+                # fuzz c0036 / c0041 / c0045 / c0056 (cb_hgb_lgb_linear*xgb /
+                # multilabel + eval_set passed through).
+                if (
+                    type(model).__name__ == "MultiOutputClassifier"
+                    and _model_pre_wrap_type != "MultiOutputClassifier"
+                    and "eval_set" in fit_params
+                ):
+                    fit_params = {k: v for k, v in fit_params.items() if k != "eval_set"}
                 model.fit(train_df, train_target, **fit_params)
     except Exception as e:
         try_again = False
@@ -2934,7 +2957,7 @@ def _train_model_with_fallback(
             and "Dictionary size is 0" in error_str
         ):
             # CatBoost's text feature estimator failed to build a TF-IDF
-            # vocabulary — the column's non-null samples, after the
+            # vocabulary -- the column's non-null samples, after the
             # occurrence_lower_bound filter, leave an empty dictionary.
             # Root cause (seen 2026-04-19 in prod): columns auto-promoted
             # to text_features that have >99.9% null rows (e.g.
@@ -2949,7 +2972,7 @@ def _train_model_with_fallback(
             text_feat = fit_params.get("text_features") or []
             if text_feat:
                 logger.warning(
-                    "CatBoost raised 'Dictionary size is 0' on text_features %s — "
+                    "CatBoost raised 'Dictionary size is 0' on text_features %s -- "
                     "the column(s) have too few non-null samples for CB's TF-IDF "
                     "estimator to build a vocabulary. Dropping text_features from "
                     "fit_params and retrying. Fix upstream: block promotion of "
@@ -2962,7 +2985,7 @@ def _train_model_with_fallback(
                 fit_params = {k: v for k, v in fit_params.items() if k != "text_features"}
                 try_again = True
             else:
-                # Raise — same error without text_features in params is
+                # Raise -- same error without text_features in params is
                 # an unexpected variant, not our problem.
                 pass
 
@@ -2981,7 +3004,7 @@ def _train_model_with_fallback(
             )
         ):
             # CatBoost's native-Polars fastpath (_set_features_order_data_polars_*)
-            # can reject certain categorical column layouts with opaque messages —
+            # can reject certain categorical column layouts with opaque messages --
             # either "No matching signature found" (fused cpdef dispatch miss) or
             # the categorical/numeric type mismatch above. Fall back to the pandas
             # path: zero-copy Arrow view + `prepare_df_for_catboost` preserves
@@ -2999,7 +3022,7 @@ def _train_model_with_fallback(
             )
             # Mark the model "Polars-broken" so subsequent predict_proba /
             # predict_log_proba calls via _predict_with_fallback go straight
-            # to the pandas path — avoids the same Cython dispatch miss on
+            # to the pandas path -- avoids the same Cython dispatch miss on
             # every VAL/TEST/ensemble scoring (one WARN + one ~2s retry per
             # call saved). See the symmetric short-circuit in
             # _predict_with_fallback.
@@ -3012,7 +3035,7 @@ def _train_model_with_fallback(
                 cat_features=fit_params.get("cat_features"),
                 text_features=fit_params.get("text_features"),
             )
-            logger.warning("CB Polars fastpath failure — schema context:\n%s", schema_dump)
+            logger.warning("CB Polars fastpath failure -- schema context:\n%s", schema_dump)
             from mlframe.training.utils import get_pandas_view_of_polars_df
             from mlframe.preprocessing import prepare_df_for_catboost as _prep_cb
 
@@ -3023,8 +3046,8 @@ def _train_model_with_fallback(
                 """CatBoost's pandas path rejects columns that are pd.Categorical
                 but not in cat_features with "column 'X' has dtype 'category' but
                 is not in cat_features list". Columns auto-promoted from
-                cat_features → text_features keep a pd.Categorical dtype after
-                the Polars→pandas zero-copy conversion. Cast those to plain
+                cat_features -> text_features keep a pd.Categorical dtype after
+                the Polars->pandas zero-copy conversion. Cast those to plain
                 object to keep CB happy (and preserve the string content).
                 """
                 if not text_feat:
@@ -3035,24 +3058,24 @@ def _train_model_with_fallback(
                 return df
 
             # Per-step timing for the fallback: a production run showed this
-            # entire path consumed >1 hour on a 1M × 98 frame with 4
-            # high-cardinality text columns — without timing it was impossible
-            # to tell which step (Polars→pandas vs. prep_cb vs. decategorize)
+            # entire path consumed >1 hour on a 1M x 98 frame with 4
+            # high-cardinality text columns -- without timing it was impossible
+            # to tell which step (Polars->pandas vs. prep_cb vs. decategorize)
             # was responsible. The timer log writes to the trainer logger so
             # the lines interleave with surrounding INFO output.
             t0_fb = timer()
-            shape_str = f"{train_df.shape[0]:_}×{train_df.shape[1]}" if hasattr(train_df, "shape") else "?"
+            shape_str = f"{train_df.shape[0]:_}x{train_df.shape[1]}" if hasattr(train_df, "shape") else "?"
 
             t0 = timer()
             train_df = get_pandas_view_of_polars_df(train_df)
-            logger.info(f"  [fallback] polars→pandas(train) {shape_str} in {timer() - t0:.1f}s")
+            logger.info(f"  [fallback] polars->pandas(train) {shape_str} in {timer() - t0:.1f}s")
 
             # IMPORTANT: decategorize text columns BEFORE prepare_df_for_catboost.
             # Otherwise prep_cb hits the pd.Categorical text columns (auto-promoted
             # from cat to text earlier) and runs
             #   df[col].astype(str).fillna("").astype("category")
             # which on a high-cardinality column like skills_text (81k unique
-            # values over 810k rows) takes many minutes per column — the
+            # values over 810k rows) takes many minutes per column -- the
             # production-reproduced hang that motivated this reorder.
             t0 = timer()
             train_df = _decategorize_text_cols(train_df)
@@ -3062,7 +3085,7 @@ def _train_model_with_fallback(
             train_df = _prep_cb(train_df, cat_features=cat_feat, text_features=text_feat)
             logger.info(f"  [fallback] prepare_df_for_catboost(train) in {timer() - t0:.1f}s")
 
-            # eval_set carries the val split for CB — rewrite it too.
+            # eval_set carries the val split for CB -- rewrite it too.
             eval_set = fit_params.get("eval_set")
             if eval_set is not None:
                 t0_es = timer()
@@ -3110,8 +3133,8 @@ def _train_model_with_fallback(
     _maybe_clean_ram()
     fit_elapsed = timer() - t0_fit
     if verbose:
-        shape_str = f"{train_df.shape[0]:_}×{train_df.shape[1]}" if hasattr(train_df, "shape") else ""
-        logger.info(f"  model.fit({model_type_name}) done — {shape_str}, {fit_elapsed:.1f}s")
+        shape_str = f"{train_df.shape[0]:_}x{train_df.shape[1]}" if hasattr(train_df, "shape") else ""
+        logger.info(f"  model.fit({model_type_name}) done -- {shape_str}, {fit_elapsed:.1f}s")
 
     # Apply post-hoc isotonic calibration to binary classifiers that were
     # tagged with ``_mlframe_posthoc_calibrate=True``. Fix 2026-04-15 for the
@@ -3152,13 +3175,13 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
 
     Fix: compute the UNION of category levels across all three splits
     per column, then re-cast each split's column to that union. XGBoost
-    now sees val/test as a subset of the train cat universe — no
+    now sees val/test as a subset of the train cat universe -- no
     "unseen category" rejections.
 
     No-op for non-XGB models. CB / HGB / LGB tolerate unseen
     categories natively.
 
-    Returns ``(train_df, val_df, test_df)`` — frames are copied
+    Returns ``(train_df, val_df, test_df)`` -- frames are copied
     in-place when an alignment happens, otherwise returned unchanged.
     """
     # 2026-04-28: alignment runs for ALL pandas frames regardless of
@@ -3177,8 +3200,8 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
     # ``XGBoostStrategy.prepare_polars_dataframe`` + ``build_polars_enum_map``
     # in ``training.core`` (built once from the train+val union, leak-free).
     # Doing it again here would, for non-XGB models in mixed suites, undo
-    # the CB-specific ``Enum→String`` text-feature cast that core.py
-    # applies at line ~3466 — surfaced 2026-04-28 as fuzz c0025
+    # the CB-specific ``Enum->String`` text-feature cast that core.py
+    # applies at line ~3466 -- surfaced 2026-04-28 as fuzz c0025
     # (cb_hgb_lgb_xgb / pl_enum) failing with
     # ``Unsupported data type Enum(...) for a text feature column``.
     if isinstance(train_df, pl.DataFrame):
@@ -3244,7 +3267,7 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
                     union_cats.append(_cat)
                     seen.add(_cat)
         if union_cats == train_cats:
-            continue  # No new categories — alignment unnecessary.
+            continue  # No new categories -- alignment unnecessary.
         # Re-cast each split's column to the union categories.
         train_df = _ensure_copy(train_df, "_mlframe_filled")
         train_df[_col] = train_df[_col].cat.set_categories(union_cats)
@@ -3268,13 +3291,13 @@ def _decategorise_float_cat_columns(train_df, val_df=None, test_df=None):
     target encoders / RFECV-driven re-encodings, a column may end up
     as a categorical whose category levels are floats (e.g. target-
     encoded means ``[0.13, 0.42, ...]`` were ``.astype("category")``
-    boxed). At that point the column is *semantically numeric* — the
-    "categories" are continuous target encodings — but the dtype still
+    boxed). At that point the column is *semantically numeric* -- the
+    "categories" are continuous target encodings -- but the dtype still
     says "categorical". Both downstream backends reject this:
       * XGBoost's columnar reader (``columnar.h:134``):
         ``"Category index from DataFrame has floating point dtype,
         consider using strings or integers instead"``.
-      * CatBoost (``_catboost.pyx``): ``"bad object for id: 0.0"`` —
+      * CatBoost (``_catboost.pyx``): ``"bad object for id: 0.0"`` --
         CB's hash-map lookup of a float as a categorical id fails.
     The proper fix is to honour the semantics: drop the categorical
     wrapper and expose the float values as a regular numeric column.
@@ -3282,7 +3305,7 @@ def _decategorise_float_cat_columns(train_df, val_df=None, test_df=None):
     ``enable_categorical`` / ``cat_features`` filters see consistent
     dtypes across the fit / predict boundary.
 
-    Returns ``(train_df, val_df, test_df)`` — frames are copied when a
+    Returns ``(train_df, val_df, test_df)`` -- frames are copied when a
     decategorise happens, otherwise returned unchanged.
     """
     def _decat(df):
@@ -3329,9 +3352,9 @@ def _filter_categorical_features(fit_params, train_df, val_df=None, test_df=None
     Uses the UNION of categorical columns across train / val / test
     rather than train alone. Rationale: ``eval_set`` contains val
     (already registered into fit_params at this point). If val has a
-    categorical dtype in a column that train doesn't — e.g. upstream
+    categorical dtype in a column that train doesn't -- e.g. upstream
     pipeline cast train but val slipped through a different code path
-    — then CB raises
+    -- then CB raises
     ``column 'X' has dtype 'category' but is not in cat_features``
     because we pruned X out of cat_features.
 
@@ -3364,14 +3387,14 @@ def _filter_categorical_features(fit_params, train_df, val_df=None, test_df=None
 # Metrics and Reporting (imported from evaluation module)
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-# Import report functions - these are already in evaluation.py
-from .evaluation import (
-    report_model_perf,
-    report_regression_model_perf,
-    report_probabilistic_model_perf,
-    get_model_feature_importances,
-    plot_model_feature_importances,
-)
+# Report functions live in ``evaluation.py`` and are imported lazily
+# inside the call sites below to break the structural import cycle
+# (``evaluation.py`` lazy-imports ``_predict_with_fallback`` /
+# ``_PerClassIsotonicCalibrator`` / ``_PostHocMultiCalibratedModel``
+# from this module -- making the top-level edge here the cycle's only
+# unconditional link). Surfaced 2026-04-28 by ``test_no_import_cycles``.
+# Each of the two callsites does its own lazy import so the runtime
+# cost is paid once per fit.
 
 
 def _compute_split_metrics(
@@ -3415,7 +3438,7 @@ def _compute_split_metrics(
     # (val-side) or splitter edge cases; both are now guarded at the
     # source. If a 0-row split still arrives here, the metrics layer
     # would crash with ``Found empty input array`` from
-    # classification_report — a clear signal of an upstream bug rather
+    # classification_report -- a clear signal of an upstream bug rather
     # than silently dropping the split's contribution to the report.
 
     # Derive columns from df if available (for feature importance)
@@ -3424,6 +3447,10 @@ def _compute_split_metrics(
 
     effective_show_fi = show_fi and not has_other_splits
     split_plot_file = f"{plot_file}_{split_name}" if plot_file else ""
+
+    # Lazy import -- see comment near the top of this module about the
+    # ``evaluation`` <-> ``trainer`` import cycle.
+    from .evaluation import report_model_perf
 
     preds, probs = report_model_perf(
         targets=target,
@@ -3601,7 +3628,7 @@ def run_confidence_analysis(
     except Exception as e:
         # CatBoost reports "Environment for task type [GPU] not found" when the
         # host has a CUDA device (so CUDA_IS_AVAILABLE=True) but no CatBoost
-        # GPU runtime. Fall back to CPU — the confidence model is small and
+        # GPU runtime. Fall back to CPU -- the confidence model is small and
         # CPU-adequate; this keeps training from aborting on mixed environments.
         if confidence_task_type == "GPU" and "Environment for task type [GPU] not found" in str(e):
             logger.warning("CatBoost GPU environment unavailable for confidence model; falling back to CPU.")
@@ -3640,6 +3667,8 @@ def run_confidence_analysis(
         plt.xlabel(title)
         plt.show()
     else:
+        # Lazy import -- see comment near top of module about cycle.
+        from .evaluation import plot_model_feature_importances
         plot_model_feature_importances(
             model=confidence_model,
             columns=list(test_df.columns),
@@ -4049,7 +4078,7 @@ def train_and_evaluate_model(
     )
 
     if use_cache and exists(model_file_name):
-        logger.info(f"Loading model from file {model_file_name}")
+        logger.info("Loading model from file %s", model_file_name)
         # Security: only load pickles from an explicitly trusted directory root.
         # Default `trusted_root` to the model file's parent dir when not provided,
         # preserving backward compat for in-process trained-then-loaded flows.
@@ -4076,7 +4105,7 @@ def train_and_evaluate_model(
 
     # Decategorise float-typed pandas categorical columns BEFORE the
     # pre_pipeline runs (RFECV inner CB / XGB inside the pre_pipeline
-    # would otherwise reject them — fuzz c0102, see helper docstring).
+    # would otherwise reject them -- fuzz c0102, see helper docstring).
     train_df, val_df, test_df = _decategorise_float_cat_columns(
         train_df, val_df=val_df, test_df=test_df,
     )
@@ -4146,7 +4175,7 @@ def train_and_evaluate_model(
         if (not use_cache) or (not exists(model_file_name)):
             _setup_sample_weight(sample_weight, train_idx, model_obj, fit_params)
             if verbose:
-                logger.info(f"training dataset shape: {train_df.shape}")
+                logger.info("training dataset shape: %s", train_df.shape)
 
             if display_sample_size:
                 ipython_display(train_df.head(display_sample_size).style.set_caption(f"{model_name} features head"))
@@ -4325,7 +4354,7 @@ def train_and_evaluate_model(
             if test_df is not None:
                 _orig_test_df = test_df
 
-        # Parallelize val and test metric computation — numba kernels release GIL,
+        # Parallelize val and test metric computation -- numba kernels release GIL,
         # Agg matplotlib is thread-safe. Pure-Python parts still block, but the
         # heavy cumtime (binning, AUC, calibration plot save) runs concurrently.
         def _run_val():
@@ -4387,7 +4416,7 @@ def train_and_evaluate_model(
                 )
 
     if (compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics) and verbose:
-        logger.info(f"  Metrics computation done — {timer() - t0_metrics:.1f}s")
+        logger.info(f"  Metrics computation done -- {timer() - t0_metrics:.1f}s")
 
     _maybe_clean_ram()
 
@@ -4764,7 +4793,7 @@ def configure_training_params(
     # ``CalibratedClassifierCV`` is single-output only; combining it with a
     # MULTILABEL target silently fails inside the wrapper (label-list shape
     # mismatch deep in sklearn). Honour ``MultilabelDispatchConfig.
-    # allow_uncalibrated_multi``: when False (default — strict), refuse the
+    # allow_uncalibrated_multi``: when False (default -- strict), refuse the
     # combo loudly so the misconfiguration is visible at config time; when
     # True, drop the calibration request with a warning and continue. No-op
     # when target is not multilabel or no MultilabelDispatchConfig was
@@ -4821,7 +4850,7 @@ def configure_training_params(
                     hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
                 )
             if target_arr is not None and target_arr.ndim == 2:
-                nlabels = target_arr.shape[1] + 1  # treat as ">2" → multiclass-style metrics
+                nlabels = target_arr.shape[1] + 1  # treat as ">2" -> multiclass-style metrics
             elif _is_object_of_arrays:
                 try:
                     _first = target_arr[0]
@@ -4866,8 +4895,8 @@ def configure_training_params(
     gpu_configs = get_training_configs(has_gpu=None, subgroups=indexed_subgroups, **config_params)
 
     # Prefer caller-supplied size (typically computed on the Polars frame
-    # BEFORE pandas conversion via .estimated_size() — O(cols), microseconds).
-    # Fall back to get_df_memory_consumption with deep=False — O(cols) for
+    # BEFORE pandas conversion via .estimated_size() -- O(cols), microseconds).
+    # Fall back to get_df_memory_consumption with deep=False -- O(cols) for
     # pandas too. Explicit deep=False avoids the O(rows) deep scan that used
     # to block this site for 3 minutes on frames with millions of unique
     # object-column strings. pyutilz default stays deep=True (back-compat);
@@ -4885,7 +4914,7 @@ def configure_training_params(
     data_size_gb = (train_df_size + val_df_size) / (1024**3)
 
     # Skip expensive GPU probe (nvidia-smi subprocess ~0.5s) when GPU configs
-    # are disabled or CatBoost is explicitly on CPU — the result is unused.
+    # are disabled or CatBoost is explicitly on CPU -- the result is unused.
     cb_task_type = config_params.get("cb_kwargs", {}).get("task_type")
     cb_devices = config_params.get("cb_kwargs", {}).get("devices")
     if not prefer_gpu_configs or cb_task_type == "CPU":
@@ -4902,7 +4931,7 @@ def configure_training_params(
         else:
             data_fits_cb_gpu_ram = data_fits_gpu_ram
 
-    logger.info(f"data_fits_gpu_ram={data_fits_gpu_ram}, data_fits_cb_gpu_ram={data_fits_cb_gpu_ram}, cb_devices={cb_devices}")
+    logger.info("data_fits_gpu_ram=%s, data_fits_cb_gpu_ram=%s, cb_devices=%s", data_fits_gpu_ram, data_fits_cb_gpu_ram, cb_devices)
 
     configs = gpu_configs if (prefer_gpu_configs and data_fits_gpu_ram) else cpu_configs
     cb_configs = gpu_configs if (prefer_gpu_configs and data_fits_cb_gpu_ram) else cpu_configs
@@ -4948,9 +4977,9 @@ def configure_training_params(
         # Background: ``_predict_with_fallback`` lazily flips this attribute
         # to True after the FIRST polars-fastpath dispatch miss, so the
         # short-circuit fires only on the SECOND predict call onward.
-        # That's fine for re-using a single fitted model (VAL → TEST), but
+        # That's fine for re-using a single fitted model (VAL -> TEST), but
         # in a suite each weight-schema iteration calls ``sklearn.clone()``
-        # on this base ``_cb_model`` — and clone strips non-param attrs,
+        # on this base ``_cb_model`` -- and clone strips non-param attrs,
         # giving every fresh CB instance a blank flag. The 2026-04-24 prod
         # log captured the symptom: CB uniform AND CB recency BOTH paid
         # the polars-miss + 2-3 s pandas-conversion roundtrip on their
@@ -4958,18 +4987,18 @@ def configure_training_params(
         # We know empirically (every prod run since 2026-04-19) that CB
         # 1.2.x's ``_set_features_order_data_polars_categorical_column``
         # has dispatch gaps on our nullable-Categorical / Enum schema, so
-        # opting CB into pandas at predict time is bestthing — bypasses
+        # opting CB into pandas at predict time is bestthing -- bypasses
         # the doomed retry on success, costs nothing on failure. Set on
         # the base instance so ``clone()`` carries the param-equivalent
         # state forward (sklearn.clone preserves ``get_params()`` keys;
         # for the attr to survive clone we re-assert it inside
-        # ``train_eval.py:process_model``'s clone call too — but writing
+        # ``train_eval.py:process_model``'s clone call too -- but writing
         # it here is the ergonomic source of truth).
         try:
             _cb_model._mlframe_polars_fastpath_broken = True
         except Exception:
             # CB Python class is permissive about attributes; slot-only
-            # forks could refuse — degrade to "pay first-call retry".
+            # forks could refuse -- degrade to "pay first-call retry".
             pass
         cb_params = dict(
             model=_cb_model,
@@ -4986,7 +5015,7 @@ def configure_training_params(
     # without native (N, K) target support (HGB, XGB-via-MultiOutputClassifier,
     # LGB, Linear) need MultiOutputClassifier when target is multilabel.
     # Inner-estimator early_stopping that depends on eval_set must be disabled
-    # because the outer wrapper doesn't slice eval_set per label — without
+    # because the outer wrapper doesn't slice eval_set per label -- without
     # an eval_set the inner fit would crash ("at least one dataset and eval
     # metric is required for evaluation").
     def _wrap_for_multilabel_if_needed(estimator, strategy_cls):
@@ -5005,7 +5034,7 @@ def configure_training_params(
         _patch = {}
         if "early_stopping_rounds" in params and params.get("early_stopping_rounds") is not None:
             _patch["early_stopping_rounds"] = None
-        # XGB sklearn ≥2 uses callbacks for early stopping too; strip them.
+        # XGB sklearn >=2 uses callbacks for early stopping too; strip them.
         if "callbacks" in params and params.get("callbacks"):
             _patch["callbacks"] = None
         if _patch:
@@ -5060,7 +5089,7 @@ def configure_training_params(
             use_flaml_zeroshot=use_flaml_zeroshot,
             metamodel_func=metamodel_func,
         )
-        # LGB has no native multilabel — wrap with MultiOutputClassifier.
+        # LGB has no native multilabel -- wrap with MultiOutputClassifier.
         from .strategies import TreeModelStrategy as _LGBS
         lgb_params["model"] = _wrap_for_multilabel_if_needed(lgb_params["model"], _LGBS)
 
@@ -5111,7 +5140,7 @@ def configure_training_params(
             linear_config_kwargs.update(linear_model_config.model_dump(exclude={"model_type"}))
         config = LinearModelConfig(**linear_config_kwargs)
         _linear_est = create_linear_model(model_type, config, use_regression=use_regression)
-        # Linear classifiers reject 2-D y → MultiOutputClassifier wrapper for multilabel.
+        # Linear classifiers reject 2-D y -> MultiOutputClassifier wrapper for multilabel.
         from .strategies import LinearModelStrategy as _LMS
         _linear_est = _wrap_for_multilabel_if_needed(_linear_est, _LMS)
         linear_model_params[model_type] = dict(model=metamodel_func(_linear_est))
