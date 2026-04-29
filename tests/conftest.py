@@ -218,6 +218,18 @@ def cleanup_memory():
     except ImportError:
         pass
 
+    # 2026-04-29: matplotlib figure cleanup. Plots accumulate across the
+    # fuzz suite (each report_model_perf builds 5+ figures), and the
+    # Agg backend's allocator eventually trips ``MemoryError: bad
+    # allocation`` deep in C++. ``plt.close('all')`` releases the
+    # backend buffers so subsequent combos start clean. Surfaced
+    # 3-way fuzz c0024 (29 mins into a 60-combo sweep).
+    try:
+        import matplotlib.pyplot as _plt
+        _plt.close("all")
+    except Exception:
+        pass
+
     gc.collect()
 
     # Clear GPU memory. Distributed process-group teardown is the responsibility
