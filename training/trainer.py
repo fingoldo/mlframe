@@ -958,6 +958,41 @@ def _maybe_wrap_for_2d_target(model, train_target):
     # an array of shape (N, K)`` before this guard.
     try:
         from sklearn.multioutput import MultiOutputClassifier
+        # Disable inner-estimator features that depend on a held-out
+        # eval / val split: ``MultiOutputClassifier`` splits ``y`` per
+        # label but does NOT propagate eval_set / val_data, so
+        # early-stopping-via-internal-split paths in HGB / LGB collide
+        # with the per-label fit. Concretely: HGB with
+        # ``early_stopping=True`` + ``validation_fraction=None`` calls
+        # ``_check_classification_targets`` on its own internal val
+        # fold's y, which the inner-clone receives as the sliced 1-D
+        # column - except that inner check then passes the FULL
+        # train+val (N, K) along into a deeper sklearn validation step
+        # that does ``column_or_1d`` on it. Easiest fix: turn off the
+        # inner's early stopping so no internal val split happens.
+        try:
+            inner_params = model.get_params() if hasattr(model, "get_params") else {}
+            patch = {}
+            # HGB: ``early_stopping=True`` + no val => internal split on
+            # 2-D y is incompatible with the per-label MOC slice.
+            if "early_stopping" in inner_params and inner_params.get("early_stopping"):
+                patch["early_stopping"] = False
+            # LGB: callbacks (e.g. ``early_stopping(rounds=N)``) require
+            # an eval_set, but MOC cannot pass eval_set per label, so the
+            # callback raises ``For early stopping, at least one dataset
+            # and eval metric is required for evaluation``. Drop the
+            # callbacks so the per-label fit completes without
+            # early-stopping.
+            if "callbacks" in inner_params and inner_params.get("callbacks"):
+                patch["callbacks"] = None
+            # XGB / LGB ``early_stopping_rounds`` keyword: same issue,
+            # the per-label fit has no eval_set to evaluate against.
+            if "early_stopping_rounds" in inner_params and inner_params.get("early_stopping_rounds"):
+                patch["early_stopping_rounds"] = None
+            if patch:
+                model.set_params(**patch)
+        except Exception:
+            pass
         return MultiOutputClassifier(model, n_jobs=1)
     except Exception:
         return model
@@ -2927,9 +2962,17 @@ def _train_model_with_fallback(
                 if (
                     type(model).__name__ == "MultiOutputClassifier"
                     and _model_pre_wrap_type != "MultiOutputClassifier"
-                    and "eval_set" in fit_params
                 ):
-                    fit_params = {k: v for k, v in fit_params.items() if k != "eval_set"}
+                    # Strip val-injected fit_params - MOC doesn't slice
+                    # them per label, so the inner estimator's
+                    # ``_validate_data`` chokes on the 2-D ``y_val``
+                    # with ``y should be a 1d array``. Surfaced 3-way
+                    # fuzz c0036 / c0041 / c0045 / c0056 (mixed-model
+                    # multilabel suites where ``_setup_eval_set``
+                    # injected ``X_val`` / ``y_val`` for inner
+                    # gradient-boosting val-set support).
+                    _strip_keys = ("eval_set", "X_val", "y_val", "validation_data")
+                    fit_params = {k: v for k, v in fit_params.items() if k not in _strip_keys}
                 model.fit(train_df, train_target, **fit_params)
     except Exception as e:
         try_again = False
