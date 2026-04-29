@@ -22,7 +22,7 @@ def _caller_logger() -> logging.Logger:
     """Return the logger bound to the module that called the public helper
     which in turn called us. Used so progress lines like "Done. RAM usage:"
     or the "PHASE N" banner are attributed to the caller's module (e.g.
-    ``mlframe.training.core``) instead of this utils module — matches what
+    ``mlframe.training.core``) instead of this utils module -- matches what
     a reader expects when scanning log origins.
     """
     try:
@@ -116,7 +116,7 @@ def clean_ram_and_gpu(verbose: bool = False) -> None:
             if verbose:
                 allocated = torch.cuda.memory_allocated() / 1e9
                 reserved = torch.cuda.memory_reserved() / 1e9
-                logger.info(f"GPU memory after cleanup: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
+                logger.info("GPU memory after cleanup: %.2fGB allocated, %.2fGB reserved", allocated, reserved)
     except ImportError:
         pass  # PyTorch not installed
 
@@ -148,19 +148,41 @@ def should_clean_ram(baseline_rss_mb: float, df_size_mb: float, min_growth_mb: f
     """True iff a clean_ram call (~0.6s) is likely justified.
 
     Triggers when either:
-      - RSS grew beyond baseline by max(min_growth_mb, 30% of DF size) — accumulated
+      - RSS grew beyond baseline by max(min_growth_mb, 30% of DF size) -- accumulated
         temp state worth collecting; OR
-      - free system RAM < 2x DF size — OOM risk, gc may release Arrow buffers.
+      - free system RAM < 2x DF size -- OOM risk, gc may release Arrow buffers.
+
+    The ``free_mb < 2 * df_size_mb`` branch only matters when df_size is
+    a meaningful fraction of system RAM (gigabyte-scale frames). For
+    small frames the 2*df_size threshold is far below typical free RAM
+    (we'd need free<10MB on a 5MB frame to trip), so the
+    ``psutil.virtual_memory()`` call is pure overhead - 3ms per call
+    on Windows. Short-circuit it when df_size is small enough that the
+    OOM branch is moot. cProfile of fuzz combo c0134 traced 13ms across
+    4 calls of ``should_clean_ram`` to ``virtual_memory()`` alone.
     """
     try:
         import psutil
         rss_mb = psutil.Process().memory_info().rss / 1024**2
+    except Exception as e:
+        logger.debug("should_clean_ram: RSS measurement failed, falling back to clean", exc_info=e)
+        return True  # can't measure -> fall back to cleaning
+    growth = rss_mb - baseline_rss_mb
+    if growth > max(min_growth_mb, 0.3 * df_size_mb):
+        return True
+    # Only check free RAM when df is large enough for the 2*df_size
+    # threshold to be a plausible OOM trigger. 256 MiB is a safe lower
+    # bound: at this size the threshold is 512 MiB, comparable to
+    # typical pressure on small VMs; smaller frames cannot OOM the host.
+    if df_size_mb < 256:
+        return False
+    try:
+        import psutil
         free_mb = psutil.virtual_memory().available / 1024**2
     except Exception as e:
-        logger.debug("should_clean_ram: RAM measurement failed, falling back to clean", exc_info=e)
-        return True  # can't measure → fall back to cleaning
-    growth = rss_mb - baseline_rss_mb
-    return (growth > max(min_growth_mb, 0.3 * df_size_mb)) or (free_mb < 2 * df_size_mb)
+        logger.debug("should_clean_ram: free-RAM measurement failed, falling back to clean", exc_info=e)
+        return True
+    return free_mb < 2 * df_size_mb
 
 
 def maybe_clean_ram_and_gpu(
@@ -182,7 +204,7 @@ def maybe_clean_ram_and_gpu(
     if should_clean_ram(baseline_rss_mb, df_size_mb):
         clean_ram_and_gpu(verbose=verbose)
         if verbose:
-            logger.info(f"  clean_ram fired ({reason})" if reason else "  clean_ram fired")
+            logger.info("  clean_ram fired (%s)\" if reason else \"  clean_ram fired", reason)
         return get_process_rss_mb()
     return baseline_rss_mb
 
@@ -204,7 +226,7 @@ def filter_existing(df, cols) -> list:
 def log_phase(msg: str, n: int = 80) -> None:
     """Log a single separator line followed by the phase message.
 
-    Width 80 reads comfortably on terminals and in notebook cells (was 160 —
+    Width 80 reads comfortably on terminals and in notebook cells (was 160 --
     wrapped horizontally). Only one separator per call: consecutive
     ``log_phase`` calls render as::
 
@@ -314,7 +336,7 @@ def _canonical_dtype_str(dtype) -> str:
     is detectable (val-set with a new category yields a different hash).
 
     Intentionally strict: two runs on the same column with different
-    category palettes (e.g. union vs partial) produce different hashes —
+    category palettes (e.g. union vs partial) produce different hashes --
     that's the correct signal for Fix 8's fingerprint, since CatBoost's
     internal dict ordering depends on the category list.
     """
@@ -322,7 +344,7 @@ def _canonical_dtype_str(dtype) -> str:
     # pl.String is an alias for pl.Utf8 as of polars 1.x; collapse.
     if s in ("Utf8", "String"):
         return "String"
-    # pl.Enum(categories=['a','b','c']) — include categories in canonical form
+    # pl.Enum(categories=['a','b','c']) -- include categories in canonical form
     # so val-drift with new categories invalidates cached models.
     if s.startswith("Enum("):
         try:
@@ -347,8 +369,8 @@ def compute_model_input_fingerprint(
         order-stable list of ``{"name": str, "dtype": str, "role":
         cat|text|embedding|numeric}`` records used to build the hash.
 
-    Rationale (Fix 8): hashes behaviour — the realised data layout the
-    model saw at fit time — not the config flags that produced it. Two
+    Rationale (Fix 8): hashes behaviour -- the realised data layout the
+    model saw at fit time -- not the config flags that produced it. Two
     runs with different config flags (e.g. ``use_text_features=True``
     vs ``False`` for LGB) that yield the same final schema at fit time
     share the same hash, which is the right caching semantics. Changes
@@ -356,7 +378,7 @@ def compute_model_input_fingerprint(
     dtype-alias swap, role promotion) produce a different hash so the
     cached file isn't silently overwritten.
 
-    Canonical JSON via ``json.dumps(..., sort_keys=True)`` — required by
+    Canonical JSON via ``json.dumps(..., sort_keys=True)`` -- required by
     the user's memory rule ``feedback_json_hash_sort_keys`` so the hash
     is deterministic across Python builds with different dict orderings.
     """
@@ -415,7 +437,7 @@ def get_pandas_view_of_polars_df(
           uint32 indices, which pyarrow's ``to_pandas`` refuses; we rebuild
           each dict column with int32 indices so the conversion produces
           a proper ``pd.Categorical`` rather than raising.
-        - Earlier versions cast dict→string here. That was ~37% slower
+        - Earlier versions cast dict->string here. That was ~37% slower
           end-to-end on CatBoost (string hashing in fit + predict) and
           OOMed on 450k+ rows with many Categorical columns. Benchmarked
           2026-04-17 (see ``bench_polars_to_pandas.py``).
@@ -429,7 +451,7 @@ def get_pandas_view_of_polars_df(
         present in that slice, so train/val/test each carry **different**
         dictionaries (different sets of unique values, different order,
         different length). The cache's safety check correctly bypassed every
-        cross-call reuse — net speedup was zero. See the 2026-04-19 CHANGELOG
+        cross-call reuse -- net speedup was zero. See the 2026-04-19 CHANGELOG
         entry for the full investigation. If production-grade dict sharing is
         ever needed, the right primitive is ``pl.Enum`` on the source column
         (fixed domain preserved across slices), not a post-hoc Arrow-level
@@ -439,13 +461,13 @@ def get_pandas_view_of_polars_df(
         raise TypeError(f"Input must be a Polars DataFrame or Series, got {type(df).__name__}")
 
     # Capture timing + RAM around the conversion. Long conversions (multi-GB
-    # frames) on prod were silent black boxes — operators couldn't tell whether
+    # frames) on prod were silent black boxes -- operators couldn't tell whether
     # the 35-min stall was here or downstream. Log when the conversion crosses
     # log_threshold_seconds so small bridge calls don't spam the log.
     import time as _time
     _t0 = _time.perf_counter()
     _rss_before_gb = get_own_memory_usage()
-    _shape_str = f"{df.shape[0]:_}×{df.shape[1]}" if isinstance(df, pl.DataFrame) else f"{len(df):_}"
+    _shape_str = f"{df.shape[0]:_}x{df.shape[1]}" if isinstance(df, pl.DataFrame) else f"{len(df):_}"
 
     # Diagnostic: warn on nested Polars types that pyarrow's default
     # ``to_pandas()`` materializes as ``object`` dtype with Python list/
@@ -454,15 +476,15 @@ def get_pandas_view_of_polars_df(
     # dtype with list elements, and fails at model.fit() with an opaque
     # "expected numeric" error. Warn here so the operator traces back
     # to the bridge step rather than CatBoost internals. We don't
-    # raise or auto-cast — the bridge is a general-purpose helper and
+    # raise or auto-cast -- the bridge is a general-purpose helper and
     # other callers (logging, post-hoc analysis) legitimately want
     # list-typed columns pass-through.
     #
     # Noise-dedupe (2026-04-19 round-11): the bridge is called many
-    # times per training run (train / val / test × per-model), and a
+    # times per training run (train / val / test x per-model), and a
     # frame with embedding features would emit the same WARN every call.
     # Fire at most once per unique (column-name, dtype-str) tuple set
-    # observed in the process — repeated identical schemas stay quiet.
+    # observed in the process -- repeated identical schemas stay quiet.
     if isinstance(df, pl.DataFrame):
         nested_cols = []
         for name, dt in df.schema.items():
@@ -509,7 +531,7 @@ def get_pandas_view_of_polars_df(
 
     # Capture which Arrow columns were bool BEFORE to_pandas(). Nullable Boolean
     # columns (those with any null) materialize as pandas ``object`` dtype with
-    # Python True/False/None elements — verified empirically 2026-04-23 against
+    # Python True/False/None elements -- verified empirically 2026-04-23 against
     # pyarrow 21 on Polars 1.37. This breaks LightGBM's sklearn wrapper, which
     # refuses ``object`` dtypes (``ValueError: pandas dtypes must be int, float
     # or bool``). Non-null Boolean stays as numpy ``bool``. We post-process only
@@ -523,37 +545,37 @@ def get_pandas_view_of_polars_df(
     # LightGBM (and some other sklearn-family models) reject pandas columns with
     # ArrowDtype (e.g. 'float[pyarrow]').
     #
-    # CRITICAL: to_pandas() defaults are NOT zero-copy — they CONSOLIDATE memory
+    # CRITICAL: to_pandas() defaults are NOT zero-copy -- they CONSOLIDATE memory
     # blocks across columns of the same dtype, forcing a full copy of every
-    # numeric buffer into a fresh numpy array. On 9M × 70 numeric columns this
+    # numeric buffer into a fresh numpy array. On 9M x 70 numeric columns this
     # was ~35 minutes of pure memcpy + GIL churn in production.
-    #   * split_blocks=True  → no consolidation; each column keeps its Arrow
+    #   * split_blocks=True  -> no consolidation; each column keeps its Arrow
     #     buffer, so numeric/bool dtypes become np.ndarray views instead of
     #     copies. Categorical still allocates because pandas needs its own
     #     codes representation, but that's the only unavoidable copy.
-    #   * use_threads=True   → parallel column materialization (default but
+    #   * use_threads=True   -> parallel column materialization (default but
     #     stated explicitly so the contract is visible).
-    #   * self_destruct=False (default) → SAFE. Tested 2026-04-22: enabling
+    #   * self_destruct=False (default) -> SAFE. Tested 2026-04-22: enabling
     #     self_destruct=True caused a native crash inside pytest during the
-    #     integration suite — pyarrow's "EXPERIMENTAL" warning was no joke.
+    #     integration suite -- pyarrow's "EXPERIMENTAL" warning was no joke.
     #     The 26% extra speedup is not worth the segfault risk; opt-in only.
-    # Bench (2026-04-22, 7.3M × 118 with 18 dict cols):
-    #   default                          30.06s   (1×)
-    #   use_threads only                  2.10s   (14×)
-    #   +split_blocks                     0.95s   (32×)  ← default
-    #   +self_destruct                    0.70s   (43×)  ← opt-in, may crash
+    # Bench (2026-04-22, 7.3M x 118 with 18 dict cols):
+    #   default                          30.06s   (1x)
+    #   use_threads only                  2.10s   (14x)
+    #   +split_blocks                     0.95s   (32x)  <- default
+    #   +self_destruct                    0.70s   (43x)  <- opt-in, may crash
     pandas_df = tbl_fixed.to_pandas(
         use_threads=True,
         split_blocks=True,
         self_destruct=self_destruct,
     )
 
-    # Coerce object-materialized nullable Boolean → pandas Int8 with ``pd.NA``.
+    # Coerce object-materialized nullable Boolean -> pandas Int8 with ``pd.NA``.
     # Verified 2026-04-23 that Int8/``pd.NA`` is accepted by all three tree
     # backends (LightGBM 4.6, XGBoost 3.2, CatBoost 1.2.10); pandas nullable
     # ``boolean`` is rejected by CatBoost ("Cannot convert <NA> to float") so we
     # avoid it. Non-null Boolean already came out as numpy ``bool`` and is left
-    # alone. Object-elsewhere (e.g. ``pl.List`` / ``pl.Struct``) is untouched —
+    # alone. Object-elsewhere (e.g. ``pl.List`` / ``pl.Struct``) is untouched --
     # the nested-dtype warning above still fires for those.
     _coerced_bool_cols = []
     for name in _arrow_bool_cols:
@@ -571,7 +593,7 @@ def get_pandas_view_of_polars_df(
     if _elapsed >= log_threshold_seconds:
         _rss_after_gb = get_own_memory_usage()
         logger.info(
-            "get_pandas_view_of_polars_df %s: %.2fs, RAM %.2f→%.2f GB (Δ%+.2f), "
+            "get_pandas_view_of_polars_df %s: %.2fs, RAM %.2f->%.2f GB (Δ%+.2f), "
             "self_destruct=%s",
             _shape_str, _elapsed, _rss_before_gb, _rss_after_gb,
             _rss_after_gb - _rss_before_gb, self_destruct,
@@ -694,7 +716,7 @@ def _process_special_values(
     if len(errors_df) > 0:
         if verbose:
             logger.info(f"Found {len(errors_df)} {kind} out of {ncols} columns:")
-            logger.info(f"\n{errors_df}")
+            logger.info("\n%s", errors_df)
 
         if drop_columns:
             cols_to_drop = errors_df["column"].to_list() if is_polars else errors_df["column"].tolist()
@@ -722,7 +744,7 @@ def _process_special_values(
                 else:
                     df = df.with_columns(getattr(cs.numeric(), fill_func_name)(fill_value))
             else:
-                # Restrict pandas fill to numeric columns — mirrors the polars cs.numeric() gate.
+                # Restrict pandas fill to numeric columns -- mirrors the polars cs.numeric() gate.
                 # Unrestricted df.fillna(0.0) raises on Categorical columns
                 # ("Cannot setitem on a Categorical with a new category").
                 num_cols = df.select_dtypes(include="number").columns
@@ -837,7 +859,7 @@ def get_categorical_columns(df: Union[pl.DataFrame, pd.DataFrame], include_strin
     """
     if isinstance(df, pl.DataFrame):
         # Function-local import: strategies imports from utils, so a top-level
-        # import here would form a strategies→utils→strategies cycle at module load.
+        # import here would form a strategies->utils->strategies cycle at module load.
         from .strategies import get_polars_cat_columns
         if include_string:
             return get_polars_cat_columns(df)
@@ -854,7 +876,7 @@ def get_categorical_columns(df: Union[pl.DataFrame, pd.DataFrame], include_strin
                 or (hasattr(pl, "Enum") and isinstance(dtype, pl.Enum))
             ]
     else:
-        # Function-local import (see note above) — breaks strategies↔utils cycle.
+        # Function-local import (see note above) -- breaks strategies↔utils cycle.
         from .strategies import PANDAS_CATEGORICAL_DTYPES
         if include_string:
             return df.select_dtypes(include=list(PANDAS_CATEGORICAL_DTYPES)).columns.tolist()
@@ -882,13 +904,13 @@ def remove_constant_columns(df: Union[pl.DataFrame, pd.DataFrame], verbose: int 
     if is_polars:
         # Process numeric columns (min == max). For an all-NULL numeric column
         # both min() and max() return None, and plain `None == None` in polars
-        # is `null` (not True) → the column slips past `min == max`. Use
+        # is `null` (not True) -> the column slips past `min == max`. Use
         # `eq_missing` which treats null==null as True, collapsing "constant"
         # and "all-null" into one check without an OR branch. Same cost as
-        # `min == max` alone (~1ms on 600k × 6; eq_missing is actually
+        # `min == max` alone (~1ms on 600k x 6; eq_missing is actually
         # marginally cheaper than the | null_count variant). Discovered
-        # 2026-04-24 on fuzz c0117 (pandas→parquet→polars + inject_degenerate
-        # → robust_scale crashed on NoneType-NoneType).
+        # 2026-04-24 on fuzz c0117 (pandas->parquet->polars + inject_degenerate
+        # -> robust_scale crashed on NoneType-NoneType).
         df = _process_special_values(
             df=df,
             expr_func=lambda: cs.numeric().min().eq_missing(cs.numeric().max()),
@@ -907,7 +929,7 @@ def remove_constant_columns(df: Union[pl.DataFrame, pd.DataFrame], verbose: int 
         )
     else:
         # Pandas: match Polars semantics (min==max for numeric; n_unique==1 for others).
-        # Per-column loop measured faster than df.agg(['min','max']) — see audit 2026-04-14.
+        # Per-column loop measured faster than df.agg(['min','max']) -- see audit 2026-04-14.
         numeric_cols = df.select_dtypes(include="number").columns
         constant_num_cols = [col for col in numeric_cols if df[col].min() == df[col].max()]
 
@@ -923,7 +945,7 @@ def remove_constant_columns(df: Union[pl.DataFrame, pd.DataFrame], verbose: int 
                 if df[col].nunique(dropna=False) <= 1:
                     constant_cat_cols.append(col)
             except TypeError:
-                # Unhashable values (e.g. list/np.ndarray embeddings) — can't be constant-checked.
+                # Unhashable values (e.g. list/np.ndarray embeddings) -- can't be constant-checked.
                 continue
 
         constant_cols = list(constant_num_cols) + list(constant_cat_cols)
