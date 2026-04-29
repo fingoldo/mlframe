@@ -2266,6 +2266,32 @@ _CB_VAL_POOL_CACHE: "Dict[tuple, Any]" = {}
 _CB_POOL_CACHE_MAX_ENTRIES = 16  # hard cap per cache; ring-buffer eviction oldest-first
 
 
+# 2026-04-29: cache the GPU probe result. ``get_gpuinfo_gpu_info`` shells
+# out to ``nvidia-smi`` via GPUtil, which costs ~0.5s on Windows per call.
+# ``configure_training_params`` invokes the probe once per
+# ``train_mlframe_models_suite`` call, so a long-lived process running
+# many suites pays the subprocess startup repeatedly. GPU topology
+# doesn't change during a process lifetime (no hot-plug under CUDA), so
+# a one-shot cache is safe. Override with ``MLFRAME_NO_GPU_INFO_CACHE=1``
+# if a future use case needs live re-probing.
+_GPU_INFO_CACHE: "Optional[list]" = None
+
+
+def _cached_gpu_info() -> list:
+    """Memoised wrapper over ``pyutilz.system.get_gpuinfo_gpu_info``.
+
+    First call runs the real probe (nvidia-smi subprocess); subsequent
+    calls return the cached list. Saves ~0.5s on every
+    ``configure_training_params`` invocation past the first.
+    """
+    global _GPU_INFO_CACHE
+    if _GPU_INFO_CACHE is not None and not os.environ.get("MLFRAME_NO_GPU_INFO_CACHE"):
+        return _GPU_INFO_CACHE
+    result = get_gpuinfo_gpu_info()
+    _GPU_INFO_CACHE = result
+    return result
+
+
 def _cb_reuse_capable() -> bool:
     """True iff installed CatBoost Pool exposes both set_label and
     set_weight (the two mutators we rely on for in-place label/weight
@@ -3177,7 +3203,7 @@ def _train_model_with_fallback(
     fit_elapsed = timer() - t0_fit
     if verbose:
         shape_str = f"{train_df.shape[0]:_}x{train_df.shape[1]}" if hasattr(train_df, "shape") else ""
-        logger.info(f"  model.fit({model_type_name}) done -- {shape_str}, {fit_elapsed:.1f}s")
+        logger.info("  model.fit(%s) done -- %s, %.1fs", model_type_name, shape_str, fit_elapsed)
 
     # Apply post-hoc isotonic calibration to binary classifiers that were
     # tagged with ``_mlframe_posthoc_calibrate=True``. Fix 2026-04-15 for the
@@ -4965,7 +4991,7 @@ def configure_training_params(
         data_fits_gpu_ram = False
         data_fits_cb_gpu_ram = False
     else:
-        all_gpus = get_gpuinfo_gpu_info()
+        all_gpus = _cached_gpu_info()
         single_gpu_limits = compute_total_gpus_ram(all_gpus)
         data_fits_gpu_ram = (GPU_VRAM_SAFE_SATURATION_LIMIT * data_size_gb + GPU_VRAM_SAFE_FREE_LIMIT_GB) < single_gpu_limits.get("gpu_max_ram_total", 0)
         if cb_devices:
