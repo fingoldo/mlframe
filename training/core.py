@@ -20,16 +20,16 @@ logger = logging.getLogger(__name__)
 
 
 def _ensure_logging_visible(level: int = logging.INFO) -> None:
-    """Make mlframe progress logs visible — with timestamps — in Jupyter and
+    """Make mlframe progress logs visible -- with timestamps -- in Jupyter and
     plain scripts.
 
     Two cases:
       1. No root handlers at all (bare Python / fresh Jupyter kernel before
-         anyone called `logging.basicConfig`). → install a stdout handler
+         anyone called `logging.basicConfig`). -> install a stdout handler
          with ``%(asctime)s %(levelname)s %(name)s: %(message)s`` format.
       2. Root already has handlers but their formatter lacks a timestamp
          (classic Jupyter/IPython default emits just ``LEVEL:name:message``,
-         which is useless for profiling long training runs). → replace
+         which is useless for profiling long training runs). -> replace
          those formatters in place with the timestamped one. Handlers that
          already format with ``%(asctime)s`` are left untouched so a user
          who intentionally configured a custom format isn't clobbered.
@@ -93,12 +93,12 @@ def _validate_trusted_path(path: str, trusted_root):
 
 
 def _df_shape_str(df) -> str:
-    """Format DataFrame shape as 'rows×cols' with thousands separators."""
+    """Format DataFrame shape as 'rowsxcols' with thousands separators."""
     if df is None:
         return "None"
     nrows = df.shape[0] if hasattr(df, "shape") else len(df)
     ncols = df.shape[1] if hasattr(df, "shape") else 0
-    return f"{nrows:_}×{ncols}"
+    return f"{nrows:_}x{ncols}"
 
 
 def _elapsed_str(start: float) -> str:
@@ -125,11 +125,11 @@ def _detect_dataset_reuse_capabilities() -> "Dict[str, bool]":
     - ``xgb_dmatrix_set_label`` / ``xgb_dmatrix_set_weight``: ``DMatrix``
       exposes both mutators (true in every 3.x release).
     - ``xgb_sklearn_accepts_dmatrix``: ``XGBClassifier.fit(X=DMatrix)``
-      short-circuits — empirically False in 3.2.0 (upstream FR pending).
+      short-circuits -- empirically False in 3.2.0 (upstream FR pending).
     - ``lgb_dataset_set_label`` / ``lgb_dataset_set_weight``: ``Dataset``
       exposes both mutators (true in every 4.x release).
     - ``lgb_sklearn_accepts_dataset``: ``LGBMClassifier.fit(X=Dataset)``
-      short-circuits — empirically False in 4.6.0 (upstream FR pending).
+      short-circuits -- empirically False in 4.6.0 (upstream FR pending).
 
     Only the capability set produced here gates Fix 9.4.3 reuse; the
     upstream-pending items stay False until the libraries ship the
@@ -146,7 +146,7 @@ def _detect_dataset_reuse_capabilities() -> "Dict[str, bool]":
         # Short-circuit check: CatBoostClassifier.fit(X=Pool) is supported
         # in every CB >= 1.0 via ``_build_train_pool`` (``isinstance(X,
         # Pool)`` return). The label-swap variant lands with the PR that
-        # made Pool.set_label callable — gate the reuse on BOTH.
+        # made Pool.set_label callable -- gate the reuse on BOTH.
         caps["cb_pool_label_swap"] = (
             caps["cb_pool_set_label"] and caps["cb_pool_set_weight"]
         )
@@ -162,7 +162,7 @@ def _detect_dataset_reuse_capabilities() -> "Dict[str, bool]":
         caps["xgb_dmatrix_set_label"] = callable(getattr(_dm, "set_label", None))
         caps["xgb_dmatrix_set_weight"] = callable(getattr(_dm, "set_weight", None))
         # Upstream wrapper does NOT short-circuit yet (verified 2026-04-21
-        # on xgboost 3.2.0 — ``_create_dmatrix`` rebuilds unconditionally).
+        # on xgboost 3.2.0 -- ``_create_dmatrix`` rebuilds unconditionally).
         # Mark False until an upstream PR lands.
         caps["xgb_sklearn_accepts_dmatrix"] = False
     except ImportError:
@@ -176,7 +176,7 @@ def _detect_dataset_reuse_capabilities() -> "Dict[str, bool]":
         _ds = getattr(_lgb, "Dataset", None)
         caps["lgb_dataset_set_label"] = callable(getattr(_ds, "set_label", None))
         caps["lgb_dataset_set_weight"] = callable(getattr(_ds, "set_weight", None))
-        # Same story as XGBoost — verified 2026-04-21 on lightgbm 4.6.0.
+        # Same story as XGBoost -- verified 2026-04-21 on lightgbm 4.6.0.
         caps["lgb_sklearn_accepts_dataset"] = False
     except ImportError:
         caps["lgb_dataset_set_label"] = False
@@ -208,7 +208,7 @@ def _validate_input_columns_against_metadata(
     Now: columns are partitioned by severity:
       - Missing load-bearing features (cat/text/embedding): **raise
         ValueError** with a diagnostic naming them. These cannot be
-        safely dropped — the pipeline was fitted with them.
+        safely dropped -- the pipeline was fitted with them.
       - Other missing columns: WARN + proceed. Some callers drop
         derived columns that the pipeline reconstructs; that's OK.
       - Extra columns: dropped silently (or logged at verbose=True).
@@ -240,7 +240,7 @@ def _validate_input_columns_against_metadata(
             )
         logger.warning(
             "Missing columns in input: %s. The pipeline will attempt "
-            "to proceed — downstream errors about shape mismatches "
+            "to proceed -- downstream errors about shape mismatches "
             "usually trace back here.",
             sorted(missing_cols),
         )
@@ -252,7 +252,7 @@ def _validate_input_columns_against_metadata(
 
     # Fix 8f (2026-04-21, v2): per-model input-schema diff reporting.
     # ``metadata['model_schemas']`` (if present) maps model_file_name to
-    # ``{schema_hash, input_schema, mlframe_model, weight_name}`` — the
+    # ``{schema_hash, input_schema, mlframe_model, weight_name}`` -- the
     # exact realised layout each fitted model saw at training time.
     #
     # Severity rules at load time:
@@ -264,7 +264,7 @@ def _validate_input_columns_against_metadata(
     #   SOFT-WARN on benign differences the downstream pipeline casts
     #   transparently:
     #     * float32 <-> float64, int32 <-> int64 (width-only)
-    #     * added columns (caller superset — already filtered to the
+    #     * added columns (caller superset -- already filtered to the
     #       trained subset above)
     # Silent pass on old metadata files that predate Fix 8.
     model_schemas = metadata.get("model_schemas")
@@ -379,13 +379,13 @@ def _filter_polars_cat_features_by_dtype(
     (and on some builds ``pl.Enum``). If a caller hands a column to CB
     via ``cat_features`` but the column's dtype in the DataFrame is
     ``pl.String``/``pl.Utf8``/numeric/etc, the dispatcher falls through
-    to the opaque ``TypeError: No matching signature found`` — with no
+    to the opaque ``TypeError: No matching signature found`` -- with no
     hint about which column or why.
 
     Production incident 2026-04-19: the orchestration in
     ``train_mlframe_models_suite`` short-circuited to a *stale* pre-promotion
     cat_features list that still contained 4 columns which had been
-    cast ``pl.Categorical → pl.String`` for the text-features fastpath.
+    cast ``pl.Categorical -> pl.String`` for the text-features fastpath.
     CB saw ``cat_features=['category', 'skills_text', ...]`` with those
     columns being ``pl.String`` and raised "No matching signature found",
     burning 22 s + a 150 s pandas fallback on every run.
@@ -452,7 +452,7 @@ def _auto_detect_feature_types(
     responsible for filtering its own ``cat_features`` against the returned
     ``text_features`` (see ``effective_cat_features`` construction in
     ``train_mlframe_models_suite``). This function does NOT mutate the
-    ``cat_features`` argument — prior versions did, which created a latent
+    ``cat_features`` argument -- prior versions did, which created a latent
     repeat-call state-leak trap whenever a caller reused the same list.
 
     Args:
@@ -464,7 +464,7 @@ def _auto_detect_feature_types(
         verbose: Whether to log detections.
 
     Returns:
-        (text_features, embedding_features) — lists of column names.
+        (text_features, embedding_features) -- lists of column names.
     """
     import polars as pl
 
@@ -478,7 +478,7 @@ def _auto_detect_feature_types(
     #     ``supports_text_features=False`` mechanism).
     #   ``use_text_features=False`` -> auto-detected cols go into THIS
     #     list so the caller can drop them from the df entirely (so
-    #     no model — including CB — tries to consume them as a 2M-level
+    #     no model -- including CB -- tries to consume them as a 2M-level
     #     categorical, which otherwise OOMs XGB's QuantileDMatrix and
     #     balloons CB's model artefact).
     # Regardless of the flag, if the user explicitly listed a column in
@@ -488,7 +488,7 @@ def _auto_detect_feature_types(
 
     # Master switch ``use_text_features`` only gates AUTO-PROMOTION (the
     # cardinality-based heuristic below). User-supplied explicit
-    # ``text_features`` list is honored regardless — if the user passed it,
+    # ``text_features`` list is honored regardless -- if the user passed it,
     # they intend those columns routed as text_features. (2026-04-21
     # refinement: earlier version cleared the explicit list too, which
     # broke ``test_non_catboost_drops_text_columns`` / auto-detection
@@ -499,7 +499,7 @@ def _auto_detect_feature_types(
         return text_features, embedding_features, auto_detected_high_card_to_drop
 
     # Defensive: callers sometimes pass ``cat_features=None`` (e.g. after a
-    # model skipped categorical detection). Treat as empty list — the
+    # model skipped categorical detection). Treat as empty list -- the
     # ``if name in cat_features`` checks below would otherwise crash with
     # ``TypeError: argument of type 'NoneType' is not iterable``.
     if cat_features is None:
@@ -515,7 +515,7 @@ def _auto_detect_feature_types(
     #     Dictionary size is 0, check out data or try to decrease
     #     occurrence_lower_bound parameter``
     # (observed 2026-04-19 on ``_raw_countries`` and ``job_post_source``
-    # in prod — both ``n_unique > 50`` but >99.9% null, yielding a
+    # in prod -- both ``n_unique > 50`` but >99.9% null, yielding a
     # handful of non-null strings total and an empty dictionary after
     # occurrence filtering).
     #
@@ -528,17 +528,17 @@ def _auto_detect_feature_types(
     min_non_null_frac = getattr(
         feature_types_config, "min_non_null_fraction_for_text_promotion", 0.01
     )
-    # Total row count — denominator for the fraction. For pandas this
+    # Total row count -- denominator for the fraction. For pandas this
     # is len(df); for polars, df.height.
     total_rows = df.height if hasattr(df, "height") else len(df)
-    # Translate the fraction back to an absolute count for the guard —
+    # Translate the fraction back to an absolute count for the guard --
     # avoids per-column float division inside the loop and reuses the
     # same floor for every column on this DF.
     min_non_null_abs = max(1, int(round(total_rows * min_non_null_frac)))
     user_assigned = set(text_features) | set(embedding_features)
     promoted: list = []  # cat_features -> text_features, tracked for diagnostic log only
     cardinalities: dict = {}  # per auto-detected text col: n_unique (for diagnostic log)
-    skipped_low_non_null: list = []  # (name, n_unique, non_null_count) — blocked by guard
+    skipped_low_non_null: list = []  # (name, n_unique, non_null_count) -- blocked by guard
     # Master-switch short-circuits the text-promotion branches (embedding
     # detection still runs). Cheaper than threading the flag through every
     # append site; one flag read per schema iteration at worst.
@@ -559,7 +559,7 @@ def _auto_detect_feature_types(
                 if name not in cat_features:
                     embedding_features.append(name)
                 continue
-            # String/Categorical/Enum — evaluate cardinality to split cat vs text.
+            # String/Categorical/Enum -- evaluate cardinality to split cat vs text.
             # pl.Enum is a fixed-domain categorical; it has an instance-level
             # dtype object (not a class), so it doesn't compare equal to the
             # class-level check above. Use isinstance() for Enum specifically.
@@ -578,14 +578,14 @@ def _auto_detect_feature_types(
             if is_text_like:
                 n_unique = df[name].n_unique()
                 if n_unique > threshold:
-                    # Non-null FRACTION guard — block promotion/drop if
+                    # Non-null FRACTION guard -- block promotion/drop if
                     # the column is sparse relative to total rows. For
                     # the PROMOTE path this keeps CB's text estimator
                     # from producing an empty TF-IDF dictionary; for the
                     # DROP path (``use_text_features=False``) the
                     # sparseness check is still a useful signal that
                     # the column is unlikely to materially help any
-                    # model anyway — callers handle it identically.
+                    # model anyway -- callers handle it identically.
                     non_null = int(df[name].count())
                     if non_null < min_non_null_abs:
                         skipped_low_non_null.append((name, n_unique, non_null))
@@ -633,13 +633,13 @@ def _auto_detect_feature_types(
 
     # Historical note: this function used to mutate ``cat_features`` in place
     # (calling ``.remove(name)`` for each promoted column). The in-place removal
-    # was redundant — the actual caller filter lives at the call site, where
+    # was redundant -- the actual caller filter lives at the call site, where
     # ``effective_cat_features`` is built via set-difference against
     # ``text_features``. We removed the mutation so repeat calls with a shared
     # list don't corrupt the caller's state.
 
     def _fmt_with_cardinality(names):
-        """'col1:500, col2:12_345' — makes it obvious *why* a column was
+        """'col1:500, col2:12_345' -- makes it obvious *why* a column was
         promoted vs the configured threshold."""
         parts = []
         for n in names:
@@ -654,12 +654,12 @@ def _auto_detect_feature_types(
                 f"(threshold>{threshold}): {_fmt_with_cardinality(promoted)}"
             )
         logger.info(
-            f"  Auto-detected feature types — text: {_fmt_with_cardinality(text_features) if text_features else '(none)'}, "
+            f"  Auto-detected feature types -- text: {_fmt_with_cardinality(text_features) if text_features else '(none)'}, "
             f"embedding: {embedding_features or '(none)'}"
         )
 
     # Load-bearing: log the drop-list regardless of verbose. Operator
-    # needs to see WHICH columns were auto-dropped and WHY — a silent
+    # needs to see WHICH columns were auto-dropped and WHY -- a silent
     # drop is exactly the class of bug we just fixed (2026-04-22):
     # skills_text at 2M unique silently stayed as cat_feature under
     # ``use_text_features=False`` and OOM'd XGB on a prod 9M-row run.
@@ -669,7 +669,7 @@ def _auto_detect_feature_types(
             "text-like column(s) (n_unique > %d) to prevent "
             "XGB QuantileDMatrix OOM / CB model-artefact bloat: %s. "
             "To keep these columns, set use_text_features=True (routes "
-            "them to text_features — CB uses them, XGB/LGB drop them) "
+            "them to text_features -- CB uses them, XGB/LGB drop them) "
             "or add them explicitly to feature_types_config.text_features.",
             len(auto_detected_high_card_to_drop),
             threshold,
@@ -677,7 +677,7 @@ def _auto_detect_feature_types(
         )
 
     # Always log the skipped-by-non-null-guard set, even at verbose=False
-    # — this is a load-bearing diagnostic: columns that would otherwise
+    # -- this is a load-bearing diagnostic: columns that would otherwise
     # have been promoted and crashed CatBoost with "Dictionary size is 0"
     # are silently kept as cat_features. The operator needs to know so
     # they can either (a) fix the upstream feature-extraction to produce
@@ -691,7 +691,7 @@ def _auto_detect_feature_types(
         logger.warning(
             "  Auto-detection: %d column(s) had n_unique>%d (would be "
             "promoted to text_features) but non_null<%d (%.1f%% of %d rows, "
-            "below the %.2f%% floor) — kept as cat_features to avoid "
+            "below the %.2f%% floor) -- kept as cat_features to avoid "
             "CatBoost's 'Dictionary size is 0' error on sparse text "
             "columns: %s",
             len(skipped_low_non_null), threshold, min_non_null_abs,
@@ -716,7 +716,7 @@ def _validate_feature_type_exclusivity(
 ) -> None:
     """Raise ValueError if any column appears in multiple feature type lists.
 
-    Each argument may be ``None`` (treated as empty) — callers that skipped
+    Each argument may be ``None`` (treated as empty) -- callers that skipped
     one of the feature-type detection stages (e.g. models without
     categorical awareness) pass None rather than ``[]``.
     """
@@ -786,7 +786,7 @@ def _build_tier_dfs(
         cols_to_exclude.update(embedding_features)
 
     if not cols_to_exclude:
-        # Tier supports all features — use base DFs directly (no copy)
+        # Tier supports all features -- use base DFs directly (no copy)
         tier_dfs = base_dfs
     else:
         if verbose:
@@ -981,7 +981,7 @@ def _apply_outlier_detection_global(
     # to a numeric numpy array. Any non-numeric column (string, text,
     # categorical, embedding list, etc.) crashes with
     #   ValueError: could not convert string to float: 'A' / 'stream java java'
-    # The detector is fit on FEATURES ONLY to find structural outliers —
+    # The detector is fit on FEATURES ONLY to find structural outliers --
     # dropping non-numeric columns before fit matches what sklearn would
     # expect the caller to pre-process upstream. Recompute numeric view
     # on each fit/predict call so polars and pandas paths are symmetric.
@@ -1100,7 +1100,7 @@ def _apply_outlier_detection_global(
         val_kept = val_od_idx.sum()
         # Class-balance pre-check on val (mirror of the train-side check
         # above). If OD would eliminate the entire minority class from
-        # val, skip the filter — keep the unfiltered val_set so eval
+        # val, skip the filter -- keep the unfiltered val_set so eval
         # has class-diverse data.
         if targets_for_classbalance and val_kept < len(val_df) and val_idx is not None:
             for _tn, _tv in targets_for_classbalance.items():
@@ -1202,7 +1202,7 @@ def _setup_model_directories(
     """
     parts = slugify(target_name), slugify(model_name), slugify(target_type.lower()), slugify(cur_target_name)
 
-    # Falsy check (not `is not None`) — an empty string `data_dir=""` means "no
+    # Falsy check (not `is not None`) -- an empty string `data_dir=""` means "no
     # persistence", same as `None`. Treating "" as truthy would create a
     # relative "./charts" / "./models" leak in the CWD. Old artifacts from such
     # leaks can even be loaded back from disk on subsequent runs, which caused
@@ -1441,7 +1441,7 @@ def _convert_dfs_to_pandas(
     when the source Polars DataFrame holds ``pl.Categorical`` columns: the
     pyarrow round-trip rebuilds each dict with int32 indices (polars' default
     uint32 indices aren't supported by ``to_pandas()``), and for
-    high-cardinality categoricals that's the slow step. On a 1M × 98 frame
+    high-cardinality categoricals that's the slow step. On a 1M x 98 frame
     with ~13 categoricals (a few of them text-like with 10k+ unique values)
     this step has been observed to take 5+ minutes with no intermediate
     logging. Per-split timers are logged here so the next time the step
@@ -1471,7 +1471,7 @@ def _convert_dfs_to_pandas(
         out = get_pandas_view_of_polars_df(df)
         if verbose:
             logger.info(
-                f"  polars→pandas({name}) {df.shape[0]:_}×{df.shape[1]} in {timer() - t0:.1f}s"
+                f"  polars->pandas({name}) {df.shape[0]:_}x{df.shape[1]} in {timer() - t0:.1f}s"
             )
         return out
 
@@ -1480,7 +1480,7 @@ def _convert_dfs_to_pandas(
     val_df_pd = _convert_one(val_df, "val")
     test_df_pd = _convert_one(test_df, "test")
     if verbose:
-        logger.info(f"  polars→pandas total: {timer() - t0_total:.1f}s")
+        logger.info(f"  polars->pandas total: {timer() - t0_total:.1f}s")
 
     return train_df_pd, val_df_pd, test_df_pd
 
@@ -1721,18 +1721,44 @@ def _finalize_and_save_metadata(
         metadata["slug_to_original_target_name"] = slug_to_original_target_name
 
     # Save metadata.
-    # Atomic write: joblib.dump → temp file in same dir → os.replace.
-    # Prevents metadata.joblib corruption when two train runs race on
-    # the same target (2026-04-19 probe finding). Load path then sees
+    # Atomic write: serialize -> temp file in same dir -> os.replace.
+    # Prevents metadata.* corruption when two train runs race on the
+    # same target (2026-04-19 probe finding). Load path then sees
     # either the complete old file or the complete new one, never a
     # partial write that surfaces as an opaque UnpicklingError.
+    #
+    # 2026-04-29: write ``metadata.pkl.zst`` (pickle protocol=5 + zstd
+    # L3) instead of ``metadata.joblib``. Benchmarked on synthetic
+    # mlframe metadata (5k x 50, 50k x 200 + 20 large numpy arrays):
+    # pickle protocol=5 is 13-47x faster to write AND read than
+    # ``joblib.dump`` and matches its numerical output bit-for-bit;
+    # zstd L3 cuts the file 4.2x smaller than the uncompressed pickle
+    # while still beating ``joblib.dump compress=3`` by 8-13x on
+    # writes. Reader at ``train_mlframe_models_suite`` / load path
+    # tries the new file first and falls back to the legacy
+    # ``metadata.joblib`` so saves from older mlframe versions keep
+    # loading without manual migration.
     if data_dir and models_dir:
-        metadata_file = join(data_dir, models_dir, slugify(target_name), slugify(model_name), "metadata.joblib")
+        metadata_dir = join(data_dir, models_dir, slugify(target_name), slugify(model_name))
+        metadata_file = join(metadata_dir, "metadata.pkl.zst")
         try:
             from mlframe.training.io import atomic_write_bytes
-            atomic_write_bytes(metadata_file, lambda f: joblib.dump(metadata, f))
+            import pickle as _pickle
+            try:
+                import zstandard as _zstd
+                _cctx = _zstd.ZstdCompressor(level=3)
+                def _writer(f):
+                    f.write(_cctx.compress(_pickle.dumps(metadata, protocol=5)))
+            except ImportError:
+                # No zstd available - write uncompressed pickle (still
+                # faster than joblib by 13x). Filename keeps ``.pkl``
+                # so the reader's magic-byte sniff can route it.
+                metadata_file = join(metadata_dir, "metadata.pkl")
+                def _writer(f):
+                    _pickle.dump(metadata, f, protocol=5)
+            atomic_write_bytes(metadata_file, _writer)
             if verbose:
-                logger.info(f"Saved metadata to {metadata_file}")
+                logger.info("Saved metadata to %s", metadata_file)
         except (OSError, IOError) as e:
             logger.error(f"Failed to save metadata to {metadata_file}: {e}")
             raise
@@ -1946,12 +1972,12 @@ def train_mlframe_models_suite(
     # libraries. CB Pool.set_label/set_weight + CB wrapper's Pool-as-X
     # short-circuit enable reuse across weight schemas and same-type
     # targets. XGB/LGB sklearn wrappers currently lack the equivalent
-    # (upstream FRs pending) — only the per-build logging applies there.
+    # (upstream FRs pending) -- only the per-build logging applies there.
     _dataset_reuse_caps = _detect_dataset_reuse_capabilities()
-    logger.info(f"Dataset-reuse capabilities: {_dataset_reuse_caps}")
+    logger.info("Dataset-reuse capabilities: %s", _dataset_reuse_caps)
     if not _dataset_reuse_caps.get("cb_pool_label_swap"):
         logger.warning(
-            "  CatBoost Pool.set_label/set_weight not available in installed build — "
+            "  CatBoost Pool.set_label/set_weight not available in installed build -- "
             "mlframe will fall back to rebuilding the Pool on every weight schema and "
             "same-type target. Upgrade CatBoost to pick up the Pool label-swap PR."
         )
@@ -2000,7 +2026,7 @@ def train_mlframe_models_suite(
     with phase("load_and_prepare_dataframe"):
         df = load_and_prepare_dataframe(df, preprocessing_config, verbose=verbose)
     if verbose:
-        logger.info(f"  load_and_prepare_dataframe done — {_df_shape_str(df)}, {_elapsed_str(t0_phase1)}")
+        logger.info(f"  load_and_prepare_dataframe done -- {_df_shape_str(df)}, {_elapsed_str(t0_phase1)}")
 
     # Apply features_and_targets_extractor to extract targets
     if verbose:
@@ -2011,9 +2037,9 @@ def train_mlframe_models_suite(
         df
     )
     if verbose:
-        logger.info(f"  features_and_targets_extractor done — {_df_shape_str(df)}, {_elapsed_str(t0_fte)}")
+        logger.info(f"  features_and_targets_extractor done -- {_df_shape_str(df)}, {_elapsed_str(t0_fte)}")
 
-    # Capture baseline RSS + DF size NOW — before any downstream steps that may allocate
+    # Capture baseline RSS + DF size NOW -- before any downstream steps that may allocate
     # transient state (get_sequences, drop_columns, preprocess). Used by
     # maybe_clean_ram_and_gpu() at later sites to skip ~0.6s gc calls when memory
     # pressure is low. On 100GB production DFs the growth/free-RAM thresholds trip and
@@ -2047,7 +2073,7 @@ def train_mlframe_models_suite(
     t0_preproc = timer()
     df = preprocess_dataframe(df, preprocessing_config, verbose=verbose)
     if verbose:
-        logger.info(f"  preprocess_dataframe done — {_df_shape_str(df)}, {_elapsed_str(t0_preproc)}")
+        logger.info(f"  preprocess_dataframe done -- {_df_shape_str(df)}, {_elapsed_str(t0_preproc)}")
         logger.info(f"  PHASE 1 total: {_elapsed_str(t0_phase1)}")
 
     # ==================================================================================
@@ -2063,7 +2089,7 @@ def train_mlframe_models_suite(
     # Auto-stratify by target for classification when no timestamps are
     # available. Without this, the unstratified shuffle path can hand
     # an unlucky val/test slice with zero minority-class rows for
-    # rare imbalance ratios (fuzz default-seed c0134, seed=99 c0040 —
+    # rare imbalance ratios (fuzz default-seed c0134, seed=99 c0040 --
     # rare_1pct + binary class produces 50 positives out of 5000;
     # random 400-row val_shuf can land all-class-0). Stratification
     # preserves class proportions across train/val/test. Skipped when
@@ -2094,10 +2120,10 @@ def train_mlframe_models_suite(
         elif len(_classification_targets) == 1:
             try:
                 _arr = np.asarray(_classification_targets[0])
-                # Guard: only stratify when stratification is meaningful —
+                # Guard: only stratify when stratification is meaningful --
                 # all classes have at least 2 rows, otherwise sklearn's
                 # StratifiedShuffleSplit raises "least populated class has
-                # only 1 member". Also limit to 1-D targets — 2-D would
+                # only 1 member". Also limit to 1-D targets -- 2-D would
                 # route to the multilabel splitter (already excluded above
                 # but defense in depth).
                 if _arr.ndim == 1:
@@ -2159,7 +2185,7 @@ def train_mlframe_models_suite(
         test_idx=test_idx,
     )
     if verbose:
-        logger.info(f"  Split shapes — train: {_df_shape_str(train_df)}, val: {_df_shape_str(val_df)}, test: {_df_shape_str(test_df)}")
+        logger.info(f"  Split shapes -- train: {_df_shape_str(train_df)}, val: {_df_shape_str(val_df)}, test: {_df_shape_str(test_df)}")
         logger.info(f"  PHASE 2 total: {_elapsed_str(t0_phase2)}")
 
     # Split sequences by train/val/test indices (for recurrent models)
@@ -2209,14 +2235,14 @@ def train_mlframe_models_suite(
         if all_models_polars_native:
             pipeline_config = pipeline_config.model_copy(update={"skip_categorical_encoding": True})
             if verbose:
-                logger.info(f"  All models {mlframe_models} support Polars natively — skipping categorical encoding in pipeline")
+                logger.info("  All models %s support Polars natively -- skipping categorical encoding in pipeline", mlframe_models)
 
     # 2026-04-24 (fuzz extension): datetime columns must be decomposed
     # BEFORE the pre-pipeline clone, otherwise ``train_df_polars_pre`` and
     # friends retain the raw datetime and reach downstream (linear
     # pre_pipeline, MRMR, sklearn encoders, CB Pool) where numpy /
     # sklearn / CB all raise on DateTime64DType. Decompose once here
-    # via the canonical ``create_date_features`` helper — same
+    # via the canonical ``create_date_features`` helper -- same
     # treatment we'd apply inside fit_and_transform_pipeline, just
     # lifted earlier so the clone inherits the decomposition.
     import numpy as _np_dt
@@ -2268,7 +2294,7 @@ def train_mlframe_models_suite(
     # Save pre-pipeline Polars originals for the Polars fastpath.
     # Only clone when the pipeline will actually modify categorical columns;
     # when skip_categorical_encoding=True the pipeline preserves dtypes so the
-    # original DF reference is sufficient (B1 optimization — saves 100GB+ clone).
+    # original DF reference is sufficient (B1 optimization -- saves 100GB+ clone).
     needs_polars_pre_clone = (
         was_polars_input
         and not pipeline_config.skip_categorical_encoding
@@ -2282,7 +2308,7 @@ def train_mlframe_models_suite(
             if verbose:
                 logger.info(f"  Cloned pre-pipeline Polars originals (pipeline will modify categoricals)")
         else:
-            # No clone needed — pipeline won't touch categoricals, reuse references
+            # No clone needed -- pipeline won't touch categoricals, reuse references
             train_df_polars_pre = train_df
             val_df_polars_pre = val_df if isinstance(val_df, pl.DataFrame) else None
             test_df_polars_pre = test_df if isinstance(test_df, pl.DataFrame) else None
@@ -2314,7 +2340,7 @@ def train_mlframe_models_suite(
     # Track if Polars-ds pipeline was applied (to skip redundant pre_pipeline transforms later)
     polars_pipeline_applied = was_polars_input and pipeline_config.use_polarsds_pipeline and pipeline is not None
 
-    # Apply shared sklearn-based extensions (scaler override / poly / dim-reducer / …).
+    # Apply shared sklearn-based extensions (scaler override / poly / dim-reducer / ...).
     # When preprocessing_extensions is None (default) this is a zero-cost noop and the
     # Polars-native fastpath is preserved byte-for-byte.
     if preprocessing_extensions is not None and isinstance(preprocessing_extensions, dict):
@@ -2335,9 +2361,9 @@ def train_mlframe_models_suite(
     metadata["columns"] = train_df.columns.tolist() if isinstance(train_df, pd.DataFrame) else train_df.columns
 
     if verbose:
-        logger.info(f"  Pipeline done — train: {_df_shape_str(train_df)}, cat_features: {cat_features or '(none)'}")
+        logger.info(f"  Pipeline done -- train: {_df_shape_str(train_df)}, cat_features: {cat_features or '(none)'}")
         if was_polars_input and cat_features_polars:
-            logger.info(f"  Pre-pipeline Polars cat_features: {cat_features_polars}")
+            logger.info("  Pre-pipeline Polars cat_features: %s", cat_features_polars)
         logger.info(f"  PHASE 3 total: {_elapsed_str(t0_phase3)}")
 
     # ==================================================================================
@@ -2368,7 +2394,7 @@ def train_mlframe_models_suite(
     # the detector populates ``auto_high_card_drop`` with columns that
     # exceed the cardinality threshold. Leaving them as cat_features
     # silently OOMs XGB's QuantileDMatrix (observed on prod 9_018_479-
-    # row × ``skills_text:2_063_092``-unique run 2026-04-22) and
+    # row x ``skills_text:2_063_092``-unique run 2026-04-22) and
     # balloons CB's model artefact. Drop them from the train/val/test
     # splits AND from ``raw_cat_features`` here so every downstream
     # strategy sees the same reduced frame.
@@ -2385,7 +2411,7 @@ def train_mlframe_models_suite(
                 test_df_polars_pre = _drop_cols_df(test_df_polars_pre, auto_high_card_drop)
         raw_cat_features = [c for c in raw_cat_features if c not in auto_high_card_drop]
         # Keep the metadata ``columns`` snapshot in sync with the
-        # reduced frame — load-time schema diff (_validate_input_
+        # reduced frame -- load-time schema diff (_validate_input_
         # columns_against_metadata) uses this to filter serving df to
         # the trained subset, so a stale list re-introduces the
         # dropped column at inference and the model errors on shape.
@@ -2401,7 +2427,7 @@ def train_mlframe_models_suite(
     # still contained text-promoted columns like 'category' / 'skills_text', and
     # CatBoost's pandas path then rejected the run with
     #   "column 'category' has dtype 'category' but is not in cat_features list"
-    # — the column was pd.Categorical in the pandas view (preserved from the
+    # -- the column was pd.Categorical in the pandas view (preserved from the
     # original Polars schema) AND listed in text_features, so CB's Pool
     # refused to accept it. Reassigning here flows the correct set to every
     # downstream user via the single ``cat_features`` binding.
@@ -2416,10 +2442,10 @@ def train_mlframe_models_suite(
     # test_fix6_use_text_features_false_end_to_end_xgb_does_not_see_highcard).
     metadata["cat_features"] = cat_features
 
-    # One-time Polars string→Categorical cast (shared across all models in the loop).
+    # One-time Polars string->Categorical cast (shared across all models in the loop).
     # XGBoost's arrow bridge rejects pl.Utf8/large_string ("KeyError: DataType(large_string)");
     # HGB/LightGBM/CatBoost all prefer Categorical over raw strings when encoding is skipped.
-    # Exclude text/embedding features — those must remain as raw strings for CatBoost text/emb handling.
+    # Exclude text/embedding features -- those must remain as raw strings for CatBoost text/emb handling.
     if was_polars_input and all_models_polars_native and pipeline_config.skip_categorical_encoding:
         _string_types = (pl.Utf8, pl.String) if hasattr(pl, "String") else (pl.Utf8,)
         _keep_as_string = text_emb_set
@@ -2437,15 +2463,15 @@ def train_mlframe_models_suite(
             # Always cast the pre-pipeline Polars refs too: downstream Polars fastpath
             # uses `train_df_polars_pre` as the model input, and without the cast XGBoost
             # would hit `DataType(large_string)` again. Identity-based re-pointing is not
-            # sufficient — a no-op pipeline may return a new object that is not `is` train_df.
+            # sufficient -- a no-op pipeline may return a new object that is not `is` train_df.
             train_df_polars_pre = _precast_strings(train_df_polars_pre)
             val_df_polars_pre = _precast_strings(val_df_polars_pre)
             test_df_polars_pre = _precast_strings(test_df_polars_pre)
             if verbose:
-                logger.info("  Cast Polars string columns → Categorical once (shared across model loop)")
+                logger.info("  Cast Polars string columns -> Categorical once (shared across model loop)")
 
     if verbose and (text_features or embedding_features):
-        logger.info(f"  Feature types — text: {text_features}, embedding: {embedding_features}, cat: {cat_features or '(none)'}")
+        logger.info(f"  Feature types -- text: {text_features}, embedding: {embedding_features}, cat: {cat_features or '(none)'}")
 
     # Pre-train cardinality + val/test drift snapshot.
     #
@@ -2453,7 +2479,7 @@ def train_mlframe_models_suite(
     # high-cardinality categoricals leaves us guessing at the input.
     #
     # Drift: for time-ordered splits (the common case here), val and
-    # test can contain category values that never appeared in train —
+    # test can contain category values that never appeared in train --
     # XGB 3.x on Windows crashes silently during val IterativeDMatrix
     # construction when this happens (observed 2026-04-20 on
     # prod_jobsdetails). We compute ``val_minus_train`` /
@@ -2481,7 +2507,7 @@ def train_mlframe_models_suite(
                     pairs.append((c, n_unique))
                 pairs.sort(key=lambda x: -x[1])
                 summary = ", ".join(f"{c}:{n:_}" for c, n in pairs)
-                logger.info(f"  Categorical cardinalities (train, n_unique, desc): {summary}")
+                logger.info("  Categorical cardinalities (train, n_unique, desc): %s", summary)
 
                 # Drift log: val/test categories not seen in train.
                 if is_polars and val_df is not None and test_df is not None and val_df.height > 0:
@@ -2506,16 +2532,16 @@ def train_mlframe_models_suite(
                             f"{c}:val_only={v},test_only={t}"
                             for c, _, v, t in drift_rows if v > 0 or t > 0
                         ) or "(none)"
-                        logger.info(f"  Category drift (val/test values missing from train): {drift_summary}")
+                        logger.info("  Category drift (val/test values missing from train): %s", drift_summary)
 
                         # WARN for anything where val_only is a non-trivial
-                        # fraction of train cardinality — suspect for XGB
+                        # fraction of train cardinality -- suspect for XGB
                         # val-DMatrix native crash.
                         #
                         # IMPORTANT: auto-healing decisions below rely on
                         # ``v_only`` (val vs train) ONLY. ``t_only`` is
                         # reported above for operator visibility but is NOT
-                        # used to choose an action — using TEST to inform
+                        # used to choose an action -- using TEST to inform
                         # any preprocessing decision leaks test information
                         # into training. The suggested-action heuristics
                         # therefore look exclusively at train-vs-val drift
@@ -2533,13 +2559,13 @@ def train_mlframe_models_suite(
                                     _healing = (
                                         f"        suggested actions (pick one):\n"
                                         f"          a) hash-bucket via FeatureHasher / target-encoding "
-                                        f"(card {card_tr:_} ≥ 1 000 → model will memorize train-only "
+                                        f"(card {card_tr:_} >= 1 000 -> model will memorize train-only "
                                         f"values and generalize poorly on val/test);\n"
                                         f"          b) drop '{c}' from cat_features and keep only the "
                                         f"top-K most frequent (K=100-300) as one-hot, route the rest "
                                         f"into an '__OTHER__' bucket;\n"
                                         f"          c) drop '{c}' entirely if it's an identifier or "
-                                        f"free-text field — promote to text_features via use_text_features=True "
+                                        f"free-text field -- promote to text_features via use_text_features=True "
                                         f"so CatBoost handles it natively and other backends ignore it."
                                     )
                                 elif card_tr >= 100:
@@ -2548,7 +2574,7 @@ def train_mlframe_models_suite(
                                         f"          a) target-encoding (CatBoostEncoder) to collapse "
                                         f"{card_tr:_} levels into a continuous feature;\n"
                                         f"          b) keep top-K by train frequency, bucket the rest "
-                                        f"into '__OTHER__' before fit (K≈30-80)."
+                                        f"into '__OTHER__' before fit (K~=30-80)."
                                     )
                                 else:
                                     _healing = (
@@ -2560,7 +2586,7 @@ def train_mlframe_models_suite(
                                         f"val_only categories are observed at fit time."
                                     )
                                 logger.warning(
-                                    f"  Category drift suspect: {c} — val has {v_only} categories "
+                                    f"  Category drift suspect: {c} -- val has {v_only} categories "
                                     f"({v_frac:.1%} of train card {card_tr:_}) that train never saw. "
                                     f"XGB/CB may crash when constructing val DMatrix with ref=train.\n"
                                     f"{_healing}"
@@ -2620,7 +2646,7 @@ def train_mlframe_models_suite(
     test_df_polars = test_df_polars_pre
 
     # Cache pandas versions for select_target (zero-copy Arrow-backed view for Polars).
-    # Skip the conversion entirely when every model supports Polars natively — the Polars
+    # Skip the conversion entirely when every model supports Polars natively -- the Polars
     # fastpath in process_model substitutes Polars DFs back anyway, so pandas views would
     # be unused. Saves ~1-2s on CB-only runs on small-to-medium DFs.
     # sklearn 1.4+ accepts Polars DataFrames as input (verified on 1.7.2 with
@@ -2632,16 +2658,16 @@ def train_mlframe_models_suite(
     # (core.py passes train_df_pd as `features_train=` / `val_features=` / `features=`).
     # Force pandas conversion if recurrent_models is non-empty.
     # RFECV goes through sklearn.feature_selection.RFECV, which calls estimator.fit(X)
-    # where X is indexed via integer positional slicing internally — pandas-only path.
+    # where X is indexed via integer positional slicing internally -- pandas-only path.
     # Force pandas conversion whenever any RFECV variant is requested.
     _has_rfecv = bool(rfecv_models)
     # Fix 1 (2026-04-21): when the ONLY blockers for the Polars fastpath are
     # non-native strategies (LGB, sklearn, linear), defer upfront conversion
     # and let the per-strategy lazy conversion at the non-polars-fastpath
     # branch of the training loop do it just-in-time. recurrent_models and
-    # rfecv still trigger upfront conversion — those paths use pandas-only
+    # rfecv still trigger upfront conversion -- those paths use pandas-only
     # internals that predate Polars support. Savings on the user's 2026-04-21
-    # run: 661 s polars→pandas + 70 GB RAM held across the 6-hour CB fit.
+    # run: 661 s polars->pandas + 70 GB RAM held across the 6-hour CB fit.
     _has_non_native_mlframe_strategy = was_polars_input and not all_models_polars_native
     can_skip_pandas_conv = (
         was_polars_input
@@ -2650,7 +2676,7 @@ def train_mlframe_models_suite(
     )
 
     # Pre-conversion size capture (Fix 3B): polars .estimated_size() is O(cols),
-    # microseconds. Computing it now — BEFORE any pandas conversion — avoids the
+    # microseconds. Computing it now -- BEFORE any pandas conversion -- avoids the
     # pathological pandas memory_usage(deep=True) scan downstream in
     # configure_training_params (3 min on a 75 GB frame with millions of unique
     # object-column strings). Only used if the frame is polars here; when it's
@@ -2665,7 +2691,7 @@ def train_mlframe_models_suite(
             if val_df is not None and isinstance(val_df, pl.DataFrame):
                 val_df_size_bytes_cached = float(val_df.estimated_size())
         except Exception:
-            # Any failure here is non-fatal — downstream get_df_memory_consumption
+            # Any failure here is non-fatal -- downstream get_df_memory_consumption
             # fallback remains correct (just slower).
             train_df_size_bytes_cached = None
             val_df_size_bytes_cached = None
@@ -2674,18 +2700,18 @@ def train_mlframe_models_suite(
         train_df_pd, val_df_pd, test_df_pd = train_df, val_df, test_df
         if verbose:
             if all_models_polars_native:
-                logger.info("  Skipped pandas conversion — all models are Polars-native")
+                logger.info("  Skipped pandas conversion -- all models are Polars-native")
             else:
                 non_native = [
                     m for m, s in zip(mlframe_models or [], _strategies_for_polars_check)
                     if not s.supports_polars
                 ]
                 logger.info(
-                    f"  Deferred pandas conversion — Polars-native models run on the fastpath; "
+                    f"  Deferred pandas conversion -- Polars-native models run on the fastpath; "
                     f"non-native {non_native} will convert lazily at their strategy branch."
                 )
     else:
-        # Diagnostic: on large high-cardinality frames the polars→pandas
+        # Diagnostic: on large high-cardinality frames the polars->pandas
         # conversion costs minutes (per-column dict rebuild for every split),
         # so if users assume fastpath is active but see the conversion fire
         # anyway they need to know *which condition* blocked the skip. Log
@@ -2709,7 +2735,7 @@ def train_mlframe_models_suite(
             if _has_rfecv:
                 reasons.append(f"rfecv_models={rfecv_models}")
             logger.info(
-                f"  polars→pandas conversion needed because: {'; '.join(reasons) or 'unknown'}"
+                f"  polars->pandas conversion needed because: {'; '.join(reasons) or 'unknown'}"
             )
         train_df_pd, val_df_pd, test_df_pd = _convert_dfs_to_pandas(train_df, val_df, test_df, verbose=verbose)
 
@@ -2721,9 +2747,9 @@ def train_mlframe_models_suite(
     #
     # Gate (item 11 of 2026-04-18 log triage): when the Polars fastpath is
     # active (can_skip_pandas_conv=True) the models receive the Polars DFs
-    # directly — running prepare_df_for_catboost on the *pandas views* that
+    # directly -- running prepare_df_for_catboost on the *pandas views* that
     # are built for select_target only is pointless work that shows up as
-    # a 2+ minute blocking step in PHASE 4 on 1M×100 frames. Skip it in
+    # a 2+ minute blocking step in PHASE 4 on 1Mx100 frames. Skip it in
     # that case.
     if cat_features and not can_skip_pandas_conv:
         if verbose:
@@ -2734,7 +2760,7 @@ def train_mlframe_models_suite(
     elif cat_features and can_skip_pandas_conv and verbose:
         logger.info(
             f"Skipping pandas-side CatBoost prep for {len(cat_features)} categorical "
-            "features — Polars fastpath receives the DFs natively."
+            "features -- Polars fastpath receives the DFs natively."
         )
 
     # B2: Release post-pipeline Polars DFs after pandas conversion.
@@ -2805,7 +2831,7 @@ def train_mlframe_models_suite(
     # Keep polars fastpath DFs in sync with pandas-filtered copies so that the
     # Polars-native training path operates on OD-filtered rows matching the
     # OD-filtered targets. Without this the downstream training call feeds the
-    # unfiltered Polars DF but the OD-filtered target → length mismatch.
+    # unfiltered Polars DF but the OD-filtered target -> length mismatch.
     if train_od_idx is not None and train_df_polars is not None:
         train_df_polars = train_df_polars.filter(pl.Series(train_od_idx))
     if val_od_idx is not None and val_df_polars is not None:
@@ -2814,15 +2840,15 @@ def train_mlframe_models_suite(
     # ------------------------------------------------------------------
     # Round-11c fill: Polars Categorical cat_features with null values
     # trip CatBoost 1.2.10's fused-cpdef dispatcher
-    # (``TypeError: No matching signature found`` — see
+    # (``TypeError: No matching signature found`` -- see
     # ``bench_polars_cb_nullfrac.py`` and the round-11 CHANGELOG entry).
     # Fill once here on the base Polars DFs so every polars-native
     # strategy downstream (CB, XGB, HGB, ...) gets the same pre-filled
-    # frame — ``tier_polars`` views, ``prepared_train`` in the model
+    # frame -- ``tier_polars`` views, ``prepared_train`` in the model
     # loop, predict-time conversions, all uniformly null-free on cats.
     # Keeps the fastpath alive for every polars-capable model.
     #
-    # Single-pass null detection via ``df.null_count()`` — computes
+    # Single-pass null detection via ``df.null_count()`` -- computes
     # per-column counts in one scan instead of one query per column.
     # Fill expr list is built once and reused across train/val/test
     # so the category sentinel codes are consistent across splits.
@@ -2831,12 +2857,12 @@ def train_mlframe_models_suite(
             _polars_nullable_categorical_cols,
             _polars_fill_null_in_categorical,
         )
-        # Detect nullable cats in train AND val AND test — union the
+        # Detect nullable cats in train AND val AND test -- union the
         # sets. Previously we only inspected ``train_df_polars``, which
         # missed a class of bug: a column with 0 nulls in train but 100+
         # in val (common on time-ordered splits where new records
         # introduce new null-paradigms) was NOT filled, leaving val
-        # with nulls in a Polars Categorical → CB/XGB native crash at
+        # with nulls in a Polars Categorical -> CB/XGB native crash at
         # val-DMatrix construction. Union ensures fill applies if ANY
         # split has nulls; ``__MISSING__`` sentinel then consistently
         # lands in train/val/test's category dicts.
@@ -2851,7 +2877,7 @@ def train_mlframe_models_suite(
         )) if test_df_polars is not None else set()
         nullable_cats = sorted(train_null_cats | val_null_cats | test_null_cats)
         if nullable_cats:
-            # Spotlight columns where val/test have nulls but train doesn't —
+            # Spotlight columns where val/test have nulls but train doesn't --
             # that's the exact scenario that used to escape the pre-fill.
             val_only = sorted((val_null_cats | test_null_cats) - train_null_cats)
             if verbose:
@@ -2882,7 +2908,7 @@ def train_mlframe_models_suite(
     #
     # Empirically prevents a silent process kill on Windows when XGB
     # 3.x constructs val IterativeDMatrix with ref=train on large
-    # frames (7.3M+ rows, 15+ cat features) — observed 2026-04-20 on
+    # frames (7.3M+ rows, 15+ cat features) -- observed 2026-04-20 on
     # prod_jobsdetails. Mechanism is not fully understood but the
     # leading theory: ``pl.Categorical`` assigns physical codes
     # per-Series (order-of-first-occurrence), so the same string can
@@ -2894,14 +2920,14 @@ def train_mlframe_models_suite(
     # across splits.
     #
     # Small-scale probe (``D:/Temp/xgb_unseen_cat_probe.py``) did NOT
-    # reproduce the crash on 2000 rows × 1 cat feature, even with
+    # reproduce the crash on 2000 rows x 1 cat feature, even with
     # deliberate val/train dict mismatch. Prod repro confirmed the
-    # fix works end-to-end (MakeCuts time dropped 50× after
-    # alignment: 0.9s → 18ms, consistent with XGB taking a different
+    # fix works end-to-end (MakeCuts time dropped 50x after
+    # alignment: 0.9s -> 18ms, consistent with XGB taking a different
     # code path).
     #
     # Opt out via ``behavior_config.align_polars_categorical_dicts=False``.
-    # Skipped for columns with cardinality > 50_000 (text-sized —
+    # Skipped for columns with cardinality > 50_000 (text-sized --
     # expensive to align; typically already promoted to text_features).
     if (train_df_polars is not None and cat_features
             and behavior_config.align_polars_categorical_dicts):
@@ -2920,19 +2946,19 @@ def train_mlframe_models_suite(
             if not is_cat_like:
                 continue
             try:
-                # Collect unique values from each split (drop nulls —
+                # Collect unique values from each split (drop nulls --
                 # fill_null above already handled them; nulls mustn't
                 # enter an Enum's category list).
                 #
                 # 2026-04-22 future-leakage fix: ONLY train + val
                 # contribute to the Enum vocabulary. test_df categories
-                # MUST NOT leak back — the whole purpose of a held-out
+                # MUST NOT leak back -- the whole purpose of a held-out
                 # test is to represent "truly unseen" data, and seeding
                 # the model's categorical vocabulary with test values
                 # leaks future information into training-time
                 # preprocessing (the Enum object is part of the pipeline
                 # the model commits to at fit). Test-only categories
-                # are cast with ``strict=False`` → OOV values land as
+                # are cast with ``strict=False`` -> OOV values land as
                 # nulls, which XGB / CB treat identically to any other
                 # missing value (consistent with production-time
                 # behaviour: at inference we have no mechanism to
@@ -2992,7 +3018,7 @@ def train_mlframe_models_suite(
     # Enum-alignment block above. ``common_params["train_df"]`` (built by
     # ``configure_training_params`` below) picks up ``filtered_train_df``,
     # so the lazy pandas conversion at the non-polars-native strategy branch
-    # (line ~3034) converts the UNFILLED frame — nulls become NaN in the
+    # (line ~3034) converts the UNFILLED frame -- nulls become NaN in the
     # pandas Categorical, CB's fallback Pool build raises
     # ``Invalid type for cat_feature ... =NaN``. Re-point the aliases to
     # the filled+aligned ``train_df_polars`` now that those treatments
@@ -3014,7 +3040,7 @@ def train_mlframe_models_suite(
     # didn't touch the column (either skipped or align_polars_categorical_dicts=False),
     # cat_features stay as pl.Utf8 / pl.String. Non-polars-native
     # strategies (LGB, Linear) later trigger the lazy pandas conversion;
-    # pl.Utf8 → pandas ``object`` dtype (not ``category``). XGBClassifier's
+    # pl.Utf8 -> pandas ``object`` dtype (not ``category``). XGBClassifier's
     # sklearn wrapper then raises
     #     ValueError: DataFrame.dtypes for data must be int, float, bool
     #     or category. ... Invalid columns:cat_0: object
@@ -3220,7 +3246,7 @@ def train_mlframe_models_suite(
                 # Backward split puts val BEFORE train on the timeline; recency
                 # weighting makes train bias toward the NEWEST rows. The two
                 # together optimise "fit the newest rows and validate on the
-                # oldest ones" — the opposite of the concept-drift proxy that
+                # oldest ones" -- the opposite of the concept-drift proxy that
                 # motivated choosing backward in the first place. Warn at suite
                 # entry (rather than silently let the suite run) so the user
                 # either disables recency on the extractor or reverts to
@@ -3233,10 +3259,10 @@ def train_mlframe_models_suite(
                             "  val_placement='backward' is combined with %d non-"
                             "uniform weighting schema(s) %s. Backward val is "
                             "designed to approximate DEPLOYMENT error under "
-                            "drift by mirroring the val→train gap against the "
-                            "train→prod gap, while recency-style weights bias "
+                            "drift by mirroring the val->train gap against the "
+                            "train->prod gap, while recency-style weights bias "
                             "training toward the newest rows. Together they "
-                            "optimise 'fit newest, validate on oldest' — which "
+                            "optimise 'fit newest, validate on oldest' -- which "
                             "contradicts the drift-proxy intent of backward. "
                             "Consider disabling use_recency_weighting on the "
                             "extractor (runs will fall back to uniform only) "
@@ -3249,7 +3275,7 @@ def train_mlframe_models_suite(
                 # Models sorted by feature tier (most features first) so that
                 # text/embedding columns are dropped once per tier, not per model.
                 # -----------------------------------------------------------------------
-                # Resolve strategies once and reuse — avoids re-calling get_strategy() inside
+                # Resolve strategies once and reuse -- avoids re-calling get_strategy() inside
                 # sort key, main loop, and tier-transition check (was ~3x redundant calls).
                 # Keyed by id(m) so unhashable estimator instances / tuples don't break lookup,
                 # and two identical-by-value-but-distinct-by-identity entries stay distinct.
@@ -3264,7 +3290,7 @@ def train_mlframe_models_suite(
                 # XGBoostStrategy.prepare_polars_dataframe needs a leak-free
                 # pl.Enum dict built from the train+val UNION (test EXCLUDED
                 # to avoid label-time leakage). The map only depends on
-                # (feature_tier, strategy class) — invariant across the
+                # (feature_tier, strategy class) -- invariant across the
                 # weight-schema loop and across multiple models that share
                 # a tier. Cache here so we compute it at most once per
                 # (target, tier, strategy) instead of once per model.
@@ -3288,13 +3314,13 @@ def train_mlframe_models_suite(
                     # FIRST strategy that can't consume them, regardless of
                     # ``feature_tier`` change. The original release block
                     # below (post-iteration) only fires on a tier transition
-                    # — but XGB and LGB share ``tier=(False,False)``, so a
-                    # ``cb → xgb → lgb`` suite kept ``train_df_polars`` /
+                    # -- but XGB and LGB share ``tier=(False,False)``, so a
+                    # ``cb -> xgb -> lgb`` suite kept ``train_df_polars`` /
                     # ``val_df_polars`` / ``test_df_polars`` alive through
                     # the LGB iteration. Right after that LGB triggered the
-                    # lazy polars→pandas conversion, holding **both** the
+                    # lazy polars->pandas conversion, holding **both** the
                     # 29 GB polars frames and the 57 GB pandas copies
-                    # simultaneously — peak 86 GB on the 2026-04-23 prod
+                    # simultaneously -- peak 86 GB on the 2026-04-23 prod
                     # run, instead of ~57 GB. Releasing here, before the
                     # lazy conversion, halves peak RAM in mixed suites.
                     if (
@@ -3313,7 +3339,7 @@ def train_mlframe_models_suite(
                         if verbose:
                             logger.info(
                                 "  Released pre-pipeline Polars originals before "
-                                "%s (non-polars-native strategy) — frees ~30 %% "
+                                "%s (non-polars-native strategy) -- frees ~30 %% "
                                 "of peak RAM before lazy pandas conversion.",
                                 mlframe_model_name,
                             )
@@ -3321,16 +3347,16 @@ def train_mlframe_models_suite(
                     # Clone base_pipeline per model so each iteration gets a
                     # fresh un-fitted selector (MRMR / RFECV). Previously, a
                     # single fitted ``orig_pre_pipeline`` was shared across
-                    # all models in the suite — if CB fit it on train_df
+                    # all models in the suite -- if CB fit it on train_df
                     # and selected 3 of 4 cols, the following Linear iter
                     # saw a pipeline where MRMR was already fitted but
                     # encoder/imputer/scaler were not. ``_is_fitted`` mis-
-                    # reported True → code took the transform-only branch
-                    # → imputer.transform raised "feature names should
+                    # reported True -> code took the transform-only branch
+                    # -> imputer.transform raised "feature names should
                     # match those passed during fit". Cloning isolates each
                     # strategy's fit state. sklearn.base.clone handles
                     # feature selectors (they're BaseEstimator-compatible)
-                    # without copying fitted data — resets parameters only.
+                    # without copying fitted data -- resets parameters only.
                     _base_for_strategy = orig_pre_pipeline
                     if _base_for_strategy is not None:
                         try:
@@ -3349,7 +3375,7 @@ def train_mlframe_models_suite(
                     # Cache key composition (2026-04-19 round-9 verify):
                     #   1. strategy.cache_key (e.g. "tree", "hgb", "neural")
                     #   2. pre_pipeline_name (MRMR vs RFECV vs ordinary)
-                    #   3. feature_tier() — CRITICAL: CB/LGB/XGB all inherit
+                    #   3. feature_tier() -- CRITICAL: CB/LGB/XGB all inherit
                     #      cache_key="tree", but CB has tier=(True,True) while
                     #      LGB/XGB have tier=(False,False). Without tier in the
                     #      key, CB (running first by tier-desc sort) cached its
@@ -3366,7 +3392,7 @@ def train_mlframe_models_suite(
                     # same ``feature_tier``. Without the kind qualifier, XGB
                     # (Polars-native) stored the *polars* post-pipeline frame
                     # under ``tree_..._tier(False,False)`` and LGB pulled that
-                    # polars frame out on its next iteration — undoing the
+                    # polars frame out on its next iteration -- undoing the
                     # strategy-loop lazy pandas conversion a few lines later
                     # and triggering a duplicate 224 s conversion in trainer's
                     # self-heal (2026-04-23 prod log, ~38 min wasted). Mirror
@@ -3385,22 +3411,22 @@ def train_mlframe_models_suite(
                     polars_fastpath_active = train_df_polars is not None and strategy.supports_polars
 
                     # B3: Prepare Polars DFs once per model (outside weight loop).
-                    # prepare_polars_dataframe() calls .with_columns() which allocates —
+                    # prepare_polars_dataframe() calls .with_columns() which allocates --
                     # doing it per weight schema wastes memory for 100GB+ DataFrames.
                     if polars_fastpath_active:
                         if verbose:
                             logger.info(f"  Polars fastpath active for {mlframe_model_name} (strategy={type(strategy).__name__})")
                         # Use ``cat_features`` (the post-promotion, deduplicated
-                        # list from the Phase 3.5 reassignment at line ~1526) —
+                        # list from the Phase 3.5 reassignment at line ~1526) --
                         # NOT the stale ``cat_features_polars`` captured at the
                         # start of Phase 3 before auto-detection ran.
                         # Production 2026-04-19 bug: the old
                         #   _cat_features = cat_features_polars or cat_features or []
                         # short-circuit picked the stale 13-column list even
                         # after text-promotion removed 4 of them. Those 4 were
-                        # later cast Categorical→String for CatBoost's text
+                        # later cast Categorical->String for CatBoost's text
                         # path, so CB saw cat_features=[..., 'skills_text'] with
-                        # skills_text being pl.String — its fused-cpdef
+                        # skills_text being pl.String -- its fused-cpdef
                         # ``_set_features_order_data_polars_categorical_column``
                         # has no String overload and raised "No matching
                         # signature found", burning 22 s + a 150 s pandas
@@ -3462,7 +3488,7 @@ def train_mlframe_models_suite(
                         #   "Unsupported data type Categorical for a text feature column".
                         # This happens whenever a column was auto-promoted from cat_features to
                         # text_features (done in `_auto_detect_feature_types`) but its backing
-                        # dtype was left as Categorical — CB's text path requires plain string.
+                        # dtype was left as Categorical -- CB's text path requires plain string.
                         if text_features and mlframe_model_name == "cb":
                             text_cols_present = filter_existing(prepared_train, text_features)
                             if text_cols_present:
@@ -3494,7 +3520,7 @@ def train_mlframe_models_suite(
                         # (see the ``_polars_nullable_categorical_cols`` +
                         # ``_polars_fill_null_in_categorical`` block near
                         # OD-filter, keyword ``__MISSING__``). Every
-                        # polars-capable strategy — CB, XGB, HGB — now
+                        # polars-capable strategy -- CB, XGB, HGB -- now
                         # operates on the same pre-filled frame. No
                         # per-model fill needed in the loop.
 
@@ -3529,12 +3555,12 @@ def train_mlframe_models_suite(
                         # above silently missed a key (bug in this function)
                         # or (b) some later step replaced the converted
                         # frame with a polars original between iterations
-                        # — which is exactly the 2026-04-23 prod regression
+                        # -- which is exactly the 2026-04-23 prod regression
                         # that pipeline_cache's kind-suffix fix addresses.
                         # The trainer-level hard-raise also catches this,
                         # but failing HERE surfaces the bug one function up
                         # the stack, closer to the cause (cheaper to debug
-                        # — you see ``strategy.__class__.__name__`` and the
+                        # -- you see ``strategy.__class__.__name__`` and the
                         # live ``common_params`` state, not just a model
                         # type at fit time).
                         for df_key in ("train_df", "val_df", "test_df"):
@@ -3590,7 +3616,7 @@ def train_mlframe_models_suite(
                         # append to model_file_name so two runs with different
                         # feature-type configs don't silently overwrite each
                         # other. Hashes realised schema (sorted cols + canonical
-                        # dtypes + roles) of the DF just assigned above — the
+                        # dtypes + roles) of the DF just assigned above -- the
                         # actual DF the strategy feeds to model.fit(). Uses the
                         # outer cat/text/embedding lists because the per-model
                         # fit_params are built later (see extra_fit near the CB
@@ -3652,7 +3678,7 @@ def train_mlframe_models_suite(
                                 pass
                         # Same problem class for the polars-fastpath sticky flag
                         # (set defensively in trainer.configure_training_params
-                        # for every freshly constructed CatBoost instance — see
+                        # for every freshly constructed CatBoost instance -- see
                         # the 2026-04-24 prod log analysis). sklearn.clone()
                         # would otherwise blank it on every weight-schema iter,
                         # forcing the dispatch-miss + retry on the FIRST predict
@@ -3666,9 +3692,9 @@ def train_mlframe_models_suite(
                         # caches a QuantileDMatrix on instance attributes
                         # (``_cached_train_dmatrix``, ``_cached_val_dmatrix`` and
                         # their cache keys); sklearn.clone() blanks them. Without
-                        # this hand-off, the weight-schema loop (uniform →
+                        # this hand-off, the weight-schema loop (uniform ->
                         # recency on the same train_df) would rebuild the
-                        # DMatrix from scratch on every iteration — defeating
+                        # DMatrix from scratch on every iteration -- defeating
                         # the whole point of the shim. Hand the cache forward
                         # so reused DMatrix sees consecutive ``set_label`` /
                         # ``set_weight`` swaps in place.
@@ -3733,11 +3759,11 @@ def train_mlframe_models_suite(
                             # polars_fastpath_skip_preprocessing`` accumulated
                             # globally across the suite loop. The initial
                             # value at core.py:1995 is True when the input is
-                            # Polars and the polars-ds pipeline exists — so
+                            # Polars and the polars-ds pipeline exists -- so
                             # every later iteration (including Linear, which
                             # really DOES need the encoder/scaler/imputer)
                             # inherited True and skipped its pre_pipeline
-                            # via train_eval.py:675 → trainer.py:775
+                            # via train_eval.py:675 -> trainer.py:775
                             # ``elif skip_preprocessing: feature_selector
                             # only`` branch. LogReg then received raw
                             # pd.Categorical and crashed on 'HOURLY'.
@@ -3756,7 +3782,7 @@ def train_mlframe_models_suite(
                             # path only, but on the Polars fastpath HGB
                             # consumes pl.Categorical natively (no encoder
                             # needed). Gating on supports_polars alone is
-                            # correct — only the non-Polars-native
+                            # correct -- only the non-Polars-native
                             # strategies (Linear, Neural, sklearn-generic,
                             # LGB-via-bridge) fall through to their own
                             # pre_pipeline run in trainer.py.
@@ -3765,13 +3791,13 @@ def train_mlframe_models_suite(
                             # polars_enum + use_polarsds_pipeline=False):
                             # when the shared polars-ds pipeline does NOT
                             # run, Fix 11's left-hand side collapses to
-                            # False — the gate was then False for HGB too,
+                            # False -- the gate was then False for HGB too,
                             # forcing pre_pipeline (with a sklearn
                             # category_encoders encoder) to fit on a
                             # pl.DataFrame and crash at convert_inputs.
                             # The polars fastpath being ACTIVE for this
                             # strategy is itself a sufficient reason to
-                            # skip sklearn preprocessing — the strategy
+                            # skip sklearn preprocessing -- the strategy
                             # consumes the Polars frame natively, so the
                             # encoder/scaler/imputer would both be
                             # redundant and crash on Polars input.
@@ -3795,7 +3821,7 @@ def train_mlframe_models_suite(
                                 )
                         except Exception as model_err:
                             # Skip-and-continue only when the caller explicitly opted in.
-                            # KeyboardInterrupt is intentionally NOT caught — Ctrl-C must
+                            # KeyboardInterrupt is intentionally NOT caught -- Ctrl-C must
                             # still abort the run. A native SIGSEGV that kills the process
                             # also won't be caught here; only Python-level exceptions
                             # (XGBoostError, CatBoostError, MemoryError, ...) are.
@@ -3803,8 +3829,8 @@ def train_mlframe_models_suite(
                                 raise
                             logger.error(
                                 f"  process_model({mlframe_model_name}, w={weight_name}) FAILED after "
-                                f"{_elapsed_str(t0_model)} — {type(model_err).__name__}: {model_err}. "
-                                f"continue_on_model_failure=True → skipping and moving on.",
+                                f"{_elapsed_str(t0_model)} -- {type(model_err).__name__}: {model_err}. "
+                                f"continue_on_model_failure=True -> skipping and moving on.",
                                 exc_info=True,
                             )
                             metadata.setdefault("failed_models", []).append({
@@ -3815,7 +3841,7 @@ def train_mlframe_models_suite(
                             })
                             continue  # next weight_name in the inner loop
                         if verbose:
-                            logger.info(f"  process_model({mlframe_model_name}, w={weight_name}) done — {_elapsed_str(t0_model)}")
+                            logger.info(f"  process_model({mlframe_model_name}, w={weight_name}) done -- {_elapsed_str(t0_model)}")
 
                         # XGB DMatrix-reuse shim cache (2026-04-24, second
                         # half). The cache lives on the cloned_model that
@@ -3825,7 +3851,7 @@ def train_mlframe_models_suite(
                         # ``clone()`` carries the cache forward (via the
                         # forward-transfer block above). Without this, the
                         # cache would be born and die inside one weight-
-                        # schema iteration — wasted because the SAME train
+                        # schema iteration -- wasted because the SAME train
                         # frame is consumed by the next iteration with only
                         # a different sample_weight. Symmetric counterpart
                         # to the forward-transfer block in this loop.
@@ -3884,7 +3910,7 @@ def train_mlframe_models_suite(
                                 _record["n_classes"] = None
                                 _record["multilabel_strategy"] = None
                         except Exception:
-                            # Defensive — never fail the metadata write because
+                            # Defensive -- never fail the metadata write because
                             # of an introspection problem on multi-output fields.
                             pass
                         metadata.setdefault("model_schemas", {})[model_file_name] = _record
@@ -3903,22 +3929,22 @@ def train_mlframe_models_suite(
                         orig_pre_pipeline = pre_pipeline
 
                     # Release XGB shim DMatrix cache memory at strategy-iter end
-                    # (2026-04-24 follow-up). The cache — cached
+                    # (2026-04-24 follow-up). The cache -- cached
                     # ``QuantileDMatrix`` on ``_cached_train_dmatrix`` /
-                    # ``_cached_val_dmatrix`` — is a fit-only scratchpad
-                    # used by the inner weight-schema loop (uniform → recency
+                    # ``_cached_val_dmatrix`` -- is a fit-only scratchpad
+                    # used by the inner weight-schema loop (uniform -> recency
                     # swap in place via ``set_label`` / ``set_weight``).
                     # Once the inner loop has finished, nothing downstream
                     # reads those attrs:
                     #   * ensemble scoring (below) uses pre-computed probs
                     #     stored on the SimpleNamespace wrappers in
-                    #     ``ens_models`` — NOT ``.predict()`` calls;
+                    #     ``ens_models`` -- NOT ``.predict()`` calls;
                     #   * ``.predict`` / ``.predict_proba`` route through
                     #     ``_Booster`` (attached at fit end), not the cache;
                     #   * model save goes through pickle / joblib, which
                     #     our ``__getstate__`` override strips the cache
                     #     from anyway.
-                    # The prod log showed a 7.3M × 105 frame holding ~8 GB
+                    # The prod log showed a 7.3M x 105 frame holding ~8 GB
                     # of QuantileDMatrix memory per XGB iteration. Before
                     # LGB's lazy pandas conversion fires on the next iter,
                     # releasing this cache frees ~30 % of peak RAM.
@@ -3937,7 +3963,7 @@ def train_mlframe_models_suite(
                     # Each previously-fitted model snapshot parked in
                     # ``ens_models`` may also hold a cache ref (forward-
                     # transfer at clone copied the reference, not moved it).
-                    # Release on all — their probs are already recorded
+                    # Release on all -- their probs are already recorded
                     # and the cache is not read anywhere else.
                     if ens_models:
                         for _ens_ns in ens_models:
@@ -3964,18 +3990,18 @@ def train_mlframe_models_suite(
                     ens_n_features = train_df_transformed.shape[1] if train_df_transformed is not None else None
                     # Name the ensemble by its actual members so post-hoc log
                     # grep shows *which* models participated. The old
-                    # ``"{N}models "`` label hid dropouts — in the 2026-04-23
+                    # ``"{N}models "`` label hid dropouts -- in the 2026-04-23
                     # prod log LGB silently failed, yet the ensemble was
                     # reported as "2models" with no hint that it was just
                     # CB+XGB. Cap the list to keep headers readable:
-                    #   ≤4 members → "[cb+xgb+lgb]"
-                    #   >4        → "[N=5]" (avoid bloated titles)
+                    #   <=4 members -> "[cb+xgb+lgb]"
+                    #   >4        -> "[N=5]" (avoid bloated titles)
                     def _short_model_tag(ns):
                         # ns is a SimpleNamespace from train_and_evaluate_model;
                         # ns.model is the fitted estimator. Prefer a short tag
                         # derived from the class name over the full class:
-                        # CatBoostClassifier → cb, XGBClassifier → xgb,
-                        # LGBMClassifier → lgb, HistGradient... → hgb.
+                        # CatBoostClassifier -> cb, XGBClassifier -> xgb,
+                        # LGBMClassifier -> lgb, HistGradient... -> hgb.
                         cls_name = type(getattr(ns, "model", ns)).__name__
                         if cls_name.startswith("CatBoost"):
                             return "cb"
@@ -4033,7 +4059,7 @@ def train_mlframe_models_suite(
             for target_type, targets in target_by_type.items():
                 for cur_target_name, target_values in targets.items():
                     if verbose:
-                        logger.info(f"Training {recurrent_model_name} for target {cur_target_name}...")
+                        logger.info("Training %s for target %s...", recurrent_model_name, cur_target_name)
 
                     # Extract train/val/test targets
                     train_target = target_values[train_idx] if hasattr(target_values, '__getitem__') else target_values.iloc[train_idx]
@@ -4075,7 +4101,7 @@ def train_mlframe_models_suite(
                         models[target_type][cur_target_name].append(model_clone)
 
                         if verbose:
-                            logger.info(f"Successfully trained {recurrent_model_name} for {cur_target_name}")
+                            logger.info("Successfully trained %s for %s", recurrent_model_name, cur_target_name)
 
                     except Exception as e:
                         logger.error(f"Failed to train {recurrent_model_name} for {cur_target_name}: {e}")
@@ -4155,7 +4181,7 @@ def train_mlframe_models_suite(
                 except Exception:
                     pass
     if _selected_features_per_model:
-        # Flat sorted union (column names) — matches the existing
+        # Flat sorted union (column names) -- matches the existing
         # ``_collect_selected_features`` probe in the bizvalue tests
         # which does ``list(metadata['selected_features'])`` and
         # checks INFORMATIVE_NAMES membership. Per-model breakdown
@@ -4218,17 +4244,46 @@ def predict_mlframe_models_suite(
     # 1. LOAD METADATA
     # ==================================================================================
 
-    metadata_file = join(models_path, "metadata.joblib")
-    if not exists(metadata_file):
-        raise FileNotFoundError(f"Metadata file not found: {metadata_file}")
+    # 2026-04-29: prefer the new pickle-proto5 + zstd format (8-47x
+    # faster than ``joblib.dump`` on representative mlframe metadata)
+    # but fall back to legacy ``metadata.joblib`` so saves from older
+    # mlframe versions keep loading without manual migration.
+    metadata_file_new = join(models_path, "metadata.pkl.zst")
+    metadata_file_uncompressed = join(models_path, "metadata.pkl")
+    metadata_file_legacy = join(models_path, "metadata.joblib")
+    if exists(metadata_file_new):
+        metadata_file = metadata_file_new
+        loader_kind = "pkl.zst"
+    elif exists(metadata_file_uncompressed):
+        metadata_file = metadata_file_uncompressed
+        loader_kind = "pkl"
+    elif exists(metadata_file_legacy):
+        metadata_file = metadata_file_legacy
+        loader_kind = "joblib"
+    else:
+        raise FileNotFoundError(
+            f"Metadata file not found in {models_path}; expected one of "
+            f"metadata.pkl.zst, metadata.pkl, metadata.joblib"
+        )
 
     if verbose:
-        logger.info(f"Loading metadata from {metadata_file}...")
-    # Default trusted_root to the models directory if not provided — matches the
+        logger.info("Loading metadata from %s...", metadata_file)
+    # Default trusted_root to the models directory if not provided -- matches the
     # in-process "we just wrote this file" flow while still refusing path escape.
     _root = trusted_root if trusted_root is not None else os.path.abspath(models_path)
     _validate_trusted_path(metadata_file, _root)
-    metadata = joblib.load(metadata_file)
+    if loader_kind == "pkl.zst":
+        import pickle as _pickle
+        import zstandard as _zstd
+        _dctx = _zstd.ZstdDecompressor()
+        with open(metadata_file, "rb") as _f:
+            metadata = _pickle.loads(_dctx.decompress(_f.read()))
+    elif loader_kind == "pkl":
+        import pickle as _pickle
+        with open(metadata_file, "rb") as _f:
+            metadata = _pickle.load(_f)
+    else:
+        metadata = joblib.load(metadata_file)
     results["metadata"] = metadata
 
     # Extract key components from metadata
@@ -4247,7 +4302,7 @@ def predict_mlframe_models_suite(
     # Apply features extractor if provided (same transformation as training)
     if features_and_targets_extractor is not None:
         df, _, _, _, _, _, columns_to_drop, _ = features_and_targets_extractor.transform(df)
-        # Drop extra columns (target, etc.) — unified via helper.
+        # Drop extra columns (target, etc.) -- unified via helper.
         df = _drop_cols_df(df, columns_to_drop)
 
     # Convert to pandas if needed
@@ -4289,7 +4344,7 @@ def predict_mlframe_models_suite(
             continue
 
         if verbose:
-            logger.info(f"Loading model: {model_name}")
+            logger.info("Loading model: %s", model_name)
 
         try:
             model_obj = load_mlframe_model(model_file)
@@ -4316,7 +4371,7 @@ def predict_mlframe_models_suite(
                 # - 1-D probs: threshold (binary sigmoid output)
                 # - (N, 2) binary: threshold on class-1 column
                 # - (N, K) multiclass (K>2): argmax
-                # Multilabel cannot be inferred from shape alone — caller
+                # Multilabel cannot be inferred from shape alone -- caller
                 # must hold that contract; for now this path treats K>2 as
                 # multiclass (the dominant case for ndim==2 K>2).
                 if probs.ndim == 2:
@@ -4361,7 +4416,7 @@ def predict_mlframe_models_suite(
             if avg_probs.shape[1] == 2:
                 ensemble_preds = (avg_probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
             else:
-                # Multiclass — argmax across K classes
+                # Multiclass -- argmax across K classes
                 ensemble_preds = np.argmax(avg_probs, axis=1)
         else:
             ensemble_preds = (avg_probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
@@ -4455,7 +4510,7 @@ def predict_from_models(
     # Apply features extractor if provided (same transformation as training)
     if features_and_targets_extractor is not None:
         df, _, _, _, _, _, columns_to_drop, _ = features_and_targets_extractor.transform(df)
-        # Drop extra columns (target, etc.) — unified via helper.
+        # Drop extra columns (target, etc.) -- unified via helper.
         df = _drop_cols_df(df, columns_to_drop)
 
     # Convert to pandas if needed
@@ -4505,7 +4560,7 @@ def predict_from_models(
                     counter += 1
 
                 if verbose:
-                    logger.info(f"Predicting with model: {model_name}")
+                    logger.info("Predicting with model: %s", model_name)
 
                 try:
                     model = model_obj.model
@@ -4565,7 +4620,7 @@ def predict_from_models(
             if avg_probs.shape[1] == 2:
                 ensemble_preds = (avg_probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
             else:
-                # Multiclass — argmax across K classes
+                # Multiclass -- argmax across K classes
                 ensemble_preds = np.argmax(avg_probs, axis=1)
         else:
             ensemble_preds = (avg_probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
@@ -4608,13 +4663,40 @@ def load_mlframe_suite(models_path: str, trusted_root: Optional[str] = None) -> 
     if not os.path.isdir(models_path):
         raise ValueError(f"models_path must be a valid directory, got: {models_path}")
 
-    metadata_file = join(models_path, "metadata.joblib")
-    if not exists(metadata_file):
-        raise FileNotFoundError(f"Metadata file not found: {metadata_file}")
+    # 2026-04-29: prefer the new pickle-proto5 + zstd format, fall
+    # back to legacy ``metadata.joblib`` for backward compat.
+    metadata_file_new = join(models_path, "metadata.pkl.zst")
+    metadata_file_uncompressed = join(models_path, "metadata.pkl")
+    metadata_file_legacy = join(models_path, "metadata.joblib")
+    if exists(metadata_file_new):
+        metadata_file = metadata_file_new
+        _kind = "pkl.zst"
+    elif exists(metadata_file_uncompressed):
+        metadata_file = metadata_file_uncompressed
+        _kind = "pkl"
+    elif exists(metadata_file_legacy):
+        metadata_file = metadata_file_legacy
+        _kind = "joblib"
+    else:
+        raise FileNotFoundError(
+            f"Metadata file not found in {models_path}; expected one of "
+            f"metadata.pkl.zst, metadata.pkl, metadata.joblib"
+        )
 
     _root = trusted_root if trusted_root is not None else os.path.abspath(models_path)
     _validate_trusted_path(metadata_file, _root)
-    metadata = joblib.load(metadata_file)
+    if _kind == "pkl.zst":
+        import pickle as _pickle
+        import zstandard as _zstd
+        _dctx = _zstd.ZstdDecompressor()
+        with open(metadata_file, "rb") as _f:
+            metadata = _pickle.loads(_dctx.decompress(_f.read()))
+    elif _kind == "pkl":
+        import pickle as _pickle
+        with open(metadata_file, "rb") as _f:
+            metadata = _pickle.load(_f)
+    else:
+        metadata = joblib.load(metadata_file)
 
     # Get slug-to-original name mappings from metadata (if available)
     slug_to_original_target_type = metadata.get("slug_to_original_target_type", {})
