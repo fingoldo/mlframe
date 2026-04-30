@@ -357,19 +357,25 @@ class TestTrainMLFrameModelsSuiteMetadata:
         assert "split" in metadata["configs"]
 
         # Verify metadata file was saved
+        # 2026-04-29: format switched joblib -> pickle proto=5 + zstd L3 (8c301f2).
         from pyutilz.strings import slugify
+        import pickle
 
-        metadata_file = (
+        metadata_dir = (
             Path(temp_data_dir)
             / "models"
             / slugify("test_target")
             / slugify("metadata_test")
-            / "metadata.joblib"
         )
-        assert metadata_file.exists()
-
-        # Load and verify
-        loaded_metadata = joblib.load(metadata_file)
+        zst_path = metadata_dir / "metadata.pkl.zst"
+        pkl_path = metadata_dir / "metadata.pkl"
+        if zst_path.exists():
+            import zstandard as zstd
+            loaded_metadata = pickle.loads(zstd.ZstdDecompressor().decompress(zst_path.read_bytes()))
+        elif pkl_path.exists():
+            loaded_metadata = pickle.loads(pkl_path.read_bytes())
+        else:
+            raise AssertionError(f"No metadata file in {metadata_dir}")
         assert loaded_metadata["model_name"] == "metadata_test"
 
 

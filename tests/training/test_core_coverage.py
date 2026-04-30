@@ -973,7 +973,17 @@ class TestMetadataCompleteness:
     def test_metadata_saved_to_disk(self, sample_regression_data, temp_data_dir, common_init_params):
         df, _, _ = sample_regression_data
         self._train(df, temp_data_dir, common_init_params)
-        joblib_files = list(Path(temp_data_dir).rglob("*.joblib"))
-        assert len(joblib_files) > 0
-        loaded = joblib.load(joblib_files[0])
+        # 2026-04-29: format switched joblib -> pickle proto=5 + zstd L3 (8c301f2).
+        # Look for .pkl.zst (preferred) or .pkl (no-zstd fallback).
+        meta_files = list(Path(temp_data_dir).rglob("metadata.pkl.zst")) or list(
+            Path(temp_data_dir).rglob("metadata.pkl")
+        )
+        assert len(meta_files) > 0, "no metadata.pkl[.zst] file found under temp_data_dir"
+        import pickle
+        meta_path = meta_files[0]
+        if meta_path.suffix == ".zst":
+            import zstandard as zstd
+            loaded = pickle.loads(zstd.ZstdDecompressor().decompress(meta_path.read_bytes()))
+        else:
+            loaded = pickle.loads(meta_path.read_bytes())
         assert isinstance(loaded, dict)

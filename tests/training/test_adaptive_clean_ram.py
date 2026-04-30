@@ -54,11 +54,17 @@ class TestAdaptiveCleanRam:
         assert u.should_clean_ram(baseline_rss_mb=1500.0, df_size_mb=100.0) is False
 
     def test_low_free_ram_fires_even_with_zero_growth(self, monkeypatch):
-        """free_mb < 2 * df_size_mb → fire even when RSS flat."""
-        fake = _fake_psutil(rss_mb=1000.0, free_mb=100.0)  # 100 MB free
+        """free_mb < 2 * df_size_mb -> fire even when RSS flat.
+
+        2026-04-30 (f117fb5): the OOM branch is short-circuited for
+        df_size_mb < 256 (the 2*df_size threshold cannot plausibly OOM
+        below that on any modern host). Use a 300 MB DF here to keep
+        the OOM-branch contract under test.
+        """
+        fake = _fake_psutil(rss_mb=1000.0, free_mb=500.0)  # 500 MB free
         _install_fake_psutil(monkeypatch, fake)
-        # df_size=60 → threshold free < 120; 100 < 120 triggers
-        assert u.should_clean_ram(baseline_rss_mb=1000.0, df_size_mb=60.0) is True
+        # df_size=300 -> threshold free < 600; 500 < 600 triggers; df_size >= 256 keeps the branch live.
+        assert u.should_clean_ram(baseline_rss_mb=1000.0, df_size_mb=300.0) is True
 
     def test_df_size_zero_uses_500mb_floor(self, monkeypatch):
         """df_size_mb=0 → max(500, 0)=500 growth threshold still applies."""

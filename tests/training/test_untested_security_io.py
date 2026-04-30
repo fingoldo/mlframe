@@ -25,6 +25,21 @@ from mlframe.training.core import _validate_trusted_path, _finalize_and_save_met
 from mlframe.training.preprocessing import save_split_artifacts
 
 
+def _load_metadata(metadata_dir: Path) -> dict:
+    """Load saved metadata from the post-2026-04-29 format (`metadata.pkl.zst`
+    or `.pkl` fallback when zstandard is missing). Replaces the legacy
+    `joblib.load(metadata.joblib)` path."""
+    import pickle
+    zst_path = metadata_dir / "metadata.pkl.zst"
+    pkl_path = metadata_dir / "metadata.pkl"
+    if zst_path.exists():
+        import zstandard as zstd
+        return pickle.loads(zstd.ZstdDecompressor().decompress(zst_path.read_bytes()))
+    if pkl_path.exists():
+        return pickle.loads(pkl_path.read_bytes())
+    raise FileNotFoundError(f"No metadata file in {metadata_dir}")
+
+
 # ----- _validate_trusted_path -----
 
 def test_validate_requires_trusted_root():
@@ -109,10 +124,9 @@ def test_finalize_saves_and_roundtrips(tmp_path):
         model_name="m1",
         verbose=0,
     )
-    # join(data_dir, models_dir, slugify(target_name), slugify(model_name), "metadata.joblib")
-    out_file = Path(data_dir) / "models" / "t1" / "m1" / "metadata.joblib"
-    assert out_file.exists()
-    loaded = joblib.load(out_file)
+    # 2026-04-29: format switched joblib -> pickle proto=5 + zstd L3 (8c301f2).
+    metadata_dir = Path(data_dir) / "models" / "t1" / "m1"
+    loaded = _load_metadata(metadata_dir)
     assert loaded["model_name"] == "m1"
     assert loaded["trainset_features_stats"] == {"mean": 0.1}
     assert loaded["outlier_detection_result"] == outlier_detection_result
@@ -135,8 +149,8 @@ def test_finalize_adds_slug_mappings(tmp_path):
         slug_to_original_target_type={"reg": "Regression"},
         slug_to_original_target_name={"t": "Target"},
     )
-    out_file = Path(tmp_path) / "models" / "t" / "m" / "metadata.joblib"
-    loaded = joblib.load(out_file)
+    metadata_dir = Path(tmp_path) / "models" / "t" / "m"
+    loaded = _load_metadata(metadata_dir)
     assert loaded["slug_to_original_target_type"] == {"reg": "Regression"}
     assert loaded["slug_to_original_target_name"] == {"t": "Target"}
 
@@ -161,19 +175,21 @@ def test_finalize_no_save_when_no_dirs():
 
 
 def test_finalize_bubbles_ioerror(tmp_path, monkeypatch):
-    # Construct an unwritable path
+    # 2026-04-29: format switched joblib -> pickle + zstd via
+    # atomic_write_bytes(metadata_file, _writer). Monkeypatch the new
+    # write entry point. _finalize_and_save_metadata catches
+    # (OSError, IOError) and re-raises after logging.
     bad_dir = tmp_path / "bad"
     bad_dir.mkdir()
-    # Create a file where a dir is expected to cause OSError on dump
     target_path = bad_dir / "models" / "t" / "m"
-    import mlframe.training.core as core_mod
+    target_path.mkdir(parents=True)
 
-    def _bad_dump(*a, **k):
+    import mlframe.training.io as io_mod
+
+    def _bad_write(*a, **k):
         raise IOError("disk full")
 
-    monkeypatch.setattr(core_mod.joblib, "dump", _bad_dump)
-    # Create parent dir so the code reaches joblib.dump
-    target_path.mkdir(parents=True)
+    monkeypatch.setattr(io_mod, "atomic_write_bytes", _bad_write)
     with pytest.raises(IOError):
         _finalize_and_save_metadata(
             metadata={"model_name": "m", "target_name": "t", "mlframe_models": []},
@@ -181,7 +197,6 @@ def test_finalize_bubbles_ioerror(tmp_path, monkeypatch):
             outlier_detection_result={},
             trainset_features_stats=None,
             data_dir=str(bad_dir),
-
             models_dir="models",
             target_name="t",
             model_name="m",

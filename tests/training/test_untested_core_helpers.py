@@ -40,7 +40,8 @@ def test_df_shape_str_pandas():
 
 def test_df_shape_str_polars():
     df = pl.DataFrame({"a": [1, 2, 3]})
-    assert _df_shape_str(df) == "3×1"
+    # ASCII x (was Unicode U+00D7 ×) per encoding cleanup pass.
+    assert _df_shape_str(df) == "3x1"
 
 
 def test_df_shape_str_none():

@@ -460,9 +460,11 @@ class TestTypoWarningOnUnknownExtras:
         """If user passes one valid extra + one typo, the warning must
         list the typo as unknown but NOT the valid extra. The warning
         message format is:
-            "... received unknown field(s) ['mea_weight'] — these are ..."
+            "... received unknown field(s) ['mea_weight'] -- these are ..."
         We check that ``mea_weight`` appears in the unknown-list
-        portion (before the em-dash) and ``mae_weight`` does not.
+        portion (before the ``--`` separator) and ``mae_weight`` does
+        not. Splitter switched em-dash -> ``--`` in the codebase encoding
+        cleanup.
         """
         import logging
         with caplog.at_level(logging.WARNING, logger="mlframe.training.configs"):
@@ -471,9 +473,9 @@ class TestTypoWarningOnUnknownExtras:
         assert warnings, "typo must produce a warning"
 
         for w in warnings:
-            # The part before the em-dash is the "unknown field(s) [...]"
-            # list; everything after lists the *known* extras.
-            unknown_portion = w.message.split("—")[0] if "—" in w.message else w.message
+            # The part before "--" is the "unknown field(s) [...]" list;
+            # everything after lists the *known* extras.
+            unknown_portion = w.message.split(" -- ")[0]
             assert "mea_weight" in unknown_portion, (
                 f"typo 'mea_weight' must appear in the unknown-field list. "
                 f"Unknown portion: {unknown_portion!r}"
