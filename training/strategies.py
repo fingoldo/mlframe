@@ -504,7 +504,10 @@ class XGBoostStrategy(TreeModelStrategy):
             exprs: List[Any] = []
             for c, enum_dtype in category_map.items():
                 if c in df.columns:
-                    exprs.append(pl.col(c).cast(pl.String).cast(enum_dtype).alias(c))
+                    # Map is built train+val UNION (test excluded for leak-freeness),
+                    # so test rows may carry OOV values. strict=False nulls them out
+                    # rather than crashing -- consistent with core.py:2992 behaviour.
+                    exprs.append(pl.col(c).cast(pl.String).cast(enum_dtype, strict=False).alias(c))
             if exprs:
                 df = df.with_columns(exprs)
             # Still need to cover any pl.String / pl.Utf8 not present in
@@ -651,12 +654,17 @@ class HGBStrategy(ModelPipelineStrategy):
             high_card = n_unique > self._MAX_CATEGORICAL_CARDINALITY
             if category_map is not None and col in category_map:
                 enum_dt = category_map[col]
+                # category_map is built from train+val UNION (test EXCLUDED, leak-free).
+                # Test rows therefore can carry values absent from the Enum's domain.
+                # Use strict=False so OOV values fall through to null rather than
+                # crash the lazy collect, matching the dict-alignment routine at
+                # core.py:2992 which also passes strict=False on the test split.
                 if high_card:
                     casts.append(
-                        pl.col(col).cast(pl.String).cast(enum_dt).to_physical().cast(pl.UInt32).alias(col)
+                        pl.col(col).cast(pl.String).cast(enum_dt, strict=False).to_physical().cast(pl.UInt32).alias(col)
                     )
                 else:
-                    casts.append(pl.col(col).cast(pl.String).cast(enum_dt).alias(col))
+                    casts.append(pl.col(col).cast(pl.String).cast(enum_dt, strict=False).alias(col))
                 continue
             # No supplied map: build a per-DF Enum from this frame's own values.
             try:
