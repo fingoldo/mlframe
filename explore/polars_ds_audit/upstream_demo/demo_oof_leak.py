@@ -125,11 +125,11 @@ def main():
         print(f"{name:<35}  {r['train_auc']:>10.3f}  {r['test_auc']:>9.3f}  {gap:>7.3f}  {r['fit_transform_s']:>7.3f}")
         out["variants"][name] = {**r, "gap": gap}
     print("=" * 76)
-    print("Интерпретация:")
-    print(" * plain_polars_ds_TE: train_AUC >> test_AUC -> target leakage без OOF")
-    print(" * OOFTargetEncoder_cv5: train_AUC ≈ test_AUC -> OOF защищает от leakage")
+    print("Interpretation:")
+    print(" * plain_polars_ds_TE: train_AUC >> test_AUC -> target leakage bez OOF")
+    print(" * OOFTargetEncoder_cv5: train_AUC ~= test_AUC -> OOF zaschischaet ot leakage")
     print(" * sklearn_TargetEncoder_cv5: industry reference")
-    print(" * OOFTargetEncoder_randomized: дёшево и работает частично (как WOEEncoder.randomized)")
+    print(" * OOFTargetEncoder_randomized: deshevo i rabotaet chastichno (kak WOEEncoder.randomized)")
     save_result(RESULTS, out)
     print(f"\nsaved: {RESULTS}")
 

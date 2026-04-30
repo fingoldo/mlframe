@@ -114,8 +114,8 @@ def bench(n_samples: int, n_iters: int) -> None:
 
     # Correctness
     drift = abs(ice_full_last - ice_lite_last)
-    print(f"  full: {t_full*1000:7.1f} ms ({t_full/n_iters*1e6:6.1f} µs/call)")
-    print(f"  lite: {t_lite*1000:7.1f} ms ({t_lite/n_iters*1e6:6.1f} µs/call)")
+    print(f"  full: {t_full*1000:7.1f} ms ({t_full/n_iters*1e6:6.1f} us/call)")
+    print(f"  lite: {t_lite*1000:7.1f} ms ({t_lite/n_iters*1e6:6.1f} us/call)")
     print(f"  speedup: {t_full/t_lite:.2f}x")
     print(f"  ICE match:  full={ice_full_last:.10f}  lite={ice_lite_last:.10f}  drift={drift:.2e}")
     assert drift < 1e-9, f"ICE value drifted by {drift:.2e} -- lite path is NOT equivalent"

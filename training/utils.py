@@ -593,7 +593,7 @@ def get_pandas_view_of_polars_df(
     if _elapsed >= log_threshold_seconds:
         _rss_after_gb = get_own_memory_usage()
         logger.info(
-            "get_pandas_view_of_polars_df %s: %.2fs, RAM %.2f->%.2f GB (Δ%+.2f), "
+            "get_pandas_view_of_polars_df %s: %.2fs, RAM %.2f->%.2f GB (delta%+.2f), "
             "self_destruct=%s",
             _shape_str, _elapsed, _rss_before_gb, _rss_after_gb,
             _rss_after_gb - _rss_before_gb, self_destruct,

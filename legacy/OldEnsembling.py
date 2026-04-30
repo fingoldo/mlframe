@@ -947,7 +947,7 @@ bNormalization=False,bBinarization=False,bKBinsDiscretization=False,
         logger.debug("%s Starting Deep Cross-Validation of %s", startTime,type(base_model).__name__)
         cvl = cross_validate(grid_search,x_train,y_train,groups=groups,cv=outer_cv,scoring=scoring,return_train_score=False) #n_jobs=nJobs НЕ СТАВИМ!!
         cv_scores=cvl['test_score']
-        logger.debug("Deep Cross-Validation ROC-AUC of gridsearch: %0.3f \u00B1 %0.3f (%s))", cv_scores.mean(),cv_scores.std(),cv_scores)
+        logger.debug("Deep Cross-Validation ROC-AUC of gridsearch: %0.3f +/- %0.3f (%s))", cv_scores.mean(),cv_scores.std(),cv_scores)
     else:
         ####################################################################################################################################        
         #Need to find best model

@@ -57,6 +57,8 @@
   "bench_helpers.py::repeatManyTimes",
   "bench_long_strings.py::main",
   "bench_long_strings.py::run_once",
+  "bench_metadata_save.py::main",
+  "bench_metadata_save.py::run_one",
   "bench_polars_cb_nullfrac.py::main",
   "bench_polars_cb_repro.py::fit_cb",
   "bench_polars_cb_repro.py::main",

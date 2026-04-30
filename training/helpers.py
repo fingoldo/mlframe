@@ -872,7 +872,7 @@ def get_training_configs(
                 # Skip split if not enough samples
                 if len(y_true_split) < min_samples_per_split:
                     if verbose:
-                        logger.info(f"make_robust_ts_metric: split {i} skipped, len={len(y_true_split)} < {min_samples_per_split}")
+                        logger.info("make_robust_ts_metric: split %s skipped, len=%d < %d", i, len(y_true_split), min_samples_per_split)
                     continue
 
                 # Skip split if single class (classification only)
@@ -901,7 +901,7 @@ def get_training_configs(
             std_val = np.std(values)
 
             if verbose:
-                logger.info(f"make_robust_ts_metric: {len(values)} splits, mean={mean_val:.6f}, std={std_val:.6f}")
+                logger.info("make_robust_ts_metric: %d splits, mean=%.6f, std=%.6f", len(values), mean_val, std_val)
 
             # Penalize high variance
             if greater_is_better:
@@ -1370,15 +1370,17 @@ class UniversalCallback:
         if self.verbose > 0:
             logger.info(
                 "UniversalCallback initialized with params: "
-                f"time_budget_mins={time_budget_mins}, patience={patience}, min_delta={min_delta}, "
-                f"monitor_dataset={monitor_dataset}, monitor_metric={monitor_metric}, mode={mode}"
+                "time_budget_mins=%s, patience=%s, min_delta=%s, "
+                "monitor_dataset=%s, monitor_metric=%s, mode=%s",
+                time_budget_mins, patience, min_delta,
+                monitor_dataset, monitor_metric, mode,
             )
 
     def on_start(self) -> None:
         self.start_time = timer()
         if self.verbose > 0:
             self.last_reporting_ts = self.start_time
-            logger.info(f"Training started. Timer initiated. RAM usage {get_own_memory_usage():.1f}GB.")
+            logger.info("Training started. Timer initiated. RAM usage %.1fGB.", get_own_memory_usage())
 
     def update_history(self, metrics_dict: Dict[str, Dict[str, float]]) -> None:
         for dataset in metrics_dict:
@@ -1464,7 +1466,7 @@ class UniversalCallback:
                     self.best_metric = current_value
                     self.iterations_since_improvement = 0
                     if self.verbose > 0:
-                        logger.info(f"Initial metric value: {current_value:.{self.ndigits}f}")
+                        logger.info("Initial metric value: %.*f", self.ndigits, current_value)
                         self.last_reporting_ts = cur_ts
                 else:
                     self.iter += 1
@@ -1487,7 +1489,8 @@ class UniversalCallback:
                     if self.patience is not None and self.iterations_since_improvement >= self.patience:
                         if self.verbose > 0:
                             logger.info(
-                                f"Stopping early due to no improvement for {self.iterations_since_improvement} iterations. {self._get_state(current_value=current_value)}"
+                                "Stopping early due to no improvement for %d iterations. %s",
+                                self.iterations_since_improvement, self._get_state(current_value=current_value),
                             )
                             self.last_reporting_ts = cur_ts
                         return True

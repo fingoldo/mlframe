@@ -1112,11 +1112,12 @@ def handle_best_candidate(
         best_gain = current_gain
         if verbose > 2:
             logger.info(
-                f"\t{get_candidate_name(best_candidate,factors_names=factors_names)} is so far the best candidate with best_gain={best_gain:.{ndigits}f}"
+                "\t%s is so far the best candidate with best_gain=%.*f",
+                get_candidate_name(best_candidate, factors_names=factors_names), ndigits, best_gain,
             )
     else:
         if min_relevance_gain and verbose > 2 and current_gain > min_relevance_gain:
-            logger.info(f"\t\t{get_candidate_name(X,factors_names=factors_names)} current_gain={current_gain:.{ndigits}f}")
+            logger.info("\t\t%s current_gain=%.*f", get_candidate_name(X, factors_names=factors_names), ndigits, current_gain)
 
     if max_runtime_mins and not run_out_of_time:
         run_out_of_time = (timer() - start_time) > max_runtime_mins * 60
@@ -1505,11 +1506,11 @@ def screen_predictors(
                 if factors_to_use is not None:
                     x = set(factors_to_use) - set(y)
                     if verbose > 2:
-                        logger.info(f"Using only {len(factors_to_use):_} predefined factors: {factors_to_use}")
+                        logger.info("Using only %d predefined factors: %s", len(factors_to_use), factors_to_use)
                 else:
                     x = [i for i, col_name in enumerate(factors_names) if col_name in factors_names_to_use and i not in y]
                     if verbose > 2:
-                        logger.info(f"Using only {len(factors_names_to_use):_} predefined factors: {factors_names_to_use}")
+                        logger.info("Using only %d predefined factors: %s", len(factors_names_to_use), factors_names_to_use)
         else:
 
             assert not set(y).issubset(set(x))
@@ -1593,7 +1594,8 @@ def screen_predictors(
 
     if verbose >= 2:
         logger.info(
-            f"Starting work with full_npermutations={full_npermutations:_}, min_nonzero_confidence={min_nonzero_confidence:.{ndigits}f}, max_failed={max_failed:_}"
+            "Starting work with full_npermutations=%d, min_nonzero_confidence=%.*f, max_failed=%d",
+            full_npermutations, ndigits, min_nonzero_confidence, max_failed,
         )
 
     num_possible_candidates = 0  # needed to refrain from multiprocessing when all direct MIs are in cache already
@@ -1739,7 +1741,7 @@ def screen_predictors(
                     if max_runtime_mins and not run_out_of_time:
                         run_out_of_time = (timer() - start_time) > max_runtime_mins * 60
                         if run_out_of_time:
-                            logger.info(f"Time limit exhausted. Finalizing the search...")
+                            logger.info("Time limit exhausted. Finalizing the search...")
                             break
 
                 else:
@@ -1805,11 +1807,11 @@ def screen_predictors(
 
                             if run_out_of_time:
                                 if verbose:
-                                    logger.info(f"Time limit exhausted. Finalizing the search...")
+                                    logger.info("Time limit exhausted. Finalizing the search...")
                                 break
 
                 if verbose > 2 and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
-                    logger.info(f"evaluate_candidates took {timer() - eval_start:.1f} sec.")
+                    logger.info("evaluate_candidates took %.1f sec.", timer() - eval_start)
 
                 if best_gain < min_relevance_gain:
                     if verbose >= 2:
@@ -1860,7 +1862,8 @@ def screen_predictors(
 
                             if verbose > 2:
                                 logger.info(
-                                    f"confirming candidate {get_candidate_name(X, factors_names=factors_names)}, next_best_gain={next_best_gain:.{ndigits}f}"
+                                    "confirming candidate %s, next_best_gain=%.*f",
+                                    get_candidate_name(X, factors_names=factors_names), ndigits, next_best_gain,
                                 )
 
                             # ---------------------------------------------------------------------------------------------------------------
@@ -1902,7 +1905,7 @@ def screen_predictors(
                                         parallel_kwargs=parallel_kwargs,
                                     )
                                     if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
-                                        logger.info(f"mi_direct bootstrapped eval took {timer() - eval_start:.1f} sec.")
+                                        logger.info("mi_direct bootstrapped eval took %.1f sec.", timer() - eval_start)
                                 cached_confident_MIs[X] = bootstrapped_gain, confidence
                         else:
                             if X in cached_confident_MIs:
@@ -1971,7 +1974,7 @@ def screen_predictors(
                                         bootstrapped_gain = 0.0
 
                                 if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
-                                    logger.info(f"get_fleuret_criteria_confidence bootstrapped eval took {timer() - eval_start:.1f} sec.")
+                                    logger.info("get_fleuret_criteria_confidence bootstrapped eval took %.1f sec.", timer() - eval_start)
 
                         # ---------------------------------------------------------------------------------------------------------------
                         # Report this particular best candidate
@@ -1999,27 +2002,30 @@ def screen_predictors(
                             if best_partial_gain > next_best_gain:
                                 if verbose > 2:
                                     logger.info(
-                                        f"\t\tCandidate's lowered confidence {confidence} requires re-checking other candidates, as now its expected gain is only {next_best_gain:.{ndigits}f}, vs {best_partial_gain:.{ndigits}f}, of {get_candidate_name(candidates[best_key], factors_names=factors_names)}"
+                                        "\t\tCandidate's lowered confidence %s requires re-checking other candidates, "
+                                        "as now its expected gain is only %.*f, vs %.*f, of %s",
+                                        confidence, ndigits, next_best_gain, ndigits, best_partial_gain,
+                                        get_candidate_name(candidates[best_key], factors_names=factors_names),
                                     )
                                 break  # out of best candidates confirmation, to retry all cands evaluation
                             else:
                                 cand_confirmed = True
                                 if full_npermutations:
                                     if verbose > 2:
-                                        logger.info(f"\t\tconfirmed with confidence {confidence:.{ndigits}f}")
+                                        logger.info("\t\tconfirmed with confidence %.*f", ndigits, confidence)
                                 break  # out of best candidates confirmation, to add candidate to the list, and go to more candidates
                         else:
                             expected_gains[next_best_candidate_idx] = 0.0
                             failed_candidates.add(next_best_candidate_idx)
                             if verbose > 2:
-                                logger.info(f"\t\tconfirmation failed with confidence {confidence:.{ndigits}f}")
+                                logger.info("\t\tconfirmation failed with confidence %.*f", ndigits, confidence)
 
                             nconsec_unconfirmed += 1
                             total_disproved += 1
                             if max_consec_unconfirmed and (nconsec_unconfirmed > max_consec_unconfirmed):
                                 patience_triggered = True
                                 if verbose:
-                                    logger.info(f"Maximum consecutive confirmation failures reached.")
+                                    logger.info("Maximum consecutive confirmation failures reached.")
                                 break  # out of best candidates confirmation, to finish the level
 
                     else:  # next_best_gain = 0
@@ -2085,7 +2091,7 @@ def screen_predictors(
     # postprocess_candidates(selected_vars)
     # print(caching_hits_xyz, caching_hits_z, caching_hits_xz, caching_hits_yz)
     if verbose >= 2:
-        logger.info(f"Finished.")
+        logger.info("Finished.")
 
     # Termination-reason summary (always emitted, even at verbose=0).
     # Two distinct termination modes:
@@ -3163,14 +3169,14 @@ class MRMR(BaseEstimator, TransformerMixin):
             # Feature engineering part here
 
             if verbose:
-                logger.info(f"MRMR+ selected {len(selected_vars):_} out of {self.n_features_in_:_} features before the Feature Engineering step.")
+                logger.info("MRMR+ selected %d out of %d features before the Feature Engineering step.", len(selected_vars), self.n_features_in_)
 
             if len(selected_vars)==0:
                 logger.info("Proceeding with all features though.")
                 selected_vars=np.array([cols.index(col) for col in cols if col not in target_names])
 
             if verbose >= 2:
-                logger.info(f"Computing prospective FE pairs...")
+                logger.info("Computing prospective FE pairs...")
 
             if self.fe_ntop_features:
                 numeric_vars_to_consider = selected_vars[: self.fe_ntop_features]
@@ -3182,7 +3188,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             all_pairs = list(combinations(numeric_vars_to_consider, 2))
 
             if verbose:
-                logger.info(f"Feature Engineering: Computing MIs of {len(all_pairs):_} most prospective feature pairs...")
+                logger.info("Feature Engineering: Computing MIs of %d most prospective feature pairs...", len(all_pairs))
 
             if len(numeric_vars_to_consider) < 50:
                 compute_pairs_mis(
@@ -3338,7 +3344,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             else:
                 original_cols = {i: self.feature_names_in_.index(col) for i, col in enumerate(cols) if col in self.feature_names_in_}
                 if verbose >= 1:
-                    logger.info(f"Checking {len(prospective_pairs):_} most prospective_pairs for feature engineering...")
+                    logger.info("Checking %d most prospective_pairs for feature engineering...", len(prospective_pairs))
                 if len(X) < 50_000 or len(prospective_pairs) < 2:
                     prospective_additions = check_prospective_fe_pairs(
                         prospective_pairs,
@@ -3543,12 +3549,12 @@ class MRMR(BaseEstimator, TransformerMixin):
                     if cb_num_rfecv.n_features_ > 0:
                         new_features = np.array(temp_columns)[cb_num_rfecv.support_]
                         if verbose:
-                            logger.info(f"RFECV selected {cb_num_rfecv.n_features_:_} additional feature(s): {new_features}")
+                            logger.info("RFECV selected %d additional feature(s): %s", cb_num_rfecv.n_features_, new_features)
                         for feature in new_features:
                             selected_vars.append(self.feature_names_in_.index(feature))
                     else:
                         if verbose:
-                            logger.info(f"RFECV selected no additional features.")
+                            logger.info("RFECV selected no additional features.")
 
         # ---------------------------------------------------------------------------------------------------------------
         # Assign support
@@ -3575,7 +3581,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         if verbose:
             predictors_str = ", ".join([f"{el['name']}: {el['gain']:.4f}" for el in predictors[:50]])
             predictors_str = textwrap.shorten(predictors_str, width=300)
-            logger.info(f"MRMR+ selected {self.n_features_:_} out of {self.n_features_in_:_} features: {predictors_str}")
+            logger.info("MRMR+ selected %d out of %d features: %s", self.n_features_, self.n_features_in_, predictors_str)
 
         self.signature = signature
         return self
@@ -3663,7 +3669,7 @@ def check_prospective_fe_pairs(
     res = {}
 
     if verbose >= 2:
-        logger.info(f"Creating a pool of {len(prospective_pairs) * len(unary_transformations) * 2:_} unary transformations for feature engineering.")
+        logger.info("Creating a pool of %d unary transformations for feature engineering.", len(prospective_pairs) * len(unary_transformations) * 2)
 
     transformed_vars = np.empty(shape=(len(X), len(prospective_pairs) * len(unary_transformations) * 2), dtype=np.float32)
 
@@ -3709,7 +3715,7 @@ def check_prospective_fe_pairs(
                         i += 1
 
     if verbose >= 2:
-        logger.info(f"Created. For every pair from the pool, trying all known functions...")
+        logger.info("Created. For every pair from the pool, trying all known functions...")
 
     # ---------------------------------------------------------------------------------------------------------------
     # Then, for every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM).

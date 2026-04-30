@@ -781,7 +781,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 )
                 nofeatures_score = final_score
                 if verbose:
-                    logger.info(f"Baseline with 0 features, score={scores_mean:.{ndigits}f} ± {scores_std:.{ndigits}f} ~ {final_score:.{ndigits}f}")
+                    logger.info(f"Baseline with 0 features, score={scores_mean:.{ndigits}f} +/- {scores_std:.{ndigits}f} ~ {final_score:.{ndigits}f}")
                 if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
                     Optimizer.submit_evaluations(candidates=[0], evaluations=[final_score], durations=[None])
 
@@ -798,7 +798,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
                 if verbose:
                     logger.info(
-                        f"Tried {len(current_features):_} features ({textwrap.shorten(', '.join(map(str, current_features[:40])), 150)}), score={scores_mean:.{ndigits}f} ± {scores_std:.{ndigits}f} ~ {final_score:.{ndigits}f}"
+                        f"Tried {len(current_features):_} features ({textwrap.shorten(', '.join(map(str, current_features[:40])), 150)}), score={scores_mean:.{ndigits}f} +/- {scores_std:.{ndigits}f} ~ {final_score:.{ndigits}f}"
                     )
 
             prev_nfeatures, prev_score = len(current_features), final_score

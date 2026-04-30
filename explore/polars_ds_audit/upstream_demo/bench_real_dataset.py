@@ -349,7 +349,7 @@ def run_all():
             "gap_std": round(float(std_gap), 4),
         }
         summary.append(line)
-        print(f"{v:35s} {line['train_auc_median']:10.4f} {line['test_auc_median']:10.4f} {line['gap_median']:+8.4f} {line['time_median']:8.3f}  ± {line['gap_std']:.4f}")
+        print(f"{v:35s} {line['train_auc_median']:10.4f} {line['test_auc_median']:10.4f} {line['gap_median']:+8.4f} {line['time_median']:8.3f}  +/- {line['gap_std']:.4f}")
 
     print("=" * 100)
 

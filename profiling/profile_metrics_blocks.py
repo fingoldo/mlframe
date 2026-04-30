@@ -129,7 +129,7 @@ def create_synthetic_data(n_rows: int = 810_000) -> pl.DataFrame:
     cols["target2"] = (np.random.random(n_rows) < probs).astype(np.float32)
 
     df = pl.DataFrame(cols)
-    print(f"Built. Shape={df.shape}, size≈{df.estimated_size()/1e9:.2f} GB")
+    print(f"Built. Shape={df.shape}, size~={df.estimated_size()/1e9:.2f} GB")
     return df
 
 
