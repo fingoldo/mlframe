@@ -66,17 +66,21 @@ COUNTRY_CATS = ["US", "UK", "DE", "FR", "JP", "CA", "AU", "BR"]
 def _basic_polars_frame(n: int = 800, seed: int = 0) -> pl.DataFrame:
     """Standard prod-like frame: numeric + 4 small Enum cat cols + binary target."""
     rng = np.random.default_rng(seed)
-    return pl.DataFrame({
-        "num1": rng.standard_normal(n).astype(np.float32),
-        "num2": rng.standard_normal(n).astype(np.float32),
-        "num3": rng.standard_normal(n).astype(np.float32),
-        "num4": rng.standard_normal(n).astype(np.float32),
-        "budget_type": pl.Series([BUDGET_CATS[i % 3] for i in range(n)]).cast(pl.Enum(BUDGET_CATS)),
-        "contractor_tier": pl.Series([TIER_CATS[i % 3] for i in range(n)]).cast(pl.Enum(TIER_CATS)),
-        "workload": pl.Series([WORKLOAD_CATS[i % 3] for i in range(n)]).cast(pl.Enum(WORKLOAD_CATS)),
-        "country": pl.Series([COUNTRY_CATS[i % len(COUNTRY_CATS)] for i in range(n)]).cast(pl.Enum(COUNTRY_CATS)),
-        "target": rng.integers(0, 2, n),
-    })
+    return pl.DataFrame(
+        {
+            "num1": rng.standard_normal(n).astype(np.float32),
+            "num2": rng.standard_normal(n).astype(np.float32),
+            "num3": rng.standard_normal(n).astype(np.float32),
+            "num4": rng.standard_normal(n).astype(np.float32),
+            "budget_type": pl.Series([BUDGET_CATS[i % 3] for i in range(n)]).cast(pl.Enum(BUDGET_CATS)),
+            "contractor_tier": pl.Series([TIER_CATS[i % 3] for i in range(n)]).cast(pl.Enum(TIER_CATS)),
+            "workload": pl.Series([WORKLOAD_CATS[i % 3] for i in range(n)]).cast(pl.Enum(WORKLOAD_CATS)),
+            "country": pl.Series([COUNTRY_CATS[i % len(COUNTRY_CATS)] for i in range(n)]).cast(
+                pl.Enum(COUNTRY_CATS)
+            ),
+            "target": rng.integers(0, 2, n),
+        }
+    )
 
 
 def _polars_frame_with_nulls(n: int = 800, seed: int = 1) -> pl.DataFrame:
@@ -85,14 +89,16 @@ def _polars_frame_with_nulls(n: int = 800, seed: int = 1) -> pl.DataFrame:
     null_mask = rng.random(n) < 0.2
     budget_vals = [None if null_mask[i] else BUDGET_CATS[i % 3] for i in range(n)]
     tier_vals = [None if rng.random() < 0.15 else TIER_CATS[i % 3] for i in range(n)]
-    return pl.DataFrame({
-        "num1": rng.standard_normal(n).astype(np.float32),
-        "num2": rng.standard_normal(n).astype(np.float32),
-        "budget_type": pl.Series(budget_vals).cast(pl.Enum(BUDGET_CATS)),
-        "contractor_tier": pl.Series(tier_vals).cast(pl.Enum(TIER_CATS)),
-        "workload": pl.Series([WORKLOAD_CATS[i % 3] for i in range(n)]).cast(pl.Enum(WORKLOAD_CATS)),
-        "target": rng.integers(0, 2, n),
-    })
+    return pl.DataFrame(
+        {
+            "num1": rng.standard_normal(n).astype(np.float32),
+            "num2": rng.standard_normal(n).astype(np.float32),
+            "budget_type": pl.Series(budget_vals).cast(pl.Enum(BUDGET_CATS)),
+            "contractor_tier": pl.Series(tier_vals).cast(pl.Enum(TIER_CATS)),
+            "workload": pl.Series([WORKLOAD_CATS[i % 3] for i in range(n)]).cast(pl.Enum(WORKLOAD_CATS)),
+            "target": rng.integers(0, 2, n),
+        }
+    )
 
 
 def _polars_frame_with_high_card_text(n: int = 800, seed: int = 2) -> pl.DataFrame:
@@ -100,18 +106,23 @@ def _polars_frame_with_high_card_text(n: int = 800, seed: int = 2) -> pl.DataFra
     use_text_features=False auto-drop path should remove."""
     rng = np.random.default_rng(seed)
     skills_pool = [f"skill_{i:04d}" for i in range(500)]
-    return pl.DataFrame({
-        "num1": rng.standard_normal(n).astype(np.float32),
-        "num2": rng.standard_normal(n).astype(np.float32),
-        "budget_type": pl.Series([BUDGET_CATS[i % 3] for i in range(n)]).cast(pl.Enum(BUDGET_CATS)),
-        "skills_text": pl.Series([skills_pool[rng.integers(0, len(skills_pool))] for _ in range(n)]).cast(pl.Categorical),
-        "target": rng.integers(0, 2, n),
-    })
+    return pl.DataFrame(
+        {
+            "num1": rng.standard_normal(n).astype(np.float32),
+            "num2": rng.standard_normal(n).astype(np.float32),
+            "budget_type": pl.Series([BUDGET_CATS[i % 3] for i in range(n)]).cast(pl.Enum(BUDGET_CATS)),
+            "skills_text": pl.Series([skills_pool[rng.integers(0, len(skills_pool))] for _ in range(n)]).cast(
+                pl.Categorical
+            ),
+            "target": rng.integers(0, 2, n),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _common_init_params():
     """Returns a PreprocessingConfig the suite consumes via preprocessing_config kwarg.
@@ -121,6 +132,7 @@ def _common_init_params():
     ``verbose=0`` separately as a top-level kwarg.
     """
     from mlframe.training.configs import PreprocessingConfig
+
     return PreprocessingConfig(drop_columns=[])
 
 
@@ -135,8 +147,16 @@ def _config_for_model(model_name: str, iterations: int = 5) -> dict:
     return cfg
 
 
-def _run_suite(df, *, mlframe_models, tmp_path, target_name="target",
-               regression=False, hyperparams_extra=None, run_label=None):
+def _run_suite(
+    df,
+    *,
+    mlframe_models,
+    tmp_path,
+    target_name="target",
+    regression=False,
+    hyperparams_extra=None,
+    run_label=None,
+):
     """Thin wrapper around train_mlframe_models_suite for tests."""
     from mlframe.training.core import train_mlframe_models_suite
 
@@ -167,15 +187,16 @@ def _run_suite(df, *, mlframe_models, tmp_path, target_name="target",
 # Single-model × scenario matrix
 # ===========================================================================
 
+
 @pytest.mark.parametrize("model_name", ["cb", "xgb", "lgb", "hgb"])
 def test_single_model_basic_polars_enum(model_name, tmp_path):
     """Each tree model trains on a Polars frame with pl.Enum cat columns
     without ValueError 'could not convert string to float'."""
-    pytest.importorskip({"cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm",
-                         "hgb": "sklearn"}[model_name])
+    pytest.importorskip({"cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm", "hgb": "sklearn"}[model_name])
     df = _basic_polars_frame(n=600)
-    models, _ = _run_suite(df, mlframe_models=[model_name], tmp_path=tmp_path,
-                           run_label=f"basic_{model_name}")
+    models, _ = _run_suite(
+        df, mlframe_models=[model_name], tmp_path=tmp_path, run_label=f"basic_{model_name}"
+    )
     assert models, f"empty models for {model_name}"
 
 
@@ -185,8 +206,9 @@ def test_single_model_polars_with_nulls_in_cats(model_name, tmp_path):
     pre-fit step in mlframe must keep cat columns trainable for each model."""
     pytest.importorskip({"cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm"}[model_name])
     df = _polars_frame_with_nulls(n=600)
-    models, _ = _run_suite(df, mlframe_models=[model_name], tmp_path=tmp_path,
-                           run_label=f"nulls_{model_name}")
+    models, _ = _run_suite(
+        df, mlframe_models=[model_name], tmp_path=tmp_path, run_label=f"nulls_{model_name}"
+    )
     assert models
 
 
@@ -198,8 +220,9 @@ def test_single_model_polars_with_high_card_text_default(model_name, tmp_path):
     (unrelated upstream CB sparsity issue), so CB is excluded from this test."""
     pytest.importorskip({"xgb": "xgboost", "lgb": "lightgbm"}[model_name])
     df = _polars_frame_with_high_card_text(n=700)
-    models, _ = _run_suite(df, mlframe_models=[model_name], tmp_path=tmp_path,
-                           run_label=f"highcard_{model_name}")
+    models, _ = _run_suite(
+        df, mlframe_models=[model_name], tmp_path=tmp_path, run_label=f"highcard_{model_name}"
+    )
     assert models
 
 
@@ -207,12 +230,16 @@ def test_single_model_polars_with_high_card_text_default(model_name, tmp_path):
 # Multi-model suite combinations
 # ===========================================================================
 
-@pytest.mark.parametrize("model_combo", [
-    ["cb", "xgb"],
-    ["cb", "lgb"],
-    ["xgb", "lgb"],
-    ["cb", "xgb", "lgb"],   # the prod combo
-])
+
+@pytest.mark.parametrize(
+    "model_combo",
+    [
+        ["cb", "xgb"],
+        ["cb", "lgb"],
+        ["xgb", "lgb"],
+        ["cb", "xgb", "lgb"],  # the prod combo
+    ],
+)
 def test_multi_model_suite_polars_enum(model_combo, tmp_path):
     """Train multiple tree models in one suite call on the same Polars frame.
     Lazy pandas conversion fires for non-Polars-native models AFTER Polars-native
@@ -221,14 +248,16 @@ def test_multi_model_suite_polars_enum(model_combo, tmp_path):
         pytest.importorskip({"cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm"}[m])
 
     df = _basic_polars_frame(n=600)
-    models, _ = _run_suite(df, mlframe_models=model_combo, tmp_path=tmp_path,
-                           run_label="multi_" + "_".join(model_combo))
+    models, _ = _run_suite(
+        df, mlframe_models=model_combo, tmp_path=tmp_path, run_label="multi_" + "_".join(model_combo)
+    )
     assert models
 
 
 # ===========================================================================
 # Multi-target (binary classification AND regression on same features)
 # ===========================================================================
+
 
 @pytest.mark.parametrize("model_name", ["cb", "lgb"])
 def test_multi_target_classification_then_regression(model_name, tmp_path):
@@ -238,19 +267,33 @@ def test_multi_target_classification_then_regression(model_name, tmp_path):
     pytest.importorskip({"cb": "catboost", "lgb": "lightgbm"}[model_name])
     df_clf = _basic_polars_frame(n=500)
     rng = np.random.default_rng(42)
-    df_reg = df_clf.with_columns(
-        pl.Series("target_reg", rng.standard_normal(500).astype(np.float32))
-    ).drop("target")
+    df_reg = df_clf.with_columns(pl.Series("target_reg", rng.standard_normal(500).astype(np.float32))).drop(
+        "target"
+    )
 
     # Classification first
-    models_clf, _ = _run_suite(df_clf, mlframe_models=[model_name], tmp_path=tmp_path,
-                               run_label=f"multitarget_clf_{model_name}")
+    models_clf, _ = _run_suite(
+        df_clf, mlframe_models=[model_name], tmp_path=tmp_path, run_label=f"multitarget_clf_{model_name}"
+    )
     assert models_clf
 
     # Regression on same features
     from mlframe.training.core import train_mlframe_models_suite
+
     fte_reg = SimpleFeaturesAndTargetsExtractor(target_column="target_reg", regression=True)
-    models_reg = train_mlframe_models_suite(df=df_reg, target_name=f'multitarget_reg_{model_name}', model_name=f'multitarget_reg_{model_name}', features_and_targets_extractor=fte_reg, mlframe_models=[model_name], hyperparams_config=_config_for_model(model_name), preprocessing_config=_common_init_params(), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
+    models_reg = train_mlframe_models_suite(
+        df=df_reg,
+        target_name=f"multitarget_reg_{model_name}",
+        model_name=f"multitarget_reg_{model_name}",
+        features_and_targets_extractor=fte_reg,
+        mlframe_models=[model_name],
+        hyperparams_config=_config_for_model(model_name),
+        preprocessing_config=_common_init_params(),
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        verbose=0,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+    )
     assert models_reg
 
 
@@ -258,12 +301,16 @@ def test_multi_target_classification_then_regression(model_name, tmp_path):
 # Edge cases: schema dtypes survive bridge → pipeline → fit
 # ===========================================================================
 
-@pytest.mark.parametrize("dtype_setup", [
-    "all_float32",
-    "mixed_int_float",
-    "with_bool",
-    "with_int8",
-])
+
+@pytest.mark.parametrize(
+    "dtype_setup",
+    [
+        "all_float32",
+        "mixed_int_float",
+        "with_bool",
+        "with_int8",
+    ],
+)
 def test_polars_to_pandas_dtype_preservation(dtype_setup):
     """get_pandas_view_of_polars_df must preserve dtype-narrow numeric columns
     (Float32, Int8, Int16, Bool) without widening to Float64. Dtype widening
@@ -312,10 +359,15 @@ def test_polars_to_pandas_dtype_preservation(dtype_setup):
 def _run_combo(models, needs_encoder, tmp_path, label):
     """Shared runner for tree-only and tree+linear combos."""
     for m in models:
-        pytest.importorskip({
-            "cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm",
-            "linear": "sklearn", "hgb": "sklearn",
-        }[m])
+        pytest.importorskip(
+            {
+                "cb": "catboost",
+                "xgb": "xgboost",
+                "lgb": "lightgbm",
+                "linear": "sklearn",
+                "hgb": "sklearn",
+            }[m]
+        )
 
     df = _basic_polars_frame(n=600)
 
@@ -323,22 +375,40 @@ def _run_combo(models, needs_encoder, tmp_path, label):
     # category encoder so those models receive numeric features. Tree models
     # still take the Polars fastpath separately (their strategy.supports_polars
     # gates around the encoder). This mirrors the prod config.
-    preprocessing_overrides = PreprocessingConfig(drop_columns=[])
     if needs_encoder:
         import category_encoders as ce
         from sklearn.preprocessing import StandardScaler
         from sklearn.impute import SimpleImputer
-        init_params["category_encoder"] = ce.CatBoostEncoder()
-        init_params["scaler"] = StandardScaler()
-        init_params["imputer"] = SimpleImputer(strategy="mean")
+
+        preprocessing_overrides = PreprocessingConfig(
+            drop_columns=[],
+            category_encoder=ce.CatBoostEncoder(),
+            scaler=StandardScaler(),
+            imputer=SimpleImputer(strategy="mean"),
+        )
+    else:
+        preprocessing_overrides = PreprocessingConfig(drop_columns=[])
 
     cfg = {}
     for m in models:
         cfg.update(_config_for_model(m))
 
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-    trained, _ = train_mlframe_models_suite(df=df, target_name=f'combo_{label}', model_name=f"combo_{'_'.join(models)}", features_and_targets_extractor=fte, mlframe_models=models, hyperparams_config=cfg, preprocessing_config=preprocessing_overrides, verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
+    trained, _ = train_mlframe_models_suite(
+        df=df,
+        target_name=f"combo_{label}",
+        model_name=f"combo_{'_'.join(models)}",
+        features_and_targets_extractor=fte,
+        mlframe_models=models,
+        hyperparams_config=cfg,
+        preprocessing_config=preprocessing_overrides,
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        verbose=0,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+    )
     assert trained, f"No models trained for combo: {label}"
 
 
@@ -346,8 +416,7 @@ def test_polars_full_combo_tree_only(tmp_path):
     """Polars+Enum frame × all three tree models. Tree-only suite triggers
     auto-set of skip_categorical_encoding=True (all models handle cats
     natively), no encoder fires."""
-    _run_combo(["cb", "xgb", "lgb"], needs_encoder=False, tmp_path=tmp_path,
-               label="tree_only")
+    _run_combo(["cb", "xgb", "lgb"], needs_encoder=False, tmp_path=tmp_path, label="tree_only")
 
 
 def test_polars_full_combo_with_linear(tmp_path):
@@ -365,8 +434,9 @@ def test_polars_full_combo_with_linear(tmp_path):
     gets skip_preprocessing=False, and its CatBoostEncoder+scaler+imputer
     pipeline actually runs. LogReg receives numeric features instead of raw
     pd.Categorical — no more 'HOURLY' crash."""
-    _run_combo(["cb", "xgb", "lgb", "linear"], needs_encoder=True,
-               tmp_path=tmp_path, label="tree_plus_linear")
+    _run_combo(
+        ["cb", "xgb", "lgb", "linear"], needs_encoder=True, tmp_path=tmp_path, label="tree_plus_linear"
+    )
 
 
 @pytest.mark.parametrize("model_name", ["cb", "xgb", "lgb"])
@@ -377,6 +447,7 @@ def test_polars_multi_weight_schemas(model_name, tmp_path):
     pytest.importorskip({"cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm"}[model_name])
 
     from mlframe.training.core import train_mlframe_models_suite
+
     df = _basic_polars_frame(n=500)
 
     # Pass weight schemas via the extractor to activate the weight-schema loop.
@@ -396,7 +467,21 @@ def test_polars_multi_weight_schemas(model_name, tmp_path):
                 pass
             return base
 
-    trained, _ = train_mlframe_models_suite(df=df, target_name=f'mw_{model_name}', model_name=f'mw_{model_name}', features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(target_column='target', regression=False), mlframe_models=[model_name], hyperparams_config=_config_for_model(model_name), preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
+    trained, _ = train_mlframe_models_suite(
+        df=df,
+        target_name=f"mw_{model_name}",
+        model_name=f"mw_{model_name}",
+        features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(
+            target_column="target", regression=False
+        ),
+        mlframe_models=[model_name],
+        hyperparams_config=_config_for_model(model_name),
+        preprocessing_config=PreprocessingConfig(drop_columns=[]),
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        verbose=0,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+    )
     assert trained
 
 
@@ -431,7 +516,10 @@ class _MultiTargetExtractor:
         return (
             df,
             target_by_type,
-            None, None, None, None,
+            None,
+            None,
+            None,
+            None,
             drop_cols,
             {},  # uniform weights
         )
@@ -453,12 +541,26 @@ def test_polars_multi_target_same_type(model_name, tmp_path):
         pl.Series("target2", ((pl_df["num1"].to_numpy() + rng.normal(0, 0.3, n)) > 0).astype(int))
     )
 
-    fte = _MultiTargetExtractor([
-        ("target",  TargetTypes.BINARY_CLASSIFICATION, lambda df_: df_["target"].to_numpy()),
-        ("target2", TargetTypes.BINARY_CLASSIFICATION, lambda df_: df_["target2"].to_numpy()),
-    ])
+    fte = _MultiTargetExtractor(
+        [
+            ("target", TargetTypes.BINARY_CLASSIFICATION, lambda df_: df_["target"].to_numpy()),
+            ("target2", TargetTypes.BINARY_CLASSIFICATION, lambda df_: df_["target2"].to_numpy()),
+        ]
+    )
 
-    trained, _ = train_mlframe_models_suite(df=pl_df, target_name=f'mt_{model_name}', model_name=f'mt_{model_name}', features_and_targets_extractor=fte, mlframe_models=[model_name], hyperparams_config=_config_for_model(model_name), preprocessing_config=_common_init_params(), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
+    trained, _ = train_mlframe_models_suite(
+        df=pl_df,
+        target_name=f"mt_{model_name}",
+        model_name=f"mt_{model_name}",
+        features_and_targets_extractor=fte,
+        mlframe_models=[model_name],
+        hyperparams_config=_config_for_model(model_name),
+        preprocessing_config=_common_init_params(),
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        verbose=0,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+    )
     assert trained
     # Must have trained under BINARY_CLASSIFICATION for both target names.
     assert TargetTypes.BINARY_CLASSIFICATION in trained
@@ -480,16 +582,28 @@ def test_polars_multi_target_types_clf_and_reg(model_name, tmp_path):
     n = 500
     pl_df = _basic_polars_frame(n=n, seed=22)
     rng = np.random.default_rng(22)
-    pl_df = pl_df.with_columns(
-        pl.Series("target_reg", rng.standard_normal(n).astype(np.float32))
+    pl_df = pl_df.with_columns(pl.Series("target_reg", rng.standard_normal(n).astype(np.float32)))
+
+    fte = _MultiTargetExtractor(
+        [
+            ("target", TargetTypes.BINARY_CLASSIFICATION, lambda df_: df_["target"].to_numpy()),
+            ("target_reg", TargetTypes.REGRESSION, lambda df_: df_["target_reg"].to_numpy()),
+        ]
     )
 
-    fte = _MultiTargetExtractor([
-        ("target",     TargetTypes.BINARY_CLASSIFICATION, lambda df_: df_["target"].to_numpy()),
-        ("target_reg", TargetTypes.REGRESSION,           lambda df_: df_["target_reg"].to_numpy()),
-    ])
-
-    trained, _ = train_mlframe_models_suite(df=pl_df, target_name=f'mtt_{model_name}', model_name=f'mtt_{model_name}', features_and_targets_extractor=fte, mlframe_models=[model_name], hyperparams_config=_config_for_model(model_name), preprocessing_config=_common_init_params(), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
+    trained, _ = train_mlframe_models_suite(
+        df=pl_df,
+        target_name=f"mtt_{model_name}",
+        model_name=f"mtt_{model_name}",
+        features_and_targets_extractor=fte,
+        mlframe_models=[model_name],
+        hyperparams_config=_config_for_model(model_name),
+        preprocessing_config=_common_init_params(),
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        verbose=0,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+    )
     assert trained
     assert TargetTypes.BINARY_CLASSIFICATION in trained
     assert TargetTypes.REGRESSION in trained
@@ -498,6 +612,7 @@ def test_polars_multi_target_types_clf_and_reg(model_name, tmp_path):
 # ===========================================================================
 # Feature selectors: MRMR as pre_pipeline with Polars + Enum
 # ===========================================================================
+
 
 @pytest.mark.parametrize("model_name", ["cb", "xgb", "lgb"])
 def test_polars_enum_with_mrmr_feature_selection(model_name, tmp_path):
@@ -511,13 +626,38 @@ def test_polars_enum_with_mrmr_feature_selection(model_name, tmp_path):
     pl_df = _basic_polars_frame(n=600)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-    trained, _ = train_mlframe_models_suite(df=pl_df, target_name=f'mrmr_{model_name}', model_name=f'mrmr_{model_name}', features_and_targets_extractor=fte, mlframe_models=[model_name], hyperparams_config=_config_for_model(model_name), preprocessing_config=_common_init_params(), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True), output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'), feature_selection_config=FeatureSelectionConfig(mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3, 'full_npermutations': 3}))
+    trained, _ = train_mlframe_models_suite(
+        df=pl_df,
+        target_name=f"mrmr_{model_name}",
+        model_name=f"mrmr_{model_name}",
+        features_and_targets_extractor=fte,
+        mlframe_models=[model_name],
+        hyperparams_config=_config_for_model(model_name),
+        preprocessing_config=_common_init_params(),
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        verbose=0,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        feature_selection_config=FeatureSelectionConfig(
+            mrmr_kwargs={
+                "verbose": 0,
+                "max_runtime_mins": 1,
+                "n_workers": 1,
+                "quantization_nbins": 5,
+                "use_simple_mode": True,
+                "min_nonzero_confidence": 0.9,
+                "max_consec_unconfirmed": 3,
+                "full_npermutations": 3,
+            }
+        ),
+    )
     assert trained
 
 
 # ===========================================================================
 # Kitchen-sink: Polars+Enum × multi-target-types × MRMR × all tree models
 # ===========================================================================
+
 
 def test_polars_kitchen_sink_all_trees_mrmr_multi_target_types(tmp_path):
     """The most-rigorous prod-like scenario in one test:
@@ -535,20 +675,44 @@ def test_polars_kitchen_sink_all_trees_mrmr_multi_target_types(tmp_path):
     n = 700
     pl_df = _basic_polars_frame(n=n, seed=33)
     rng = np.random.default_rng(33)
-    pl_df = pl_df.with_columns(
-        pl.Series("target_reg", rng.standard_normal(n).astype(np.float32))
-    )
+    pl_df = pl_df.with_columns(pl.Series("target_reg", rng.standard_normal(n).astype(np.float32)))
 
-    fte = _MultiTargetExtractor([
-        ("target",     TargetTypes.BINARY_CLASSIFICATION, lambda df_: df_["target"].to_numpy()),
-        ("target_reg", TargetTypes.REGRESSION,           lambda df_: df_["target_reg"].to_numpy()),
-    ])
+    fte = _MultiTargetExtractor(
+        [
+            ("target", TargetTypes.BINARY_CLASSIFICATION, lambda df_: df_["target"].to_numpy()),
+            ("target_reg", TargetTypes.REGRESSION, lambda df_: df_["target_reg"].to_numpy()),
+        ]
+    )
 
     cfg = {}
     for m in ("cb", "xgb", "lgb"):
         cfg.update(_config_for_model(m))
 
-    trained, _ = train_mlframe_models_suite(df=pl_df, target_name='kitchen_sink', model_name='kitchen_sink', features_and_targets_extractor=fte, mlframe_models=['cb', 'xgb', 'lgb'], hyperparams_config=cfg, preprocessing_config=_common_init_params(), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True), output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'), feature_selection_config=FeatureSelectionConfig(mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3, 'full_npermutations': 3}))
+    trained, _ = train_mlframe_models_suite(
+        df=pl_df,
+        target_name="kitchen_sink",
+        model_name="kitchen_sink",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb", "xgb", "lgb"],
+        hyperparams_config=cfg,
+        preprocessing_config=_common_init_params(),
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        verbose=0,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        feature_selection_config=FeatureSelectionConfig(
+            mrmr_kwargs={
+                "verbose": 0,
+                "max_runtime_mins": 1,
+                "n_workers": 1,
+                "quantization_nbins": 5,
+                "use_simple_mode": True,
+                "min_nonzero_confidence": 0.9,
+                "max_consec_unconfirmed": 3,
+                "full_npermutations": 3,
+            }
+        ),
+    )
     assert trained
     assert TargetTypes.BINARY_CLASSIFICATION in trained
     assert TargetTypes.REGRESSION in trained
@@ -557,6 +721,7 @@ def test_polars_kitchen_sink_all_trees_mrmr_multi_target_types(tmp_path):
 # ===========================================================================
 # Diagnostic log presence: the [pre-fit] line appears for each fit
 # ===========================================================================
+
 
 def test_diagnostic_pre_fit_log_emitted_for_lgb(tmp_path, caplog):
     """The [pre-fit] diagnostic log must fire for every model.fit so future

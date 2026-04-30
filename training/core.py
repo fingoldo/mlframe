@@ -247,7 +247,7 @@ def _validate_input_columns_against_metadata(
 
     if extra_cols:
         if verbose:
-            logger.info(f"Dropping extra columns: {sorted(extra_cols)}")
+            logger.info("Dropping extra columns: %s", sorted(extra_cols))
         df = df[filter_existing(df, columns)]
 
     # Fix 8f (2026-04-21, v2): per-model input-schema diff reporting.
@@ -650,12 +650,14 @@ def _auto_detect_feature_types(
     if verbose and (text_features or embedding_features or promoted):
         if promoted:
             logger.info(
-                f"  Promoted {len(promoted)} high-cardinality column(s) from cat_features to text_features "
-                f"(threshold>{threshold}): {_fmt_with_cardinality(promoted)}"
+                "  Promoted %d high-cardinality column(s) from cat_features to text_features "
+                "(threshold>%s): %s",
+                len(promoted), threshold, _fmt_with_cardinality(promoted),
             )
         logger.info(
-            f"  Auto-detected feature types -- text: {_fmt_with_cardinality(text_features) if text_features else '(none)'}, "
-            f"embedding: {embedding_features or '(none)'}"
+            "  Auto-detected feature types -- text: %s, embedding: %s",
+            _fmt_with_cardinality(text_features) if text_features else "(none)",
+            embedding_features or "(none)",
         )
 
     # Load-bearing: log the drop-list regardless of verbose. Operator
@@ -790,7 +792,7 @@ def _build_tier_dfs(
         tier_dfs = base_dfs
     else:
         if verbose:
-            logger.info(f"  Tier {tier}: dropping {len(cols_to_exclude)} text/embedding columns: {sorted(cols_to_exclude)}")
+            logger.info("  Tier %s: dropping %d text/embedding columns: %s", tier, len(cols_to_exclude), sorted(cols_to_exclude))
         tier_dfs = {}
         for key in ("train_df", "val_df", "test_df"):
             df_ = base_dfs.get(key)
@@ -1064,7 +1066,7 @@ def _apply_outlier_detection_global(
                 except Exception as _exc:
                     logger.debug("Class-balance pre-check failed for target %s: %s", _tn, _exc)
         if not _od_destroys_classes:
-            logger.info(f"Outlier rejection: {len(train_df):_} train samples -> {train_kept:_} kept.")
+            logger.info("Outlier rejection: %d train samples -> %d kept.", len(train_df), train_kept)
             filtered_train_df = _filter_df_by_mask(train_df, train_od_idx)
             filtered_train_idx = train_idx[train_od_idx]
         else:
@@ -1166,7 +1168,7 @@ def _apply_outlier_detection_global(
             filtered_val_idx = val_idx
             val_od_idx = None
         elif val_kept < len(val_df):
-            logger.info(f"Outlier rejection: {len(val_df):_} val samples -> {val_kept:_} kept.")
+            logger.info("Outlier rejection: %d val samples -> %d kept.", len(val_df), val_kept)
             filtered_val_df = _filter_df_by_mask(val_df, val_od_idx)
             filtered_val_idx = val_idx[val_od_idx]
 
@@ -1471,7 +1473,8 @@ def _convert_dfs_to_pandas(
         out = get_pandas_view_of_polars_df(df)
         if verbose:
             logger.info(
-                f"  polars->pandas({name}) {df.shape[0]:_}x{df.shape[1]} in {timer() - t0:.1f}s"
+                "  polars->pandas(%s) %dx%d in %.1fs",
+                name, df.shape[0], df.shape[1], timer() - t0,
             )
         return out
 
@@ -1480,7 +1483,7 @@ def _convert_dfs_to_pandas(
     val_df_pd = _convert_one(val_df, "val")
     test_df_pd = _convert_one(test_df, "test")
     if verbose:
-        logger.info(f"  polars->pandas total: {timer() - t0_total:.1f}s")
+        logger.info("  polars->pandas total: %.1fs", timer() - t0_total)
 
     return train_df_pd, val_df_pd, test_df_pd
 
@@ -2026,7 +2029,7 @@ def train_mlframe_models_suite(
     with phase("load_and_prepare_dataframe"):
         df = load_and_prepare_dataframe(df, preprocessing_config, verbose=verbose)
     if verbose:
-        logger.info(f"  load_and_prepare_dataframe done -- {_df_shape_str(df)}, {_elapsed_str(t0_phase1)}")
+        logger.info("  load_and_prepare_dataframe done -- %s, %s", _df_shape_str(df), _elapsed_str(t0_phase1))
 
     # Apply features_and_targets_extractor to extract targets
     if verbose:
@@ -2037,7 +2040,7 @@ def train_mlframe_models_suite(
         df
     )
     if verbose:
-        logger.info(f"  features_and_targets_extractor done -- {_df_shape_str(df)}, {_elapsed_str(t0_fte)}")
+        logger.info("  features_and_targets_extractor done -- %s, %s", _df_shape_str(df), _elapsed_str(t0_fte))
 
     # Capture baseline RSS + DF size NOW -- before any downstream steps that may allocate
     # transient state (get_sequences, drop_columns, preprocess). Used by
@@ -2053,7 +2056,7 @@ def train_mlframe_models_suite(
         if extracted_sequences is not None:
             sequences = extracted_sequences
             if verbose:
-                logger.info(f"Extracted {len(sequences)} sequences from DataFrame")
+                logger.info("Extracted %d sequences from DataFrame", len(sequences))
         elif verbose:
             logger.warning("recurrent_models specified but no sequences provided or extracted")
 
@@ -2073,8 +2076,8 @@ def train_mlframe_models_suite(
     t0_preproc = timer()
     df = preprocess_dataframe(df, preprocessing_config, verbose=verbose)
     if verbose:
-        logger.info(f"  preprocess_dataframe done -- {_df_shape_str(df)}, {_elapsed_str(t0_preproc)}")
-        logger.info(f"  PHASE 1 total: {_elapsed_str(t0_phase1)}")
+        logger.info("  preprocess_dataframe done -- %s, %s", _df_shape_str(df), _elapsed_str(t0_preproc))
+        logger.info("  PHASE 1 total: %s", _elapsed_str(t0_phase1))
 
     # ==================================================================================
     # 3. TRAIN/VAL/TEST SPLITTING
@@ -2175,7 +2178,7 @@ def train_mlframe_models_suite(
         if fairness_features and fairness_subgroups is None:
             logger.warning(f"Fairness features {fairness_features} specified but subgroups could not be computed")
         elif fairness_subgroups is not None:
-            logger.info(f"Computed {len(fairness_subgroups)} fairness subgroups")
+            logger.info("Computed %d fairness subgroups", len(fairness_subgroups))
 
     # Create split dataframes
     train_df, val_df, test_df = create_split_dataframes(
@@ -2185,8 +2188,8 @@ def train_mlframe_models_suite(
         test_idx=test_idx,
     )
     if verbose:
-        logger.info(f"  Split shapes -- train: {_df_shape_str(train_df)}, val: {_df_shape_str(val_df)}, test: {_df_shape_str(test_df)}")
-        logger.info(f"  PHASE 2 total: {_elapsed_str(t0_phase2)}")
+        logger.info("  Split shapes -- train: %s, val: %s, test: %s", _df_shape_str(train_df), _df_shape_str(val_df), _df_shape_str(test_df))
+        logger.info("  PHASE 2 total: %s", _elapsed_str(t0_phase2))
 
     # Split sequences by train/val/test indices (for recurrent models)
     train_sequences, val_sequences, test_sequences = None, None, None
@@ -2195,7 +2198,7 @@ def train_mlframe_models_suite(
         val_sequences = [sequences[i] for i in val_idx] if val_idx is not None else None
         test_sequences = [sequences[i] for i in test_idx]
         if verbose:
-            logger.info(f"Split sequences: train={len(train_sequences)}, val={len(val_sequences) if val_sequences else 0}, test={len(test_sequences)}")
+            logger.info("Split sequences: train=%d, val=%d, test=%d", len(train_sequences), len(val_sequences) if val_sequences else 0, len(test_sequences))
 
     # Delete original df to free RAM
     if verbose:
@@ -2335,7 +2338,7 @@ def train_mlframe_models_suite(
         embedding_features=feature_types_config.embedding_features,
     )
     if verbose:
-        logger.info(f"  fit_and_transform_pipeline done in {_elapsed_str(t0_fit_pipeline)}")
+        logger.info("  fit_and_transform_pipeline done in %s", _elapsed_str(t0_fit_pipeline))
 
     # Track if Polars-ds pipeline was applied (to skip redundant pre_pipeline transforms later)
     polars_pipeline_applied = was_polars_input and pipeline_config.use_polarsds_pipeline and pipeline is not None
@@ -2350,7 +2353,7 @@ def train_mlframe_models_suite(
         train_df, val_df, test_df, preprocessing_extensions, verbose=verbose,
     )
     if verbose and preprocessing_extensions is not None:
-        logger.info(f"  apply_preprocessing_extensions done in {_elapsed_str(t0_ext)}")
+        logger.info("  apply_preprocessing_extensions done in %s", _elapsed_str(t0_ext))
     if extensions_pipeline is not None:
         # cat_features are materialised into numeric columns by the sklearn stack.
         cat_features = []
@@ -2361,10 +2364,10 @@ def train_mlframe_models_suite(
     metadata["columns"] = train_df.columns.tolist() if isinstance(train_df, pd.DataFrame) else train_df.columns
 
     if verbose:
-        logger.info(f"  Pipeline done -- train: {_df_shape_str(train_df)}, cat_features: {cat_features or '(none)'}")
+        logger.info("  Pipeline done -- train: %s, cat_features: %s", _df_shape_str(train_df), cat_features or '(none)')
         if was_polars_input and cat_features_polars:
             logger.info("  Pre-pipeline Polars cat_features: %s", cat_features_polars)
-        logger.info(f"  PHASE 3 total: {_elapsed_str(t0_phase3)}")
+        logger.info("  PHASE 3 total: %s", _elapsed_str(t0_phase3))
 
     # ==================================================================================
     # 4.5. AUTO-DETECT TEXT & EMBEDDING FEATURES
@@ -2471,7 +2474,7 @@ def train_mlframe_models_suite(
                 logger.info("  Cast Polars string columns -> Categorical once (shared across model loop)")
 
     if verbose and (text_features or embedding_features):
-        logger.info(f"  Feature types -- text: {text_features}, embedding: {embedding_features}, cat: {cat_features or '(none)'}")
+        logger.info("  Feature types -- text: %s, embedding: %s, cat: %s", text_features, embedding_features, cat_features or '(none)')
 
     # Pre-train cardinality + val/test drift snapshot.
     #
@@ -2707,8 +2710,9 @@ def train_mlframe_models_suite(
                     if not s.supports_polars
                 ]
                 logger.info(
-                    f"  Deferred pandas conversion -- Polars-native models run on the fastpath; "
-                    f"non-native {non_native} will convert lazily at their strategy branch."
+                    "  Deferred pandas conversion -- Polars-native models run on the fastpath; "
+                    "non-native %s will convert lazily at their strategy branch.",
+                    non_native,
                 )
     else:
         # Diagnostic: on large high-cardinality frames the polars->pandas
@@ -2735,7 +2739,8 @@ def train_mlframe_models_suite(
             if _has_rfecv:
                 reasons.append(f"rfecv_models={rfecv_models}")
             logger.info(
-                f"  polars->pandas conversion needed because: {'; '.join(reasons) or 'unknown'}"
+                "  polars->pandas conversion needed because: %s",
+                "; ".join(reasons) or "unknown",
             )
         train_df_pd, val_df_pd, test_df_pd = _convert_dfs_to_pandas(train_df, val_df, test_df, verbose=verbose)
 
@@ -2753,14 +2758,15 @@ def train_mlframe_models_suite(
     # that case.
     if cat_features and not can_skip_pandas_conv:
         if verbose:
-            logger.info(f"Preparing {len(cat_features)} categorical features for CatBoost: {cat_features}")
+            logger.info("Preparing %d categorical features for CatBoost: %s", len(cat_features), cat_features)
         for df_pd in [train_df_pd, val_df_pd, test_df_pd]:
             if df_pd is not None:
                 prepare_df_for_catboost(df_pd, cat_features)
     elif cat_features and can_skip_pandas_conv and verbose:
         logger.info(
-            f"Skipping pandas-side CatBoost prep for {len(cat_features)} categorical "
-            "features -- Polars fastpath receives the DFs natively."
+            "Skipping pandas-side CatBoost prep for %d categorical "
+            "features -- Polars fastpath receives the DFs natively.",
+            len(cat_features),
         )
 
     # B2: Release post-pipeline Polars DFs after pandas conversion.
@@ -3206,7 +3212,7 @@ def train_mlframe_models_suite(
                 )
 
             if verbose:
-                logger.info(f"  select_target done in {_elapsed_str(t0_select_target)}")
+                logger.info("  select_target done in %s", _elapsed_str(t0_select_target))
                 log_ram_usage()
 
             # Build list of pre-pipelines (feature selection methods) to try
@@ -3235,9 +3241,9 @@ def train_mlframe_models_suite(
                 if sample_weights:
                     weight_schemas = sample_weights
                     if "uniform" in sample_weights:
-                        logger.info(f"Using {len(weight_schemas)} weighting schema(s) from extractor: {list(weight_schemas.keys())}")
+                        logger.info("Using %d weighting schema(s) from extractor: %s", len(weight_schemas), list(weight_schemas.keys()))
                     else:
-                        logger.info(f"Using {len(weight_schemas)} weighting schema(s) from extractor: {list(weight_schemas.keys())}. Note: uniform weighting not included.")
+                        logger.info("Using %d weighting schema(s) from extractor: %s. Note: uniform weighting not included.", len(weight_schemas), list(weight_schemas.keys()))
                 else:
                     weight_schemas = {"uniform": None}
                     logger.info("No weighting schemas from extractor, defaulting to uniform weighting.")
@@ -3415,7 +3421,7 @@ def train_mlframe_models_suite(
                     # doing it per weight schema wastes memory for 100GB+ DataFrames.
                     if polars_fastpath_active:
                         if verbose:
-                            logger.info(f"  Polars fastpath active for {mlframe_model_name} (strategy={type(strategy).__name__})")
+                            logger.info("  Polars fastpath active for %s (strategy=%s)", mlframe_model_name, type(strategy).__name__)
                         # Use ``cat_features`` (the post-promotion, deduplicated
                         # list from the Phase 3.5 reassignment at line ~1526) --
                         # NOT the stale ``cat_features_polars`` captured at the
@@ -3511,8 +3517,9 @@ def train_mlframe_models_suite(
                                     prepared_test = prepared_test.with_columns(prep_exprs)
                                 if needs_cast and verbose:
                                     logger.info(
-                                        f"  Cast {len(needs_cast)} text feature(s) from Polars Categorical to String "
-                                        f"for CatBoost: {needs_cast}"
+                                        "  Cast %d text feature(s) from Polars Categorical to String "
+                                        "for CatBoost: %s",
+                                        len(needs_cast), needs_cast,
                                     )
 
                         # Null-in-Categorical fix: applied UPSTREAM once
@@ -3542,8 +3549,9 @@ def train_mlframe_models_suite(
                             if isinstance(df_, pl.DataFrame):
                                 if not _logged_lazy_conv and verbose:
                                     logger.info(
-                                        f"  Lazy pandas conversion triggered by non-Polars-native strategy "
-                                        f"{type(strategy).__name__} for {mlframe_model_name}"
+                                        "  Lazy pandas conversion triggered by non-Polars-native strategy "
+                                        "%s for %s",
+                                        type(strategy).__name__, mlframe_model_name,
                                     )
                                     _logged_lazy_conv = True
                                 common_params[df_key] = get_pandas_view_of_polars_df(df_)
@@ -3841,7 +3849,7 @@ def train_mlframe_models_suite(
                             })
                             continue  # next weight_name in the inner loop
                         if verbose:
-                            logger.info(f"  process_model({mlframe_model_name}, w={weight_name}) done -- {_elapsed_str(t0_model)}")
+                            logger.info("  process_model(%s, w=%s) done -- %s", mlframe_model_name, weight_name, _elapsed_str(t0_model))
 
                         # XGB DMatrix-reuse shim cache (2026-04-24, second
                         # half). The cache lives on the cloned_model that
@@ -4145,7 +4153,7 @@ def train_mlframe_models_suite(
     )
 
     if verbose:
-        logger.info("[phases] Top phases by wall-clock time:\n" + format_phase_summary())
+        logger.info("[phases] Top phases by wall-clock time:\n%s", format_phase_summary())
 
     # Surface the selected-features list per trained model so callers
     # can introspect feature-selection outputs (MRMR / RFECV) without
@@ -4436,7 +4444,7 @@ def predict_mlframe_models_suite(
             results["ensemble_probabilities"] = all_probs[0]
 
     if verbose:
-        logger.info(f"Generated predictions for {len(results['predictions'])} models")
+        logger.info("Generated predictions for %d models", len(results['predictions']))
 
     return results
 
@@ -4640,7 +4648,7 @@ def predict_from_models(
             results["ensemble_probabilities"] = all_probs[0]
 
     if verbose:
-        logger.info(f"Generated predictions for {len(results['predictions'])} models")
+        logger.info("Generated predictions for %d models", len(results['predictions']))
 
     return results
 

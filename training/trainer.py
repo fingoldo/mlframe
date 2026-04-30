@@ -195,7 +195,8 @@ def _patch_dataset_constructors_with_logging() -> None:
                 else:
                     shape_str = "?x?"
                 logger.info(
-                    f"[dataset-build] {label} shape={shape_str} took={elapsed:.3f}s site={callsite}"
+                    "[dataset-build] %s shape=%s took=%.3fs site=%s",
+                    label, shape_str, elapsed, callsite,
                 )
 
         _logged_init.__wrapped__ = orig_init  # type: ignore[attr-defined]
@@ -1349,7 +1350,7 @@ def _apply_pre_pipeline_transforms(
             _maybe_clean_ram()
             if verbose:
                 shape_str = f"{train_df.shape[0]:_}x{train_df.shape[1]}" if hasattr(train_df, "shape") else ""
-                logger.info(f"  pre_pipeline done -- train: {shape_str}, {timer() - t0_pre:.1f}s")
+                logger.info("  pre_pipeline done -- train: %s, %.1fs", shape_str, timer() - t0_pre)
 
     return train_df, val_df
 
@@ -2150,8 +2151,8 @@ def _predict_with_fallback(
     except Exception as _exc:
         # Any lookup failure is benign -- fall through to normal path.
         logger.debug(
-            f"[cb-val-pool-reuse] {method} cache probe failed "
-            f"({type(_exc).__name__}: {_exc}); falling through."
+            "[cb-val-pool-reuse] %s cache probe failed (%s: %s); falling through.",
+            method, type(_exc).__name__, _exc,
         )
 
     # Short-circuit: if this model already made a Polars-fastpath predict
@@ -2476,9 +2477,10 @@ def _maybe_get_or_build_cb_pool(
                 # get_label() not exposed on this CB build; trust set_label.
                 pass
             logger.info(
-                f"[cb-pool-reuse] hit key=(id={key[0]},cat={len(cat_features)},"
-                f"text={len(text_features)},emb={len(embedding_features)}) "
-                f"swapped weight{' + label' if last_target_id != id(train_target) else ''} without rebuild"
+                "[cb-pool-reuse] hit key=(id=%s,cat=%d,text=%d,emb=%d) "
+                "swapped weight%s without rebuild",
+                key[0], len(cat_features), len(text_features), len(embedding_features),
+                " + label" if last_target_id != id(train_target) else "",
             )
             return cached
         except Exception as exc:
@@ -2487,8 +2489,8 @@ def _maybe_get_or_build_cb_pool(
             # raises "SetNumericTarget requires numeric or unset target
             # type". Rebuild is safe.
             logger.info(
-                f"[cb-pool-reuse] swap path not usable ({type(exc).__name__}: "
-                f"{str(exc).splitlines()[0][:120]}); rebuilding Pool."
+                "[cb-pool-reuse] swap path not usable (%s: %s); rebuilding Pool.",
+                type(exc).__name__, str(exc).splitlines()[0][:120],
             )
             _CB_POOL_CACHE.pop(key, None)
 
@@ -2544,7 +2546,7 @@ def _maybe_get_or_build_cb_pool(
     pool._mlframe_embedding_features = list(embedding_features)
     _CB_POOL_CACHE[key] = pool
     logger.info(
-        f"[cb-pool-reuse] miss; stored fresh Pool (cache size={len(_CB_POOL_CACHE)})"
+        "[cb-pool-reuse] miss; stored fresh Pool (cache size=%d)", len(_CB_POOL_CACHE),
     )
     return pool
 
@@ -2624,9 +2626,10 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: Dict[str, Any]) -> None:
                     cached.set_label(_lab)
                     cached._mlframe_last_target_id = id(val_target)
                 logger.info(
-                    f"[cb-val-pool-reuse] hit key=(id={key[0]},cat={len(cat_features)},"
-                    f"text={len(text_features)},emb={len(embedding_features)}) "
-                    f"swapped{' label' if last_target_id != id(val_target) else ''} without rebuild"
+                    "[cb-val-pool-reuse] hit key=(id=%s,cat=%d,text=%d,emb=%d) "
+                    "swapped%s without rebuild",
+                    key[0], len(cat_features), len(text_features), len(embedding_features),
+                    " label" if last_target_id != id(val_target) else "",
                 )
                 rewritten.append(cached)
                 changed = True
@@ -2657,8 +2660,9 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: Dict[str, Any]) -> None:
             )
         except Exception as exc:
             logger.info(
-                f"[cb-val-pool-reuse] Pool build failed ({type(exc).__name__}: {exc}); "
-                f"leaving eval_set entry as (df, target) tuple for sklearn-wrapper rebuild."
+                "[cb-val-pool-reuse] Pool build failed (%s: %s); "
+                "leaving eval_set entry as (df, target) tuple for sklearn-wrapper rebuild.",
+                type(exc).__name__, exc,
             )
             rewritten.append(entry)
             continue
@@ -2683,7 +2687,8 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: Dict[str, Any]) -> None:
         rewritten.append(val_pool)
         changed = True
         logger.info(
-            f"[cb-val-pool-reuse] miss; stored fresh val Pool (cache size={len(_CB_VAL_POOL_CACHE)})"
+            "[cb-val-pool-reuse] miss; stored fresh val Pool (cache size=%d)",
+            len(_CB_VAL_POOL_CACHE),
         )
 
     if changed:
@@ -3137,7 +3142,7 @@ def _train_model_with_fallback(
 
             t0 = timer()
             train_df = get_pandas_view_of_polars_df(train_df)
-            logger.info(f"  [fallback] polars->pandas(train) {shape_str} in {timer() - t0:.1f}s")
+            logger.info("  [fallback] polars->pandas(train) %s in %.1fs", shape_str, timer() - t0)
 
             # IMPORTANT: decategorize text columns BEFORE prepare_df_for_catboost.
             # Otherwise prep_cb hits the pd.Categorical text columns (auto-promoted
@@ -3148,11 +3153,11 @@ def _train_model_with_fallback(
             # production-reproduced hang that motivated this reorder.
             t0 = timer()
             train_df = _decategorize_text_cols(train_df)
-            logger.info(f"  [fallback] decategorize text cols(train) in {timer() - t0:.1f}s")
+            logger.info("  [fallback] decategorize text cols(train) in %.1fs", timer() - t0)
 
             t0 = timer()
             train_df = _prep_cb(train_df, cat_features=cat_feat, text_features=text_feat)
-            logger.info(f"  [fallback] prepare_df_for_catboost(train) in {timer() - t0:.1f}s")
+            logger.info("  [fallback] prepare_df_for_catboost(train) in %.1fs", timer() - t0)
 
             # eval_set carries the val split for CB -- rewrite it too.
             eval_set = fit_params.get("eval_set")
@@ -3171,9 +3176,9 @@ def _train_model_with_fallback(
                         X_val = _decategorize_text_cols(X_val) if isinstance(X_val, pd.DataFrame) else X_val
                     new_pairs.append((X_val, y_val))
                 fit_params["eval_set"] = new_pairs if isinstance(eval_set, list) else new_pairs[0]
-                logger.info(f"  [fallback] eval_set rewrite in {timer() - t0_es:.1f}s")
+                logger.info("  [fallback] eval_set rewrite in %.1fs", timer() - t0_es)
 
-            logger.info(f"  [fallback] total pandas prep for CB in {timer() - t0_fb:.1f}s")
+            logger.info("  [fallback] total pandas prep for CB in %.1fs", timer() - t0_fb)
             try_again = True
 
         elif "unexpected keyword argument" in error_str and any(param in error_str for param in ("X_val", "y_val", "eval_set")):
@@ -3219,7 +3224,7 @@ def _train_model_with_fallback(
         try:
             best_iter = get_model_best_iter(model_obj)
             if best_iter and verbose:
-                logger.info(f"es_best_iter: {best_iter:_}")
+                logger.info("es_best_iter: %d", best_iter)
         except (AttributeError, TypeError, ValueError) as e:
             logger.warning(f"Could not get best iteration: {e}")
 
@@ -4485,7 +4490,7 @@ def train_and_evaluate_model(
                 )
 
     if (compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics) and verbose:
-        logger.info(f"  Metrics computation done -- {timer() - t0_metrics:.1f}s")
+        logger.info("  Metrics computation done -- %.1fs", timer() - t0_metrics)
 
     _maybe_clean_ram()
 

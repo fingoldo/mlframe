@@ -1,4 +1,3 @@
-from mlframe.training import OutlierDetectionConfig, OutputConfig
 """Tests for security-sensitive path validation + joblib metadata I/O + split artifacts.
 
 Targets:
@@ -11,6 +10,7 @@ but the real implementation is in training/preprocessing.py and uses parquet via
 save_series_or_df(). Tests target the real behavior.
 """
 from __future__ import annotations
+from mlframe.training import OutlierDetectionConfig, OutputConfig
 
 import os
 import sys
@@ -99,10 +99,12 @@ def test_finalize_saves_and_roundtrips(tmp_path):
 
     _finalize_and_save_metadata(
         metadata=metadata,
-        outlier_detection_config=OutlierDetectionConfig(detector=outlier_detector),
+        outlier_detector=outlier_detector,
         outlier_detection_result=outlier_detection_result,
         trainset_features_stats={"mean": 0.1},
-        output_config=OutputConfig(data_dir=data_dir, models_dir=models_dir),
+        data_dir=data_dir,
+
+        models_dir=models_dir,
         target_name="t1",
         model_name="m1",
         verbose=0,
@@ -121,10 +123,12 @@ def test_finalize_adds_slug_mappings(tmp_path):
     (Path(tmp_path) / "models" / "t" / "m").mkdir(parents=True)
     _finalize_and_save_metadata(
         metadata=metadata,
-        outlier_detection_config=OutlierDetectionConfig(detector=None),
+        outlier_detector=None,
         outlier_detection_result={},
         trainset_features_stats=None,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        data_dir=str(tmp_path),
+
+        models_dir="models",
         target_name="t",
         model_name="m",
         verbose=0,
@@ -142,10 +146,12 @@ def test_finalize_no_save_when_no_dirs():
     # Should not raise even when no dirs given
     _finalize_and_save_metadata(
         metadata=metadata,
-        outlier_detection_config=OutlierDetectionConfig(detector=None),
+        outlier_detector=None,
         outlier_detection_result={},
         trainset_features_stats=None,
-        output_config=OutputConfig(data_dir="", models_dir=""),
+        data_dir="",
+
+        models_dir="",
         target_name="t",
         model_name="m",
         verbose=0,
@@ -171,10 +177,12 @@ def test_finalize_bubbles_ioerror(tmp_path, monkeypatch):
     with pytest.raises(IOError):
         _finalize_and_save_metadata(
             metadata={"model_name": "m", "target_name": "t", "mlframe_models": []},
-            outlier_detection_config=OutlierDetectionConfig(detector=None),
+            outlier_detector=None,
             outlier_detection_result={},
             trainset_features_stats=None,
-            output_config=OutputConfig(data_dir=str(bad_dir), models_dir="models"),
+            data_dir=str(bad_dir),
+
+            models_dir="models",
             target_name="t",
             model_name="m",
             verbose=0,
@@ -198,7 +206,8 @@ def test_save_split_artifacts_writes_parquet(tmp_path):
         timestamps=timestamps,
         group_ids_raw=group_ids,
         artifacts=None,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        data_dir=str(tmp_path),
+        models_dir="models",
         target_name="tgt",
         model_name="mdl",
     )
@@ -227,7 +236,8 @@ def test_save_split_artifacts_dict_artifacts(tmp_path):
         timestamps=None,
         group_ids_raw=None,
         artifacts=artifacts,
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        data_dir=str(tmp_path),
+        models_dir="models",
         target_name="t",
         model_name="m",
     )
@@ -245,7 +255,9 @@ def test_save_split_artifacts_noop_without_data_dir(tmp_path):
         timestamps=pd.Series(range(7)),
         group_ids_raw=None,
         artifacts=None,
-        output_config=OutputConfig(data_dir=None, models_dir="models"),
+        data_dir=None,
+
+        models_dir="models",
         target_name="t", model_name="m",
     )
     assert list(tmp_path.iterdir()) == []

@@ -1,4 +1,3 @@
-from mlframe.training import OutputConfig
 """Business-value integration tests for mlframe class-imbalance handling and run_grid sweeps.
 
 NOTE: These are regression sensors, not scientific benchmarks. Synthetic data parameters
@@ -22,6 +21,7 @@ API knob used for Test 1: ``hyperparams_config={"lgb_kwargs": {"is_unbalance": T
 """
 
 from __future__ import annotations
+from mlframe.training import OutputConfig
 
 import numpy as np
 import pandas as pd
@@ -277,7 +277,6 @@ def test_run_grid_sweep_beats_baseline_auroc(tmp_path, common_init_params, seed)
         reporting_config=common_init_params,
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        models_dir="models",
         verbose=0,
     )
 
@@ -299,7 +298,7 @@ def test_run_grid_sweep_beats_baseline_auroc(tmp_path, common_init_params, seed)
             label,
             dict(
                 model_name=label,
-                data_dir=str(tmp_path / "sweep" / label),
+                output_config=OutputConfig(data_dir=str(tmp_path / "sweep" / label), models_dir="models"),
                 hyperparams_config=hp,
             ),
         )

@@ -1,4 +1,3 @@
-from mlframe.training import OutputConfig
 """Business-value integration tests for mlframe fairness metrics and sample-weight schemas.
 
 NOTE: These are regression sensors, not scientific benchmarks. Synthetic data parameters
@@ -21,6 +20,7 @@ when the measured lift falls short of the business target.
 """
 
 from __future__ import annotations
+from mlframe.training import OutputConfig
 
 import numpy as np
 import pandas as pd

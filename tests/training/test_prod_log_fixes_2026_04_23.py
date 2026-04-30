@@ -39,6 +39,7 @@ import pytest
 # Fix 1: get_pandas_view_of_polars_df — nullable Boolean coercion
 # =====================================================================
 
+
 class TestNullableBooleanCoercion:
     """Lock in the 2026-04-23 fix: Polars Boolean with nulls no longer
     reaches the model backends as pandas ``object`` dtype."""
@@ -53,15 +54,16 @@ class TestNullableBooleanCoercion:
         """
         from mlframe.training.utils import get_pandas_view_of_polars_df
 
-        df = pl.DataFrame({
-            "hide_budget": pl.Series([True, False, None, True], dtype=pl.Boolean),
-            "num": [1.0, 2.0, 3.0, 4.0],
-        })
+        df = pl.DataFrame(
+            {
+                "hide_budget": pl.Series([True, False, None, True], dtype=pl.Boolean),
+                "num": [1.0, 2.0, 3.0, 4.0],
+            }
+        )
         pdf = get_pandas_view_of_polars_df(df)
 
         assert str(pdf["hide_budget"].dtype) == "Int8", (
-            f"Nullable Boolean must coerce to Int8 with pd.NA, got "
-            f"{pdf['hide_budget'].dtype}"
+            f"Nullable Boolean must coerce to Int8 with pd.NA, got {pdf['hide_budget'].dtype}"
         )
         # Values preserved: True→1, False→0, None→pd.NA
         assert pdf["hide_budget"].iloc[0] == 1
@@ -77,9 +79,11 @@ class TestNullableBooleanCoercion:
         """
         from mlframe.training.utils import get_pandas_view_of_polars_df
 
-        df = pl.DataFrame({
-            "plain_bool": pl.Series([True, False, True, False], dtype=pl.Boolean),
-        })
+        df = pl.DataFrame(
+            {
+                "plain_bool": pl.Series([True, False, True, False], dtype=pl.Boolean),
+            }
+        )
         pdf = get_pandas_view_of_polars_df(df)
         assert pdf["plain_bool"].dtype == np.dtype("bool")
 
@@ -91,32 +95,37 @@ class TestNullableBooleanCoercion:
 
         rng = np.random.default_rng(0)
         n = 200
-        df = pl.DataFrame({
-            # mirror the prod columns that broke: nullable Boolean + a few mixed dtypes
-            "hide_budget": pl.Series(
-                [bool(b) if rng.random() > 0.1 else None for b in rng.integers(0, 2, n)],
-                dtype=pl.Boolean,
-            ),
-            "plain_bool": pl.Series(rng.integers(0, 2, n).astype(bool).tolist(), dtype=pl.Boolean),
-            "cat_col": pl.Series(rng.choice(list("abc"), n).tolist(), dtype=pl.Categorical),
-            "num": rng.normal(size=n).astype(np.float32),
-        })
+        df = pl.DataFrame(
+            {
+                # mirror the prod columns that broke: nullable Boolean + a few mixed dtypes
+                "hide_budget": pl.Series(
+                    [bool(b) if rng.random() > 0.1 else None for b in rng.integers(0, 2, n)],
+                    dtype=pl.Boolean,
+                ),
+                "plain_bool": pl.Series(rng.integers(0, 2, n).astype(bool).tolist(), dtype=pl.Boolean),
+                "cat_col": pl.Series(rng.choice(list("abc"), n).tolist(), dtype=pl.Categorical),
+                "num": rng.normal(size=n).astype(np.float32),
+            }
+        )
         y = rng.integers(0, 2, n)
 
         pdf = get_pandas_view_of_polars_df(df)
 
         if backend_name == "lgb":
             import lightgbm as lgb
+
             m = lgb.LGBMClassifier(n_estimators=3, verbose=-1)
             # If this fit raises the old ``pandas dtypes must be int, float or
             # bool`` (the 2026-04-23 LGB regression), the fix regressed.
             m.fit(pdf, y)
         elif backend_name == "xgb":
             import xgboost as xgb
+
             m = xgb.XGBClassifier(n_estimators=3, tree_method="hist", enable_categorical=True)
             m.fit(pdf, y)
         else:
             import catboost as cb
+
             m = cb.CatBoostClassifier(iterations=3, verbose=0)
             # CB requires cat_features when any column is pd.Categorical. If
             # Int8 regresses to pandas nullable ``boolean`` here, CB's
@@ -127,6 +136,7 @@ class TestNullableBooleanCoercion:
 # =====================================================================
 # Fix 2: ensembling harmonic mean — no divide-by-zero warning
 # =====================================================================
+
 
 class TestEnsembleHarmonicDivByZero:
     """Lock in the 2026-04-23 fix: harmonic mean on predictions with any
@@ -172,8 +182,7 @@ class TestEnsembleHarmonicDivByZero:
             out = self._call_harm(preds)
         div_zero = [w for w in caught if "divide by zero" in str(w.message).lower()]
         assert not div_zero, (
-            f"Harmonic mean must not emit divide-by-zero warnings; got: "
-            f"{[str(w.message) for w in div_zero]}"
+            f"Harmonic mean must not emit divide-by-zero warnings; got: {[str(w.message) for w in div_zero]}"
         )
         # Downstream consumers expect a finite probability vector.
         assert np.isfinite(out).all()
@@ -210,6 +219,7 @@ class TestEnsembleHarmonicDivByZero:
 # =====================================================================
 # Fix 3: default weighting schemas
 # =====================================================================
+
 
 class TestDefaultWeightingSchemas:
     """Lock in the flipped default: ``use_uniform_weighting=True`` so every
@@ -260,6 +270,7 @@ class TestDefaultWeightingSchemas:
 # Fix 4: CatBoost Polars-fastpath sticky shortcut
 # =====================================================================
 
+
 class TestCatBoostFastpathStickyFlag:
     """Lock in the 2026-04-23 optimization: after _predict_with_fallback
     converts once, the model is flagged so subsequent calls skip the
@@ -295,10 +306,12 @@ class TestCatBoostFastpathStickyFlag:
         fake._get_text_feature_indices = lambda: []
         fake._mlframe_polars_fastpath_broken = True
 
-        pl_df = pl.DataFrame({
-            "a": pl.Series(["x", "y", "x"], dtype=pl.Categorical),
-            "num": [1.0, 2.0, 3.0],
-        })
+        pl_df = pl.DataFrame(
+            {
+                "a": pl.Series(["x", "y", "x"], dtype=pl.Categorical),
+                "num": [1.0, 2.0, 3.0],
+            }
+        )
         out = _predict_with_fallback(fake, pl_df, method="predict_proba")
         assert out.shape == (3, 2)
         # Short-circuit converted to pandas before calling fn
@@ -329,9 +342,11 @@ class TestCatBoostFastpathStickyFlag:
         fake.predict_proba = _fake_predict_proba
         # No _mlframe_polars_fastpath_broken attribute → normal path.
 
-        pl_df = pl.DataFrame({
-            "a": pl.Series(["x", "y"], dtype=pl.Categorical),
-        })
+        pl_df = pl.DataFrame(
+            {
+                "a": pl.Series(["x", "y"], dtype=pl.Categorical),
+            }
+        )
         _predict_with_fallback(fake, pl_df, method="predict_proba")
         # Normal path tries fn(pl.DataFrame) first (which succeeds here).
         assert calls == ["polars.dataframe.frame.DataFrame"]
@@ -341,6 +356,7 @@ class TestCatBoostFastpathStickyFlag:
 # Fix 5: pipeline_cache must not cross streams between polars-native and
 #        pandas-consuming strategies — cache_key now includes container kind
 # =====================================================================
+
 
 class TestPipelineCacheKindIsolation:
     """Lock in the 2026-04-23 fix: ``pipeline_cache`` entries written by a
@@ -364,6 +380,7 @@ class TestPipelineCacheKindIsolation:
         import tempfile
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training.configs import TrainingBehaviorConfig
+        from mlframe.training import OutputConfig, PreprocessingConfig
         from .shared import SimpleFeaturesAndTargetsExtractor
 
         n = 600
@@ -371,24 +388,18 @@ class TestPipelineCacheKindIsolation:
         budget_cats = ["HOURLY", "FIXED", "MILESTONE"]
         tier_cats = ["BEGINNER", "INTERMEDIATE", "EXPERT"]
         workload_cats = ["LESS_THAN_30", "MORE_THAN_30", "FULL_TIME"]
-        pl_df = pl.DataFrame({
-            "num_feat_1": rng.standard_normal(n).astype(np.float32),
-            "num_feat_2": rng.standard_normal(n).astype(np.float32),
-            "num_feat_3": rng.standard_normal(n).astype(np.float32),
-            "budget_type": pl.Series(
-                [budget_cats[i % 3] for i in range(n)]
-            ).cast(pl.Enum(budget_cats)),
-            "contractor_tier": pl.Series(
-                [tier_cats[i % 3] for i in range(n)]
-            ).cast(pl.Enum(tier_cats)),
-            "workload": pl.Series(
-                [workload_cats[i % 3] for i in range(n)]
-            ).cast(pl.Enum(workload_cats)),
-            "target": rng.integers(0, 2, n),
-        })
-        fte = SimpleFeaturesAndTargetsExtractor(
-            target_column="target", regression=False
+        pl_df = pl.DataFrame(
+            {
+                "num_feat_1": rng.standard_normal(n).astype(np.float32),
+                "num_feat_2": rng.standard_normal(n).astype(np.float32),
+                "num_feat_3": rng.standard_normal(n).astype(np.float32),
+                "budget_type": pl.Series([budget_cats[i % 3] for i in range(n)]).cast(pl.Enum(budget_cats)),
+                "contractor_tier": pl.Series([tier_cats[i % 3] for i in range(n)]).cast(pl.Enum(tier_cats)),
+                "workload": pl.Series([workload_cats[i % 3] for i in range(n)]).cast(pl.Enum(workload_cats)),
+                "target": rng.integers(0, 2, n),
+            }
         )
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
         bc = TrainingBehaviorConfig(prefer_gpu_configs=False)
 
         # This used to raise the trainer's ``RuntimeError: LGBMClassifier
@@ -402,7 +413,7 @@ class TestPipelineCacheKindIsolation:
             mlframe_models=["cb", "xgb", "lgb"],
             hyperparams_config={"iterations": 3},
             behavior_config=bc,
-            preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
+            preprocessing_config=PreprocessingConfig(drop_columns=[]),
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
@@ -482,6 +493,7 @@ class TestPipelineCacheKindIsolation:
 # =====================================================================
 # Fix 6: Conf Ensemble COV in name + ensemble members in name
 # =====================================================================
+
 
 class TestEnsembleNameAnnotations:
     """Lock in the 2026-04-23 review follow-ups on ensemble log labels.
@@ -604,6 +616,7 @@ class TestEnsembleNameAnnotations:
 # Fix 7: Category-drift WARN carries concrete healing suggestions
 # =====================================================================
 
+
 class TestCategoryDriftHealingSuggestions:
     """The 2026-04-23 review flagged that ``Category drift suspect`` WARN
     lines had no actionable guidance. Now each WARN carries a
@@ -620,6 +633,7 @@ class TestCategoryDriftHealingSuggestions:
         import tempfile
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training.configs import TrainingBehaviorConfig
+        from mlframe.training import OutputConfig, PreprocessingConfig
         from .shared import SimpleFeaturesAndTargetsExtractor
 
         # Build train/val/test where val has categories train never saw —
@@ -629,23 +643,23 @@ class TestCategoryDriftHealingSuggestions:
         train_cats = [f"t{i}" for i in range(20)]
         val_extra = [f"u{i}" for i in range(8)]  # 8 unseen categories
         all_cats = train_cats + val_extra
-        pl_df = pl.DataFrame({
-            "num": rng.standard_normal(n).astype(np.float32),
-            # 'many_levels' ensures we hit the high-cardinality suggestion
-            # branch (card_tr >= 100 would need 100 levels; stay at 20 for
-            # the "low cardinality" branch and assert "__UNSEEN__" bucket
-            # suggestion shows).
-            "many_levels": pl.Series(
-                [all_cats[i % len(all_cats)] for i in range(n)]
-            ).cast(pl.Enum(all_cats)),
-            # Timestamp-ish to make the temporal split nontrivial.
-            "ts": [float(i) for i in range(n)],
-            "target": rng.integers(0, 2, n),
-        })
-
-        fte = SimpleFeaturesAndTargetsExtractor(
-            target_column="target", regression=False
+        pl_df = pl.DataFrame(
+            {
+                "num": rng.standard_normal(n).astype(np.float32),
+                # 'many_levels' ensures we hit the high-cardinality suggestion
+                # branch (card_tr >= 100 would need 100 levels; stay at 20 for
+                # the "low cardinality" branch and assert "__UNSEEN__" bucket
+                # suggestion shows).
+                "many_levels": pl.Series([all_cats[i % len(all_cats)] for i in range(n)]).cast(
+                    pl.Enum(all_cats)
+                ),
+                # Timestamp-ish to make the temporal split nontrivial.
+                "ts": [float(i) for i in range(n)],
+                "target": rng.integers(0, 2, n),
+            }
         )
+
+        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
         bc = TrainingBehaviorConfig(prefer_gpu_configs=False)
 
         caplog.set_level(_logging.WARNING, logger="mlframe.training.core")
@@ -659,7 +673,7 @@ class TestCategoryDriftHealingSuggestions:
                     mlframe_models=["cb"],
                     hyperparams_config={"iterations": 3},
                     behavior_config=bc,
-                    preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=1,
+                    preprocessing_config=PreprocessingConfig(drop_columns=[]),
                     use_ordinary_models=True,
                     use_mlframe_ensembles=False,
                     output_config=OutputConfig(data_dir=tmp, models_dir="models"),
@@ -671,10 +685,7 @@ class TestCategoryDriftHealingSuggestions:
                 # content here.
                 pass
 
-        drift_records = [
-            r for r in caplog.records
-            if "Category drift suspect" in r.getMessage()
-        ]
+        drift_records = [r for r in caplog.records if "Category drift suspect" in r.getMessage()]
         if not drift_records:
             # The synthetic data may not always trip the WARN under every
             # split ratio; skip rather than false-fail in that case. The
@@ -685,9 +696,7 @@ class TestCategoryDriftHealingSuggestions:
                 "structural check below verifies format independently."
             )
         msg = drift_records[0].getMessage()
-        assert "suggested actions" in msg, (
-            f"Drift WARN must include 'suggested actions' block:\n{msg}"
-        )
+        assert "suggested actions" in msg, f"Drift WARN must include 'suggested actions' block:\n{msg}"
 
     def test_high_cardinality_branch_suggests_hash_bucket(self):
         """Structural check of the suggestion-by-cardinality logic.
@@ -722,6 +731,7 @@ class TestCategoryDriftHealingSuggestions:
 # Fix 8: Defense-in-depth — lazy-conversion post-check raises on polars leak
 # =====================================================================
 
+
 class TestLazyConversionDefenseInDepth:
     """The 2026-04-23 pipeline_cache fix eliminated the known leakage path,
     but the same failure class (polars frame surviving into non-native
@@ -740,6 +750,7 @@ class TestLazyConversionDefenseInDepth:
         silently continue and leak a polars frame downstream."""
         import mlframe.training.core as core_mod
         from mlframe.training.configs import TrainingBehaviorConfig
+        from mlframe.training import OutputConfig, PreprocessingConfig
         from .shared import SimpleFeaturesAndTargetsExtractor
 
         # Inject a mid-loop failure: patch _build_tier_dfs (called right
@@ -755,23 +766,21 @@ class TestLazyConversionDefenseInDepth:
             for k in ("train_df", "val_df", "test_df"):
                 v = base_dfs.get(k)
                 if v is not None:
-                    observed_kinds.append(
-                        (k, "pl" if isinstance(v, pl.DataFrame) else "pd")
-                    )
+                    observed_kinds.append((k, "pl" if isinstance(v, pl.DataFrame) else "pd"))
             return original_build(base_dfs, strategy, *args, **kwargs)
 
         core_mod._build_tier_dfs = _wrapped_build
         try:
             rng = np.random.default_rng(0)
             n = 300
-            pl_df = pl.DataFrame({
-                "num_1": rng.standard_normal(n).astype(np.float32),
-                "num_2": rng.standard_normal(n).astype(np.float32),
-                "target": rng.integers(0, 2, n),
-            })
-            fte = SimpleFeaturesAndTargetsExtractor(
-                target_column="target", regression=False
+            pl_df = pl.DataFrame(
+                {
+                    "num_1": rng.standard_normal(n).astype(np.float32),
+                    "num_2": rng.standard_normal(n).astype(np.float32),
+                    "target": rng.integers(0, 2, n),
+                }
             )
+            fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
             bc = TrainingBehaviorConfig(prefer_gpu_configs=False)
 
             train_mlframe_models_suite = core_mod.train_mlframe_models_suite
@@ -783,7 +792,7 @@ class TestLazyConversionDefenseInDepth:
                 mlframe_models=["lgb"],
                 hyperparams_config={"iterations": 3},
                 behavior_config=bc,
-                preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
+                preprocessing_config=PreprocessingConfig(drop_columns=[]),
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
                 output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
@@ -800,14 +809,14 @@ class TestLazyConversionDefenseInDepth:
         # earlier in the sweep (none here since we pinned mlframe_models
         # to lgb), but for LGB all entries must be "pd".
         assert not polars_kinds, (
-            f"Lazy-conversion post-assert failed to catch polars leak into "
-            f"_build_tier_dfs: {polars_kinds!r}"
+            f"Lazy-conversion post-assert failed to catch polars leak into _build_tier_dfs: {polars_kinds!r}"
         )
 
 
 # =====================================================================
 # Fix 9: ensure_no_infinity_pd survives Int8 / pandas-extension columns
 # =====================================================================
+
 
 class TestEnsureNoInfinityPdHandlesExtensionDtypes:
     """Lock in the 2026-04-23 prod regression: my own nullable-Boolean →
@@ -824,11 +833,13 @@ class TestEnsureNoInfinityPdHandlesExtensionDtypes:
         inf. Must not raise; the float inf must still be sanitised."""
         from mlframe.helpers import ensure_no_infinity_pd
 
-        pdf = pd.DataFrame({
-            "budget_amount": pd.Series([1.0, 2.0, np.inf, 4.0], dtype="float32"),
-            "hide_budget":   pd.Series([1, 0, pd.NA, 1], dtype="Int8"),
-            "plain_int":     pd.Series([1, 2, 3, 4], dtype="int32"),
-        })
+        pdf = pd.DataFrame(
+            {
+                "budget_amount": pd.Series([1.0, 2.0, np.inf, 4.0], dtype="float32"),
+                "hide_budget": pd.Series([1, 0, pd.NA, 1], dtype="Int8"),
+                "plain_int": pd.Series([1, 2, 3, 4], dtype="int32"),
+            }
+        )
         out = ensure_no_infinity_pd(pdf)  # must not raise
         assert out["budget_amount"].tolist() == [1.0, 2.0, 0.0, 4.0]
         # Int8 / int32 columns must be left untouched (they can't hold inf).
@@ -845,9 +856,11 @@ class TestEnsureNoInfinityPdHandlesExtensionDtypes:
         with pd.NA returns object-dtype too."""
         from mlframe.helpers import ensure_no_infinity_pd
 
-        pdf = pd.DataFrame({
-            "score": pd.Series([1.5, np.inf, pd.NA, 2.5], dtype="Float64"),
-        })
+        pdf = pd.DataFrame(
+            {
+                "score": pd.Series([1.5, np.inf, pd.NA, 2.5], dtype="Float64"),
+            }
+        )
         out = ensure_no_infinity_pd(pdf)
         # inf → 0; pd.NA → also 0 (np.nan_to_num collapses NaN to 0 too,
         # which is the historical behaviour — not a regression of this fix).
@@ -861,11 +874,13 @@ class TestEnsureNoInfinityPdHandlesExtensionDtypes:
         code path."""
         from mlframe.helpers import ensure_no_infinity_pd
 
-        pdf = pd.DataFrame({
-            "f": pd.Series([1.0, np.inf], dtype="float32"),
-            "cat": pd.Categorical(["a", "b"]),
-            "obj": pd.Series(["x", "y"], dtype=object),
-        })
+        pdf = pd.DataFrame(
+            {
+                "f": pd.Series([1.0, np.inf], dtype="float32"),
+                "cat": pd.Categorical(["a", "b"]),
+                "obj": pd.Series(["x", "y"], dtype=object),
+            }
+        )
         out = ensure_no_infinity_pd(pdf)
         assert out["f"].tolist() == [1.0, 0.0]
         # Categorical / object must round-trip untouched.
@@ -877,6 +892,7 @@ class TestEnsureNoInfinityPdHandlesExtensionDtypes:
 # Fix 10: B5 polars-release fires before non-polars-native strategy entry
 #         (not just on tier change) — RAM peak halved on mixed suites
 # =====================================================================
+
 
 class TestPolarsReleaseBeforeNonNativeStrategy:
     """The 2026-04-23 prod log showed RAM grow 29 GB → 86 GB during the
@@ -898,19 +914,20 @@ class TestPolarsReleaseBeforeNonNativeStrategy:
         import re
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training.configs import TrainingBehaviorConfig
+        from mlframe.training import OutputConfig, PreprocessingConfig
         from .shared import SimpleFeaturesAndTargetsExtractor
 
         rng = np.random.default_rng(0)
         n = 400
         budget_cats = ["HOURLY", "FIXED", "MILESTONE"]
-        pl_df = pl.DataFrame({
-            "num_1": rng.standard_normal(n).astype(np.float32),
-            "num_2": rng.standard_normal(n).astype(np.float32),
-            "budget_type": pl.Series(
-                [budget_cats[i % 3] for i in range(n)]
-            ).cast(pl.Enum(budget_cats)),
-            "target": rng.integers(0, 2, n),
-        })
+        pl_df = pl.DataFrame(
+            {
+                "num_1": rng.standard_normal(n).astype(np.float32),
+                "num_2": rng.standard_normal(n).astype(np.float32),
+                "budget_type": pl.Series([budget_cats[i % 3] for i in range(n)]).cast(pl.Enum(budget_cats)),
+                "target": rng.integers(0, 2, n),
+            }
+        )
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
         bc = TrainingBehaviorConfig(prefer_gpu_configs=False)
 
@@ -939,7 +956,7 @@ class TestPolarsReleaseBeforeNonNativeStrategy:
                 mlframe_models=["cb", "xgb", "lgb"],
                 hyperparams_config={"iterations": 3},
                 behavior_config=bc,
-                preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=1,
+                preprocessing_config=PreprocessingConfig(drop_columns=[]),
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
                 output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
@@ -954,8 +971,7 @@ class TestPolarsReleaseBeforeNonNativeStrategy:
         msgs = [m for _, m in records]
         # The upfront release log line — exact wording in core.py.
         release_idx = next(
-            (i for i, m in enumerate(msgs)
-             if "Released pre-pipeline Polars originals before lgb" in m),
+            (i for i, m in enumerate(msgs) if "Released pre-pipeline Polars originals before lgb" in m),
             None,
         )
         assert release_idx is not None, (
@@ -968,22 +984,21 @@ class TestPolarsReleaseBeforeNonNativeStrategy:
         # release — otherwise we briefly hold 2× memory (the very bug the
         # fix targets).
         lazy_conv_idx = next(
-            (i for i, m in enumerate(msgs)
-             if "Lazy pandas conversion triggered" in m and "lgb" in m),
+            (i for i, m in enumerate(msgs) if "Lazy pandas conversion triggered" in m and "lgb" in m),
             None,
         )
         if lazy_conv_idx is not None:
             assert release_idx < lazy_conv_idx, (
                 f"Polars-release must precede lazy conversion for LGB. "
                 f"release_idx={release_idx}, lazy_conv_idx={lazy_conv_idx}\n"
-                + "\n".join(msgs[min(release_idx, lazy_conv_idx):
-                                 max(release_idx, lazy_conv_idx) + 1])
+                + "\n".join(msgs[min(release_idx, lazy_conv_idx) : max(release_idx, lazy_conv_idx) + 1])
             )
 
 
 # =====================================================================
 # Fix 11: CatBoost sticky-flag survives reload from joblib dump
 # =====================================================================
+
 
 class TestCatBoostStickyFlagDefensiveAtLoad:
     """The 2026-04-23 prod log showed reloaded CB models (cb_recency
@@ -1028,6 +1043,7 @@ class TestCatBoostStickyFlagDefensiveAtLoad:
         # Reload via mlframe's loader and apply the same defensive flag
         # set the production path uses (mirrored from train_eval.py).
         from mlframe.training.io import load_mlframe_model
+
         reloaded = load_mlframe_model(str(fpath))
         assert reloaded is not None
         model_obj = reloaded.model
@@ -1048,6 +1064,7 @@ class TestCatBoostStickyFlagDefensiveAtLoad:
         # silently removed in a refactor.
         import inspect
         from mlframe.training import OutputConfig, PreprocessingConfig, train_eval as te_mod
+
         src = inspect.getsource(te_mod.process_model)
         assert "_mlframe_polars_fastpath_broken" in src, (
             "process_model must defensively set "
@@ -1095,6 +1112,7 @@ class TestCatBoostStickyFlagDefensiveAtLoad:
 # Fix 12: Adaptive ensemble median-distance filter (relative-to-median)
 # =====================================================================
 
+
 class TestEnsembleAdaptiveMedianFilter:
     """The 2026-04-24 prod log showed the ensemble outlier-member filter
     excluding ALL 6 tree-model members (CB / XGB / LGB × 2 weighting
@@ -1115,8 +1133,7 @@ class TestEnsembleAdaptiveMedianFilter:
         rng = np.random.default_rng(seed)
         median = rng.random((n_rows, 1))
         return median, [
-            np.clip(median + rng.normal(0, jitter_scale, (n_rows, 1)), 0, 1)
-            for _ in range(n_members)
+            np.clip(median + rng.normal(0, jitter_scale, (n_rows, 1)), 0, 1) for _ in range(n_members)
         ]
 
     def test_default_relative_thresholds_keep_clustered_members(self, capsys):
@@ -1128,7 +1145,9 @@ class TestEnsembleAdaptiveMedianFilter:
 
         _, preds = self._make_clustered_preds()
         out, _, _ = ensemble_probabilistic_predictions(
-            *preds, ensemble_method="arithm", verbose=True,
+            *preds,
+            ensemble_method="arithm",
+            verbose=True,
         )
         assert out is not None and len(out) == 100
         captured = capsys.readouterr()
@@ -1150,12 +1169,12 @@ class TestEnsembleAdaptiveMedianFilter:
         preds.append(np.clip(median + rng.normal(0, 0.5, (100, 1)), 0, 1))
 
         ensemble_probabilistic_predictions(
-            *preds, ensemble_method="arithm", verbose=True,
+            *preds,
+            ensemble_method="arithm",
+            verbose=True,
         )
         captured = capsys.readouterr()
-        excluded_lines = [
-            ln for ln in captured.out.splitlines() if "ens member" in ln and "excluded" in ln
-        ]
+        excluded_lines = [ln for ln in captured.out.splitlines() if "ens member" in ln and "excluded" in ln]
         assert len(excluded_lines) == 1, (
             f"exactly one outlier should be excluded; got {len(excluded_lines)}:\n"
             + "\n".join(excluded_lines)
@@ -1176,8 +1195,10 @@ class TestEnsembleAdaptiveMedianFilter:
         ensemble_probabilistic_predictions(
             *preds,
             ensemble_method="arithm",
-            max_mae=0.01, max_std=0.01,
-            max_mae_relative=0, max_std_relative=0,
+            max_mae=0.01,
+            max_std=0.01,
+            max_mae_relative=0,
+            max_std_relative=0,
             verbose=True,
         )
         captured = capsys.readouterr()
@@ -1193,8 +1214,10 @@ class TestEnsembleAdaptiveMedianFilter:
         out, _, _ = ensemble_probabilistic_predictions(
             *preds,
             ensemble_method="arithm",
-            max_mae=0, max_std=0,
-            max_mae_relative=0, max_std_relative=0,
+            max_mae=0,
+            max_std=0,
+            max_mae_relative=0,
+            max_std_relative=0,
             verbose=True,
         )
         assert out is not None
@@ -1211,7 +1234,10 @@ class TestEnsembleAdaptiveMedianFilter:
         p1 = rng.random((50, 1))
         p2 = rng.random((50, 1))
         ensemble_probabilistic_predictions(
-            p1, p2, ensemble_method="arithm", verbose=True,
+            p1,
+            p2,
+            ensemble_method="arithm",
+            verbose=True,
         )
         captured = capsys.readouterr()
         assert "ens member" not in captured.out
@@ -1221,6 +1247,7 @@ class TestEnsembleAdaptiveMedianFilter:
 # Fix 13: Conf Ensemble COV tag has trailing space (no slammed-together
 #          downstream tokens)
 # =====================================================================
+
 
 class TestConfEnsembleCovTagFormatting:
     """The 2026-04-24 prod log showed
@@ -1249,8 +1276,7 @@ class TestConfEnsembleCovTagFormatting:
         # Composed prefix + downstream token must have a clean separator.
         prefix = f"Conf Ensemble arithm notext[N=6]{_cov_tag}downstream_token"
         assert "%]downstream" not in prefix, (
-            f"tokens slammed together — trailing space in _cov_tag lost: "
-            f"{prefix!r}"
+            f"tokens slammed together — trailing space in _cov_tag lost: {prefix!r}"
         )
 
     def test_empty_cov_tag_stays_empty(self):
@@ -1269,7 +1295,7 @@ class TestConfEnsembleCovTagFormatting:
 
         src = inspect.getsource(ens_mod._process_single_ensemble_method)
         # Look for the exact format spec — both spaces must be present.
-        assert ' [{_cov_src[0]} COV={_cov_src[1]:.0f}%] ' in src, (
+        assert " [{_cov_src[0]} COV={_cov_src[1]:.0f}%] " in src, (
             "_cov_tag format string lost its trailing space — Conf "
             "Ensemble names will jam together with downstream tokens "
             "again (2026-04-24 regression class)."
@@ -1280,6 +1306,7 @@ class TestConfEnsembleCovTagFormatting:
 # Fix 14: CatBoost sticky-flag set defensively at MODEL CREATION
 #          (not only after first dispatch miss / reload)
 # =====================================================================
+
 
 class TestCatBoostStickyFlagDefensiveAtCreation:
     """The 2026-04-24 prod log showed that even with the load-path
@@ -1364,14 +1391,14 @@ class TestCatBoostStickyFlagDefensiveAtCreation:
 
         # Only ONE call, with pandas — no polars attempt + retry.
         assert calls == ["DataFrame"], (
-            f"defensive sticky flag must trigger short-circuit on first "
-            f"predict; got {calls}"
+            f"defensive sticky flag must trigger short-circuit on first predict; got {calls}"
         )
 
 
 # =====================================================================
 # Fix 15: _CB_VAL_POOL_CACHE two-stage lookup (id → content fallback)
 # =====================================================================
+
 
 class TestCBValPoolCacheContentFallback:
     """The 2026-04-24 prod log captured CB val Pool being **rebuilt** on
@@ -1398,33 +1425,46 @@ class TestCBValPoolCacheContentFallback:
         and dtypes — must return the cached Pool via content match,
         not rebuild."""
         from mlframe.training.trainer import (
-            _CB_VAL_POOL_CACHE, _predict_with_fallback,
+            _CB_VAL_POOL_CACHE,
+            _predict_with_fallback,
         )
+
         # Pre-condition: clear cache for a clean test.
         _CB_VAL_POOL_CACHE.clear()
 
         # Build two pandas frames with identical schema but distinct
         # Python identity. id(df_a) != id(df_b).
-        df_a = pd.DataFrame({
-            "a": pd.Series([1.0, 2.0, 3.0], dtype="float32"),
-            "b": pd.Series(["x", "y", "z"], dtype="category"),
-        })
-        df_b = pd.DataFrame({
-            "a": pd.Series([4.0, 5.0, 6.0], dtype="float32"),  # different values, same dtype
-            "b": pd.Series(["x", "y", "z"], dtype="category"),
-        })
+        df_a = pd.DataFrame(
+            {
+                "a": pd.Series([1.0, 2.0, 3.0], dtype="float32"),
+                "b": pd.Series(["x", "y", "z"], dtype="category"),
+            }
+        )
+        df_b = pd.DataFrame(
+            {
+                "a": pd.Series([4.0, 5.0, 6.0], dtype="float32"),  # different values, same dtype
+                "b": pd.Series(["x", "y", "z"], dtype="category"),
+            }
+        )
         assert id(df_a) != id(df_b)
 
         # Manually populate the cache with a fake Pool keyed by id(df_a)
         # carrying the dtypes signature ``df_a`` has.
         class _FakePool:
             pass
+
         fake_pool = _FakePool()
         fake_pool._mlframe_dtypes_sig = tuple(str(d) for d in df_a.dtypes)
         cols_a = tuple(df_a.columns)
         shape_a = (df_a.shape[0], df_a.shape[1])
-        key = (id(df_a), cols_a, shape_a,
-               (), (), ())  # cat/text/embedding empty tuples to match storage shape
+        key = (
+            id(df_a),
+            cols_a,
+            shape_a,
+            (),
+            (),
+            (),
+        )  # cat/text/embedding empty tuples to match storage shape
         _CB_VAL_POOL_CACHE[key] = fake_pool
 
         # Lookup with df_b: id miss, but cols+shape+dtypes match → hit.
@@ -1432,6 +1472,7 @@ class TestCBValPoolCacheContentFallback:
 
         class _FakeCB:
             pass
+
         _FakeCB.__name__ = "CatBoostClassifier"
 
         def _fake_predict_proba(X):
@@ -1466,6 +1507,7 @@ class TestCBValPoolCacheContentFallback:
         content-fallback lookup has nothing to compare."""
         import inspect
         from mlframe.training import trainer as tr_mod
+
         src = inspect.getsource(tr_mod._maybe_rewrite_eval_set_as_cb_pool)
         assert "_mlframe_dtypes_sig" in src, (
             "_maybe_rewrite_eval_set_as_cb_pool must stash a "
@@ -1478,6 +1520,7 @@ class TestCBValPoolCacheContentFallback:
 # =====================================================================
 # Fix 16: TEST Pool double build eliminated by sticky-flag short-circuit
 # =====================================================================
+
 
 class TestCBSinglePoolBuildOnTestPredict:
     """The 2026-04-24 prod log showed CB TEST predict_proba building the
@@ -1503,6 +1546,7 @@ class TestCBSinglePoolBuildOnTestPredict:
 
         class _FakeCB:
             pass
+
         _FakeCB.__name__ = "CatBoostClassifier"
 
         def _proba(X):
@@ -1517,9 +1561,11 @@ class TestCBSinglePoolBuildOnTestPredict:
         # Defensive sticky flag (set at construction in production).
         fake._mlframe_polars_fastpath_broken = True
 
-        pl_df = pl.DataFrame({
-            "a": pl.Series(["x", "y", "z"], dtype=pl.Categorical),
-        })
+        pl_df = pl.DataFrame(
+            {
+                "a": pl.Series(["x", "y", "z"], dtype=pl.Categorical),
+            }
+        )
         _predict_with_fallback(fake, pl_df, method="predict_proba")
 
         # fn must have been called EXACTLY ONCE, with a pandas DataFrame
@@ -1532,6 +1578,5 @@ class TestCBSinglePoolBuildOnTestPredict:
             f"({kinds!r}). Expected 1 call with pandas only."
         )
         assert kinds[0] == "DataFrame", (
-            f"short-circuit must convert to pandas; first call was "
-            f"with {kinds[0]!r}"
+            f"short-circuit must convert to pandas; first call was with {kinds[0]!r}"
         )

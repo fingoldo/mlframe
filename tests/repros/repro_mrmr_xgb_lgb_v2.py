@@ -45,7 +45,7 @@ from shared import SimpleFeaturesAndTargetsExtractor
 
 combo = FuzzCombo(
     models=("lgb", "xgb"), input_type="polars_utf8", n_rows=300,
-    cat_feature_count=1, null_fraction_cats=0.0, feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True),
+    cat_feature_count=1, null_fraction_cats=0.0, use_mrmr_fs=True,
     weight_schemas=("uniform",), target_type="binary_classification",
     auto_detect_cats=True, align_polars_categorical_dicts=False, seed=98,
 )
@@ -54,7 +54,7 @@ fte = SimpleFeaturesAndTargetsExtractor(target_column=target_col, regression=Fal
 
 from mlframe.training.core import train_mlframe_models_suite
 try:
-    trained, _ = train_mlframe_models_suite(df=df, target_name='repro', model_name='repro', features_and_targets_extractor=fte, mlframe_models=['lgb', 'xgb'], hyperparams_config={'iterations': 3, 'xgb_kwargs': {'device': 'cpu', 'verbosity': 0}, 'lgb_kwargs': {'device_type': 'cpu', 'verbose': -1}}, preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=1, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir='D:/Temp/repro_c0098', models_dir='models'), feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3, 'full_npermutations': 3}))
+    trained, _ = train_mlframe_models_suite(df=df, target_name='repro', model_name='repro', features_and_targets_extractor=fte, mlframe_models=['lgb', 'xgb'], hyperparams_config={'iterations': 3, 'xgb_kwargs': {'device': 'cpu', 'verbosity': 0}, 'lgb_kwargs': {'device_type': 'cpu', 'verbose': -1}}, preprocessing_config=PreprocessingConfig(drop_columns=[]), use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir='D:/Temp/repro_c0098', models_dir='models'), feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3, 'full_npermutations': 3}))
     print("PASS")
 except Exception as e:
     print(f"FAIL: {type(e).__name__}: {e}")

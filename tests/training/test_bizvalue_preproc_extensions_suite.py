@@ -1,4 +1,3 @@
-from mlframe.training import OutputConfig, ReportingConfig
 """Suite-level business-value tests for `preprocessing_extensions`.
 
 NOTE: These are regression sensors, not scientific benchmarks. Synthetic data parameters
@@ -28,6 +27,7 @@ Tests:
 """
 
 from __future__ import annotations
+from mlframe.training import OutputConfig, ReportingConfig
 
 import numpy as np
 import pandas as pd

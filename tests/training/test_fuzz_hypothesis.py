@@ -15,6 +15,7 @@ This file is the default Hypothesis ``max_examples=20`` — enough to
 probe the continuous space without exploding wall-clock. Raise
 ``MLFRAME_HYPOTHESIS_EXAMPLES`` for deeper sweeps.
 """
+
 from __future__ import annotations
 
 import os
@@ -51,24 +52,30 @@ _MAX_EXAMPLES = int(os.environ.get("MLFRAME_HYPOTHESIS_EXAMPLES", "20"))
 # with small value sets — pairwise coverage is the job of the other
 # two suites; here we explore the continuous neighbourhood around a
 # few discrete points.
-_leaf_strategy = st.fixed_dictionaries({
-    "n_rows": st.integers(min_value=120, max_value=1500),
-    "cat_feature_count": st.integers(min_value=0, max_value=5),
-    "null_fraction_cats": st.floats(min_value=0.0, max_value=0.4, allow_nan=False),
-    "test_size": st.floats(min_value=0.05, max_value=0.35, allow_nan=False),
-    "fillna_value": st.one_of(st.none(), st.floats(min_value=-5.0, max_value=5.0, allow_nan=False)),
-    "iterations": st.integers(min_value=3, max_value=15),
-})
+_leaf_strategy = st.fixed_dictionaries(
+    {
+        "n_rows": st.integers(min_value=120, max_value=1500),
+        "cat_feature_count": st.integers(min_value=0, max_value=5),
+        "null_fraction_cats": st.floats(min_value=0.0, max_value=0.4, allow_nan=False),
+        "test_size": st.floats(min_value=0.05, max_value=0.35, allow_nan=False),
+        "fillna_value": st.one_of(st.none(), st.floats(min_value=-5.0, max_value=5.0, allow_nan=False)),
+        "iterations": st.integers(min_value=3, max_value=15),
+    }
+)
 
-_discrete_strategy = st.fixed_dictionaries({
-    "input_type": st.sampled_from(["pandas", "polars_utf8", "polars_enum", "polars_nullable"]),
-    "models": st.sampled_from([("cb",), ("xgb",), ("lgb",), ("hgb",), ("linear",), ("cb", "xgb"), ("lgb", "xgb")]),
-    "target_type": st.sampled_from(["binary_classification", "regression"]),
-    "categorical_encoding_cfg": st.sampled_from(["ordinal", "onehot"]),
-    "scaler_name_cfg": st.sampled_from(["standard", "robust", None]),
-    "inject_inf_nan": st.booleans(),
-    "inject_label_leak": st.booleans(),
-})
+_discrete_strategy = st.fixed_dictionaries(
+    {
+        "input_type": st.sampled_from(["pandas", "polars_utf8", "polars_enum", "polars_nullable"]),
+        "models": st.sampled_from(
+            [("cb",), ("xgb",), ("lgb",), ("hgb",), ("linear",), ("cb", "xgb"), ("lgb", "xgb")]
+        ),
+        "target_type": st.sampled_from(["binary_classification", "regression"]),
+        "categorical_encoding_cfg": st.sampled_from(["ordinal", "onehot"]),
+        "scaler_name_cfg": st.sampled_from(["standard", "robust", None]),
+        "inject_inf_nan": st.booleans(),
+        "inject_label_leak": st.booleans(),
+    }
+)
 
 
 def _combo_from_hyp(leaf: dict, discrete: dict, seed: int) -> FuzzCombo:
@@ -127,7 +134,8 @@ def test_hypothesis_leaf_sampling(tmp_path_factory, leaf, discrete, seed):
         features_and_targets_extractor=fte,
         mlframe_models=list(combo.models),
         hyperparams_config=_config_for_models(
-            combo.models, combo.n_rows,
+            combo.models,
+            combo.n_rows,
             iterations=combo.iterations,
             early_stopping_rounds=combo.early_stopping_rounds_cfg,
         ),
@@ -136,7 +144,7 @@ def test_hypothesis_leaf_sampling(tmp_path_factory, leaf, discrete, seed):
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         outlier_detection_config=OutlierDetectionConfig(detector=outlier_detector),
-        output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'),
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
         feature_selection_config=FeatureSelectionConfig(
             use_mrmr_fs=False,
             custom_pre_pipelines=custom_pre or {},

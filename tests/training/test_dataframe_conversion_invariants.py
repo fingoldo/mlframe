@@ -1,4 +1,5 @@
 from mlframe.training import OutputConfig, PreprocessingConfig
+
 """
 Structural invariant tests — evergreen guards against the *class* of bugs
 that surfaced in the 2026-04-23 prod log review.
@@ -45,6 +46,7 @@ import pytest
 # #1 PipelineCache: no polars/pandas cross-stream leakage
 # =====================================================================
 
+
 class TestPipelineCacheKeyInvariants:
     """Meta-test over every pair of strategies in ``MODEL_STRATEGIES``.
 
@@ -85,7 +87,7 @@ class TestPipelineCacheKeyInvariants:
         strategies = list(MODEL_STRATEGIES.items())
         colliding_triples = []
         for i, (name_a, strat_a) in enumerate(strategies):
-            for name_b, strat_b in strategies[i + 1:]:
+            for name_b, strat_b in strategies[i + 1 :]:
                 same_cache = strat_a.cache_key == strat_b.cache_key
                 same_tier = strat_a.feature_tier() == strat_b.feature_tier()
                 diff_kind = strat_a.supports_polars != strat_b.supports_polars
@@ -98,10 +100,7 @@ class TestPipelineCacheKeyInvariants:
         assert not colliding_triples, (
             "pipeline_cache key collision between a polars-native and a "
             f"pandas-consuming strategy — this is the 2026-04-23 bug class:\n"
-            + "\n".join(
-                f"  {a!r} ↔ {b!r} share key {k!r}"
-                for a, b, k in colliding_triples
-            )
+            + "\n".join(f"  {a!r} ↔ {b!r} share key {k!r}" for a, b, k in colliding_triples)
         )
 
     def test_known_tree_strategy_trio_produces_distinct_keys(self):
@@ -112,13 +111,8 @@ class TestPipelineCacheKeyInvariants:
         fix while the meta-test above guards the rest."""
         from mlframe.training.strategies import get_strategy
 
-        keys = {
-            name: self._compose_cache_key(get_strategy(name))
-            for name in ("cb", "xgb", "lgb")
-        }
-        assert len(set(keys.values())) == 3, (
-            f"CB/XGB/LGB keys must all differ; got {keys!r}"
-        )
+        keys = {name: self._compose_cache_key(get_strategy(name)) for name in ("cb", "xgb", "lgb")}
+        assert len(set(keys.values())) == 3, f"CB/XGB/LGB keys must all differ; got {keys!r}"
         # And specifically: XGB vs LGB (the 2026-04-23 collision).
         assert keys["xgb"] != keys["lgb"]
 
@@ -126,6 +120,7 @@ class TestPipelineCacheKeyInvariants:
 # =====================================================================
 # #2 No duplicate polars→pandas conversion per DF in a suite run
 # =====================================================================
+
 
 class TestNoDuplicateConversion:
     """A full mixed-strategy suite run must convert each Polars input DF
@@ -149,17 +144,15 @@ class TestNoDuplicateConversion:
         rng = np.random.default_rng(0)
         budget_cats = ["HOURLY", "FIXED", "MILESTONE"]
         tier_cats = ["BEGINNER", "INTERMEDIATE", "EXPERT"]
-        pl_df = pl.DataFrame({
-            "num_1": rng.standard_normal(n).astype(np.float32),
-            "num_2": rng.standard_normal(n).astype(np.float32),
-            "budget_type": pl.Series(
-                [budget_cats[i % 3] for i in range(n)]
-            ).cast(pl.Enum(budget_cats)),
-            "contractor_tier": pl.Series(
-                [tier_cats[i % 3] for i in range(n)]
-            ).cast(pl.Enum(tier_cats)),
-            "target": rng.integers(0, 2, n),
-        })
+        pl_df = pl.DataFrame(
+            {
+                "num_1": rng.standard_normal(n).astype(np.float32),
+                "num_2": rng.standard_normal(n).astype(np.float32),
+                "budget_type": pl.Series([budget_cats[i % 3] for i in range(n)]).cast(pl.Enum(budget_cats)),
+                "contractor_tier": pl.Series([tier_cats[i % 3] for i in range(n)]).cast(pl.Enum(tier_cats)),
+                "target": rng.integers(0, 2, n),
+            }
+        )
 
         # Record conversions keyed by the *source* Polars DF id AND its
         # row count. Two calls on the same id with the same shape mean we
@@ -200,9 +193,7 @@ class TestNoDuplicateConversion:
         mf_utils.get_pandas_view_of_polars_df = _tracking
         mf_core.get_pandas_view_of_polars_df = _tracking
         try:
-            fte = SimpleFeaturesAndTargetsExtractor(
-                target_column="target", regression=False
-            )
+            fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
             bc = TrainingBehaviorConfig(prefer_gpu_configs=False)
             train_mlframe_models_suite(
                 df=pl_df,
@@ -212,7 +203,7 @@ class TestNoDuplicateConversion:
                 mlframe_models=["cb", "xgb", "lgb"],
                 hyperparams_config={"iterations": 3},
                 behavior_config=bc,
-                preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
+                preprocessing_config=PreprocessingConfig(drop_columns=[]),
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
                 output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
@@ -239,7 +230,8 @@ class TestNoDuplicateConversion:
         # twice (CB sticky-flag short-circuit + LGB lazy-conv path) — see
         # the comment block above. Anything ≥ 3 is a regression.
         excessive = {
-            k: v for k, v in per_input_id.items()
+            k: v
+            for k, v in per_input_id.items()
             if v > 2 and k != (max(per_input_size, key=per_input_size.get) if per_input_size else None)
         }
         assert not excessive, (
@@ -254,6 +246,7 @@ class TestNoDuplicateConversion:
 # #3 get_pandas_view_of_polars_df never emits pandas ``object`` dtype on
 #   non-nested inputs
 # =====================================================================
+
 
 class TestBridgeNoObjectDtypes:
     """The LGB 2026-04-23 crash traced to a single ``object`` column in the
@@ -270,6 +263,7 @@ class TestBridgeNoObjectDtypes:
 
     def test_bridge_produces_no_object_dtype_for_plain_polars_schemas(self):
         from mlframe.training.utils import get_pandas_view_of_polars_df
+
         # Property-based via hypothesis only here (not at module scope) —
         # keeps the import cost off the rest of this file when a slice of
         # tests is collected.
@@ -301,7 +295,9 @@ class TestBridgeNoObjectDtypes:
             n_rows=hst.integers(min_value=3, max_value=30),
             schema_pick=hst.lists(
                 hst.integers(min_value=0, max_value=len(_DTYPE_BUILDERS) - 1),
-                min_size=1, max_size=6, unique=False,
+                min_size=1,
+                max_size=6,
+                unique=False,
             ),
             null_frac=hst.floats(min_value=0.0, max_value=0.5),
         )
@@ -325,9 +321,7 @@ class TestBridgeNoObjectDtypes:
             pl_df = pl.DataFrame(cols)
 
             pdf = get_pandas_view_of_polars_df(pl_df)
-            object_cols = [
-                c for c in pdf.columns if pdf[c].dtype == object
-            ]
+            object_cols = [c for c in pdf.columns if pdf[c].dtype == object]
             assert not object_cols, (
                 f"Bridge produced pandas object dtype on plain-dtype Polars "
                 f"schema — tree backends will reject. Columns: {object_cols!r}. "
@@ -340,6 +334,7 @@ class TestBridgeNoObjectDtypes:
 # =====================================================================
 # #4 Ensemble methods: edge-case warning + range invariants
 # =====================================================================
+
 
 class TestEnsembleMethodsEdgeCases:
     """Each simple ensemble method (``arithm/harm/median/quad/qube/geo``)
@@ -366,13 +361,14 @@ class TestEnsembleMethodsEdgeCases:
     @pytest.mark.parametrize("method", ["arithm", "harm", "median", "quad", "qube", "geo"])
     @pytest.mark.parametrize("case_name,preds", EDGE_CASES)
     def test_ensemble_method_is_warning_free_finite_and_in_range(
-        self, method, case_name, preds,
+        self,
+        method,
+        case_name,
+        preds,
     ):
         from mlframe.ensembling import ensemble_probabilistic_predictions
 
-        pred_arrays = [
-            np.asarray(p, dtype=np.float64).reshape(-1, 1) for p in preds
-        ]
+        pred_arrays = [np.asarray(p, dtype=np.float64).reshape(-1, 1) for p in preds]
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
@@ -387,7 +383,8 @@ class TestEnsembleMethodsEdgeCases:
 
         # (1) No numeric-domain warnings surfaced by the ensemble path.
         numeric_warns = [
-            w for w in caught
+            w
+            for w in caught
             if issubclass(w.category, (RuntimeWarning,))
             and any(
                 m in str(w.message).lower()
@@ -400,9 +397,7 @@ class TestEnsembleMethodsEdgeCases:
         )
 
         # (2) All finite.
-        assert np.isfinite(predictions).all(), (
-            f"{method} on {case_name}: non-finite output {predictions!r}"
-        )
+        assert np.isfinite(predictions).all(), f"{method} on {case_name}: non-finite output {predictions!r}"
 
         # (3) In [0, 1]. The ensemble caller already clamps via
         # ``ensure_prob_limits=True`` by default, but asserting here means
@@ -417,6 +412,7 @@ class TestEnsembleMethodsEdgeCases:
 # #5 Trainer polars-contract: every non-polars-native strategy must reject
 #    a pl.DataFrame at fit time with a clear error
 # =====================================================================
+
 
 class TestTrainerPolarsContract:
     """If a pl.DataFrame ever reaches ``_train_model_with_fallback`` for a
@@ -473,7 +469,8 @@ class TestTrainerPolarsContract:
         from mlframe.training.trainer import _train_model_with_fallback
 
         non_native = [
-            name for name, strat in MODEL_STRATEGIES.items()
+            name
+            for name, strat in MODEL_STRATEGIES.items()
             if not strat.supports_polars
             # Neural-net / recurrent families hit a different fit path that
             # doesn't route through _train_model_with_fallback — scoped out
@@ -532,6 +529,4 @@ class TestTrainerPolarsContract:
                     f"self-heal regression."
                 )
 
-        assert not failures, (
-            "Trainer polars-contract violations:\n  " + "\n  ".join(failures)
-        )
+        assert not failures, "Trainer polars-contract violations:\n  " + "\n  ".join(failures)

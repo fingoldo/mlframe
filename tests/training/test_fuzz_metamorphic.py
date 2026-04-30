@@ -1,4 +1,4 @@
-from mlframe.training import OutputConfig, PreprocessingConfig
+
 """Metamorphic fuzz tests for ``train_mlframe_models_suite`` (Fix D).
 
 A metamorphic test runs the suite twice under inputs that SHOULD yield
@@ -26,6 +26,7 @@ D3. Ensemble-of-one identity — training with ``use_mlframe_ensembles=True``
     non-ensembled run. Catches ensemble path drift.
 """
 from __future__ import annotations
+from mlframe.training import OutputConfig, PreprocessingConfig
 
 import os
 import tempfile
@@ -46,7 +47,7 @@ from .shared import SimpleFeaturesAndTargetsExtractor
 # catastrophic regressions (predictions inverting, pipeline silently
 # dropping features), not 0.01-AUC wobble.
 _CLF_AUC_TOLERANCE = 0.15  # |Δ roc_auc|
-_REG_R2_TOLERANCE = 0.20   # |Δ r2|
+_REG_R2_TOLERANCE = 0.20  # |Δ r2|
 
 
 def _extract_primary_val_metric(trained: dict) -> float | None:
@@ -113,7 +114,7 @@ def _run_suite(combo: FuzzCombo, df, target_col: str, tmp_path) -> dict:
         features_and_targets_extractor=fte,
         mlframe_models=list(combo.models),
         hyperparams_config=hyper,
-        preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
+        preprocessing_config=PreprocessingConfig(drop_columns=[]),
         output_config=OutputConfig(data_dir=tmp_path, models_dir="models"),
         verbose=0,
     )
@@ -169,6 +170,7 @@ def _rename_first_numeric(df, target_col: str) -> tuple[Any, str]:
     """Rename the first numeric non-target column to a new name. Returns
     (new_df, new_column_name_to_exclude_from_diff)."""
     import polars as pl
+
     if isinstance(df, pl.DataFrame):
         for name, dtype in df.schema.items():
             if name == target_col:
@@ -200,19 +202,15 @@ def test_metamorphic_column_rename_invariance(combo: FuzzCombo, tmp_path):
     if not renamed_col:
         pytest.skip("no numeric column available to rename")
 
-    m_base = _extract_primary_val_metric(
-        _run_suite(combo, df_base, target_col, str(tmp_path / "base"))
-    )
-    m_renamed = _extract_primary_val_metric(
-        _run_suite(combo, df_renamed, target_col, str(tmp_path / "ren"))
-    )
+    m_base = _extract_primary_val_metric(_run_suite(combo, df_base, target_col, str(tmp_path / "base")))
+    m_renamed = _extract_primary_val_metric(_run_suite(combo, df_renamed, target_col, str(tmp_path / "ren")))
     if m_base is None or m_renamed is None:
         pytest.skip("no val metric produced; metamorphic check not applicable")
 
     tol = _tolerance_for(combo)
     assert abs(m_base - m_renamed) <= tol, (
         f"D1: val metric drifted under column rename — "
-        f"base={m_base:.4f}, renamed={m_renamed:.4f}, |Δ|={abs(m_base-m_renamed):.4f} > {tol}"
+        f"base={m_base:.4f}, renamed={m_renamed:.4f}, |Δ|={abs(m_base - m_renamed):.4f} > {tol}"
     )
 
 
@@ -224,6 +222,7 @@ def test_metamorphic_column_rename_invariance(combo: FuzzCombo, tmp_path):
 def _add_duplicate_rows(df, frac: float = 0.05):
     """Return df with ``frac`` (deterministic) duplicated rows appended."""
     import polars as pl
+
     n_new = max(2, int(df.shape[0] * frac))
     if isinstance(df, pl.DataFrame):
         rng = np.random.default_rng(12345)
@@ -235,6 +234,7 @@ def _add_duplicate_rows(df, frac: float = 0.05):
         idx = rng.integers(0, df.shape[0], size=n_new)
         dup = df.iloc[idx]
         import pandas as pd
+
         return pd.concat([df, dup], ignore_index=True)
 
 
@@ -249,17 +249,13 @@ def test_metamorphic_duplicate_rows_stable(combo: FuzzCombo, tmp_path):
     df_base, target_col, _ = build_frame_for_combo(combo)
     df_dup = _add_duplicate_rows(df_base, frac=0.05)
 
-    m_base = _extract_primary_val_metric(
-        _run_suite(combo, df_base, target_col, str(tmp_path / "base"))
-    )
-    m_dup = _extract_primary_val_metric(
-        _run_suite(combo, df_dup, target_col, str(tmp_path / "dup"))
-    )
+    m_base = _extract_primary_val_metric(_run_suite(combo, df_base, target_col, str(tmp_path / "base")))
+    m_dup = _extract_primary_val_metric(_run_suite(combo, df_dup, target_col, str(tmp_path / "dup")))
     if m_base is None or m_dup is None:
         pytest.skip("no val metric produced; metamorphic check not applicable")
 
     tol = _tolerance_for(combo)
     assert abs(m_base - m_dup) <= tol, (
         f"D2: val metric drifted under 5% row duplication — "
-        f"base={m_base:.4f}, dup={m_dup:.4f}, |Δ|={abs(m_base-m_dup):.4f} > {tol}"
+        f"base={m_base:.4f}, dup={m_dup:.4f}, |Δ|={abs(m_base - m_dup):.4f} > {tol}"
     )

@@ -14,6 +14,7 @@ import inspect
 import pytest
 
 from mlframe.training import (
+    ConfidenceAnalysisConfig,
     FeatureImportanceConfig,
     FeatureSelectionConfig,
     OutlierDetectionConfig,
@@ -75,6 +76,7 @@ class TestNewTypedConfigsArePresent:
             "output_config",
             "outlier_detection_config",
             "feature_selection_config",
+            "confidence_analysis_config",
         ],
     )
     def test_kwarg_present(self, suite_params, kwarg):
@@ -136,3 +138,19 @@ class TestConfigInstantiationDoesNotRaise:
         assert cfg.use_mrmr_fs is True
         assert cfg.rfecv_models == ["cb"]
         assert cfg.custom_pre_pipelines == {"my_pca": sentinel}
+
+    def test_confidence_analysis_config(self):
+        # Wired as first-class kwarg 2026-04-27 - was severed before that.
+        cfg = ConfidenceAnalysisConfig(
+            include=True,
+            use_shap=False,
+            max_features=8,
+            cmap="viridis",
+            alpha=0.5,
+            ylabel="custom",
+            title="custom title",
+        )
+        assert cfg.include is True
+        assert cfg.use_shap is False
+        assert cfg.max_features == 8
+        assert cfg.cmap == "viridis"

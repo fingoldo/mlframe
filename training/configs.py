@@ -1429,9 +1429,15 @@ class OutputConfig(BaseConfig):
     pattern).
     """
 
-    data_dir: str = ""
-    models_dir: str = "models"
-    plot_file: str = ""
+    # Optional[str] (not bare str) so callers can pass None to disable saving:
+    # `data_dir=None` -> no charts/artifacts; `models_dir=None` -> no model
+    # files. Falsy paths short-circuit the save_split_artifacts /
+    # _setup_model_directories branches at training-loop level. Was the
+    # established suite-level semantics for the deleted top-level kwargs;
+    # preserved here.
+    data_dir: Optional[str] = ""
+    models_dir: Optional[str] = "models"
+    plot_file: Optional[str] = ""
     save_charts: bool = True
 
 

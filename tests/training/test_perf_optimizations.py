@@ -10,6 +10,7 @@ Covers:
 - arrow large_string compat for Polars-native models
 - feature selectors with text/embedding columns
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -17,6 +18,7 @@ import pandas as pd
 import polars as pl
 import pytest
 
+from mlframe.training import OutputConfig, FeatureSelectionConfig
 from mlframe.training.utils import (
     estimate_df_size_mb,
     should_clean_ram,
@@ -45,11 +47,14 @@ class TestAdaptiveCleanRam:
     def test_should_clean_ram_quiet_baseline(self, monkeypatch):
         """RSS near baseline + plenty of free RAM → no cleanup."""
         import psutil
+
         class _FakeMem:
             def __init__(self, rss):
                 self.rss = rss
+
             def memory_info(self):
                 return self
+
         monkeypatch.setattr(psutil, "Process", lambda: _FakeMem(1000 * 1024**2))
         monkeypatch.setattr(psutil, "virtual_memory", lambda: type("V", (), {"available": 32 * 1024**3})())
         assert should_clean_ram(baseline_rss_mb=990.0, df_size_mb=100.0) is False
@@ -57,10 +62,12 @@ class TestAdaptiveCleanRam:
     def test_should_clean_ram_on_growth(self, monkeypatch):
         """RSS grew >min_growth_mb → cleanup justified."""
         import psutil
+
         class _FakeMem:
             def memory_info(self):
                 self.rss = 2000 * 1024**2
                 return self
+
         monkeypatch.setattr(psutil, "Process", lambda: _FakeMem())
         monkeypatch.setattr(psutil, "virtual_memory", lambda: type("V", (), {"available": 32 * 1024**3})())
         assert should_clean_ram(baseline_rss_mb=1000.0, df_size_mb=100.0) is True
@@ -68,10 +75,12 @@ class TestAdaptiveCleanRam:
     def test_should_clean_ram_on_low_free_memory(self, monkeypatch):
         """Free RAM < 2x DF size → cleanup justified (OOM protection)."""
         import psutil
+
         class _FakeMem:
             def memory_info(self):
                 self.rss = 1000 * 1024**2
                 return self
+
         monkeypatch.setattr(psutil, "Process", lambda: _FakeMem())
         monkeypatch.setattr(psutil, "virtual_memory", lambda: type("V", (), {"available": 100 * 1024**2})())
         assert should_clean_ram(baseline_rss_mb=990.0, df_size_mb=500.0) is True
@@ -79,10 +88,12 @@ class TestAdaptiveCleanRam:
     def test_maybe_clean_ram_returns_refreshed_baseline(self, monkeypatch):
         """After firing, return refreshed RSS — prevents stale-baseline cascades."""
         fired = {"n": 0}
+
         def _fake_clean(verbose=False):
             fired["n"] += 1
 
         import mlframe.training.utils as u
+
         monkeypatch.setattr(u, "clean_ram_and_gpu", _fake_clean)
         monkeypatch.setattr(u, "should_clean_ram", lambda *a, **kw: True)
         monkeypatch.setattr(u, "get_process_rss_mb", lambda: 1234.5)
@@ -94,6 +105,7 @@ class TestAdaptiveCleanRam:
     def test_maybe_clean_ram_skip_preserves_baseline(self, monkeypatch):
         fired = {"n": 0}
         import mlframe.training.utils as u
+
         monkeypatch.setattr(u, "clean_ram_and_gpu", lambda verbose=False: fired.update(n=fired["n"] + 1))
         monkeypatch.setattr(u, "should_clean_ram", lambda *a, **kw: False)
         base = maybe_clean_ram_and_gpu(baseline_rss_mb=500.0, df_size_mb=100.0)
@@ -106,18 +118,22 @@ class TestAdaptiveCleanRam:
 # ======================================================================
 def _make_simple_polars_df(n=200, n_cat=5):
     rng = np.random.default_rng(0)
-    return pl.DataFrame({
-        "num_feat": rng.standard_normal(n),
-        "cat_feat": rng.choice([f"c{i}" for i in range(n_cat)], size=n),
-        "target": rng.integers(0, 2, size=n),
-    })
+    return pl.DataFrame(
+        {
+            "num_feat": rng.standard_normal(n),
+            "cat_feat": rng.choice([f"c{i}" for i in range(n_cat)], size=n),
+            "target": rng.integers(0, 2, size=n),
+        }
+    )
 
 
 CPU_BEHAVIOR = {"prefer_gpu_configs": False, "prefer_calibrated_classifiers": False}
 
 
 class TestSkipPandasConversion:
-    def test_no_pandas_conversion_when_all_polars_native(self, temp_data_dir, common_init_params, monkeypatch):
+    def test_no_pandas_conversion_when_all_polars_native(
+        self, temp_data_dir, common_init_params, monkeypatch
+    ):
         """CB-only run on Polars input must never call _convert_dfs_to_pandas."""
         pytest.importorskip("catboost")
         from .shared import SimpleFeaturesAndTargetsExtractor
@@ -135,7 +151,20 @@ class TestSkipPandasConversion:
 
         df = _make_simple_polars_df()
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        train_mlframe_models_suite(df=df, target_name='t', model_name='m', features_and_targets_extractor=fte, mlframe_models=['cb'], reporting_config=common_init_params, hyperparams_config={'iterations': 10}, behavior_config=CPU_BEHAVIOR, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
+        train_mlframe_models_suite(
+            df=df,
+            target_name="t",
+            model_name="m",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            reporting_config=common_init_params,
+            hyperparams_config={"iterations": 10},
+            behavior_config=CPU_BEHAVIOR,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            verbose=0,
+            output_config=OutputConfig(data_dir=temp_data_dir),
+        )
         assert counter["n"] == 0, "pandas conversion fired despite all-Polars-native models"
 
     def test_pandas_conversion_when_mixed_models(self, temp_data_dir, common_init_params, monkeypatch):
@@ -169,7 +198,20 @@ class TestSkipPandasConversion:
 
         df = _make_simple_polars_df()
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        train_mlframe_models_suite(df=df, target_name='t', model_name='m', features_and_targets_extractor=fte, mlframe_models=['cb', 'ridge'], reporting_config=common_init_params, hyperparams_config={'iterations': 10}, behavior_config=CPU_BEHAVIOR, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
+        train_mlframe_models_suite(
+            df=df,
+            target_name="t",
+            model_name="m",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb", "ridge"],
+            reporting_config=common_init_params,
+            hyperparams_config={"iterations": 10},
+            behavior_config=CPU_BEHAVIOR,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            verbose=0,
+            output_config=OutputConfig(data_dir=temp_data_dir),
+        )
         assert counter["lazy"] + counter["upfront"] >= 1, (
             "ridge must have received pandas — either upfront or lazily. Neither "
             f"call fired: lazy={counter['lazy']}, upfront={counter['upfront']}"
@@ -182,15 +224,18 @@ class TestSkipPandasConversion:
 class TestShowcaseVerboseGate:
     def test_showcase_hidden_at_verbose_1(self, monkeypatch):
         from mlframe.training.extractors import FeaturesAndTargetsExtractor
+
         called = {"n": 0}
         monkeypatch.setattr(
             "mlframe.training.extractors.FeaturesAndTargetsExtractor.show_processed_data",
             lambda self, df, tbt: called.update(n=called["n"] + 1),
         )
+
         # Can't easily run full pipeline; verify verbose attribute behavior via direct guard.
         # The extractor.py:440-442 guard: `if self.verbose >= 2`.
         class _FTE:
             verbose = 1
+
         inst = _FTE()
         if inst.verbose >= 2:
             called["n"] += 1
@@ -199,6 +244,7 @@ class TestShowcaseVerboseGate:
     def test_showcase_shown_at_verbose_2(self):
         class _FTE:
             verbose = 2
+
         inst = _FTE()
         called = inst.verbose >= 2
         assert called is True
@@ -217,7 +263,20 @@ class TestPlotFilePreserved:
 
         df = _make_simple_polars_df()
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        train_mlframe_models_suite(df=df, target_name='t', model_name='plot_test', features_and_targets_extractor=fte, mlframe_models=['cb'], reporting_config=common_init_params, hyperparams_config={'iterations': 10}, behavior_config=CPU_BEHAVIOR, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
+        train_mlframe_models_suite(
+            df=df,
+            target_name="t",
+            model_name="plot_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            reporting_config=common_init_params,
+            hyperparams_config={"iterations": 10},
+            behavior_config=CPU_BEHAVIOR,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            verbose=0,
+            output_config=OutputConfig(data_dir=temp_data_dir),
+        )
         # Any .png file saved under temp_data_dir counts as success.
         png_files = list(Path(temp_data_dir).rglob("*.png"))
         assert len(png_files) > 0, "no plot saved even though data_dir was set"
@@ -239,11 +298,15 @@ class TestArrowLargeStringCompat:
         """Record library versions on stdout so failures across upgrades are
         traceable from CI logs without running git-bisect."""
         import sys
+
         try:
             import xgboost, catboost, pyarrow
-            print(f"[arrow-compat] pl={pl.__version__} "
-                  f"pa={pyarrow.__version__} xgb={xgboost.__version__} "
-                  f"cb={catboost.__version__} py={sys.version.split()[0]}")
+
+            print(
+                f"[arrow-compat] pl={pl.__version__} "
+                f"pa={pyarrow.__version__} xgb={xgboost.__version__} "
+                f"cb={catboost.__version__} py={sys.version.split()[0]}"
+            )
         except ImportError:
             pass
 
@@ -256,7 +319,20 @@ class TestArrowLargeStringCompat:
         df = _make_simple_polars_df()
         assert df.schema["cat_feat"] in (pl.Utf8, pl.String)
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        models, _ = train_mlframe_models_suite(df=df, target_name='t', model_name='xgb_utf8', features_and_targets_extractor=fte, mlframe_models=['xgb'], reporting_config=common_init_params, hyperparams_config={'iterations': 10}, behavior_config=CPU_BEHAVIOR, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
+        models, _ = train_mlframe_models_suite(
+            df=df,
+            target_name="t",
+            model_name="xgb_utf8",
+            features_and_targets_extractor=fte,
+            mlframe_models=["xgb"],
+            reporting_config=common_init_params,
+            hyperparams_config={"iterations": 10},
+            behavior_config=CPU_BEHAVIOR,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            verbose=0,
+            output_config=OutputConfig(data_dir=temp_data_dir),
+        )
         assert models is not None
         self._assert_lib_versions_logged()
 
@@ -275,7 +351,20 @@ class TestArrowLargeStringCompat:
         if hasattr(pl, "String"):
             df = df.with_columns(pl.col("cat_feat").cast(pl.String))
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        models, _ = train_mlframe_models_suite(df=df, target_name='t', model_name=f'compat_{model_name}', features_and_targets_extractor=fte, mlframe_models=[model_name], reporting_config=common_init_params, hyperparams_config={'iterations': 10}, behavior_config=CPU_BEHAVIOR, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
+        models, _ = train_mlframe_models_suite(
+            df=df,
+            target_name="t",
+            model_name=f"compat_{model_name}",
+            features_and_targets_extractor=fte,
+            mlframe_models=[model_name],
+            reporting_config=common_init_params,
+            hyperparams_config={"iterations": 10},
+            behavior_config=CPU_BEHAVIOR,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            verbose=0,
+            output_config=OutputConfig(data_dir=temp_data_dir),
+        )
         assert models is not None
         self._assert_lib_versions_logged()
 
@@ -288,15 +377,17 @@ class TestFeatureSelectorsWithTextEmbedding:
 
     def _make_df(self, n=200):
         rng = np.random.default_rng(7)
-        return pl.DataFrame({
-            "num_a": rng.standard_normal(n),
-            "num_b": rng.standard_normal(n),
-            "num_c": rng.standard_normal(n),
-            "cat_feat": rng.choice([f"c{i}" for i in range(5)], size=n),
-            "text_feat": rng.choice([f"sent {i} words here foo bar" for i in range(80)], size=n),
-            "emb_feat": [rng.standard_normal(4).tolist() for _ in range(n)],
-            "target": rng.integers(0, 2, size=n),
-        })
+        return pl.DataFrame(
+            {
+                "num_a": rng.standard_normal(n),
+                "num_b": rng.standard_normal(n),
+                "num_c": rng.standard_normal(n),
+                "cat_feat": rng.choice([f"c{i}" for i in range(5)], size=n),
+                "text_feat": rng.choice([f"sent {i} words here foo bar" for i in range(80)], size=n),
+                "emb_feat": [rng.standard_normal(4).tolist() for _ in range(n)],
+                "target": rng.integers(0, 2, size=n),
+            }
+        )
 
     def test_mrmr_with_text_column(self, temp_data_dir, common_init_params):
         """MRMR on CatBoost with text_feat — text should be passed through to CB."""
@@ -304,14 +395,35 @@ class TestFeatureSelectorsWithTextEmbedding:
         from .shared import SimpleFeaturesAndTargetsExtractor
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training import (
-    
-            PolarsPipelineConfig, FeatureTypesConfig, TargetTypes,
-    FeatureSelectionConfig
-)
+            PolarsPipelineConfig,
+            FeatureTypesConfig,
+            TargetTypes,
+            FeatureSelectionConfig,
+        )
 
         df = self._make_df().drop("emb_feat")
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        models, _ = train_mlframe_models_suite(df=df, target_name='t', model_name='mrmr_txt', features_and_targets_extractor=fte, mlframe_models=['cb'], pipeline_config=PolarsPipelineConfig(use_polarsds_pipeline=True), feature_types_config=FeatureTypesConfig(text_features=['text_feat'], auto_detect_feature_types=False), reporting_config=common_init_params, hyperparams_config={'iterations': 10}, behavior_config=CPU_BEHAVIOR, use_ordinary_models=False, feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={'max_runtime_mins': 0.2, 'verbose': 0}), use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
+        models, _ = train_mlframe_models_suite(
+            df=df,
+            target_name="t",
+            model_name="mrmr_txt",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            pipeline_config=PolarsPipelineConfig(use_polarsds_pipeline=True),
+            feature_types_config=FeatureTypesConfig(
+                text_features=["text_feat"], auto_detect_feature_types=False
+            ),
+            reporting_config=common_init_params,
+            hyperparams_config={"iterations": 10},
+            behavior_config=CPU_BEHAVIOR,
+            use_ordinary_models=False,
+            feature_selection_config=FeatureSelectionConfig(
+                use_mrmr_fs=True, mrmr_kwargs={"max_runtime_mins": 0.2, "verbose": 0}
+            ),
+            use_mlframe_ensembles=False,
+            verbose=0,
+            output_config=OutputConfig(data_dir=temp_data_dir),
+        )
         assert TargetTypes.BINARY_CLASSIFICATION in models
 
     def test_mrmr_with_embedding_column(self, temp_data_dir, common_init_params):
@@ -319,12 +431,33 @@ class TestFeatureSelectorsWithTextEmbedding:
         from .shared import SimpleFeaturesAndTargetsExtractor
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training.configs import (
-            PolarsPipelineConfig, FeatureTypesConfig,
+            PolarsPipelineConfig,
+            FeatureTypesConfig,
         )
 
         df = self._make_df().drop("text_feat")
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        train_mlframe_models_suite(df=df, target_name='t', model_name='mrmr_emb', features_and_targets_extractor=fte, mlframe_models=['cb'], pipeline_config=PolarsPipelineConfig(use_polarsds_pipeline=True), feature_types_config=FeatureTypesConfig(embedding_features=['emb_feat'], auto_detect_feature_types=False), reporting_config=common_init_params, hyperparams_config={'iterations': 10}, behavior_config=CPU_BEHAVIOR, use_ordinary_models=False, feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True, mrmr_kwargs={'max_runtime_mins': 0.2, 'verbose': 0}), use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
+        train_mlframe_models_suite(
+            df=df,
+            target_name="t",
+            model_name="mrmr_emb",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            pipeline_config=PolarsPipelineConfig(use_polarsds_pipeline=True),
+            feature_types_config=FeatureTypesConfig(
+                embedding_features=["emb_feat"], auto_detect_feature_types=False
+            ),
+            reporting_config=common_init_params,
+            hyperparams_config={"iterations": 10},
+            behavior_config=CPU_BEHAVIOR,
+            use_ordinary_models=False,
+            feature_selection_config=FeatureSelectionConfig(
+                use_mrmr_fs=True, mrmr_kwargs={"max_runtime_mins": 0.2, "verbose": 0}
+            ),
+            use_mlframe_ensembles=False,
+            verbose=0,
+            output_config=OutputConfig(data_dir=temp_data_dir),
+        )
 
 
 # ======================================================================
@@ -341,11 +474,38 @@ class TestParallelMetricsEquivalence:
         df = _make_simple_polars_df(n=400)
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-        models1, meta1 = train_mlframe_models_suite(df=df, target_name='t', model_name='par_eq_1', features_and_targets_extractor=fte, mlframe_models=['cb'], reporting_config=common_init_params, hyperparams_config={'iterations': 10, 'random_seed': 42}, behavior_config=CPU_BEHAVIOR, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
-        models2, meta2 = train_mlframe_models_suite(df=df, target_name='t', model_name='par_eq_2', features_and_targets_extractor=fte, mlframe_models=['cb'], reporting_config=common_init_params, hyperparams_config={'iterations': 10, 'random_seed': 42}, behavior_config=CPU_BEHAVIOR, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=temp_data_dir))
+        models1, meta1 = train_mlframe_models_suite(
+            df=df,
+            target_name="t",
+            model_name="par_eq_1",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            reporting_config=common_init_params,
+            hyperparams_config={"iterations": 10, "random_seed": 42},
+            behavior_config=CPU_BEHAVIOR,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            verbose=0,
+            output_config=OutputConfig(data_dir=temp_data_dir),
+        )
+        models2, meta2 = train_mlframe_models_suite(
+            df=df,
+            target_name="t",
+            model_name="par_eq_2",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            reporting_config=common_init_params,
+            hyperparams_config={"iterations": 10, "random_seed": 42},
+            behavior_config=CPU_BEHAVIOR,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            verbose=0,
+            output_config=OutputConfig(data_dir=temp_data_dir),
+        )
         # Reproducibility check — metrics should match across identical runs.
         # If parallel execution introduced nondeterminism, this would fail.
         from mlframe.training.configs import TargetTypes
+
         m1 = models1[TargetTypes.BINARY_CLASSIFICATION]["target"][0]
         m2 = models2[TargetTypes.BINARY_CLASSIFICATION]["target"][0]
         assert m1.model is not None and m2.model is not None

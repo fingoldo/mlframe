@@ -1,4 +1,5 @@
 from mlframe.training import FeatureSelectionConfig, OutputConfig
+
 """
 Integration tests for feature selection components.
 
@@ -46,7 +47,7 @@ class TestMRMRFeatureSelection:
         selector.fit(X, y)
 
         # Verify attributes are set
-        assert hasattr(selector, 'n_features_in_')
+        assert hasattr(selector, "n_features_in_")
         assert selector.n_features_in_ == len(feature_names)
 
     def test_mrmr_transform(self, sample_regression_data):
@@ -85,7 +86,7 @@ class TestMRMRFeatureSelection:
 
         selector.fit(X, y)
 
-        assert hasattr(selector, 'n_features_in_')
+        assert hasattr(selector, "n_features_in_")
 
     def test_mrmr_with_categorical_features(self, sample_categorical_data):
         """Test MRMR with categorical features."""
@@ -136,7 +137,7 @@ class TestMRMRFeatureSelection:
         y_subset = y[:200]
 
         # Only 'quantile' and 'uniform' are supported by discretize_array
-        for method in ['quantile', 'uniform']:
+        for method in ["quantile", "uniform"]:
             selector = MRMR(
                 verbose=0,
                 max_runtime_mins=0.5,
@@ -148,7 +149,7 @@ class TestMRMRFeatureSelection:
 
             try:
                 selector.fit(X, y_subset)
-                assert hasattr(selector, 'n_features_in_')
+                assert hasattr(selector, "n_features_in_")
             except Exception as e:
                 # Some methods may not work with certain data
                 warnings.warn(f"Quantization method {method} failed: {e}")
@@ -181,7 +182,7 @@ class TestRFECVFeatureSelection:
 
         selector.fit(X, y_subset)
 
-        assert hasattr(selector, 'n_features_in_')
+        assert hasattr(selector, "n_features_in_")
 
     def test_rfecv_basic_classification(self, sample_classification_data):
         """Test basic RFECV with classification estimator."""
@@ -201,7 +202,7 @@ class TestRFECVFeatureSelection:
 
         selector.fit(X, y_subset)
 
-        assert hasattr(selector, 'n_features_in_')
+        assert hasattr(selector, "n_features_in_")
 
     def test_rfecv_with_catboost_regressor(self, sample_regression_data):
         """Test RFECV with CatBoost regressor."""
@@ -225,7 +226,7 @@ class TestRFECVFeatureSelection:
 
         selector.fit(X, y_subset)
 
-        assert hasattr(selector, 'n_features_in_')
+        assert hasattr(selector, "n_features_in_")
 
     def test_rfecv_with_catboost_classifier(self, sample_classification_data):
         """Test RFECV with CatBoost classifier."""
@@ -249,7 +250,7 @@ class TestRFECVFeatureSelection:
 
         selector.fit(X, y_subset)
 
-        assert hasattr(selector, 'n_features_in_')
+        assert hasattr(selector, "n_features_in_")
 
     def test_rfecv_transform(self, sample_regression_data):
         """Test RFECV transform after fit."""
@@ -270,7 +271,7 @@ class TestRFECVFeatureSelection:
         selector.fit(X, y_subset)
 
         # Transform if support_ is set
-        if hasattr(selector, 'support_') and selector.support_ is not None:
+        if hasattr(selector, "support_") and selector.support_ is not None:
             X_transformed = selector.transform(X)
             assert X_transformed.shape[1] <= X.shape[1]
 
@@ -297,7 +298,7 @@ class TestRFECVFeatureSelection:
 
         selector.fit(X, y_subset)
 
-        assert hasattr(selector, 'n_features_in_')
+        assert hasattr(selector, "n_features_in_")
 
 
 # ================================================================================================
@@ -308,11 +309,13 @@ class TestRFECVFeatureSelection:
 class TestFeatureSelectionIntegration:
     """Test feature selection integration with training suite."""
 
-    def test_rfecv_classification(self, sample_classification_data, temp_data_dir, common_init_params, fast_iterations):
+    def test_rfecv_classification(
+        self, sample_classification_data, temp_data_dir, common_init_params, fast_iterations
+    ):
         """Test RFECV with classification task."""
         df, feature_names, cat_features, y = sample_classification_data
         # Remove categorical for simplicity
-        numeric_df = df[[f for f in feature_names if f not in cat_features] + ['target']]
+        numeric_df = df[[f for f in feature_names if f not in cat_features] + ["target"]]
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
@@ -334,7 +337,14 @@ class TestFeatureSelectionIntegration:
         assert TargetTypes.BINARY_CLASSIFICATION in models
         assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
 
-    def test_multiple_rfecv_models(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations, check_lgb_gpu_available):
+    def test_multiple_rfecv_models(
+        self,
+        sample_regression_data,
+        temp_data_dir,
+        common_init_params,
+        fast_iterations,
+        check_lgb_gpu_available,
+    ):
         """Test training with multiple RFECV estimators."""
         df, feature_names, y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
@@ -344,30 +354,83 @@ class TestFeatureSelectionIntegration:
         if check_lgb_gpu_available:
             rfecv_models.append("lgb_rfecv")
 
-        models, metadata = train_mlframe_models_suite(df=df, target_name='test_target', model_name='multi_rfecv', features_and_targets_extractor=fte, mlframe_models=['cb'], hyperparams_config={'iterations': fast_iterations}, reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=0, feature_selection_config=FeatureSelectionConfig(rfecv_models=rfecv_models))
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="multi_rfecv",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            hyperparams_config={"iterations": fast_iterations},
+            reporting_config=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
+            verbose=0,
+            feature_selection_config=FeatureSelectionConfig(rfecv_models=rfecv_models),
+        )
 
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
 
-    def test_use_mrmr_fs_true(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations):
+    def test_use_mrmr_fs_true(
+        self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations
+    ):
         """Test training with MRMR feature selection enabled."""
         df, feature_names, y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(df=df, target_name='test_target', model_name='with_mrmr', features_and_targets_extractor=fte, mlframe_models=['cb'], feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True), hyperparams_config={'iterations': fast_iterations}, reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=0, feature_selection_config=FeatureSelectionConfig(mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True}))
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="with_mrmr",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            hyperparams_config={"iterations": fast_iterations},
+            reporting_config=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
+            verbose=0,
+            feature_selection_config=FeatureSelectionConfig(
+                mrmr_kwargs={
+                    "verbose": 0,
+                    "max_runtime_mins": 1,
+                    "n_workers": 1,
+                    "quantization_nbins": 5,
+                    "use_simple_mode": True,
+                }
+            ),
+        )
 
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
 
-    def test_mrmr_with_classification(self, sample_classification_data, temp_data_dir, common_init_params, fast_iterations):
+    def test_mrmr_with_classification(
+        self, sample_classification_data, temp_data_dir, common_init_params, fast_iterations
+    ):
         """Test MRMR feature selection with classification task."""
         df, feature_names, cat_features, y = sample_classification_data
         # Use only numeric features
-        numeric_df = df[[f for f in feature_names if f not in cat_features] + ['target']]
+        numeric_df = df[[f for f in feature_names if f not in cat_features] + ["target"]]
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-        models, metadata = train_mlframe_models_suite(df=numeric_df, target_name='test_target', model_name='mrmr_classification', features_and_targets_extractor=fte, mlframe_models=['cb'], feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True), hyperparams_config={'iterations': fast_iterations}, reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=0, feature_selection_config=FeatureSelectionConfig(mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5}))
+        models, metadata = train_mlframe_models_suite(
+            df=numeric_df,
+            target_name="test_target",
+            model_name="mrmr_classification",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            hyperparams_config={"iterations": fast_iterations},
+            reporting_config=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
+            verbose=0,
+            feature_selection_config=FeatureSelectionConfig(
+                mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1, "quantization_nbins": 5}
+            ),
+        )
 
         assert TargetTypes.BINARY_CLASSIFICATION in models
         assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
@@ -381,13 +444,38 @@ class TestFeatureSelectionIntegration:
 class TestCombinedPipelines:
     """Test combined feature selection and pipeline scenarios."""
 
-    def test_mrmr_combined_with_rfecv(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations):
+    def test_mrmr_combined_with_rfecv(
+        self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations
+    ):
         """Test using MRMR + RFECV together in the same training run."""
         df, feature_names, y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Train with both MRMR (filter) and RFECV (wrapper) feature selection
-        models, metadata = train_mlframe_models_suite(df=df, target_name='test_target', model_name='mrmr_plus_rfecv', features_and_targets_extractor=fte, mlframe_models=['cb'], hyperparams_config={'iterations': fast_iterations}, reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=0, feature_selection_config=FeatureSelectionConfig(rfecv_models=['cb_rfecv'], use_mrmr_fs=True, mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True}))
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="mrmr_plus_rfecv",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            hyperparams_config={"iterations": fast_iterations},
+            reporting_config=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
+            verbose=0,
+            feature_selection_config=FeatureSelectionConfig(
+                rfecv_models=["cb_rfecv"],
+                use_mrmr_fs=True,
+                mrmr_kwargs={
+                    "verbose": 0,
+                    "max_runtime_mins": 1,
+                    "n_workers": 1,
+                    "quantization_nbins": 5,
+                    "use_simple_mode": True,
+                },
+            ),
+        )
 
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
@@ -399,17 +487,35 @@ class TestCombinedPipelines:
         np.random.seed(42)
         n_samples = 200
 
-        df = pd.DataFrame({
-            'feature_0': np.random.randn(n_samples),
-            'feature_1': np.random.randn(n_samples),
-            'feature_2': np.random.randn(n_samples),
-            'group_feature': np.random.choice(['A', 'B', 'C'], n_samples),
-            'target': np.random.randn(n_samples),
-        })
+        df = pd.DataFrame(
+            {
+                "feature_0": np.random.randn(n_samples),
+                "feature_1": np.random.randn(n_samples),
+                "feature_2": np.random.randn(n_samples),
+                "group_feature": np.random.choice(["A", "B", "C"], n_samples),
+                "target": np.random.randn(n_samples),
+            }
+        )
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(df=df, target_name='test_target', model_name='fs_with_fairness', features_and_targets_extractor=fte, mlframe_models=['cb'], feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True), hyperparams_config={'iterations': fast_iterations}, reporting_config=common_init_params, behavior_config={'fairness_features': ['group_feature'], 'fairness_min_pop_cat_thresh': 10}, use_ordinary_models=True, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=0, feature_selection_config=FeatureSelectionConfig(mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1}))
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="fs_with_fairness",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            hyperparams_config={"iterations": fast_iterations},
+            reporting_config=common_init_params,
+            behavior_config={"fairness_features": ["group_feature"], "fairness_min_pop_cat_thresh": 10},
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
+            verbose=0,
+            feature_selection_config=FeatureSelectionConfig(
+                mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1}
+            ),
+        )
 
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
@@ -441,7 +547,22 @@ class TestCombinedPipelines:
         pl_df, feature_names, y = sample_polars_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        models, metadata = train_mlframe_models_suite(df=pl_df, target_name='test_target', model_name='mrmr_polars', features_and_targets_extractor=fte, mlframe_models=['cb'], feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True), hyperparams_config={'iterations': fast_iterations}, reporting_config=common_init_params, use_ordinary_models=True, use_mlframe_ensembles=False, output_config=OutputConfig(data_dir=temp_data_dir, models_dir='models'), verbose=0, feature_selection_config=FeatureSelectionConfig(mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1}))
+        models, metadata = train_mlframe_models_suite(
+            df=pl_df,
+            target_name="test_target",
+            model_name="mrmr_polars",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            hyperparams_config={"iterations": fast_iterations},
+            reporting_config=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
+            verbose=0,
+            feature_selection_config=FeatureSelectionConfig(
+                mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1}
+            ),
+        )
 
         assert TargetTypes.REGRESSION in models
 
@@ -449,12 +570,14 @@ class TestCombinedPipelines:
         """Test RFECV with very small dataset."""
         # Create small dataset
         np.random.seed(42)
-        df = pd.DataFrame({
-            'feature_0': np.random.randn(50),
-            'feature_1': np.random.randn(50),
-            'feature_2': np.random.randn(50),
-            'target': np.random.randn(50),
-        })
+        df = pd.DataFrame(
+            {
+                "feature_0": np.random.randn(50),
+                "feature_1": np.random.randn(50),
+                "feature_2": np.random.randn(50),
+                "target": np.random.randn(50),
+            }
+        )
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
@@ -483,8 +606,8 @@ class TestCombinedPipelines:
         X = np.random.randn(200, n_features)
         y = 2 * X[:, 0] + 3 * X[:, 1] + np.random.randn(200) * 0.5
 
-        df = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(n_features)])
-        df['target'] = y
+        df = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(n_features)])
+        df["target"] = y
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
@@ -517,11 +640,13 @@ class TestFeatureSelectionEdgeCases:
     def test_mrmr_with_constant_feature(self):
         """Test MRMR handles constant features."""
         np.random.seed(42)
-        X = pd.DataFrame({
-            'feature_0': np.random.randn(100),
-            'constant': np.ones(100),  # Constant feature
-            'feature_2': np.random.randn(100),
-        })
+        X = pd.DataFrame(
+            {
+                "feature_0": np.random.randn(100),
+                "constant": np.ones(100),  # Constant feature
+                "feature_2": np.random.randn(100),
+            }
+        )
         y = np.random.randn(100)
 
         selector = MRMR(
@@ -535,18 +660,20 @@ class TestFeatureSelectionEdgeCases:
         try:
             selector.fit(X, y)
             # Success path: selector should have produced some result attribute
-            assert hasattr(selector, 'selected_features_') or hasattr(selector, 'support_') or True
+            assert hasattr(selector, "selected_features_") or hasattr(selector, "support_") or True
         except Exception as e:
             pytest.skip(f"Constant features raised expected error: {type(e).__name__}")
 
     def test_mrmr_with_nan_values(self):
         """Test MRMR with NaN values in data."""
         np.random.seed(42)
-        X = pd.DataFrame({
-            'feature_0': np.random.randn(100),
-            'feature_1': np.random.randn(100),
-        })
-        X.loc[10:15, 'feature_0'] = np.nan  # Add NaN values
+        X = pd.DataFrame(
+            {
+                "feature_0": np.random.randn(100),
+                "feature_1": np.random.randn(100),
+            }
+        )
+        X.loc[10:15, "feature_0"] = np.nan  # Add NaN values
         y = np.random.randn(100)
 
         selector = MRMR(
@@ -566,7 +693,7 @@ class TestFeatureSelectionEdgeCases:
     def test_rfecv_with_single_feature(self):
         """Test RFECV with single feature."""
         np.random.seed(42)
-        X = pd.DataFrame({'feature_0': np.random.randn(100)})
+        X = pd.DataFrame({"feature_0": np.random.randn(100)})
         y = np.random.randn(100)
 
         estimator = RandomForestRegressor(n_estimators=5, random_state=42)
@@ -587,7 +714,7 @@ class TestFeatureSelectionEdgeCases:
         """Test RFECV respects max_runtime_mins."""
         np.random.seed(42)
         n_features = 20
-        X = pd.DataFrame(np.random.randn(500, n_features), columns=[f'f{i}' for i in range(n_features)])
+        X = pd.DataFrame(np.random.randn(500, n_features), columns=[f"f{i}" for i in range(n_features)])
         y = np.random.randn(500)
 
         estimator = RandomForestRegressor(n_estimators=10, random_state=42)
@@ -601,6 +728,7 @@ class TestFeatureSelectionEdgeCases:
         )
 
         import time
+
         start = time.time()
         selector.fit(X, y)
         elapsed = time.time() - start
@@ -634,8 +762,7 @@ class TestModelCloningInTrainingSuite:
         np.random.seed(42)
         n_samples, n_features = 200, 20
         X = pd.DataFrame(
-            np.random.randn(n_samples, n_features),
-            columns=[f'feat_{i}' for i in range(n_features)]
+            np.random.randn(n_samples, n_features), columns=[f"feat_{i}" for i in range(n_features)]
         )
         y = np.random.randint(0, 2, n_samples)
 
@@ -659,8 +786,9 @@ class TestModelCloningInTrainingSuite:
 
         # At least some predictions should differ (they use completely different features)
         # Note: They might accidentally agree on some samples, but not all
-        assert not np.array_equal(pred1, pred2) or True, \
+        assert not np.array_equal(pred1, pred2) or True, (
             "Models trained on different features should give different predictions"
+        )
 
     def test_mrmr_not_prefitted_after_creation(self):
         """Test that MRMR is not detected as pre-fitted after creation.

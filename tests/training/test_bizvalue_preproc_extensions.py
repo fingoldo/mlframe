@@ -1,4 +1,3 @@
-from mlframe.training import OutputConfig, ReportingConfig
 """Business-value integration tests for `preprocessing_extensions` at the
 suite level (`train_mlframe_models_suite`).
 
@@ -24,6 +23,7 @@ Plan claim under test:
 """
 
 from __future__ import annotations
+from mlframe.training import OutputConfig, ReportingConfig
 
 import numpy as np
 import pandas as pd

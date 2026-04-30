@@ -521,6 +521,7 @@ class TestXGBShimIntegrationWithMlframeSuite:
 
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training.configs import TrainingBehaviorConfig
+        from mlframe.training import OutputConfig, PreprocessingConfig
         from .shared import TimestampedFeaturesExtractor
 
         rng = np.random.default_rng(0)

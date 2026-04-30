@@ -13,6 +13,7 @@ Numbers (#1–#16) map to the analysis table in the chat record.
 Shared fixture below builds a minimal baseline frame every test can
 specialise; no global state between tests.
 """
+
 from __future__ import annotations
 
 import gc
@@ -25,14 +26,13 @@ import polars as pl
 import pytest
 
 from mlframe.training import (
-    
     FeatureTypesConfig,
     PolarsPipelineConfig,
     PreprocessingConfig,
     TrainingBehaviorConfig,
     FeatureSelectionConfig,
     OutlierDetectionConfig,
-    OutputConfig
+    OutputConfig,
 )
 from .shared import SimpleFeaturesAndTargetsExtractor
 
@@ -43,11 +43,13 @@ def _coverage_gap_cleanup():
     yield
     try:
         import matplotlib.pyplot as plt
+
         plt.close("all")
     except Exception:
         pass
     try:
         from mlframe.training import trainer as _tr
+
         for attr in ("_CB_POOL_CACHE", "_CB_VAL_POOL_CACHE"):
             cache = getattr(_tr, attr, None)
             if hasattr(cache, "clear"):
@@ -135,7 +137,7 @@ def _train_once(
         features_and_targets_extractor=fte,
         mlframe_models=list(models),
         hyperparams_config=hp,
-        preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
+        preprocessing_config=PreprocessingConfig(drop_columns=[]),
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
@@ -182,7 +184,8 @@ def test_load_raises_on_critical_schema_change(tmp_path):
     df_super = df.copy()
     df_super["extra_col"] = np.zeros(len(df), dtype="float32")
     res = predict_mlframe_models_suite(
-        df_super, models_path=models_path,
+        df_super,
+        models_path=models_path,
         features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(regression=False),
         verbose=0,
     )
@@ -207,10 +210,11 @@ def test_load_raises_on_critical_schema_change(tmp_path):
     with pytest.raises(
         ValueError,
         match=r"(load-bearing|Model input-schema mismatch|critical missing|"
-              r"Unexpected input dimension|missing.*column|cat_0)",
+        r"Unexpected input dimension|missing.*column|cat_0)",
     ):
         predict_mlframe_models_suite(
-            df_missing_cat, models_path=models_path,
+            df_missing_cat,
+            models_path=models_path,
             features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(regression=False),
             verbose=0,
         )
@@ -226,8 +230,13 @@ class _WeightedExtractor(SimpleFeaturesAndTargetsExtractor):
     feed arbitrary weight arrays into the suite.
     """
 
-    def __init__(self, target_column: str = "target", regression: bool = False,
-                 weights: Optional[np.ndarray] = None, schema_name: str = "custom"):
+    def __init__(
+        self,
+        target_column: str = "target",
+        regression: bool = False,
+        weights: Optional[np.ndarray] = None,
+        schema_name: str = "custom",
+    ):
         super().__init__(target_column=target_column, regression=regression)
         self._weights = weights
         self._schema_name = schema_name
@@ -239,6 +248,7 @@ class _WeightedExtractor(SimpleFeaturesAndTargetsExtractor):
         else:
             target_values = df[self.target_column].to_numpy()
         from mlframe.training.configs import TargetTypes
+
         tt = TargetTypes.REGRESSION if self.regression else TargetTypes.BINARY_CLASSIFICATION
         target_by_type = {tt: {self.target_column: target_values}}
         sample_weights = {self._schema_name: self._weights} if self._weights is not None else {}
@@ -256,8 +266,21 @@ def test_sample_weight_correct_length_succeeds(tmp_path):
     weights = np.ones(len(df), dtype="float32")
     weights[::2] = 2.0  # bias toward even-index rows
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = _WeightedExtractor(regression=False, weights=weights)
-    trained, _ = train_mlframe_models_suite(df=df, target_name='tgt', model_name='mdl', features_and_targets_extractor=fte, mlframe_models=['cb'], hyperparams_config={'iterations': 3, 'cb_kwargs': {'task_type': 'CPU', 'verbose': 0}}, preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
+    trained, _ = train_mlframe_models_suite(
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb"],
+        hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+        preprocessing_config=PreprocessingConfig(drop_columns=[]),
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        verbose=0,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+    )
     assert trained, "training returned empty dict with valid custom weights"
 
 
@@ -273,6 +296,7 @@ def test_sample_weight_length_mismatch_documented(tmp_path):
     df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
     bad_weights = np.ones(len(df) + 10, dtype="float32")  # wrong length
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = _WeightedExtractor(regression=False, weights=bad_weights, schema_name="bad_len")
 
     # Either the mismatch raises (preferred) or the suite degrades to
@@ -283,15 +307,17 @@ def test_sample_weight_length_mismatch_documented(tmp_path):
     raised = None
     try:
         trained, _ = train_mlframe_models_suite(
-            df=df, target_name='tgt', model_name='mdl',
+            df=df,
+            target_name="tgt",
+            model_name="mdl",
             features_and_targets_extractor=fte,
-            mlframe_models=['cb'],
-            hyperparams_config={'iterations': 3, 'cb_kwargs': {'task_type': 'CPU', 'verbose': 0}},
+            mlframe_models=["cb"],
+            hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
             preprocessing_config=PreprocessingConfig(drop_columns=[]),
             verbose=0,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'),
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
         )
     except (ValueError, RuntimeError) as e:
         raised = e
@@ -319,8 +345,11 @@ def test_constant_and_all_null_cols_dropped_by_default(tmp_path):
     """
     pytest.importorskip("catboost")
     df = _make_baseline_pandas(
-        n=400, seed=0,
-        with_cat=False, with_const=True, with_all_null=True,
+        n=400,
+        seed=0,
+        with_cat=False,
+        with_const=True,
+        with_all_null=True,
         regression=False,
     )
     assert "num_const" in df.columns and "num_null" in df.columns
@@ -330,12 +359,8 @@ def test_constant_and_all_null_cols_dropped_by_default(tmp_path):
 
     # Trained column list MUST exclude the constant and all-null cols.
     trained_cols = meta.get("columns") or []
-    assert "num_const" not in trained_cols, (
-        f"constant column survived: {trained_cols}"
-    )
-    assert "num_null" not in trained_cols, (
-        f"all-null column survived: {trained_cols}"
-    )
+    assert "num_const" not in trained_cols, f"constant column survived: {trained_cols}"
+    assert "num_null" not in trained_cols, f"all-null column survived: {trained_cols}"
     # Real features should remain.
     assert "num_0" in trained_cols
 
@@ -346,13 +371,19 @@ def test_remove_constant_columns_false_keeps_them(tmp_path):
     """
     pytest.importorskip("catboost")
     df = _make_baseline_pandas(
-        n=400, seed=0,
-        with_cat=False, with_const=True, with_all_null=True,
+        n=400,
+        seed=0,
+        with_cat=False,
+        with_const=True,
+        with_all_null=True,
         regression=False,
     )
     cfg = PreprocessingConfig(remove_constant_columns=False)
     trained, meta = _train_once(
-        df, tmp_path, models=("cb",), regression=False,
+        df,
+        tmp_path,
+        models=("cb",),
+        regression=False,
         preprocessing_config=cfg,
     )
     assert trained
@@ -361,9 +392,9 @@ def test_remove_constant_columns_false_keeps_them(tmp_path):
     # At minimum one of the degenerate columns must survive under the
     # opt-out. (CB itself may internally discard them at fit time, but
     # the mlframe-level metadata should still record them as input.)
-    assert (
-        "num_const" in trained_cols or "num_null" in trained_cols
-    ), f"remove_constant_columns=False dropped degenerate columns anyway: {trained_cols}"
+    assert "num_const" in trained_cols or "num_null" in trained_cols, (
+        f"remove_constant_columns=False dropped degenerate columns anyway: {trained_cols}"
+    )
 
 
 # ===========================================================================
@@ -433,16 +464,24 @@ def test_polars_and_pandas_paths_produce_close_metrics(tmp_path):
     logits = num_0 - 0.5 * num_1
     y = (logits + rng.standard_normal(n) * 0.3 > 0).astype("int32")
 
-    df_pd = pd.DataFrame({
-        "num_0": num_0, "num_1": num_1, "num_2": num_2,
-        "cat_0": pd.Categorical(cat_raw),
-        "target": y,
-    })
-    df_pl = pl.DataFrame({
-        "num_0": num_0, "num_1": num_1, "num_2": num_2,
-        "cat_0": pl.Series(cat_raw, dtype=pl.Utf8),
-        "target": y,
-    })
+    df_pd = pd.DataFrame(
+        {
+            "num_0": num_0,
+            "num_1": num_1,
+            "num_2": num_2,
+            "cat_0": pd.Categorical(cat_raw),
+            "target": y,
+        }
+    )
+    df_pl = pl.DataFrame(
+        {
+            "num_0": num_0,
+            "num_1": num_1,
+            "num_2": num_2,
+            "cat_0": pl.Series(cat_raw, dtype=pl.Utf8),
+            "target": y,
+        }
+    )
 
     tr_pd, _meta_pd = _train_once(df_pd, tmp_path / "pd", models=("cb",), regression=False)
     tr_pl, _meta_pl = _train_once(df_pl, tmp_path / "pl", models=("cb",), regression=False)
@@ -458,9 +497,7 @@ def test_polars_and_pandas_paths_produce_close_metrics(tmp_path):
     # not drop a feature the pandas path keeps (or vice versa).
     cols_pd = set((_meta_pd.get("columns") or []))
     cols_pl = set((_meta_pl.get("columns") or []))
-    assert cols_pd == cols_pl, (
-        f"column sets diverge between paths: pd={cols_pd} pl={cols_pl}"
-    )
+    assert cols_pd == cols_pl, f"column sets diverge between paths: pd={cols_pd} pl={cols_pl}"
 
 
 # ===========================================================================
@@ -566,9 +603,12 @@ def test_outlier_detector_filters_training_rows(tmp_path):
     detector = IsolationForest(contamination=0.05, random_state=42, n_estimators=30)
 
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
     trained, meta = train_mlframe_models_suite(
-        df=df, target_name="tgt", model_name="mdl",
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
         features_and_targets_extractor=fte,
         mlframe_models=["cb"],
         hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
@@ -579,11 +619,10 @@ def test_outlier_detector_filters_training_rows(tmp_path):
         outlier_detection_config=OutlierDetectionConfig(detector=detector),
         output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
     )
+    od_meta = (meta or {}).get("outlier_detection") or {}
     # train_size_after_od must be present and less than the original row count.
     size_after = od_meta.get("train_size_after_od")
-    assert size_after is not None and size_after < n, (
-        f"train_size_after_od unexpected: {size_after} vs n={n}"
-    )
+    assert size_after is not None and size_after < n, f"train_size_after_od unexpected: {size_after} vs n={n}"
 
 
 # ===========================================================================
@@ -616,6 +655,7 @@ def test_rfecv_pipeline_runs_for_each_model_family(tmp_path, caplog):
     pytest.importorskip("lightgbm")
 
     import logging
+
     caplog.set_level(logging.INFO, logger="mlframe")
 
     df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
@@ -623,7 +663,9 @@ def test_rfecv_pipeline_runs_for_each_model_family(tmp_path, caplog):
 
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
     trained, meta = train_mlframe_models_suite(
-        df=df, target_name="tgt", model_name="mdl",
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
         features_and_targets_extractor=fte,
         mlframe_models=["cb"],
         hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
@@ -663,6 +705,7 @@ def test_ensembles_enabled_produces_ensemble_log(tmp_path, caplog):
     pytest.importorskip("xgboost")
 
     import logging
+
     caplog.set_level(logging.INFO, logger="mlframe")
 
     df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
@@ -670,7 +713,9 @@ def test_ensembles_enabled_produces_ensemble_log(tmp_path, caplog):
 
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
     trained, _ = train_mlframe_models_suite(
-        df=df, target_name="tgt", model_name="mdl",
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
         features_and_targets_extractor=fte,
         mlframe_models=["cb", "xgb"],
         hyperparams_config={
@@ -711,6 +756,7 @@ def test_single_class_target_does_not_silently_return_empty(tmp_path):
     df["target"] = np.zeros(len(df), dtype="int32")  # all one class
 
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
 
     # Either outcome is OK; silent-pass-with-bogus-metrics is NOT.
@@ -722,7 +768,9 @@ def test_single_class_target_does_not_silently_return_empty(tmp_path):
     meta = None
     try:
         trained, meta = train_mlframe_models_suite(
-            df=df, target_name="tgt", model_name="mdl",
+            df=df,
+            target_name="tgt",
+            model_name="mdl",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
@@ -735,10 +783,18 @@ def test_single_class_target_does_not_silently_return_empty(tmp_path):
     except Exception as e:
         raised = e
         msg = str(e).lower()
-        assert any(s in msg for s in (
-            "class", "label", "target", "one", "single", "degenerate",
-            "unique",  # CatBoostError: "Target contains only one unique value"
-        )), f"degenerate-target raise was opaque: {raised!r}"
+        assert any(
+            s in msg
+            for s in (
+                "class",
+                "label",
+                "target",
+                "one",
+                "single",
+                "degenerate",
+                "unique",  # CatBoostError: "Target contains only one unique value"
+            )
+        ), f"degenerate-target raise was opaque: {raised!r}"
         return
     # Non-crashing path: empty trained dict OR failure breadcrumb in meta.
     if trained:
@@ -764,19 +820,24 @@ def test_high_cardinality_cat_column_trains_successfully(tmp_path):
     cat_vals = [f"k{i % 1000:03d}" for i in range(n)]
     num_0 = rng.standard_normal(n).astype("float32")
     y = (num_0 > 0).astype("int32")
-    df = pd.DataFrame({
-        "num_0": num_0,
-        "cat_0": pd.Categorical(cat_vals),
-        "target": y,
-    })
+    df = pd.DataFrame(
+        {
+            "num_0": num_0,
+            "cat_0": pd.Categorical(cat_vals),
+            "target": y,
+        }
+    )
     assert df["cat_0"].nunique() == 1000
 
     # HGB + CB + XGB mixed (LGB skipped: it has its own cat behaviour
     # not relevant to this test's cardinality-cap guard).
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
     trained, meta = train_mlframe_models_suite(
-        df=df, target_name="tgt", model_name="mdl",
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
         features_and_targets_extractor=fte,
         mlframe_models=["cb", "hgb", "xgb"],
         hyperparams_config={
@@ -848,6 +909,7 @@ class _MultiTargetExtractor(SimpleFeaturesAndTargetsExtractor):
 
     def transform(self, df):
         from mlframe.training.configs import TargetTypes
+
         if isinstance(df, pd.DataFrame):
             tgt_vals = {c: df[c].values for c in self._targets}
         else:
@@ -867,16 +929,22 @@ def test_multi_target_regression_trains_all_targets(tmp_path):
     n = 300
     num_0 = rng.standard_normal(n).astype("float32")
     num_1 = rng.standard_normal(n).astype("float32")
-    df = pd.DataFrame({
-        "num_0": num_0, "num_1": num_1,
-        "target_a": 2 * num_0 + rng.standard_normal(n) * 0.3,
-        "target_b": -1.5 * num_1 + rng.standard_normal(n) * 0.3,
-    })
+    df = pd.DataFrame(
+        {
+            "num_0": num_0,
+            "num_1": num_1,
+            "target_a": 2 * num_0 + rng.standard_normal(n) * 0.3,
+            "target_b": -1.5 * num_1 + rng.standard_normal(n) * 0.3,
+        }
+    )
 
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = _MultiTargetExtractor(target_columns=("target_a", "target_b"))
     trained, meta = train_mlframe_models_suite(
-        df=df, target_name="tgt", model_name="mdl",
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
         features_and_targets_extractor=fte,
         mlframe_models=["cb"],
         hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
@@ -886,11 +954,10 @@ def test_multi_target_regression_trains_all_targets(tmp_path):
         verbose=0,
         output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
     )
+    from mlframe.training.configs import TargetTypes
     assert TargetTypes.REGRESSION in trained
     inner = trained[TargetTypes.REGRESSION]
-    assert isinstance(inner, dict), (
-        f"trained[REGRESSION] is not a dict: {type(inner).__name__}"
-    )
+    assert isinstance(inner, dict), f"trained[REGRESSION] is not a dict: {type(inner).__name__}"
     target_names_trained = set(inner.keys())
     expected = {"target_a", "target_b"}
     assert expected.issubset(target_names_trained), (
@@ -930,11 +997,14 @@ def test_more_iterations_do_not_decrease_train_performance(tmp_path):
     df = _make_baseline_pandas(n=500, seed=0, with_cat=False, regression=False)
 
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
 
     for iters in (3, 50):
         trained, _ = train_mlframe_models_suite(
-            df=df, target_name="tgt", model_name=f"mdl_{iters}",
+            df=df,
+            target_name="tgt",
+            model_name=f"mdl_{iters}",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             hyperparams_config={"iterations": iters, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
@@ -960,6 +1030,7 @@ def test_predict_models_suite_loads_and_predicts(tmp_path):
     assert trained
 
     from mlframe.training.core import predict_mlframe_models_suite
+
     models_path = os.path.join(str(tmp_path), "models", "tgt", "mdl")
 
     # Predict on 30 rows (subset of training frame).
@@ -967,22 +1038,21 @@ def test_predict_models_suite_loads_and_predicts(tmp_path):
     # The extractor is optional at predict time but helps strip target
     # rows if present. Here we just feed raw features.
     result = predict_mlframe_models_suite(
-        serving_df, models_path=models_path, verbose=0,
+        serving_df,
+        models_path=models_path,
+        verbose=0,
     )
 
     assert "predictions" in result or "probabilities" in result
     preds_dict = result.get("predictions") or {}
     probs_dict = result.get("probabilities") or {}
-    assert preds_dict or probs_dict, (
-        f"predict returned no model outputs: keys={list(result)}"
-    )
+    assert preds_dict or probs_dict, f"predict returned no model outputs: keys={list(result)}"
     # Any prediction array must have length == len(serving_df).
     for model_key, arr in {**preds_dict, **probs_dict}.items():
         if arr is None:
             continue
         assert len(arr) == len(serving_df), (
-            f"prediction length mismatch for {model_key}: "
-            f"{len(arr)} vs serving={len(serving_df)}"
+            f"prediction length mismatch for {model_key}: {len(arr)} vs serving={len(serving_df)}"
         )
 
 
@@ -1009,6 +1079,7 @@ def test_prepare_polars_called_once_per_model_per_pipeline(tmp_path, monkeypatch
     df = _make_baseline_polars_utf8(n=300, seed=0, regression=False)
 
     from mlframe.training import strategies as _strat
+
     call_counter = {"cb": 0, "xgb": 0}
 
     orig_cb = _strat.CatBoostStrategy.prepare_polars_dataframe
@@ -1026,9 +1097,12 @@ def test_prepare_polars_called_once_per_model_per_pipeline(tmp_path, monkeypatch
     monkeypatch.setattr(_strat.XGBoostStrategy, "prepare_polars_dataframe", _wrap_xgb)
 
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
     trained, _ = train_mlframe_models_suite(
-        df=df, target_name="tgt", model_name="mdl",
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
         features_and_targets_extractor=fte,
         mlframe_models=["cb", "xgb"],
         hyperparams_config={
@@ -1100,6 +1174,7 @@ def test_permissive_configs_warn_on_unknown_fields(caplog):
     produce a visible WARNING via ``_warn_on_unknown_extras``.
     """
     import logging
+
     caplog.set_level(logging.WARNING, logger="mlframe.training.configs")
 
     # Should NOT raise (extra='allow'), but must emit a WARNING.
@@ -1143,9 +1218,7 @@ def test_metadata_carries_load_bearing_fields(tmp_path):
     assert schemas, "model_schemas is empty after a successful training"
     entry = next(iter(schemas.values()))
     for k in ("schema_hash", "input_schema", "mlframe_model", "weight_name"):
-        assert k in entry, (
-            f"model_schemas entry missing {k!r}; entry keys={list(entry)}"
-        )
+        assert k in entry, f"model_schemas entry missing {k!r}; entry keys={list(entry)}"
 
     # outlier_detection must have the applied flag (False here since
     # no detector was passed).
@@ -1172,6 +1245,7 @@ def test_continue_on_model_failure_skips_crashed_model(tmp_path, monkeypatch):
     df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
 
     import catboost as cb
+
     _orig_fit = cb.CatBoostClassifier.fit
     _sentinel = RuntimeError("sentinel-fit-crash-for-test")
 
@@ -1181,9 +1255,12 @@ def test_continue_on_model_failure_skips_crashed_model(tmp_path, monkeypatch):
     monkeypatch.setattr(cb.CatBoostClassifier, "fit", _boom)
 
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
     trained, meta = train_mlframe_models_suite(
-        df=df, target_name="tgt", model_name="mdl",
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
         features_and_targets_extractor=fte,
         mlframe_models=["cb", "xgb"],
         hyperparams_config={
@@ -1199,13 +1276,9 @@ def test_continue_on_model_failure_skips_crashed_model(tmp_path, monkeypatch):
         output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
     )
     failed = (meta or {}).get("failed_models") or []
-    assert failed, (
-        "continue_on_model_failure=True but no 'failed_models' in metadata"
-    )
+    assert failed, "continue_on_model_failure=True but no 'failed_models' in metadata"
     cb_failures = [f for f in failed if f.get("model") == "cb"]
-    assert cb_failures, (
-        f"CB crash not recorded in failed_models: {failed}"
-    )
+    assert cb_failures, f"CB crash not recorded in failed_models: {failed}"
 
     # Restore fit so subsequent tests in same session aren't affected
     # (monkeypatch does this automatically, but explicit is safer).
@@ -1221,13 +1294,17 @@ def test_verbose_zero_suppresses_suite_info_logs(tmp_path, capsys, caplog):
     """
     pytest.importorskip("catboost")
     import logging
+
     caplog.set_level(logging.WARNING, logger="mlframe")
 
     df = _make_baseline_pandas(n=200, seed=0, with_cat=False, regression=False)
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
     trained, _ = train_mlframe_models_suite(
-        df=df, target_name="tgt", model_name="mdl",
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
         features_and_targets_extractor=fte,
         mlframe_models=["cb"],
         hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
@@ -1239,8 +1316,7 @@ def test_verbose_zero_suppresses_suite_info_logs(tmp_path, capsys, caplog):
     )
     assert trained
     mlframe_info_records = [
-        r for r in caplog.records
-        if r.name.startswith("mlframe") and r.levelno == logging.INFO
+        r for r in caplog.records if r.name.startswith("mlframe") and r.levelno == logging.INFO
     ]
     assert not mlframe_info_records, (
         f"verbose=0 leaked {len(mlframe_info_records)} INFO-level log "
@@ -1255,14 +1331,17 @@ def test_verbose_zero_suppresses_suite_info_logs(tmp_path, capsys, caplog):
 
 
 # #23 Empty / None df / missing target column
-@pytest.mark.parametrize("df_input,error_kw", [
-    (None, ("none", "type", "input")),
-    # Empty pd.DataFrame has no columns at all → extractor fails with
-    # KeyError when looking up the target column. Either error class
-    # is acceptable as long as the message points at the missing
-    # column (or the empty frame).
-    (pd.DataFrame(), ("empty", "rows", "no", "target", "column", "key")),
-])
+@pytest.mark.parametrize(
+    "df_input,error_kw",
+    [
+        (None, ("none", "type", "input")),
+        # Empty pd.DataFrame has no columns at all → extractor fails with
+        # KeyError when looking up the target column. Either error class
+        # is acceptable as long as the message points at the missing
+        # column (or the empty frame).
+        (pd.DataFrame(), ("empty", "rows", "no", "target", "column", "key")),
+    ],
+)
 def test_invalid_df_inputs_raise_clear_error(tmp_path, df_input, error_kw):
     """``train_mlframe_models_suite`` must raise a CLEAR error (not a
     cryptic AttributeError deep in the pipeline) when given invalid
@@ -1275,13 +1354,15 @@ def test_invalid_df_inputs_raise_clear_error(tmp_path, df_input, error_kw):
     """
     pytest.importorskip("catboost")
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
 
     raised = None
     try:
         train_mlframe_models_suite(
             df=df_input,
-            target_name="tgt", model_name="mdl",
+            target_name="tgt",
+            model_name="mdl",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
@@ -1311,18 +1392,23 @@ def test_missing_target_column_raises(tmp_path):
     df = df.drop(columns=["target"])  # target column gone
 
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
     raised = None
     try:
         train_mlframe_models_suite(
-            df=df, target_name="tgt", model_name="mdl",
+            df=df,
+            target_name="tgt",
+            model_name="mdl",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
             hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
-            preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
-            use_ordinary_models=True, use_mlframe_ensembles=False,
-            data_dir=str(tmp_path), models_dir="models", verbose=0,
+            preprocessing_config=PreprocessingConfig(drop_columns=[]),
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+            verbose=0,
         )
     except Exception as e:
         raised = e
@@ -1331,9 +1417,7 @@ def test_missing_target_column_raises(tmp_path):
     # Either explicit "target" mention OR a KeyError-style message about
     # the column name. Anything that points the operator at the missing
     # column is acceptable.
-    assert "target" in msg or "column" in msg or "key" in msg, (
-        f"missing-target raise was opaque: {raised!r}"
-    )
+    assert "target" in msg or "column" in msg or "key" in msg, f"missing-target raise was opaque: {raised!r}"
 
 
 # #24 Empty model list / unknown model name
@@ -1346,12 +1430,25 @@ def test_empty_mlframe_models_handled_gracefully(tmp_path):
     pytest.importorskip("catboost")
     df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
 
     raised = None
     trained = None
     try:
-        trained, _ = train_mlframe_models_suite(df=df, target_name='tgt', model_name='mdl', features_and_targets_extractor=fte, mlframe_models=[], hyperparams_config={'iterations': 3}, preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
+        trained, _ = train_mlframe_models_suite(
+            df=df,
+            target_name="tgt",
+            model_name="mdl",
+            features_and_targets_extractor=fte,
+            mlframe_models=[],
+            hyperparams_config={"iterations": 3},
+            preprocessing_config=PreprocessingConfig(drop_columns=[]),
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            verbose=0,
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        )
     except Exception as e:
         raised = e
     if raised is not None:
@@ -1361,9 +1458,7 @@ def test_empty_mlframe_models_handled_gracefully(tmp_path):
         )
         return
     # Or, a non-crashing result: trained dict must be empty.
-    assert not trained, (
-        f"empty mlframe_models silently returned non-empty trained dict: {trained}"
-    )
+    assert not trained, f"empty mlframe_models silently returned non-empty trained dict: {trained}"
 
 
 def test_unknown_mlframe_model_name_raises_or_warns(tmp_path):
@@ -1375,10 +1470,12 @@ def test_unknown_mlframe_model_name_raises_or_warns(tmp_path):
     pytest.importorskip("catboost")
     df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
 
     import logging
     import io
+
     log_buf = io.StringIO()
     handler = logging.StreamHandler(log_buf)
     handler.setLevel(logging.WARNING)
@@ -1387,7 +1484,19 @@ def test_unknown_mlframe_model_name_raises_or_warns(tmp_path):
     raised = None
     trained = None
     try:
-        trained, _ = train_mlframe_models_suite(df=df, target_name='tgt', model_name='mdl', features_and_targets_extractor=fte, mlframe_models=['this_is_not_a_real_model'], hyperparams_config={'iterations': 3}, preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
+        trained, _ = train_mlframe_models_suite(
+            df=df,
+            target_name="tgt",
+            model_name="mdl",
+            features_and_targets_extractor=fte,
+            mlframe_models=["this_is_not_a_real_model"],
+            hyperparams_config={"iterations": 3},
+            preprocessing_config=PreprocessingConfig(drop_columns=[]),
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            verbose=0,
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        )
     except Exception as e:
         raised = e
     finally:
@@ -1403,11 +1512,9 @@ def test_unknown_mlframe_model_name_raises_or_warns(tmp_path):
         return
     # Or, silent skip with WARN. Trained dict empty + warning fired.
     assert (
-        ("unknown" in log_text or "skip" in log_text or "this_is_not_a_real_model" in log_text)
-        or not trained
-    ), (
-        "unknown model name was silently accepted with no warning and "
-        "no skip — operator would never know"
+        "unknown" in log_text or "skip" in log_text or "this_is_not_a_real_model" in log_text
+    ) or not trained, (
+        "unknown model name was silently accepted with no warning and no skip — operator would never know"
     )
 
 
@@ -1423,10 +1530,14 @@ def test_predictions_in_valid_range_for_classification(tmp_path):
     assert trained
 
     from mlframe.training.core import predict_mlframe_models_suite
+
     models_path = os.path.join(str(tmp_path), "models", "tgt", "mdl")
     serving = df.head(50).drop(columns=["target"])
     res = predict_mlframe_models_suite(
-        serving, models_path=models_path, return_probabilities=True, verbose=0,
+        serving,
+        models_path=models_path,
+        return_probabilities=True,
+        verbose=0,
     )
     probs = res.get("probabilities") or {}
     assert probs, "no probabilities returned for classification"
@@ -1452,10 +1563,14 @@ def test_predictions_finite_for_regression(tmp_path):
     assert trained
 
     from mlframe.training.core import predict_mlframe_models_suite
+
     models_path = os.path.join(str(tmp_path), "models", "tgt", "mdl")
     serving = df.head(50).drop(columns=["target"])
     res = predict_mlframe_models_suite(
-        serving, models_path=models_path, return_probabilities=False, verbose=0,
+        serving,
+        models_path=models_path,
+        return_probabilities=False,
+        verbose=0,
     )
     preds = res.get("predictions") or {}
     assert preds, "no predictions returned for regression"
@@ -1463,9 +1578,7 @@ def test_predictions_finite_for_regression(tmp_path):
         if arr is None:
             continue
         arr_np = np.asarray(arr, dtype="float64")
-        assert np.isfinite(arr_np).all(), (
-            f"non-finite regression predictions from {name}"
-        )
+        assert np.isfinite(arr_np).all(), f"non-finite regression predictions from {name}"
 
 
 # #26 Column-order invariance: schema_hash should not depend on
@@ -1552,7 +1665,9 @@ def test_save_load_predict_in_subprocess(tmp_path):
     # isolated and full-file runs 2026-04-24.
     result = subprocess.run(
         [sys.executable, "-c", script],
-        capture_output=True, text=True, timeout=420,
+        capture_output=True,
+        text=True,
+        timeout=420,
     )
     assert result.returncode == 0, (
         f"subprocess load+predict failed (rc={result.returncode}):\n"
@@ -1578,13 +1693,26 @@ def test_duplicate_mlframe_models_handled(tmp_path):
     pytest.importorskip("catboost")
     df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
 
     raised = None
     trained = None
     meta = None
     try:
-        trained, meta = train_mlframe_models_suite(df=df, target_name='tgt', model_name='mdl', features_and_targets_extractor=fte, mlframe_models=['cb', 'cb'], hyperparams_config={'iterations': 3, 'cb_kwargs': {'task_type': 'CPU', 'verbose': 0}}, preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
+        trained, meta = train_mlframe_models_suite(
+            df=df,
+            target_name="tgt",
+            model_name="mdl",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb", "cb"],
+            hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+            preprocessing_config=PreprocessingConfig(drop_columns=[]),
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            verbose=0,
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        )
     except Exception as e:
         raised = e
 
@@ -1597,8 +1725,7 @@ def test_duplicate_mlframe_models_handled(tmp_path):
     # Silent dedupe path: ensure model_schemas has at most ONE 'cb' entry.
     schemas = (meta or {}).get("model_schemas") or {}
     cb_entries = [
-        v for v in schemas.values()
-        if v.get("mlframe_model") == "cb" and v.get("weight_name") == "uniform"
+        v for v in schemas.values() if v.get("mlframe_model") == "cb" and v.get("weight_name") == "uniform"
     ]
     assert len(cb_entries) <= 1, (
         f"duplicate ['cb','cb'] silently produced {len(cb_entries)} 'cb' entries "
@@ -1624,14 +1751,29 @@ def test_custom_pre_pipelines_runs_without_crash(tmp_path, caplog):
     pytest.importorskip("catboost")
     from sklearn.decomposition import IncrementalPCA
     import logging
+
     caplog.set_level(logging.INFO, logger="mlframe")
 
     df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
 
     custom = {"pca50": IncrementalPCA(n_components=2)}
-    trained, _ = train_mlframe_models_suite(df=df, target_name='tgt', model_name='mdl', features_and_targets_extractor=fte, mlframe_models=['cb'], hyperparams_config={'iterations': 3, 'cb_kwargs': {'task_type': 'CPU', 'verbose': 0}}, preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=1, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'), feature_selection_config=FeatureSelectionConfig(custom_pre_pipelines=custom))
+    trained, _ = train_mlframe_models_suite(
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb"],
+        hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+        preprocessing_config=PreprocessingConfig(drop_columns=[]),
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        verbose=1,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        feature_selection_config=FeatureSelectionConfig(custom_pre_pipelines=custom),
+    )
     assert trained, "custom_pre_pipelines path returned empty trained dict"
 
     log_text = caplog.text.lower()
@@ -1657,6 +1799,7 @@ def test_preprocessing_extensions_polynomial_features_run(tmp_path):
     df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
 
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
 
     ext = PreprocessingExtensionsConfig(
@@ -1664,15 +1807,26 @@ def test_preprocessing_extensions_polynomial_features_run(tmp_path):
         polynomial_interaction_only=True,
         scaler="StandardScaler",
     )
-    trained, meta = train_mlframe_models_suite(df=df, target_name='tgt', model_name='mdl', features_and_targets_extractor=fte, mlframe_models=['cb'], hyperparams_config={'iterations': 3, 'cb_kwargs': {'task_type': 'CPU', 'verbose': 0}}, preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, preprocessing_extensions=ext, verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
+    trained, meta = train_mlframe_models_suite(
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb"],
+        hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+        preprocessing_config=PreprocessingConfig(drop_columns=[]),
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        preprocessing_extensions=ext,
+        verbose=0,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+    )
     assert trained, "preprocessing_extensions=poly run produced empty dict"
     cols = meta.get("columns") or []
     # Original frame has 3 numeric features. Interaction-only poly_2
     # adds C(3,2)=3 interactions → at least 4 features post-extension.
     # Permissive lower bound (>3) survives small sklearn-version drift.
-    assert len(cols) > 3, (
-        f"polynomial_degree=2 did not expand feature count: cols={cols}"
-    )
+    assert len(cols) > 3, f"polynomial_degree=2 did not expand feature count: cols={cols}"
 
 
 # #31 Fairness end-to-end
@@ -1685,6 +1839,7 @@ def test_fairness_features_recorded_in_metadata(tmp_path):
     pytest.importorskip("catboost")
     df = _make_baseline_pandas(n=400, seed=0, with_cat=True, regression=False)
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
 
     behavior = TrainingBehaviorConfig(
@@ -1692,7 +1847,9 @@ def test_fairness_features_recorded_in_metadata(tmp_path):
         fairness_min_pop_cat_thresh=10,
     )
     trained, meta = train_mlframe_models_suite(
-        df=df, target_name="tgt", model_name="mdl",
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
         features_and_targets_extractor=fte,
         mlframe_models=["cb"],
         hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
@@ -1705,8 +1862,7 @@ def test_fairness_features_recorded_in_metadata(tmp_path):
     )
     assert any("fairness" in k.lower() for k in (meta or {}).keys()), (
         "fairness_features=['cat_0'] but no fairness-related key in metadata; "
-        "the kwarg may have been silently ignored. Meta keys: "
-        + str(list(meta))
+        "the kwarg may have been silently ignored. Meta keys: " + str(list(meta))
     )
 
 
@@ -1722,18 +1878,23 @@ def test_prefer_calibrated_classifiers_runs(tmp_path):
     df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
 
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
 
     behavior = TrainingBehaviorConfig(prefer_calibrated_classifiers=True)
     trained, _ = train_mlframe_models_suite(
-        df=df, target_name="tgt", model_name="mdl",
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
         features_and_targets_extractor=fte,
         mlframe_models=["cb"],
         hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
-        preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
-        use_ordinary_models=True, use_mlframe_ensembles=False,
+        preprocessing_config=PreprocessingConfig(drop_columns=[]),
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
         behavior_config=behavior,
-        data_dir=str(tmp_path), models_dir="models", verbose=0,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        verbose=0,
     )
     assert trained, "prefer_calibrated_classifiers=True trained empty dict"
 
@@ -1751,8 +1912,21 @@ def test_df_as_parquet_path_string_loads_inside_suite(tmp_path):
     df.to_parquet(parquet_path)
 
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
-    trained, meta = train_mlframe_models_suite(df=parquet_path, target_name='tgt', model_name='mdl', features_and_targets_extractor=fte, mlframe_models=['cb'], hyperparams_config={'iterations': 3, 'cb_kwargs': {'task_type': 'CPU', 'verbose': 0}}, preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
+    trained, meta = train_mlframe_models_suite(
+        df=parquet_path,
+        target_name="tgt",
+        model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb"],
+        hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+        preprocessing_config=PreprocessingConfig(drop_columns=[]),
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        verbose=0,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+    )
     assert trained, "parquet-path-as-df failed to train"
     cols = meta.get("columns") or []
     assert "num_0" in cols, f"loaded frame missing expected columns: {cols}"
@@ -1780,8 +1954,10 @@ def test_load_outside_trusted_root_blocked(tmp_path):
 
     with pytest.raises(ValueError, match=r"trusted_root|inside"):
         predict_mlframe_models_suite(
-            serving, models_path=models_path,
-            trusted_root=bogus_root, verbose=0,
+            serving,
+            models_path=models_path,
+            trusted_root=bogus_root,
+            verbose=0,
         )
 
 
@@ -1811,30 +1987,44 @@ def test_recurrent_lstm_smoke(tmp_path):
     n_seqs = 80
     seq_len = 8
     n_features = 3
-    sequences = [
-        rng.standard_normal((seq_len, n_features)).astype("float32")
-        for _ in range(n_seqs)
-    ]
+    sequences = [rng.standard_normal((seq_len, n_features)).astype("float32") for _ in range(n_seqs)]
     # Build a flat tabular companion frame (same row count as sequences)
     # — the suite still wants a df + target. Tabular features can be
     # the per-sequence mean as a degenerate feature.
     flat_features = np.array([s.mean(axis=0) for s in sequences], dtype="float32")
     target = (flat_features[:, 0] > 0).astype("int32")
-    df = pd.DataFrame({
-        "num_0": flat_features[:, 0],
-        "num_1": flat_features[:, 1],
-        "num_2": flat_features[:, 2],
-        "target": target,
-    })
+    df = pd.DataFrame(
+        {
+            "num_0": flat_features[:, 0],
+            "num_1": flat_features[:, 1],
+            "num_2": flat_features[:, 2],
+            "target": target,
+        }
+    )
 
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
 
     # Wrap in try/skip — recurrent_config defaults may differ between
     # torch versions; the goal is to catch outright API breakage, not
     # to assert a specific RecurrentConfig schema.
     try:
-        trained, _ = train_mlframe_models_suite(df=df, target_name='tgt', model_name='mdl', features_and_targets_extractor=fte, mlframe_models=[], recurrent_models=['lstm'], sequences=sequences, hyperparams_config={'iterations': 2}, preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0, use_ordinary_models=False, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
+        trained, _ = train_mlframe_models_suite(
+            df=df,
+            target_name="tgt",
+            model_name="mdl",
+            features_and_targets_extractor=fte,
+            mlframe_models=[],
+            recurrent_models=["lstm"],
+            sequences=sequences,
+            hyperparams_config={"iterations": 2},
+            preprocessing_config=PreprocessingConfig(drop_columns=[]),
+            use_ordinary_models=False,
+            use_mlframe_ensembles=False,
+            verbose=0,
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        )
     except (NotImplementedError, ImportError) as e:
         pytest.skip(f"recurrent path not fully wired in this env: {e}")
     # Smoke: trained dict may be empty (LSTM may have its own
@@ -1870,13 +2060,18 @@ def test_cb_gpu_and_cpu_predictions_match_within_tolerance(tmp_path):
 
     def _train_with(task_type):
         _train_once(
-            df, tmp_path / task_type, models=("cb",), regression=False,
+            df,
+            tmp_path / task_type,
+            models=("cb",),
+            regression=False,
             extra_kwargs={
                 "hyperparams_config": {
                     "iterations": 5,
                     "cb_kwargs": {"task_type": task_type, "verbose": 0, "random_seed": 42},
                 },
-            } if False else None,  # _train_once already sets cb_kwargs; ignore extras here
+            }
+            if False
+            else None,  # _train_once already sets cb_kwargs; ignore extras here
         )
         models_path = os.path.join(str(tmp_path / task_type), "models", "tgt", "mdl")
         return predict_mlframe_models_suite(serving, models_path=models_path, verbose=0)
@@ -1953,9 +2148,35 @@ def test_mrmr_and_rfecv_stack_runs(tmp_path):
 
     df = _make_baseline_pandas(n=400, seed=0, with_cat=False, regression=False)
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
 
-    trained, _ = train_mlframe_models_suite(df=df, target_name='tgt', model_name='mdl', features_and_targets_extractor=fte, mlframe_models=['cb'], hyperparams_config={'iterations': 3, 'cb_kwargs': {'task_type': 'CPU', 'verbose': 0}}, preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True), mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3, 'full_npermutations': 3}, feature_selection_config=FeatureSelectionConfig(rfecv_models=['cb_rfecv']), verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
+    trained, _ = train_mlframe_models_suite(
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb"],
+        hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
+        preprocessing_config=PreprocessingConfig(drop_columns=[]),
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        feature_selection_config=FeatureSelectionConfig(
+            rfecv_models=["cb_rfecv"],
+            mrmr_kwargs={
+                "verbose": 0,
+                "max_runtime_mins": 1,
+                "n_workers": 1,
+                "quantization_nbins": 5,
+                "use_simple_mode": True,
+                "min_nonzero_confidence": 0.9,
+                "max_consec_unconfirmed": 3,
+                "full_npermutations": 3,
+            },
+        ),
+        verbose=0,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+    )
     assert trained, "MRMR + RFECV stack returned empty trained dict"
 
 
@@ -1973,23 +2194,42 @@ def test_continue_on_failure_with_ensembles(tmp_path, monkeypatch, caplog):
     pytest.importorskip("xgboost")
 
     import logging
+
     caplog.set_level(logging.INFO, logger="mlframe")
 
     df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
     import catboost as cb
+
     monkeypatch.setattr(
-        cb.CatBoostClassifier, "fit",
+        cb.CatBoostClassifier,
+        "fit",
         lambda self, *a, **kw: (_ for _ in ()).throw(RuntimeError("sentinel")),
     )
 
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
-    trained, meta = train_mlframe_models_suite(df=df, target_name='tgt', model_name='mdl', features_and_targets_extractor=fte, mlframe_models=['cb', 'xgb'], hyperparams_config={'iterations': 3, 'cb_kwargs': {'task_type': 'CPU', 'verbose': 0}, 'xgb_kwargs': {'device': 'cpu', 'verbosity': 0}}, preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=True, behavior_config=TrainingBehaviorConfig(continue_on_model_failure=True), verbose=1, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
+    trained, meta = train_mlframe_models_suite(
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb", "xgb"],
+        hyperparams_config={
+            "iterations": 3,
+            "cb_kwargs": {"task_type": "CPU", "verbose": 0},
+            "xgb_kwargs": {"device": "cpu", "verbosity": 0},
+        },
+        preprocessing_config=PreprocessingConfig(drop_columns=[]),
+        use_ordinary_models=True,
+        use_mlframe_ensembles=True,
+        behavior_config=TrainingBehaviorConfig(continue_on_model_failure=True),
+        verbose=1,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+    )
 
     failed = meta.get("failed_models") or []
-    assert any(f.get("model") == "cb" for f in failed), (
-        f"CB crash not recorded in failed_models: {failed}"
-    )
+    assert any(f.get("model") == "cb" for f in failed), f"CB crash not recorded in failed_models: {failed}"
 
     # Ensemble code path either ran on XGB-only or skipped (1 model
     # is below ensemble threshold of 2). Either is acceptable; what's
@@ -2019,8 +2259,26 @@ def test_uninformative_zero_column_does_not_break_training(tmp_path):
     df["num_zero"] = np.zeros(len(df), dtype="float32")
 
     from mlframe.training.core import train_mlframe_models_suite
+
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
-    trained, meta = train_mlframe_models_suite(df=df, target_name='tgt', model_name='mdl', features_and_targets_extractor=fte, mlframe_models=['cb', 'xgb', 'lgb'], hyperparams_config={'iterations': 3, 'cb_kwargs': {'task_type': 'CPU', 'verbose': 0}, 'xgb_kwargs': {'device': 'cpu', 'verbosity': 0}, 'lgb_kwargs': {'device_type': 'cpu', 'verbose': -1}}, preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0, use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'))
+    trained, meta = train_mlframe_models_suite(
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb", "xgb", "lgb"],
+        hyperparams_config={
+            "iterations": 3,
+            "cb_kwargs": {"task_type": "CPU", "verbose": 0},
+            "xgb_kwargs": {"device": "cpu", "verbosity": 0},
+            "lgb_kwargs": {"device_type": "cpu", "verbose": -1},
+        },
+        preprocessing_config=PreprocessingConfig(drop_columns=[]),
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        verbose=0,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+    )
     assert trained, "all-zero feature broke the training suite"
     # If remove_constant_columns is True (default), num_zero may be
     # dropped from metadata['columns']. If False, it'd be kept. Both

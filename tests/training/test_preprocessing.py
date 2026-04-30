@@ -315,7 +315,9 @@ class TestSaveSplitArtifacts:
             timestamps=timestamps,
             group_ids_raw=None,
             artifacts=None,
-            output_config=OutputConfig(data_dir=data_dir, models_dir=models_dir),
+            data_dir=data_dir,
+
+            models_dir=models_dir,
             target_name="target",
             model_name="test_model",
         )
@@ -344,7 +346,9 @@ class TestSaveSplitArtifacts:
             timestamps=None,
             group_ids_raw=group_ids,
             artifacts=None,
-            output_config=OutputConfig(data_dir=data_dir, models_dir=models_dir),
+            data_dir=data_dir,
+
+            models_dir=models_dir,
             target_name="target",
             model_name="test_model",
         )
@@ -372,7 +376,9 @@ class TestSaveSplitArtifacts:
             timestamps=None,
             group_ids_raw=None,
             artifacts=artifacts,
-            output_config=OutputConfig(data_dir=data_dir, models_dir=models_dir),
+            data_dir=data_dir,
+
+            models_dir=models_dir,
             target_name="target",
             model_name="test_model",
         )
@@ -399,7 +405,9 @@ class TestSaveSplitArtifacts:
             timestamps=timestamps,
             group_ids_raw=None,
             artifacts=None,
-            output_config=OutputConfig(data_dir=data_dir, models_dir=models_dir),
+            data_dir=data_dir,
+
+            models_dir=models_dir,
             target_name="target",
             model_name="test_model",
         )
@@ -450,7 +458,9 @@ class TestSaveSplitArtifacts:
             timestamps=timestamps,
             group_ids_raw=None,
             artifacts=None,
-            output_config=OutputConfig(data_dir=data_dir, models_dir=models_dir),
+            data_dir=data_dir,
+
+            models_dir=models_dir,
             target_name="target",
             model_name="test_model",
         )
@@ -472,7 +482,9 @@ class TestSaveSplitArtifacts:
             timestamps=new_timestamps,
             group_ids_raw=None,
             artifacts=None,
-            output_config=OutputConfig(data_dir=data_dir, models_dir=models_dir),
+            data_dir=data_dir,
+
+            models_dir=models_dir,
             target_name="target",
             model_name="test_model",
         )
@@ -497,7 +509,9 @@ class TestSaveSplitArtifacts:
             timestamps=timestamps,
             group_ids_raw=None,
             artifacts=None,
-            output_config=OutputConfig(data_dir=data_dir, models_dir=models_dir),
+            data_dir=data_dir,
+
+            models_dir=models_dir,
             target_name="My Target Name",  # Needs slugification
             model_name="Model With Spaces",  # Needs slugification
         )
@@ -523,7 +537,9 @@ class TestSaveSplitArtifacts:
             timestamps=timestamps,
             group_ids_raw=None,
             artifacts=None,
-            output_config=OutputConfig(data_dir=data_dir, models_dir=models_dir),
+            data_dir=data_dir,
+
+            models_dir=models_dir,
             target_name="target",
             model_name="test_model",
         )
@@ -548,7 +564,9 @@ class TestSaveSplitArtifacts:
             timestamps=timestamps,
             group_ids_raw=None,
             artifacts=None,
-            output_config=OutputConfig(data_dir=data_dir, models_dir=models_dir),
+            data_dir=data_dir,
+
+            models_dir=models_dir,
             target_name="target",
             model_name="test_model",
             compression="snappy",

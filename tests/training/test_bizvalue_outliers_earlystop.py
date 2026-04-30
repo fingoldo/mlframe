@@ -186,7 +186,7 @@ def test_outlier_detection_improves_regression_rmse(tmp_path, common_init_params
     rmse_no_od, meta_no = _train_and_score_regression(
         train_df, test_df, tmp_path,
         model_name=f"lgb_no_od_s{seed}",
-        outlier_detection_config=OutlierDetectionConfig(detector=None),
+        outlier_detector=None,
         common_init_params=common_init_params,
     )
 
@@ -194,7 +194,7 @@ def test_outlier_detection_improves_regression_rmse(tmp_path, common_init_params
     rmse_with_od, meta_od = _train_and_score_regression(
         train_df, test_df, tmp_path,
         model_name=f"lgb_with_od_s{seed}",
-        outlier_detection_config=OutlierDetectionConfig(detector=od),
+        outlier_detector=od,
         common_init_params=common_init_params,
     )
 
@@ -237,7 +237,7 @@ def test_outlier_detection_surfaces_metadata(tmp_path, common_init_params, seed)
     _, meta_od = _train_and_score_regression(
         train_df, test_df, tmp_path,
         model_name=f"lgb_od_meta_s{seed}",
-        outlier_detection_config=OutlierDetectionConfig(detector=od),
+        outlier_detector=od,
         common_init_params=common_init_params,
     )
 

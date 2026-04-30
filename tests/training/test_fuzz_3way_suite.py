@@ -30,6 +30,7 @@ Env:
   (independent of the pairwise suite's ``FUZZ_SEED``).
 - ``FUZZ_3WAY_TARGET`` — combo count (default 400).
 """
+
 from __future__ import annotations
 
 import os
@@ -81,11 +82,18 @@ def _fuzz3way_cleanup():
     yield
     try:
         import matplotlib.pyplot as plt
+
         plt.close("all")
     except Exception:
         pass
     try:
-        from mlframe.training import FeatureSelectionConfig, OutlierDetectionConfig, OutputConfig, trainer as _tr
+        from mlframe.training import (
+            FeatureSelectionConfig,
+            OutlierDetectionConfig,
+            OutputConfig,
+            trainer as _tr,
+        )
+
         for attr in ("_CB_POOL_CACHE", "_CB_VAL_POOL_CACHE"):
             cache = getattr(_tr, attr, None)
             if hasattr(cache, "clear"):
@@ -93,14 +101,13 @@ def _fuzz3way_cleanup():
     except Exception:
         pass
     import gc
+
     gc.collect()
     gc.collect()
 
 
 @pytest.mark.timeout(300)
-@pytest.mark.parametrize(
-    "combo", COMBOS_3WAY, ids=[c.pytest_id() for c in COMBOS_3WAY]
-)
+@pytest.mark.parametrize("combo", COMBOS_3WAY, ids=[c.pytest_id() for c in COMBOS_3WAY])
 def test_fuzz_3way_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     """Run the suite on one triple-coverage combo. Identical assertion
     contract to the pairwise suite — we're sampling a different region
@@ -136,7 +143,8 @@ def test_fuzz_3way_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, reques
             features_and_targets_extractor=fte,
             mlframe_models=list(combo.models),
             hyperparams_config=_config_for_models(
-                combo.models, combo.n_rows,
+                combo.models,
+                combo.n_rows,
                 iterations=combo.iterations,
                 early_stopping_rounds=combo.early_stopping_rounds_cfg,
             ),
@@ -145,30 +153,32 @@ def test_fuzz_3way_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, reques
             use_ordinary_models=True,
             use_mlframe_ensembles=combo.use_ensembles,
             outlier_detection_config=OutlierDetectionConfig(detector=outlier_detector),
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir='models'),
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
             feature_selection_config=FeatureSelectionConfig(
                 use_mrmr_fs=combo.use_mrmr_fs,
                 custom_pre_pipelines=custom_pre or {},
-                mrmr_kwargs=({
-                    'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1,
-                    'quantization_nbins': 5, 'use_simple_mode': True,
-                    'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3,
-                    'full_npermutations': 3,
-                } if combo.use_mrmr_fs else None),
+                mrmr_kwargs=(
+                    {
+                        "verbose": 0,
+                        "max_runtime_mins": 1,
+                        "n_workers": 1,
+                        "quantization_nbins": 5,
+                        "use_simple_mode": True,
+                        "min_nonzero_confidence": 0.9,
+                        "max_consec_unconfirmed": 3,
+                        "full_npermutations": 3,
+                    }
+                    if combo.use_mrmr_fs
+                    else None
+                ),
             ),
             **_configs_for_combo(combo),
         )
         if not trained:
-            if (
-                combo.continue_on_model_failure
-                and _meta is not None
-                and _meta.get("failed_models")
-            ):
+            if combo.continue_on_model_failure and _meta is not None and _meta.get("failed_models"):
                 pass
             else:
-                raise AssertionError(
-                    f"empty models dict for combo {combo.short_id()}"
-                )
+                raise AssertionError(f"empty models dict for combo {combo.short_id()}")
         if combo.input_storage == "memory" and frame_cols_before is not None:
             assert tuple(df.columns) == frame_cols_before
             assert getattr(df, "shape", None) == frame_shape_before
@@ -181,7 +191,8 @@ def test_fuzz_3way_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, reques
         err_class = type(exc).__name__
         err_summary = traceback.format_exception_only(type(exc), exc)[-1].strip()
         log_combo_outcome(
-            combo, outcome,
+            combo,
+            outcome,
             duration_s=time.perf_counter() - t0,
             error_class=err_class,
             error_summary=err_summary,
@@ -189,7 +200,9 @@ def test_fuzz_3way_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, reques
         )
         raise
     log_combo_outcome(
-        combo, outcome, duration_s=time.perf_counter() - t0,
+        combo,
+        outcome,
+        duration_s=time.perf_counter() - t0,
         extra={"suite": "3way"},
     )
 
@@ -201,6 +214,7 @@ def test_3way_enumerator_covers_all_triples():
     can cover, or the greedy picker is starving — raise the target or
     prune an axis."""
     from ._fuzz_combo import _all_axis_triples, _combo_triples
+
     required = _all_axis_triples()
     covered: set = set()
     for c in COMBOS_3WAY:

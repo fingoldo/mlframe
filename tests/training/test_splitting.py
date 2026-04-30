@@ -22,7 +22,7 @@ class TestMakeTrainTestSplitBasic:
 
     def test_basic_random_split(self):
         """Test basic random split with default parameters."""
-        df = pd.DataFrame({'feature': np.random.randn(1000)})
+        df = pd.DataFrame({"feature": np.random.randn(1000)})
 
         train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
             df, test_size=0.2, val_size=0.1, shuffle_val=True, shuffle_test=True, random_seed=42
@@ -37,11 +37,13 @@ class TestMakeTrainTestSplitBasic:
 
         # Check approximate sizes (with tolerance for rounding)
         assert abs(len(test_idx) / len(df) - 0.2) < 0.05, "Test size should be approximately 20%"
-        assert abs(len(val_idx) / (len(df) - len(test_idx)) - 0.1) < 0.05, "Val size should be approximately 10% of remaining"
+        assert abs(len(val_idx) / (len(df) - len(test_idx)) - 0.1) < 0.05, (
+            "Val size should be approximately 10% of remaining"
+        )
 
     def test_sequential_split_no_shuffle(self):
         """Test sequential split without shuffling."""
-        df = pd.DataFrame({'feature': np.arange(100)})
+        df = pd.DataFrame({"feature": np.arange(100)})
 
         train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
             df, test_size=0.2, val_size=0.1, shuffle_val=False, shuffle_test=False, random_seed=42
@@ -51,11 +53,13 @@ class TestMakeTrainTestSplitBasic:
         # and val should be before test
         if len(test_idx) > 0 and len(val_idx) > 0:
             # With sequential splitting, test should have the highest indices
-            assert test_idx.max() >= val_idx.max(), "Test indices should be >= val indices in sequential split"
+            assert test_idx.max() >= val_idx.max(), (
+                "Test indices should be >= val indices in sequential split"
+            )
 
     def test_zero_test_size(self):
         """Test split with zero test size."""
-        df = pd.DataFrame({'feature': np.random.randn(100)})
+        df = pd.DataFrame({"feature": np.random.randn(100)})
 
         # Note: The splitting function may handle zero test size differently
         # We just check it doesn't crash and returns valid train/val
@@ -71,18 +75,24 @@ class TestMakeTrainTestSplitBasic:
 
     def test_reproducibility_with_seed(self):
         """Test that same seed produces same splits."""
-        df = pd.DataFrame({'feature': np.random.randn(500)})
+        df = pd.DataFrame({"feature": np.random.randn(500)})
 
         result1 = make_train_test_split(df, test_size=0.2, val_size=0.1, shuffle_val=True, random_seed=42)
         result2 = make_train_test_split(df, test_size=0.2, val_size=0.1, shuffle_val=True, random_seed=42)
 
-        np.testing.assert_array_equal(result1[0], result2[0], "Train indices should be identical with same seed")
-        np.testing.assert_array_equal(result1[1], result2[1], "Val indices should be identical with same seed")
-        np.testing.assert_array_equal(result1[2], result2[2], "Test indices should be identical with same seed")
+        np.testing.assert_array_equal(
+            result1[0], result2[0], "Train indices should be identical with same seed"
+        )
+        np.testing.assert_array_equal(
+            result1[1], result2[1], "Val indices should be identical with same seed"
+        )
+        np.testing.assert_array_equal(
+            result1[2], result2[2], "Test indices should be identical with same seed"
+        )
 
     def test_different_seeds_produce_different_splits(self):
         """Test that different seeds produce different splits."""
-        df = pd.DataFrame({'feature': np.random.randn(500)})
+        df = pd.DataFrame({"feature": np.random.randn(500)})
 
         result1 = make_train_test_split(df, test_size=0.2, val_size=0.1, shuffle_val=True, random_seed=42)
         result2 = make_train_test_split(df, test_size=0.2, val_size=0.1, shuffle_val=True, random_seed=123)
@@ -92,7 +102,9 @@ class TestMakeTrainTestSplitBasic:
         val_different = not np.array_equal(result1[1], result2[1])
         test_different = not np.array_equal(result1[2], result2[2])
 
-        assert train_different or val_different or test_different, "Different seeds should produce different splits"
+        assert train_different or val_different or test_different, (
+            "Different seeds should produce different splits"
+        )
 
 
 class TestMakeTrainTestSplitDateBased:
@@ -107,22 +119,16 @@ class TestMakeTrainTestSplitDateBased:
         base_date = datetime(2023, 1, 1)
         timestamps = [base_date + timedelta(days=i // 10, hours=i % 24) for i in range(n_samples)]
 
-        df = pd.DataFrame({
-            'feature': np.random.randn(n_samples),
-            'timestamp': timestamps
-        })
+        df = pd.DataFrame({"feature": np.random.randn(n_samples), "timestamp": timestamps})
         return df
 
     def test_wholeday_splitting_basic(self, timeseries_df):
         """Test whole-day splitting creates date-aligned splits."""
         df = timeseries_df
-        timestamps = pd.to_datetime(df['timestamp'])
+        timestamps = pd.to_datetime(df["timestamp"])
 
         train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
-            df, test_size=0.2, val_size=0.1,
-            timestamps=timestamps,
-            wholeday_splitting=True,
-            random_seed=42
+            df, test_size=0.2, val_size=0.1, timestamps=timestamps, wholeday_splitting=True, random_seed=42
         )
 
         # Check all indices are valid
@@ -135,20 +141,22 @@ class TestMakeTrainTestSplitDateBased:
         assert len(all_idx) == len(train_idx) + len(val_idx) + len(test_idx), "No overlapping indices"
 
         # Check details contain date information
-        assert '/' in train_details or train_details == '', "Train details should contain date range"
+        assert "/" in train_details or train_details == "", "Train details should contain date range"
 
     def test_wholeday_splitting_preserves_day_boundaries(self, timeseries_df):
         """Test that whole-day splitting doesn't split within a day."""
         df = timeseries_df
-        timestamps = pd.to_datetime(df['timestamp'])
+        timestamps = pd.to_datetime(df["timestamp"])
 
         train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1,
+            df,
+            test_size=0.2,
+            val_size=0.1,
             timestamps=timestamps,
             wholeday_splitting=True,
             shuffle_val=False,
             shuffle_test=False,
-            random_seed=42
+            random_seed=42,
         )
 
         # Get dates for each split
@@ -164,13 +172,10 @@ class TestMakeTrainTestSplitDateBased:
     def test_row_based_splitting_with_timestamps(self, timeseries_df):
         """Test row-based splitting with timestamps (wholeday_splitting=False)."""
         df = timeseries_df
-        timestamps = pd.to_datetime(df['timestamp'])
+        timestamps = pd.to_datetime(df["timestamp"])
 
         train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1,
-            timestamps=timestamps,
-            wholeday_splitting=False,
-            random_seed=42
+            df, test_size=0.2, val_size=0.1, timestamps=timestamps, wholeday_splitting=False, random_seed=42
         )
 
         # All rows should be assigned
@@ -183,16 +188,18 @@ class TestMakeTrainTestSplitSequentialFraction:
 
     def test_full_sequential_fraction(self):
         """Test val_sequential_fraction=1.0 means fully sequential."""
-        df = pd.DataFrame({'feature': np.arange(1000)})
-        timestamps = pd.Series(pd.date_range('2023-01-01', periods=1000, freq='1h'))
+        df = pd.DataFrame({"feature": np.arange(1000)})
+        timestamps = pd.Series(pd.date_range("2023-01-01", periods=1000, freq="1h"))
 
         train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1,
+            df,
+            test_size=0.2,
+            val_size=0.1,
             timestamps=timestamps,
             wholeday_splitting=False,
             val_sequential_fraction=1.0,
             test_sequential_fraction=1.0,
-            random_seed=42
+            random_seed=42,
         )
 
         # With sequential_fraction=1.0, indices should be sorted and contiguous
@@ -201,16 +208,18 @@ class TestMakeTrainTestSplitSequentialFraction:
 
     def test_zero_sequential_fraction(self):
         """Test sequential_fraction=0.0 means fully shuffled."""
-        df = pd.DataFrame({'feature': np.arange(1000)})
-        timestamps = pd.Series(pd.date_range('2023-01-01', periods=1000, freq='1h'))
+        df = pd.DataFrame({"feature": np.arange(1000)})
+        timestamps = pd.Series(pd.date_range("2023-01-01", periods=1000, freq="1h"))
 
         train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1,
+            df,
+            test_size=0.2,
+            val_size=0.1,
             timestamps=timestamps,
             wholeday_splitting=False,
             val_sequential_fraction=0.0,
             test_sequential_fraction=0.0,
-            random_seed=42
+            random_seed=42,
         )
 
         # All indices should still be valid and unique
@@ -219,16 +228,18 @@ class TestMakeTrainTestSplitSequentialFraction:
 
     def test_mixed_sequential_fraction(self):
         """Test mixed sequential/shuffled split (0 < fraction < 1)."""
-        df = pd.DataFrame({'feature': np.arange(1000)})
-        timestamps = pd.Series(pd.date_range('2023-01-01', periods=1000, freq='1h'))
+        df = pd.DataFrame({"feature": np.arange(1000)})
+        timestamps = pd.Series(pd.date_range("2023-01-01", periods=1000, freq="1h"))
 
         train_idx, val_idx, test_idx, _, val_details, test_details = make_train_test_split(
-            df, test_size=0.2, val_size=0.1,
+            df,
+            test_size=0.2,
+            val_size=0.1,
             timestamps=timestamps,
             wholeday_splitting=False,
             val_sequential_fraction=0.5,
             test_sequential_fraction=0.5,
-            random_seed=42
+            random_seed=42,
         )
 
         # Check total sizes are correct
@@ -237,23 +248,27 @@ class TestMakeTrainTestSplitSequentialFraction:
 
     def test_invalid_sequential_fraction_raises_error(self):
         """Test that invalid sequential_fraction values raise errors."""
-        df = pd.DataFrame({'feature': np.arange(100)})
-        timestamps = pd.Series(pd.date_range('2023-01-01', periods=100, freq='1h'))
+        df = pd.DataFrame({"feature": np.arange(100)})
+        timestamps = pd.Series(pd.date_range("2023-01-01", periods=100, freq="1h"))
 
         with pytest.raises(ValueError, match="sequential_fraction must be between"):
             make_train_test_split(
-                df, test_size=0.2, val_size=0.1,
+                df,
+                test_size=0.2,
+                val_size=0.1,
                 timestamps=timestamps,
                 val_sequential_fraction=1.5,  # Invalid: > 1.0
-                random_seed=42
+                random_seed=42,
             )
 
         with pytest.raises(ValueError, match="sequential_fraction must be between"):
             make_train_test_split(
-                df, test_size=0.2, val_size=0.1,
+                df,
+                test_size=0.2,
+                val_size=0.1,
                 timestamps=timestamps,
                 test_sequential_fraction=-0.1,  # Invalid: < 0.0
-                random_seed=42
+                random_seed=42,
             )
 
 
@@ -262,39 +277,37 @@ class TestMakeTrainTestSplitAgingLimit:
 
     def test_trainset_aging_limit_reduces_train_size(self):
         """Test that aging limit reduces training set size."""
-        df = pd.DataFrame({'feature': np.arange(1000)})
-        timestamps = pd.Series(pd.date_range('2023-01-01', periods=1000, freq='1h'))
+        df = pd.DataFrame({"feature": np.arange(1000)})
+        timestamps = pd.Series(pd.date_range("2023-01-01", periods=1000, freq="1h"))
 
         # Without aging limit
         train_idx_full, _, _, _, _, _ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1,
-            timestamps=timestamps,
-            trainset_aging_limit=None,
-            random_seed=42
+            df, test_size=0.2, val_size=0.1, timestamps=timestamps, trainset_aging_limit=None, random_seed=42
         )
 
         # With aging limit of 0.5 (keep only 50% most recent)
         train_idx_aged, _, _, _, _, _ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1,
-            timestamps=timestamps,
-            trainset_aging_limit=0.5,
-            random_seed=42
+            df, test_size=0.2, val_size=0.1, timestamps=timestamps, trainset_aging_limit=0.5, random_seed=42
         )
 
         assert len(train_idx_aged) < len(train_idx_full), "Aging limit should reduce train size"
-        assert len(train_idx_aged) == pytest.approx(len(train_idx_full) * 0.5, rel=0.1), "Train should be ~50% of original"
+        assert len(train_idx_aged) == pytest.approx(len(train_idx_full) * 0.5, rel=0.1), (
+            "Train should be ~50% of original"
+        )
 
     def test_trainset_aging_limit_keeps_recent_data(self):
         """Test that aging limit keeps the most recent data."""
-        df = pd.DataFrame({'feature': np.arange(1000)})
-        timestamps = pd.Series(pd.date_range('2023-01-01', periods=1000, freq='1h'))
+        df = pd.DataFrame({"feature": np.arange(1000)})
+        timestamps = pd.Series(pd.date_range("2023-01-01", periods=1000, freq="1h"))
 
         train_idx, _, _, _, _, _ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1,
+            df,
+            test_size=0.2,
+            val_size=0.1,
             timestamps=timestamps,
             wholeday_splitting=False,
             trainset_aging_limit=0.3,
-            random_seed=42
+            random_seed=42,
         )
 
         # The training data should be from the more recent part
@@ -314,30 +327,36 @@ class TestMakeTrainTestSplitAgingLimit:
         This test was previously in the test's "no-op" branch (pre
         2026-04-21); aligned with code on that date.
         """
-        df = pd.DataFrame({'feature': np.arange(100)})
-        timestamps = pd.Series(pd.date_range('2023-01-01', periods=100, freq='1h'))
+        df = pd.DataFrame({"feature": np.arange(100)})
+        timestamps = pd.Series(pd.date_range("2023-01-01", periods=100, freq="1h"))
 
         # Test with aging_limit=0.0 — must raise (boundary, invalid).
         with pytest.raises(ValueError, match="trainset_aging_limit must be in"):
             make_train_test_split(
-                df, test_size=0.2, val_size=0.1,
+                df,
+                test_size=0.2,
+                val_size=0.1,
                 timestamps=timestamps,
                 trainset_aging_limit=0.0,
-                random_seed=42
+                random_seed=42,
             )
 
         # Test with aging_limit=1.0 — must raise (boundary, invalid).
         with pytest.raises(ValueError, match="trainset_aging_limit must be in"):
             make_train_test_split(
-                df, test_size=0.2, val_size=0.1,
+                df,
+                test_size=0.2,
+                val_size=0.1,
                 timestamps=timestamps,
                 trainset_aging_limit=1.0,
-                random_seed=42
+                random_seed=42,
             )
 
         # Sanity: a valid in-range value (e.g. 0.5) must produce splits.
         train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1,
+            df,
+            test_size=0.2,
+            val_size=0.1,
             timestamps=timestamps,
             trainset_aging_limit=0.5,
             random_seed=42,
@@ -350,7 +369,7 @@ class TestMakeTrainTestSplitEdgeCases:
 
     def test_small_dataset(self):
         """Test splitting a small dataset."""
-        df = pd.DataFrame({'feature': np.arange(10)})
+        df = pd.DataFrame({"feature": np.arange(10)})
 
         train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
             df, test_size=0.2, val_size=0.2, random_seed=42
@@ -362,19 +381,17 @@ class TestMakeTrainTestSplitEdgeCases:
 
     def test_single_sample_dataset(self):
         """Test splitting a single-sample dataset."""
-        df = pd.DataFrame({'feature': [1.0]})
+        df = pd.DataFrame({"feature": [1.0]})
 
         # sklearn's train_test_split can't handle single sample with fractional sizes
         # This is expected behavior - splitting a single sample is not well-defined
         # Test that sklearn raises an appropriate error
         with pytest.raises((ValueError, Exception)):
-            make_train_test_split(
-                df, test_size=0.2, val_size=0.1, random_seed=42
-            )
+            make_train_test_split(df, test_size=0.2, val_size=0.1, random_seed=42)
 
     def test_sorted_output_indices(self):
         """Test that output indices are sorted."""
-        df = pd.DataFrame({'feature': np.random.randn(500)})
+        df = pd.DataFrame({"feature": np.random.randn(500)})
 
         train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
             df, test_size=0.2, val_size=0.1, shuffle_val=True, shuffle_test=True, random_seed=42
@@ -387,18 +404,20 @@ class TestMakeTrainTestSplitEdgeCases:
 
     def test_no_timestamps_uses_sklearn(self):
         """Test that missing timestamps falls back to sklearn-based splitting."""
-        df = pd.DataFrame({'feature': np.random.randn(100)})
+        df = pd.DataFrame({"feature": np.random.randn(100)})
 
         train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
-            df, test_size=0.2, val_size=0.1,
+            df,
+            test_size=0.2,
+            val_size=0.1,
             timestamps=None,  # No timestamps
-            random_seed=42
+            random_seed=42,
         )
 
         # Details should be empty without timestamps
-        assert train_details == '', "Train details should be empty without timestamps"
-        assert val_details == '', "Val details should be empty without timestamps"
-        assert test_details == '', "Test details should be empty without timestamps"
+        assert train_details == "", "Train details should be empty without timestamps"
+        assert val_details == "", "Val details should be empty without timestamps"
+        assert test_details == "", "Test details should be empty without timestamps"
 
         # But splits should still work
         all_idx = np.concatenate([train_idx, val_idx, test_idx])
@@ -406,7 +425,7 @@ class TestMakeTrainTestSplitEdgeCases:
 
     def test_very_small_split_sizes(self):
         """Test with very small split sizes."""
-        df = pd.DataFrame({'feature': np.random.randn(1000)})
+        df = pd.DataFrame({"feature": np.random.randn(1000)})
 
         train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
             df, test_size=0.01, val_size=0.01, random_seed=42
@@ -418,7 +437,7 @@ class TestMakeTrainTestSplitEdgeCases:
 
     def test_large_split_sizes(self):
         """Test with large test/val sizes."""
-        df = pd.DataFrame({'feature': np.random.randn(100)})
+        df = pd.DataFrame({"feature": np.random.randn(100)})
 
         train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
             df, test_size=0.4, val_size=0.4, random_seed=42
@@ -438,14 +457,16 @@ class TestMakeTrainTestSplitIntegration:
         base_date = datetime(2023, 1, 1)
         timestamps = pd.Series([base_date + timedelta(days=i // 10) for i in range(n_samples)])
 
-        df = pd.DataFrame({'feature': np.random.randn(n_samples)})
+        df = pd.DataFrame({"feature": np.random.randn(n_samples)})
 
         train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
-            df, test_size=0.2, val_size=0.1,
+            df,
+            test_size=0.2,
+            val_size=0.1,
             timestamps=timestamps,
             wholeday_splitting=True,
             trainset_aging_limit=0.5,
-            random_seed=42
+            random_seed=42,
         )
 
         # All indices should be valid
@@ -457,21 +478,23 @@ class TestMakeTrainTestSplitIntegration:
         """Test mixed sequential fraction with proper date detail strings."""
         np.random.seed(42)
         n_samples = 500
-        timestamps = pd.Series(pd.date_range('2023-01-01', periods=n_samples, freq='1h'))
+        timestamps = pd.Series(pd.date_range("2023-01-01", periods=n_samples, freq="1h"))
 
-        df = pd.DataFrame({'feature': np.random.randn(n_samples)})
+        df = pd.DataFrame({"feature": np.random.randn(n_samples)})
 
         train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
-            df, test_size=0.2, val_size=0.1,
+            df,
+            test_size=0.2,
+            val_size=0.1,
             timestamps=timestamps,
             wholeday_splitting=True,
             val_sequential_fraction=0.7,
             test_sequential_fraction=0.8,
-            random_seed=42
+            random_seed=42,
         )
 
         # Details should contain date information
-        assert '2023' in train_details, "Train details should contain year"
+        assert "2023" in train_details, "Train details should contain year"
 
 
 class TestMakeTrainTestSplitValidation:
@@ -479,18 +502,16 @@ class TestMakeTrainTestSplitValidation:
 
     def test_empty_dataframe(self):
         """Test behavior with empty DataFrame."""
-        df = pd.DataFrame({'feature': []})
+        df = pd.DataFrame({"feature": []})
 
         # sklearn's train_test_split raises ValueError for empty input
         # This is expected behavior - splitting empty data is not well-defined
         with pytest.raises(ValueError, match="empty"):
-            make_train_test_split(
-                df, test_size=0.2, val_size=0.1, random_seed=42
-            )
+            make_train_test_split(df, test_size=0.2, val_size=0.1, random_seed=42)
 
     def test_indices_are_numpy_arrays(self):
         """Test that returned indices are numpy arrays."""
-        df = pd.DataFrame({'feature': np.random.randn(100)})
+        df = pd.DataFrame({"feature": np.random.randn(100)})
 
         train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(
             df, test_size=0.2, val_size=0.1, random_seed=42
@@ -504,6 +525,7 @@ class TestMakeTrainTestSplitValidation:
 # =====================================================================
 # val_placement = "backward" — "First test then train" (Mazzanti 2024)
 # =====================================================================
+
 
 class TestValPlacementBackward:
     """Unit tests for the backward-val placement added 2026-04-23.
@@ -525,9 +547,7 @@ class TestValPlacementBackward:
     def _make_daily_df(n_days: int = 20, rows_per_day: int = 5):
         """Build a contiguous daily frame with monotonic timestamps."""
         n = n_days * rows_per_day
-        ts = pd.Series(
-            pd.to_datetime("2020-01-01") + pd.to_timedelta(np.arange(n) // rows_per_day, unit="D")
-        )
+        ts = pd.Series(pd.to_datetime("2020-01-01") + pd.to_timedelta(np.arange(n) // rows_per_day, unit="D"))
         df = pd.DataFrame({"x": np.arange(n), "y": np.random.default_rng(0).normal(size=n)})
         return df, ts
 
@@ -539,30 +559,36 @@ class TestValPlacementBackward:
 
         # Backward
         tr, va, te, *_ = make_train_test_split(
-            df, test_size=0.2, val_size=0.2,
-            val_sequential_fraction=1.0, test_sequential_fraction=1.0,
-            timestamps=ts, wholeday_splitting=True,
-            val_placement="backward", random_seed=42,
+            df,
+            test_size=0.2,
+            val_size=0.2,
+            val_sequential_fraction=1.0,
+            test_sequential_fraction=1.0,
+            timestamps=ts,
+            wholeday_splitting=True,
+            val_placement="backward",
+            random_seed=42,
         )
         val_max = ts.iloc[va].max()
         train_min = ts.iloc[tr].min()
         train_max = ts.iloc[tr].max()
         test_min = ts.iloc[te].min()
         assert val_max < train_min, (
-            f"backward val must precede train: val_max={val_max}, "
-            f"train_min={train_min}"
+            f"backward val must precede train: val_max={val_max}, train_min={train_min}"
         )
-        assert train_max < test_min, (
-            f"train must precede test: train_max={train_max}, "
-            f"test_min={test_min}"
-        )
+        assert train_max < test_min, f"train must precede test: train_max={train_max}, test_min={test_min}"
 
         # Forward (sanity — explicit opposite ordering)
         tr2, va2, te2, *_ = make_train_test_split(
-            df, test_size=0.2, val_size=0.2,
-            val_sequential_fraction=1.0, test_sequential_fraction=1.0,
-            timestamps=ts, wholeday_splitting=True,
-            val_placement="forward", random_seed=42,
+            df,
+            test_size=0.2,
+            val_size=0.2,
+            val_sequential_fraction=1.0,
+            test_sequential_fraction=1.0,
+            timestamps=ts,
+            wholeday_splitting=True,
+            val_placement="forward",
+            random_seed=42,
         )
         assert ts.iloc[tr2].max() < ts.iloc[va2].min(), "forward: train→val"
         assert ts.iloc[va2].max() < ts.iloc[te2].min(), "forward: val→test"
@@ -572,14 +598,17 @@ class TestValPlacementBackward:
         the three splits must still cover exactly the row set."""
         df, ts = self._make_daily_df(n_days=20, rows_per_day=5)
         tr, va, te, *_ = make_train_test_split(
-            df, test_size=0.2, val_size=0.2,
-            timestamps=ts, wholeday_splitting=True,
-            val_placement="backward", random_seed=42,
+            df,
+            test_size=0.2,
+            val_size=0.2,
+            timestamps=ts,
+            wholeday_splitting=True,
+            val_placement="backward",
+            random_seed=42,
         )
         union = np.sort(np.concatenate([tr, va, te]))
         assert union.tolist() == list(range(len(df))), (
-            f"backward-placement split lost or double-assigned rows: "
-            f"got {len(union)}, expected {len(df)}"
+            f"backward-placement split lost or double-assigned rows: got {len(union)}, expected {len(df)}"
         )
 
     def test_backward_wholeday_and_row_based_agree_on_ordering(self):
@@ -589,16 +618,26 @@ class TestValPlacementBackward:
         df, ts = self._make_daily_df(n_days=30, rows_per_day=1)
 
         tr_d, va_d, te_d, *_ = make_train_test_split(
-            df, test_size=0.2, val_size=0.2,
-            val_sequential_fraction=1.0, test_sequential_fraction=1.0,
-            timestamps=ts, wholeday_splitting=True,
-            val_placement="backward", random_seed=42,
+            df,
+            test_size=0.2,
+            val_size=0.2,
+            val_sequential_fraction=1.0,
+            test_sequential_fraction=1.0,
+            timestamps=ts,
+            wholeday_splitting=True,
+            val_placement="backward",
+            random_seed=42,
         )
         tr_r, va_r, te_r, *_ = make_train_test_split(
-            df, test_size=0.2, val_size=0.2,
-            val_sequential_fraction=1.0, test_sequential_fraction=1.0,
-            timestamps=ts, wholeday_splitting=False,
-            val_placement="backward", random_seed=42,
+            df,
+            test_size=0.2,
+            val_size=0.2,
+            val_sequential_fraction=1.0,
+            test_sequential_fraction=1.0,
+            timestamps=ts,
+            wholeday_splitting=False,
+            val_placement="backward",
+            random_seed=42,
         )
         for label, tr, va, te in (("day", tr_d, va_d, te_d), ("row", tr_r, va_r, te_r)):
             assert ts.iloc[va].max() < ts.iloc[tr].min(), f"{label} branch"
@@ -610,8 +649,11 @@ class TestValPlacementBackward:
         """
         df = pd.DataFrame({"x": range(200)})
         tr, va, te, *_ = make_train_test_split(
-            df, test_size=0.2, val_size=0.2,
-            val_placement="backward", random_seed=42,
+            df,
+            test_size=0.2,
+            val_size=0.2,
+            val_placement="backward",
+            random_seed=42,
         )
         # Rows accounted for, no raise.
         union = np.sort(np.concatenate([tr, va, te]))
@@ -624,8 +666,11 @@ class TestValPlacementBackward:
         df, ts = self._make_daily_df(n_days=20, rows_per_day=5)
         with pytest.raises(ValueError, match="aging"):
             make_train_test_split(
-                df, test_size=0.1, val_size=0.1,
-                timestamps=ts, wholeday_splitting=True,
+                df,
+                test_size=0.1,
+                val_size=0.1,
+                timestamps=ts,
+                wholeday_splitting=True,
                 val_placement="backward",
                 trainset_aging_limit=0.5,
             )
@@ -636,8 +681,11 @@ class TestValPlacementBackward:
         df, ts = self._make_daily_df(n_days=10, rows_per_day=5)
         with pytest.raises(ValueError, match="val_placement"):
             make_train_test_split(
-                df, test_size=0.1, val_size=0.1,
-                timestamps=ts, val_placement="middle",
+                df,
+                test_size=0.1,
+                val_size=0.1,
+                timestamps=ts,
+                val_placement="middle",
             )
 
     def test_shuffled_and_sequential_val_both_supported(self):
@@ -647,11 +695,15 @@ class TestValPlacementBackward:
         remainder (not from test). No row leaks into both splits."""
         df, ts = self._make_daily_df(n_days=20, rows_per_day=10)
         tr, va, te, *_ = make_train_test_split(
-            df, test_size=0.1, val_size=0.2,
+            df,
+            test_size=0.1,
+            val_size=0.2,
             val_sequential_fraction=0.5,  # half sequential, half shuffled
             test_sequential_fraction=1.0,
-            timestamps=ts, wholeday_splitting=True,
-            val_placement="backward", random_seed=42,
+            timestamps=ts,
+            wholeday_splitting=True,
+            val_placement="backward",
+            random_seed=42,
         )
         # Sanity: no overlap, correct total
         assert len(set(tr) & set(va)) == 0
@@ -694,19 +746,17 @@ class TestValPlacementBackward:
 
         caplog.set_level(_logging.INFO, logger="mlframe.training.splitting")
         make_train_test_split(
-            df, test_size=0.2, val_size=0.2,
-            timestamps=ts, wholeday_splitting=True,
+            df,
+            test_size=0.2,
+            val_size=0.2,
+            timestamps=ts,
+            wholeday_splitting=True,
             val_placement="backward",
         )
-        msgs = [r.getMessage() for r in caplog.records
-                if r.name == "mlframe.training.splitting"]
-        assert any(
-            "val_placement='backward'" in m and "Mazzanti" in m
-            for m in msgs
-        ), (
+        msgs = [r.getMessage() for r in caplog.records if r.name == "mlframe.training.splitting"]
+        assert any("val_placement='backward'" in m and "Mazzanti" in m for m in msgs), (
             f"backward placement must emit a visible 'val_placement=...' "
-            f"INFO line; captured messages from splitting:\n  "
-            + "\n  ".join(msgs)
+            f"INFO line; captured messages from splitting:\n  " + "\n  ".join(msgs)
         )
 
     def test_backward_downgrade_emits_visible_warning(self, caplog):
@@ -720,17 +770,14 @@ class TestValPlacementBackward:
         caplog.set_level(_logging.INFO, logger="mlframe.training.splitting")
         # No timestamps → backward must downgrade to forward.
         make_train_test_split(
-            df, test_size=0.2, val_size=0.2,
+            df,
+            test_size=0.2,
+            val_size=0.2,
             val_placement="backward",
         )
-        msgs = [r.getMessage() for r in caplog.records
-                if r.name == "mlframe.training.splitting"]
-        assert any(
-            "downgraded" in m and "backward" in m
-            for m in msgs
-        ), (
-            f"backward downgrade must emit a visible WARN/INFO line; "
-            f"captured: {msgs}"
+        msgs = [r.getMessage() for r in caplog.records if r.name == "mlframe.training.splitting"]
+        assert any("downgraded" in m and "backward" in m for m in msgs), (
+            f"backward downgrade must emit a visible WARN/INFO line; captured: {msgs}"
         )
 
     def test_forward_does_not_emit_placement_line(self, caplog):
@@ -742,25 +789,25 @@ class TestValPlacementBackward:
         df, ts = self._make_daily_df(n_days=20, rows_per_day=5)
         caplog.set_level(_logging.INFO, logger="mlframe.training.splitting")
         make_train_test_split(
-            df, test_size=0.2, val_size=0.2,
-            timestamps=ts, wholeday_splitting=True,
+            df,
+            test_size=0.2,
+            val_size=0.2,
+            timestamps=ts,
+            wholeday_splitting=True,
             val_placement="forward",
         )
-        msgs = [r.getMessage() for r in caplog.records
-                if r.name == "mlframe.training.splitting"]
+        msgs = [r.getMessage() for r in caplog.records if r.name == "mlframe.training.splitting"]
         # Existing "{N} train rows ... " summary line is always there;
         # no placement-line should add to it for forward.
-        assert not any(
-            "val_placement=" in m or "Mazzanti" in m for m in msgs
-        ), (
-            f"forward (default) must NOT emit a placement diagnostic line; "
-            f"captured: {msgs}"
+        assert not any("val_placement=" in m or "Mazzanti" in m for m in msgs), (
+            f"forward (default) must NOT emit a placement diagnostic line; captured: {msgs}"
         )
 
 
 # =====================================================================
 # Integration: train_mlframe_models_suite honours val_placement end-to-end
 # =====================================================================
+
 
 class TestValPlacementBackwardIntegration:
     """End-to-end validation of the ``val_placement="backward"`` path
@@ -787,22 +834,21 @@ class TestValPlacementBackwardIntegration:
         enough for CI.
         """
         import polars as pl
+
         n = n_days * rows_per_day
         rng = np.random.default_rng(0)
         base = pd.Timestamp("2022-01-01")
-        ts_pd = pd.Series([
-            base + pd.Timedelta(days=int(i // rows_per_day)) for i in range(n)
-        ])
+        ts_pd = pd.Series([base + pd.Timedelta(days=int(i // rows_per_day)) for i in range(n)])
         cats = ["A", "B", "C"]
-        return pl.DataFrame({
-            "num_1": rng.standard_normal(n).astype(np.float32),
-            "num_2": rng.standard_normal(n).astype(np.float32),
-            "cat_feat": pl.Series(
-                [cats[i % 3] for i in range(n)]
-            ).cast(pl.Enum(cats)),
-            "ts": pl.Series(ts_pd.values).cast(pl.Datetime("us")),
-            "target": rng.integers(0, 2, n),
-        })
+        return pl.DataFrame(
+            {
+                "num_1": rng.standard_normal(n).astype(np.float32),
+                "num_2": rng.standard_normal(n).astype(np.float32),
+                "cat_feat": pl.Series([cats[i % 3] for i in range(n)]).cast(pl.Enum(cats)),
+                "ts": pl.Series(ts_pd.values).cast(pl.Datetime("us")),
+                "target": rng.integers(0, 2, n),
+            }
+        )
 
     def test_suite_with_backward_placement_orders_splits_correctly(self, tmp_path):
         """Smoke-plus-invariant: run the full suite with
@@ -813,17 +859,18 @@ class TestValPlacementBackwardIntegration:
 
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training import (
-    
-    
-            TrainingSplitConfig, TrainingBehaviorConfig,
-    OutputConfig,
-    PreprocessingConfig
-)
+            TrainingSplitConfig,
+            TrainingBehaviorConfig,
+            OutputConfig,
+            PreprocessingConfig,
+        )
         from .shared import TimestampedFeaturesExtractor as SimpleFeaturesAndTargetsExtractor
 
         pl_df = self._make_temporal_polars_frame(n_days=60, rows_per_day=8)
         fte = SimpleFeaturesAndTargetsExtractor(
-            target_column="target", regression=False, ts_field="ts",
+            target_column="target",
+            regression=False,
+            ts_field="ts",
         )
         # Disable recency weighting on the extractor so the conflict WARN
         # doesn't fire in this happy-path test (it gets its own coverage
@@ -849,7 +896,7 @@ class TestValPlacementBackwardIntegration:
             hyperparams_config={"iterations": 3},
             split_config=split_cfg,
             behavior_config=bc,
-            preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
+            preprocessing_config=PreprocessingConfig(drop_columns=[]),
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
@@ -877,12 +924,10 @@ class TestValPlacementBackwardIntegration:
 
         # Backward contract: [val] [train] [test]
         assert val_max <= train_min, (
-            f"backward: val must precede train. val={val_min}..{val_max}, "
-            f"train={train_min}..{train_max}"
+            f"backward: val must precede train. val={val_min}..{val_max}, train={train_min}..{train_max}"
         )
         assert train_max <= test_min, (
-            f"backward: train must precede test. train={train_min}..{train_max}, "
-            f"test={test_min}..{test_max}"
+            f"backward: train must precede test. train={train_min}..{train_max}, test={test_min}..{test_max}"
         )
 
     def test_forward_integration_still_works(self, tmp_path):
@@ -895,17 +940,18 @@ class TestValPlacementBackwardIntegration:
 
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training import (
-    
-    
-            TrainingSplitConfig, TrainingBehaviorConfig,
-    OutputConfig,
-    PreprocessingConfig
-)
+            TrainingSplitConfig,
+            TrainingBehaviorConfig,
+            OutputConfig,
+            PreprocessingConfig,
+        )
         from .shared import TimestampedFeaturesExtractor as SimpleFeaturesAndTargetsExtractor
 
         pl_df = self._make_temporal_polars_frame(n_days=60, rows_per_day=8)
         fte = SimpleFeaturesAndTargetsExtractor(
-            target_column="target", regression=False, ts_field="ts",
+            target_column="target",
+            regression=False,
+            ts_field="ts",
         )
         fte.use_recency_weighting = False
 
@@ -928,7 +974,7 @@ class TestValPlacementBackwardIntegration:
             hyperparams_config={"iterations": 3},
             split_config=split_cfg,
             behavior_config=bc,
-            preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
+            preprocessing_config=PreprocessingConfig(drop_columns=[]),
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
@@ -959,12 +1005,11 @@ class TestValPlacementBackwardIntegration:
 
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training import (
-    
-    
-            TrainingSplitConfig, TrainingBehaviorConfig,
-    OutputConfig,
-    PreprocessingConfig
-)
+            TrainingSplitConfig,
+            TrainingBehaviorConfig,
+            OutputConfig,
+            PreprocessingConfig,
+        )
         from .shared import TimestampedFeaturesExtractor as SimpleFeaturesAndTargetsExtractor
 
         pl_df = self._make_temporal_polars_frame(n_days=60, rows_per_day=8)
@@ -1000,7 +1045,7 @@ class TestValPlacementBackwardIntegration:
                 hyperparams_config={"iterations": 3},
                 split_config=split_cfg,
                 behavior_config=bc,
-                preprocessing_config=PreprocessingConfig(drop_columns=[]), verbose=0,
+                preprocessing_config=PreprocessingConfig(drop_columns=[]),
                 use_ordinary_models=True,
                 use_mlframe_ensembles=False,
                 output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
@@ -1012,11 +1057,11 @@ class TestValPlacementBackwardIntegration:
             pass
 
         conflict_warns = [
-            r for r in caplog.records
+            r
+            for r in caplog.records
             if r.levelno >= _logging.WARNING
             and "backward" in r.getMessage().lower()
-            and ("recency" in r.getMessage().lower()
-                 or "non-uniform" in r.getMessage().lower())
+            and ("recency" in r.getMessage().lower() or "non-uniform" in r.getMessage().lower())
         ]
         if not conflict_warns:
             # The shared test extractor may not emit recency schemas at
@@ -1026,6 +1071,7 @@ class TestValPlacementBackwardIntegration:
             # independently by reading the source below.
             import inspect
             from mlframe.training import core as core_mod
+
             src = inspect.getsource(core_mod.train_mlframe_models_suite)
             assert "val_placement='backward'" in src and "non-uniform" in src, (
                 "core.py must contain the backward/recency conflict "

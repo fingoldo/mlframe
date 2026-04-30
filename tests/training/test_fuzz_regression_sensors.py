@@ -20,6 +20,7 @@ Workflow:
 All sensors share ``_sensor_cleanup`` teardown with the fuzz suite to
 avoid native-segfault-on-state-accumulation seen on Windows.
 """
+
 from __future__ import annotations
 
 import gc
@@ -34,11 +35,13 @@ def _sensor_cleanup():
     yield
     try:
         import matplotlib.pyplot as plt
+
         plt.close("all")
     except Exception:
         pass
     try:
         from mlframe.training import trainer as _tr
+
         for attr in ("_CB_POOL_CACHE", "_CB_VAL_POOL_CACHE"):
             cache = getattr(_tr, attr, None)
             if hasattr(cache, "clear"):
@@ -50,8 +53,7 @@ def _sensor_cleanup():
 
 
 def _skip_if_deps_missing(*models):
-    pkg = {"cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm",
-           "hgb": "sklearn", "linear": "sklearn"}
+    pkg = {"cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm", "hgb": "sklearn", "linear": "sklearn"}
     for m in models:
         pytest.importorskip(pkg[m])
 
@@ -74,12 +76,14 @@ def _run_sensor_combo(combo: FuzzCombo, tmp_path):
         cfg["cb_kwargs"] = {"task_type": "CPU", "verbose": 0}
 
     from mlframe.training import PreprocessingConfig
+
     preprocessing_overrides = PreprocessingConfig(drop_columns=[])
     if "linear" in combo.models and combo.cat_feature_count > 0:
         try:
             import category_encoders as ce
             from sklearn.preprocessing import StandardScaler
             from sklearn.impute import SimpleImputer
+
             preprocessing_overrides = PreprocessingConfig(
                 drop_columns=[],
                 category_encoder=ce.CatBoostEncoder(),
@@ -92,9 +96,13 @@ def _run_sensor_combo(combo: FuzzCombo, tmp_path):
     mrmr_kwargs = None
     if combo.use_mrmr_fs:
         mrmr_kwargs = {
-            "verbose": 0, "max_runtime_mins": 1, "n_workers": 1,
-            "quantization_nbins": 5, "use_simple_mode": True,
-            "min_nonzero_confidence": 0.9, "max_consec_unconfirmed": 3,
+            "verbose": 0,
+            "max_runtime_mins": 1,
+            "n_workers": 1,
+            "quantization_nbins": 5,
+            "use_simple_mode": True,
+            "min_nonzero_confidence": 0.9,
+            "max_consec_unconfirmed": 3,
             "full_npermutations": 3,
         }
 
@@ -104,17 +112,15 @@ def _run_sensor_combo(combo: FuzzCombo, tmp_path):
     # "emit only when cb is in models" gate) — otherwise a combo with
     # ``auto_detect_cats=False`` would orphan any emitted text/emb column.
     from mlframe.training import (
-    
-        PolarsPipelineConfig, FeatureTypesConfig, TrainingBehaviorConfig,
-    FeatureSelectionConfig,
-    OutputConfig
-)
-    emits_text = combo.text_col_count > 0 and "cb" in combo.models
-    emits_emb = (
-        combo.embedding_col_count > 0
-        and "cb" in combo.models
-        and combo.input_type != "pandas"
+        PolarsPipelineConfig,
+        FeatureTypesConfig,
+        TrainingBehaviorConfig,
+        FeatureSelectionConfig,
+        OutputConfig,
     )
+
+    emits_text = combo.text_col_count > 0 and "cb" in combo.models
+    emits_emb = combo.embedding_col_count > 0 and "cb" in combo.models and combo.input_type != "pandas"
     text_feats = [f"text_{i}" for i in range(combo.text_col_count)] if emits_text else None
     emb_feats = [f"emb_{i}" for i in range(combo.embedding_col_count)] if emits_emb else None
 
@@ -155,6 +161,7 @@ def _run_sensor_combo(combo: FuzzCombo, tmp_path):
 # Sensor #1 — tier_dfs_cache Polars/pandas collision (FIXED 2026-04-22).
 # ---------------------------------------------------------------------------
 
+
 def test_sensor_tier_cache_polars_pandas_collision(tmp_path):
     """Regression guard for the tier_dfs_cache bug that first surfaced as
     ``AttributeError: 'DataFrame' object has no attribute 'schema'``.
@@ -180,7 +187,7 @@ def test_sensor_tier_cache_polars_pandas_collision(tmp_path):
         n_rows=300,
         cat_feature_count=3,
         null_fraction_cats=0.0,
-        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
+        use_mrmr_fs=False,
         weight_schemas=("uniform",),
         target_type="binary_classification",
         auto_detect_cats=True,
@@ -193,6 +200,7 @@ def test_sensor_tier_cache_polars_pandas_collision(tmp_path):
 # ---------------------------------------------------------------------------
 # Sensor — MRMR must accept pl.DataFrame natively without full .to_pandas() (FIXED 2026-04-22, Fix 10).
 # ---------------------------------------------------------------------------
+
 
 def test_sensor_mrmr_native_polars_no_full_to_pandas():
     """Regression guard for MRMR.fit copying the whole frame via X.to_pandas()
@@ -215,25 +223,33 @@ def test_sensor_mrmr_native_polars_no_full_to_pandas():
 
     n = 500
     rng = np.random.default_rng(42)
-    pl_df = pl.DataFrame({
-        "num1": rng.standard_normal(n).astype(np.float32),
-        "num2": rng.standard_normal(n).astype(np.float32),
-        "num3": rng.standard_normal(n).astype(np.float32),
-        "cat1": pl.Series(["A", "B", "C"] * (n // 3 + 1))[:n].cast(pl.Enum(["A", "B", "C"])),
-    })
+    pl_df = pl.DataFrame(
+        {
+            "num1": rng.standard_normal(n).astype(np.float32),
+            "num2": rng.standard_normal(n).astype(np.float32),
+            "num3": rng.standard_normal(n).astype(np.float32),
+            "cat1": pl.Series(["A", "B", "C"] * (n // 3 + 1))[:n].cast(pl.Enum(["A", "B", "C"])),
+        }
+    )
     y = rng.integers(0, 2, n)
 
     call_count = {"n": 0}
     orig = pl.DataFrame.to_pandas
+
     def _spy(self, *args, **kwargs):
         call_count["n"] += 1
         return orig(self, *args, **kwargs)
+
     pl.DataFrame.to_pandas = _spy
     try:
         sel = MRMR(
-            verbose=0, max_runtime_mins=1, n_workers=1,
-            quantization_nbins=5, use_simple_mode=True,
-            min_nonzero_confidence=0.9, max_consec_unconfirmed=3,
+            verbose=0,
+            max_runtime_mins=1,
+            n_workers=1,
+            quantization_nbins=5,
+            use_simple_mode=True,
+            min_nonzero_confidence=0.9,
+            max_consec_unconfirmed=3,
             full_npermutations=3,
         )
         sel.fit(pl_df, y)
@@ -262,6 +278,7 @@ def test_sensor_mrmr_native_polars_no_full_to_pandas():
 # Sensor — MRMR must actually SELECT cat features that matter (both pandas & polars).
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("frame_type", ["pandas", "polars"])
 def test_sensor_mrmr_selects_informative_cat_features(frame_type):
     """Functional guard: MRMR must include an informative categorical
@@ -289,28 +306,39 @@ def test_sensor_mrmr_selects_informative_cat_features(frame_type):
 
     if frame_type == "polars":
         import polars as pl
-        df = pl.DataFrame({
-            "num_noise_1": num_data[:, 0],
-            "num_noise_2": num_data[:, 1],
-            "num_noise_3": num_data[:, 2],
-            "cat_signal": pl.Series(signal_levels).cast(pl.Enum(["A", "B", "C"])),
-            "cat_noise": pl.Series(noise_levels).cast(pl.Enum(["x", "y", "z", "w"])),
-        })
+
+        df = pl.DataFrame(
+            {
+                "num_noise_1": num_data[:, 0],
+                "num_noise_2": num_data[:, 1],
+                "num_noise_3": num_data[:, 2],
+                "cat_signal": pl.Series(signal_levels).cast(pl.Enum(["A", "B", "C"])),
+                "cat_noise": pl.Series(noise_levels).cast(pl.Enum(["x", "y", "z", "w"])),
+            }
+        )
     else:
         import pandas as pd
-        df = pd.DataFrame({
-            "num_noise_1": num_data[:, 0],
-            "num_noise_2": num_data[:, 1],
-            "num_noise_3": num_data[:, 2],
-            "cat_signal": pd.Categorical(signal_levels, categories=["A", "B", "C"]),
-            "cat_noise": pd.Categorical(noise_levels, categories=["x", "y", "z", "w"]),
-        })
+
+        df = pd.DataFrame(
+            {
+                "num_noise_1": num_data[:, 0],
+                "num_noise_2": num_data[:, 1],
+                "num_noise_3": num_data[:, 2],
+                "cat_signal": pd.Categorical(signal_levels, categories=["A", "B", "C"]),
+                "cat_noise": pd.Categorical(noise_levels, categories=["x", "y", "z", "w"]),
+            }
+        )
 
     sel = MRMR(
-        verbose=0, max_runtime_mins=1, n_workers=1,
-        quantization_nbins=5, use_simple_mode=True,
-        min_nonzero_confidence=0.9, max_consec_unconfirmed=3,
-        full_npermutations=5, min_relevance_gain=1e-4,
+        verbose=0,
+        max_runtime_mins=1,
+        n_workers=1,
+        quantization_nbins=5,
+        use_simple_mode=True,
+        min_nonzero_confidence=0.9,
+        max_consec_unconfirmed=3,
+        full_npermutations=5,
+        min_relevance_gain=1e-4,
     )
     sel.fit(df, y)
 
@@ -334,6 +362,7 @@ def test_sensor_mrmr_selects_informative_cat_features(frame_type):
 # Sensor — categorize_dataset dt-in-set hash bug (FIXED 2026-04-23).
 # ---------------------------------------------------------------------------
 
+
 def test_sensor_categorize_dataset_recognizes_polars_cat_dtypes():
     """filters.py:categorize_dataset used `dt in {pl.Utf8, pl.Categorical, ...}`.
     Set-membership uses hash equality, and `pl.Categorical` (class) has a
@@ -356,13 +385,15 @@ def test_sensor_categorize_dataset_recognizes_polars_cat_dtypes():
     import numpy as np
     from mlframe.feature_selection.filters import categorize_dataset
 
-    df = pl.DataFrame({
-        "num": np.arange(100, dtype=np.float32),
-        "cat_0": pl.Series(["A", "B", "C"] * 34)[:100].cast(pl.Categorical),
-        "cat_enum": pl.Series(["X", "Y"] * 50).cast(pl.Enum(["X", "Y"])),
-        "cat_utf8": pl.Series(["one", "two", "three"] * 34)[:100],  # Utf8
-        "cat_bool": pl.Series([True, False] * 50),
-    })
+    df = pl.DataFrame(
+        {
+            "num": np.arange(100, dtype=np.float32),
+            "cat_0": pl.Series(["A", "B", "C"] * 34)[:100].cast(pl.Categorical),
+            "cat_enum": pl.Series(["X", "Y"] * 50).cast(pl.Enum(["X", "Y"])),
+            "cat_utf8": pl.Series(["one", "two", "three"] * 34)[:100],  # Utf8
+            "cat_bool": pl.Series([True, False] * 50),
+        }
+    )
     data, cols, nbins = categorize_dataset(df, n_bins=5)
     # All cat columns must appear in the output (as integer-encoded cols).
     for c in ("cat_0", "cat_enum", "cat_utf8", "cat_bool"):
@@ -383,6 +414,7 @@ def test_sensor_categorize_dataset_recognizes_polars_cat_dtypes():
 # Sensor — Polars Utf8 with nulls fills for CB cat_features (FIXED 2026-04-23).
 # ---------------------------------------------------------------------------
 
+
 def test_sensor_polars_utf8_nullable_cat_fills_before_cb(tmp_path):
     """Regression guard for ``_polars_nullable_categorical_cols`` missing
     pl.Utf8 / pl.String in its candidate list. Before the 2026-04-23 fix,
@@ -402,7 +434,7 @@ def test_sensor_polars_utf8_nullable_cat_fills_before_cb(tmp_path):
         n_rows=600,
         cat_feature_count=3,
         null_fraction_cats=0.1,
-        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
+        use_mrmr_fs=False,
         weight_schemas=("uniform",),
         target_type="binary_classification",
         auto_detect_cats=True,
@@ -415,6 +447,7 @@ def test_sensor_polars_utf8_nullable_cat_fills_before_cb(tmp_path):
 # ---------------------------------------------------------------------------
 # Sensor — Linear polars gating bug (FIXED 2026-04-22 via Fix 11).
 # ---------------------------------------------------------------------------
+
 
 def test_sensor_linear_polars_gating_bug(tmp_path):
     """Regression guard for the ``polars_pipeline_applied`` global-flag bug
@@ -443,7 +476,7 @@ def test_sensor_linear_polars_gating_bug(tmp_path):
         n_rows=300,
         cat_feature_count=3,
         null_fraction_cats=0.0,
-        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
+        use_mrmr_fs=False,
         weight_schemas=("uniform",),
         target_type="binary_classification",
         auto_detect_cats=True,
@@ -456,6 +489,7 @@ def test_sensor_linear_polars_gating_bug(tmp_path):
 # ---------------------------------------------------------------------------
 # Sensor — MRMR.transform raised AttributeError on un-set support_ (FIXED 2026-04-22).
 # ---------------------------------------------------------------------------
+
 
 def test_sensor_mrmr_transform_handles_missing_support_(tmp_path):
     """Regression guard for MRMR.transform crashing on un-set support_.
@@ -479,7 +513,7 @@ def test_sensor_mrmr_transform_handles_missing_support_(tmp_path):
         n_rows=1200,
         cat_feature_count=1,
         null_fraction_cats=0.0,
-        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True),
+        use_mrmr_fs=True,
         weight_schemas=("uniform",),
         target_type="binary_classification",
         auto_detect_cats=True,
@@ -492,6 +526,7 @@ def test_sensor_mrmr_transform_handles_missing_support_(tmp_path):
 # ---------------------------------------------------------------------------
 # Sensor #2 — _SafeUnpickler blocked category_encoders (FIXED 2026-04-22).
 # ---------------------------------------------------------------------------
+
 
 def test_sensor_safeunpickler_allows_category_encoders(tmp_path):
     """Regression guard for the cached-model-load WARN that defeated the
@@ -517,13 +552,14 @@ def test_sensor_safeunpickler_allows_category_encoders(tmp_path):
     """
     _skip_if_deps_missing("linear", "xgb")
     import logging
+
     combo = FuzzCombo(
         models=("linear", "xgb"),
         input_type="polars_nullable",
         n_rows=300,
         cat_feature_count=3,
         null_fraction_cats=0.0,
-        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
+        use_mrmr_fs=False,
         weight_schemas=("uniform",),
         target_type="binary_classification",
         auto_detect_cats=True,
@@ -538,6 +574,7 @@ def test_sensor_safeunpickler_allows_category_encoders(tmp_path):
     # Capture log output; if any "Unsafe class blocked" WARN fires, the
     # allowlist regression has returned.
     import io
+
     buf = io.StringIO()
     handler = logging.StreamHandler(buf)
     handler.setLevel(logging.WARNING)
@@ -549,14 +586,14 @@ def test_sensor_safeunpickler_allows_category_encoders(tmp_path):
         logger.removeHandler(handler)
     log_text = buf.getvalue()
     assert "Unsafe class blocked" not in log_text, (
-        "Regression: _SafeUnpickler blocked a category_encoders class. "
-        f"Full WARN log: {log_text[:500]}"
+        f"Regression: _SafeUnpickler blocked a category_encoders class. Full WARN log: {log_text[:500]}"
     )
 
 
 # ---------------------------------------------------------------------------
 # Sensor — polars-ds ordinal_encode must NOT encode text_features (FIXED 2026-04-23).
 # ---------------------------------------------------------------------------
+
 
 def test_sensor_polarsds_does_not_encode_text_features(tmp_path):
     """Regression guard for the polars-ds pipeline encoding text columns
@@ -592,7 +629,7 @@ def test_sensor_polarsds_does_not_encode_text_features(tmp_path):
         n_rows=300,
         cat_feature_count=8,
         null_fraction_cats=0.3,
-        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True),
+        use_mrmr_fs=True,
         weight_schemas=("uniform",),
         target_type="binary_classification",
         auto_detect_cats=False,
@@ -612,6 +649,7 @@ def test_sensor_polarsds_does_not_encode_text_features(tmp_path):
 # AND the top-level ``train_df_pd / filtered_train_df`` aliases must pick up
 # the filled clone (FIXED 2026-04-23).
 # ---------------------------------------------------------------------------
+
 
 def test_sensor_enum_null_fill_reaches_lazy_pandas_conversion(tmp_path):
     """Regression guard for ``__MISSING__`` sentinel fills being lost
@@ -654,7 +692,7 @@ def test_sensor_enum_null_fill_reaches_lazy_pandas_conversion(tmp_path):
         n_rows=300,
         cat_feature_count=8,
         null_fraction_cats=0.3,
-        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=True),
+        use_mrmr_fs=True,
         weight_schemas=("uniform",),
         target_type="binary_classification",
         auto_detect_cats=True,
@@ -673,6 +711,7 @@ def test_sensor_enum_null_fill_reaches_lazy_pandas_conversion(tmp_path):
 # Sensor — polars_utf8 cat_features must reach non-polars-native models as
 # pandas ``category`` dtype, not ``object`` (FIXED 2026-04-23, seed 20260430).
 # ---------------------------------------------------------------------------
+
 
 def test_sensor_polars_utf8_cats_cast_before_lazy_pandas_conversion(tmp_path):
     """Regression guard for polars_utf8 input → pandas ``object`` dtype leak.
@@ -706,7 +745,7 @@ def test_sensor_polars_utf8_cats_cast_before_lazy_pandas_conversion(tmp_path):
         n_rows=600,
         cat_feature_count=1,
         null_fraction_cats=0.1,
-        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=False),
+        use_mrmr_fs=False,
         weight_schemas=("uniform",),
         target_type="binary_classification",
         auto_detect_cats=False,
@@ -726,6 +765,7 @@ def test_sensor_polars_utf8_cats_cast_before_lazy_pandas_conversion(tmp_path):
 # the helper. Fast, deterministic, doesn't hit CB at all.
 # ---------------------------------------------------------------------------
 
+
 def test_sensor_polars_fill_null_expands_enum_category_list():
     """Direct unit guard: ``_polars_fill_null_in_categorical`` must actually
     fill nulls in a pl.Enum column whose categories don't already include
@@ -738,13 +778,14 @@ def test_sensor_polars_fill_null_expands_enum_category_list():
     from mlframe.training.trainer import _polars_fill_null_in_categorical
 
     enum_dt = pl.Enum(["A", "B", "C"])
-    df = pl.DataFrame({
-        "cat_x": pl.Series(["A", None, "B", None, "C"]).cast(enum_dt),
-    })
+    df = pl.DataFrame(
+        {
+            "cat_x": pl.Series(["A", None, "B", None, "C"]).cast(enum_dt),
+        }
+    )
     out = _polars_fill_null_in_categorical(df, ["cat_x"])
     assert out["cat_x"].null_count() == 0, (
-        "Regression: fill_null on Enum with sentinel NOT in category list "
-        "became a silent no-op again."
+        "Regression: fill_null on Enum with sentinel NOT in category list became a silent no-op again."
     )
     assert out["cat_x"].to_list() == ["A", "__MISSING__", "B", "__MISSING__", "C"]
     # Enum category list must have been extended, not replaced.

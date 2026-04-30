@@ -315,22 +315,28 @@ class TestBuildConfigsFromParams:
     """Tests for _build_configs_from_params function."""
 
     def test_returns_all_config_objects(self):
-        """Test that all config objects are returned."""
+        """Test that all config objects are returned.
+
+        2026-04-27: return tuple grew from 7 to 8 elements - the new
+        OutputConfig (filesystem destinations) is now returned alongside
+        the renamed ReportingConfig (was DisplayConfig).
+        """
         from mlframe.training.trainer import _build_configs_from_params
 
         result = _build_configs_from_params()
 
-        assert len(result) == 7
-        data_config, control_config, metrics_config, display_config, naming_config, confidence_config, predictions = result
+        assert len(result) == 8
+        data_config, control_config, metrics_config, reporting_config, naming_config, confidence_config, predictions, output_config = result
 
         # Check types (these are dataclass/Pydantic models or similar)
         assert hasattr(data_config, 'df')
         assert hasattr(control_config, 'verbose')
         assert hasattr(metrics_config, 'nbins')
-        assert hasattr(display_config, 'figsize')
+        assert hasattr(reporting_config, 'figsize')
         assert hasattr(naming_config, 'model_name')
         assert hasattr(confidence_config, 'include')
         assert hasattr(predictions, 'train_preds')
+        assert hasattr(output_config, 'data_dir')
 
     def test_merges_drop_columns(self):
         """Test drop_columns and default_drop_columns are merged."""
