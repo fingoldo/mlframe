@@ -1374,7 +1374,6 @@ def test_invalid_df_inputs_raise_clear_error(tmp_path, df_input, error_kw):
         )
     except Exception as e:
         raised = e
-    error_kw = ("type", "schema", "format", "shape", "column", "frame")
     msg = str(raised).lower() if raised is not None else ""
     assert raised is not None and any(kw in msg for kw in error_kw), (
         f"raise was opaque for df={type(df_input).__name__}: {raised!r}"

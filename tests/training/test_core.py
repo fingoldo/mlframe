@@ -771,16 +771,27 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
         assert TargetTypes.REGRESSION in models
 
     def test_with_binary_classification_imbalanced(self, temp_data_dir, common_init_params):
-        """Test with highly imbalanced binary classification."""
+        """Test with highly imbalanced binary classification.
+
+        Bumped n=100 -> 1000 (95% / 5%, 50 minority) so the unstratified
+        random split lands a few minority samples into both val and
+        test. The post-2026-04 ``_validate_target_values`` guard in
+        trainer.py raises ValueError when val has only one class - on
+        n=100 with 5% rate the splitter (10% val) routinely drops to 0
+        minorities. Per persisted memory `rare_imbalance_needs_large_n`:
+        rare_1pct needs n>=5000 for reliable random split; 5% at n=1000
+        is enough.
+        """
         np.random.seed(42)
-        n_samples = 100
+        n_samples = 1000
+        n_minority = n_samples // 20  # 5%
         df = pd.DataFrame(
             {
                 "feature_0": np.random.randn(n_samples),
                 "feature_1": np.random.randn(n_samples),
-                "target": [0] * 95 + [1] * 5,  # 95% class 0, 5% class 1
+                "target": [0] * (n_samples - n_minority) + [1] * n_minority,
             }
-        )
+        ).sample(frac=1, random_state=42).reset_index(drop=True)
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 

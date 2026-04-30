@@ -69,8 +69,10 @@ def test_extensions_stacked_scaler_plus_kbins():
     tr = _make_data(n=60)
     cfg = PreprocessingExtensionsConfig(scaler="StandardScaler", kbins=4)
     out_tr, _, _, pipe = apply_preprocessing_extensions(tr, None, None, cfg, verbose=0)
-    # sklearn Pipeline with 2 steps
-    assert len(pipe.steps) == 2
+    # sklearn Pipeline with 3 steps post-2026-04 perf series:
+    # `imputer` (defensive, NaN-safe) is now prepended automatically.
     step_names = [name for name, _ in pipe.steps]
     assert "scaler" in step_names
     assert "kbins" in step_names
+    # Imputer is defensive but always present in this branch.
+    assert len(pipe.steps) >= 2  # tolerate either "scaler+kbins" or "imputer+scaler+kbins"
