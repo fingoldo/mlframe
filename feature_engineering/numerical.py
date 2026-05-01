@@ -176,7 +176,15 @@ def get_simple_stats_names() -> list:
     return "min,max,argmin,argmax,mean,std".split(",")
 
 
-@numba.njit(**NUMBA_NJIT_PARAMS)
+# cache=False overrides NUMBA_NJIT_PARAMS for this kernel only: numba's AOT
+# cache for functions with many bool kwargs corrupts on Windows (Python 3.11
+# + numba 0.59) -- a fresh process that calls this with all kwargs explicit
+# loads a stale .nbc compilation and segfaults with an access violation.
+# Cleared the cache directory and the next call rebuilt cleanly, only to
+# crash again on the *next* fresh process. Disabling the cache for this one
+# function trades a ~3s warm-up at import time for crash-free behaviour.
+# Other kernels in this module are unaffected by the bug and keep cache=True.
+@numba.njit(**{**NUMBA_NJIT_PARAMS, "cache": False})
 def compute_numerical_aggregates_numba(
     arr: np.ndarray,
     weights: np.ndarray = None,

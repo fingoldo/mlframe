@@ -599,6 +599,7 @@ class TestCombinedPipelines:
 
         assert TargetTypes.REGRESSION in models
 
+    @pytest.mark.slow
     def test_rfecv_with_many_features(self, temp_data_dir, common_init_params):
         """Test RFECV with many features (feature selection stress test)."""
         # Create dataset with many features

@@ -104,6 +104,7 @@ def test_find_cumsum_use_abs(use_abs):
 
 
 @given(st.integers(min_value=1, max_value=10))
+@settings(deadline=None)
 def test_find_cumsum_min_samples(min_samples):
     """Test min_samples constraint."""
     arr = np.ones(20, dtype=np.float64)

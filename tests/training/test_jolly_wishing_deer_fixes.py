@@ -308,7 +308,7 @@ def test_fix6_use_text_features_false_end_to_end_xgb_does_not_see_highcard(tmp_p
     helper's return value in isolation."""
     pytest.importorskip("xgboost")
     from mlframe.training.core import train_mlframe_models_suite
-    from mlframe.training.configs import FeatureTypesConfig, PolarsPipelineConfig
+    from mlframe.training.configs import FeatureTypesConfig, PolarsPipelineConfig, OutputConfig
     from .shared import SimpleFeaturesAndTargetsExtractor
 
     rng = np.random.default_rng(0)

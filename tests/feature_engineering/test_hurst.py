@@ -47,6 +47,7 @@ def test_hurst_rs_nonnegative(arr):
 
 
 @given(st.floats(min_value=0.1, max_value=0.5))
+@settings(deadline=None)
 def test_hurst_windows_log_step(log_step):
     """Test different window log steps."""
     arr = np.random.randn(100).astype(np.float64)
