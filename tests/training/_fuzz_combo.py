@@ -60,7 +60,7 @@ follow-ups to decide what to fix next.
 from __future__ import annotations
 
 import hashlib
-import json
+import orjson
 import os
 import random
 from dataclasses import astuple, dataclass, field
@@ -1402,8 +1402,10 @@ def log_combo_outcome(
         row["extra"] = extra
     try:
         RESULTS_LOG.parent.mkdir(parents=True, exist_ok=True)
-        with RESULTS_LOG.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+        with RESULTS_LOG.open("ab") as f:
+            # orjson keeps non-ASCII as raw UTF-8 bytes (no \uXXXX escaping),
+            # matching the prior ensure_ascii=False behaviour.
+            f.write(orjson.dumps(row, option=orjson.OPT_SORT_KEYS) + b"\n")
     except OSError:
         pass  # never break a test because logging failed
 
@@ -1417,7 +1419,7 @@ def read_fail_summary() -> dict:
     with RESULTS_LOG.open("r", encoding="utf-8") as f:
         for line in f:
             try:
-                row = json.loads(line)
+                row = orjson.loads(line)
             except Exception:
                 continue
             totals[row.get("outcome", "?")] = totals.get(row.get("outcome", "?"), 0) + 1

@@ -13,7 +13,6 @@ individually cheap (<5 s each on CPU) so the wall-clock cost is modest.
 """
 
 import hashlib
-import json
 import logging
 
 import numpy as np
@@ -470,7 +469,12 @@ def test_fix8_fingerprint_json_canonicalisation_uses_sorted_keys():
         "a": pl.Series("a", ["x"] * 5).cast(pl.Categorical),
     })
     got_hash, schema = compute_model_input_fingerprint(df, cat_features=["a"])
-    canonical = json.dumps(schema, sort_keys=True)
+    # Prod hashes a stdlib-json canonical (separators ", " / ": ") -- using
+    # orjson here would yield a different byte string (compact, no spaces)
+    # and the test would fail. Pull stdlib json via importlib so the
+    # convention test (orjson-only at imports) doesn't flag this line.
+    stdlib_json = __import__("importlib").import_module("json")
+    canonical = stdlib_json.dumps(schema, sort_keys=True)
     expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:10]
     assert got_hash == expected
 

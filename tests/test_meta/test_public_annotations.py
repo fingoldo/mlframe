@@ -19,7 +19,7 @@ APIs in pyutilz are annotated; growth would be an erosion).
 from __future__ import annotations
 
 import ast
-import json
+import orjson
 import sys
 from pathlib import Path
 
@@ -106,7 +106,7 @@ def test_no_new_unannotated_public_functions():
 
     if _refresh_requested() or not _BASELINE_PATH.exists():
         _BASELINE_PATH.write_text(
-            json.dumps(sorted(current), indent=2),
+            orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"),
             encoding="utf-8",
         )
         pytest.skip(
@@ -114,7 +114,7 @@ def test_no_new_unannotated_public_functions():
             f"({len(current)} unannotated function(s))"
         )
 
-    baseline = set(json.loads(_BASELINE_PATH.read_text(encoding="utf-8")))
+    baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)
     fixed = sorted(baseline - current)
 

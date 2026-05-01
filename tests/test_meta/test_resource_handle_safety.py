@@ -25,7 +25,7 @@ of a public API). New violations fail unless added to the baseline.
 from __future__ import annotations
 
 import ast
-import json
+import orjson
 import sys
 from pathlib import Path
 
@@ -132,14 +132,14 @@ def test_no_new_unmanaged_resource_acquisition():
 
     if _refresh_requested() or not _BASELINE_PATH.exists():
         _BASELINE_PATH.write_text(
-            json.dumps(sorted(current), indent=2), encoding="utf-8"
+            orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8"
         )
         pytest.skip(
             f"resource-handle baseline refreshed at "
             f"{_BASELINE_PATH.name} ({len(current)} bare-acquisition site(s))"
         )
 
-    baseline = set(json.loads(_BASELINE_PATH.read_text(encoding="utf-8")))
+    baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)
     fixed = sorted(baseline - current)
 

@@ -31,7 +31,7 @@ Snapshot-style — first run captures any existing offenders for incremental cle
 from __future__ import annotations
 
 import ast
-import json
+import orjson
 import sys
 from pathlib import Path
 
@@ -122,14 +122,14 @@ def test_no_new_mutable_default_arguments():
 
     if _refresh_requested() or not _BASELINE_PATH.exists():
         _BASELINE_PATH.write_text(
-            json.dumps(sorted(current), indent=2), encoding="utf-8"
+            orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8"
         )
         pytest.skip(
             f"mutable-defaults baseline refreshed at {_BASELINE_PATH.name} "
             f"({len(current)} site(s))"
         )
 
-    baseline = set(json.loads(_BASELINE_PATH.read_text(encoding="utf-8")))
+    baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)
     fixed = sorted(baseline - current)
 

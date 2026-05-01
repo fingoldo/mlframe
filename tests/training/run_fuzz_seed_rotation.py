@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import json
+import orjson
 import os
 import subprocess
 import sys
@@ -113,8 +113,8 @@ def main() -> int:
         }
         results.append(row)
         print(f"  seed={seed}: passed={passed} failed={failed} xfailed/skipped={xfailed}")
-        with _SEED_SUMMARY.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row, sort_keys=True) + "\n")
+        with _SEED_SUMMARY.open("ab") as f:
+            f.write(orjson.dumps(row, option=orjson.OPT_SORT_KEYS) + b"\n")
 
     total_pass = sum(r["passed"] for r in results)
     total_fail = sum(r["failed"] for r in results)

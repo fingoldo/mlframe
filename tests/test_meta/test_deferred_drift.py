@@ -25,7 +25,7 @@ the growth is unexplained.
 
 from __future__ import annotations
 
-import json
+import orjson
 import sys
 from pathlib import Path
 
@@ -46,7 +46,7 @@ def test_user_deferred_lists_havent_grown():
 
     if _refresh_requested() or not _BASELINE_PATH.exists():
         _BASELINE_PATH.write_text(
-            json.dumps(current, indent=2, sort_keys=True),
+            orjson.dumps(current, option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS).decode("utf-8"),
             encoding="utf-8",
         )
         total = sum(current.values())
@@ -55,7 +55,7 @@ def test_user_deferred_lists_havent_grown():
             f"({len(current)} whitelist(s), {total} total entry(ies))"
         )
 
-    baseline = json.loads(_BASELINE_PATH.read_text(encoding="utf-8"))
+    baseline = orjson.loads(_BASELINE_PATH.read_bytes())
     grown: list[str] = []
     new_keys: list[str] = []
 

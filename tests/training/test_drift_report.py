@@ -273,11 +273,11 @@ def test_default_threshold_is_5pp():
 
 def test_metadata_round_trip_format():
     """The report dict must be JSON-serialisable (joblib-friendly)."""
-    import json
+    import orjson
     rng = np.random.default_rng(0)
     train = (rng.uniform(size=1_000) < 0.30).astype(np.int8)
     report = compute_label_distribution_drift(train, None, None, "binary_classification")
     # Must serialise without error (no numpy scalars leaking through)
-    s = json.dumps(report)
-    parsed = json.loads(s)
+    s = orjson.dumps(report)
+    parsed = orjson.loads(s)
     assert parsed["target_type"] == "binary_classification"

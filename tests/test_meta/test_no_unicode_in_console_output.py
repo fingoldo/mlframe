@@ -20,7 +20,7 @@ add a new offender fail.
 from __future__ import annotations
 
 import ast
-import json
+import orjson
 import sys
 from pathlib import Path
 
@@ -106,7 +106,7 @@ def test_no_new_non_ascii_console_output():
 
     if _refresh_requested() or not _BASELINE_PATH.exists():
         _BASELINE_PATH.write_text(
-            json.dumps(sorted(current), indent=2),
+            orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"),
             encoding="utf-8",
         )
         pytest.skip(
@@ -114,7 +114,7 @@ def test_no_new_non_ascii_console_output():
             f"({len(current)} call site(s) with non-ASCII string literal)"
         )
 
-    baseline = set(json.loads(_BASELINE_PATH.read_text(encoding="utf-8")))
+    baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)
     fixed = sorted(baseline - current)
 

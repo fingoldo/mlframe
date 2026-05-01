@@ -25,7 +25,7 @@ in the summary line so a human can decide whether to interrupt.
 from __future__ import annotations
 
 import argparse
-import json
+import orjson
 import os
 import subprocess
 import sys
@@ -44,7 +44,7 @@ def _count_unique_combos() -> int:
     with RESULTS_LOG.open("r", encoding="utf-8") as f:
         for line in f:
             try:
-                r = json.loads(line)
+                r = orjson.loads(line)
             except Exception:
                 continue
             # Canonical key proxy -- short_id is sha-prefixed over
@@ -63,7 +63,7 @@ def _summarize_since(start_offset: int) -> dict:
         f.seek(start_offset)
         for line in f:
             try:
-                r = json.loads(line)
+                r = orjson.loads(line)
             except Exception:
                 continue
             totals[r.get("outcome", "?")] = totals.get(r.get("outcome", "?"), 0) + 1
@@ -86,7 +86,7 @@ def _all_fail_classes() -> set[str]:
     with RESULTS_LOG.open("r", encoding="utf-8") as f:
         for line in f:
             try:
-                r = json.loads(line)
+                r = orjson.loads(line)
             except Exception:
                 continue
             if r.get("outcome") == "fail":

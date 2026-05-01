@@ -34,7 +34,7 @@ The snapshot captures:
 from __future__ import annotations
 
 import inspect
-import json
+import orjson
 from pathlib import Path
 
 import pytest
@@ -118,16 +118,15 @@ def test_public_api_matches_snapshot():
     """Public surface must match the recorded snapshot byte-for-byte."""
     current = _build_snapshot()
     if _refresh_requested() or not _SNAPSHOT_PATH.exists():
-        _SNAPSHOT_PATH.write_text(
-            json.dumps(current, indent=2, sort_keys=True),
-            encoding="utf-8",
+        _SNAPSHOT_PATH.write_bytes(
+            orjson.dumps(current, option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS),
         )
         pytest.skip(
             f"snapshot refreshed at {_SNAPSHOT_PATH.name} "
             f"({len(current)} symbols)"
         )
 
-    expected = json.loads(_SNAPSHOT_PATH.read_text(encoding="utf-8"))
+    expected = orjson.loads(_SNAPSHOT_PATH.read_bytes())
 
     diffs: list[str] = []
     # Removed / renamed names — always fail.
