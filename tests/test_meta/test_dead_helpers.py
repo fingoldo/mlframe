@@ -26,6 +26,7 @@ non-test corpus for at least one reference. Misses are flagged.
 
 from __future__ import annotations
 
+import collections
 import re
 from pathlib import Path
 
@@ -156,6 +157,12 @@ def test_no_dead_public_helpers():
     total = 0
     corpus = consumer_corpus(MLFRAME_DIR)
 
+    # Tokenise once, lookup per symbol. Replaces an O(N_symbols * len(corpus))
+    # regex sweep -- previously took ~60s and tripped pytest's per-test timeout
+    # on Windows. Identifier grammar matches Python's: a leading letter or
+    # underscore followed by word chars. ``\bname\b`` boundaries are subsumed.
+    token_counts = collections.Counter(re.findall(r"[A-Za-z_]\w*", corpus))
+
     for path in files:
         symbols = public_top_level_symbols(path)
         if not symbols:
@@ -164,13 +171,11 @@ def test_no_dead_public_helpers():
             total += 1
             if name in _PUBLIC_API_WHITELIST or name in reexports:
                 continue
-            # ``\bname\b`` — count occurrences across the full corpus.
-            # The definition line itself contributes 1 reference; we
-            # require ≥ 2 to certify "called by something somewhere"
-            # (own-module callers, other modules, or recursion all
-            # count). Single-occurrence ⇒ defined but never called.
-            occurrences = len(re.findall(rf"\b{re.escape(name)}\b", corpus))
-            if occurrences >= 2:
+            # The definition line itself contributes 1 reference; ≥ 2 means
+            # "called by something somewhere" (own-module callers, other
+            # modules, or recursion all count). Single-occurrence ⇒ defined
+            # but never called.
+            if token_counts.get(name, 0) >= 2:
                 continue
             rel = path.relative_to(MLFRAME_DIR)
             entry = f"{rel}:{lineno}::{name}"

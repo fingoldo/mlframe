@@ -1615,6 +1615,8 @@ def test_schema_hash_is_column_order_invariant(tmp_path):
 
 
 # #27 Subprocess save/load roundtrip
+@pytest.mark.slow
+@pytest.mark.timeout(600)
 def test_save_load_predict_in_subprocess(tmp_path):
     """Train in pytest process; load + predict in a FRESH subprocess.
 

@@ -18,6 +18,13 @@ from hypothesis import given, HealthCheck, settings
 
 import polars as pl
 
+# Polars frame generation under hypothesis is slow on Windows; the default
+# 200ms deadline + 100 examples easily blows past pytest's per-test budget
+# in broad runs. Cap each test's wall time to 180s -- generous enough for
+# the heavier strategies but well above the default --timeout=60 the suite
+# uses for the rest of the codebase.
+pytestmark = pytest.mark.timeout(180)
+
 from mlframe.testing.parametric import (
     adversarial_frame,
     prod_like_frame,
