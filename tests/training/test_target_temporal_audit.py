@@ -33,6 +33,7 @@ from mlframe.training.target_temporal_audit import (
     DEFAULT_ZSCORE_THRESHOLD,
     TemporalAuditResult,
     audit_target_over_time,
+    audit_targets_over_time,
     find_change_points,
     find_change_points_pelt,
     find_change_points_zscore,
@@ -613,6 +614,175 @@ def test_recommended_mask_polars_series_input(synthetic_temporal_df):
     mask = result.recommended_filter_mask(ts_pl)
     assert mask.shape == (len(ts_pl),)
     assert mask.any()
+
+
+# -----------------------------------------------------------------------------
+# Batch API: audit_targets_over_time (multi-target single-pass aggregation)
+# -----------------------------------------------------------------------------
+
+
+@pytest.fixture
+def synthetic_multi_target_df():
+    """Two targets in one frame: one matches the user's drift pattern,
+    the other is stable. Lets us verify the batch API gives different
+    results per-target while sharing the binning."""
+    rng = np.random.default_rng(0)
+    days = pd.date_range("2018-05-01", "2026-04-15", freq="D")
+    rows = []
+    for day in days:
+        biased = pd.Timestamp("2021-09-01") <= day < pd.Timestamp("2022-09-01")
+        rate_drifty = 0.40 if biased else 0.98
+        for _ in range(100):
+            rows.append({
+                "ts": day + pd.Timedelta(seconds=int(rng.integers(0, 86400))),
+                "y_drifty": int(rng.uniform() < rate_drifty),
+                "y_stable": int(rng.uniform() < 0.50),
+                "y_continuous": rng.normal(loc=10.0, scale=2.0),
+            })
+    return pd.DataFrame(rows)
+
+
+def test_audit_targets_returns_dict_keyed_by_name(synthetic_multi_target_df):
+    results = audit_targets_over_time(
+        synthetic_multi_target_df,
+        timestamp_col="ts",
+        targets={
+            "drifty": "y_drifty",
+            "stable": "y_stable",
+        },
+    )
+    assert set(results.keys()) == {"drifty", "stable"}
+    for r in results.values():
+        assert isinstance(r, TemporalAuditResult)
+
+
+def test_audit_targets_drifty_vs_stable(synthetic_multi_target_df):
+    """Drifty target gets multi-segment; stable gets one."""
+    results = audit_targets_over_time(
+        synthetic_multi_target_df,
+        timestamp_col="ts",
+        targets={"drifty": "y_drifty", "stable": "y_stable"},
+    )
+    drifty = results["drifty"]
+    stable = results["stable"]
+    assert len(drifty.segments) >= 2
+    assert any("not stable over time" in w.lower() for w in drifty.warnings)
+    assert len(stable.segments) == 1
+    assert not any("not stable" in w.lower() for w in stable.warnings)
+
+
+def test_audit_targets_explicit_target_type(synthetic_multi_target_df):
+    """The (col, type) tuple form lets the caller mix binary +
+    regression in one call."""
+    results = audit_targets_over_time(
+        synthetic_multi_target_df,
+        timestamp_col="ts",
+        targets={
+            "y_bin": ("y_drifty", "binary_classification"),
+            "y_reg": ("y_continuous", "regression"),
+        },
+    )
+    assert results["y_bin"].target_type == "binary_classification"
+    assert results["y_reg"].target_type == "regression"
+    # Continuous target's bin rates should hover around 10 (the mean)
+    reg_rates = [b.target_rate for b in results["y_reg"].bins if b.kept]
+    assert 8.5 < np.mean(reg_rates) < 11.5
+
+
+def test_audit_targets_polars_input_uses_multi_agg(synthetic_multi_target_df):
+    """Polars path should produce identical results to pandas path."""
+    pl = pytest.importorskip("polars")
+    df_pd = synthetic_multi_target_df
+    df_pl = pl.from_pandas(df_pd)
+
+    res_pd = audit_targets_over_time(
+        df_pd, timestamp_col="ts",
+        targets={"drifty": "y_drifty", "stable": "y_stable"},
+    )
+    res_pl = audit_targets_over_time(
+        df_pl, timestamp_col="ts",
+        targets={"drifty": "y_drifty", "stable": "y_stable"},
+    )
+    # Same number of segments per target
+    assert len(res_pd["drifty"].segments) == len(res_pl["drifty"].segments)
+    assert len(res_pd["stable"].segments) == len(res_pl["stable"].segments)
+    # Identical bin counts
+    assert len(res_pd["drifty"].bins) == len(res_pl["drifty"].bins)
+
+
+def test_audit_targets_equivalent_to_single_calls(synthetic_multi_target_df):
+    """Batch result must match per-target separate calls (modulo
+    floating-point ordering — we compare segment counts and rates)."""
+    batch = audit_targets_over_time(
+        synthetic_multi_target_df,
+        timestamp_col="ts",
+        targets={"drifty": "y_drifty"},
+    )
+    single = audit_target_over_time(
+        synthetic_multi_target_df,
+        timestamp_col="ts",
+        target_col="y_drifty",
+        target_type="binary_classification",
+    )
+    assert len(batch["drifty"].segments) == len(single.segments)
+    assert batch["drifty"].granularity == single.granularity
+    for s_batch, s_single in zip(batch["drifty"].segments, single.segments):
+        assert s_batch["start_idx"] == s_single["start_idx"]
+        assert s_batch["end_idx"] == s_single["end_idx"]
+        assert abs(s_batch["mean_rate"] - s_single["mean_rate"]) < 1e-9
+
+
+def test_audit_targets_polars_runs_one_aggregation(synthetic_multi_target_df, monkeypatch):
+    """Verify the batch API hits ``_aggregate_by_time_polars_multi``
+    exactly once for N targets (not N times)."""
+    pl = pytest.importorskip("polars")
+    df_pl = pl.from_pandas(synthetic_multi_target_df)
+
+    from mlframe.training import target_temporal_audit as mod
+    multi_calls = []
+    single_calls = []
+    orig_multi = mod._aggregate_by_time_polars_multi
+    orig_single = mod._aggregate_by_time_polars
+
+    def spy_multi(*args, **kwargs):
+        multi_calls.append((args, kwargs))
+        return orig_multi(*args, **kwargs)
+
+    def spy_single(*args, **kwargs):
+        single_calls.append((args, kwargs))
+        return orig_single(*args, **kwargs)
+
+    monkeypatch.setattr(mod, "_aggregate_by_time_polars_multi", spy_multi)
+    monkeypatch.setattr(mod, "_aggregate_by_time_polars", spy_single)
+
+    audit_targets_over_time(
+        df_pl, timestamp_col="ts",
+        targets={
+            "a": "y_drifty",
+            "b": "y_stable",
+            "c": ("y_continuous", "regression"),
+        },
+    )
+    assert len(multi_calls) == 1, (
+        f"expected exactly 1 multi-agg call for 3 targets; got {len(multi_calls)}"
+    )
+    assert len(single_calls) == 0, (
+        f"single-target agg should not fire on the batch path; got {len(single_calls)}"
+    )
+
+
+def test_audit_targets_empty_targets_returns_empty():
+    df = pd.DataFrame({"ts": pd.date_range("2024-01-01", periods=10, freq="D"), "y": np.zeros(10)})
+    assert audit_targets_over_time(df, timestamp_col="ts", targets={}) == {}
+
+
+def test_audit_targets_invalid_spec_raises():
+    df = pd.DataFrame({"ts": pd.date_range("2024-01-01", periods=10, freq="D"), "y": np.zeros(10)})
+    with pytest.raises(ValueError, match="must be str or"):
+        audit_targets_over_time(
+            df, timestamp_col="ts",
+            targets={"y": [1, 2, 3]},  # type: ignore — bad spec
+        )
 
 
 def test_recommended_mask_no_segments_returns_all_false():

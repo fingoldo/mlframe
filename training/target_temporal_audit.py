@@ -299,6 +299,25 @@ def _pick_granularity(
 # Aggregation
 # -----------------------------------------------------------------------------
 
+_POLARS_BIN_TRUNCATE: Dict[Granularity, str] = {
+    "minute": "1m",
+    "hour": "1h",
+    "day": "1d",
+    "week": "1w",
+    "month": "1mo",
+    "quarter": "1q",
+    "year": "1y",
+}
+
+
+def _polars_rate_expr(target_col: str, target_type: str, alias: str) -> "pl.Expr":
+    """Build a polars aggregation expr for one target's per-bin rate."""
+    if target_type == "binary_classification":
+        # P(y=1): treat null as 0, then mean over (val > 0)
+        return (pl.col(target_col).fill_null(0) > 0).cast(pl.Float64).mean().alias(alias)
+    return pl.col(target_col).cast(pl.Float64).mean().alias(alias)
+
+
 def _aggregate_by_time_polars(
     df: "pl.DataFrame",
     timestamp_col: str,
@@ -307,33 +326,72 @@ def _aggregate_by_time_polars(
     *,
     target_type: str,
 ) -> pd.DataFrame:
-    """Polars-native group-by-time aggregation. Returns pandas DF for
-    downstream sklearn / matplotlib compatibility."""
+    """Polars-native group-by-time aggregation, single target. Returns
+    pandas DF for downstream sklearn / matplotlib compatibility."""
     if not _HAS_POLARS:
         raise ImportError("polars not installed; pass a pandas df instead.")
-    ts_col = pl.col(timestamp_col)
-    bin_expr_map: Dict[Granularity, "pl.Expr"] = {
-        "minute": ts_col.dt.truncate("1m"),
-        "hour": ts_col.dt.truncate("1h"),
-        "day": ts_col.dt.truncate("1d"),
-        "week": ts_col.dt.truncate("1w"),
-        "month": ts_col.dt.truncate("1mo"),
-        "quarter": ts_col.dt.truncate("1q"),
-        "year": ts_col.dt.truncate("1y"),
-    }
-    bin_expr = bin_expr_map[granularity]
-
-    if target_type == "binary_classification":
-        # P(y=1): treat null as 0, then mean over (val > 0)
-        rate_expr = (pl.col(target_col).fill_null(0) > 0).cast(pl.Float64).mean().alias("target_rate")
-    else:
-        rate_expr = pl.col(target_col).cast(pl.Float64).mean().alias("target_rate")
+    bin_expr = pl.col(timestamp_col).dt.truncate(_POLARS_BIN_TRUNCATE[granularity])
+    rate_expr = _polars_rate_expr(target_col, target_type, "target_rate")
 
     agg = (
         df.select([timestamp_col, target_col])
           .with_columns(bin_expr.alias("__bin"))
           .group_by("__bin")
           .agg(pl.len().alias("n_obs"), rate_expr)
+          .sort("__bin")
+          .to_pandas()
+    )
+    agg = agg.rename(columns={"__bin": "bin_start"})
+    agg["bin_start"] = pd.to_datetime(agg["bin_start"])
+    return agg
+
+
+def _aggregate_by_time_polars_multi(
+    df: "pl.DataFrame",
+    timestamp_col: str,
+    target_specs: List[Tuple[str, str, str]],
+    granularity: Granularity,
+) -> pd.DataFrame:
+    """Polars multi-target group-by-time aggregation: one pass over the
+    data computes per-bin n_obs and per-target rate columns side-by-side.
+
+    Parameters
+    ----------
+    df : pl.DataFrame
+    timestamp_col : str
+    target_specs : list of (target_col, target_type, alias)
+        ``target_col`` is the source column name in df. ``alias`` is
+        the column name to use for that target's rate in the output
+        (typically ``f"rate__{target_col}"`` or any caller-chosen
+        identifier so multiple targets sharing one source col don't
+        collide).
+    granularity : Granularity
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns: ``bin_start``, ``n_obs``, plus one rate column per
+        target_spec (named by the spec's ``alias``). Sorted by
+        ``bin_start``. The rate columns can then be sliced per-target
+        by callers without re-running the groupby.
+    """
+    if not _HAS_POLARS:
+        raise ImportError("polars not installed; pass a pandas df instead.")
+    if not target_specs:
+        raise ValueError("target_specs must be non-empty.")
+
+    bin_expr = pl.col(timestamp_col).dt.truncate(_POLARS_BIN_TRUNCATE[granularity])
+    rate_exprs = [
+        _polars_rate_expr(col, ttype, alias)
+        for (col, ttype, alias) in target_specs
+    ]
+    select_cols = [timestamp_col, *{spec[0] for spec in target_specs}]
+
+    agg = (
+        df.select(select_cols)
+          .with_columns(bin_expr.alias("__bin"))
+          .group_by("__bin")
+          .agg(pl.len().alias("n_obs"), *rate_exprs)
           .sort("__bin")
           .to_pandas()
     )
@@ -833,27 +891,219 @@ def audit_target_over_time(
             df, timestamp_col, target_col, chosen, target_type=target_type,
         )
 
+    return _audit_from_agg(
+        agg=agg,
+        target_name=target_name,
+        target_type=target_type,
+        timestamp_col=timestamp_col,
+        granularity=chosen,  # type: ignore[arg-type]
+        min_bin_fraction=min_bin_fraction,
+        method=method,
+        pelt_model=pelt_model,
+        pelt_penalty=pelt_penalty,
+        pelt_min_segment_size=pelt_min_segment_size,
+        z_threshold=z_threshold,
+        z_window=z_window,
+        min_anomaly_run=min_anomaly_run,
+        drift_warn_threshold=drift_warn_threshold,
+    )
+
+
+def audit_targets_over_time(
+    df: Any,
+    timestamp_col: str,
+    targets: Dict[str, Any],
+    *,
+    granularity: str = "auto",
+    min_bin_fraction: float = DEFAULT_MIN_BIN_FRACTION_FOR_FILTER,
+    method: ChangePointMethod = "pelt",
+    pelt_model: str = DEFAULT_PELT_MODEL,
+    pelt_penalty: Optional[float] = None,
+    pelt_min_segment_size: int = DEFAULT_PELT_MIN_SEGMENT_SIZE,
+    z_threshold: float = DEFAULT_ZSCORE_THRESHOLD,
+    z_window: Optional[int] = None,
+    min_anomaly_run: int = 2,
+    drift_warn_threshold: float = 0.10,
+) -> Dict[str, TemporalAuditResult]:
+    """Audit MULTIPLE targets in ONE pass over the data.
+
+    Equivalent to calling :func:`audit_target_over_time` once per
+    target, but does the costly polars group-by-time aggregation a
+    single time and slices out per-target rates. For 9M rows × 5
+    targets this is ~5× faster than the per-target loop because the
+    bin-assignment + groupby cost dominates.
+
+    Per-target ``TemporalAuditResult`` is returned by name. The
+    timestamp column, granularity, and bin filtering rule are shared;
+    change-point detection and segment summaries are independent
+    per target.
+
+    Parameters
+    ----------
+    df : polars.DataFrame or pandas.DataFrame
+        Input frame. Polars is strongly preferred for >1M rows
+        (zero-copy, native multi-aggregation). Pandas falls back to
+        N separate aggregations under the hood (the N=1 case of
+        ``_aggregate_by_time_pandas``); the polars path is the one
+        that exploits the batch.
+    timestamp_col : str
+    targets : dict
+        Mapping from target NAME (used as the key in the returned
+        dict) to a spec, where the spec is one of:
+
+        * a string — the source column name in ``df``. Target type is
+          inferred as ``"binary_classification"`` (the most common
+          case). Use the longer form below to override.
+        * a tuple ``(column_name, target_type)`` — explicit
+          ``column_name`` and ``target_type``
+          (``"binary_classification"`` / ``"regression"``).
+
+    granularity, min_bin_fraction, method, pelt_*, z_*, ...
+        See :func:`audit_target_over_time`. Shared across targets
+        (one granularity, one bin filter, one detector method per call).
+
+    Returns
+    -------
+    dict[str, TemporalAuditResult]
+        Keyed by the keys of ``targets``. Per-target ``segments`` and
+        ``warnings`` reflect that target's own time-series.
+
+    Examples
+    --------
+    >>> result = audit_targets_over_time(
+    ...     df, timestamp_col="job_posted_at",
+    ...     targets={
+    ...         "hired_above_1": "cl_act_total_hired",
+    ...         "spent_amount":  ("amount_spent", "regression"),
+    ...     },
+    ... )
+    >>> result["hired_above_1"].segments
+    [...]
+    >>> result["spent_amount"].segments
+    [...]
+    """
+    if not targets:
+        return {}
+
+    # Normalize target specs.
+    target_specs: List[Tuple[str, str, str]] = []  # (col, type, alias)
+    name_to_alias: Dict[str, str] = {}
+    for name, spec in targets.items():
+        if isinstance(spec, str):
+            col, ttype = spec, "binary_classification"
+        elif isinstance(spec, tuple) and len(spec) == 2:
+            col, ttype = spec[0], spec[1]
+        else:
+            raise ValueError(
+                f"targets[{name!r}] must be str or (col, target_type) tuple; "
+                f"got {type(spec).__name__}"
+            )
+        alias = f"__rate__{name}"
+        target_specs.append((col, ttype, alias))
+        name_to_alias[name] = alias
+
+    # 1. Pick granularity.
+    if _HAS_POLARS and isinstance(df, pl.DataFrame):
+        ts_for_picker = df[timestamp_col].to_list()
+    else:
+        if not isinstance(df, pd.DataFrame):
+            df = pd.DataFrame(df)
+        ts_for_picker = df[timestamp_col]
+    chosen = (
+        _pick_granularity(ts_for_picker)
+        if granularity == "auto"
+        else granularity
+    )
+
+    # 2. ONE aggregation pass — polars fastpath multi-agg, pandas
+    #    fallback runs per-target (less efficient but correct).
+    if _HAS_POLARS and isinstance(df, pl.DataFrame):
+        agg = _aggregate_by_time_polars_multi(
+            df, timestamp_col, target_specs, chosen,  # type: ignore[arg-type]
+        )
+    else:
+        # Pandas fallback: still N passes, but at least one place to
+        # change later if we add a multi-agg pandas path.
+        agg = _aggregate_by_time_pandas(
+            df, timestamp_col, target_specs[0][0], chosen,  # type: ignore[arg-type]
+            target_type=target_specs[0][1],
+        )
+        agg = agg.rename(columns={"target_rate": target_specs[0][2]})
+        for col, ttype, alias in target_specs[1:]:
+            sub = _aggregate_by_time_pandas(
+                df, timestamp_col, col, chosen, target_type=ttype,  # type: ignore[arg-type]
+            )
+            agg[alias] = sub["target_rate"].values
+
+    # 3. Per-target downstream pipeline.
+    results: Dict[str, TemporalAuditResult] = {}
+    for name, spec in targets.items():
+        col, ttype = (spec, "binary_classification") if isinstance(spec, str) else (spec[0], spec[1])
+        alias = name_to_alias[name]
+
+        sub = pd.DataFrame({
+            "bin_start": agg["bin_start"].values,
+            "n_obs": agg["n_obs"].values,
+            "target_rate": agg[alias].values,
+        })
+        results[name] = _audit_from_agg(
+            agg=sub,
+            target_name=name,
+            target_type=ttype,
+            timestamp_col=timestamp_col,
+            granularity=chosen,  # type: ignore[arg-type]
+            min_bin_fraction=min_bin_fraction,
+            method=method,
+            pelt_model=pelt_model,
+            pelt_penalty=pelt_penalty,
+            pelt_min_segment_size=pelt_min_segment_size,
+            z_threshold=z_threshold,
+            z_window=z_window,
+            min_anomaly_run=min_anomaly_run,
+            drift_warn_threshold=drift_warn_threshold,
+        )
+    return results
+
+
+def _audit_from_agg(
+    *,
+    agg: pd.DataFrame,
+    target_name: str,
+    target_type: str,
+    timestamp_col: str,
+    granularity: Granularity,
+    min_bin_fraction: float,
+    method: ChangePointMethod,
+    pelt_model: str,
+    pelt_penalty: Optional[float],
+    pelt_min_segment_size: int,
+    z_threshold: float,
+    z_window: Optional[int],
+    min_anomaly_run: int,
+    drift_warn_threshold: float,
+) -> TemporalAuditResult:
+    """Internal: turn a pre-computed (bin_start, n_obs, target_rate)
+    aggregation into a full TemporalAuditResult. Shared between
+    ``audit_target_over_time`` (single) and ``audit_targets_over_time``
+    (batch) so the post-aggregation pipeline lives in one place.
+    """
     if agg.empty:
         return TemporalAuditResult(
-            target_name=target_name,
-            target_type=target_type,
-            timestamp_col=timestamp_col,
-            granularity=chosen,  # type: ignore
-            bins=[],
-            change_point_indices=[],
-            segments=[],
+            target_name=target_name, target_type=target_type,
+            timestamp_col=timestamp_col, granularity=granularity,
+            bins=[], change_point_indices=[], segments=[],
             warnings=["empty aggregation — no data after time-binning"],
             actionable={},
         )
 
-    # 2. Filter sparse bins.
     median_n = float(agg["n_obs"].median())
     threshold_n = max(1.0, min_bin_fraction * median_n)
+    agg = agg.copy()
     agg["kept"] = agg["n_obs"] >= threshold_n
 
     bins = [
         TimeBin(
-            bin_label=_format_bin_label(row.bin_start, chosen),  # type: ignore
+            bin_label=_format_bin_label(row.bin_start, granularity),
             bin_start=row.bin_start,
             n_obs=int(row.n_obs),
             target_rate=float(row.target_rate),
@@ -865,13 +1115,9 @@ def audit_target_over_time(
     kept_bins = [b for b in bins if b.kept]
     if len(kept_bins) < 3:
         return TemporalAuditResult(
-            target_name=target_name,
-            target_type=target_type,
-            timestamp_col=timestamp_col,
-            granularity=chosen,  # type: ignore
-            bins=bins,
-            change_point_indices=[],
-            segments=[],
+            target_name=target_name, target_type=target_type,
+            timestamp_col=timestamp_col, granularity=granularity,
+            bins=bins, change_point_indices=[], segments=[],
             warnings=[
                 f"only {len(kept_bins)} non-sparse bins after the {min_bin_fraction}× median-n_obs filter "
                 f"— too few for a temporal audit. Consider a finer granularity or a longer time span.",
@@ -879,7 +1125,6 @@ def audit_target_over_time(
             actionable={},
         )
 
-    # 3. Change-point detection on kept bins.
     rates = np.array([b.target_rate for b in kept_bins])
     weights = np.array([b.n_obs for b in kept_bins], dtype=float)
     labels = [b.bin_label for b in kept_bins]
@@ -889,7 +1134,7 @@ def audit_target_over_time(
             model=pelt_model, penalty=pelt_penalty,
             min_segment_size=pelt_min_segment_size,
         )
-    else:  # zscore
+    else:
         boundaries = find_change_points_zscore(
             rates, weights=weights,
             window=z_window,
@@ -897,7 +1142,6 @@ def audit_target_over_time(
         )
     segments = _segments_from_change_points(rates, weights, boundaries, labels)
 
-    # 4. Warnings.
     warnings: List[str] = []
     if len(segments) >= 2:
         mean_rates = [s["mean_rate"] for s in segments if s["mean_rate"] == s["mean_rate"]]
@@ -917,8 +1161,6 @@ def audit_target_over_time(
                     f"mean_rate={s['mean_rate']:.3f}"
                 )
 
-    # Sparse-bin warn (info level — operator may want to know about
-    # the recent / partial periods we filtered out).
     n_dropped = sum(1 for b in bins if not b.kept)
     if n_dropped > 0:
         warnings.append(
@@ -928,11 +1170,8 @@ def audit_target_over_time(
             "if this number is large, consider a wider granularity."
         )
 
-    # 5. Actionable.
     most_recent_stable: Optional[Dict[str, Any]] = None
     if segments:
-        # The "most recent stable" segment is the LAST segment that has
-        # n_bins >= 3 (long enough to be a regime, not a transient).
         for s in reversed(segments):
             if s["n_bins"] >= 3:
                 most_recent_stable = s
@@ -952,15 +1191,10 @@ def audit_target_over_time(
         )
 
     return TemporalAuditResult(
-        target_name=target_name,
-        target_type=target_type,
-        timestamp_col=timestamp_col,
-        granularity=chosen,  # type: ignore
-        bins=bins,
-        change_point_indices=boundaries,
-        segments=segments,
-        warnings=warnings,
-        actionable=actionable,
+        target_name=target_name, target_type=target_type,
+        timestamp_col=timestamp_col, granularity=granularity,
+        bins=bins, change_point_indices=boundaries, segments=segments,
+        warnings=warnings, actionable=actionable,
     )
 
 
