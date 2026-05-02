@@ -1,5 +1,97 @@
 # Changelog
 
+## 2026-04-26 — Session 7 batch 2: per-split target summary + temporal audit + Pelt change-points
+
+Driven by user feedback on the Session-7 batch 1 PR ("BT=74% computed
+on the full target hides per-split drift; need to see train/val/test
+separately") and an explicit feature request for time-series view of
+the target with regime-shift detection.
+
+### Changed (potentially breaking for log-string consumers)
+
+- **`select_target` model_name token renamed.** The legacy ``BT=`` /
+  ``MT=`` / ``ML=`` summary that was computed on the full target
+  (train + val + test concatenated) is replaced with the per-split
+  ``BTTR=`` / ``MTTR=`` / ``MLTR=`` (TR for "train") computed on
+  ``target[train_idx]``. Callers that didn't pass ``train_idx``
+  retain the legacy ``BT=`` form for back-compat (rare — direct
+  unit-test callers only).
+- **VAL/TEST chart titles now include the split-specific rate.**
+  ``_compute_split_metrics`` calls a new helper
+  ``_append_split_rate_suffix`` that tacks on ``/BTV=X%`` (val) or
+  ``/BTTS=X%`` (test) — chart titles now read e.g.
+  ``BTTR=74%/BTV=86%`` and ``BTTR=74%/BTTS=83%`` so prior shift
+  between splits is visible at a glance.
+
+### Added
+
+- **`audit_target_over_time(...)`** in
+  [training/target_temporal_audit.py](training/target_temporal_audit.py):
+  per-target time-series view of P(y=1) (binary) or mean(y)
+  (regression) at an auto-picked granularity (minute/hour/day/week/
+  month/quarter/year), with change-point / regime detection,
+  segment summaries, drift warnings, and a chart.
+  - Auto-picks granularity to land in [30, 50] non-empty bins.
+  - Filters sparse trailing/leading bins (n_obs < 0.5 × median(n_obs)).
+  - Polars-native fastpath when input is `pl.DataFrame`.
+  - Returns structured `TemporalAuditResult` (JSON-safe to_dict).
+
+- **Change-point detection — two methods, one dispatcher**:
+  - `find_change_points_pelt` (DEFAULT) — ruptures.Pelt with
+    BIC-style auto-tuned penalty (`var(rates) × log(n)`). Optimal
+    given cost+penalty, handles balanced regimes, auto-detects K.
+    Empirically finds all 4 transitions in the user's production
+    drift pattern at the auto penalty.
+  - `find_change_points_zscore` — modified-z-score against either
+    global median (default) or local rolling-window. Cheaper /
+    interpretable for "dominant baseline + anomaly" patterns; can
+    miss balanced regimes.
+  - `find_change_points(method="pelt"|"zscore")` — top-level
+    dispatcher.
+
+- **`plot_target_over_time(audit_result, save_path=...)`**: matplotlib
+  rendering of the binned target rate + change-point markers + per-
+  segment mean horizontal lines. Saves PNG to disk by default.
+
+- **Auto-wired in `train_mlframe_models_suite`** when
+  `behavior_config.target_temporal_audit_column` is set: the audit
+  runs in the per-target loop right after the drift_report (BEFORE
+  training), logs the segment / warning block, saves the chart, and
+  stores the structured result on
+  `metadata["target_temporal_audit"][target_type][target_name]`.
+
+- **New `TrainingBehaviorConfig` fields**:
+  - `target_temporal_audit_column: Optional[str] = None` — opt-in
+    timestamp column. None disables the audit (default).
+  - `target_temporal_audit_granularity: str = "auto"` — explicit
+    granularity override.
+  - `target_temporal_audit_save_plot: bool = True`.
+
+- **Public API** via `mlframe.training`: `audit_target_over_time`,
+  `plot_target_over_time`, `format_temporal_audit_report`,
+  `find_change_points`, `find_change_points_pelt`,
+  `find_change_points_zscore`, `TemporalAuditResult`.
+
+- **Required dep**: `ruptures` (added to `requirements.txt`). It's a
+  pure-Python package (numpy dep only); pulling it in is a much
+  better trade than re-implementing PELT.
+
+### Tests
+
+- 31 new tests in `tests/training/test_target_temporal_audit.py`:
+  granularity auto-pick (8-year span → quarter; 2-month → day;
+  200-year → year), Pelt detection of single/multiple/balanced
+  regimes, z-score local-vs-global modes, full audit on synthetic
+  data mirroring the user's exact graph (98% biased / 40% dip /
+  98% / sparse spike), plot save, dict round-trip.
+- 16 new tests in `tests/training/test_per_split_target_summary.py`:
+  `_append_split_rate_suffix` for binary/regression/multilabel ×
+  val/test, legacy `BT=` passthrough, polars/pandas inputs, edge
+  cases.
+- All existing tests still pass (drift_report + PU + per-split +
+  temporal-audit cross-cutting run: 101/101; fuzz combo c0001
+  verified end-to-end).
+
 ## 2026-04-28 — Meta-test suite v3: A+C+D+E+F batches + shared utils
 
 ### Added — 11 new meta-tests + a shared-utils library + drift tracking

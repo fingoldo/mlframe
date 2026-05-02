@@ -3471,6 +3471,59 @@ def _filter_categorical_features(fit_params, train_df, val_df=None, test_df=None
 # cost is paid once per fit.
 
 
+def _append_split_rate_suffix(model_name: str, *, split_name: str, target) -> str:
+    """Append ``/BTV=X%`` (val) or ``/BTTS=X%`` (test) to a model_name
+    that already carries ``BTTR=`` (train rate set by select_target).
+
+    Tag conventions:
+
+    * binary classification — ``BTV`` / ``BTTS`` (Binary Target Val / TeSt)
+    * regression — ``MTV`` / ``MTTS`` (Mean Target Val / TeSt)
+    * multilabel classification — ``MLV`` / ``MLTS`` (MultiLabel Val / TeSt)
+
+    The result is ``BTTR=74%/BTV=86%`` (or analogous) so the chart title
+    surfaces the train-vs-split prior shift inline. Train splits and
+    cases where ``model_name`` doesn't carry a ``BTTR=`` / ``MTTR=`` /
+    ``MLTR=`` token (e.g. legacy unit-test-driven calls with the older
+    ``BT=`` tag) pass through unchanged.
+    """
+    if split_name not in ("val", "test") or target is None:
+        return model_name
+
+    # Coerce target to a flat numpy array.
+    if isinstance(target, (pl.Series, pd.Series)):
+        arr = target.to_numpy()
+    elif isinstance(target, np.ndarray):
+        arr = target
+    else:
+        try:
+            arr = np.asarray(target)
+        except Exception:
+            return model_name
+    if arr.size == 0:
+        return model_name
+
+    short = "V" if split_name == "val" else "TS"
+
+    if "BTTR=" in model_name:
+        # Binary / multiclass — show positive rate.
+        if arr.ndim != 1:
+            return model_name
+        rate = float((arr == 1).sum()) / arr.size
+        return f"{model_name}/BT{short}={rate*100:.0f}%"
+    if "MTTR=" in model_name:
+        if arr.ndim != 1:
+            return model_name
+        return f"{model_name}/MT{short}={float(arr.mean()):.4f}"
+    if "MLTR=" in model_name:
+        if arr.ndim != 2 or arr.shape[0] == 0:
+            return model_name
+        rates = arr.mean(axis=0)
+        summary = ",".join(f"{p*100:.0f}" for p in rates)
+        return f"{model_name}/ML{short}={summary}%"
+    return model_name
+
+
 def _compute_split_metrics(
     split_name: str,
     df,
@@ -3522,6 +3575,17 @@ def _compute_split_metrics(
     effective_show_fi = show_fi and not has_other_splits
     split_plot_file = f"{plot_file}_{split_name}" if plot_file else ""
 
+    # 2026-04-26 Session 7: append the split-specific target rate to
+    # model_name for THIS split's report only. ``select_target`` stamped
+    # the train rate as ``BTTR=`` / ``MTTR=`` / ``MLTR=`` on the
+    # canonical model_name; here we tack on ``/BTV=`` (val) or
+    # ``/BTTS=`` (test) so chart titles read e.g.
+    # ``BTTR=74%/BTV=86%`` and prior shift between train and val/test
+    # is visible in every header.
+    augmented_model_name = _append_split_rate_suffix(
+        model_name, split_name=split_name, target=target,
+    )
+
     # Lazy import -- see comment near the top of this module about the
     # ``evaluation`` <-> ``trainer`` import cycle.
     from .evaluation import report_model_perf
@@ -3530,7 +3594,7 @@ def _compute_split_metrics(
         targets=target,
         columns=columns,
         df=df_prepared,
-        model_name=model_name,
+        model_name=augmented_model_name,
         model=model,
         target_label_encoder=target_label_encoder,
         preds=preds,

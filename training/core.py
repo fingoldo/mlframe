@@ -3159,6 +3159,80 @@ def train_mlframe_models_suite(
                 metadata.setdefault("label_distribution_drift", {}) \
                     .setdefault(str(target_type), {})[cur_target_name] = _drift_report
 
+                # 2026-04-26 Session 7: optional temporal target audit.
+                # When ``behavior_config.target_temporal_audit_column`` is
+                # set, compute a time-series view of the target at the
+                # configured granularity, detect regime shifts (change
+                # points), warn on drift, save a chart, and stash the
+                # structured result on metadata. Skipped silently when
+                # the column is missing or the source df is unavailable.
+                _ts_col = getattr(behavior_config, "target_temporal_audit_column", None) if behavior_config else None
+                if _ts_col:
+                    try:
+                        from .target_temporal_audit import (
+                            audit_target_over_time,
+                            format_temporal_audit_report,
+                            plot_target_over_time,
+                        )
+                        # Look for the timestamp column in the original df
+                        # (preserved through the suite under ``df`` /
+                        # ``train_df`` / per-split frames). ``df`` here is
+                        # the full pre-split frame.
+                        _audit_df = None
+                        for _candidate in (df, train_df_pl if 'train_df_pl' in dir() else None):
+                            if _candidate is not None and hasattr(_candidate, "columns") and _ts_col in _candidate.columns:
+                                _audit_df = _candidate
+                                break
+                        if _audit_df is None:
+                            logger.warning(
+                                "target_temporal_audit: column '%s' not found "
+                                "in available DataFrames — audit skipped. "
+                                "Set behavior_config.target_temporal_audit_column "
+                                "to a column present in the input df.",
+                                _ts_col,
+                            )
+                        else:
+                            # Build a (timestamp, target) two-column frame
+                            # for the audit. Polars-aware: use polars
+                            # native if input is polars (no copy).
+                            _audit_target_col = f"__audit_target_{cur_target_name}"
+                            if isinstance(_audit_df, pl.DataFrame):
+                                _audit_input = _audit_df.select([_ts_col]).with_columns(
+                                    pl.Series(_audit_target_col, np.asarray(cur_target_values))
+                                )
+                            else:
+                                _audit_input = pd.DataFrame({
+                                    _ts_col: _audit_df[_ts_col].values,
+                                    _audit_target_col: np.asarray(cur_target_values),
+                                })
+                            _gran = getattr(
+                                behavior_config, "target_temporal_audit_granularity", "auto",
+                            )
+                            _audit = audit_target_over_time(
+                                _audit_input,
+                                timestamp_col=_ts_col,
+                                target_col=_audit_target_col,
+                                target_name=cur_target_name,
+                                target_type=str(target_type),
+                                granularity=_gran,
+                            )
+                            logger.info(format_temporal_audit_report(_audit))
+                            if (getattr(behavior_config, "target_temporal_audit_save_plot", True)
+                                    and plot_file):
+                                _plot_path = f"{plot_file}_target_temporal_audit.png"
+                                plot_target_over_time(_audit, save_path=_plot_path)
+                            metadata.setdefault("target_temporal_audit", {}) \
+                                .setdefault(str(target_type), {})[cur_target_name] = _audit.to_dict()
+                    except Exception as _audit_err:
+                        # The audit is informational; never fail the suite
+                        # if something goes wrong. Log loudly so the
+                        # operator notices.
+                        logger.warning(
+                            "target_temporal_audit failed for target='%s' "
+                            "(timestamp_col='%s'): %s. Training continues.",
+                            cur_target_name, _ts_col, _audit_err,
+                        )
+
                 if verbose:
                     logger.info(f"select_target...")
 

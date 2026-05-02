@@ -1042,6 +1042,26 @@ class TrainingBehaviorConfig(BaseConfig):
     # load-time schema verification is also skipped for those artefacts.
     model_file_hash_suffix: bool = True
 
+    # 2026-04-26 Session 7: temporal target audit. When set, per-target
+    # the suite computes a time-series view of the target (P(y=1) for
+    # binary, mean(y) for regression) at the configured granularity,
+    # detects change points / regime shifts, and warns when the rate
+    # diverges across segments. Saves a chart to the per-target charts
+    # folder. Skipped silently when the timestamp column is absent or
+    # not datetime-typed.
+    target_temporal_audit_column: Optional[str] = None
+    """Column name (datetime-typed) used as the time axis for the
+    per-target temporal audit. ``None`` (default) disables the audit.
+    Set to e.g. ``'job_posted_at'`` to enable."""
+
+    target_temporal_audit_granularity: str = "auto"
+    """One of ``"auto"`` (default; picks granularity that yields 30-50
+    bins) or one of ``"minute"`` / ``"hour"`` / ``"day"`` / ``"week"`` /
+    ``"month"`` / ``"quarter"`` / ``"year"``."""
+
+    target_temporal_audit_save_plot: bool = True
+    """Save the time-series chart to the per-target charts folder."""
+
 
 class MultilabelDispatchConfig(BaseConfig):
     """Configuration for multilabel-classification dispatch.

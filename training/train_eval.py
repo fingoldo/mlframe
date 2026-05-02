@@ -316,36 +316,99 @@ def select_target(
     TypeError
         If target is not a supported type (np.ndarray, pd.Series, pl.Series).
     """
+    # 2026-04-26 Session 7: per-split target summary. Previously the BT=
+    # / MT= / ML= summary was computed on the FULL target (train+val+test),
+    # which masked split-specific drift in forward-mode runs (one user's
+    # log showed BT=74% as the only number, but actual splits were
+    # train=74 / val=86 / test=83 — selection bias hiding in plain sight).
+    #
+    # New format: model_name carries ONLY the train-side rate as
+    # ``BTTR=`` / ``MTTR=`` / ``MLTR=`` (TR for "train"). The per-split
+    # report headers in ``_compute_split_metrics`` append the matching
+    # ``/BTV=`` / ``/BTTS=`` (V for "val", TS for "test") suffix on the
+    # fly so chart titles read e.g. ``BTTR=74%/BTV=86%`` (VAL) and
+    # ``BTTR=74%/BTTS=83%`` (TEST). Drift is then visible in every
+    # split's chart header.
+    #
+    # Falls back to the legacy whole-target ``BT=`` / ``MT=`` / ``ML=``
+    # tag when no train_idx is supplied (back-compat for direct
+    # unit-test callers that don't go through the suite).
+
+    def _select(target_arr, idx):
+        """Slice target by index array (np / pd / pl-aware)."""
+        if idx is None or idx is False or (hasattr(idx, "__len__") and len(idx) == 0):
+            return None
+        if isinstance(target_arr, (pl.Series, np.ndarray)):
+            return target_arr[idx]
+        # pd.Series — accept either positional indices (np.ndarray) or
+        # a pre-aligned label index.
+        if hasattr(idx, "dtype") and idx.dtype != bool:
+            return target_arr.iloc[idx]
+        return target_arr[idx]
+
+    def _to_arr(t):
+        if t is None:
+            return None
+        if isinstance(t, pl.Series):
+            return t.to_numpy()
+        if isinstance(t, pd.Series):
+            return t.to_numpy()
+        return np.asarray(t)
+
+    train_t = _to_arr(_select(target, train_idx))
+
     if target_type == TargetTypes.REGRESSION:
-        model_name += f" MT={target.mean():.4f}"
+        if train_t is not None and train_t.size > 0:
+            model_name += f" MTTR={train_t.mean():.4f}"
+        else:
+            model_name += f" MT={target.mean():.4f}"
     elif target_type == TargetTypes.MULTILABEL_CLASSIFICATION:
         # 2026-04-24 Session 5: multilabel has 2-D target (N, K). Skip
         # the binary value_counts / positive-rate path (would raise
         # "Data must be 1-dimensional" on pandas.Series construction).
-        # Per-label positive rate: summary string shows K values.
         target_arr = target if isinstance(target, np.ndarray) else np.asarray(target)
-        if target_arr.ndim == 2:
-            per_label_pos = target_arr.mean(axis=0)  # fraction of 1s per label
+        if train_t is not None and train_t.ndim == 2 and train_t.shape[0] > 0:
+            rates = train_t.mean(axis=0)
+            summary = ",".join(f"{p*100:.0f}" for p in rates)
+            model_name += f" MLTR={summary}%"
+        elif target_arr.ndim == 2:
+            per_label_pos = target_arr.mean(axis=0)
             summary = ",".join(f"{p*100:.0f}%" for p in per_label_pos)
             model_name += f" ML={summary}"
         else:
             model_name += f" ML=?"
     else:
-        # Compute value counts for classification target
-        if isinstance(target, (pl.Series, pd.Series)):
-            vlcnts = target.value_counts(normalize=True)
-        elif isinstance(target, np.ndarray):
-            vlcnts = pd.Series(target).value_counts(normalize=True)
-        else:
-            raise TypeError(f"target must be np.ndarray, pd.Series, or pl.Series, got {type(target).__name__}")
+        # Binary / multiclass — train rate on the model_name; per-split
+        # contextual rates are appended downstream in _compute_split_metrics.
 
-        # Extract positive class percentage
-        if isinstance(target, pl.Series):
-            vlcnts = vlcnts.filter(pl.col(target.name) == 1)
-            perc = vlcnts["proportion"][0] if len(vlcnts) > 0 else 0
+        def _binary_pos_rate(arr):
+            if arr is None or arr.size == 0:
+                return None
+            return float((arr == 1).sum()) / arr.size
+
+        train_perc = _binary_pos_rate(train_t)
+
+        if train_perc is not None:
+            model_name += f" BTTR={train_perc*100:.0f}%"
+            perc = train_perc
         else:
-            perc = vlcnts.loc[1] if 1 in vlcnts.index else 0
-        model_name += f" BT={perc*100:.0f}%"
+            # No train indices — fall back to whole-target rate (rare:
+            # direct unit-test callers).
+            if isinstance(target, (pl.Series, pd.Series)):
+                vlcnts = target.value_counts(normalize=True)
+            elif isinstance(target, np.ndarray):
+                vlcnts = pd.Series(target).value_counts(normalize=True)
+            else:
+                raise TypeError(
+                    f"target must be np.ndarray, pd.Series, or pl.Series, "
+                    f"got {type(target).__name__}"
+                )
+            if isinstance(target, pl.Series):
+                vlcnts = vlcnts.filter(pl.col(target.name) == 1)
+                perc = vlcnts["proportion"][0] if len(vlcnts) > 0 else 0
+            else:
+                perc = vlcnts.loc[1] if 1 in vlcnts.index else 0
+            model_name += f" BT={perc*100:.0f}%"
 
         # Degenerate-target guard: classification with a single class
         # (all 0s or all 1s after the target-building threshold) makes
@@ -400,6 +463,12 @@ def select_target(
         # 2026-04-21 Fix 8: save-time filename policy; not consumed by
         # configure_training_params, so mask from the downstream kwarg set.
         "model_file_hash_suffix",
+        # 2026-04-26 Session 7: temporal-audit knobs are consumed by
+        # train_mlframe_models_suite directly (in the per-target loop),
+        # not by configure_training_params.
+        "target_temporal_audit_column",
+        "target_temporal_audit_granularity",
+        "target_temporal_audit_save_plot",
     }
     effective_behavior_params = {
         k: v for k, v in behavior_config.model_dump(exclude_none=True).items()
