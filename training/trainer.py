@@ -3650,6 +3650,16 @@ def run_confidence_analysis(
     if confidence_model_kwargs is None:
         confidence_model_kwargs = {}
 
+    # 2026-04-26 Session 7 batch 5: bound the confidence model's
+    # iteration budget so the CPU fallback can't spin indefinitely.
+    # Without a cap CB defaults to iterations=1000, which on the rich
+    # feature schema typical for the suite (50+ cols) translates to
+    # 4-10+ minutes per confidence fit on CPU. The confidence regressor
+    # is best-effort diagnostic — even 50 boosting rounds gives a
+    # serviceable feature-importance signal. Caller can override.
+    confidence_model_kwargs.setdefault("iterations", 200)
+    confidence_model_kwargs.setdefault("early_stopping_rounds", 30)
+
     confidence_task_type = "GPU" if CUDA_IS_AVAILABLE else "CPU"
     confidence_model = CatBoostRegressor(verbose=0, eval_fraction=0.1, task_type=confidence_task_type, **confidence_model_kwargs)
 
@@ -3690,6 +3700,37 @@ def run_confidence_analysis(
             except Exception:
                 continue
             if _dt == object or str(_dt) in ("string", "string[python]", "string[pyarrow]"):
+                _drop_for_conf.append(_c)
+    elif isinstance(test_df, pl.DataFrame):
+        # 2026-04-26 Session 7 batch 5: polars-side auto-detect. The
+        # earlier pandas-only branch missed:
+        #   - pl.Utf8 / pl.String text columns (default-seed c0056:
+        #     cb+hgb+xgb pl_nullable n=5000 → CB Pool crash on ``text_0``)
+        #   - pl.List / pl.Array embedding columns (same combo, ``emb_0``
+        #     surfaces here when fit_params['embedding_features'] is
+        #     None because the trailing model is HGB/XGB which doesn't
+        #     accept the kwarg → the explicit-drop list is empty)
+        #   - pl.Struct nested types (rare but break CB Pool numerics)
+        # All these break CB Pool numeric-feature construction. Drop
+        # them unless explicitly listed as cat_features.
+        for _c in test_df.columns:
+            if _c in _drop_for_conf:
+                continue
+            if cat_features and _c in cat_features:
+                continue
+            try:
+                _dt = test_df.schema[_c]
+            except Exception:
+                continue
+            _dt_name = str(_dt)
+            _is_string = _dt in (pl.Utf8, pl.Object) or _dt_name in ("Utf8", "String", "Object")
+            _is_collection = (
+                _dt_name.startswith("List(")
+                or _dt_name.startswith("Array(")
+                or _dt_name.startswith("Struct(")
+                or (hasattr(pl, "List") and isinstance(_dt, type(pl.List(pl.Int8))))
+            )
+            if _is_string or _is_collection:
                 _drop_for_conf.append(_c)
     if _drop_for_conf:
         if isinstance(test_df, pd.DataFrame):
@@ -3759,6 +3800,27 @@ def run_confidence_analysis(
             )
         return None
     confidence_targets = test_probs[np.arange(test_probs.shape[0]), test_target_arr]
+
+    # 2026-04-26 Session 7 batch 5: degenerate confidence_targets.
+    # When all rows in test happen to land in the same predicted-
+    # probability bucket (small test sets, severely-miscalibrated /
+    # constant-output models), every confidence_target is identical
+    # and CB rejects with "All train targets are equal". The
+    # confidence regressor has nothing to learn anyway. Skip with a
+    # WARN so the operator knows the diagnostic was un-runnable.
+    # Surfaced default-seed c0081 (hgb+lgb pandas n=300).
+    n_unique_conf = int(np.unique(confidence_targets).size)
+    if n_unique_conf < 2:
+        logger.warning(
+            "Confidence analysis skipped: all confidence_targets are "
+            "equal (n_unique=%d, value=%s). The confidence regressor "
+            "has no signal to learn — typical for tiny test sets where "
+            "all rows share one predicted-prob bucket, or for severely "
+            "miscalibrated models emitting a constant probability.",
+            n_unique_conf,
+            float(confidence_targets[0]) if confidence_targets.size else float("nan"),
+        )
+        return None
 
     _maybe_clean_ram()
     try:
