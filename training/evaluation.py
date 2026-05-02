@@ -396,6 +396,24 @@ def report_regression_model_perf(
     if metrics is not None:
         metrics.update(current_metrics)
 
+    # Compute residual audit ONCE (used by both the chart and the
+    # print-report block; cheap thanks to internal sampling).
+    _residual_audit = None
+    if not (
+        (targets_arr.ndim > 1 and targets_arr.shape[1] > 1)
+        or (preds_arr.ndim > 1 and preds_arr.shape[1] > 1)
+    ):
+        try:
+            from .regression_residual_audit import audit_residuals as _audit_residuals_fn
+            _residual_audit = _audit_residuals_fn(targets, preds)
+            if metrics is not None:
+                metrics["residual_audit"] = _residual_audit.to_dict()
+        except Exception as _audit_err:
+            logger.warning(
+                "residual_audit failed for '%s': %s. Continuing without diagnostics.",
+                model_name, _audit_err,
+            )
+
     if show_perf_chart or plot_file:
         title = report_title + " " + model_name
         n_cols = n_features if n_features is not None else (len(columns) if columns else 0)
@@ -430,13 +448,59 @@ def report_regression_model_perf(
             idx = _get_cached_plot_idx(len(preds), plot_sample_size, DEFAULT_RANDOM_SEED)
             idx = idx[np.argsort(preds[idx])]
 
-            fig = plt.figure(figsize=figsize)
-            plt.scatter(preds[idx], targets[idx], marker=plot_marker, alpha=0.3)
-            plt.plot(preds[idx], preds[idx], linestyle="--", color="green", label="Perfect fit")
+            # 2026-04-26 Session 7 batch 3: residual diagnostics. The
+            # original single-panel scatter is now the leftmost of three
+            # panels. The middle panel is a residual histogram with an
+            # overlaid fitted-Normal density (heavy tails, skew, and
+            # multimodality jump out visually). The right panel is
+            # residuals vs predicted (the funnel-shape signature of
+            # heteroscedasticity). The audit's text diagnostics + noise-
+            # distribution hypothesis are printed below the scatter
+            # via ``format_residual_audit_report``.
+            from .regression_residual_audit import (
+                plot_residual_diagnostics as _plot_residual_diagnostics,
+            )
+            _audit = _residual_audit  # reuse pre-computed audit
 
-            plt.xlabel("Predictions")
-            plt.ylabel("True values")
-            plt.title(title)
+            # Augment the title with the noise hypothesis so the chart
+            # is self-contained (the printed report below has the full
+            # rationale).
+            chart_title = title
+            if _audit is not None:
+                chart_title += (
+                    f"\nresidual hypothesis: {_audit.hypothesis} "
+                    f"(suggested: {_audit.suggested_loss.split('(')[0].strip()})"
+                )
+
+            # Three-panel figure: scatter | residuals histogram | residuals vs predicted
+            fig, axes = plt.subplots(
+                1, 3, figsize=(figsize[0] * 3 / 2, figsize[1]),
+            )
+            ax_scatter, ax_hist, ax_resid = axes
+
+            ax_scatter.scatter(
+                preds[idx], targets[idx], marker=plot_marker, alpha=0.3,
+            )
+            ax_scatter.plot(
+                preds[idx], preds[idx], linestyle="--", color="green",
+                label="Perfect fit",
+            )
+            ax_scatter.set_xlabel("Predictions")
+            ax_scatter.set_ylabel("True values")
+            ax_scatter.set_title(chart_title)
+            ax_scatter.grid(True, alpha=0.3)
+            ax_scatter.legend(loc="best", fontsize=8, framealpha=0.7)
+
+            if _audit is not None:
+                _plot_residual_diagnostics(
+                    targets, preds, audit=_audit,
+                    ax_hist=ax_hist, ax_resid_vs_pred=ax_resid,
+                )
+            else:
+                ax_hist.set_visible(False)
+                ax_resid.set_visible(False)
+
+            fig.tight_layout()
 
             if plot_file:
                 fig.savefig(plot_file)
@@ -453,6 +517,15 @@ def report_regression_model_perf(
         print(f"RMSE: {RMSE:.{report_ndigits}f}")
         print(f"MaxError: {MaxError:.{report_ndigits}f}")
         print(f"R2: {R2:.{report_ndigits}f}")
+
+        # Print residual-distribution audit + noise hypothesis. Reuses
+        # the audit computed once above so we don't recompute moments
+        # twice.
+        if _residual_audit is not None:
+            from .regression_residual_audit import (
+                format_residual_audit_report as _fmt_residual_audit,
+            )
+            print(_fmt_residual_audit(_residual_audit))
 
     if subgroups:
         fairness_report = compute_fairness_metrics(
