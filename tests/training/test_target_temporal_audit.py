@@ -503,3 +503,127 @@ def test_audit_default_method_is_pelt(synthetic_temporal_df):
     )
     # 3+ segments expected (biased / dip / biased ± sparse-bin spike)
     assert len(result.segments) >= 3
+
+
+# -----------------------------------------------------------------------------
+# recommended_filter_mask — the actionable bridge from audit to subset
+# -----------------------------------------------------------------------------
+
+
+def test_recommended_mask_most_recent_stable(synthetic_temporal_df):
+    """The default 'most_recent_stable' selector picks the last
+    multi-bin segment — for the user's graph that's the post-dip
+    biased run (2022-Q4..2026-Q1)."""
+    result = audit_target_over_time(
+        synthetic_temporal_df,
+        timestamp_col="job_posted_at",
+        target_col="cl_act_total_hired",
+        target_type="binary_classification",
+    )
+    mask = result.recommended_filter_mask(synthetic_temporal_df["job_posted_at"])
+    assert isinstance(mask, np.ndarray)
+    assert mask.dtype == bool
+    assert mask.shape == (len(synthetic_temporal_df),)
+    # Mask should select a meaningful chunk (not 0%, not 100%)
+    frac = mask.mean()
+    assert 0.10 < frac < 0.90, f"unexpected mask coverage {frac:.2%}"
+    # Subset's mean rate should match the segment's rate
+    sub = synthetic_temporal_df.loc[mask, "cl_act_total_hired"]
+    assert sub.mean() > 0.90  # post-dip is back at biased ~98%
+
+
+def test_recommended_mask_largest(synthetic_temporal_df):
+    """'largest' selects the segment with the most obs."""
+    result = audit_target_over_time(
+        synthetic_temporal_df,
+        timestamp_col="job_posted_at",
+        target_col="cl_act_total_hired",
+        target_type="binary_classification",
+    )
+    mask = result.recommended_filter_mask(
+        synthetic_temporal_df["job_posted_at"], segment="largest",
+    )
+    largest = max(result.segments, key=lambda s: s["n_obs"])
+    # Mask should have approximately largest_segment.n_obs rows
+    assert abs(int(mask.sum()) - int(largest["n_obs"])) <= int(largest["n_obs"]) * 0.05
+
+
+def test_recommended_mask_all_stable(synthetic_temporal_df):
+    """'all_stable' includes every multi-bin segment — this is most of
+    the data (biased + dip + biased), excluding only 1-bin spikes."""
+    result = audit_target_over_time(
+        synthetic_temporal_df,
+        timestamp_col="job_posted_at",
+        target_col="cl_act_total_hired",
+        target_type="binary_classification",
+    )
+    mask_all = result.recommended_filter_mask(
+        synthetic_temporal_df["job_posted_at"], segment="all_stable",
+    )
+    mask_one = result.recommended_filter_mask(
+        synthetic_temporal_df["job_posted_at"], segment="most_recent_stable",
+    )
+    # all_stable >= most_recent_stable in coverage
+    assert mask_all.sum() >= mask_one.sum()
+
+
+def test_recommended_mask_first_last(synthetic_temporal_df):
+    """'first' and 'last' pick those by index — disjoint for the
+    user's 3-segment pattern."""
+    result = audit_target_over_time(
+        synthetic_temporal_df,
+        timestamp_col="job_posted_at",
+        target_col="cl_act_total_hired",
+        target_type="binary_classification",
+    )
+    if len(result.segments) < 2:
+        pytest.skip("need ≥2 segments for this test")
+    mask_first = result.recommended_filter_mask(
+        synthetic_temporal_df["job_posted_at"], segment="first",
+    )
+    mask_last = result.recommended_filter_mask(
+        synthetic_temporal_df["job_posted_at"], segment="last",
+    )
+    assert mask_first.any() and mask_last.any()
+    assert not (mask_first & mask_last).any()  # disjoint
+
+
+def test_recommended_mask_unknown_selector_raises(synthetic_temporal_df):
+    result = audit_target_over_time(
+        synthetic_temporal_df,
+        timestamp_col="job_posted_at",
+        target_col="cl_act_total_hired",
+        target_type="binary_classification",
+    )
+    with pytest.raises(ValueError, match="Unknown segment selector"):
+        result.recommended_filter_mask(
+            synthetic_temporal_df["job_posted_at"], segment="bogus",
+        )
+
+
+def test_recommended_mask_polars_series_input(synthetic_temporal_df):
+    pl = pytest.importorskip("polars")
+    result = audit_target_over_time(
+        synthetic_temporal_df,
+        timestamp_col="job_posted_at",
+        target_col="cl_act_total_hired",
+        target_type="binary_classification",
+    )
+    ts_pl = pl.Series(synthetic_temporal_df["job_posted_at"].values)
+    mask = result.recommended_filter_mask(ts_pl)
+    assert mask.shape == (len(ts_pl),)
+    assert mask.any()
+
+
+def test_recommended_mask_no_segments_returns_all_false():
+    """Empty audit (no data) → all-False mask, matches input length."""
+    from mlframe.training.target_temporal_audit import TemporalAuditResult
+    empty = TemporalAuditResult(
+        target_name="x", target_type="binary_classification",
+        timestamp_col="ts", granularity="month",
+        bins=[], change_point_indices=[], segments=[], warnings=[],
+    )
+    ts = pd.to_datetime(pd.Series(["2024-01-01", "2024-02-01", "2024-03-01"]))
+    mask = empty.recommended_filter_mask(ts)
+    assert mask.shape == (3,)
+    assert not mask.any()

@@ -155,6 +155,106 @@ class TemporalAuditResult:
             "plot_path": self.plot_path,
         }
 
+    def recommended_filter_mask(
+        self,
+        timestamps: Any,
+        *,
+        segment: str = "most_recent_stable",
+    ) -> np.ndarray:
+        """Return a boolean mask selecting rows whose timestamp falls
+        inside the chosen audit segment.
+
+        Used as the actionable bridge between "audit detected drift
+        across N segments" and "let me actually train on the right
+        subset". Common pattern:
+
+            >>> result = audit_target_over_time(df, "ts", "y", ...)
+            >>> mask = result.recommended_filter_mask(df["ts"])
+            >>> df_clean = df.filter(mask) if isinstance(df, pl.DataFrame) else df[mask]
+
+        Parameters
+        ----------
+        timestamps : array-like (numpy / pandas / polars)
+            The timestamp values for which to compute the mask. Length
+            of returned array equals length of this input.
+        segment : str, default "most_recent_stable"
+            Selection rule:
+            * ``"most_recent_stable"`` — last segment with n_bins ≥ 3
+              (the operator-friendly default — most-recent regime,
+              skipping single-bin spikes).
+            * ``"largest"`` — segment with the most observations.
+            * ``"all_stable"`` — all segments with n_bins ≥ 3 (omits
+              short transient regimes).
+            * ``"first"`` / ``"last"`` — first / last segment by index.
+
+        Returns
+        -------
+        ndarray of bool
+            Same length as ``timestamps``. True for rows whose
+            timestamp lies in [segment.start_bin, segment.end_bin)
+            (the bin's exclusive end is the next bin's start, so
+            inclusion is half-open as Pelt segments are).
+        """
+        if not self.segments or not self.bins:
+            ts = pd.to_datetime(pd.Series(timestamps))
+            return np.zeros(len(ts), dtype=bool)
+
+        kept = [b for b in self.bins if b.kept]
+        if not kept:
+            ts = pd.to_datetime(pd.Series(timestamps))
+            return np.zeros(len(ts), dtype=bool)
+
+        chosen_segs: List[Dict[str, Any]]
+        if segment == "most_recent_stable":
+            chosen_segs = []
+            for s in reversed(self.segments):
+                if s["n_bins"] >= 3:
+                    chosen_segs = [s]
+                    break
+            if not chosen_segs:
+                chosen_segs = [self.segments[-1]]
+        elif segment == "largest":
+            chosen_segs = [max(self.segments, key=lambda s: s["n_obs"])]
+        elif segment == "all_stable":
+            chosen_segs = [s for s in self.segments if s["n_bins"] >= 3]
+            if not chosen_segs:
+                chosen_segs = list(self.segments)
+        elif segment == "first":
+            chosen_segs = [self.segments[0]]
+        elif segment == "last":
+            chosen_segs = [self.segments[-1]]
+        else:
+            raise ValueError(
+                f"Unknown segment selector: {segment!r}. "
+                "Choose from: most_recent_stable / largest / all_stable / first / last."
+            )
+
+        # Compute (start_ts, end_ts) for each chosen segment. The
+        # segment's start_idx is into the kept-bin list; the bin's
+        # ``bin_start`` is the inclusive left edge. The end is the
+        # NEXT bin's left edge OR (if we're at the tail) the last
+        # kept bin's bin_start + the granularity span.
+        gran_seconds = _GRANULARITY_SECONDS.get(self.granularity, 30.44 * 86_400.0)
+        gran_delta = pd.Timedelta(seconds=gran_seconds)
+
+        ts = pd.to_datetime(pd.Series(timestamps))
+        mask = np.zeros(len(ts), dtype=bool)
+        for s in chosen_segs:
+            start_idx = int(s["start_idx"])
+            end_idx = int(s["end_idx"])  # exclusive into kept[]
+            if start_idx >= len(kept):
+                continue
+            start_ts = kept[start_idx].bin_start
+            if end_idx < len(kept):
+                end_ts = kept[end_idx].bin_start
+            else:
+                # Tail segment — use last bin's left edge + granularity
+                # span as the (open) right edge.
+                end_ts = kept[-1].bin_start + gran_delta
+            seg_mask = (ts >= start_ts) & (ts < end_ts)
+            mask |= seg_mask.to_numpy() if hasattr(seg_mask, "to_numpy") else np.asarray(seg_mask)
+        return mask
+
 
 # -----------------------------------------------------------------------------
 # Granularity picker
