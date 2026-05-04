@@ -2365,7 +2365,11 @@ def train_mlframe_models_suite(
 
     if verbose:
         logger.info("  Pipeline done -- train: %s, cat_features: %s", _df_shape_str(train_df), cat_features or '(none)')
-        if was_polars_input and cat_features_polars:
+        # Only emit the Polars-side list when it actually differs from the
+        # post-pipeline list — when the polars fastpath skips encoding the two
+        # are identical and the second log line is pure noise (one user's log
+        # had 23 names duplicated back-to-back).
+        if was_polars_input and cat_features_polars and list(cat_features_polars) != list(cat_features or []):
             logger.info("  Pre-pipeline Polars cat_features: %s", cat_features_polars)
         logger.info("  PHASE 3 total: %s", _elapsed_str(t0_phase3))
 

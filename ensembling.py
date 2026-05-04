@@ -720,6 +720,8 @@ def _process_single_ensemble_method(
     n_features: int,
     verbose: bool,
     kwargs: dict,
+    flag_degenerate_conf_subset: bool = True,
+    degenerate_class_ratio: float = 0.01,
 ) -> tuple:
     """Process a single ensemble method. Returns (method_name, results, conf_results, next_level_pred)."""
     from mlframe.training import train_and_evaluate_model
@@ -910,20 +912,55 @@ def _process_single_ensemble_method(
         # calibration subsection as ``COV=XX%`` (2026-04-23 review finding).
         # Prefer VAL coverage as the headline (early-stopping + calibration
         # both key on VAL); fall back to TEST coverage then TRAIN.
+        # Evaluate (label, full_preds, conf_idx, target_for_label) for each split
+        # in priority order. We need the target slice as well because the
+        # degenerate-class-balance check (below) operates on the filtered target,
+        # not on the prediction array.
         _cov_src = None
-        for _label, _full, _conf in (
-            ("VAL", val_ensembled_predictions, val_confident_indices),
-            ("TEST", test_ensembled_predictions, test_confident_indices),
-            ("TRAIN", train_ensembled_predictions, train_confident_indices),
+        _conf_target = None
+        for _label, _full, _conf, _full_target in (
+            ("VAL", val_ensembled_predictions, val_confident_indices, val_target),
+            ("TEST", test_ensembled_predictions, test_confident_indices, test_target),
+            ("TRAIN", train_ensembled_predictions, train_confident_indices, train_target),
         ):
             if _full is not None and _conf is not None and len(_full) > 0:
                 _cov_src = (_label, 100.0 * len(_conf) / len(_full))
+                if _full_target is not None and len(_full_target) == len(_full):
+                    _conf_target = _full_target[_conf]
                 break
+
+        # Degenerate-class-balance check on the filtered target. A confidence
+        # filter that "keeps the rows the ensemble agrees on" tends to keep
+        # almost-all-positive (or almost-all-negative) subsets on imbalanced
+        # data — one prod log showed 21 negatives vs 81_815 positives in the
+        # 10 % VAL slice, and the resulting ``BR=0.026 %`` looked like a
+        # headline win until you noticed it was reporting on a degenerate
+        # split. Marker is binary-classification only; regression has no
+        # class balance to check.
+        _degenerate_marker = ""
+        if (
+            flag_degenerate_conf_subset
+            and not is_regression
+            and _conf_target is not None
+            and len(_conf_target) > 0
+        ):
+            _ct = np.asarray(_conf_target)
+            if _ct.ndim == 1:
+                # Count positives via boolean comparison so float / bool / int
+                # targets all behave the same. Ratio is min/max regardless of
+                # which class is the minority.
+                _n_pos = int((_ct == 1).sum())
+                _n_neg = int(_ct.shape[0] - _n_pos)
+                _hi = max(_n_pos, _n_neg)
+                _lo = min(_n_pos, _n_neg)
+                if _hi > 0 and (_lo / _hi) < degenerate_class_ratio:
+                    _degenerate_marker = "[DEGENERATE] "
+
         # Trailing space so the downstream concat ``f"...{ensemble_name}{_cov_tag}"``
         # doesn't slam the next token onto the closing bracket -- the 2026-04-24
         # prod log showed ``[VAL COV=10%]notext prod_jobsdetails ...`` (no space
         # before "notext"). Empty tag stays empty (no double-space when off).
-        _cov_tag = f" [{_cov_src[0]} COV={_cov_src[1]:.0f}%] " if _cov_src else ""
+        _cov_tag = f" {_degenerate_marker}[{_cov_src[0]} COV={_cov_src[1]:.0f}%] " if _cov_src else ""
 
         # Build config objects from flat params for confidence ensemble
         conf_flat_params = dict(
@@ -996,6 +1033,8 @@ def score_ensemble(
     n_jobs: int = None,
     min_samples_for_parallel: int = 10_000_000,
     verbose: bool = True,
+    flag_degenerate_conf_subset: bool = True,
+    degenerate_class_ratio: float = 0.01,
     **kwargs,
 ):
     """Compares different ensembling methods for a list of models.
@@ -1077,6 +1116,8 @@ def score_ensemble(
             n_features=n_features,
             verbose=verbose,
             kwargs=kwargs,
+            flag_degenerate_conf_subset=flag_degenerate_conf_subset,
+            degenerate_class_ratio=degenerate_class_ratio,
         )
 
         if len(ensembling_methods) > 1 and effective_n_jobs > 1:

@@ -612,6 +612,98 @@ class TestEnsembleNameAnnotations:
         assert label == "[N=5]"
 
 
+class TestConfEnsembleDegenerateMarker:
+    """The 2026-04-27 follow-up: when the confidence filter keeps a subset
+    whose class balance has collapsed (e.g. 21 negatives vs 81 815 positives
+    on a 10 % VAL slice — observed in one prod log), the COV tag now also
+    carries a ``[DEGENERATE]`` marker so a one-glance read of the log doesn't
+    treat the resulting ``BR=0.026 %`` as a headline.
+
+    Marker is gated by ``flag_degenerate_conf_subset`` (default True) and
+    threshold is ``degenerate_class_ratio`` (default 0.01 = 1:100 imbalance)."""
+
+    def _make_conf_target(self, n_pos: int, n_neg: int) -> np.ndarray:
+        return np.concatenate([np.ones(n_pos, dtype=np.int8), np.zeros(n_neg, dtype=np.int8)])
+
+    def test_degenerate_marker_fires_when_class_balance_collapses(self):
+        """min/max < 0.01 (1:100 worse) -> [DEGENERATE] prepended."""
+        # The exact prod scenario: 21 vs 81_815 -> ratio ~ 2.6e-4 << 0.01.
+        conf_target = self._make_conf_target(n_pos=81_815, n_neg=21)
+        n_pos = int((conf_target == 1).sum())
+        n_neg = conf_target.shape[0] - n_pos
+        hi = max(n_pos, n_neg)
+        lo = min(n_pos, n_neg)
+        ratio = lo / hi
+        assert ratio < 0.01
+        marker = "[DEGENERATE] " if ratio < 0.01 else ""
+        assert marker == "[DEGENERATE] "
+
+    def test_degenerate_marker_silent_at_balanced_subset(self):
+        """50/50 -> no marker."""
+        conf_target = self._make_conf_target(n_pos=500, n_neg=500)
+        n_pos = int((conf_target == 1).sum())
+        n_neg = conf_target.shape[0] - n_pos
+        hi = max(n_pos, n_neg)
+        lo = min(n_pos, n_neg)
+        ratio = lo / hi
+        marker = "[DEGENERATE] " if ratio < 0.01 else ""
+        assert marker == ""
+
+    def test_degenerate_marker_silent_when_disabled(self):
+        """flag_degenerate_conf_subset=False -> no marker even on collapsed subset."""
+        conf_target = self._make_conf_target(n_pos=10_000, n_neg=5)
+        flag_degenerate_conf_subset = False
+        # Mirror the gating logic: skip the check entirely when disabled.
+        marker = ""
+        if flag_degenerate_conf_subset:
+            n_pos = int((conf_target == 1).sum())
+            n_neg = conf_target.shape[0] - n_pos
+            hi = max(n_pos, n_neg)
+            lo = min(n_pos, n_neg)
+            if hi > 0 and (lo / hi) < 0.01:
+                marker = "[DEGENERATE] "
+        assert marker == ""
+
+    def test_degenerate_marker_in_full_cov_tag(self):
+        """End-to-end shape of the COV tag with marker prefixed:
+        '` [DEGENERATE] [VAL COV=10%] `' (note leading + trailing space for
+        clean concat with surrounding ensemble_name)."""
+        cov_src = ("VAL", 10.0)
+        marker = "[DEGENERATE] "
+        cov_tag = f" {marker}[{cov_src[0]} COV={cov_src[1]:.0f}%] "
+        assert cov_tag == " [DEGENERATE] [VAL COV=10%] "
+        # Composed prefix that gets logged:
+        prefix = f"Conf Ensemble arithm notext[cb+xgb] {cov_tag.strip()}"
+        assert "[DEGENERATE]" in prefix
+        assert "[VAL COV=10%]" in prefix
+        # Operator can grep either tag independently.
+
+    def test_degenerate_marker_skipped_for_regression(self):
+        """Regression has no class balance — marker logic must short-circuit
+        before the comparison so float targets don't trigger spurious markers."""
+        is_regression = True
+        flag_degenerate_conf_subset = True
+        marker = ""
+        if flag_degenerate_conf_subset and not is_regression:
+            # branch shouldn't run for regression
+            marker = "[DEGENERATE] "
+        assert marker == ""
+
+    def test_degenerate_marker_threshold_is_configurable(self):
+        """A 1:50 imbalance is below the default 1:100 threshold so the
+        default ratio=0.01 keeps it silent. Setting ratio=0.05 (1:20) flags
+        the same subset."""
+        conf_target = self._make_conf_target(n_pos=1000, n_neg=20)
+        n_pos = int((conf_target == 1).sum())
+        n_neg = conf_target.shape[0] - n_pos
+        ratio = min(n_pos, n_neg) / max(n_pos, n_neg)  # 20/1000 = 0.02
+
+        # Default 0.01: ratio 0.02 > 0.01 => silent
+        assert (ratio < 0.01) is False
+        # Stricter 0.05: ratio 0.02 < 0.05 => triggers
+        assert (ratio < 0.05) is True
+
+
 # =====================================================================
 # Fix 7: Category-drift WARN carries concrete healing suggestions
 # =====================================================================

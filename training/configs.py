@@ -1132,6 +1132,29 @@ class EnsemblingConfig(BaseConfig):
     impl today; ``tdigest`` / ``p2_quantile`` planned (registered via
     ``StreamingAccumulator`` Protocol)."""
 
+    flag_degenerate_conf_subset: bool = True
+    """If True, prepend ``[DEGENERATE]`` to the Conf Ensemble model_name
+    when the confidence-filtered subset's class balance collapses
+    (``min(class_support) / max(class_support) < degenerate_class_ratio``).
+
+    Why: a uniform-quantile confidence filter often keeps only the
+    rows the ensemble is most confident about, which on imbalanced data
+    means "almost-all-positive" or "almost-all-negative" subsets.
+    Metrics computed on that subset are deceptively pristine
+    (BR=0.026 %, LL=0.002 — observed in one prod log) and easy to
+    misread as headlines. The marker is a one-glance hint that the
+    block is reporting on a degenerate slice.
+
+    Binary classification only — for regression there is no class
+    balance to check; the flag has no effect."""
+
+    degenerate_class_ratio: float = 0.01
+    """Threshold below which a confidence-filtered subset is flagged
+    as degenerate. ``0.01`` means a class balance worse than 1:100
+    (e.g. 21 negatives vs 81 815 positives, observed in one prod log)
+    triggers the marker. Has no effect when
+    ``flag_degenerate_conf_subset=False``."""
+
 
 class TrainingConfig(BaseConfig):
     """Main configuration aggregating all training settings.
