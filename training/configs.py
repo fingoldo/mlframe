@@ -1607,6 +1607,40 @@ class ReportingConfig(BaseConfig):
             )
         return v
 
+    @field_validator("feature_importance_config", mode="before")
+    @classmethod
+    def _coerce_feature_importance_config(cls, v):
+        """Accept ``FeatureImportanceConfig`` instances even when the Python
+        class identity has diverged.
+
+        Pydantic v2's ``model_type`` validator strictly checks
+        ``type(instance) is FeatureImportanceConfig``. Two practical scenarios
+        break that without any code bug on either side:
+          1) ``%autoreload 2`` in a Jupyter session re-imports ``configs.py``
+             after a code edit -- new ``FeatureImportanceConfig`` class is
+             defined, but ``trainer.py`` (already imported earlier) still
+             references the OLD class and instantiates from it.
+          2) Two separate working copies of mlframe sit on ``sys.path`` (e.g.
+             a recovery checkout + the canonical one) and import resolution
+             picks one for ``configs`` and the other for ``trainer``.
+
+        Both produce ``input_value=FeatureImportanceConfig(...),
+        input_type=FeatureImportanceConfig`` errors that are confusing
+        because the names match. Round-tripping through ``model_dump()``
+        rebuilds the instance against THIS module's class identity and
+        recovers transparently. Same-class instances pass through.
+        """
+        if v is None:
+            return None
+        if isinstance(v, FeatureImportanceConfig):
+            return v
+        # Stale-class shim: anything pydantic-shaped with the right name.
+        if hasattr(v, "model_dump") and type(v).__name__ == "FeatureImportanceConfig":
+            return FeatureImportanceConfig(**v.model_dump())
+        # Dicts pass through normal pydantic validation (handled by the
+        # default validator after this one returns a dict).
+        return v
+
     @model_validator(mode="after")
     def _populate_title_tokens(self) -> "ReportingConfig":
         toks = tuple(t.strip().upper() for t in self.title_metrics_template.split() if t.strip())
