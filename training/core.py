@@ -3102,7 +3102,51 @@ def train_mlframe_models_suite(
     # approach for N>1 targets on >1M-row datasets (benchmarked: 1M×5
     # targets, 6.0s loop → 1.3s batch).
     _all_target_audits: Dict[Any, Dict[str, Any]] = {}
-    _audit_ts_col = getattr(behavior_config, "target_temporal_audit_column", None) if behavior_config else None
+    # 2026-04-27: auto-detect timestamp column from the
+    # features_and_targets_extractor's ``ts_field``. The user almost
+    # always already configured a timestamp on the FTE for splitting /
+    # date-feature extraction; making them re-state it on
+    # behavior_config to enable the audit was friction.
+    #
+    # Resolution order:
+    #   1. behavior_config.target_temporal_audit_column = "<col>"  -> explicit opt-in to <col>
+    #   2. behavior_config.target_temporal_audit_column = ""       -> explicit opt-out (audit disabled)
+    #   3. behavior_config.target_temporal_audit_column = None     -> fall through to FTE.ts_field
+    #   4. FTE.ts_field set + column present in df                 -> auto-detect (audit fires)
+    #   5. neither                                                  -> audit silent
+    _audit_ts_override = getattr(behavior_config, "target_temporal_audit_column", None) if behavior_config else None
+    if _audit_ts_override is None:
+        # ``df`` is deleted earlier in this function (Phase 2 cleanup
+        # ``del df`` around line 2207). The check below tolerates a
+        # NameError on df via locals() so the auto-detect doesn't blow
+        # up; the actual ts source is the FTE-returned ``timestamps``
+        # ndarray captured before del, with df-column lookup as a
+        # secondary fallback when the original df is still in scope.
+        _fte_ts = getattr(features_and_targets_extractor, "ts_field", None)
+        # Prefer the FTE-returned timestamps ndarray (always present
+        # after FTE.transform when ts_field is set, regardless of
+        # downstream df.del). Fall back to df[col] only if df is
+        # still bound and has the column.
+        _src_df = locals().get("df", None)
+        _ts_in_df = (
+            _src_df is not None and hasattr(_src_df, "columns") and _fte_ts in _src_df.columns
+        )
+        if _fte_ts and (timestamps is not None or _ts_in_df):
+            _audit_ts_col = _fte_ts
+            logger.info(
+                "target_temporal_audit: auto-detected timestamp column '%s' "
+                "from features_and_targets_extractor.ts_field. To override, "
+                "set behavior_config.target_temporal_audit_column='<col>'; "
+                "to disable, set it to ''.",
+                _audit_ts_col,
+            )
+        else:
+            _audit_ts_col = None
+    else:
+        # Operator explicitly set the override (could be a column name
+        # OR empty string for "disable"). Honour as-is; empty string
+        # falls through the truthy check below and silently skips.
+        _audit_ts_col = _audit_ts_override
     if _audit_ts_col:
         try:
             from .target_temporal_audit import (
@@ -3110,16 +3154,38 @@ def train_mlframe_models_suite(
                 format_temporal_audit_report as _format_temporal_audit_report,
                 plot_target_over_time as _plot_target_over_time,
             )
-            # Find the timestamp column on any available source df.
-            _audit_src_df = None
-            for _candidate in (df,):
-                if _candidate is not None and hasattr(_candidate, "columns") and _audit_ts_col in _candidate.columns:
-                    _audit_src_df = _candidate
-                    break
-            if _audit_src_df is None:
+            # Resolve the timestamp source. Prefer the column in df
+            # when present; fall back to the ``timestamps`` ndarray
+            # that FTE.transform returned alongside targets when the
+            # column has been dropped from df (the prod pattern: user
+            # lists ``ts_field`` in ``columns_to_drop`` because the
+            # raw datetime shouldn't be a model feature, but the
+            # split / audit code still needs the values).
+            # 2026-04-27 Session 7 batch 7: this fallback is what makes
+            # the FTE-auto-detect path actually fire under prod-style
+            # configs (where ts_field is in columns_to_drop).
+            _audit_ts_values = None
+            _audit_src_kind = None
+            _src_df_local = locals().get("df", None)
+            if _src_df_local is not None and hasattr(_src_df_local, "columns") and _audit_ts_col in _src_df_local.columns:
+                _audit_ts_values = _src_df_local[_audit_ts_col]
+                _audit_src_kind = "df_column"
+            elif timestamps is not None:
+                _audit_ts_values = timestamps
+                _audit_src_kind = "fte_timestamps"
+                logger.info(
+                    "target_temporal_audit: column '%s' was dropped from df "
+                    "(likely via columns_to_drop) — using FTE-returned "
+                    "timestamps ndarray as fallback.",
+                    _audit_ts_col,
+                )
+            if _audit_ts_values is None:
                 logger.warning(
-                    "target_temporal_audit: column '%s' not found in input df — audit skipped. "
-                    "Set behavior_config.target_temporal_audit_column to a column present in df.",
+                    "target_temporal_audit: column '%s' not found in df and "
+                    "FTE returned no timestamps — audit skipped. Either "
+                    "set behavior_config.target_temporal_audit_column to a "
+                    "column present in df, or configure ts_field on your "
+                    "FeaturesAndTargetsExtractor.",
                     _audit_ts_col,
                 )
             else:
@@ -3147,13 +3213,23 @@ def train_mlframe_models_suite(
                         )
                         _audit_keys_by_pair[(_tt_outer, _tname)] = _audit_key
                 if _audit_targets_spec:
-                    if isinstance(_audit_src_df, pl.DataFrame):
-                        _batch_input = _audit_src_df.select([_audit_ts_col]).with_columns([
+                    if _audit_src_kind == "df_column" and isinstance(_src_df_local, pl.DataFrame):
+                        # Polars fastpath: timestamp column still in df
+                        _batch_input = _src_df_local.select([_audit_ts_col]).with_columns([
                             pl.Series(name, arr) for name, arr in _audit_input_cols.items()
                         ])
-                    else:
+                    elif _audit_src_kind == "df_column":
+                        # Pandas: timestamp column still in df
                         _batch_input = pd.DataFrame({
-                            _audit_ts_col: _audit_src_df[_audit_ts_col].values,
+                            _audit_ts_col: _src_df_local[_audit_ts_col].values,
+                            **_audit_input_cols,
+                        })
+                    else:
+                        # FTE-timestamps fallback: build a fresh frame
+                        # from the stand-alone timestamps ndarray.
+                        _ts_arr = np.asarray(_audit_ts_values)
+                        _batch_input = pd.DataFrame({
+                            _audit_ts_col: _ts_arr,
                             **_audit_input_cols,
                         })
                     _gran = getattr(behavior_config, "target_temporal_audit_granularity", "auto")

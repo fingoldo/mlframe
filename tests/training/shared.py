@@ -30,10 +30,38 @@ class SimpleFeaturesAndTargetsExtractor:
             (c) a 2-D ndarray already.
     """
 
-    def __init__(self, target_column='target', regression=True, target_type=None):
+    def __init__(
+        self,
+        target_column='target',
+        regression=True,
+        target_type=None,
+        ts_field=None,
+        group_field=None,
+        weight_schemas=None,
+    ):
         self.target_column = target_column
         self.regression = regression
         self._explicit_target_type = target_type
+        # 2026-04-27 Session 7 batch 6: optional timestamp-column hint.
+        # When set, train_mlframe_models_suite picks this up via
+        # ``getattr(features_and_targets_extractor, 'ts_field', None)``
+        # for the temporal_audit auto-detect (drift report graph + change
+        # points). Mirrors the same attribute on the production
+        # SimpleFeaturesAndTargetsExtractor.
+        self.ts_field = ts_field
+        # 2026-04-27 Session 7 batch 7: surface ``group_field`` and
+        # ``weight_schemas`` so fuzz combos can exercise the
+        # group-aware (per-group AUC, GroupKFold) and recency-weighting
+        # code paths. Previously these were dead axes — combo carried
+        # the values but the fixture's transform always returned
+        # ``group_ids=None, sample_weights={}``, so the suite silently
+        # fell back to the no-group / uniform-weighting branches.
+        self.group_field = group_field
+        # ``weight_schemas`` is a tuple/list/None of strings, e.g.
+        # ``("uniform",)`` (default behaviour) or ``("uniform", "recency")``.
+        # The fixture generates the actual weight arrays at transform()
+        # time so the suite's per-weight loop runs once per name.
+        self.weight_schemas = tuple(weight_schemas) if weight_schemas else None
 
     def _resolve_target_type(self):
         if self._explicit_target_type is not None:
@@ -90,16 +118,81 @@ class SimpleFeaturesAndTargetsExtractor:
             }
         }
 
-        # Return all expected values
+        # group_ids extraction (Session 7 batch 7): when ``group_field``
+        # is set and present in df, return the column as group_ids_raw
+        # AND group_ids (suite consumers may use either; prod FTE
+        # mirrors the same value into both slots when it has a single
+        # group source).
+        group_ids_raw = None
+        group_ids = None
+        if self.group_field is not None and self.group_field in df.columns:
+            col = df[self.group_field]
+            if isinstance(df, pd.DataFrame):
+                group_ids_raw = col.values
+            else:
+                group_ids_raw = col.to_numpy()
+            group_ids = group_ids_raw
+
+        # timestamps extraction: prod FTE returns the ts_field column
+        # alongside the targets. Several downstream consumers (recency
+        # weighting, time-aware splits, temporal_audit) consume this.
+        timestamps = None
+        if self.ts_field is not None and self.ts_field in df.columns:
+            col = df[self.ts_field]
+            if isinstance(df, pd.DataFrame):
+                timestamps = col.values
+            else:
+                timestamps = col.to_numpy()
+
+        # sample_weights: previously always {}. When the caller asks
+        # for weight_schemas, generate one weight array per name. Keeps
+        # the dead ``weight_schemas`` axis active in fuzz combos.
+        sample_weights: dict = {}
+        if self.weight_schemas:
+            n = (df.shape[0] if hasattr(df, "shape") else len(df))
+            for name in self.weight_schemas:
+                if name == "uniform":
+                    sample_weights[name] = np.ones(n, dtype=np.float32)
+                elif name == "recency":
+                    # Linear ramp: oldest row -> 0.5, newest -> 1.5.
+                    # Production FTE uses an exponential decay over
+                    # timestamps; the test fixture just needs SOMETHING
+                    # non-uniform so the recency code branch runs.
+                    if timestamps is not None:
+                        ts_arr = np.asarray(timestamps)
+                        # Convert datetime to float for ranking
+                        try:
+                            ts_f = ts_arr.astype("datetime64[ns]").astype(np.int64).astype(np.float64)
+                        except (TypeError, ValueError):
+                            ts_f = np.arange(n, dtype=np.float64)
+                        rank = np.argsort(np.argsort(ts_f)).astype(np.float64) / max(n - 1, 1)
+                    else:
+                        rank = np.arange(n, dtype=np.float64) / max(n - 1, 1)
+                    sample_weights[name] = (0.5 + rank).astype(np.float32)
+                else:
+                    # Unknown schema: fall back to uniform so the suite
+                    # doesn't crash on a missing key.
+                    sample_weights[name] = np.ones(n, dtype=np.float32)
+
+        # columns_to_drop: include ts_field / group_field along with
+        # target_column so downstream models don't see the timestamp
+        # or grouping column as a feature (prod FTE has the same
+        # contract — these are bookkeeping columns, not features).
+        cols_to_drop = [self.target_column]
+        if self.ts_field is not None and self.ts_field not in cols_to_drop:
+            cols_to_drop.append(self.ts_field)
+        if self.group_field is not None and self.group_field not in cols_to_drop:
+            cols_to_drop.append(self.group_field)
+
         return (
-            df,  # df
-            target_by_type,  # target_by_type
-            None,  # group_ids_raw
-            None,  # group_ids
-            None,  # timestamps
+            df,
+            target_by_type,
+            group_ids_raw,
+            group_ids,
+            timestamps,
             None,  # artifacts
-            [self.target_column],  # columns_to_drop
-            {},  # sample_weights (empty dict = uniform weights only)
+            cols_to_drop,
+            sample_weights,
         )
 
 

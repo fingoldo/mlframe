@@ -5091,8 +5091,20 @@ def configure_training_params(
     else:
         indexed_subgroups = None
 
+    # 2026-04-27 Session 7 batch 6: per-section timers in
+    # configure_training_params. Surfaced when a 9M-row prod run showed
+    # ``select_target done in 18.2s`` vs ~0.5s on smaller earlier
+    # runs. Three candidate hot-spots: get_training_configs (called
+    # twice — CPU + GPU), get_df_memory_consumption(deep=False), and
+    # the GPU probe (cached nvidia-smi subprocess). The timers below
+    # localise the spend so the operator can see the breakdown
+    # without instrumenting by hand.
+    _t0_cfg = timer()
     cpu_configs = get_training_configs(has_gpu=False, subgroups=indexed_subgroups, **config_params)
+    _t_cpu_cfg = timer() - _t0_cfg
+    _t0_cfg = timer()
     gpu_configs = get_training_configs(has_gpu=None, subgroups=indexed_subgroups, **config_params)
+    _t_gpu_cfg = timer() - _t0_cfg
 
     # Prefer caller-supplied size (typically computed on the Polars frame
     # BEFORE pandas conversion via .estimated_size() -- O(cols), microseconds).
@@ -5101,6 +5113,7 @@ def configure_training_params(
     # to block this site for 3 minutes on frames with millions of unique
     # object-column strings. pyutilz default stays deep=True (back-compat);
     # mlframe opts out at this specific heuristic-only call site.
+    _t0_mem = timer()
     if train_df_size_bytes is not None:
         train_df_size = float(train_df_size_bytes)
     else:
@@ -5112,9 +5125,11 @@ def configure_training_params(
     else:
         val_df_size = 0
     data_size_gb = (train_df_size + val_df_size) / (1024**3)
+    _t_mem = timer() - _t0_mem
 
     # Skip expensive GPU probe (nvidia-smi subprocess ~0.5s) when GPU configs
     # are disabled or CatBoost is explicitly on CPU -- the result is unused.
+    _t0_gpu = timer()
     cb_task_type = config_params.get("cb_kwargs", {}).get("task_type")
     cb_devices = config_params.get("cb_kwargs", {}).get("devices")
     if not prefer_gpu_configs or cb_task_type == "CPU":
@@ -5130,8 +5145,16 @@ def configure_training_params(
             data_fits_cb_gpu_ram = (GPU_VRAM_SAFE_SATURATION_LIMIT * data_size_gb + GPU_VRAM_SAFE_FREE_LIMIT_GB) < multi_gpu_limits.get("gpus_ram_total", 0)
         else:
             data_fits_cb_gpu_ram = data_fits_gpu_ram
+    _t_gpu = timer() - _t0_gpu
 
     logger.info("data_fits_gpu_ram=%s, data_fits_cb_gpu_ram=%s, cb_devices=%s", data_fits_gpu_ram, data_fits_cb_gpu_ram, cb_devices)
+    if (_t_cpu_cfg + _t_gpu_cfg + _t_mem + _t_gpu) > 0.5:
+        logger.info(
+            "configure_training_params timing breakdown: "
+            "cpu_configs=%.2fs, gpu_configs=%.2fs, mem_probe=%.2fs, gpu_probe=%.2fs (total %.2fs)",
+            _t_cpu_cfg, _t_gpu_cfg, _t_mem, _t_gpu,
+            _t_cpu_cfg + _t_gpu_cfg + _t_mem + _t_gpu,
+        )
 
     configs = gpu_configs if (prefer_gpu_configs and data_fits_gpu_ram) else cpu_configs
     cb_configs = gpu_configs if (prefer_gpu_configs and data_fits_cb_gpu_ram) else cpu_configs

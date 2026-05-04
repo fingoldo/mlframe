@@ -164,10 +164,29 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
     # falls back to the unfiltered val_set when OD would reject most val
     # rows (the typical reason val_df collapsed to 0 in this combo
     # window). Splitter still produces a non-empty val.
+    # 2026-04-27 Session 7 batch 7: ``val_placement='backward' +
+    # trainset_aging_limit`` are incompatible by design — aging removes
+    # the oldest rows, which are the ones adjacent to the backward-
+    # placed val. Splitting raises a hard ValueError. Pre-batch-7 this
+    # was masked: the fuzz fixture didn't surface ts_field on its FTE,
+    # so timestamps reached splitting as None and val_placement
+    # silently fell back to 'forward' (no error). Now that ts_field is
+    # threaded through (so the audit auto-detect path is exercised),
+    # the conflict materialises. Canonicalise: when both flags are
+    # set AND timestamps will reach splitting (with_datetime_col=True),
+    # drop aging — keep the backward placement, since it's the
+    # less-common axis being tested.
+    _aging_eff = combo.trainset_aging_limit_cfg
+    if (
+        _aging_eff is not None
+        and combo.val_placement_cfg == "backward"
+        and combo.with_datetime_col
+    ):
+        _aging_eff = None
     split_config = TrainingSplitConfig(
         test_size=combo.test_size_cfg,
         val_placement=combo.val_placement_cfg,
-        trainset_aging_limit=combo.trainset_aging_limit_cfg,
+        trainset_aging_limit=_aging_eff,
         shuffle_val=combo.shuffle_val_cfg,
         shuffle_test=combo.shuffle_test_cfg,
         wholeday_splitting=combo.wholeday_splitting_cfg,
@@ -688,6 +707,12 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         target_column=target_col,
         regression=(combo.target_type == "regression"),
         target_type=_combo_tt,
+        # 2026-04-27 Session 7 batch 6: when the combo injects a
+        # datetime column ('ts' from build_frame_for_combo), surface it
+        # as ts_field so train_mlframe_models_suite's temporal_audit
+        # auto-detect kicks in. Without this the audit stays silent
+        # for fuzz combos and the auto-detect path is untested.
+        ts_field=("ts" if combo.with_datetime_col else None),
     )
 
     # Resolve combo-specific kwargs (outlier detector, custom prep,

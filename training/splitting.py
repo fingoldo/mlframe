@@ -155,6 +155,16 @@ def make_train_test_split(
             f"val_placement must be 'forward' or 'backward', got {val_placement!r}"
         )
 
+    # 2026-04-27 Session 7 batch 7: normalise ``timestamps`` to pd.Series
+    # at function entry. Several downstream branches use ``timestamps.iloc``
+    # / ``.dt`` accessors that only work on pandas Series. Callers may
+    # pass either a Series (FTE.transform on pandas df) or a numpy
+    # datetime64 ndarray (FTE.transform on polars df → ``.to_numpy()``)
+    # or a plain Python list. Coerce once so the rest of the function
+    # has a stable contract.
+    if timestamps is not None and not isinstance(timestamps, pd.Series):
+        timestamps = pd.Series(timestamps)
+
     # Backward placement is time-axis-specific. Without timestamps there is
     # no "before/after" to place val relative to train, so we silently fall
     # back to forward -- the sklearn-shuffle path below doesn't order rows
@@ -296,7 +306,11 @@ def make_train_test_split(
     if wholeday_splitting and timestamps is not None:
         # `.dt.floor('D')` is vectorized over datetime64 and stays in datetime dtype
         # (unlike `.dt.date` which yields a Python-object Series -- much slower for isin).
-        dates = pd.to_datetime(timestamps).dt.floor("D")
+        # 2026-04-27: ``pd.to_datetime`` on a numpy datetime64 ndarray returns a
+        # ``DatetimeIndex`` (no ``.dt`` accessor); on a pandas Series it returns
+        # a Series (has ``.dt``). FTE.transform may pass either shape — wrap
+        # in pd.Series first so ``.dt.floor`` works uniformly.
+        dates = pd.to_datetime(pd.Series(timestamps)).dt.floor("D")
         unique_dates = dates.unique()
         n_total = len(unique_dates)
     else:
