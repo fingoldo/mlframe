@@ -9,13 +9,13 @@ not tell from a chart header whether train/val/test rates diverged.
 Session 7 changes:
 - ``select_target`` stamps ONLY the train rate as
   ``BTTR=`` / ``MTTR=`` / ``MLTR=`` (TR for "train").
-- ``_append_split_rate_suffix`` (in trainer.py) appends the matching
-  ``/BTV=`` / ``/BTTS=`` (V for "val", TS for "test") inside
-  ``_compute_split_metrics`` so chart titles read e.g.
-  ``BTTR=74%/BTV=86%`` (val) and ``BTTR/BTTS=74%/83%`` (test).
+- ``_append_split_rate_suffix`` (in trainer.py) splices the matching
+  val/test rate INLINE via regex so chart titles read e.g.
+  ``BTTR/BTV=74%/86%`` (val) and ``BTTR/BTTS=74%/83%`` (test).
 
-The user's specific format request: BTTR=X1%/BTV=X2% (val side),
-BTTR=X1%/BTTS=X3% (test side).
+The user's specific format request (Session 7 batch 8): BTTR/BTV=X1%/X2%
+(val side), BTTR/BTTS=X1%/X3% (test side) — one BTTR with two values
+for train/split, not two separate metrics.
 """
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def test_binary_test_appends_BTTS():
 
 def test_binary_user_production_pattern():
     """Mirrors the production log: train 74%, val 86%, test 83%.
-    Chart title for val → BTTR=74%/BTV=86%. For test → BTTR/BTTS=74%/83%.
+    Chart title for val → BTTR/BTV=74%/86%. For test → BTTR/BTTS=74%/83%.
     """
     rng = np.random.default_rng(0)
     val_y = (rng.uniform(size=10_000) < 0.86).astype(np.int8)

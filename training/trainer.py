@@ -3594,13 +3594,13 @@ def _compute_split_metrics(
     effective_show_fi = show_fi and not has_other_splits
     split_plot_file = f"{plot_file}_{split_name}" if plot_file else ""
 
-    # 2026-04-26 Session 7: append the split-specific target rate to
+    # 2026-04-26 Session 7: splice the split-specific target rate into
     # model_name for THIS split's report only. ``select_target`` stamped
     # the train rate as ``BTTR=`` / ``MTTR=`` / ``MLTR=`` on the
-    # canonical model_name; here we tack on ``/BTV=`` (val) or
-    # ``/BTTS=`` (test) so chart titles read e.g.
-    # ``BTTR=74%/BTV=86%`` and prior shift between train and val/test
-    # is visible in every header.
+    # canonical model_name; here we splice the val/test rate inline
+    # via regex so chart titles read e.g. ``BTTR/BTV=74%/86%`` (val)
+    # and ``BTTR/BTTS=74%/83%`` (test) — prior shift between train
+    # and val/test is visible in every header.
     augmented_model_name = _append_split_rate_suffix(
         model_name, split_name=split_name, target=target,
     )

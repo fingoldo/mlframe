@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-04-27 — Session 7 batch 8: chart title format polish
+
+Driven by user feedback after seeing a live calibration chart with
+the batch-2 per-split summary live ("title is too long", "two values
+should sit next to one BTTR not look like two metrics", "drop the
+labelled REL/RES/UNC, the formula reads better").
+
+### Changed (chart title format only — no behaviour change)
+
+- **Per-split summary spliced inline.** Was
+  ``BTTR=74%, BTV=86%`` (looked like two separate metrics); now
+  ``BTTR/BTV=74%/86%`` (one BTTR with two values for train/split).
+  Same pattern for regression (``MTTR/MTV=...`` /
+  ``MTTR/MTTS=...``) and multilabel (``MLTR/MLV=...`` /
+  ``MLTR/MLTS=...``). Implemented via three precompiled regex subs in
+  ``_append_split_rate_suffix`` (``training/trainer.py``).
+- **Brier decomposition compact form.** Was
+  ``BR=12.34%(REL=5.0%, RES=10.0%, UNC=21.0%)``; now
+  ``BR=12.34%(RL5.00%+U21.00%-RS10.00%)``. Math is
+  BR = REL - RES + UNC (Murphy 1973), so the compact rendering
+  reads as the formula with signs preserved. Prefixes:
+  RL = ReLiability, U = Uncertainty, RS = ReSolution (RL/RS chosen
+  over single-letter L/S to disambiguate from R = recall).
+- **Line break after LL.** ``render_metrics_string`` now inserts
+  ``\n`` between the LL fragment and whatever metric follows it,
+  so titles like ``BTTR/BTV=78%/39%, BR=8.36%(...), LL=0.288, AUC=0.81``
+  wrap into two lines.
+
+### Fixed
+
+- **Calibration plot colorbar now spans both axes.** Was anchored
+  to the calibration scatter only, leaving the bin-population
+  histogram extending right of the upper plot. Fix:
+  ``cbar_ax=[ax_main, ax_hist]`` + ``layout="constrained"`` on the
+  figure (drops deprecated ``fig.tight_layout()`` calls that warned
+  about the multi-axis colorbar).
+
 ## 2026-04-26 — Session 7 batch 2: per-split target summary + temporal audit + Pelt change-points
 
 Driven by user feedback on the Session-7 batch 1 PR ("BT=74% computed
@@ -18,10 +55,10 @@ the target with regime-shift detection.
   unit-test callers only).
 - **VAL/TEST chart titles now include the split-specific rate.**
   ``_compute_split_metrics`` calls a new helper
-  ``_append_split_rate_suffix`` that tacks on ``/BTV=X%`` (val) or
-  ``/BTTS=X%`` (test) — chart titles now read e.g.
-  ``BTTR=74%/BTV=86%`` and ``BTTR=74%/BTTS=83%`` so prior shift
-  between splits is visible at a glance.
+  ``_append_split_rate_suffix`` that splices the split rate inline,
+  so chart titles read e.g. ``BTTR/BTV=74%/86%`` (val) and
+  ``BTTR/BTTS=74%/83%`` (test) — prior shift between splits is
+  visible at a glance.
 
 ### Added
 
