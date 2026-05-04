@@ -685,10 +685,8 @@ class TestCalibration:
             precision=0.0, recall=0.0, f1=0.0,
         )
         # 0.1234 -> 12.34%, 0.05 -> 5.00%, 0.10 -> 10.00%, 0.21 -> 21.00%.
-        assert "BR=12.34%" in out
-        assert "REL=5.00%" in out
-        assert "RES=10.00%" in out
-        assert "UNC=21.00%" in out
+        # New compact form: BR=X%(RL<rel>%+U<unc>%-RS<res>%)
+        assert out == "BR=12.34%(RL5.00%+U21.00%-RS10.00%)"
 
     def test_render_token_ll_skipped_when_none(self):
         out = render_title_metric_token(

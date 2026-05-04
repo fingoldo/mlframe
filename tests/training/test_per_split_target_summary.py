@@ -12,7 +12,7 @@ Session 7 changes:
 - ``_append_split_rate_suffix`` (in trainer.py) appends the matching
   ``/BTV=`` / ``/BTTS=`` (V for "val", TS for "test") inside
   ``_compute_split_metrics`` so chart titles read e.g.
-  ``BTTR=74%/BTV=86%`` (val) and ``BTTR=74%/BTTS=83%`` (test).
+  ``BTTR=74%/BTV=86%`` (val) and ``BTTR/BTTS=74%/83%`` (test).
 
 The user's specific format request: BTTR=X1%/BTV=X2% (val side),
 BTTR=X1%/BTTS=X3% (test side).
@@ -32,27 +32,27 @@ from mlframe.training.trainer import _append_split_rate_suffix
 
 
 def test_binary_val_appends_BTV():
-    """VAL side: model_name BTTR=74% + val target → ...BTTR=74%/BTV=80%"""
+    """VAL side: model_name BTTR=74% + val target → ...BTTR/BTV=74%/80%"""
     val_target = np.array([1, 1, 1, 1, 0])  # 80%
     out = _append_split_rate_suffix(
         "cb_run BTTR=74%", split_name="val", target=val_target,
     )
-    assert out == "cb_run BTTR=74%/BTV=80%"
+    assert out == "cb_run BTTR/BTV=74%/80%"
 
 
 def test_binary_test_appends_BTTS():
-    """TEST side: model_name BTTR=74% + test target → ...BTTR=74%/BTTS=83%"""
+    """TEST side: model_name BTTR=74% + test target → ...BTTR/BTTS=74%/83%"""
     # 5/6 = 0.833... rounds to 83
     test_target = np.array([1, 1, 1, 1, 1, 0])
     out = _append_split_rate_suffix(
         "cb_run BTTR=74%", split_name="test", target=test_target,
     )
-    assert out == "cb_run BTTR=74%/BTTS=83%"
+    assert out == "cb_run BTTR/BTTS=74%/83%"
 
 
 def test_binary_user_production_pattern():
     """Mirrors the production log: train 74%, val 86%, test 83%.
-    Chart title for val → BTTR=74%/BTV=86%. For test → BTTR=74%/BTTS=83%.
+    Chart title for val → BTTR=74%/BTV=86%. For test → BTTR/BTTS=74%/83%.
     """
     rng = np.random.default_rng(0)
     val_y = (rng.uniform(size=10_000) < 0.86).astype(np.int8)
@@ -64,13 +64,13 @@ def test_binary_user_production_pattern():
     test_out = _append_split_rate_suffix(
         "cl_act_total_hired_above_1 BTTR=74%", split_name="test", target=test_y,
     )
-    assert "BTTR=74%/BTV=" in val_out
+    # New format: BTTR/BTV=74%/<val_rate>% (spliced inline, not appended).
+    assert "BTTR/BTV=74%/" in val_out
     assert val_out.endswith("%")
-    # rate within 1pp of expected 86
-    val_rate = int(val_out.split("BTV=")[1].rstrip("%"))
+    val_rate = int(val_out.split("BTTR/BTV=74%/")[1].rstrip("%"))
     assert 85 <= val_rate <= 87
-    assert "BTTR=74%/BTTS=" in test_out
-    test_rate = int(test_out.split("BTTS=")[1].rstrip("%"))
+    assert "BTTR/BTTS=74%/" in test_out
+    test_rate = int(test_out.split("BTTR/BTTS=74%/")[1].rstrip("%"))
     assert 82 <= test_rate <= 84
 
 
@@ -94,7 +94,7 @@ def test_regression_val_appends_MTV():
     out = _append_split_rate_suffix(
         "cb_run MTTR=1.5000", split_name="val", target=val_target,
     )
-    assert out == "cb_run MTTR=1.5000/MTV=2.0000"
+    assert out == "cb_run MTTR/MTV=1.5000/2.0000"
 
 
 def test_regression_test_appends_MTTS():
@@ -102,7 +102,7 @@ def test_regression_test_appends_MTTS():
     out = _append_split_rate_suffix(
         "cb_run MTTR=12.5000", split_name="test", target=test_target,
     )
-    assert out == "cb_run MTTR=12.5000/MTTS=15.0000"
+    assert out == "cb_run MTTR/MTTS=12.5000/15.0000"
 
 
 # -----------------------------------------------------------------------------
@@ -121,7 +121,7 @@ def test_multilabel_val_appends_MLV():
     out = _append_split_rate_suffix(
         "cb_run MLTR=40,52,31%", split_name="val", target=val_target,
     )
-    assert out == "cb_run MLTR=40,52,31%/MLV=50,50,100%"
+    assert out == "cb_run MLTR/MLV=40,52,31%/50,50,100%"
 
 
 def test_multilabel_test_appends_MLTS():
@@ -132,7 +132,7 @@ def test_multilabel_test_appends_MLTS():
     out = _append_split_rate_suffix(
         "cb_run MLTR=40,52,31%", split_name="test", target=test_target,
     )
-    assert out == "cb_run MLTR=40,52,31%/MLTS=100,50,50%"
+    assert out == "cb_run MLTR/MLTS=40,52,31%/100,50,50%"
 
 
 # -----------------------------------------------------------------------------
@@ -179,7 +179,7 @@ def test_pandas_series_input():
     out = _append_split_rate_suffix(
         "cb_run BTTR=70%", split_name="val", target=val_target,
     )
-    assert out == "cb_run BTTR=70%/BTV=75%"
+    assert out == "cb_run BTTR/BTV=70%/75%"
 
 
 def test_polars_series_input():
@@ -188,7 +188,7 @@ def test_polars_series_input():
     out = _append_split_rate_suffix(
         "cb_run BTTR=70%", split_name="val", target=val_target,
     )
-    assert out == "cb_run BTTR=70%/BTV=75%"
+    assert out == "cb_run BTTR/BTV=70%/75%"
 
 
 def test_invalid_split_name_returns_unchanged():

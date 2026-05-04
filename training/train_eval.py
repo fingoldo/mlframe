@@ -324,10 +324,10 @@ def select_target(
     #
     # New format: model_name carries ONLY the train-side rate as
     # ``BTTR=`` / ``MTTR=`` / ``MLTR=`` (TR for "train"). The per-split
-    # report headers in ``_compute_split_metrics`` append the matching
-    # ``/BTV=`` / ``/BTTS=`` (V for "val", TS for "test") suffix on the
-    # fly so chart titles read e.g. ``BTTR=74%/BTV=86%`` (VAL) and
-    # ``BTTR=74%/BTTS=83%`` (TEST). Drift is then visible in every
+    # report headers in ``_compute_split_metrics`` splice the matching
+    # ``/BTV=`` / ``/BTTS=`` (V for "val", TS for "test") inline so
+    # chart titles read e.g. ``BTTR/BTV=74%/86%`` (VAL) and
+    # ``BTTR/BTTS=74%/83%`` (TEST). Drift is then visible in every
     # split's chart header.
     #
     # Falls back to the legacy whole-target ``BT=`` / ``MT=`` / ``ML=``

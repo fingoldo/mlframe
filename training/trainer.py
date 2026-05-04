@@ -12,6 +12,7 @@ This module contains:
 import copy
 import inspect
 import logging
+import re
 import pickle
 from timeit import default_timer as timer
 from functools import partial
@@ -3471,9 +3472,16 @@ def _filter_categorical_features(fit_params, train_df, val_df=None, test_df=None
 # cost is paid once per fit.
 
 
+_BTTR_RE = re.compile(r"BTTR=(\d+%)")
+_MTTR_RE = re.compile(r"MTTR=(-?\d+\.\d+)")
+_MLTR_RE = re.compile(r"MLTR=([\d,]+%)")
+
+
 def _append_split_rate_suffix(model_name: str, *, split_name: str, target) -> str:
-    """Append ``/BTV=X%`` (val) or ``/BTTS=X%`` (test) to a model_name
-    that already carries ``BTTR=`` (train rate set by select_target).
+    """Splice ``/BTV=X%`` (val) or ``/BTTS=X%`` (test) inline next to
+    the existing ``BTTR=`` token so the chart title reads
+    ``BTTR/BTV=74%/86%`` (instead of the previous append-at-end form
+    that scattered ``BTTR`` and ``BTV`` across the title).
 
     Tag conventions:
 
@@ -3481,11 +3489,9 @@ def _append_split_rate_suffix(model_name: str, *, split_name: str, target) -> st
     * regression — ``MTV`` / ``MTTS`` (Mean Target Val / TeSt)
     * multilabel classification — ``MLV`` / ``MLTS`` (MultiLabel Val / TeSt)
 
-    The result is ``BTTR=74%/BTV=86%`` (or analogous) so the chart title
-    surfaces the train-vs-split prior shift inline. Train splits and
-    cases where ``model_name`` doesn't carry a ``BTTR=`` / ``MTTR=`` /
-    ``MLTR=`` token (e.g. legacy unit-test-driven calls with the older
-    ``BT=`` tag) pass through unchanged.
+    Train splits and cases where ``model_name`` doesn't carry a
+    ``BTTR=`` / ``MTTR=`` / ``MLTR=`` token (e.g. legacy unit-test-driven
+    calls with the older ``BT=`` tag) pass through unchanged.
     """
     if split_name not in ("val", "test") or target is None:
         return model_name
@@ -3505,22 +3511,35 @@ def _append_split_rate_suffix(model_name: str, *, split_name: str, target) -> st
 
     short = "V" if split_name == "val" else "TS"
 
-    if "BTTR=" in model_name:
-        # Binary / multiclass — show positive rate.
+    # 2026-04-27 Session 7 batch 8 (user feedback): splice the per-split
+    # value INSIDE the train-rate token so the title reads
+    # ``BTTR/BTV=78%/39%`` instead of the previous separated form
+    # ``... BTTR=78% ... /BTV=39%`` which spread the two numbers
+    # across line breaks.
+    bttr_match = _BTTR_RE.search(model_name)
+    if bttr_match:
         if arr.ndim != 1:
             return model_name
         rate = float((arr == 1).sum()) / arr.size
-        return f"{model_name}/BT{short}={rate*100:.0f}%"
-    if "MTTR=" in model_name:
+        train_pct = bttr_match.group(1)
+        return _BTTR_RE.sub(f"BTTR/BT{short}={train_pct}/{rate*100:.0f}%",
+                            model_name, count=1)
+    mttr_match = _MTTR_RE.search(model_name)
+    if mttr_match:
         if arr.ndim != 1:
             return model_name
-        return f"{model_name}/MT{short}={float(arr.mean()):.4f}"
-    if "MLTR=" in model_name:
+        train_val = mttr_match.group(1)
+        return _MTTR_RE.sub(f"MTTR/MT{short}={train_val}/{float(arr.mean()):.4f}",
+                            model_name, count=1)
+    mltr_match = _MLTR_RE.search(model_name)
+    if mltr_match:
         if arr.ndim != 2 or arr.shape[0] == 0:
             return model_name
         rates = arr.mean(axis=0)
         summary = ",".join(f"{p*100:.0f}" for p in rates)
-        return f"{model_name}/ML{short}={summary}%"
+        train_summary = mltr_match.group(1)
+        return _MLTR_RE.sub(f"MLTR/ML{short}={train_summary}/{summary}%",
+                            model_name, count=1)
     return model_name
 
 

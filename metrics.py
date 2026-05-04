@@ -619,11 +619,20 @@ def render_title_metric_token(
     if token == "BR":
         return f"BR={brier_loss * 100:.{ndigits}f}%"
     if token == "BR_DECOMP":
+        # 2026-04-27 Session 7 batch 8 (user feedback): compact form
+        # of the Brier decomposition. The math is BR = REL - RES + UNC
+        # (Murphy 1973), so the most informative compact rendering is
+        # the actual signed-sum: ``BR=X%(RL<rel>%+U<unc>%-RS<res>%)`` where
+        # RL = ReLiability (calibration error, lower is better),
+        # U  = Uncertainty (irreducible noise = base_rate * (1-base_rate)),
+        # RS = ReSolution (subtractive: how well bins separate from base
+        # rate, higher is better). Reads naturally as the formula with
+        # signs preserved, ~30% shorter than the labelled form.
         return (
-            f"BR={brier_loss * 100:.{ndigits}f}% "
-            f"(REL={brier_reliability * 100:.{ndigits}f}%, "
-            f"RES={brier_resolution * 100:.{ndigits}f}%, "
-            f"UNC={brier_uncertainty * 100:.{ndigits}f}%)"
+            f"BR={brier_loss * 100:.{ndigits}f}%"
+            f"(RL{brier_reliability * 100:.{ndigits}f}%"
+            f"+U{brier_uncertainty * 100:.{ndigits}f}%"
+            f"-RS{brier_resolution * 100:.{ndigits}f}%)"
         )
     if token == "ECE":
         return f"ECE={ece * 100:.{ndigits}f}%"
@@ -774,8 +783,17 @@ def show_calibration_plot(
             else:
                 return f"{n:.0f}"
 
-        def _draw_calibration_axes(ax, fig, draw_xlabel: bool):
-            """Render the reliability scatter + perfect-calibration line + colorbar on ``ax``."""
+        def _draw_calibration_axes(ax, fig, draw_xlabel: bool, *, cbar_ax=None):
+            """Render the reliability scatter + perfect-calibration line + colorbar on ``ax``.
+
+            ``cbar_ax`` (optional) is the axes list / single ax the
+            colorbar attaches to. When the calibration plot stacks
+            with a histogram below, pass ``[ax_main, ax_hist]`` so the
+            colorbar spans both — otherwise the colorbar steals
+            horizontal space from only the calibration axes, making
+            the histogram's plot-area visibly wider and breaking the
+            shared-X alignment (2026-04-27 user feedback).
+            """
             cm = matplotlib.colormaps["RdYlBu"]
             sc = ax.scatter(
                 x=freqs_predicted, y=freqs_true, marker="o",
@@ -789,7 +807,7 @@ def show_calibration_plot(
             if draw_xlabel:
                 ax.set_xlabel(label_prob)
             ax.set_ylabel(label_freq)
-            cbar = fig.colorbar(sc, ax=ax)
+            cbar = fig.colorbar(sc, ax=(cbar_ax if cbar_ax is not None else ax))
             cbar.set_label(colorbar_label)
             if show_inline_population_labels:
                 vertical_offset = 0.02
@@ -817,13 +835,23 @@ def show_calibration_plot(
             from matplotlib.figure import Figure
             from matplotlib.backends.backend_agg import FigureCanvasAgg
 
-            fig = Figure(figsize=figsize)
+            # 2026-04-27 batch 8: ``layout="constrained"`` instead of
+            # tight_layout — handles the multi-axis colorbar
+            # (``ax=[ax_main, ax_hist]``) without the
+            # ``Axes are not compatible with tight_layout`` warning,
+            # and aligns subplot widths automatically.
+            fig = Figure(figsize=figsize, layout="constrained")
             FigureCanvasAgg(fig)
             if show_prob_histogram:
                 gs = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.05)
                 ax_main = fig.add_subplot(gs[0, 0])
                 ax_hist = fig.add_subplot(gs[1, 0], sharex=ax_main)
-                _draw_calibration_axes(ax_main, fig, draw_xlabel=False)
+                # Colorbar spans BOTH axes so each subplot loses the
+                # same horizontal slice -> X-axes stay aligned via
+                # sharex (was: colorbar attached only to ax_main,
+                # making ax_hist visually wider — user feedback 2026-04-27).
+                _draw_calibration_axes(ax_main, fig, draw_xlabel=False,
+                                       cbar_ax=[ax_main, ax_hist])
                 _draw_histogram_axes(ax_hist)
                 # hide top axes' x tick labels since hist below carries them via sharex
                 plt.setp(ax_main.get_xticklabels(), visible=False)
@@ -834,7 +862,8 @@ def show_calibration_plot(
                 _draw_calibration_axes(ax, fig, draw_xlabel=True)
                 if plot_title:
                     ax.set_title(plot_title)
-            fig.tight_layout()
+            # constrained_layout handles spacing automatically — no
+            # tight_layout() (which warns + mis-shapes colorbar).
             fig.savefig(plot_file)
             return fig
 
@@ -845,21 +874,24 @@ def show_calibration_plot(
                 figsize=figsize,
                 sharex=True,
                 gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05},
+                layout="constrained",
             )
-            _draw_calibration_axes(ax_main, fig, draw_xlabel=False)
+            # Colorbar spans both subplots — see _draw_calibration_axes
+            # docstring for why (X-axis alignment under sharex).
+            _draw_calibration_axes(ax_main, fig, draw_xlabel=False,
+                                   cbar_ax=[ax_main, ax_hist])
             _draw_histogram_axes(ax_hist)
             plt.setp(ax_main.get_xticklabels(), visible=False)
             if plot_title:
                 ax_main.set_title(plot_title)
         else:
-            fig = plt.figure(figsize=figsize)
+            fig = plt.figure(figsize=figsize, layout="constrained")
             ax = fig.add_subplot(1, 1, 1)
             _draw_calibration_axes(ax, fig, draw_xlabel=True)
             if plot_title:
                 ax.set_title(plot_title)
 
-        # Use constrained_layout to avoid issues with colorbar
-        fig.tight_layout()
+        # constrained_layout (set above) handles colorbar+subplots spacing.
 
         if plot_file:
             fig.savefig(plot_file)
@@ -1641,7 +1673,20 @@ def fast_calibration_report(
         )
         if rendered:
             fragments.append(rendered)
-    metrics_string = ", ".join(fragments)
+
+    # 2026-04-27 Session 7 batch 8 (user feedback): insert a hard line
+    # break after the ``LL=`` fragment so the metrics-string doesn't
+    # render as one ~200-char wall. Two-line layout reads naturally:
+    # line 1 = calibration / loss family (ICE / BR / ECE / CMAEW / LL),
+    # line 2 = ranking / classification family (ROC / PR / PR / RE / F1).
+    metrics_string = ""
+    for i, frag in enumerate(fragments):
+        sep = ", "
+        if i == 0:
+            sep = ""
+        elif fragments[i - 1].startswith("LL="):
+            sep = "\n"
+        metrics_string += sep + frag
 
     fig = None
 
