@@ -76,16 +76,25 @@ class TargetTypes(StrEnum):
     MULTILABEL_CLASSIFICATION : str
         K>=1 independent binary outputs (per-label sigmoid).
         Target shape is (N, K) binary matrix.
+    LEARNING_TO_RANK : str
+        Pairwise / listwise ranking with per-row group_id. Targets are
+        per-document graded relevance (graded 0..K) or binary clicks
+        (0/1). Output is a per-row score; ordering within each query
+        group is what matters. CB / XGB / LGB have native rankers
+        (CatBoostRanker / XGBRanker / LGBMRanker); HGB / Linear are
+        not supported and skipped with NotImplementedError.
     """
 
     REGRESSION = "regression"
     BINARY_CLASSIFICATION = "binary_classification"
     MULTICLASS_CLASSIFICATION = "multiclass_classification"
     MULTILABEL_CLASSIFICATION = "multilabel_classification"
+    LEARNING_TO_RANK = "learning_to_rank"
 
     @property
     def is_classification(self) -> bool:
-        """True for binary, multiclass, and multilabel; False for regression.
+        """True for binary, multiclass, and multilabel; False for regression
+        and ranking.
 
         Use this instead of `target_type == BINARY_CLASSIFICATION` so new
         classification flavours route correctly without touching every
@@ -114,11 +123,24 @@ class TargetTypes(StrEnum):
         return self == TargetTypes.MULTILABEL_CLASSIFICATION
 
     @property
+    def is_ranking(self) -> bool:
+        """True only for ``LEARNING_TO_RANK``.
+
+        LTR is its own class — neither classification nor regression.
+        Ranking outputs are scores (not probabilities, not real-valued
+        regression targets), evaluated per-query (NDCG/MAP/MRR).
+        Sites that branch on classification-vs-regression must add an
+        explicit LTR branch when LTR is in scope.
+        """
+        return self == TargetTypes.LEARNING_TO_RANK
+
+    @property
     def is_multi_output(self) -> bool:
         """True when probability output is (N, K) with K>2 logically.
 
         Convenience predicate for ``[:, 1]`` slicing sites that should
-        bail out / dispatch differently for multi-* targets.
+        bail out / dispatch differently for multi-* targets. LTR is NOT
+        multi-output (output is a single score per row).
         """
         return self in (
             TargetTypes.MULTICLASS_CLASSIFICATION,
@@ -1107,6 +1129,68 @@ class MultilabelDispatchConfig(BaseConfig):
     # XGBoostStrategy.supports_native_multilabel which is gated on this
     # flag at runtime.
     force_native_xgb_multilabel: bool = False
+
+
+class LearningToRankConfig(BaseConfig):
+    """Configuration for ``LEARNING_TO_RANK`` target dispatch.
+
+    Holds knobs that are LTR-only so per-strategy ranking code sees one
+    parameter (mirrors ``MultilabelDispatchConfig`` for multilabel).
+
+    Library defaults verified empirically on the installed stack
+    (CatBoost 1.2.10, XGBoost 3.x, LightGBM 4.6.0):
+
+    - **CB** ``YetiRankPairwise`` is the listwise default; alternatives
+      via ``cb_loss_fn``: ``YetiRank``, ``QuerySoftMax``, ``PairLogit``,
+      ``PairLogitPairwise``, ``StochasticRank:metric=NDCG``.
+    - **XGB** ``rank:ndcg`` works on graded relevance. ``rank:map``
+      requires binary y (``is_binary`` C++ check). The dispatcher
+      auto-falls-back to ``rank:ndcg`` with WARN if y.max()>1 even when
+      user pinned ``rank:map``.
+    - **LGB** ``lambdarank`` (default) or ``rank_xendcg``.
+
+    Ensemble: RRF default (TREC standard, scale-invariant — survives
+    softmax/sigmoid/raw-score divergence across CB/XGB/LGB). Borda is a
+    simpler scale-invariant alternative; ``score_mean`` requires the
+    user to assert ``assume_comparable_scales=True``.
+    """
+
+    cb_loss_fn: str = "YetiRankPairwise"
+    """CatBoost loss_function for the ranker. Listwise pairwise default."""
+
+    xgb_objective: str = "rank:ndcg"
+    """XGBoost objective. ``rank:map`` is rejected at fit-time when
+    ``y.max() > 1`` -- use ``rank:ndcg`` for graded relevance."""
+
+    lgb_objective: str = "lambdarank"
+    """LightGBM objective. ``lambdarank`` is robust on both binary and
+    graded labels; ``rank_xendcg`` is an alternative."""
+
+    eval_at: tuple = (1, 5, 10)
+    """Cutoffs for NDCG@k / MAP@k metrics. Mirrors LightGBM ``eval_at``."""
+
+    ensemble_method: str = "rrf"
+    """Ensembling method for combining ranker scores. ``rrf`` (Reciprocal
+    Rank Fusion, TREC default) is invariant to monotone score transforms
+    -- safe for cross-library blends. ``borda`` per-query rank averaging.
+    ``score_mean`` requires comparable scales (asserted via
+    ``assume_comparable_scales``)."""
+
+    rrf_k: int = 60
+    """RRF damping constant. 60 is the TREC default. Larger ``k`` flattens
+    the position weight; smaller emphasises top-1."""
+
+    assume_comparable_scales: bool = False
+    """When True, ``ensemble_method=score_mean`` is allowed without warn.
+    Set this only after externally calibrating model scores onto a
+    comparable scale (e.g. via Platt / isotonic per-model)."""
+
+    autodetect_label_format: bool = True
+    """When True, dispatcher inspects ``y`` at fit-time:
+    ``y.max() > 1`` -> graded (force XGB to ``rank:ndcg``);
+    ``y in {0,1}`` -> binary (XGB ``rank:map`` allowed). When False,
+    pass user-pinned objectives through unchanged (will crash on
+    mismatched format -- caller takes responsibility)."""
 
 
 class EnsemblingConfig(BaseConfig):

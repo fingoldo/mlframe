@@ -87,6 +87,7 @@ def make_train_test_split(
     random_seed: Optional[int] = None,
     val_placement: Literal["forward", "backward"] = "forward",
     stratify_y: Optional[np.ndarray] = None,
+    groups: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, str, str, str]:
     """
     Split data into train, validation, and test sets with flexible sequential/shuffled control.
@@ -399,7 +400,21 @@ def make_train_test_split(
         # stratify_y is provided AND shuffle_test/shuffle_val is False,
         # we emit a WARNING and stratify anyway (correctness > sequential
         # nicety; user explicitly asked for class balance).
+        # 2026-05-04: ``groups`` support -- when provided (typically for
+        # learning-to-rank), route through sklearn ``GroupShuffleSplit`` so
+        # all rows belonging to one query land in the same split. Mutually
+        # exclusive with stratify_y (sklearn doesn't ship a stratified
+        # group-split out of the box; if a user really needs both, they
+        # can pre-bucket groups by stratum first).
         all_idx = np.arange(len(df))
+
+        if groups is not None and stratify_y is not None:
+            raise ValueError(
+                "make_train_test_split: groups and stratify_y are mutually "
+                "exclusive in the row-based fallback (no group-stratified "
+                "splitter is wired). Pick one: groups for LTR / "
+                "leave-one-group-out semantics, stratify_y for class-balance."
+            )
 
         if stratify_y is not None and timestamps is not None:
             logger.warning(
@@ -422,8 +437,35 @@ def make_train_test_split(
         else:
             _stratify_active = None
 
+        # Group-aware splitter: GroupShuffleSplit on the row-based path.
+        # Validate length once; the shape contract is per-row (len == len(df)).
+        _groups_arr = None
+        if groups is not None:
+            _groups_arr = np.asarray(groups)
+            if _groups_arr.shape[0] != len(df):
+                raise ValueError(
+                    f"groups length {_groups_arr.shape[0]} does not match "
+                    f"df length {len(df)}"
+                )
+            if _groups_arr.ndim != 1:
+                raise ValueError(
+                    f"groups must be 1-D (one query-id per row), got shape "
+                    f"{_groups_arr.shape}"
+                )
+
         if test_size > 0:
-            if _stratify_active is not None:
+            if _groups_arr is not None:
+                from sklearn.model_selection import GroupShuffleSplit
+                gss_test = GroupShuffleSplit(
+                    n_splits=1, test_size=test_size, random_state=sklearn_seed,
+                )
+                train_idx, test_idx = next(gss_test.split(all_idx, groups=_groups_arr))
+                # GroupShuffleSplit returns positions into all_idx, but here
+                # all_idx == np.arange(len(df)) so they coincide -- normalise
+                # to int arrays for consistency with downstream sort.
+                train_idx = np.asarray(train_idx, dtype=np.intp)
+                test_idx = np.asarray(test_idx, dtype=np.intp)
+            elif _stratify_active is not None:
                 train_idx, test_idx = _stratified_split(
                     all_idx, test_size=test_size,
                     stratify_y=_stratify_active, random_state=sklearn_seed,
@@ -437,7 +479,19 @@ def make_train_test_split(
             train_idx, test_idx = all_idx, np.array([], dtype=np.intp)
 
         if val_size > 0:
-            if _stratify_active is not None:
+            if _groups_arr is not None:
+                from sklearn.model_selection import GroupShuffleSplit
+                gss_val = GroupShuffleSplit(
+                    n_splits=1, test_size=val_size, random_state=sklearn_seed,
+                )
+                _train_groups = _groups_arr[train_idx]
+                _train_local_train, _train_local_val = next(
+                    gss_val.split(train_idx, groups=_train_groups)
+                )
+                # gss returns positions into train_idx, not into all_idx.
+                val_idx = train_idx[_train_local_val]
+                train_idx = train_idx[_train_local_train]
+            elif _stratify_active is not None:
                 # Stratify val from the remaining train indices.
                 strat_train = _stratify_active[train_idx]
                 train_idx, val_idx = _stratified_split(
@@ -456,6 +510,81 @@ def make_train_test_split(
             train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)):]
 
         train_details, val_details, test_details = "", "", ""
+
+    # 2026-05-04: Group-spans-cutoff resolution for time-based splits.
+    # When ``groups`` is supplied alongside ``timestamps`` (typical LTR
+    # scenario where queries are time-stamped), a query may straddle a
+    # train→val or val→test cutoff. Default behaviour (per user 2026-05-04):
+    # assign the WHOLE spanning group to the LATER side -- preserves
+    # temporal ordering, so train never sees rows from a query that
+    # leaked into val/test. Emit a single INFO summarising how many
+    # groups were reassigned. The row-based path with ``groups`` already
+    # uses GroupShuffleSplit so groups stay together by construction --
+    # this block only matters when timestamps drive the split AND groups
+    # are also supplied.
+    if groups is not None and timestamps is not None:
+        _groups_arr_post = np.asarray(groups)
+        train_g = set(_groups_arr_post[train_idx].tolist()) if len(train_idx) else set()
+        val_g = set(_groups_arr_post[val_idx].tolist()) if len(val_idx) else set()
+        test_g = set(_groups_arr_post[test_idx].tolist()) if len(test_idx) else set()
+
+        train_val_overlap = train_g & val_g
+        train_test_overlap = train_g & test_g
+        val_test_overlap = val_g & test_g
+
+        n_reassigned = 0
+        if train_val_overlap or train_test_overlap or val_test_overlap:
+            # Build the reassignment plan. A group spanning train+test goes
+            # entirely to test (the latest split wins -- matches user
+            # preference of "assign to later side"). A group spanning
+            # train+val goes to val. A group spanning val+test goes to
+            # test. Combined train+val+test → test.
+            promote_to_val = train_val_overlap - train_test_overlap
+            promote_to_test = train_test_overlap | val_test_overlap
+
+            if promote_to_val or promote_to_test:
+                row_group = _groups_arr_post
+                # Mask of rows currently in train that need to leave train.
+                _to_val_mask = np.isin(row_group, list(promote_to_val)) if promote_to_val else np.zeros(len(df), dtype=bool)
+                _to_test_mask = np.isin(row_group, list(promote_to_test)) if promote_to_test else np.zeros(len(df), dtype=bool)
+
+                # Drop reassigned-row positions from train_idx and val_idx,
+                # then add them to the destination split.
+                _new_train_mask = np.zeros(len(df), dtype=bool)
+                _new_train_mask[train_idx] = True
+                _new_train_mask &= ~(_to_val_mask | _to_test_mask)
+
+                _new_val_mask = np.zeros(len(df), dtype=bool)
+                _new_val_mask[val_idx] = True
+                _new_val_mask &= ~_to_test_mask
+                _new_val_mask |= _to_val_mask
+
+                _new_test_mask = np.zeros(len(df), dtype=bool)
+                _new_test_mask[test_idx] = True
+                _new_test_mask |= _to_test_mask
+
+                # Verify partition invariants before commit.
+                assert not (_new_train_mask & _new_val_mask).any()
+                assert not (_new_train_mask & _new_test_mask).any()
+                assert not (_new_val_mask & _new_test_mask).any()
+
+                n_reassigned = int(_to_val_mask.sum() + _to_test_mask.sum())
+                train_idx = np.flatnonzero(_new_train_mask).astype(np.intp)
+                val_idx = np.flatnonzero(_new_val_mask).astype(np.intp)
+                test_idx = np.flatnonzero(_new_test_mask).astype(np.intp)
+
+                logger.warning(
+                    "Group-spanning cutoff resolution: %d row(s) from %d "
+                    "spanning group(s) reassigned to the later split "
+                    "(train→val: %d groups, train+val→test: %d groups). "
+                    "This preserves group integrity for LTR / per-group "
+                    "metrics. To eliminate spanning, widen aging_limit so "
+                    "the cutoff falls outside any group's timespan, or "
+                    "drop spanning groups before calling the splitter.",
+                    n_reassigned,
+                    len(promote_to_val) + len(promote_to_test),
+                    len(promote_to_val), len(promote_to_test),
+                )
 
     # Silent-empty-split warning: user requested a non-zero val/test fraction
     # but wound up with 0 rows. Happens in practice when wholeday_splitting=True

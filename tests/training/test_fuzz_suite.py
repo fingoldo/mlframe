@@ -702,7 +702,11 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         "binary_classification": _TT.BINARY_CLASSIFICATION,
         "multiclass_classification": _TT.MULTICLASS_CLASSIFICATION,
         "multilabel_classification": _TT.MULTILABEL_CLASSIFICATION,
+        "learning_to_rank": _TT.LEARNING_TO_RANK,
     }[combo.target_type]
+    # LTR combos: build_frame_for_combo adds a 'qid' column for queries;
+    # surface it as the FTE's group_field so the ranker suite picks it up.
+    _is_ltr = combo.target_type == "learning_to_rank"
     fte = SimpleFeaturesAndTargetsExtractor(
         target_column=target_col,
         regression=(combo.target_type == "regression"),
@@ -713,6 +717,8 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         # auto-detect kicks in. Without this the audit stays silent
         # for fuzz combos and the auto-detect path is untested.
         ts_field=("ts" if combo.with_datetime_col else None),
+        # 2026-05-04: LTR combos need group_field for the ranker suite.
+        group_field=("qid" if _is_ltr else None),
     )
 
     # Resolve combo-specific kwargs (outlier detector, custom prep,
@@ -723,17 +729,43 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
 
     from mlframe.training.core import train_mlframe_models_suite
 
+    # LTR combos: filter mlframe_models to {cb,xgb,lgb} (HGB/Linear have
+    # no native ranker) and build a ranking_config from the combo axis.
+    # Pass target_type=LEARNING_TO_RANK explicitly so the suite's early
+    # dispatch routes to train_mlframe_ranker_suite.
+    _ltr_models = list(combo.models)
+    _ltr_ranking_config = None
+    if _is_ltr:
+        _supported = {"cb", "xgb", "lgb"}
+        _filtered = [m for m in combo.models if m.lower() in _supported]
+        if not _filtered:
+            # No supported model in this combo -- skip; not a real bug.
+            pytest.skip(
+                f"LTR combo {combo.short_id()}: requested models "
+                f"{combo.models} have no native ranker (need cb/xgb/lgb)"
+            )
+        _ltr_models = _filtered
+        from mlframe.training.configs import LearningToRankConfig
+        _ltr_ranking_config = LearningToRankConfig(
+            ensemble_method=combo.ranking_ensemble_method,
+        )
+
     t0 = time.perf_counter()
     outcome = "pass"
     err_class = None
     err_summary = None
     try:
-        trained, _meta = train_mlframe_models_suite(
+        _suite_kwargs = dict(
             df=df_input,
             target_name=combo.short_id(),
             model_name=combo.short_id(),
             features_and_targets_extractor=fte,
-            mlframe_models=list(combo.models),
+            mlframe_models=_ltr_models,)
+        if _is_ltr:
+            _suite_kwargs["target_type"] = _combo_tt
+            _suite_kwargs["ranking_config"] = _ltr_ranking_config
+        trained, _meta = train_mlframe_models_suite(
+            **_suite_kwargs,
             hyperparams_config=_config_for_models(
                 combo.models, combo.n_rows,
                 iterations=combo.iterations,

@@ -1,5 +1,112 @@
 # Changelog
 
+## 2026-05-04 — Learning-to-Rank target type
+
+User asked to add Learning-to-Rank (LTR) as a first-class target type
+alongside the existing four (regression / binary / multiclass /
+multilabel classification), with explicit ensembling support via
+``train_mlframe_models_suite``. CatBoost / XGBoost / LightGBM all ship
+native rankers; mlframe now wires them up.
+
+### Added
+
+- **``TargetTypes.LEARNING_TO_RANK``** + ``is_ranking`` helper property.
+  LTR is its own class -- neither classification nor regression.
+- **``LearningToRankConfig``** (``mlframe.training.configs``) with
+  per-library knobs (``cb_loss_fn``, ``xgb_objective``,
+  ``lgb_objective``), eval cutoffs (``eval_at``), and ensembling
+  method (``ensemble_method`` -- RRF default).
+- **``mlframe.ranking_metrics``**: NDCG@k, MAP@k, MRR -- numba kernels
+  with the same NUMBA_NJIT_PARAMS as the existing metric stack.
+  Exponential gain (Burges 2005) matches LightGBM / CatBoost / XGBoost
+  internals; binary cases match sklearn's ``ndcg_score`` exactly.
+- **``mlframe.training.ranking``**: per-strategy ``prepare_*_inputs``
+  helpers (CB sort-by-group, XGB qid pass-through, LGB qid→group_sizes
+  conversion), unified ``fit_ranker`` and ``predict_ranker_scores``,
+  and three score-ensembling methods: RRF (default, scale-invariant
+  TREC standard), Borda (rank averaging, also scale-invariant),
+  ``score_mean`` (raw mean, requires ``assume_comparable_scales=True``
+  acknowledgement else WARN + RRF fallback).
+- **``mlframe.training.ranker_suite::train_mlframe_ranker_suite``**:
+  end-to-end LTR pipeline. Filters models to ``{cb,xgb,lgb}`` with WARN
+  for HGB/Linear, validates that the FTE has ``group_field`` set,
+  routes through the new group-aware split, runs all three rankers,
+  ensembles, computes per-model + ensemble NDCG@10 / MAP@10 / MRR,
+  saves via joblib + JSON metadata.
+- **``train_mlframe_models_suite``** now accepts
+  ``target_type=TargetTypes.LEARNING_TO_RANK`` + optional
+  ``ranking_config``. When the LTR target_type is requested, the suite
+  delegates to ``train_mlframe_ranker_suite`` -- no surgery needed in
+  the existing classification/regression machinery.
+- **``make_train_test_split(groups=...)``**: group-aware split via
+  ``sklearn.model_selection.GroupShuffleSplit``. Mutually exclusive
+  with ``stratify_y`` (sklearn ships no group-stratified splitter).
+  Time-based path: groups that span a train→val or val→test cutoff
+  get reassigned to the LATER split with a clear WARN.
+- **Strategy flag ``supports_native_ranking``** on
+  ``ModelPipelineStrategy`` ABC + override on CB/XGB/LGB. Plus
+  per-strategy ``get_ranker_objective_kwargs`` that builds the
+  library-correct kwargs:
+  - **CB**: ``YetiRankPairwise`` (default; configurable to ``YetiRank``,
+    ``QuerySoftMax``, ``PairLogit``, ``PairLogitPairwise``,
+    ``StochasticRank:metric=NDCG``).
+  - **XGB**: ``rank:ndcg`` default. ``rank:map`` is auto-rejected
+    when y.max() > 1 (XGB's C++ ``is_binary`` check would otherwise
+    crash) -- WARN + fallback to ``rank:ndcg``.
+  - **LGB**: ``lambdarank`` (default) or ``rank_xendcg``.
+
+### Tests (76 new tests, all green)
+
+- ``tests/training/test_ranking_strategies.py`` (26 tests):
+  ``supports_native_ranking`` flag, objective dispatch, XGB rank:map
+  auto-fallback, pre-fit input prep, end-to-end fit/predict per strategy.
+- ``tests/training/test_ranking_metrics.py`` (17 tests): NDCG / MAP /
+  MRR correctness, sklearn parity for binary, hand-computed graded.
+- ``tests/training/test_ranking_splitting.py`` (8 tests):
+  ``GroupShuffleSplit`` integrity, mutual-exclusion guard, time-based
+  group-spans-cutoff resolution.
+- ``tests/training/test_ranking_ensemble.py`` (10 tests): RRF / Borda
+  / score_mean correctness, scale-invariance, monotone-transform
+  invariance, validation.
+- ``tests/training/test_bizvalue_ranking.py`` (6 tests): end-to-end
+  ``train_mlframe_models_suite(target_type=LEARNING_TO_RANK)`` --
+  individual rankers beat 0.75 NDCG@10 on synthetic web-search data,
+  ensemble within 2pp of best individual, save/load roundtrip,
+  unsupported-model filter, missing-group_field error.
+- ``tests/training/_fuzz_combo.py`` extended with
+  ``learning_to_rank`` target_type axis + ``ranking_ensemble_method``
+  axis. Frame builder generates graded relevance + qid column. 39 LTR
+  combos sampled in the default 150-combo sweep; all pass (3 cleanly
+  skipped because pinned models had no native ranker).
+
+### Verification
+
+```bash
+# 70 LTR-specific tests
+pytest tests/training/test_ranking_*.py tests/training/test_bizvalue_ranking.py --no-cov
+
+# Fuzz LTR slice (36 combos pass, 3 skip-by-design)
+pytest tests/training/test_fuzz_suite.py -k "<LTR-combo-IDs>" --no-cov
+
+# Non-regression on splitting + report config + per-split summary
+pytest tests/training/test_splitting.py tests/training/test_splitting_edges.py \
+       tests/training/test_reporting_config.py \
+       tests/training/test_per_split_target_summary.py \
+       tests/training/test_jolly_wishing_deer_fixes.py --no-cov
+```
+
+### Library API used (verified empirically against installed versions)
+
+| library | class | objective default | groups API | re-bind hook |
+|---|---|---|---|---|
+| CatBoost 1.2.10 | ``CatBoostRanker`` | ``YetiRankPairwise`` | per-row ``Pool(group_id=...)`` | ``Pool.set_group_id`` |
+| XGBoost 3.x | ``XGBRanker`` | ``rank:ndcg`` | per-row ``fit(qid=...)`` | ``DMatrix.set_group(per_query_sizes)`` |
+| LightGBM 4.6.0 | ``LGBMRanker`` | ``lambdarank`` | per-query sizes ``fit(group=...)`` | ``Dataset.set_group`` |
+
+CB rows of one query MUST be contiguous (``prepare_cb_inputs`` sorts).
+XGB has no MRR (mlframe computes client-side via ranking_metrics.mrr).
+HGB / Linear have no native ranker -- skipped with NotImplementedError.
+
 ## 2026-04-27 — Session 7 batch 8: chart title format polish
 
 Driven by user feedback after seeing a live calibration chart with

@@ -89,6 +89,12 @@ _LAZY_IMPORTS = {
     # 2026-04-24: multi-output configs (multiclass / multilabel dispatch)
     'MultilabelDispatchConfig': ('.configs', 'MultilabelDispatchConfig'),
     'EnsemblingConfig': ('.configs', 'EnsemblingConfig'),
+    # 2026-05-04: learning-to-rank dispatch
+    'LearningToRankConfig': ('.configs', 'LearningToRankConfig'),
+    'train_mlframe_ranker_suite': ('.ranker_suite', 'train_mlframe_ranker_suite'),
+    'fit_ranker': ('.ranking', 'fit_ranker'),
+    'predict_ranker_scores': ('.ranking', 'predict_ranker_scores'),
+    'ensemble_ranker_scores': ('.ranking', 'ensemble_ranker_scores'),
     # Probability-surface helpers — re-exported without underscore prefix.
     # Users writing custom estimators need these to canonicalise predict_proba
     # output and apply the standard decision rule per target_type.
@@ -239,6 +245,11 @@ __all__ = [
     'TargetTypes',
     'MultilabelDispatchConfig',
     'EnsemblingConfig',
+    'LearningToRankConfig',
+    'train_mlframe_ranker_suite',
+    'fit_ranker',
+    'predict_ranker_scores',
+    'ensemble_ranker_scores',
     'canonical_predict_proba_shape',
     'predict_from_probs',
     'compute_label_distribution_drift',

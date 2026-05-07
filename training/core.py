@@ -1779,6 +1779,13 @@ def train_mlframe_models_suite(
     sequences: Optional[List[np.ndarray]] = None,
     use_ordinary_models: bool = True,
     use_mlframe_ensembles: bool = True,
+    # 2026-05-04: explicit target-type opt-in. None = auto-detected from
+    # FTE.build_targets (preserves the historical classification/regression
+    # routing). Set to TargetTypes.LEARNING_TO_RANK to route to the ranker
+    # suite (CB/XGB/LGB native rankers + RRF/Borda ensembling). Other
+    # target types stay on the standard pipeline.
+    target_type: Optional["TargetTypes"] = None,
+    ranking_config: Optional["LearningToRankConfig"] = None,
     # Existing typed configs (can be dicts or Pydantic objects)
     preprocessing_config: Optional[Union[PreprocessingConfig, Dict]] = None,
     split_config: Optional[Union[TrainingSplitConfig, Dict]] = None,
@@ -1882,6 +1889,74 @@ def train_mlframe_models_suite(
         raise TypeError(f"df must be pandas DataFrame, polars DataFrame, or path string, " f"got {type(df).__name__}")
     if isinstance(df, str) and not df.lower().endswith(".parquet"):
         raise ValueError(f"File path must be a .parquet file, got: {df}")
+
+    # 2026-05-04: LTR opt-in early dispatch.
+    # When ``target_type=TargetTypes.LEARNING_TO_RANK`` is explicit, route
+    # to the focused ranker suite (CB/XGB/LGB native rankers + RRF/Borda
+    # ensembling). The standard classification/regression machinery
+    # below doesn't know how to consume per-row scores or per-query
+    # metrics, so we don't try to thread it through.
+    if target_type is not None and target_type == TargetTypes.LEARNING_TO_RANK:
+        from mlframe.training.ranker_suite import train_mlframe_ranker_suite
+
+        # Resolve a save_dir from output_config if available, else None.
+        _save_dir = None
+        if output_config is not None:
+            _data_dir = (
+                output_config.get("data_dir") if isinstance(output_config, dict)
+                else getattr(output_config, "data_dir", None)
+            )
+            _models_dir = (
+                output_config.get("models_dir") if isinstance(output_config, dict)
+                else getattr(output_config, "models_dir", None)
+            ) or "models"
+            if _data_dir:
+                _save_dir = os.path.join(_data_dir, _models_dir, model_name)
+
+        # Pull split sizes from split_config if provided.
+        _test_size, _val_size = 0.15, 0.15
+        if split_config is not None:
+            _test_size = (
+                split_config.get("test_size", 0.15) if isinstance(split_config, dict)
+                else getattr(split_config, "test_size", 0.15)
+            )
+            _val_size = (
+                split_config.get("val_size", 0.15) if isinstance(split_config, dict)
+                else getattr(split_config, "val_size", 0.15)
+            )
+
+        # Hyperparams from hyperparams_config if provided.
+        _iter, _lr, _es = 200, 0.1, 30
+        if hyperparams_config is not None:
+            _iter = (
+                hyperparams_config.get("iterations", 200) if isinstance(hyperparams_config, dict)
+                else getattr(hyperparams_config, "iterations", 200)
+            )
+            _lr = (
+                hyperparams_config.get("learning_rate", 0.1) if isinstance(hyperparams_config, dict)
+                else getattr(hyperparams_config, "learning_rate", 0.1)
+            )
+            _es = (
+                hyperparams_config.get("early_stopping_rounds", 30) if isinstance(hyperparams_config, dict)
+                else getattr(hyperparams_config, "early_stopping_rounds", 30)
+            )
+
+        return train_mlframe_ranker_suite(
+            df=df,
+            target_name=target_name,
+            model_name=model_name,
+            features_and_targets_extractor=features_and_targets_extractor,
+            mlframe_models=mlframe_models,
+            use_mlframe_ensembles=use_mlframe_ensembles,
+            ranking_config=ranking_config,
+            test_size=_test_size,
+            val_size=_val_size,
+            iterations=_iter,
+            learning_rate=_lr,
+            early_stopping_rounds=_es,
+            save_dir=_save_dir,
+            verbose=verbose,
+        )
 
     # Validate required parameters
     if not target_name:

@@ -111,8 +111,17 @@ AXES: dict[str, tuple[Any, ...]] = {
         "regression",
         "multiclass_classification",
         "multilabel_classification",
+        # 2026-05-04: LTR axis -- frame builder emits graded relevance
+        # 0..3 + qid column; canonicaliser forces sensible defaults
+        # (group_field='qid', mlframe_models in {cb,xgb,lgb}, RRF
+        # ensembling). Non-LTR combos canonicalise to no group_field.
+        "learning_to_rank",
     ),
     "multilabel_strategy_cfg": ("auto", "wrapper", "chain"),  # parametric on multilabel; canonicalised to "auto" for non-multilabel
+    # 2026-05-04: ranking ensemble method -- only relevant when
+    # target_type=learning_to_rank. Canonicaliser collapses to "rrf" for
+    # non-LTR combos so the combo identity remains stable.
+    "ranking_ensemble_method": ("rrf", "borda"),
     "auto_detect_cats": (True, False),
     "align_polars_categorical_dicts": (True, False),
     # 2026-04-24 expansion: flags that previously had NO coverage despite
@@ -277,6 +286,9 @@ class FuzzCombo:
     # 2026-04-24 Phase H — multilabel dispatch axis. Only meaningful when
     # target_type == multilabel_classification.
     multilabel_strategy_cfg: str = "auto"
+    # 2026-05-04 — LTR ensembling method. Only meaningful when
+    # target_type == learning_to_rank.
+    ranking_ensemble_method: str = "rrf"
     # 2026-04-26 batch 1 — additional config-field axes
     fix_infinities_cfg: bool = True
     ensure_float32_cfg: bool = True
@@ -1553,6 +1565,35 @@ def build_frame_for_combo(combo: FuzzCombo):
                 Y[i, rng.integers(0, k)] = 1
         target = Y  # (N, K)
         target_col = "target"  # FTE will need to handle 2-D target
+    elif combo.target_type == "learning_to_rank":
+        # Graded relevance 0..3 derived from the same informative features
+        # as regression, then bucketed. Synthetic queries with ~8 docs each
+        # — group_field 'qid' is added below for the ranker suite.
+        # Post-generation guarantee: every query has at least one positive
+        # (some library rankers warn or NDCG goes NaN otherwise).
+        score = 1.5 * num_cols["num_0"] - 0.7 * num_cols["num_1"] + rng.standard_normal(n) * 0.4
+        # Quantile-cut to 4 levels (0..3) so frame has graded relevance.
+        q = [np.quantile(score, i / 4) for i in range(1, 4)]
+        target = np.digitize(score, q).astype("int32")
+        # Build qid: ~8 docs per query (n_rows / 8).
+        n_per_query = max(2, min(10, n // 30))  # at least 2 docs per query
+        n_queries = max(1, n // n_per_query)
+        # Last query may be short; pad qid array to length n.
+        qid = np.repeat(np.arange(n_queries), n_per_query)
+        if len(qid) < n:
+            qid = np.concatenate([qid, np.full(n - len(qid), n_queries - 1, dtype=qid.dtype)])
+        elif len(qid) > n:
+            qid = qid[:n]
+        # Guarantee at least one positive per query: for any query whose
+        # docs are all-zero, flip the highest-score doc to relevance 1.
+        for q_id in np.unique(qid):
+            mask = qid == q_id
+            if (target[mask] == 0).all():
+                top_idx = np.where(mask)[0][np.argmax(score[mask])]
+                target[top_idx] = 1
+        # Add qid as a frame column so downstream FTE.group_field can pick it up.
+        num_cols["qid"] = qid.astype("int32")
+        target_col = "relevance"
     else:
         raise ValueError(f"unknown target_type: {combo.target_type}")
 

@@ -1,0 +1,569 @@
+"""Learning-to-Rank fit/predict + pre-fit data prep, single module per strategy.
+
+Wraps native rankers (CatBoostRanker / XGBRanker / LGBMRanker) with a
+uniform mlframe-shaped contract:
+
+    fitted = fit_ranker(strategy, X_train, y_train, group_ids_train,
+                        X_val, y_val, group_ids_val,
+                        ranking_config=LearningToRankConfig(),
+                        cat_features=..., model_kwargs=...)
+
+    scores = predict_ranker_scores(fitted, X_test)
+
+The per-strategy data prep (CB row-sort, XGB qid, LGB per-query group
+sizes) is hidden behind these two calls so the suite-level code doesn't
+need to remember each library's quirks.
+
+Verified against installed CatBoost 1.2.10, XGBoost 3.x, LightGBM 4.6.0.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, List, Optional, Tuple, Union
+
+import numpy as np
+import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+
+# ----------------------------------------------------------------------------------
+# Core: per-strategy pre-fit prep
+# ----------------------------------------------------------------------------------
+
+
+def qid_to_group_sizes(group_ids: np.ndarray) -> np.ndarray:
+    """Convert per-row qid array to per-query sizes (LGB / native XGB API).
+
+    Assumes ``group_ids`` are CONTIGUOUS-by-query (i.e. all rows of one
+    query are adjacent). For arbitrary qid arrays, sort by group first.
+    Uses ``np.diff(np.flatnonzero(...))`` for an O(N) pass.
+
+    Example:
+        group_ids = [0, 0, 0, 1, 1, 2, 2, 2, 2]
+        returns      [3, 2, 4]
+    """
+    if len(group_ids) == 0:
+        return np.array([], dtype=np.intp)
+    arr = np.asarray(group_ids)
+    boundaries = np.flatnonzero(arr[1:] != arr[:-1]) + 1
+    edges = np.concatenate(([0], boundaries, [len(arr)]))
+    return np.diff(edges).astype(np.intp)
+
+
+def _validate_ranking_inputs(
+    X: Any, y: np.ndarray, group_ids: np.ndarray, *, name: str
+) -> None:
+    """Common shape / contract checks for ranking inputs."""
+    n = len(y) if hasattr(y, "__len__") else None
+    n_x = X.shape[0] if hasattr(X, "shape") else (len(X) if hasattr(X, "__len__") else None)
+    n_g = len(group_ids) if hasattr(group_ids, "__len__") else None
+
+    if n is None or n_x is None or n_g is None:
+        raise ValueError(
+            f"{name}: X, y, group_ids must all have a length. Got "
+            f"types {type(X).__name__}, {type(y).__name__}, "
+            f"{type(group_ids).__name__}."
+        )
+    if not (n == n_x == n_g):
+        raise ValueError(
+            f"{name}: length mismatch -- y={n}, X={n_x}, group_ids={n_g}"
+        )
+    if n == 0:
+        raise ValueError(f"{name}: empty inputs")
+
+
+def prepare_cb_inputs(
+    X: Any, y: np.ndarray, group_ids: np.ndarray
+) -> Tuple[Any, np.ndarray, np.ndarray, np.ndarray]:
+    """CatBoost requires rows of one query to be contiguous.
+
+    Sorts X / y / group_ids by group_id (stable sort, preserves within-group
+    ordering). Returns ``(X_sorted, y_sorted, group_ids_sorted, sort_idx)``
+    where ``sort_idx`` lets callers map predictions back to the original
+    row order via ``preds[np.argsort(sort_idx)]`` (or simply unsort with
+    ``np.empty_like(preds); out[sort_idx] = preds``).
+
+    Already-sorted input is detected and returned as-is (no copy) so
+    repeated fits on the same prep'd frame don't pay the sort cost.
+    """
+    _validate_ranking_inputs(X, y, group_ids, name="prepare_cb_inputs")
+    arr = np.asarray(group_ids)
+
+    # Detect already-contiguous (cheaper than sort + compare).
+    is_sorted_groups = bool(np.all(arr[1:] >= arr[:-1])) if len(arr) > 1 else True
+    if is_sorted_groups:
+        return X, np.asarray(y), arr, np.arange(len(arr), dtype=np.intp)
+
+    sort_idx = np.argsort(arr, kind="stable")
+    if isinstance(X, pd.DataFrame):
+        X_sorted = X.iloc[sort_idx].reset_index(drop=True)
+    elif isinstance(X, np.ndarray):
+        X_sorted = X[sort_idx]
+    else:
+        # Polars or other. Best-effort: convert to numpy positions.
+        try:
+            import polars as pl
+            if isinstance(X, pl.DataFrame):
+                X_sorted = X[sort_idx.tolist()]
+            else:
+                X_sorted = np.asarray(X)[sort_idx]
+        except ImportError:
+            X_sorted = np.asarray(X)[sort_idx]
+    y_sorted = np.asarray(y)[sort_idx]
+    g_sorted = arr[sort_idx]
+    return X_sorted, y_sorted, g_sorted, sort_idx
+
+
+def prepare_xgb_inputs(
+    X: Any, y: np.ndarray, group_ids: np.ndarray
+) -> Tuple[Any, np.ndarray, np.ndarray]:
+    """XGBoost ``XGBRanker.fit(X, y, qid=...)`` accepts per-row qid.
+
+    No sort required (XGB handles arbitrary qid order internally).
+    Returns ``(X, y, qid)`` -- qid is just ``group_ids`` reshaped.
+    """
+    _validate_ranking_inputs(X, y, group_ids, name="prepare_xgb_inputs")
+    return X, np.asarray(y), np.asarray(group_ids)
+
+
+def prepare_lgb_inputs(
+    X: Any, y: np.ndarray, group_ids: np.ndarray
+) -> Tuple[Any, np.ndarray, np.ndarray, np.ndarray]:
+    """LightGBM ``LGBMRanker.fit(X, y, group=per_query_sizes)``.
+
+    Sorts by group_id first (LGB's group= shape requires contiguous
+    queries) then computes per-query sizes via np.diff on boundaries.
+    Returns ``(X_sorted, y_sorted, group_sizes, sort_idx)``.
+
+    Already-sorted input is detected; sort skipped.
+    """
+    _validate_ranking_inputs(X, y, group_ids, name="prepare_lgb_inputs")
+    arr = np.asarray(group_ids)
+    is_sorted_groups = bool(np.all(arr[1:] >= arr[:-1])) if len(arr) > 1 else True
+
+    if is_sorted_groups:
+        sort_idx = np.arange(len(arr), dtype=np.intp)
+        X_sorted, y_sorted, g_sorted = X, np.asarray(y), arr
+    else:
+        sort_idx = np.argsort(arr, kind="stable")
+        if isinstance(X, pd.DataFrame):
+            X_sorted = X.iloc[sort_idx].reset_index(drop=True)
+        elif isinstance(X, np.ndarray):
+            X_sorted = X[sort_idx]
+        else:
+            try:
+                import polars as pl
+                if isinstance(X, pl.DataFrame):
+                    X_sorted = X[sort_idx.tolist()]
+                else:
+                    X_sorted = np.asarray(X)[sort_idx]
+            except ImportError:
+                X_sorted = np.asarray(X)[sort_idx]
+        y_sorted = np.asarray(y)[sort_idx]
+        g_sorted = arr[sort_idx]
+
+    group_sizes = qid_to_group_sizes(g_sorted)
+    return X_sorted, y_sorted, group_sizes, sort_idx
+
+
+# ----------------------------------------------------------------------------------
+# Native ranker fit (per strategy)
+# ----------------------------------------------------------------------------------
+
+
+def _strategy_flavor(strategy) -> str:
+    """Map strategy class name to one of {'catboost','xgboost','lightgbm'}."""
+    name = type(strategy).__name__
+    if name == "CatBoostStrategy":
+        return "catboost"
+    if name == "XGBoostStrategy":
+        return "xgboost"
+    if name == "TreeModelStrategy":
+        return "lightgbm"
+    raise NotImplementedError(
+        f"Strategy {name!r} has no native ranker. LTR target_type requires "
+        f"CatBoost / XGBoost / LightGBM. Drop this strategy from "
+        f"mlframe_models or pick a non-LTR target."
+    )
+
+
+def fit_ranker(
+    strategy,
+    X_train: Any,
+    y_train: np.ndarray,
+    group_ids_train: np.ndarray,
+    X_val: Optional[Any] = None,
+    y_val: Optional[np.ndarray] = None,
+    group_ids_val: Optional[np.ndarray] = None,
+    ranking_config=None,
+    cat_features: Optional[List[Union[str, int]]] = None,
+    model_kwargs: Optional[dict] = None,
+    early_stopping_rounds: Optional[int] = 50,
+    verbose: Union[int, bool] = False,
+) -> dict:
+    """Fit a native ranker for the given strategy.
+
+    Returns a dict with::
+
+        {
+            "model": <fitted ranker>,
+            "flavor": "catboost"|"xgboost"|"lightgbm",
+            "objective_kwargs": {...},   # what the dispatcher resolved
+            "sort_idx_train": ndarray,   # for unscrambling preds (CB/LGB)
+        }
+
+    Caller invokes ``predict_ranker_scores`` with the dict + new X.
+    """
+    if not getattr(strategy, "supports_native_ranking", False):
+        raise NotImplementedError(
+            f"{type(strategy).__name__} does not support native ranking."
+        )
+
+    flavor = _strategy_flavor(strategy)
+    y_max = float(np.asarray(y_train).max()) if len(y_train) else None
+    obj_kwargs = strategy.get_ranker_objective_kwargs(
+        ranking_config=ranking_config, y_max=y_max,
+    )
+    model_kwargs = dict(model_kwargs or {})
+
+    if flavor == "catboost":
+        return _fit_cb_ranker(
+            X_train, y_train, group_ids_train,
+            X_val, y_val, group_ids_val,
+            obj_kwargs, model_kwargs, cat_features,
+            early_stopping_rounds=early_stopping_rounds, verbose=verbose,
+        )
+    elif flavor == "xgboost":
+        return _fit_xgb_ranker(
+            X_train, y_train, group_ids_train,
+            X_val, y_val, group_ids_val,
+            obj_kwargs, model_kwargs, cat_features,
+            early_stopping_rounds=early_stopping_rounds, verbose=verbose,
+        )
+    elif flavor == "lightgbm":
+        return _fit_lgb_ranker(
+            X_train, y_train, group_ids_train,
+            X_val, y_val, group_ids_val,
+            obj_kwargs, model_kwargs, cat_features,
+            early_stopping_rounds=early_stopping_rounds, verbose=verbose,
+        )
+    raise AssertionError("unreachable")
+
+
+def _fit_cb_ranker(
+    X_train, y_train, group_ids_train,
+    X_val, y_val, group_ids_val,
+    obj_kwargs, model_kwargs, cat_features,
+    *, early_stopping_rounds, verbose,
+) -> dict:
+    from catboost import CatBoostRanker
+
+    X_tr, y_tr, g_tr, sort_idx_tr = prepare_cb_inputs(X_train, y_train, group_ids_train)
+
+    fit_kwargs: dict = {}
+    if X_val is not None and y_val is not None and group_ids_val is not None:
+        X_va, y_va, g_va, _ = prepare_cb_inputs(X_val, y_val, group_ids_val)
+        # CatBoostRanker.fit accepts eval_set as a tuple of (X, y) plus
+        # eval_group_id is set on the Pool internally when X is a Pool.
+        # Easiest: build a Pool for eval and pass that.
+        from catboost import Pool
+        eval_pool = Pool(
+            data=X_va, label=y_va, group_id=g_va, cat_features=cat_features,
+        )
+        fit_kwargs["eval_set"] = eval_pool
+        if early_stopping_rounds is not None:
+            fit_kwargs["early_stopping_rounds"] = early_stopping_rounds
+
+    init_kwargs = {**obj_kwargs, **model_kwargs}
+    init_kwargs.setdefault("verbose", verbose if isinstance(verbose, int) else (100 if verbose else False))
+
+    model = CatBoostRanker(**init_kwargs)
+    # CB ranker sklearn API: fit(X, y, group_id=..., cat_features=...).
+    model.fit(
+        X_tr, y_tr,
+        group_id=g_tr,
+        cat_features=cat_features if cat_features else None,
+        **fit_kwargs,
+    )
+    return {
+        "model": model,
+        "flavor": "catboost",
+        "objective_kwargs": obj_kwargs,
+        "sort_idx_train": sort_idx_tr,
+    }
+
+
+def _fit_xgb_ranker(
+    X_train, y_train, group_ids_train,
+    X_val, y_val, group_ids_val,
+    obj_kwargs, model_kwargs, cat_features,
+    *, early_stopping_rounds, verbose,
+) -> dict:
+    from xgboost import XGBRanker
+
+    X_tr, y_tr, qid_tr = prepare_xgb_inputs(X_train, y_train, group_ids_train)
+
+    fit_kwargs: dict = {}
+    if X_val is not None and y_val is not None and group_ids_val is not None:
+        X_va, y_va, qid_va = prepare_xgb_inputs(X_val, y_val, group_ids_val)
+        # XGBRanker accepts eval_set as list of (X, y); eval_qid is a sibling list.
+        fit_kwargs["eval_set"] = [(X_va, y_va)]
+        fit_kwargs["eval_qid"] = [qid_va]
+
+    init_kwargs = {
+        "enable_categorical": bool(cat_features),
+        **obj_kwargs,
+        **model_kwargs,
+    }
+    if early_stopping_rounds is not None:
+        init_kwargs.setdefault("early_stopping_rounds", early_stopping_rounds)
+    if verbose:
+        init_kwargs.setdefault("verbosity", 1 if verbose is True else int(verbose))
+
+    model = XGBRanker(**init_kwargs)
+    model.fit(X_tr, y_tr, qid=qid_tr, **fit_kwargs)
+    return {
+        "model": model,
+        "flavor": "xgboost",
+        "objective_kwargs": obj_kwargs,
+        "sort_idx_train": np.arange(len(y_tr), dtype=np.intp),
+    }
+
+
+def _fit_lgb_ranker(
+    X_train, y_train, group_ids_train,
+    X_val, y_val, group_ids_val,
+    obj_kwargs, model_kwargs, cat_features,
+    *, early_stopping_rounds, verbose,
+) -> dict:
+    from lightgbm import LGBMRanker
+
+    X_tr, y_tr, group_sizes_tr, sort_idx_tr = prepare_lgb_inputs(
+        X_train, y_train, group_ids_train
+    )
+
+    fit_kwargs: dict = {}
+    if X_val is not None and y_val is not None and group_ids_val is not None:
+        X_va, y_va, group_sizes_va, _ = prepare_lgb_inputs(
+            X_val, y_val, group_ids_val
+        )
+        fit_kwargs["eval_set"] = [(X_va, y_va)]
+        fit_kwargs["eval_group"] = [group_sizes_va]
+
+    init_kwargs = {**obj_kwargs, **model_kwargs}
+    if verbose:
+        init_kwargs.setdefault("verbose", 1 if verbose is True else int(verbose))
+    else:
+        init_kwargs.setdefault("verbose", -1)
+
+    model = LGBMRanker(**init_kwargs)
+
+    # LGB uses callbacks for early stopping in newer versions.
+    callbacks = []
+    if early_stopping_rounds is not None and X_val is not None:
+        try:
+            from lightgbm import early_stopping as _es
+            callbacks.append(_es(stopping_rounds=early_stopping_rounds, verbose=False))
+        except ImportError:
+            pass
+
+    if cat_features:
+        # LGB accepts categorical_feature as list of column names or indices.
+        fit_kwargs["categorical_feature"] = cat_features
+
+    model.fit(
+        X_tr, y_tr, group=group_sizes_tr,
+        callbacks=callbacks if callbacks else None,
+        **fit_kwargs,
+    )
+    return {
+        "model": model,
+        "flavor": "lightgbm",
+        "objective_kwargs": obj_kwargs,
+        "sort_idx_train": sort_idx_tr,
+    }
+
+
+# ----------------------------------------------------------------------------------
+# Predict (uniform shape regardless of flavor)
+# ----------------------------------------------------------------------------------
+
+
+def predict_ranker_scores(fitted: dict, X: Any, group_ids: Optional[np.ndarray] = None) -> np.ndarray:
+    """Return per-row scores in the SAME order as input rows.
+
+    For CB/LGB, the model was trained on sorted-by-group rows; ``predict``
+    on a raw X however does not require sorting (the per-row score is
+    independent of order at inference time -- the sort was for the FIT-
+    time group_id constraint only).
+
+    Returns a 1-D ``(n_rows,)`` numpy array.
+    """
+    model = fitted["model"]
+    flavor = fitted["flavor"]
+    if flavor == "catboost":
+        scores = model.predict(X)
+    elif flavor == "xgboost":
+        scores = model.predict(X)
+    elif flavor == "lightgbm":
+        scores = model.predict(X)
+    else:
+        raise AssertionError(f"unknown flavor {flavor!r}")
+    return np.asarray(scores).ravel()
+
+
+# ----------------------------------------------------------------------------------
+# Ensembling for ranking scores
+# ----------------------------------------------------------------------------------
+
+
+def _ranks_within_group(scores: np.ndarray, group_starts: np.ndarray, *, descending: bool = True) -> np.ndarray:
+    """Per-group dense rank assignment.
+
+    For each group's slice ``scores[group_starts[i]:group_starts[i+1]]``,
+    assign rank 1 to the highest score (when ``descending=True``), 2 to
+    the next, etc. Ties get adjacent ranks (stable secondary order by
+    input index).
+
+    Returns a 1-D ``(n_rows,)`` array of int ranks (1-indexed).
+    """
+    n = len(scores)
+    ranks = np.empty(n, dtype=np.float64)
+    n_groups = len(group_starts) - 1
+    for i in range(n_groups):
+        s, e = group_starts[i], group_starts[i + 1]
+        slice_scores = scores[s:e]
+        if descending:
+            order = np.argsort(-slice_scores, kind="stable")
+        else:
+            order = np.argsort(slice_scores, kind="stable")
+        local_ranks = np.empty(len(slice_scores), dtype=np.float64)
+        local_ranks[order] = np.arange(1, len(slice_scores) + 1, dtype=np.float64)
+        ranks[s:e] = local_ranks
+    return ranks
+
+
+def _group_starts_from_ids(group_ids: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Sort group_ids and return (sort_idx, group_starts).
+
+    ``group_starts`` defines query slices in the SORTED order; callers
+    that want results back in original-row order use ``sort_idx`` for the
+    inverse permutation.
+    """
+    arr = np.asarray(group_ids)
+    if len(arr) == 0:
+        return np.array([], dtype=np.intp), np.array([0], dtype=np.intp)
+    sort_idx = np.argsort(arr, kind="stable")
+    sorted_groups = arr[sort_idx]
+    boundaries = np.flatnonzero(sorted_groups[1:] != sorted_groups[:-1]) + 1
+    group_starts = np.concatenate(([0], boundaries, [len(arr)])).astype(np.intp)
+    return sort_idx, group_starts
+
+
+def ensemble_ranker_scores(
+    scores_per_model: List[np.ndarray],
+    group_ids: np.ndarray,
+    method: str = "rrf",
+    rrf_k: int = 60,
+    assume_comparable_scales: bool = False,
+) -> np.ndarray:
+    """Combine per-row ranker scores from multiple models.
+
+    Parameters
+    ----------
+    scores_per_model : list of (n_rows,) score arrays
+        One array per model. All same length and aligned to ``group_ids``.
+    group_ids : (n_rows,) array
+        Per-row query identifier. Ranks are computed within each query.
+    method : {"rrf", "borda", "score_mean"}
+        - **rrf**: Reciprocal Rank Fusion -- ``Σ 1/(rrf_k + rank_i)`` per
+          row, where rank_i is the rank assigned by model i WITHIN the
+          row's query. Higher = better. Scale-invariant (TREC default).
+        - **borda**: Per-query rank averaging -- ``Σ rank_i``. LOWER is
+          better, so we negate at the end so "higher = better" matches
+          the other methods.
+        - **score_mean**: Arithmetic mean of raw scores. Requires
+          ``assume_comparable_scales=True`` (else WARN + fall back to
+          rrf, since CB YetiRank emits ~[0,1], XGB rank:ndcg ~[-10,+10],
+          LGB lambdarank arbitrary range -- raw mean is meaningless
+          across libraries).
+    rrf_k : int
+        RRF damping constant. 60 is the TREC default.
+    assume_comparable_scales : bool
+        Acknowledge that score_mean is safe (you've calibrated externally).
+
+    Returns
+    -------
+    np.ndarray, shape (n_rows,)
+        Ensembled per-row scores, aligned to original row order. Higher
+        score = more relevant.
+    """
+    if not scores_per_model:
+        raise ValueError("scores_per_model is empty")
+    n_rows = len(scores_per_model[0])
+    for i, s in enumerate(scores_per_model):
+        if len(s) != n_rows:
+            raise ValueError(
+                f"score length mismatch: model 0 has {n_rows}, model {i} has {len(s)}"
+            )
+    if len(group_ids) != n_rows:
+        raise ValueError(
+            f"group_ids length {len(group_ids)} != score length {n_rows}"
+        )
+
+    method = method.lower()
+    if method not in {"rrf", "borda", "score_mean"}:
+        raise ValueError(
+            f"unknown ensemble method {method!r}; must be rrf | borda | score_mean"
+        )
+
+    if method == "score_mean" and not assume_comparable_scales:
+        logger.warning(
+            "ensemble_ranker_scores: method='score_mean' requires "
+            "assume_comparable_scales=True (raw scores from CB/XGB/LGB "
+            "rankers are NOT comparable -- different objectives emit "
+            "different ranges). Falling back to RRF for safety. To "
+            "enable score_mean, calibrate scores externally and pass "
+            "assume_comparable_scales=True."
+        )
+        method = "rrf"
+
+    sort_idx, group_starts = _group_starts_from_ids(group_ids)
+    inv_sort = np.empty_like(sort_idx)
+    inv_sort[sort_idx] = np.arange(len(sort_idx))
+
+    if method == "score_mean":
+        out = np.mean(np.asarray(scores_per_model), axis=0)
+        return out
+
+    # rrf and borda both work in rank-space (per-query).
+    aggregate = np.zeros(n_rows, dtype=np.float64)
+    for s in scores_per_model:
+        s_sorted = np.asarray(s, dtype=np.float64)[sort_idx]
+        ranks_sorted = _ranks_within_group(s_sorted, group_starts, descending=True)
+        # Map ranks back to original row order.
+        ranks_orig = ranks_sorted[inv_sort]
+        if method == "rrf":
+            aggregate += 1.0 / (rrf_k + ranks_orig)
+        elif method == "borda":
+            aggregate += ranks_orig
+
+    if method == "borda":
+        # Borda: lower sum-of-ranks is better. Negate so higher = better
+        # (matches contract).
+        aggregate = -aggregate
+
+    return aggregate
+
+
+__all__ = [
+    "qid_to_group_sizes",
+    "prepare_cb_inputs",
+    "prepare_xgb_inputs",
+    "prepare_lgb_inputs",
+    "fit_ranker",
+    "predict_ranker_scores",
+    "ensemble_ranker_scores",
+]

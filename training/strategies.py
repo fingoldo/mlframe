@@ -140,6 +140,42 @@ class ModelPipelineStrategy(ABC):
         """
         return False
 
+    @property
+    def supports_native_ranking(self) -> bool:
+        """Whether this strategy supports learning-to-rank natively.
+
+        True for CatBoostStrategy / XGBoostStrategy / LightGBMStrategy
+        (all three ship native rankers: ``CatBoostRanker``, ``XGBRanker``,
+        ``LGBMRanker``). False for HGB / Linear / Neural / Recurrent --
+        no ranker exists in those backends, and the suite skips them
+        with NotImplementedError when ``target_type.is_ranking``.
+        """
+        return False
+
+    def get_ranker_objective_kwargs(
+        self,
+        ranking_config=None,
+        y_max: Optional[float] = None,
+    ) -> dict:
+        """Per-strategy ranker kwargs (loss_function / objective + auxiliaries).
+
+        Returns the dict to merge into the ranker constructor kwargs.
+        Default implementation returns ``{}`` (subclasses without native
+        ranker should never reach this -- ``supports_native_ranking=False``
+        gates it). Override in CB/XGB/LGB strategies.
+
+        Parameters
+        ----------
+        ranking_config : LearningToRankConfig, optional
+            User-pinned ranking objectives + ensemble method. Defaults
+            applied when None.
+        y_max : float, optional
+            Maximum value of ``y_train`` -- used by XGB to auto-fall-back
+            from ``rank:map`` (binary-only) to ``rank:ndcg`` when graded
+            relevance is detected (``y_max > 1``).
+        """
+        return {}
+
     def get_classif_objective_kwargs(self, target_type, n_classes: int) -> dict:
         """Per-strategy classifier kwargs for the target type.
 
@@ -342,6 +378,23 @@ class TreeModelStrategy(ModelPipelineStrategy):
     # CatBoostStrategy. LGB has no native multilabel (issue #524 since 2017),
     # XGB 3.x experimental but unstable.
     supports_native_multiclass = True
+    # LGB has native LGBMRanker; CB/XGB override below with their own
+    # objective dispatch. Setting True at TreeModelStrategy level means
+    # the default (LGB) path is correctly enabled.
+    supports_native_ranking = True
+
+    def get_ranker_objective_kwargs(self, ranking_config=None, y_max=None):
+        """LGBMRanker objective. ``lambdarank`` (default) handles both
+        binary and graded relevance. ``rank_xendcg`` is an alternative.
+        """
+        objective = "lambdarank"
+        if ranking_config is not None:
+            objective = getattr(ranking_config, "lgb_objective", None) or objective
+        return {
+            "objective": objective,
+            # eval_metric defaults to ndcg for ranker; expose explicitly.
+            "metric": "ndcg",
+        }
 
     def build_pipeline(
         self,
@@ -375,8 +428,30 @@ class CatBoostStrategy(TreeModelStrategy):
     # supports_native_multilabel=True strategies).
     supports_native_multiclass = True
     supports_native_multilabel = True
+    supports_native_ranking = True
     # Inherits cache_key = "tree" from TreeModelStrategy so CB/LGB/XGB share
     # transformed-DF cache (they have identical preprocessing requirements).
+
+    def get_ranker_objective_kwargs(self, ranking_config=None, y_max=None):
+        """CatBoostRanker loss_function + sensible eval_metric.
+
+        Defaults to ``YetiRankPairwise`` (listwise pairwise — robust on
+        both graded and binary labels). Override via
+        ``LearningToRankConfig.cb_loss_fn``.
+
+        ``y_max`` is unused by CB (its ranker losses accept both binary
+        and graded labels uniformly).
+        """
+        loss_fn = "YetiRankPairwise"
+        if ranking_config is not None:
+            loss_fn = getattr(ranking_config, "cb_loss_fn", None) or loss_fn
+        return {
+            "loss_function": loss_fn,
+            # CB ranker exposes NDCG / MAP / MRR via PFound-family eval
+            # metrics; use NDCG as the default for early-stopping. Users
+            # can override via hyperparams.
+            "eval_metric": "NDCG",
+        }
 
 
 class XGBoostStrategy(TreeModelStrategy):
@@ -398,12 +473,52 @@ class XGBoostStrategy(TreeModelStrategy):
     # stability risk for vector-output trees (smaller model, integrated
     # GPU/SHAP support, faster inference).
     supports_native_multiclass = True
+    supports_native_ranking = True
     # supports_native_multilabel: declared False at class level (matches the
     # ABC default + tells callers "wrapper by default"). The actual native-
     # multilabel decision is dynamic -- see wrap_multilabel + get_classif_
     # objective_kwargs overrides below, which BOTH consult the runtime
     # MultilabelDispatchConfig.force_native_xgb_multilabel flag.
     # Inherits cache_key = "tree" from TreeModelStrategy.
+
+    def get_ranker_objective_kwargs(self, ranking_config=None, y_max=None):
+        """XGBRanker objective + auto-fallback for graded labels.
+
+        Default ``rank:ndcg`` (works on graded relevance). When user
+        pinned ``rank:map`` but ``y_max > 1`` is detected (graded
+        labels), auto-fall-back to ``rank:ndcg`` with WARN -- XGBoost's
+        C++ ``is_binary`` check would otherwise crash with a cryptic
+        message.
+
+        ``rank:pairwise`` accepted for both binary and graded.
+        """
+        objective = "rank:ndcg"
+        if ranking_config is not None:
+            objective = getattr(ranking_config, "xgb_objective", None) or objective
+
+        if (
+            objective == "rank:map"
+            and y_max is not None
+            and y_max > 1
+            and ranking_config is not None
+            and getattr(ranking_config, "autodetect_label_format", True)
+        ):
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "XGB rank:map requires binary labels (y in {0,1}); detected "
+                "y_max=%s > 1 (graded relevance). Auto-falling back to "
+                "rank:ndcg. Set ranking_config.autodetect_label_format=False "
+                "to disable this safety check.",
+                y_max,
+            )
+            objective = "rank:ndcg"
+
+        return {
+            "objective": objective,
+            # XGB's eval_metric for ranker also defaults to ndcg; expose
+            # explicitly so log/early-stop reads the right thing.
+            "eval_metric": "ndcg",
+        }
 
     def get_classif_objective_kwargs(self, target_type, n_classes: int,
                                       multilabel_config=None) -> dict:
