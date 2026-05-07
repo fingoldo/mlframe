@@ -1208,6 +1208,8 @@ def plot_target_over_time(
     save_path: Optional[str] = None,
     show: bool = False,
     figsize: Tuple[float, float] = (12, 4.5),
+    plot_outputs: Optional[str] = None,
+    base_path: Optional[str] = None,
 ) -> Optional[Any]:
     """Render the time-series plot of target rate over bins.
 
@@ -1232,6 +1234,18 @@ def plot_target_over_time(
     matplotlib.figure.Figure or None
         Returns the Figure when neither save_path nor show is set.
     """
+    # 2026-05-08: opt-in DSL render path. When ``plot_outputs`` +
+    # ``base_path`` are supplied, route through the spec pipeline
+    # (matplotlib + plotly via the same DSL). Default behaviour
+    # preserved -- legacy callers see no change.
+    if plot_outputs and base_path:
+        from mlframe.reporting.charts.temporal import build_temporal_audit_spec
+        from mlframe.reporting.output import parse_plot_output_dsl
+        from mlframe.reporting.renderers import render_and_save
+        spec = build_temporal_audit_spec(result, figsize=figsize)
+        render_and_save(spec, parse_plot_output_dsl(plot_outputs), base_path)
+        return None
+
     try:
         import matplotlib.pyplot as plt
     except ImportError:

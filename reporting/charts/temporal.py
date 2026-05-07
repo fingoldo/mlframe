@@ -22,16 +22,23 @@ def build_temporal_audit_spec(
     """Build a temporal-audit FigureSpec.
 
     Reads from ``audit_result``:
-    - ``time_bins``: array of bin centers (datetime64 or numeric)
-    - ``rates``: array of per-bin P(y=1) or mean(y)
+    - ``bins``: List[TimeBin] with ``bin_start`` + ``target_rate`` + ``kept``
     - ``target_name``, ``granularity``, ``segments`` (optional)
 
-    Per-segment shaded background is left to PR2 (renderers don't yet
+    Per-segment shaded background is left to follow-up (renderers don't yet
     have a generic ``vrect`` / ``axvspan`` spec field). For now, segment
     boundaries are folded into the title.
     """
-    time_bins = np.asarray(audit_result.time_bins)
-    rates = np.asarray(audit_result.rates, dtype=np.float64)
+    # Filter out sparse-bin entries (kept=False) the same way the
+    # legacy plot_target_over_time path does -- only kept bins are drawn.
+    kept = [b for b in getattr(audit_result, "bins", []) if getattr(b, "kept", True)]
+    if not kept:
+        # Degenerate audit -- emit a 1-point flat line so renderers don't crash.
+        time_bins = np.array([0.0])
+        rates = np.array([0.0])
+    else:
+        time_bins = np.asarray([b.bin_start for b in kept])
+        rates = np.asarray([float(b.target_rate) for b in kept], dtype=np.float64)
 
     seg_text = ""
     n_segments = len(getattr(audit_result, "segments", []) or [])

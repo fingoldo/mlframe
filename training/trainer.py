@@ -252,6 +252,21 @@ except ImportError:  # pragma: no cover
     XGBClassifierWithDMatrixReuse = XGBRegressorWithDMatrixReuse = None  # type: ignore[assignment]
     _XGB_SHIM_AVAILABLE = False
 
+# Dataset-reuse shim (2026-05-08). Mirror of the XGB shim above for
+# LightGBM. Subclasses LGBMClassifier / LGBMRegressor to cache the
+# binned ``lightgbm.Dataset`` across consecutive ``.fit()`` calls on
+# the same feature matrix -- mirrors the same weight-schema-loop saving
+# the XGB shim eliminates. Toggle via ``USE_LGB_DATASET_REUSE_SHIM`` below.
+try:
+    from mlframe.training.lgb_shim import (
+        LGBMClassifierWithDatasetReuse,
+        LGBMRegressorWithDatasetReuse,
+    )
+    _LGB_SHIM_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    LGBMClassifierWithDatasetReuse = LGBMRegressorWithDatasetReuse = None  # type: ignore[assignment]
+    _LGB_SHIM_AVAILABLE = False
+
 # ---------------------------------------------------------------------------
 # Feature flag: which XGBoost class do we instantiate in
 # ``_configure_xgboost_params``?
@@ -305,6 +320,58 @@ def _xgb_regressor_cls(use_flaml_zeroshot: bool):
     if USE_XGB_DMATRIX_REUSE_SHIM and XGBRegressorWithDMatrixReuse is not None:
         return XGBRegressorWithDMatrixReuse
     return XGBRegressor
+
+
+# ---------------------------------------------------------------------------
+# Feature flag: which LightGBM class do we instantiate in
+# ``_configure_lightgbm_params``? Mirror of ``USE_XGB_DMATRIX_REUSE_SHIM``.
+#
+#   True  -> use the Dataset-reuse shim. Reuses ``lightgbm.Dataset`` across
+#           weight-schema iterations and target swaps on the same feature
+#           matrix.
+#   False -> fall back to vanilla ``LGBMClassifier`` / ``LGBMRegressor``.
+#           Use this if the shim regresses behaviour or once LightGBM
+#           upstream lands the equivalent fix natively (PR pending).
+#
+# To **revert** to vanilla LightGBM (e.g. when the upstream PR ships):
+#   1. Set ``USE_LGB_DATASET_REUSE_SHIM = False`` here, or
+#   2. Delete the import block above + ``_lgb_classifier_cls`` /
+#      ``_lgb_regressor_cls`` factories below + this constant, and
+#      replace ``_lgb_classifier_cls(use_flaml_zeroshot)`` calls in
+#      ``_configure_lightgbm_params`` with the original inline expression
+#      ``flaml_zeroshot.LGBMClassifier if use_flaml_zeroshot else
+#      LGBMClassifier``.
+#   3. Delete ``mlframe/training/lgb_shim.py`` and its test counterpart.
+USE_LGB_DATASET_REUSE_SHIM: bool = _LGB_SHIM_AVAILABLE
+
+
+def _lgb_classifier_cls(use_flaml_zeroshot: bool):
+    """Return the LGBMClassifier class to instantiate.
+
+    Single dispatch point for the shim toggle -- see
+    ``USE_LGB_DATASET_REUSE_SHIM`` above for revert instructions.
+    """
+    if use_flaml_zeroshot:
+        _fz = _get_flaml_zeroshot()
+        if _fz is None:
+            raise ImportError("use_flaml_zeroshot=True but flaml is not installed")
+        return _fz.LGBMClassifier
+    if USE_LGB_DATASET_REUSE_SHIM and LGBMClassifierWithDatasetReuse is not None:
+        return LGBMClassifierWithDatasetReuse
+    return LGBMClassifier
+
+
+def _lgb_regressor_cls(use_flaml_zeroshot: bool):
+    """Return the LGBMRegressor class to instantiate. Mirror of
+    ``_lgb_classifier_cls``."""
+    if use_flaml_zeroshot:
+        _fz = _get_flaml_zeroshot()
+        if _fz is None:
+            raise ImportError("use_flaml_zeroshot=True but flaml is not installed")
+        return _fz.LGBMRegressor
+    if USE_LGB_DATASET_REUSE_SHIM and LGBMRegressorWithDatasetReuse is not None:
+        return LGBMRegressorWithDatasetReuse
+    return LGBMRegressor
 try:
     from ngboost import NGBClassifier, NGBRegressor
 except ImportError:  # pragma: no cover
@@ -4736,15 +4803,21 @@ def _configure_lightgbm_params(
     use_flaml_zeroshot: bool,
     metamodel_func,
 ):
-    """Configure LightGBM model parameters."""
+    """Configure LightGBM model parameters.
+
+    Goes through the ``_lgb_classifier_cls`` / ``_lgb_regressor_cls``
+    factories so the Dataset-reuse shim toggle (``USE_LGB_DATASET_REUSE_SHIM``,
+    declared at module level) is the single switching point. To revert to
+    vanilla LightGBM, see the docstring of ``USE_LGB_DATASET_REUSE_SHIM``.
+    """
     lgb_configs = cpu_configs if prefer_cpu_for_lightgbm else configs
 
     if use_regression:
-        model_cls = flaml_zeroshot.LGBMRegressor if use_flaml_zeroshot else LGBMRegressor
+        model_cls = _lgb_regressor_cls(use_flaml_zeroshot)
         model = metamodel_func(model_cls(**lgb_configs.LGB_GENERAL_PARAMS))
         fit_params = {}
     else:
-        model_cls = flaml_zeroshot.LGBMClassifier if use_flaml_zeroshot else LGBMClassifier
+        model_cls = _lgb_classifier_cls(use_flaml_zeroshot)
         model = model_cls(**lgb_configs.LGB_GENERAL_PARAMS)
         fit_params = dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}
 

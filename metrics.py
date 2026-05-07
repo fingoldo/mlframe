@@ -743,6 +743,8 @@ def show_calibration_plot(
     prob_histogram_yscale: str = "linear",
     show_inline_population_labels: bool = True,
     label_histogram: str = "Bin population",
+    plot_outputs: Optional[str] = None,
+    base_path: Optional[str] = None,
 ):
     """Plots reliability digaram from the binned predictions.
 
@@ -764,6 +766,27 @@ def show_calibration_plot(
 
     assert backend in ("plotly", "matplotlib")
     assert prob_histogram_yscale in ("auto", "log", "linear")
+
+    # 2026-05-08: opt-in DSL render path. When ``plot_outputs`` + ``base_path``
+    # are supplied, route through the shared spec pipeline (matplotlib +
+    # plotly + any future backends via the same DSL). Default behaviour
+    # preserved -- legacy callers see no change.
+    if plot_outputs and base_path:
+        from mlframe.reporting.charts.calibration import build_calibration_spec
+        from mlframe.reporting.output import parse_plot_output_dsl
+        from mlframe.reporting.renderers import render_and_save
+        spec = build_calibration_spec(
+            freqs_predicted, freqs_true, hits,
+            plot_title=plot_title,
+            show_prob_histogram=show_prob_histogram,
+            show_inline_population_labels=show_inline_population_labels,
+            label_freq=label_freq, label_prob=label_prob,
+            label_histogram=label_histogram,
+            colorbar_label=colorbar_label,
+            figsize=figsize,
+        )
+        render_and_save(spec, parse_plot_output_dsl(plot_outputs), base_path)
+        return None
 
     x_min, x_max = np.min(freqs_predicted), np.max(freqs_predicted)
 

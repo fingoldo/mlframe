@@ -2040,8 +2040,22 @@ def train_mlframe_models_suite(
     # exclude the derived one to avoid an unexpected-kwarg TypeError;
     # ``train_and_evaluate_model`` re-derives it from the rebuilt
     # ReportingConfig object directly.
+    # ``plot_outputs`` / ``multiclass_panels`` / ``multilabel_panels`` /
+    # ``ltr_panels`` are reporting-render fields consumed inside the
+    # LTR-suite branch (above) and inside per-split metric calls --
+    # they're NOT in ``_build_configs_from_params``'s signature, so
+    # leaking them via model_dump would cause ``unexpected keyword
+    # argument`` TypeError on every train_eval call. Exclude alongside
+    # ``title_metrics_tokens`` (which is also derived rather than
+    # passed-through).
     common_params_dict.update(
-        reporting_config.model_dump(exclude={"title_metrics_tokens"})
+        reporting_config.model_dump(exclude={
+            "title_metrics_tokens",
+            "plot_outputs",
+            "multiclass_panels",
+            "multilabel_panels",
+            "ltr_panels",
+        })
     )
     if preprocessing_config.scaler is not None:
         common_params_dict["scaler"] = preprocessing_config.scaler
@@ -3977,21 +3991,25 @@ def train_mlframe_models_suite(
                                 cloned_model._mlframe_polars_fastpath_broken = True
                             except Exception:
                                 pass
-                        # XGB DMatrix-reuse shim cache (2026-04-24). The shim
-                        # caches a QuantileDMatrix on instance attributes
-                        # (``_cached_train_dmatrix``, ``_cached_val_dmatrix`` and
-                        # their cache keys); sklearn.clone() blanks them. Without
+                        # XGB DMatrix-reuse shim cache (2026-04-24) AND
+                        # LGB Dataset-reuse shim cache (2026-05-08). Both
+                        # shims cache the heavy binned dataset on instance
+                        # attributes (``_cached_train_dmatrix`` /
+                        # ``_cached_train_dataset`` and their val/key
+                        # siblings); sklearn.clone() blanks them. Without
                         # this hand-off, the weight-schema loop (uniform ->
                         # recency on the same train_df) would rebuild the
-                        # DMatrix from scratch on every iteration -- defeating
+                        # dataset from scratch on every iteration -- defeating
                         # the whole point of the shim. Hand the cache forward
-                        # so reused DMatrix sees consecutive ``set_label`` /
+                        # so reused dataset sees consecutive ``set_label`` /
                         # ``set_weight`` swaps in place.
                         for _attr in (
                             "_cached_train_dmatrix",
                             "_cached_train_key",
                             "_cached_val_dmatrix",
                             "_cached_val_key",
+                            "_cached_train_dataset",
+                            "_cached_val_dataset",
                         ):
                             if hasattr(original_model, _attr):
                                 try:
@@ -4149,6 +4167,8 @@ def train_mlframe_models_suite(
                             "_cached_train_key",
                             "_cached_val_dmatrix",
                             "_cached_val_key",
+                            "_cached_train_dataset",
+                            "_cached_val_dataset",
                         ):
                             if hasattr(cloned_model, _attr):
                                 _val = getattr(cloned_model, _attr)
@@ -4217,12 +4237,13 @@ def train_mlframe_models_suite(
                     if cache_key.startswith("tree"):
                         orig_pre_pipeline = pre_pipeline
 
-                    # Release XGB shim DMatrix cache memory at strategy-iter end
-                    # (2026-04-24 follow-up). The cache -- cached
-                    # ``QuantileDMatrix`` on ``_cached_train_dmatrix`` /
-                    # ``_cached_val_dmatrix`` -- is a fit-only scratchpad
-                    # used by the inner weight-schema loop (uniform -> recency
-                    # swap in place via ``set_label`` / ``set_weight``).
+                    # Release XGB / LGB shim cache memory at strategy-iter end
+                    # (2026-04-24 follow-up; LGB shim added 2026-05-08).
+                    # Both shims cache the heavy binned dataset on
+                    # ``_cached_train_*`` / ``_cached_val_*`` instance attrs
+                    # as a fit-only scratchpad used by the inner
+                    # weight-schema loop (uniform -> recency swap in place
+                    # via ``set_label`` / ``set_weight``).
                     # Once the inner loop has finished, nothing downstream
                     # reads those attrs:
                     #   * ensemble scoring (below) uses pre-computed probs
@@ -4234,11 +4255,11 @@ def train_mlframe_models_suite(
                     #     our ``__getstate__`` override strips the cache
                     #     from anyway.
                     # The prod log showed a 7.3M x 105 frame holding ~8 GB
-                    # of QuantileDMatrix memory per XGB iteration. Before
-                    # LGB's lazy pandas conversion fires on the next iter,
-                    # releasing this cache frees ~30 % of peak RAM.
-                    # Duck-typed: only the shim has ``clear_cache()``. CB /
-                    # LGB / sklearn estimators skip harmlessly via the
+                    # of QuantileDMatrix memory per XGB iteration; LGB
+                    # Dataset binning is similarly heavy. Releasing this
+                    # cache between strategies frees ~30 % of peak RAM.
+                    # Duck-typed: only the shims expose ``clear_cache()``.
+                    # CB / sklearn estimators skip harmlessly via the
                     # ``callable`` check.
                     def _maybe_clear_shim_cache(est):
                         fn = getattr(est, "clear_cache", None)

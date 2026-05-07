@@ -384,6 +384,10 @@ def plot_residual_diagnostics(
     ax_resid_vs_pred: Any = None,
     plot_sample_size: int = 5_000,
     seed: int = 0,
+    plot_outputs: Optional[str] = None,
+    base_path: Optional[str] = None,
+    header_str: str = "",
+    metrics_str: str = "",
 ) -> Optional[ResidualAudit]:
     """Render the residual histogram + residuals-vs-predicted plot
     on the supplied matplotlib axes.
@@ -404,6 +408,30 @@ def plot_residual_diagnostics(
     Returns the audit (computed if not supplied) so callers can use
     its diagnostic fields without computing twice.
     """
+    # 2026-05-08: opt-in DSL render path (matplotlib + plotly via the
+    # spec pipeline). When ``plot_outputs`` + ``base_path`` are set,
+    # bypass the in-place axes path and emit a full figure via the
+    # shared renderer. Default behaviour preserved for callers that
+    # supply their own axes.
+    if plot_outputs and base_path:
+        from mlframe.reporting.charts.regression import build_regression_panel_spec
+        from mlframe.reporting.output import parse_plot_output_dsl
+        from mlframe.reporting.renderers import render_and_save
+        _yt = np.asarray(y_true, dtype=np.float64).ravel()
+        _yp = np.asarray(y_pred, dtype=np.float64).ravel()
+        _mask = np.isfinite(_yt) & np.isfinite(_yp)
+        if int(_mask.sum()) < 5:
+            return audit
+        if audit is None:
+            audit = audit_residuals(_yt[_mask], _yp[_mask], seed=seed)
+        spec = build_regression_panel_spec(
+            _yt, _yp,
+            audit=audit, header_str=header_str, metrics_str=metrics_str,
+            plot_sample_size=plot_sample_size, seed=seed,
+        )
+        render_and_save(spec, parse_plot_output_dsl(plot_outputs), base_path)
+        return audit
+
     try:
         import matplotlib.pyplot as plt
         from matplotlib.lines import Line2D

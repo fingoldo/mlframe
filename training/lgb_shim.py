@@ -1,0 +1,583 @@
+"""
+LightGBM classifier/regressor shim that reuses ``lightgbm.Dataset`` across
+consecutive ``.fit()`` calls on the same feature matrix.
+
+Why
+---
+Mirror of ``mlframe.training.xgb_shim``. The 2026-04-24 prod log captured
+the same multi-build cost on the LightGBM side: ``LGBMClassifier.fit(X, y,
+sample_weight=w)`` constructs a fresh ``lightgbm.Dataset`` for every
+weight-schema swap on the same feature matrix, and the ``Dataset.construct()``
+call (binning + histogram setup) is the expensive part. With multi-target
+/ multi-weight sweeps that's repeated work on identical bytes.
+
+The native ``lightgbm.train(params, train_set)`` API accepts a pre-built
+``Dataset`` and ``Dataset.set_label(y)`` / ``Dataset.set_weight(w)`` mutate
+the binned dataset in place (verified 2026-05-08 against LightGBM 4.x).
+The blocker is sklearn-side: ``LGBMClassifier.fit(X, y)`` validates ``X``
+through ``_validate_data`` and rebuilds the Dataset every call -- so we
+cannot ``.fit(train_set, ...)`` directly even when our cache holds it
+ready. Our upstream PR for ``Dataset`` support in the sklearn interface
+is pending; until it lands we route through this shim.
+
+This module subclasses ``LGBMClassifier`` / ``LGBMRegressor`` and:
+  * overrides ``.fit()`` to (a) build a ``Dataset`` once for a given
+    (id(X), columns, shape, categorical_feature) signature, (b) on
+    subsequent fits with the same signature swap label/weight in place,
+    (c) call ``lightgbm.train()`` natively with the cached Dataset,
+    (d) attach the resulting ``Booster`` to ``self._Booster`` so the
+    inherited ``predict`` / ``predict_proba`` / ``feature_importances_``
+    keep working;
+  * exposes public ``set_label(y)`` / ``set_weight(w)`` that mutate
+    the cached Dataset without a rebuild -- useful for callers that
+    drive their own lgb-train loop.
+
+Drop-in compatibility
+---------------------
+The shim is a *subclass* of ``LGBMClassifier`` / ``LGBMRegressor``, so:
+  * ``isinstance(model, LGBMClassifier)`` checks downstream still pass;
+  * ``get_params()`` / ``set_params()`` / ``sklearn.base.clone()`` work
+    via the inherited sklearn-estimator protocol -- and clone produces
+    a fresh instance with an empty cache (the right thing);
+  * ``predict``, ``predict_proba``, ``feature_importances_``,
+    ``feature_names_in_``, ``n_features_in_`` are inherited and
+    dispatch through the ``_Booster`` we attach.
+
+Deprecation path
+----------------
+Once https://github.com/microsoft/LightGBM/pull/<TBD> lands and ships in
+a stable LightGBM release that accepts ``LGBMClassifier.fit(X=Dataset)``
+natively, this shim becomes obsolete. Migration:
+
+  1. In ``mlframe/training/trainer.py::_configure_lightgbm_params``,
+     replace ``LGBMClassifierWithDatasetReuse`` with ``LGBMClassifier``
+     (and same for the regressor).
+  2. Adapt the cache code in trainer.py to call LGB's native fit
+     directly with a pre-built ``Dataset`` (mirror of the existing
+     ``_CB_POOL_CACHE`` path for CatBoost).
+  3. Delete this file and its test counterpart
+     ``tests/training/test_lgb_dataset_reuse_shim.py``.
+
+Until then the shim is the only practical way to get Dataset reuse out
+of the sklearn-LGBM wrapper without monkey-patching LGBMClassifier
+globally (the latter would affect non-mlframe callers in the same
+process).
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, List, Optional, Tuple
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+try:
+    import lightgbm as lgb
+    from lightgbm import LGBMClassifier, LGBMRegressor
+    from lightgbm.sklearn import _LGBMLabelEncoder
+
+    _LGB_AVAILABLE = True
+except ImportError:
+    _LGB_AVAILABLE = False
+    lgb = None  # type: ignore
+    LGBMClassifier = object  # type: ignore
+    LGBMRegressor = object  # type: ignore
+    _LGBMLabelEncoder = None  # type: ignore
+
+
+# ---------------------------------------------------------------------
+# Capability gate
+# ---------------------------------------------------------------------
+
+def lgb_dataset_reuse_capable() -> bool:
+    """True iff the installed LightGBM has ``set_label`` / ``set_weight``
+    on ``Dataset`` -- the two C++ mutators the shim relies on.
+
+    LightGBM >= 3.x has them. Returned as a runtime probe rather than a
+    version-string compare so a future build with the methods removed
+    or renamed is detected directly.
+    """
+    if not _LGB_AVAILABLE:
+        return False
+    return all(
+        hasattr(lgb.Dataset, attr)
+        for attr in ("set_label", "set_weight")
+    )
+
+
+# ---------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------
+
+def _signature_of(X, categorical_feature=None) -> tuple:
+    """Cache key for a feature matrix.
+
+    Combines ``id(X)`` (fast path: same Python object -> same data) with
+    a content-summary tuple (columns + shape + categorical_feature) so
+    two distinct DataFrame objects that share an ``id()`` (Python recycles
+    ids after GC) still miss the cache rather than corrupting it. Mirrors
+    the design of ``_CB_POOL_CACHE`` in trainer.py and the XGB shim's
+    ``_signature_of``.
+
+    ``categorical_feature`` is included because LightGBM bakes the cat-feature
+    list into the Dataset's binning at construct time; switching it between
+    fits would silently produce wrong splits if we reused the cached dataset.
+    """
+    cols = tuple(X.columns) if hasattr(X, "columns") else None
+    shape = getattr(X, "shape", (None, None))
+    n_rows = int(shape[0]) if shape and shape[0] is not None else None
+    n_cols = int(shape[1]) if shape and len(shape) > 1 and shape[1] is not None else None
+    if isinstance(categorical_feature, list):
+        cat_key = tuple(categorical_feature)
+    else:
+        cat_key = categorical_feature  # 'auto' or None passes through
+    return (id(X), cols, n_rows, n_cols, cat_key)
+
+
+def _build_dataset(
+    X, y, sample_weight,
+    *,
+    reference=None,
+    categorical_feature="auto",
+    feature_name="auto",
+    init_score=None,
+    params=None,
+):
+    """Build a fresh ``lightgbm.Dataset``.
+
+    LightGBM's ``Dataset`` accepts pandas, numpy, scipy.sparse, polars
+    DataFrames (via __array__), pyarrow Tables, and lists of sequences.
+
+    ``reference`` (when given) is passed so val Datasets share the train
+    Dataset's bin mapping -- required by LightGBM for any non-train
+    Dataset to score consistently.
+
+    ``free_raw_data=False`` keeps the source data referenced by the
+    Dataset, so:
+      (a) ``set_label`` / ``set_weight`` continue to work after the
+          first fit (LightGBM keeps the binned representation, but
+          some metadata paths still touch the raw data);
+      (b) val datasets that ``reference=`` this train dataset don't
+          lose their binning context if we rebuild train.
+    """
+    return lgb.Dataset(
+        data=X,
+        label=y,
+        weight=sample_weight,
+        reference=reference,
+        init_score=init_score,
+        categorical_feature=categorical_feature,
+        feature_name=feature_name,
+        params=params,
+        free_raw_data=False,
+    )
+
+
+# ---------------------------------------------------------------------
+# Mixin -- shared fit-with-cache logic
+# ---------------------------------------------------------------------
+
+class _DatasetReuseMixin:
+    """Implements the override-fit + cache logic. Concrete subclasses
+    just bind it to ``LGBMClassifier`` or ``LGBMRegressor``.
+
+    Cache state lives on the instance (not module-global) so:
+      * sklearn.clone() produces a fresh instance with empty cache
+        (correct: cloned model should not silently inherit data);
+      * concurrent training across multiple shims in one process
+        doesn't share state.
+    """
+
+    # Type stubs for static checkers -- actual init runs in subclass via
+    # super().__init__().
+    _cached_train_dataset: Optional[Any]
+    _cached_train_key: Optional[tuple]
+    _cached_val_dataset: Optional[Any]
+    _cached_val_key: Optional[tuple]
+
+    # Names of cache attributes. Listed once so ``__getstate__`` /
+    # ``clear_cache`` / the forward-/backward-transfer blocks in
+    # ``core.py`` stay in sync. Two groups: ``_CACHE_POINTER_ATTRS``
+    # are the heavyweight C++-backed Dataset objects (unpicklable when
+    # constructed, costly in RAM), ``_CACHE_KEY_ATTRS`` are the
+    # lightweight tuple signatures that guard them.
+    _CACHE_POINTER_ATTRS: tuple = ("_cached_train_dataset", "_cached_val_dataset")
+    _CACHE_KEY_ATTRS: tuple = ("_cached_train_key", "_cached_val_key")
+
+    def _init_cache(self) -> None:
+        for _attr in self._CACHE_POINTER_ATTRS + self._CACHE_KEY_ATTRS:
+            setattr(self, _attr, None)
+
+    # ------------------------------------------------------------------
+    # Pickle / joblib round-trip -- strip cached Dataset on save
+    # ------------------------------------------------------------------
+    #
+    # A constructed ``lightgbm.Dataset`` holds a ctypes pointer to the
+    # C++ Dataset handle (``self.handle``) -- joblib/pickle refuses it
+    # with "ctypes objects containing pointers cannot be pickled" once
+    # the dataset is materialised. Same prod regression mode as XGB.
+    #
+    # The cache is transient runtime state -- built on first fit, reused
+    # only within the same process -- so stripping it from the pickle
+    # state is semantically correct: a reloaded model is a fresh
+    # instance whose cache will repopulate on the next ``.fit()`` call.
+    # ``__setstate__`` re-initialises the cache attrs so legacy saves
+    # without the cache fields still load cleanly.
+
+    def __getstate__(self):
+        parent_get = getattr(super(), "__getstate__", None)
+        state = parent_get() if parent_get is not None else self.__dict__
+        state = dict(state)  # shallow copy so we can mutate safely
+        # Strip pointer-typed cache attrs -- their key siblings stay
+        # pickleable as tuples, but they're meaningless without the
+        # Dataset they indexed, so we null them too to avoid a
+        # stale-key-looking-valid trap on load.
+        for _attr in self._CACHE_POINTER_ATTRS + self._CACHE_KEY_ATTRS:
+            state[_attr] = None
+        return state
+
+    def __setstate__(self, state) -> None:
+        parent_set = getattr(super(), "__setstate__", None)
+        if parent_set is not None:
+            parent_set(state)
+        else:
+            self.__dict__.update(state)
+        # Defensive: ensure cache attrs exist even if we loaded an older
+        # save that predated this class's cache layout.
+        for _attr in self._CACHE_POINTER_ATTRS + self._CACHE_KEY_ATTRS:
+            if not hasattr(self, _attr):
+                setattr(self, _attr, None)
+
+    # ------------------------------------------------------------------
+    # Explicit cache release
+    # ------------------------------------------------------------------
+
+    def clear_cache(self) -> None:
+        """Release cached Dataset(s) and their keys. Useful between
+        suite runs to free the C++ memory backing the binned storage."""
+        self._init_cache()
+
+    # ------------------------------------------------------------------
+    # Public extras -- in-place swaps on the cached Dataset
+    # ------------------------------------------------------------------
+
+    def set_label(self, y) -> None:
+        """Swap label on the cached training Dataset in place. Raises
+        if no Dataset has been built yet (call ``.fit()`` first)."""
+        if self._cached_train_dataset is None:
+            raise RuntimeError(
+                "no cached Dataset -- call .fit() first to build one"
+            )
+        self._cached_train_dataset.set_label(np.asarray(y))
+
+    def set_weight(self, w) -> None:
+        """Swap sample weights on the cached training Dataset in place.
+        Raises if no Dataset has been built yet."""
+        if self._cached_train_dataset is None:
+            raise RuntimeError(
+                "no cached Dataset -- call .fit() first to build one"
+            )
+        self._cached_train_dataset.set_weight(np.asarray(w))
+
+    # ------------------------------------------------------------------
+    # Override .fit() -- the cache + native lgb.train() path
+    # ------------------------------------------------------------------
+
+    def fit(  # type: ignore[override]
+        self,
+        X,
+        y,
+        sample_weight=None,
+        init_score=None,
+        eval_set=None,
+        eval_names=None,
+        eval_sample_weight=None,
+        eval_class_weight=None,
+        eval_init_score=None,
+        eval_metric=None,
+        feature_name="auto",
+        categorical_feature="auto",
+        callbacks=None,
+        init_model=None,
+    ):
+        """Cached-Dataset fit.
+
+        Lifecycle:
+          1. Set classifier-only state (_le, _classes, _n_classes) so
+             ``self._process_params("fit")`` picks the right objective.
+          2. Build train Dataset from cache or fresh; mutate label /
+             weight in place on cache hit.
+          3. Build val Dataset(s) from cache or fresh.
+          4. Resolve native params via ``self._process_params("fit")``.
+          5. Call ``lightgbm.train(params, train_set, num_boost_round=N,
+             valid_sets=...)``.
+          6. Attach Booster to ``self._Booster`` plus the bookkeeping
+             attrs LGBM sklearn predict expects (``_n_features``,
+             ``_evals_result``, ``_best_iteration``, ``_best_score``).
+
+        Parameters mirror ``LGBMClassifier.fit`` so the shim is a
+        drop-in replacement.
+        """
+        # Lazy init in case __init__ wasn't called via subclass route
+        # (sklearn.clone() of an exotic estimator).
+        if not hasattr(self, "_cached_train_dataset"):
+            self._init_cache()
+
+        # ---- Subclass-specific pre-fit bookkeeping -------------------
+        # Classifier needs _le / _classes / _n_classes set BEFORE
+        # _process_params("fit") so it can pick binary vs multiclass
+        # objective. Regressor is a no-op.
+        y_for_fit = self._pre_fit_bookkeeping(y)
+
+        # ---- Train Dataset: cache-or-build ---------------------------
+        train_key = _signature_of(X, categorical_feature)
+        if self._cached_train_key == train_key and self._cached_train_dataset is not None:
+            dtrain = self._cached_train_dataset
+            dtrain.set_label(np.asarray(y_for_fit))
+            if sample_weight is not None:
+                dtrain.set_weight(np.asarray(sample_weight))
+            else:
+                # When sample_weight was set previously and now None is
+                # passed, "uniform weights" is the desired semantic. We
+                # set ones to clear any prior weight; LightGBM treats
+                # an all-1 weight identically to no-weight.
+                dtrain.set_weight(np.ones(dtrain.num_data(), dtype=np.float32))
+            logger.debug(
+                "[lgb-shim] reused cached train Dataset (id=%d)",
+                id(dtrain),
+            )
+        else:
+            dtrain = _build_dataset(
+                X, y_for_fit, sample_weight,
+                categorical_feature=categorical_feature,
+                feature_name=feature_name,
+                init_score=init_score,
+            )
+            self._cached_train_dataset = dtrain
+            self._cached_train_key = train_key
+            logger.debug(
+                "[lgb-shim] built fresh train Dataset (id=%d)",
+                id(dtrain),
+            )
+
+        # ---- Eval Dataset(s): cache-or-build -------------------------
+        # LightGBM's lgb.train() accepts valid_sets as a list and
+        # valid_names as a parallel list of names.
+        valid_sets: List[Any] = []
+        valid_names: List[str] = []
+        if eval_set:
+            for i, pair in enumerate(eval_set):
+                X_val, y_val_raw = pair
+                # Transform val labels through the encoder for classifier;
+                # regressor returns y unchanged.
+                y_val = self._transform_y_for_eval(y_val_raw)
+                w_val = (
+                    eval_sample_weight[i]
+                    if eval_sample_weight and i < len(eval_sample_weight)
+                    else None
+                )
+                init_val = (
+                    eval_init_score[i]
+                    if eval_init_score and i < len(eval_init_score)
+                    else None
+                )
+                val_key = _signature_of(X_val, categorical_feature)
+                if (
+                    self._cached_val_key == val_key
+                    and self._cached_val_dataset is not None
+                ):
+                    dval = self._cached_val_dataset
+                    dval.set_label(np.asarray(y_val))
+                    if w_val is not None:
+                        dval.set_weight(np.asarray(w_val))
+                else:
+                    dval = _build_dataset(
+                        X_val, y_val, w_val,
+                        reference=dtrain,  # share bin mapping
+                        categorical_feature=categorical_feature,
+                        feature_name=feature_name,
+                        init_score=init_val,
+                    )
+                    self._cached_val_dataset = dval
+                    self._cached_val_key = val_key
+                valid_sets.append(dval)
+                if eval_names and i < len(eval_names):
+                    valid_names.append(eval_names[i])
+                else:
+                    valid_names.append(f"validation_{i}")
+
+        # ---- Resolve params for lgb.train() --------------------------
+        # ``_process_params("fit")`` strips sklearn-only fields
+        # (n_estimators, importance_type, class_weight) and resolves
+        # ``objective`` based on _n_classes. It also sets
+        # ``self._objective`` if it was None -- our pre-fit hook left
+        # it None for that resolution path.
+        params: dict = self._process_params("fit")
+        n_estimators = self.get_params().get("n_estimators", 100) or 100
+
+        # Translate eval_metric -> params["metric"] / feval. String /
+        # list-of-strings go into params; callables go to feval. Mirrors
+        # LGBMModel.fit's handling.
+        feval = None
+        if eval_metric is not None:
+            metric_strs: List[str] = []
+            feval_callables: List[Any] = []
+            metrics_iter = eval_metric if isinstance(eval_metric, (list, tuple)) else [eval_metric]
+            for m in metrics_iter:
+                if callable(m):
+                    feval_callables.append(m)
+                elif isinstance(m, str):
+                    metric_strs.append(m)
+            if metric_strs:
+                # Merge with any pre-existing metric in params (preserve
+                # both rather than overwrite -- LGBM accepts a list).
+                existing = params.get("metric")
+                if existing is None:
+                    params["metric"] = metric_strs if len(metric_strs) > 1 else metric_strs[0]
+                elif isinstance(existing, list):
+                    params["metric"] = existing + metric_strs
+                else:
+                    params["metric"] = [existing] + metric_strs
+            if feval_callables:
+                feval = feval_callables if len(feval_callables) > 1 else feval_callables[0]
+
+        # ---- Native lgb.train() --------------------------------------
+        evals_result: dict = {}
+        train_callbacks = list(callbacks) if callbacks else []
+        if valid_sets:
+            train_callbacks.append(lgb.record_evaluation(evals_result))
+
+        booster = lgb.train(
+            params=params,
+            train_set=dtrain,
+            num_boost_round=int(n_estimators),
+            valid_sets=valid_sets or None,
+            valid_names=valid_names or None,
+            feval=feval,
+            callbacks=train_callbacks or None,
+            init_model=init_model,
+        )
+
+        # ---- Attach Booster + sklearn-convention metadata ------------
+        # LGBMModel exposes ``booster_`` as a property returning
+        # ``self._Booster``; ``predict`` / ``predict_proba`` route
+        # through ``self._Booster.predict()``. The bookkeeping attrs
+        # below mirror what ``LGBMModel.fit`` sets after its native
+        # train() call so the inherited methods see the same shape of
+        # state.
+        self._Booster = booster
+        self._n_features = booster.num_feature()
+        self._n_features_in = self._n_features
+        self._evals_result = evals_result
+        self._best_iteration = booster.best_iteration
+        self._best_score = booster.best_score
+        # ``fitted_`` is the flag ``__sklearn_is_fitted__`` checks --
+        # without it predict raises NotFittedError even though _Booster
+        # is set. Mirror of LGBMModel.fit's final state-flip line.
+        self.fitted_ = True
+
+        # ``_class_weight`` is consumed by predict_proba (multiclass
+        # path) and by some sample weighting helpers; set it to a safe
+        # default if pre_fit_bookkeeping didn't already.
+        if not hasattr(self, "_class_weight"):
+            self._class_weight = getattr(self, "class_weight", None)
+
+        return self
+
+    # ------------------------------------------------------------------
+    # Subclass hooks
+    # ------------------------------------------------------------------
+
+    def _pre_fit_bookkeeping(self, y):
+        """Subclass override: classifier sets ``_le`` / ``_classes`` /
+        ``_n_classes`` and returns the LabelEncoder-transformed y;
+        regressor returns y unchanged."""
+        return y
+
+    def _transform_y_for_eval(self, y):
+        """Subclass override: classifier puts eval-set y through the
+        same LabelEncoder used for train; regressor returns y unchanged."""
+        return y
+
+
+# ---------------------------------------------------------------------
+# Concrete subclasses
+# ---------------------------------------------------------------------
+
+if _LGB_AVAILABLE:
+
+    class LGBMClassifierWithDatasetReuse(_DatasetReuseMixin, LGBMClassifier):
+        """LGBMClassifier with cached Dataset across fits.
+
+        See module docstring for the full rationale and migration path.
+        """
+
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self._init_cache()
+
+        def __sklearn_clone__(self):
+            """Override sklearn's clone to produce a fresh instance with
+            an empty cache. Default ``clone()`` would copy params via
+            ``get_params(deep=False)`` and run ``__init__``, which already
+            calls ``_init_cache()`` -- so default behaviour is correct.
+            But we declare ``__sklearn_clone__`` explicitly to make the
+            contract visible: cloned instance MUST NOT inherit cache."""
+            return type(self)(**self.get_params(deep=False))
+
+        def _pre_fit_bookkeeping(self, y):
+            """Set _le / _classes / _n_classes / _objective so
+            _process_params("fit") picks binary vs multiclass. Mirror of
+            LGBMClassifier.fit's pre-train state setup."""
+            y_arr = np.asarray(y)
+            self._le = _LGBMLabelEncoder().fit(y_arr)
+            y_encoded = self._le.transform(y_arr)
+            self._class_map = dict(zip(self._le.classes_, self._le.transform(self._le.classes_)))
+            self._classes = self._le.classes_
+            self._n_classes = len(self._classes)
+            # Leave _objective None so _process_params resolves it from
+            # _n_classes (-> "binary" or "multiclass"). If a user already
+            # set objective via params, _process_params handles that path.
+            self._objective = None
+            # _class_weight: the predict path inspects this in some
+            # branches; mirror LGBMModel.fit's default.
+            class_weight = getattr(self, "class_weight", None)
+            if isinstance(class_weight, dict):
+                self._class_weight = {self._class_map[k]: v for k, v in class_weight.items()}
+            else:
+                self._class_weight = class_weight
+            return y_encoded
+
+        def _transform_y_for_eval(self, y):
+            """Pass eval y through the same LabelEncoder so train and val
+            share the encoded space."""
+            if self._le is None:
+                return y
+            return self._le.transform(np.asarray(y))
+
+
+    class LGBMRegressorWithDatasetReuse(_DatasetReuseMixin, LGBMRegressor):
+        """LGBMRegressor with cached Dataset across fits.
+
+        See module docstring for the full rationale and migration path.
+        """
+
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self._init_cache()
+
+        def __sklearn_clone__(self):
+            return type(self)(**self.get_params(deep=False))
+
+        # _pre_fit_bookkeeping / _transform_y_for_eval inherited as
+        # identity -- regressor doesn't use a label encoder.
+
+
+__all__ = [
+    "lgb_dataset_reuse_capable",
+    "LGBMClassifierWithDatasetReuse",
+    "LGBMRegressorWithDatasetReuse",
+]
