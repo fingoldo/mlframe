@@ -34,25 +34,30 @@ logger = logging.getLogger(__name__)
 
 
 def _filter_models_for_ranking(mlframe_models: Optional[List[str]]) -> List[str]:
-    """Drop models without native rankers (HGB, Linear, etc.) with WARN."""
+    """Drop models without native rankers (HGB, Linear, etc.) with WARN.
+
+    Supported: CatBoost / XGBoost / LightGBM ship native rankers; MLP gets
+    a custom RankNet/ListNet pairwise/listwise loss
+    (mlframe.training.neural.ranker.MLPRanker).
+    """
     if not mlframe_models:
         return ["cb", "xgb", "lgb"]
     requested = [m.lower() for m in mlframe_models]
-    supported = {"cb", "xgb", "lgb"}
+    supported = {"cb", "xgb", "lgb", "mlp"}
     kept = [m for m in requested if m in supported]
     dropped = [m for m in requested if m not in supported]
     if dropped:
         logger.warning(
             "LTR target_type: dropping %d model(s) without native ranker: %s. "
-            "Only CatBoost / XGBoost / LightGBM ship native rankers; HGB / "
-            "Linear / sklearn would need a regression-then-rerank workaround "
-            "(not implemented). Surviving models: %s",
+            "Supported rankers: cb / xgb / lgb (native) + mlp (RankNet/ListNet); "
+            "HGB / Linear / sklearn would need a regression-then-rerank "
+            "workaround (not implemented). Surviving models: %s",
             len(dropped), dropped, kept,
         )
     if not kept:
         raise NotImplementedError(
             f"LTR target_type: every requested model {requested} lacks a "
-            "native ranker. Pick at least one of cb / xgb / lgb."
+            "native ranker. Pick at least one of cb / xgb / lgb / mlp."
         )
     return kept
 
@@ -60,7 +65,7 @@ def _filter_models_for_ranking(mlframe_models: Optional[List[str]]) -> List[str]
 def _strategy_for_model(model_name: str):
     """Return the strategy instance for a given model short-tag."""
     from mlframe.training.strategies import (
-        CatBoostStrategy, XGBoostStrategy, TreeModelStrategy,
+        CatBoostStrategy, XGBoostStrategy, TreeModelStrategy, NeuralNetStrategy,
     )
     name = model_name.lower()
     if name == "cb":
@@ -69,6 +74,8 @@ def _strategy_for_model(model_name: str):
         return XGBoostStrategy()
     if name == "lgb":
         return TreeModelStrategy()
+    if name == "mlp":
+        return NeuralNetStrategy()
     raise ValueError(f"unknown ranker model {model_name!r}")
 
 

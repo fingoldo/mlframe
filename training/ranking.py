@@ -174,7 +174,7 @@ def prepare_lgb_inputs(
 
 
 def _strategy_flavor(strategy) -> str:
-    """Map strategy class name to one of {'catboost','xgboost','lightgbm'}."""
+    """Map strategy class name to one of {'catboost','xgboost','lightgbm','mlp'}."""
     name = type(strategy).__name__
     if name == "CatBoostStrategy":
         return "catboost"
@@ -182,9 +182,11 @@ def _strategy_flavor(strategy) -> str:
         return "xgboost"
     if name == "TreeModelStrategy":
         return "lightgbm"
+    if name == "NeuralNetStrategy":
+        return "mlp"
     raise NotImplementedError(
         f"Strategy {name!r} has no native ranker. LTR target_type requires "
-        f"CatBoost / XGBoost / LightGBM. Drop this strategy from "
+        f"CatBoost / XGBoost / LightGBM / MLP. Drop this strategy from "
         f"mlframe_models or pick a non-LTR target."
     )
 
@@ -237,6 +239,13 @@ def fit_ranker(
         )
     elif flavor == "xgboost":
         return _fit_xgb_ranker(
+            X_train, y_train, group_ids_train,
+            X_val, y_val, group_ids_val,
+            obj_kwargs, model_kwargs, cat_features,
+            early_stopping_rounds=early_stopping_rounds, verbose=verbose,
+        )
+    elif flavor == "mlp":
+        return _fit_mlp_ranker(
             X_train, y_train, group_ids_train,
             X_val, y_val, group_ids_val,
             obj_kwargs, model_kwargs, cat_features,
@@ -386,6 +395,58 @@ def _fit_lgb_ranker(
     }
 
 
+def _fit_mlp_ranker(
+    X_train, y_train, group_ids_train,
+    X_val, y_val, group_ids_val,
+    obj_kwargs, model_kwargs, cat_features,
+    *, early_stopping_rounds, verbose,
+) -> dict:
+    """Fit an MLPRanker (PyTorch Lightning + RankNet/ListNet loss).
+
+    cat_features: MLPRanker doesn't accept raw categoricals (it operates
+    on numeric tensors). Caller must encode them to numeric upstream.
+    """
+    from mlframe.training.neural.ranker import MLPRanker
+
+    # Map our cross-library obj_kwargs to MLPRanker init kwargs.
+    # NeuralNetStrategy.get_ranker_objective_kwargs returns
+    # {"loss_fn": "ranknet"} (or "listnet"); MLPRanker signature uses
+    # the same key.
+    init_kwargs = dict(model_kwargs or {})
+    if "loss_fn" in obj_kwargs:
+        init_kwargs.setdefault("loss_fn", obj_kwargs["loss_fn"])
+    if early_stopping_rounds is not None:
+        init_kwargs.setdefault("early_stopping_patience", early_stopping_rounds)
+    init_kwargs.setdefault("verbose", 1 if verbose else 0)
+
+    # If caller passed CB/XGB/LGB-style kwargs (iterations / n_estimators /
+    # learning_rate), propagate -> MLPRanker normalises to n_estimators.
+    if "iterations" in init_kwargs and "n_estimators" not in init_kwargs:
+        init_kwargs["n_estimators"] = init_kwargs.pop("iterations")
+    elif "iterations" in init_kwargs:
+        init_kwargs.pop("iterations")  # silently drop dup
+
+    if cat_features:
+        logger.info(
+            "MLPRanker: cat_features=%s passed but ignored -- MLPRanker "
+            "operates on numeric tensors; caller must pre-encode.",
+            cat_features,
+        )
+
+    model = MLPRanker(**init_kwargs)
+    model.fit(
+        X_train, y_train, group_ids_train,
+        X_val=X_val, y_val=y_val, group_ids_val=group_ids_val,
+        cat_features=cat_features,
+    )
+    return {
+        "model": model,
+        "flavor": "mlp",
+        "objective_kwargs": obj_kwargs,
+        "sort_idx_train": np.arange(len(y_train), dtype=np.intp),
+    }
+
+
 # ----------------------------------------------------------------------------------
 # Predict (uniform shape regardless of flavor)
 # ----------------------------------------------------------------------------------
@@ -408,6 +469,8 @@ def predict_ranker_scores(fitted: dict, X: Any, group_ids: Optional[np.ndarray] 
     elif flavor == "xgboost":
         scores = model.predict(X)
     elif flavor == "lightgbm":
+        scores = model.predict(X)
+    elif flavor == "mlp":
         scores = model.predict(X)
     else:
         raise AssertionError(f"unknown flavor {flavor!r}")

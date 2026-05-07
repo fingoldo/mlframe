@@ -1166,6 +1166,11 @@ class LearningToRankConfig(BaseConfig):
     """LightGBM objective. ``lambdarank`` is robust on both binary and
     graded labels; ``rank_xendcg`` is an alternative."""
 
+    mlp_loss_fn: str = "ranknet"
+    """MLPRanker loss. ``ranknet`` (default; pairwise BCE on score
+    differences, Burges 2005) or ``listnet`` (listwise softmax
+    cross-entropy, Cao 2007). Both handle binary + graded relevance."""
+
     eval_at: tuple = (1, 5, 10)
     """Cutoffs for NDCG@k / MAP@k metrics. Mirrors LightGBM ``eval_at``."""
 

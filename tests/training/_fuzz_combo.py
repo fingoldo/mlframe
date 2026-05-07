@@ -74,7 +74,7 @@ from typing import Any, Callable
 # Axis space
 # ---------------------------------------------------------------------------
 
-MODELS: tuple[str, ...] = ("cb", "xgb", "lgb", "hgb", "linear")
+MODELS: tuple[str, ...] = ("cb", "xgb", "lgb", "hgb", "linear", "mlp")
 
 AXES: dict[str, tuple[Any, ...]] = {
     "input_type": ("pandas", "polars_utf8", "polars_enum", "polars_nullable"),

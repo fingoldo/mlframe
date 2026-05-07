@@ -355,6 +355,7 @@ class MLPTorchModel(L.LightningModule):
         lr_scheduler_monitor: Optional[str] = None,
         load_best_weights_on_train_end: bool = True,
         log_lr: bool = False,
+        task_type: Optional[str] = None,
     ):
         """
         PyTorch Lightning module for MLP training.
@@ -402,6 +403,12 @@ class MLPTorchModel(L.LightningModule):
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
         self.best_epoch = None
+        # 2026-05-07: task_type explicitly chooses predict_step activation
+        # for K>1 outputs. ``None`` (default) keeps legacy behaviour
+        # (softmax for multi-class). ``"multilabel"`` switches to per-label
+        # sigmoid (each output independent binary). Regression and binary
+        # paths are unaffected (handled by output-dim==1 branch).
+        self.task_type = task_type
 
         # Initialize lists to store outputs during epoch
         self.training_step_outputs = []
@@ -792,9 +799,14 @@ class MLPTorchModel(L.LightningModule):
             logits = self(x)
 
         # For classification, apply softmax to get probabilities
-        # (MLPTorchModel doesn't have is_classification attribute, so check network output)
+        # (MLPTorchModel doesn't have is_classification attribute, so check network output).
+        # 2026-05-07: ``task_type='multilabel'`` switches to per-label
+        # sigmoid (each output independent binary in [0, 1]). For
+        # multi-class K>1 (default) softmax keeps the rows summing to 1.
         if logits.dim() == 2 and logits.shape[1] > 1:
-            # Multi-class classification - return probabilities
+            if self.task_type == "multilabel":
+                return torch.sigmoid(logits)
+            # Multi-class classification - softmax probabilities (sum=1 per row)
             return torch.softmax(logits, dim=1)
         else:
             # Regression or binary classification - return raw values

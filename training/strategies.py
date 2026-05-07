@@ -849,12 +849,75 @@ class NeuralNetStrategy(ModelPipelineStrategy):
     - Cannot handle NaN values - need imputation
     - Benefit significantly from feature scaling
     - Require category encoding
+
+    Multi-output dispatch (2026-05-07):
+    - **multiclass**: native via ``F.cross_entropy`` (default loss_fn) +
+      softmax in ``MLPTorchModel.predict_step`` for K>1 outputs. Already
+      works at the model level; the flag below makes the dispatch
+      consistent across strategies.
+    - **multilabel**: native via per-label ``F.binary_cross_entropy_with_logits``
+      + sigmoid output (separate path; see ``get_classif_objective_kwargs``).
+    - **learning_to_rank**: native via RankNet/ListNet pairwise loss in
+      ``mlframe.training.neural.ranker.MLPRanker``.
     """
 
     cache_key = "neural"
     requires_scaling = True
     requires_encoding = True
     requires_imputation = True
+    supports_native_multiclass = True
+    supports_native_multilabel = True
+    supports_native_ranking = True
+
+    def get_classif_objective_kwargs(self, target_type, n_classes: int,
+                                      multilabel_config=None) -> dict:
+        """Per-target loss_fn dispatch for the MLP estimator.
+
+        Returned dict is consumed by ``_configure_mlp_params`` (trainer.py)
+        which threads it into ``mlp_kwargs.model_params.loss_fn`` +
+        ``mlp_kwargs.datamodule_params.labels_dtype``. Returns the empty
+        dict for binary (default ``F.cross_entropy`` already correct).
+        """
+        from .configs import TargetTypes as _TT
+
+        # Lazy import torch so a non-MLP run doesn't pay for PL/torch import.
+        import torch
+        import torch.nn.functional as F
+
+        if target_type is None or target_type == _TT.BINARY_CLASSIFICATION:
+            return {}  # default cross_entropy is correct for binary
+        if target_type == _TT.MULTICLASS_CLASSIFICATION:
+            # Default ``F.cross_entropy`` + ``int64`` labels already
+            # handle K>2 -- explicit return for symmetry with other strategies.
+            return {"loss_fn": F.cross_entropy, "labels_dtype": torch.int64}
+        if target_type == _TT.MULTILABEL_CLASSIFICATION:
+            # Per-label sigmoid: BCE with logits is numerically stable
+            # and accepts (N, K) float32 labels.
+            return {
+                "loss_fn": F.binary_cross_entropy_with_logits,
+                "labels_dtype": torch.float32,
+                # Predict-time sigmoid signal so MLPTorchModel.predict_step
+                # uses sigmoid (not softmax) for K>1 outputs.
+                "task_type": "multilabel",
+            }
+        return {}
+
+    def get_ranker_objective_kwargs(self, ranking_config=None, y_max=None):
+        """MLPRanker loss_fn dispatch. Default ``ranknet`` (pairwise BCE
+        on score differences); alternative ``listnet`` (listwise softmax
+        cross-entropy). Both accept binary or graded relevance.
+
+        ``y_max`` unused -- both losses handle the full label range.
+        ``ranking_config.lgb_objective`` doesn't apply to MLP; MLPRanker
+        consumes loss_fn directly via the ``loss_fn`` key.
+        """
+        loss_fn = "ranknet"
+        if ranking_config is not None:
+            # Optional override via a dedicated MLP key. Keeps the per-
+            # library config clean (cb_loss_fn / xgb_objective / lgb_objective
+            # for those three; mlp_loss_fn for MLP).
+            loss_fn = getattr(ranking_config, "mlp_loss_fn", None) or loss_fn
+        return {"loss_fn": loss_fn}
 
 
 class LinearModelStrategy(ModelPipelineStrategy):

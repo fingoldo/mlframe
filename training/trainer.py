@@ -948,6 +948,12 @@ def _maybe_wrap_for_2d_target(model, train_target):
         return model
     if _mt in ("CatBoostClassifier", "CatBoostRegressor"):
         return model  # CB native multilabel via MultiLogloss
+    if _mt in ("PytorchLightningClassifier", "PytorchLightningRegressor"):
+        # 2026-05-07: MLP supports multilabel natively via per-label
+        # sigmoid + BCEWithLogitsLoss (NeuralNetStrategy.supports_native_
+        # multilabel=True). Output layer is K units, predict_step applies
+        # sigmoid when task_type='multilabel'. No wrap needed.
+        return model
     # HGB / LGB / Linear / XGB sklearn wrappers all require 1-D y for
     # classifiers. XGB has native multi-output via the binary:logistic
     # loss but the sklearn wrapper still rejects 2-D y; only the native
@@ -4728,8 +4734,15 @@ def _configure_mlp_params(
     config_params: dict,
     use_regression: bool,
     metamodel_func: callable,
+    target_type=None,
 ) -> dict:
-    """Configure MLP (PyTorch Lightning) model parameters."""
+    """Configure MLP (PyTorch Lightning) model parameters.
+
+    2026-05-07: when ``target_type`` is supplied (multiclass / multilabel),
+    consult ``NeuralNetStrategy.get_classif_objective_kwargs`` for the
+    correct loss_fn + labels_dtype + task_type. Falls back to legacy
+    ``use_regression`` boolean for back-compat.
+    """
     mlp_kwargs = config_params.get("mlp_kwargs", {})
 
     _arch_cls, _reg_cls, _cls_cls = _get_neural_components()
@@ -4762,6 +4775,25 @@ def _configure_mlp_params(
         mlp_general_params["datamodule_params"]["labels_dtype"] = torch.float32
         mlp_model = _reg_cls(network_params=mlp_network_params, **mlp_general_params)
     else:
+        # 2026-05-07: target-type-aware loss / dtype / task_type for multi-*
+        # classification. Strategy method returns the dispatch dict;
+        # empty for binary (defaults already correct).
+        if target_type is not None:
+            from .strategies import NeuralNetStrategy
+            from .configs import TargetTypes as _TT
+            n_cls = 0  # not used by NeuralNetStrategy.get_classif_objective_kwargs
+            mlp_obj = NeuralNetStrategy().get_classif_objective_kwargs(target_type, n_cls)
+            if mlp_obj:
+                mlp_general_params["model_params"] = mlp_general_params.get("model_params", {}).copy()
+                if "loss_fn" in mlp_obj:
+                    mlp_general_params["model_params"]["loss_fn"] = mlp_obj["loss_fn"]
+                # task_type lands inside model_params and is consumed by
+                # MLPTorchModel.__init__ to switch predict_step activation.
+                if "task_type" in mlp_obj:
+                    mlp_general_params["model_params"]["task_type"] = mlp_obj["task_type"]
+                if "labels_dtype" in mlp_obj:
+                    mlp_general_params["datamodule_params"] = mlp_general_params.get("datamodule_params", {}).copy()
+                    mlp_general_params["datamodule_params"]["labels_dtype"] = mlp_obj["labels_dtype"]
         mlp_model = _cls_cls(network_params=mlp_network_params, **mlp_general_params)
 
     return dict(model=metamodel_func(mlp_model))
@@ -5342,6 +5374,7 @@ def configure_training_params(
             config_params=config_params,
             use_regression=use_regression,
             metamodel_func=metamodel_func,
+            target_type=target_type,
         )
 
     ngb_params = None

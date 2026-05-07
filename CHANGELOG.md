@@ -1,5 +1,99 @@
 # Changelog
 
+## 2026-05-07 — MLP × multiclass / multilabel / LearningToRank
+
+User asked to extend MLP (PyTorch Lightning) coverage to all three
+multi-output target types. Audit found MLP supported only regression +
+binary classification at the suite level; multiclass / multilabel / LTR
+had zero coverage despite the model code already being multiclass-aware.
+
+### Added
+
+- **`NeuralNetStrategy` flags + dispatch** ([strategies.py](mlframe/training/strategies.py)):
+  `supports_native_multiclass = True`, `supports_native_multilabel = True`,
+  `supports_native_ranking = True`. New
+  `get_classif_objective_kwargs(target_type, n_classes)`:
+  - binary -> `{}` (default cross_entropy + int64 already correct)
+  - multiclass -> `{"loss_fn": F.cross_entropy, "labels_dtype": int64}`
+  - multilabel -> `{"loss_fn": F.binary_cross_entropy_with_logits,
+    "labels_dtype": float32, "task_type": "multilabel"}`
+  Plus `get_ranker_objective_kwargs(ranking_config)` -> `{"loss_fn": "ranknet"}`
+  (default; `listnet` alternative via `LearningToRankConfig.mlp_loss_fn`).
+- **MLP multilabel support** ([base.py](mlframe/training/neural/base.py)):
+  `PytorchLightningEstimator.fit` detects 2-D y -> sets `_is_multilabel=True`,
+  `n_labels_=K`, `classes_=None`. Network output K units; `MLPTorchModel.predict_step`
+  switches softmax -> sigmoid via new `task_type="multilabel"` constructor arg.
+- **`MLPRanker`** ([neural/ranker.py](mlframe/training/neural/ranker.py)):
+  sklearn-shaped wrapper. `loss_fn="ranknet"` (Burges 2005 pairwise BCE
+  on score differences, numerically stable via `BCEWithLogitsLoss`) or
+  `"listnet"` (Cao 2007 listwise softmax KL). Group-aware
+  `GroupBatchSampler` yields one query per training step (skips
+  singleton + single-class queries). Shipped as native ranker via
+  `mlframe.training.ranking.fit_ranker(NeuralNetStrategy)` -> dispatched
+  to `_fit_mlp_ranker`. `train_mlframe_ranker_suite` filter accepts mlp.
+- **`LearningToRankConfig.mlp_loss_fn`** field for switching MLPRanker
+  between ranknet (default) and listnet.
+- **Fuzz combo coverage**: `_fuzz_combo.MODELS` now includes `"mlp"`
+  (was excluded entirely). 72 / 150 default combos now hit MLP across
+  all 5 target types (regression, binary, multiclass, multilabel, ltr).
+  `test_fuzz_suite._skip_if_deps_missing` adds `"mlp": "lightning"`.
+
+### Fixed (regressions caught while wiring)
+
+- **`MLP.classes_` was Python list, not ndarray** ([base.py:208](mlframe/training/neural/base.py#L208)):
+  fixed via `np.asarray(sorted(...))`. Was crashing
+  `evaluation.py::report_probabilistic_model_perf` line
+  `preds = model.classes_[preds]` with `TypeError: only integer scalar
+  arrays can be converted to a scalar index` for any K>2 multiclass MLP.
+- **`TorchDataModule` flattened 2-D labels to 1-D** ([data.py:73](mlframe/training/neural/data.py#L73)):
+  unconditional `reshape(-1)` collapsed `(N, K)` multilabel targets to
+  `(N*K,)`, then `BCEWithLogitsLoss` raised
+  `Target size != input size`. Now keeps 2-D labels intact; 1-D path
+  unchanged for back-compat.
+- **`_maybe_wrap_for_2d_target` wrapped MLP in `MultiOutputClassifier`**
+  ([trainer.py:951](mlframe/training/trainer.py#L951)):
+  added `PytorchLightningClassifier`/`PytorchLightningRegressor` to the
+  no-wrap list (MLP supports multilabel natively). Was forcing
+  per-label fit, breaking the native sigmoid path.
+
+### Tests added (31 new, all green)
+
+- **`tests/training/test_mlp_multi_targets.py`** (15 tests):
+  strategy flag assertions, `get_classif_objective_kwargs` dispatch,
+  end-to-end multiclass via suite, end-to-end multilabel via suite
+  (no MultiOutputClassifier wrap), `classes_` ndarray regression,
+  `TorchDataModule` 2-D label preservation regression.
+- **`tests/training/test_mlp_ranker.py`** (16 tests): RankNet pairwise
+  loss correctness (perfect / inverse / equal-relevance / single-doc),
+  ListNet correctness, `GroupBatchSampler` skip logic, `MLPRanker`
+  fit/predict shape, `NeuralNetStrategy.get_ranker_objective_kwargs`
+  default + override, `fit_ranker(NeuralNetStrategy)` dispatch,
+  `_filter_models_for_ranking` keeps mlp, end-to-end suite with mlp-only
+  + 4-model ensemble (cb+xgb+lgb+mlp).
+
+### Verification
+
+```bash
+# 31 new MLP tests
+pytest tests/training/test_mlp_multi_targets.py tests/training/test_mlp_ranker.py --no-cov
+
+# Non-regression on previously-green LTR tests (64 tests)
+pytest tests/training/test_ranking_*.py --no-cov
+
+# Pre-existing 3 MLP tests (omegaconf-fixed since 2026-05-04 batch)
+pytest tests/training/test_core.py -k "mlp" --no-cov
+
+# Quick fuzz slice with MLP combos
+pytest tests/training/test_fuzz_suite.py -k "c0005 or c0010 or c0014" --no-cov
+```
+
+### Library / installed-version notes
+
+- PyTorch Lightning 2.5.5 + omegaconf 2.3.0 (verified compatible after
+  2026-05-04 omegaconf upgrade).
+- `MLPRanker` uses `LayerNorm` (group-batching breaks BatchNorm running
+  stats; see [ranker.py:264](mlframe/training/neural/ranker.py#L264)).
+
 ## 2026-05-04 — Learning-to-Rank target type
 
 User asked to add Learning-to-Rank (LTR) as a first-class target type

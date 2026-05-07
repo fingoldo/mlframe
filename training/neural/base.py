@@ -201,13 +201,33 @@ class PytorchLightningEstimator(BaseEstimator):
 
         # Set classifier-specific attributes
         if isinstance(self, ClassifierMixin):
-            if is_partial_fit and classes is not None:
-                self.classes_ = np.array(classes)
-            elif not hasattr(self, "classes_"):
-                self.classes_ = sorted(np.unique(y) if not isinstance(y, pd.Series) else y.unique())
-            num_classes = len(self.classes_)
+            # 2026-05-07: detect multilabel target (2-D y of shape (N, K)).
+            # Multilabel has independent binary labels -- no single
+            # classes_ array; instead store n_labels_ + skip the
+            # np.unique enumeration (which would collapse all labels'
+            # values into one set).
+            _y_check = y.values if isinstance(y, pd.Series) else y
+            _y_check = np.asarray(_y_check) if not isinstance(_y_check, np.ndarray) else _y_check
+            self._is_multilabel = bool(_y_check.ndim == 2 and _y_check.shape[1] >= 1)
+
+            if self._is_multilabel:
+                self.n_labels_ = int(_y_check.shape[1])
+                self.classes_ = None  # sentinel; predict_proba returns per-label sigmoid probs
+                num_classes = self.n_labels_
+            else:
+                if is_partial_fit and classes is not None:
+                    self.classes_ = np.asarray(classes)
+                elif not hasattr(self, "classes_"):
+                    # 2026-05-07: must be ndarray (not list) for numpy fancy
+                    # indexing in evaluation.py::report_probabilistic_model_perf
+                    # (line ``preds = model.classes_[preds]`` fails on list +
+                    # ndarray index). Sklearn convention is classes_ ndarray.
+                    _y_arr = (y.unique() if isinstance(y, pd.Series) else np.unique(y))
+                    self.classes_ = np.asarray(sorted(_y_arr))
+                num_classes = len(self.classes_)
         else:
             num_classes = 1
+            self._is_multilabel = False
 
         # Reset network on fit() to match sklearn convention (fit resets, partial_fit continues).
         # This ensures each fit() call creates a fresh network with correct input dimensions,

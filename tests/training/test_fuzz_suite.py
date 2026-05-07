@@ -472,6 +472,7 @@ def _skip_if_deps_missing(models: tuple[str, ...]) -> None:
     pkg = {
         "cb": "catboost", "xgb": "xgboost", "lgb": "lightgbm",
         "hgb": "sklearn", "linear": "sklearn",
+        "mlp": "lightning",  # PyTorch Lightning gates the MLP path
     }
     for m in models:
         pytest.importorskip(pkg[m])
@@ -736,13 +737,13 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     _ltr_models = list(combo.models)
     _ltr_ranking_config = None
     if _is_ltr:
-        _supported = {"cb", "xgb", "lgb"}
+        _supported = {"cb", "xgb", "lgb", "mlp"}  # 2026-05-07: MLP via RankNet/ListNet
         _filtered = [m for m in combo.models if m.lower() in _supported]
         if not _filtered:
             # No supported model in this combo -- skip; not a real bug.
             pytest.skip(
                 f"LTR combo {combo.short_id()}: requested models "
-                f"{combo.models} have no native ranker (need cb/xgb/lgb)"
+                f"{combo.models} have no native ranker (need cb/xgb/lgb/mlp)"
             )
         _ltr_models = _filtered
         from mlframe.training.configs import LearningToRankConfig

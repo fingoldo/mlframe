@@ -70,8 +70,17 @@ class TorchDataset(Dataset):
             elif not isinstance(labels, (np.ndarray, torch.Tensor)):
                 labels = np.asarray(labels)
 
-            labels = np.asarray(labels).reshape(-1)
-            self.labels = torch.tensor(labels, dtype=labels_dtype, device=device)
+            # 2026-05-07: preserve 2-D labels for multilabel
+            # ``(N, K)``. Previously ``reshape(-1)`` flattened to
+            # ``(N*K,)`` which silently broke BCEWithLogitsLoss
+            # ``(target.shape != input.shape)``. Pure 1-D labels
+            # (regression / single-label classification) keep their
+            # original shape via the ``_arr.ndim == 1`` no-op branch.
+            _arr = np.asarray(labels)
+            if _arr.ndim == 1:
+                _arr = _arr.reshape(-1)  # explicit 1-D contiguous (no-op for already-1D)
+            # 2-D ndarray passes through; ndim>=3 untouched (caller's responsibility)
+            self.labels = torch.tensor(_arr, dtype=labels_dtype, device=device)
             dataset_length = len(self.labels)
         else:
             self.labels = None
