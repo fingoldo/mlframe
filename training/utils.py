@@ -497,6 +497,26 @@ def get_pandas_view_of_polars_df(
             key = tuple(nested_cols)
             if key not in _NESTED_DTYPE_WARN_SEEN:
                 _NESTED_DTYPE_WARN_SEEN.add(key)
+                # Trim the displayed list: at most 3 columns, and each
+                # column's dtype repr is collapsed if it exceeds 80 chars
+                # (a single ``pl.Enum`` over 87 ontology categories serializes
+                # to a multi-KB string and floods the log -- one user's run
+                # showed "Enum(categories=['3D Modeling & CAD', 'AI & Machine
+                # Learning', 'Accounting & Bookkeeping', ...])" running for
+                # hundreds of category names per column). The full list is
+                # still recoverable from ``df.schema`` if an operator wants
+                # to inspect it; this warning is a hint, not a manifest.
+                _MAX_DTYPE_REPR = 80
+                _MAX_COLS_SHOWN = 3
+                def _truncate_dtype(s: str) -> str:
+                    if len(s) <= _MAX_DTYPE_REPR:
+                        return s
+                    return s[:_MAX_DTYPE_REPR - 5] + "...)"
+                shown = [(n, _truncate_dtype(t)) for n, t in nested_cols[:_MAX_COLS_SHOWN]]
+                if len(nested_cols) > _MAX_COLS_SHOWN:
+                    shown_repr = "%s (+%d more)" % (shown, len(nested_cols) - _MAX_COLS_SHOWN)
+                else:
+                    shown_repr = repr(shown)
                 logger.warning(
                     "get_pandas_view_of_polars_df: %d column(s) have nested "
                     "Polars dtypes that pyarrow materializes as pandas object "
@@ -507,7 +527,7 @@ def get_pandas_view_of_polars_df(
                     "pl.List in the Polars fastpath; if they need to hit the "
                     "pandas path, pre-cast to fixed-width numpy arrays. "
                     "(This warning fires at most once per unique schema.)",
-                    len(nested_cols), nested_cols,
+                    len(nested_cols), shown_repr,
                 )
 
     tbl = df.to_arrow()
