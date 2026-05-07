@@ -4055,6 +4055,10 @@ def _build_configs_from_params(
     prob_histogram_yscale="auto",
     show_inline_population_labels=True,
     title_metrics_template="ICE BR_DECOMP ECE CMAEW LL ROC_AUC PR_AUC",
+    plot_outputs="plotly[html,png]",
+    multiclass_panels="CONFUSION PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC",
+    multilabel_panels="PR_F1 CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST",
+    ltr_panels="NDCG_K NDCG_DIST LIFT MRR_DIST SCORE_BY_REL",
     # Naming params
     model_name="",
     model_name_prefix="",
@@ -4142,6 +4146,10 @@ def _build_configs_from_params(
         prob_histogram_yscale=prob_histogram_yscale,
         show_inline_population_labels=show_inline_population_labels,
         title_metrics_template=title_metrics_template,
+        plot_outputs=plot_outputs,
+        multiclass_panels=multiclass_panels,
+        multilabel_panels=multilabel_panels,
+        ltr_panels=ltr_panels,
     )
 
     output_config = OutputConfig(

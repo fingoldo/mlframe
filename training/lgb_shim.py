@@ -370,11 +370,17 @@ class _DatasetReuseMixin:
         valid_names: List[str] = []
         if eval_set:
             for i, pair in enumerate(eval_set):
-                X_val, y_val_raw = pair
+                # eval_set items follow LightGBM convention but in
+                # practice arrive as 2-tuple (X, y), 3-tuple (X, y, w),
+                # OR longer if downstream wraps them with extras. Take
+                # the first 2-3 elements robustly.
+                pair_seq = tuple(pair)
+                X_val, y_val_raw = pair_seq[0], pair_seq[1]
+                w_val_inline = pair_seq[2] if len(pair_seq) >= 3 else None
                 # Transform val labels through the encoder for classifier;
                 # regressor returns y unchanged.
                 y_val = self._transform_y_for_eval(y_val_raw)
-                w_val = (
+                w_val = w_val_inline if w_val_inline is not None else (
                     eval_sample_weight[i]
                     if eval_sample_weight and i < len(eval_sample_weight)
                     else None

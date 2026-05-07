@@ -2040,22 +2040,15 @@ def train_mlframe_models_suite(
     # exclude the derived one to avoid an unexpected-kwarg TypeError;
     # ``train_and_evaluate_model`` re-derives it from the rebuilt
     # ReportingConfig object directly.
+    # ``title_metrics_tokens`` is auto-derived by the model_validator;
+    # the consumer accepts ``title_metrics_template`` and re-derives.
     # ``plot_outputs`` / ``multiclass_panels`` / ``multilabel_panels`` /
-    # ``ltr_panels`` are reporting-render fields consumed inside the
-    # LTR-suite branch (above) and inside per-split metric calls --
-    # they're NOT in ``_build_configs_from_params``'s signature, so
-    # leaking them via model_dump would cause ``unexpected keyword
-    # argument`` TypeError on every train_eval call. Exclude alongside
-    # ``title_metrics_tokens`` (which is also derived rather than
-    # passed-through).
+    # ``ltr_panels`` ARE in ``_build_configs_from_params``'s signature
+    # (added 2026-05-08) so they thread through cleanly to
+    # ``train_and_evaluate_model`` and on to ``report_model_perf``'s
+    # auto-dispatcher.
     common_params_dict.update(
-        reporting_config.model_dump(exclude={
-            "title_metrics_tokens",
-            "plot_outputs",
-            "multiclass_panels",
-            "multilabel_panels",
-            "ltr_panels",
-        })
+        reporting_config.model_dump(exclude={"title_metrics_tokens"})
     )
     if preprocessing_config.scaler is not None:
         common_params_dict["scaler"] = preprocessing_config.scaler
