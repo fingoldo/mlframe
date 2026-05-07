@@ -1,5 +1,93 @@
 # Changelog
 
+## 2026-05-08 — Multi-target panel catalogue — PR2
+
+Multiclass / multilabel / LTR panel builders + composers, dispatched
+via the per-target-type DSL templates added in PR1. Each composer
+takes raw model outputs + an optional ``panels_template`` string and
+returns a ``FigureSpec`` ready to render through either backend.
+
+### Added
+
+- **`mlframe/reporting/charts/_layout.py`** -- shared grid utilities
+  (``pack_panels``, ``figsize_for_grid``, ``parse_panel_template``).
+  Reused across all 3 multi-target composers; identical token-grammar
+  parsing to the existing ``title_metrics_template`` validator.
+- **`mlframe/reporting/charts/multiclass.py`** -- 7 panel builders +
+  ``compose_multiclass_figure(y_true, y_proba, classes, *, panels_template, ...)``.
+  Tokens: ``CONFUSION`` (row-normalised heatmap),
+  ``PR_F1`` (per-class P/R/F1 grouped bar), ``ROC`` (one-vs-rest
+  curves overlaid with AUC in legend), ``PR_CURVES`` (PR curves with
+  AP), ``CALIB_GRID`` (per-class reliability + diagonal),
+  ``PROB_DIST`` (P(y=true_class) violin per true class),
+  ``TOP_K_ACC`` (top-k accuracy curve, k=1..K).
+  ``ALLOWED_MULTICLASS_PANEL_TOKENS`` exported as ``frozenset``.
+- **`mlframe/reporting/charts/multilabel.py`** -- 7 panel builders +
+  ``compose_multilabel_figure(y_true, y_proba, labels, *, panels_template, ...)``.
+  Tokens: ``PR_F1``, ``ROC``, ``CALIB_GRID`` (per-label),
+  ``COOCCURRENCE`` (true→pred label confusion heatmap, diagonal =
+  per-label recall), ``CARDINALITY`` (#labels-per-row distribution
+  for true vs predicted), ``JACCARD_DIST`` + ``HAMMING_DIST``
+  (per-row metric histograms). 2-D shape validation up front.
+- **`mlframe/reporting/charts/ltr.py`** -- 6 panel builders +
+  ``compose_ltr_figure(y_true, y_score, group_ids, *, panels_template, ...)``.
+  Tokens: ``NDCG_K`` (mean NDCG@k curve, k=1..max_per_query, capped
+  at 50 for plot readability), ``NDCG_DIST`` (per-query NDCG@10
+  violin -- the long left tail surfaces failure modes),
+  ``LIFT`` (cumulative-relevance / ideal at each rank position),
+  ``MRR_DIST`` (per-query reciprocal-rank histogram),
+  ``SCORE_BY_REL`` (predicted-score violin per relevance grade --
+  visualises grade separation), ``TOP1_BY_QSIZE`` (top-1 accuracy
+  bucketed by query size [2,3] [4,5] [6,8] [9,15] [16+] -- reveals
+  whether ranker degrades on tiny / huge queries). Reuses
+  ``mlframe.ranking_metrics.ndcg_at_k`` + ``_ndcg_one_query`` from
+  the LTR addendum.
+- **`mlframe/reporting/charts/__init__.py`** re-exports the 3 new
+  composers + their allowed-token frozensets.
+
+### Tests added (48, all green)
+
+- ``tests/reporting/test_charts_multiclass.py`` (16): allowed token
+  frozenset, one test per token (returns the right ``PanelSpec``
+  subtype + shape invariants), composer routing (default = 6 panels,
+  subset, unknown raises, ``suptitle`` + ``max_cols`` propagated),
+  matplotlib + plotly render smoke.
+- ``tests/reporting/test_charts_multilabel.py`` (16): same structure,
+  + 2-D shape validation tests (1-D y rejects, mismatched proba
+  shapes reject).
+- ``tests/reporting/test_charts_ltr.py`` (16): same structure, +
+  1-D input + length-mismatch validation. Two fixtures (50 small
+  queries vs 200 mixed-size) so ``TOP1_BY_QSIZE`` exercises all 5
+  buckets.
+
+### Verification
+
+```bash
+pytest tests/reporting/test_charts_multiclass.py \
+       tests/reporting/test_charts_multilabel.py \
+       tests/reporting/test_charts_ltr.py --no-cov -p no:randomly
+# 48 passed
+```
+
+Visual smoke: ``D:/Temp/{mc_panels.png,ml_panels.png,ltr_panels.png}``
+generated via the smoke script during dev -- multiclass shows the
+expected 6-panel 3×2 grid (Confusion / P-R-F1 / ROC / Calibration /
+Probability dist / Top-k); LTR shows 5-panel grid with NDCG@k curve,
+NDCG@10 distribution, lift, MRR, score-by-grade.
+
+### Not in PR2 (deliberate)
+
+- **Suite-level wiring** (``train_mlframe_models_suite`` -> auto-pick
+  composer based on ``target_type`` and call
+  ``render_and_save(spec, parse_plot_output_dsl(cfg.plot_outputs), path)``)
+  is the next-natural step but lives in a follow-up: it touches the
+  trainer / evaluation hot path and deserves its own non-regression
+  pass against the existing ``report_model_perf`` output.
+- **Biz-value tests** that assert composer output looks right on real
+  trained-model predictions are paired with the suite wiring above
+  (would otherwise need to build mock predictions, which is what the
+  current smoke fixtures already do).
+
 ## 2026-05-08 — Reporting backend abstraction (matplotlib + plotly) — PR1
 
 User asked for plotly versions of all charts with config knob to pick

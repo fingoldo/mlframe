@@ -12,6 +12,15 @@ wrappers that internally delegate to these builders + render via the
 """
 
 from mlframe.reporting.charts.calibration import build_calibration_spec
+from mlframe.reporting.charts.ltr import (
+    ALLOWED_LTR_PANEL_TOKENS, compose_ltr_figure,
+)
+from mlframe.reporting.charts.multiclass import (
+    ALLOWED_MULTICLASS_PANEL_TOKENS, compose_multiclass_figure,
+)
+from mlframe.reporting.charts.multilabel import (
+    ALLOWED_MULTILABEL_PANEL_TOKENS, compose_multilabel_figure,
+)
 from mlframe.reporting.charts.regression import build_regression_panel_spec
 from mlframe.reporting.charts.temporal import build_temporal_audit_spec
 
@@ -19,4 +28,10 @@ __all__ = [
     "build_calibration_spec",
     "build_regression_panel_spec",
     "build_temporal_audit_spec",
+    "compose_multiclass_figure",
+    "compose_multilabel_figure",
+    "compose_ltr_figure",
+    "ALLOWED_MULTICLASS_PANEL_TOKENS",
+    "ALLOWED_MULTILABEL_PANEL_TOKENS",
+    "ALLOWED_LTR_PANEL_TOKENS",
 ]
