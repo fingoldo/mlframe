@@ -453,9 +453,18 @@ def plot_residual_diagnostics(
         ax_hist.axvline(0, color="green", linestyle=":", linewidth=1.0, alpha=0.7)
         ax_hist.set_xlabel("Residual (y_true - y_pred)")
         ax_hist.set_ylabel("Density")
+        # 2026-05-08: residual hypothesis + suggested loss now live on the
+        # histogram title (was previously appended to the scatter title,
+        # crowding it). Self-contained: skew/kurt -> hypothesis -> suggested
+        # loss reads top-to-bottom on the same panel that visualises the
+        # residual distribution.
+        _suggested = audit.suggested_loss.split("(")[0].strip() if audit.suggested_loss else ""
+        _hyp_line = f"hypothesis: {audit.hypothesis}"
+        if _suggested:
+            _hyp_line += f" (suggested: {_suggested})"
         ax_hist.set_title(
             f"Residuals (skew={audit.skew:+.2f}, excess_kurt={audit.excess_kurt:+.2f})\n"
-            f"hypothesis: {audit.hypothesis}"
+            f"{_hyp_line}"
         )
         ax_hist.grid(True, alpha=0.3)
 

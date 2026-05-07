@@ -415,15 +415,27 @@ def report_regression_model_perf(
             )
 
     if show_perf_chart or plot_file:
-        title = report_title + " " + model_name
+        # 2026-05-08 (user feedback): split the long title into three pieces.
+        # - ``header_str``: split / model_name + [features/rows] -> figure SUPTITLE
+        # - ``metrics_str``: MAE / RMSE / MaxError / R2 -> scatter (left) title
+        # - residual hypothesis (formerly tacked onto scatter) -> moved
+        #   entirely to the histogram (middle) panel by
+        #   ``plot_residual_diagnostics``.
         n_cols = n_features if n_features is not None else (len(columns) if columns else 0)
         nfeatures = f"{n_cols:_}F/" if n_cols > 0 else ""
-        title += f" [{nfeatures}{get_human_readable_set_size(len(targets))} rows]" + "\n"
-
-        title += f" MAE={MAE:.{report_ndigits}f}"
-        title += f" RMSE={RMSE:.{report_ndigits}f}"
-        title += f" MaxError={MaxError:.{report_ndigits}f}"
-        title += f" R2={R2:.{report_ndigits}f}"
+        header_str = (
+            report_title + " " + model_name +
+            f" [{nfeatures}{get_human_readable_set_size(len(targets))} rows]"
+        )
+        metrics_str = (
+            f"MAE={MAE:.{report_ndigits}f}"
+            f" RMSE={RMSE:.{report_ndigits}f}"
+            f" MaxError={MaxError:.{report_ndigits}f}"
+            f" R2={R2:.{report_ndigits}f}"
+        )
+        # ``title`` retained for the (deprecated) print-report path that
+        # still concatenates everything for stdout. Charts use the split.
+        title = header_str + "\n " + metrics_str
 
         # 2026-04-27 (batch 3): for (N, K) multilabel-as-regression
         # targets the scatter plot below would do
@@ -462,21 +474,17 @@ def report_regression_model_perf(
             )
             _audit = _residual_audit  # reuse pre-computed audit
 
-            # Augment the title with the noise hypothesis so the chart
-            # is self-contained (the printed report below has the full
-            # rationale).
-            chart_title = title
-            if _audit is not None:
-                chart_title += (
-                    f"\nresidual hypothesis: {_audit.hypothesis} "
-                    f"(suggested: {_audit.suggested_loss.split('(')[0].strip()})"
-                )
-
-            # Three-panel figure: scatter | residuals histogram | residuals vs predicted
+            # Three-panel figure: scatter | residuals histogram | residuals vs predicted.
+            # 2026-05-08: figure suptitle gets the model identity (was eating
+            # ~3 lines of the scatter's own title); scatter title shows ONLY
+            # the regression metrics (MAE/RMSE/MaxError/R2); residual
+            # hypothesis migrated entirely to the histogram subplot.
             fig, axes = plt.subplots(
                 1, 3, figsize=(figsize[0] * 3 / 2, figsize[1]),
             )
             ax_scatter, ax_hist, ax_resid = axes
+
+            fig.suptitle(header_str, fontsize=11, y=0.995)
 
             ax_scatter.scatter(
                 preds[idx], targets[idx], marker=plot_marker, alpha=0.3,
@@ -487,7 +495,7 @@ def report_regression_model_perf(
             )
             ax_scatter.set_xlabel("Predictions")
             ax_scatter.set_ylabel("True values")
-            ax_scatter.set_title(chart_title)
+            ax_scatter.set_title(metrics_str)
             ax_scatter.grid(True, alpha=0.3)
             ax_scatter.legend(loc="best", fontsize=8, framealpha=0.7)
 
@@ -500,7 +508,9 @@ def report_regression_model_perf(
                 ax_hist.set_visible(False)
                 ax_resid.set_visible(False)
 
-            fig.tight_layout()
+            # tight_layout with suptitle: leave headroom at the top
+            # (rect[3]=0.96) so suptitle isn't clipped or overlaps subplot titles.
+            fig.tight_layout(rect=[0, 0, 1, 0.96])
 
             if plot_file:
                 fig.savefig(plot_file)
