@@ -242,9 +242,15 @@ class RecurrentDataset(Dataset):
         self._has_sequences = sequences is not None
         self._is_regression = is_regression
 
-        # Convert labels to appropriate dtype
+        # Convert labels to appropriate dtype.
+        # 2026-05-07: 2-D labels (multilabel, shape (N, K)) need float32
+        # for BCEWithLogitsLoss; 1-D labels (binary/multiclass) need
+        # int64 for CrossEntropyLoss; regression always float32.
         labels_np = np.asarray(labels)
         if is_regression:
+            self.labels = torch.as_tensor(labels_np, dtype=torch.float32)
+        elif labels_np.ndim == 2:
+            # Multilabel: BCE expects float labels matching logits dtype.
             self.labels = torch.as_tensor(labels_np, dtype=torch.float32)
         else:
             self.labels = torch.as_tensor(labels_np, dtype=torch.long)
@@ -727,11 +733,17 @@ class RecurrentTorchModel(L.LightningModule):
         aux_input_size: int = 0,
         class_weight: torch.Tensor | None = None,
         is_regression: bool = False,
+        task_type: str | None = None,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(ignore=["class_weight"])
         self.config = config
         self.is_regression = is_regression
+        # 2026-05-07: ``task_type`` switches loss + activation:
+        # - None / "binary" / "multiclass": CrossEntropyLoss + softmax (default)
+        # - "multilabel": BCEWithLogitsLoss + sigmoid (each output binary)
+        # No effect when is_regression=True (always MSE + identity).
+        self.task_type = task_type
 
         # Register class_weight as buffer so it moves with model to device
         if class_weight is not None:
@@ -807,13 +819,21 @@ class RecurrentTorchModel(L.LightningModule):
                 self.train_mse = MeanSquaredError()
                 self.val_mse = MeanSquaredError()
                 self.val_r2 = R2Score()
+            elif self.task_type == "multilabel":
+                # 2026-05-07: per-label torchmetrics (Accuracy / AUROC /
+                # AveragePrecision with task='multilabel' + num_labels=K).
+                # Loss is computed via BCEWithLogitsLoss; metrics are
+                # for log-only (suite computes its own multi-target
+                # metrics downstream from sigmoid probs).
+                K = self.config.num_classes
+                self.train_acc = Accuracy(task="multilabel", num_labels=K)
+                self.val_acc = Accuracy(task="multilabel", num_labels=K)
+                self.val_auroc = AUROC(task="multilabel", num_labels=K, average="macro")
+                self.val_auprc = AveragePrecision(task="multilabel", num_labels=K, average="macro")
+                self._has_metrics = True
+                return
             else:
                 # 2026-04-24: extend to multiclass via Accuracy(task='multiclass').
-                # Multilabel paths and per-label AUROC/AUPRC are deferred —
-                # the existing recurrent path is binary/multiclass classifier
-                # built on a single softmax head; full multilabel needs a
-                # separate K-sigmoid head wired through MultilabelMixin.
-                # TODO(session-3): multilabel sigmoid head + MultilabelAUROC.
                 K = self.config.num_classes
                 if K > 2:
                     task_str = "multiclass"
@@ -832,10 +852,20 @@ class RecurrentTorchModel(L.LightningModule):
             warnings.warn("torchmetrics not installed, skipping metric logging")
 
     def _setup_loss_functions(self) -> None:
-        """Pre-create loss functions."""
+        """Pre-create loss functions.
+
+        - regression: MSE
+        - multilabel (``task_type='multilabel'``): per-label BCE with logits
+          (each output independent binary; 2-D y of shape (N, K))
+        - binary / multiclass (default): CrossEntropyLoss + softmax
+        """
         if self.is_regression:
             self._loss_fn_unreduced = nn.MSELoss(reduction="none")
             self._loss_fn_mean = nn.MSELoss(reduction="mean")
+        elif self.task_type == "multilabel":
+            # Per-label sigmoid via BCEWithLogitsLoss (numerically stable).
+            self._loss_fn_unreduced = nn.BCEWithLogitsLoss(reduction="none")
+            self._loss_fn_mean = nn.BCEWithLogitsLoss(reduction="mean")
         else:
             self._loss_fn_unreduced = nn.CrossEntropyLoss(weight=self.class_weight, reduction="none")
             self._loss_fn_mean = nn.CrossEntropyLoss(weight=self.class_weight, reduction="mean")
@@ -930,6 +960,13 @@ class RecurrentTorchModel(L.LightningModule):
                 preds = logits.squeeze(-1)
                 self.train_mse(preds, batch["labels"])
                 self.log("train_mse", self.train_mse, prog_bar=True, on_step=False, on_epoch=True)
+            elif self.task_type == "multilabel":
+                # 2026-05-07: per-label sigmoid + thresholded preds for
+                # multilabel torchmetrics (task='multilabel'). Both
+                # preds and target shape (N, K).
+                preds = (torch.sigmoid(logits) >= 0.5).long()
+                self.train_acc(preds, batch["labels"].long())
+                self.log("train_acc", self.train_acc, prog_bar=True, on_step=False, on_epoch=True)
             else:
                 probs = torch.softmax(logits, dim=1)
                 if self.config.num_classes == 2:
@@ -954,6 +991,18 @@ class RecurrentTorchModel(L.LightningModule):
                 self.val_r2(preds, batch["labels"])
                 self.log("val_mse", self.val_mse, prog_bar=True, on_step=False, on_epoch=True)
                 self.log("val_r2", self.val_r2, prog_bar=True, on_step=False, on_epoch=True)
+            elif self.task_type == "multilabel":
+                # 2026-05-07: per-label torchmetrics. Both preds and target
+                # shape (N, K); thresholded preds for accuracy, raw sigmoid
+                # probs for AUROC / AUPRC.
+                probs = torch.sigmoid(logits)
+                preds = (probs >= 0.5).long()
+                self.val_acc(preds, batch["labels"].long())
+                self.val_auroc(probs, batch["labels"].long())
+                self.val_auprc(probs, batch["labels"].long())
+                self.log("val_acc", self.val_acc, prog_bar=True, on_step=False, on_epoch=True)
+                self.log("val_auroc", self.val_auroc, prog_bar=True, on_step=False, on_epoch=True)
+                self.log("val_auprc", self.val_auprc, on_step=False, on_epoch=True)
             else:
                 probs = torch.softmax(logits, dim=1)
                 if self.config.num_classes == 2:
@@ -975,10 +1024,17 @@ class RecurrentTorchModel(L.LightningModule):
                     self.log("val_auprc", self.val_auprc, on_step=False, on_epoch=True)
 
     def predict_step(self, batch: dict, _batch_idx: int) -> torch.Tensor:
-        """Prediction step."""
+        """Prediction step.
+
+        - regression: squeeze last dim, return raw values
+        - multilabel: per-label sigmoid (each output independent in [0, 1])
+        - binary / multiclass: softmax over K outputs (sums to 1 per row)
+        """
         logits = self._forward_batch(batch)
         if self.is_regression:
             return logits.squeeze(-1)
+        if self.task_type == "multilabel":
+            return torch.sigmoid(logits)
         return torch.softmax(logits, dim=1)
 
     def _forward_batch(self, batch: dict) -> torch.Tensor:
@@ -995,13 +1051,27 @@ class RecurrentTorchModel(L.LightningModule):
         labels: torch.Tensor,
         sample_weights: torch.Tensor | None,
     ) -> torch.Tensor:
-        """Compute loss with optional sample weights."""
+        """Compute loss with optional sample weights.
+
+        Multilabel ``BCEWithLogitsLoss`` requires labels of dtype
+        float32 (matching logits). The DataModule prepares 2-D labels
+        for multilabel; cast here defensively in case caller passes
+        int dtypes.
+        """
         if self.is_regression:
             preds = logits.squeeze(-1)
             if sample_weights is not None:
                 losses = self._loss_fn_unreduced(preds, labels)
                 return (losses * sample_weights).mean()
             return self._loss_fn_mean(preds, labels)
+        elif self.task_type == "multilabel":
+            # BCEWithLogitsLoss expects float labels (same dtype as logits).
+            labels_f = labels.to(logits.dtype)
+            if sample_weights is not None:
+                losses = self._loss_fn_unreduced(logits, labels_f)
+                # losses shape: (N, K); broadcast sample_weights (N,) -> (N, 1)
+                return (losses * sample_weights.unsqueeze(-1)).mean()
+            return self._loss_fn_mean(logits, labels_f)
         else:
             if sample_weights is not None:
                 losses = self._loss_fn_unreduced(logits, labels)
@@ -1150,7 +1220,10 @@ class _RecurrentWrapperBase(BaseEstimator):
         """Create DataLoader with proper collate function."""
         sampler = None
 
-        if shuffle and self.config.use_stratified_sampler and not self._is_regression:
+        # Stratified sampler: skip for multilabel (np.bincount fails on 2-D)
+        # and for regression (continuous y has no class structure).
+        _is_multilabel_ds = (dataset.labels.ndim == 2)
+        if shuffle and self.config.use_stratified_sampler and not self._is_regression and not _is_multilabel_ds:
             labels = dataset.labels.numpy()
             class_counts = np.bincount(labels)
             if len(class_counts) > 1 and all(c > 0 for c in class_counts):
@@ -1188,12 +1261,17 @@ class _RecurrentWrapperBase(BaseEstimator):
                 dtype=torch.float32,
             )
 
+        # 2026-05-07: thread task_type='multilabel' when the wrapper
+        # detected a 2-D y in fit(). LightningModule switches loss
+        # (BCE) and predict-time activation (sigmoid).
+        _task_type = "multilabel" if getattr(self, "_is_multilabel", False) else None
         return RecurrentTorchModel(
             config=self.config,
             seq_input_size=seq_input_size,
             aux_input_size=aux_input_size,
             class_weight=weight_tensor,
             is_regression=self._is_regression,
+            task_type=_task_type,
         )
 
     def _create_trainer(self, has_validation: bool, plot: bool) -> Tuple[L.Trainer, Any]:
@@ -1349,19 +1427,18 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         if labels is None:
             raise ValueError("labels is required")
 
-        # 2026-04-25 Session 6: recurrent classifier path is binary/multiclass
-        # only — torchmetrics tasks at L825-828 are hardcoded to "binary",
-        # and the (N, K) sigmoid head + per-label loss isn't wired. Multilabel
-        # 2-D y must be rejected explicitly with a helpful pointer rather than
-        # crashing deep in torchmetrics with an opaque shape error.
-        if hasattr(labels, "ndim") and labels.ndim == 2:
-            raise NotImplementedError(
-                "RecurrentClassifierWrapper does not yet support multilabel "
-                f"targets (got y.shape={labels.shape}). Use a non-recurrent "
-                "strategy (cb/xgb/lgb/hgb/linear) for multilabel until the "
-                "sigmoid-head + per-label loss work lands. See plan addendum "
-                "'Recurrent multilabel sigmoid head' for the deferred epic."
-            )
+        # 2026-05-07: detect multilabel from 2-D y. Switches model
+        # task_type='multilabel' (BCEWithLogitsLoss + sigmoid output).
+        # The torchmetrics block at L825-828 ALSO needs multilabel
+        # support, but for now we skip torchmetrics for multilabel
+        # (not blocking; metrics are computed downstream by the suite's
+        # own evaluation pipeline).
+        self._is_multilabel = bool(hasattr(labels, "ndim") and labels.ndim == 2)
+        if self._is_multilabel:
+            self._n_labels = int(np.asarray(labels).shape[1])
+            # Override config.num_classes to match label count so the MLP
+            # head builds the right number of output units.
+            self.config.num_classes = self._n_labels
 
         self._validate_inputs(features, sequences)
         self._clear_cache()

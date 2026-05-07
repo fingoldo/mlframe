@@ -954,6 +954,12 @@ def _maybe_wrap_for_2d_target(model, train_target):
         # multilabel=True). Output layer is K units, predict_step applies
         # sigmoid when task_type='multilabel'. No wrap needed.
         return model
+    # NOTE: RidgeClassifier / RidgeClassifierCV technically accept 2-D y
+    # natively (sklearn quirk: multi-output ridge regression internally),
+    # but the eval-pipeline expects predict_proba which RidgeClassifier
+    # lacks. Until eval is generalised to fall back to decision_function
+    # for multilabel, leave Ridge in the wrapper path. Tracked in
+    # LinearModelStrategy docstring.
     # HGB / LGB / Linear / XGB sklearn wrappers all require 1-D y for
     # classifiers. XGB has native multi-output via the binary:logistic
     # loss but the sklearn wrapper still rejects 2-D y; only the native
@@ -5379,10 +5385,41 @@ def configure_training_params(
 
     ngb_params = None
     if _should_create_model("ngb"):
+        # 2026-05-07: target-type-aware Dist for NGBClassifier.
+        # Default ``Dist=Bernoulli`` (binary only) crashes on K>2 with
+        # ``IndexError: index out of bounds``. For multiclass we need
+        # ``Dist=k_categorical(K)``. NGBoost has no native multilabel /
+        # ranker, so those target types fall through to the default
+        # (likely with a downstream error if reached -- they should be
+        # filtered earlier when the suite checks per-strategy multilabel
+        # / ranking flags).
+        ngb_init_kwargs = dict(configs.NGB_GENERAL_PARAMS)
+        from .configs import TargetTypes as _TT
+        if (
+            not use_regression
+            and target_type == _TT.MULTICLASS_CLASSIFICATION
+        ):
+            try:
+                from ngboost.distns import k_categorical
+                # n_classes pulled from the actual y -- NGB needs the
+                # exact K to size the categorical Dist's internal
+                # parameter array. Fall back to inspecting train_target
+                # via config_params (where train_target lives at this
+                # call layer).
+                _train_target = config_params.get("train_target")
+                if _train_target is not None:
+                    _y = np.asarray(_train_target).ravel()
+                    _K = int(_y.max()) + 1 if len(_y) else 2
+                else:
+                    _K = max(2, int(config_params.get("n_classes", 2)))
+                ngb_init_kwargs["Dist"] = k_categorical(_K)
+            except ImportError:
+                pass  # ngboost.distns missing -> default Dist crashes loudly downstream
+
         ngb_params = dict(
             model=(
                 metamodel_func(
-                    (NGBRegressor(**configs.NGB_GENERAL_PARAMS) if use_regression else NGBClassifier(**configs.NGB_GENERAL_PARAMS)),
+                    (NGBRegressor(**ngb_init_kwargs) if use_regression else NGBClassifier(**ngb_init_kwargs)),
                 )
             ),
             fit_params=(

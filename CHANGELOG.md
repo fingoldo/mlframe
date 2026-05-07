@@ -1,5 +1,94 @@
 # Changelog
 
+## 2026-05-07 — Extended multi-target coverage (Linear/NGB/Recurrent)
+
+Follow-up to MLP multi-target landing. Closes 3 gaps from the strategy
+audit + 1 latent sklearn 1.8 compat bug.
+
+### Fixed
+
+- **`Linear` multi_class kwarg** (sklearn 1.8 compat,
+  [helpers.py:253](mlframe/training/helpers.py#L253)):
+  ``_classif_objective_kwargs("linear", MULTICLASS, K)`` returned
+  ``{'multi_class': 'multinomial', 'solver': 'lbfgs'}``. ``multi_class``
+  was deprecated in sklearn 1.7 and **removed** in 1.8 -- direct
+  ``LogisticRegression(**out)`` raised ``TypeError``. Through the
+  mlframe-suite path the kwarg was silently filtered (latent), but a
+  user instantiating LR via the helper would crash. Fix: drop
+  ``multi_class``; LR auto-detects K since 1.5. Kept ``solver='lbfgs'``
+  (still meaningful).
+
+### Added
+
+- **NGBoost multiclass via ``Dist=k_categorical(K)``**
+  ([trainer.py:5388](mlframe/training/trainer.py#L5388)):
+  Default ``Dist=Bernoulli`` only handles binary; K>2 crashed with
+  ``IndexError``. Trainer now inspects ``train_target.max()+1`` (or
+  ``config_params['n_classes']``) and injects
+  ``Dist=k_categorical(K)`` when ``target_type=MULTICLASS_CLASSIFICATION``.
+  Verified: 4-model multiclass ensemble (cb+xgb+lgb+ngb) trains.
+- **`RecurrentModel` Phase A (multiclass)** + **Phase B (multilabel)**:
+  - ``RecurrentModelStrategy.supports_native_multiclass = True`` and
+    ``supports_native_multilabel = True``.
+  - ``get_classif_objective_kwargs(MULTILABEL_CLASSIFICATION)``
+    returns ``{"task_type": "multilabel"}``.
+  - ``RecurrentTorchModel`` ([recurrent.py](mlframe/training/neural/recurrent.py))
+    accepts ``task_type='multilabel'`` -> switches loss to
+    BCEWithLogitsLoss + sigmoid in ``predict_step`` + multilabel
+    torchmetrics (``Accuracy/AUROC/AveragePrecision`` with
+    ``task='multilabel'``, ``num_labels=K``).
+  - ``RecurrentClassifierWrapper.fit`` no longer raises
+    ``NotImplementedError`` on 2-D y; detects multilabel via
+    ``labels.ndim == 2`` and threads ``task_type`` through
+    ``_create_model``.
+  - ``Dataset.labels`` keeps ``float32`` for multilabel, ``int64``
+    for multiclass; stratified sampler skipped for multilabel.
+  - **Phase C (LTR) deferred**: group-aware sequence batching is
+    non-trivial (custom Sampler that yields one query's full doc
+    sequences per batch). Documented in strategy docstring;
+    ``supports_native_ranking = False``.
+- **`RidgeClassifier` multilabel - documented as deferred**:
+  sklearn quirk that ``RidgeClassifier`` accepts 2-D y natively, but
+  the eval pipeline assumes ``predict_proba`` (RidgeClassifier has
+  only ``decision_function``). Wrapper path stays correct.
+
+### Tests added (14 new, all green)
+
+- ``tests/training/test_extended_multi_target_coverage.py``:
+  - ``TestLinearMultiClassKwargFix`` (4): helper output + LR-init
+    smoke + end-to-end suite.
+  - ``TestNGBoostMulticlass`` (3): direct NGB k_categorical fit,
+    pre-fix bug regression-guard, end-to-end suite multiclass.
+  - ``TestRecurrentStrategyFlags`` (3): supports_native_multiclass /
+    multilabel / NOT ranking.
+  - ``TestRecurrentMultilabelDispatch`` (2): task_type kwarg returned
+    for multilabel, empty for binary/multiclass.
+  - ``TestRecurrentMultilabelEndToEnd`` (2): wrapper no longer
+    rejects 2-D y, predict_proba returns per-label sigmoid (not
+    softmax) verified by row-sum-not-1 check.
+
+### Verification
+
+```bash
+pytest tests/training/test_extended_multi_target_coverage.py --no-cov
+# 14 passed
+
+# Cumulative non-regression on multi-target tests
+pytest tests/training/test_mlp_*.py tests/training/test_ranking_*.py \
+       tests/training/test_extended_multi_target_coverage.py --no-cov
+# 109 passed
+```
+
+### Fuzz combo ensemble coverage (already in place)
+
+The fuzz suite already exercises 4-model ensembles via
+``use_ensembles`` axis (default 50/50 toggle):
+- 18 / 150 combos: multiclass + ensembling
+- 19 / 150 combos: multilabel + ensembling
+- 13 / 150 combos: LTR + ensembling
+Strategy combinations include cb/xgb/lgb/hgb/linear/mlp + (now
+post-fix) ngb-multiclass.
+
 ## 2026-05-07 — MLP × multiclass / multilabel / LearningToRank
 
 User asked to extend MLP (PyTorch Lightning) coverage to all three
