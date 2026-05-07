@@ -613,11 +613,21 @@ def render_title_metric_token(
     single-class y_true). Tokens are validated by ReportingConfig at config
     construction time, so unknown tokens cannot reach this function in practice -
     the final ``return ""`` is a defence-in-depth against bypassed validation.
+
+    Percent-suffixed metrics (BR / BR_DECOMP / ECE / CMAEW / PR / RE / F1)
+    render with one fewer decimal than ``ndigits`` -- ``%`` already adds
+    two extra characters per metric and the headline still reads cleanly
+    at ``9.1%`` instead of ``9.10%``. Bare-scalar metrics (ICE, LL,
+    ROC_AUC, PR_AUC) keep ``ndigits`` since precision matters more there
+    (single-decimal AUC squashes 0.974 vs 0.976 to "1.0"). User feedback
+    2026-05-04. ``COV`` derives its own precision from log10(nbins) and
+    is unchanged.
     """
+    pct_digits = max(0, ndigits - 1)
     if token == "ICE":
         return f"ICE={ice:.{ndigits}f}"
     if token == "BR":
-        return f"BR={brier_loss * 100:.{ndigits}f}%"
+        return f"BR={brier_loss * 100:.{pct_digits}f}%"
     if token == "BR_DECOMP":
         # 2026-04-27 Session 7 batch 8 (user feedback): compact form
         # of the Brier decomposition. The math is BR = REL - RES + UNC
@@ -629,18 +639,18 @@ def render_title_metric_token(
         # rate, higher is better). Reads naturally as the formula with
         # signs preserved, ~30% shorter than the labelled form.
         return (
-            f"BR={brier_loss * 100:.{ndigits}f}%"
-            f"(RL{brier_reliability * 100:.{ndigits}f}%"
-            f"+U{brier_uncertainty * 100:.{ndigits}f}%"
-            f"-RS{brier_resolution * 100:.{ndigits}f}%)"
+            f"BR={brier_loss * 100:.{pct_digits}f}%"
+            f"(RL{brier_reliability * 100:.{pct_digits}f}%"
+            f"+U{brier_uncertainty * 100:.{pct_digits}f}%"
+            f"-RS{brier_resolution * 100:.{pct_digits}f}%)"
         )
     if token == "ECE":
-        return f"ECE={ece * 100:.{ndigits}f}%"
+        return f"ECE={ece * 100:.{pct_digits}f}%"
     if token == "CMAEW":
         return (
             f"CMAE{'W' if use_weights else ''}="
-            f"{calibration_mae * 100:.{ndigits}f}%"
-            f"±{calibration_std * 100:.{ndigits}f}%"
+            f"{calibration_mae * 100:.{pct_digits}f}%"
+            f"±{calibration_std * 100:.{pct_digits}f}%"
         )
     if token == "COV":
         # log10(nbins) decides COV's decimal precision; matches pre-template behaviour.
@@ -668,8 +678,8 @@ def render_title_metric_token(
         else:
             base = f"PR AUC={pr_auc:.{ndigits}f}{suffix}"
         return (
-            f"{base}, PR={precision * 100:.{ndigits}f}%,"
-            f"RE={recall * 100:.{ndigits}f}%,F1={f1 * 100:.{ndigits}f}%"
+            f"{base}, PR={precision * 100:.{pct_digits}f}%,"
+            f"RE={recall * 100:.{pct_digits}f}%,F1={f1 * 100:.{pct_digits}f}%"
         )
     return ""
 
@@ -730,7 +740,7 @@ def show_calibration_plot(
     colorbar_label: str = "Bin population",
     use_size: bool = False,
     show_prob_histogram: bool = True,
-    prob_histogram_yscale: str = "auto",
+    prob_histogram_yscale: str = "linear",
     show_inline_population_labels: bool = True,
     label_histogram: str = "Bin population",
 ):
@@ -738,9 +748,14 @@ def show_calibration_plot(
 
     With ``show_prob_histogram=True`` (default) a probability-distribution
     histogram is drawn under the reliability scatter, sharing the X axis.
-    Histogram bar heights are bin populations (``hits``); Y-scale auto-picks
-    log when ``max(hits)/max(min(hits),1) > 100`` and linear otherwise -
-    override with ``prob_histogram_yscale="log" | "linear"``.
+    Histogram bar heights are bin populations (``hits``) and bars are
+    coloured by population using the same ``RdYlBu`` colormap as the
+    calibration scatter, so the bottom plot reads consistently with the
+    top one (a single bar that matches the colorbar tells you "this bin
+    holds N samples"). Y-scale defaults to ``linear`` -- the legacy
+    ``"auto"`` mode (log iff max/min skew > 100) flipped to log on
+    skewed distributions and made empty bins look populated; pass
+    ``prob_histogram_yscale="log"`` if you genuinely need log.
     Inline per-bin population annotations (the small text labels next to each
     scatter point) are independently controlled by
     ``show_inline_population_labels`` so users can keep both, drop both, or
@@ -818,11 +833,26 @@ def show_calibration_plot(
                     )
 
         def _draw_histogram_axes(ax):
-            """Render the predicted-probability histogram under the calibration axes."""
+            """Render the predicted-probability histogram under the calibration axes.
+
+            Bars are coloured by the same ``RdYlBu`` colormap + same
+            normalisation as the top calibration scatter, so the colorbar
+            reads consistently across both subplots: a tall blue bar in
+            the histogram matches the blue scatter bubble at the same X
+            (both encode "this bin is populated").
+            """
+            cm = matplotlib.colormaps["RdYlBu"]
+            # Same normalisation as the scatter (which uses ``c=hits`` and
+            # auto-normalises across the value range). Reproduce that here:
+            _h_min = float(np.min(hits)) if len(hits) else 0.0
+            _h_max = float(np.max(hits)) if len(hits) else 1.0
+            if _h_max <= _h_min:
+                _h_max = _h_min + 1.0
+            _bar_colors = cm((hits - _h_min) / (_h_max - _h_min))
             ax.bar(
                 freqs_predicted, hits,
                 width=_bar_width, align="center",
-                color="steelblue", edgecolor="white", linewidth=0.5,
+                color=_bar_colors, edgecolor="white", linewidth=0.5,
             )
             ax.set_xlabel(label_prob)
             ax.set_ylabel(label_histogram)

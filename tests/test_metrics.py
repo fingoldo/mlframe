@@ -684,9 +684,11 @@ class TestCalibration:
             roc_auc=0.0, mean_group_roc_auc=None, pr_auc=0.0, mean_group_pr_auc=None,
             precision=0.0, recall=0.0, f1=0.0,
         )
-        # 0.1234 -> 12.34%, 0.05 -> 5.00%, 0.10 -> 10.00%, 0.21 -> 21.00%.
+        # 0.1234 -> 12.3%, 0.05 -> 5.0%, 0.10 -> 10.0%, 0.21 -> 21.0%.
         # New compact form: BR=X%(RL<rel>%+U<unc>%-RS<res>%)
-        assert out == "BR=12.34%(RL5.00%+U21.00%-RS10.00%)"
+        # Per-cent metrics use ``ndigits-1`` (here 2-1=1) — ``%`` adds two
+        # chars per metric and the headline already runs long.
+        assert out == "BR=12.3%(RL5.0%+U21.0%-RS10.0%)"
 
     def test_render_token_ll_skipped_when_none(self):
         out = render_title_metric_token(
