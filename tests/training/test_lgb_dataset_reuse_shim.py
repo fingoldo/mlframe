@@ -437,6 +437,25 @@ class TestLGBShimEdgeCases:
             m._cached_train_dataset.get_weight(), sw,
         )
 
+    def test_eval_set_bare_tuple_normalised(self, small_classification_data):
+        """mlframe (and some vanilla LGBM sklearn paths) pass a bare
+        ``(X_val, y_val)`` 2-tuple instead of ``[(X_val, y_val)]``
+        for the single-eval-set case. Without normalisation, iterating
+        over the bare tuple would yield X_val first and y_val second,
+        and the unpack would destructure X_val's column NAMES into
+        (X, y) -- silently feeding ``np.str_('col_name')`` into the
+        LabelEncoder. Lock in the normalisation."""
+        X, y = small_classification_data
+        X_val = X.iloc[:100].copy()
+        y_val = y[:100]
+
+        m = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
+        # Bare tuple, NOT wrapped in a list.
+        m.fit(X, y, eval_set=(X_val, y_val))
+        # Cache populated correctly -- val Dataset has the right row count.
+        assert m._cached_val_dataset is not None
+        assert m._cached_val_dataset.num_data() == len(y_val)
+
     def test_no_warnings_on_repeat_fit(self, small_classification_data):
         """Repeated .fit() must not spam UserWarning / FutureWarning
         from our shim layer (LGB itself may emit notices -- those aren't

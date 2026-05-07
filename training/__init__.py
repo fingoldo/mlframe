@@ -91,6 +91,8 @@ _LAZY_IMPORTS = {
     'EnsemblingConfig': ('.configs', 'EnsemblingConfig'),
     # 2026-05-04: learning-to-rank dispatch
     'LearningToRankConfig': ('.configs', 'LearningToRankConfig'),
+    # 2026-05-08: quantile-regression dispatch
+    'QuantileRegressionConfig': ('.configs', 'QuantileRegressionConfig'),
     'train_mlframe_ranker_suite': ('.ranker_suite', 'train_mlframe_ranker_suite'),
     'fit_ranker': ('.ranking', 'fit_ranker'),
     'predict_ranker_scores': ('.ranking', 'predict_ranker_scores'),
@@ -246,6 +248,7 @@ __all__ = [
     'MultilabelDispatchConfig',
     'EnsemblingConfig',
     'LearningToRankConfig',
+    'QuantileRegressionConfig',
     'train_mlframe_ranker_suite',
     'fit_ranker',
     'predict_ranker_scores',

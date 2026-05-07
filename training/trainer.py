@@ -3656,6 +3656,8 @@ def _compute_split_metrics(
     multiclass_panels: Optional[str] = None,
     multilabel_panels: Optional[str] = None,
     ltr_panels: Optional[str] = None,
+    quantile_panels: Optional[str] = None,
+    quantile_alphas: Optional[Tuple[float, ...]] = None,
 ):
     """Unified metrics computation for train/val/test splits."""
     # Only skip if we can't compute metrics (no probs AND no df to make predictions)
@@ -3724,6 +3726,8 @@ def _compute_split_metrics(
         multiclass_panels=multiclass_panels,
         multilabel_panels=multilabel_panels,
         ltr_panels=ltr_panels,
+        quantile_panels=quantile_panels,
+        quantile_alphas=quantile_alphas,
     )
     return preds, probs, columns
 
@@ -4059,6 +4063,7 @@ def _build_configs_from_params(
     multiclass_panels="CONFUSION PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC",
     multilabel_panels="PR_F1 CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST",
     ltr_panels="NDCG_K NDCG_DIST LIFT MRR_DIST SCORE_BY_REL",
+    quantile_panels="RELIABILITY PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST",
     # Naming params
     model_name="",
     model_name_prefix="",
@@ -4150,6 +4155,7 @@ def _build_configs_from_params(
         multiclass_panels=multiclass_panels,
         multilabel_panels=multilabel_panels,
         ltr_panels=ltr_panels,
+        quantile_panels=quantile_panels,
     )
 
     output_config = OutputConfig(
@@ -4324,6 +4330,14 @@ def train_and_evaluate_model(
     multiclass_panels = reporting.multiclass_panels
     multilabel_panels = reporting.multilabel_panels
     ltr_panels = reporting.ltr_panels
+    quantile_panels = reporting.quantile_panels
+    # ``quantile_alphas`` arrives via fit_params (per-fit context),
+    # not via ReportingConfig -- it depends on which alphas the model
+    # was trained on, not on display preference. Resolved at the
+    # _compute_split_metrics call site.
+    quantile_alphas = None
+    if hasattr(model, "_mlframe_quantile_alphas"):
+        quantile_alphas = getattr(model, "_mlframe_quantile_alphas", None)
 
     # ---------------------------------------------------------------------------
     # Unpack output config (was bundled into the display config pre-refactor). Default-construct
@@ -4612,6 +4626,8 @@ def train_and_evaluate_model(
             multiclass_panels=multiclass_panels,
             multilabel_panels=multilabel_panels,
             ltr_panels=ltr_panels,
+            quantile_panels=quantile_panels,
+            quantile_alphas=quantile_alphas,
         )
 
         has_val = (val_idx is not None and len(val_idx) > 0) or val_df is not None

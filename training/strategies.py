@@ -152,6 +152,51 @@ class ModelPipelineStrategy(ABC):
         """
         return False
 
+    @property
+    def supports_native_quantile(self) -> bool:
+        """Whether this strategy supports single-fit multi-quantile
+        regression natively.
+
+        True for CatBoost (``loss_function=MultiQuantile:alpha=...``)
+        and XGBoost (``objective=reg:quantileerror, quantile_alpha=[...]``).
+        False for everyone else -- LGB, HGB, Linear, MLP, Recurrent
+        all need K independent fits stacked via
+        ``_QuantileMultiOutputWrapper``.
+        """
+        return False
+
+    def get_quantile_objective_kwargs(self, qr_config) -> dict:
+        """Per-strategy kwargs for quantile-regression objective.
+
+        Returns the dict to merge into the regressor constructor kwargs
+        when ``target_type.is_quantile`` is in scope. Default returns
+        ``{}`` (subclasses without native quantile support route through
+        the wrapper instead -- see ``wrap_quantile``).
+        """
+        return {}
+
+    def wrap_quantile(self, estimator, qr_config):
+        """Wrap a base regressor for quantile-regression dispatch.
+
+        - Strategies with ``supports_native_quantile=True`` (CB / XGB)
+          return ``estimator`` unchanged -- the native objective kwargs
+          (injected via ``get_quantile_objective_kwargs``) make the
+          single fit produce (N, K) predictions.
+        - Strategies with ``supports_native_quantile=False`` wrap the
+          estimator in ``_QuantileMultiOutputWrapper(base, alphas)`` so
+          K independent fits are stacked into an (N, K) prediction.
+        """
+        if self.supports_native_quantile:
+            return estimator
+        from .quantile_wrapper import _QuantileMultiOutputWrapper
+
+        return _QuantileMultiOutputWrapper(
+            base_estimator=estimator,
+            alphas=qr_config.alphas,
+            crossing_fix=qr_config.crossing_fix,
+            n_jobs=qr_config.wrapper_n_jobs,
+        )
+
     def get_ranker_objective_kwargs(
         self,
         ranking_config=None,
@@ -429,8 +474,20 @@ class CatBoostStrategy(TreeModelStrategy):
     supports_native_multiclass = True
     supports_native_multilabel = True
     supports_native_ranking = True
+    # 2026-05-08 QR: CatBoost MultiQuantile loss handles K alphas in one
+    # fit; predict returns (N, K) directly.
+    supports_native_quantile = True
     # Inherits cache_key = "tree" from TreeModelStrategy so CB/LGB/XGB share
     # transformed-DF cache (they have identical preprocessing requirements).
+
+    def get_quantile_objective_kwargs(self, qr_config) -> dict:
+        """CatBoost ``MultiQuantile`` loss_function with comma-joined alphas.
+
+        Format: ``"MultiQuantile:alpha=0.1,0.5,0.9"`` (no brackets, no
+        spaces). predict() then returns shape (N, K).
+        """
+        alphas_str = ",".join(str(a) for a in qr_config.alphas)
+        return {"loss_function": f"MultiQuantile:alpha={alphas_str}"}
 
     def get_ranker_objective_kwargs(self, ranking_config=None, y_max=None):
         """CatBoostRanker loss_function + sensible eval_metric.
@@ -474,12 +531,27 @@ class XGBoostStrategy(TreeModelStrategy):
     # GPU/SHAP support, faster inference).
     supports_native_multiclass = True
     supports_native_ranking = True
+    # 2026-05-08 QR: XGBoost >=2.0 supports single-fit multi-quantile via
+    # ``objective="reg:quantileerror", quantile_alpha=[0.1,0.5,0.9]``;
+    # predict() returns (N, K).
+    supports_native_quantile = True
     # supports_native_multilabel: declared False at class level (matches the
     # ABC default + tells callers "wrapper by default"). The actual native-
     # multilabel decision is dynamic -- see wrap_multilabel + get_classif_
     # objective_kwargs overrides below, which BOTH consult the runtime
     # MultilabelDispatchConfig.force_native_xgb_multilabel flag.
     # Inherits cache_key = "tree" from TreeModelStrategy.
+
+    def get_quantile_objective_kwargs(self, qr_config) -> dict:
+        """XGBoost native multi-quantile via ``reg:quantileerror`` +
+        ``quantile_alpha=[a1, a2, ...]`` (XGBoost >= 2.0).
+
+        predict() then returns (N, K) -- one column per alpha.
+        """
+        return {
+            "objective": "reg:quantileerror",
+            "quantile_alpha": list(qr_config.alphas),
+        }
 
     def get_ranker_objective_kwargs(self, ranking_config=None, y_max=None):
         """XGBRanker objective + auto-fallback for graded labels.

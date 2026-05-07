@@ -1386,9 +1386,17 @@ class TestConfEnsembleCovTagFormatting:
         from mlframe import ensembling as ens_mod
 
         src = inspect.getsource(ens_mod._process_single_ensemble_method)
-        # Look for the exact format spec — both spaces must be present.
-        assert " [{_cov_src[0]} COV={_cov_src[1]:.0f}%] " in src, (
-            "_cov_tag format string lost its trailing space — Conf "
+        # Look for the exact format spec -- both spaces must be present.
+        # The 2026-04-24 polish-pass inserted ``{_degenerate_marker}``
+        # between the leading space and ``[``; allow both shapes:
+        #   " [{_cov_src[0]} COV={_cov_src[1]:.0f}%] "
+        #   " {_degenerate_marker}[{_cov_src[0]} COV={_cov_src[1]:.0f}%] "
+        accepted = (
+            " [{_cov_src[0]} COV={_cov_src[1]:.0f}%] ",
+            " {_degenerate_marker}[{_cov_src[0]} COV={_cov_src[1]:.0f}%] ",
+        )
+        assert any(s in src for s in accepted), (
+            "_cov_tag format string lost its trailing space -- Conf "
             "Ensemble names will jam together with downstream tokens "
             "again (2026-04-24 regression class)."
         )

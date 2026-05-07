@@ -21,6 +21,9 @@ from mlframe.reporting.charts.multiclass import (
 from mlframe.reporting.charts.multilabel import (
     ALLOWED_MULTILABEL_PANEL_TOKENS, compose_multilabel_figure,
 )
+from mlframe.reporting.charts.quantile import (
+    ALLOWED_QUANTILE_PANEL_TOKENS, compose_quantile_figure,
+)
 from mlframe.reporting.charts.regression import build_regression_panel_spec
 from mlframe.reporting.charts.temporal import build_temporal_audit_spec
 
@@ -31,7 +34,9 @@ __all__ = [
     "compose_multiclass_figure",
     "compose_multilabel_figure",
     "compose_ltr_figure",
+    "compose_quantile_figure",
     "ALLOWED_MULTICLASS_PANEL_TOKENS",
     "ALLOWED_MULTILABEL_PANEL_TOKENS",
     "ALLOWED_LTR_PANEL_TOKENS",
+    "ALLOWED_QUANTILE_PANEL_TOKENS",
 ]

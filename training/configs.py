@@ -83,6 +83,15 @@ class TargetTypes(StrEnum):
         group is what matters. CB / XGB / LGB have native rankers
         (CatBoostRanker / XGBRanker / LGBMRanker); HGB / Linear are
         not supported and skipped with NotImplementedError.
+    QUANTILE_REGRESSION : str
+        Predict K conditional quantiles instead of a single
+        conditional mean. Target shape (N,); model output shape (N, K)
+        where K = len(alphas). Use cases: prediction intervals,
+        risk modelling, time-series uncertainty quantification.
+        CatBoost (MultiQuantile) and XGBoost (>=2.0, quantile_alpha)
+        support single-fit multi-quantile natively; LGB/HGB/Linear
+        fan out to K independent fits via _QuantileMultiOutputWrapper;
+        MLP / Recurrent use a K-output head + summed pinball loss.
     """
 
     REGRESSION = "regression"
@@ -90,6 +99,7 @@ class TargetTypes(StrEnum):
     MULTICLASS_CLASSIFICATION = "multiclass_classification"
     MULTILABEL_CLASSIFICATION = "multilabel_classification"
     LEARNING_TO_RANK = "learning_to_rank"
+    QUANTILE_REGRESSION = "quantile_regression"
 
     @property
     def is_classification(self) -> bool:
@@ -146,6 +156,18 @@ class TargetTypes(StrEnum):
             TargetTypes.MULTICLASS_CLASSIFICATION,
             TargetTypes.MULTILABEL_CLASSIFICATION,
         )
+
+    @property
+    def is_quantile(self) -> bool:
+        """True only for ``QUANTILE_REGRESSION``.
+
+        Quantile-regression output is (N, K) where K = len(alphas) and
+        each column is a conditional-quantile estimate. NOT classification
+        (no class probabilities), NOT plain regression (no single point
+        prediction); branches that gate on regression vs classification
+        must add an explicit QR branch when QR is in scope.
+        """
+        return self == TargetTypes.QUANTILE_REGRESSION
 
 
 class BaseConfig(BaseModel):
@@ -1198,6 +1220,108 @@ class LearningToRankConfig(BaseConfig):
     mismatched format -- caller takes responsibility)."""
 
 
+class QuantileRegressionConfig(BaseConfig):
+    """Configuration for ``QUANTILE_REGRESSION`` target dispatch.
+
+    Holds quantile-regression-specific knobs: which alphas to predict,
+    crossing-fix strategy, point-estimate alpha, coverage pairs for
+    interval reports.
+
+    Library support matrix (verified 2026-05-08 against installed stack
+    CB 1.2.10 / XGB 3.x / LGB 4.6 / sklearn 1.7+):
+
+    - **CatBoost** ``loss_function="MultiQuantile:alpha=0.1,0.5,0.9"``
+      single fit, returns (N, K).
+    - **XGBoost >=2.0** ``objective="reg:quantileerror",
+      quantile_alpha=[0.1,0.5,0.9]`` single fit, returns (N, K).
+    - **LightGBM** ``objective="quantile", alpha=0.5`` -- scalar only;
+      multi-quantile via K independent fits stacked
+      (_QuantileMultiOutputWrapper).
+    - **HGB** ``loss="quantile", quantile=0.5`` -- scalar only; same
+      wrapper path.
+    - **Linear** ``QuantileRegressor(quantile=0.5)`` -- scalar only;
+      same wrapper path. Slow on n>100K (LP solver O(n^2)).
+    - **MLP / Recurrent** K-output head + summed pinball loss; single
+      fit, returns (N, K).
+    """
+
+    alphas: tuple = (0.1, 0.5, 0.9)
+    """Quantile levels to predict. Must be sorted ascending and all
+    strictly between 0 and 1. Default targets the 10/50/90 percentiles
+    (80% prediction interval + median)."""
+
+    crossing_fix: str = "sort"
+    """Post-prediction crossing-fix strategy:
+    - ``sort``: ``np.sort(preds, axis=1)`` -- cheap, idempotent, default
+    - ``isotonic``: per-row IsotonicRegression(increasing=True) -- more
+      accurate when crossings are frequent, slower
+    - ``none``: leave predictions unchanged (caller handles crossings)
+    No library natively enforces non-crossing; even CB MultiQuantile and
+    XGB quantile_alpha=[...] can produce crossings on rare configurations.
+    """
+
+    point_estimate_alpha: float = 0.5
+    """Which alpha to use as the point-prediction (for downstream
+    consumers that need a single y_hat). Must be present in ``alphas``
+    -- default 0.5 (median). Mean-of-alphas is the alternative if
+    user picks an alpha not in the set; validator enforces membership.
+    """
+
+    coverage_pairs: tuple = ((0.1, 0.9),)
+    """List of (alpha_low, alpha_high) pairs for interval-coverage
+    reporting. Each pair must be present in ``alphas`` and lo < hi.
+    Default reports the (0.1, 0.9) -> nominal-80% interval.
+    """
+
+    wrapper_n_jobs: Any = "auto"
+    """Joblib n_jobs for ``_QuantileMultiOutputWrapper`` (LGB / HGB /
+    Linear paths). ``"auto"`` -> ``min(K, os.cpu_count() // 2)`` to
+    avoid nested-parallelism thrashing when the inner estimator has
+    its own thread pool. Set to 1 to serialise."""
+
+    @model_validator(mode="after")
+    def _validate_alphas(self) -> "QuantileRegressionConfig":
+        alphas = self.alphas
+        if not alphas:
+            raise ValueError("QuantileRegressionConfig.alphas must be non-empty.")
+        if any(not (0.0 < a < 1.0) for a in alphas):
+            raise ValueError(
+                f"QuantileRegressionConfig.alphas must be in (0, 1) "
+                f"strict; got {list(alphas)}"
+            )
+        if list(alphas) != sorted(alphas):
+            raise ValueError(
+                f"QuantileRegressionConfig.alphas must be sorted ascending; "
+                f"got {list(alphas)}"
+            )
+        if len(set(alphas)) != len(alphas):
+            raise ValueError(
+                f"QuantileRegressionConfig.alphas must be unique; "
+                f"got {list(alphas)}"
+            )
+        if self.crossing_fix not in ("sort", "isotonic", "none"):
+            raise ValueError(
+                f"crossing_fix must be one of sort/isotonic/none; "
+                f"got {self.crossing_fix!r}"
+            )
+        # point_estimate_alpha membership is enforced loosely (closest match)
+        # so callers don't need to update both fields in lockstep.
+        if self.point_estimate_alpha not in alphas:
+            # Find closest alpha (silent snap to nearest grid point).
+            closest = min(alphas, key=lambda a: abs(a - self.point_estimate_alpha))
+            object.__setattr__(self, "point_estimate_alpha", closest)
+        for lo, hi in self.coverage_pairs:
+            if lo not in alphas or hi not in alphas:
+                raise ValueError(
+                    f"coverage_pair ({lo}, {hi}) not in alphas {list(alphas)}"
+                )
+            if lo >= hi:
+                raise ValueError(
+                    f"coverage_pair lo={lo} must be < hi={hi}"
+                )
+        return self
+
+
 class EnsemblingConfig(BaseConfig):
     """Configuration for ensembling behaviour, including streaming-vs-legacy
     aggregation choice and quantile-fallback budget.
@@ -1692,6 +1816,8 @@ class ReportingConfig(BaseConfig):
     multiclass_panels: str = "CONFUSION PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC"
     multilabel_panels: str = "PR_F1 CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST"
     ltr_panels: str = "NDCG_K NDCG_DIST LIFT MRR_DIST SCORE_BY_REL"
+    # 2026-05-08 QR: per-target_type panel template for quantile regression.
+    quantile_panels: str = "RELIABILITY PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST"
 
     @field_validator("title_metrics_template")
     @classmethod
@@ -1723,7 +1849,7 @@ class ReportingConfig(BaseConfig):
         parse_plot_output_dsl(v)
         return v
 
-    @field_validator("multiclass_panels", "multilabel_panels", "ltr_panels")
+    @field_validator("multiclass_panels", "multilabel_panels", "ltr_panels", "quantile_panels")
     @classmethod
     def _validate_panel_template(cls, v: str, info) -> str:
         # Per-target_type allowed token sets. PR2 will populate the actual
@@ -1741,6 +1867,10 @@ class ReportingConfig(BaseConfig):
             "ltr": frozenset({
                 "NDCG_K", "NDCG_DIST", "LIFT", "MRR_DIST",
                 "SCORE_BY_REL", "TOP1_BY_QSIZE",
+            }),
+            "quantile": frozenset({
+                "RELIABILITY", "PINBALL_BY_ALPHA", "INTERVAL_BAND",
+                "WIDTH_DIST", "PIT_HIST",
             }),
         }
         target_key = info.field_name.replace("_panels", "")

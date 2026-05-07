@@ -34,10 +34,12 @@ def render_multi_target_panels(
     preds: Optional[np.ndarray] = None,
     classes: Optional[Sequence[Any]] = None,
     group_ids: Optional[np.ndarray] = None,
+    quantile_alphas: Optional[Sequence[float]] = None,
     plot_outputs: Optional[str] = None,
     multiclass_panels: Optional[str] = None,
     multilabel_panels: Optional[str] = None,
     ltr_panels: Optional[str] = None,
+    quantile_panels: Optional[str] = None,
     base_path: str = "",
     suptitle: str = "",
     max_cols: int = 2,
@@ -82,6 +84,33 @@ def render_multi_target_panels(
             except Exception:
                 logger.exception("LTR panel rendering failed; continuing.")
                 # Fall through -- still try multiclass/multilabel below.
+
+    # Quantile regression: opt-in via quantile_alphas + 2-D preds. Like
+    # LTR, this is order-sensitive vs the multilabel branch (multilabel
+    # also wants 2-D preds), so check QR FIRST and fall through if the
+    # caller didn't supply quantile_alphas.
+    if (
+        quantile_panels and quantile_alphas is not None
+        and preds is not None and targets_arr is not None
+    ):
+        preds_arr_q = np.asarray(preds)
+        if preds_arr_q.ndim == 2 and targets_arr.ndim == 1:
+            try:
+                from mlframe.reporting.charts.quantile import compose_quantile_figure
+                from mlframe.reporting.output import parse_plot_output_dsl
+                from mlframe.reporting.renderers import render_and_save
+
+                spec = compose_quantile_figure(
+                    targets_arr, preds_arr_q, quantile_alphas,
+                    panels_template=quantile_panels, suptitle=suptitle,
+                    max_cols=max_cols,
+                )
+                render_and_save(spec, parse_plot_output_dsl(plot_outputs),
+                                base_path + "_quantile_panels")
+                return "quantile"
+            except Exception:
+                logger.exception("Quantile panel rendering failed; continuing.")
+                # Fall through.
 
     if probs is None or targets_arr is None:
         return None

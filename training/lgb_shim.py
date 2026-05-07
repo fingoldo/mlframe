@@ -77,7 +77,7 @@ logger = logging.getLogger(__name__)
 try:
     import lightgbm as lgb
     from lightgbm import LGBMClassifier, LGBMRegressor
-    from lightgbm.sklearn import _LGBMLabelEncoder
+    from lightgbm.sklearn import _LGBMLabelEncoder, _EvalFunctionWrapper
 
     _LGB_AVAILABLE = True
 except ImportError:
@@ -86,6 +86,7 @@ except ImportError:
     LGBMClassifier = object  # type: ignore
     LGBMRegressor = object  # type: ignore
     _LGBMLabelEncoder = None  # type: ignore
+    _EvalFunctionWrapper = None  # type: ignore
 
 
 # ---------------------------------------------------------------------
@@ -366,6 +367,20 @@ class _DatasetReuseMixin:
         # ---- Eval Dataset(s): cache-or-build -------------------------
         # LightGBM's lgb.train() accepts valid_sets as a list and
         # valid_names as a parallel list of names.
+        # mlframe (and vanilla LGBM sklearn) sometimes pass a bare
+        # ``(X_val, y_val)`` 2-tuple instead of ``[(X_val, y_val)]``
+        # for the single-eval-set case (see trainer.py:3041 for the
+        # bare-tuple normalization). Without this guard, iterating
+        # over the bare tuple would yield X_val on the first pass and
+        # y_val on the second -- with X_val a DataFrame, the unpack
+        # ``X_val, y_val_raw = pair`` would silently destructure its
+        # column names and feed ``np.str_('col_name')`` into the
+        # LabelEncoder. Normalize to a list-of-tuples up front.
+        if eval_set is not None and isinstance(eval_set, tuple):
+            # Heuristic: a 2- or 3-tuple whose first element is array-like
+            # (DataFrame / ndarray / similar) is the bare-tuple form.
+            if len(eval_set) in (2, 3) and not isinstance(eval_set[0], (list, tuple)):
+                eval_set = [eval_set]
         valid_sets: List[Any] = []
         valid_names: List[str] = []
         if eval_set:
@@ -448,7 +463,14 @@ class _DatasetReuseMixin:
                 else:
                     params["metric"] = [existing] + metric_strs
             if feval_callables:
-                feval = feval_callables if len(feval_callables) > 1 else feval_callables[0]
+                # Wrap user callables in _EvalFunctionWrapper so the
+                # native lgb.train sees the (preds, dataset) -> (name,
+                # value, higher_is_better) shape it expects, while the
+                # mlframe callable keeps its sklearn-style
+                # (y_true, y_pred[, weight[, group]]) signature. Mirror
+                # of LGBMModel.fit's eval-metric wiring.
+                wrapped = [_EvalFunctionWrapper(f) for f in feval_callables]
+                feval = wrapped if len(wrapped) > 1 else wrapped[0]
 
         # ---- Native lgb.train() --------------------------------------
         evals_result: dict = {}

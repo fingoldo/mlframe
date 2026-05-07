@@ -125,6 +125,8 @@ def report_model_perf(
     multiclass_panels: Optional[str] = None,
     multilabel_panels: Optional[str] = None,
     ltr_panels: Optional[str] = None,
+    quantile_panels: Optional[str] = None,
+    quantile_alphas: Optional[Sequence[float]] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """
     Generate a unified performance report for both classifiers and regressors.
@@ -261,7 +263,7 @@ def report_model_perf(
     # templates are unset. Failures are logged + swallowed (panels are
     # additive; existing perf chart + FI still emit).
     if plot_file and plot_outputs and (
-        multiclass_panels or multilabel_panels or ltr_panels
+        multiclass_panels or multilabel_panels or ltr_panels or quantile_panels
     ):
         from mlframe.reporting.auto_dispatch import render_multi_target_panels
         with phase("render_multi_target_panels"):
@@ -269,10 +271,12 @@ def report_model_perf(
                 targets=np.asarray(targets) if not isinstance(targets, np.ndarray) else targets,
                 probs=probs, preds=preds,
                 classes=classes, group_ids=group_ids,
+                quantile_alphas=quantile_alphas,
                 plot_outputs=plot_outputs,
                 multiclass_panels=multiclass_panels,
                 multilabel_panels=multilabel_panels,
                 ltr_panels=ltr_panels,
+                quantile_panels=quantile_panels,
                 base_path=plot_file,
                 suptitle=(report_title + " " + model_name).strip(),
             )
