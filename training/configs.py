@@ -1677,6 +1677,22 @@ class ReportingConfig(BaseConfig):
     # at construction.
     title_metrics_tokens: Tuple[str, ...] = ()
 
+    # 2026-05-08: backend × output-format DSL. Replaces the legacy
+    # ``save_format`` (single-string) knob. See
+    # ``mlframe.reporting.output.parse_plot_output_dsl`` for grammar.
+    # Default ``"plotly[html,png]"`` -- interactive HTML for sharing +
+    # static PNG for inline embedding. Users keeping the old behaviour
+    # set ``"matplotlib[png]"``.
+    plot_outputs: str = "plotly[html,png]"
+
+    # 2026-05-08: per-target_type panel templates. Same DSL grammar as
+    # ``title_metrics_template`` (space-separated tokens, validator
+    # checks against frozen allowed set, no duplicates). All-by-default;
+    # operator removes tokens to skip individual panels.
+    multiclass_panels: str = "CONFUSION PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC"
+    multilabel_panels: str = "PR_F1 CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST"
+    ltr_panels: str = "NDCG_K NDCG_DIST LIFT MRR_DIST SCORE_BY_REL"
+
     @field_validator("title_metrics_template")
     @classmethod
     def _validate_title_template(cls, v: str) -> str:
@@ -1693,6 +1709,53 @@ class ReportingConfig(BaseConfig):
         if "BR" in toks and "BR_DECOMP" in toks:
             raise ValueError(
                 "BR and BR_DECOMP are mutually exclusive in title_metrics_template"
+            )
+        return v
+
+    @field_validator("plot_outputs")
+    @classmethod
+    def _validate_plot_outputs(cls, v: str) -> str:
+        # Defer to the DSL parser; it raises ValueError on any malformed
+        # / unsupported / duplicate clause. We don't store the parsed
+        # spec on the config -- callers re-parse at render time (cheap;
+        # parser is regex-based and runs once per chart).
+        from mlframe.reporting.output import parse_plot_output_dsl
+        parse_plot_output_dsl(v)
+        return v
+
+    @field_validator("multiclass_panels", "multilabel_panels", "ltr_panels")
+    @classmethod
+    def _validate_panel_template(cls, v: str, info) -> str:
+        # Per-target_type allowed token sets. PR2 will populate the actual
+        # panel-builder dispatch; for now we allow the documented token
+        # vocabulary (validator catches typos at config-construction time).
+        _ALLOWED = {
+            "multiclass": frozenset({
+                "CONFUSION", "PR_F1", "ROC", "PR_CURVES",
+                "CALIB_GRID", "PROB_DIST", "TOP_K_ACC",
+            }),
+            "multilabel": frozenset({
+                "PR_F1", "ROC", "CALIB_GRID", "COOCCURRENCE",
+                "CARDINALITY", "JACCARD_DIST", "HAMMING_DIST",
+            }),
+            "ltr": frozenset({
+                "NDCG_K", "NDCG_DIST", "LIFT", "MRR_DIST",
+                "SCORE_BY_REL", "TOP1_BY_QSIZE",
+            }),
+        }
+        target_key = info.field_name.replace("_panels", "")
+        allowed = _ALLOWED[target_key]
+        toks = [t.strip().upper() for t in v.split() if t.strip()]
+        unknown = [t for t in toks if t not in allowed]
+        if unknown:
+            raise ValueError(
+                f"Unknown {target_key} panel tokens {unknown}. "
+                f"Allowed: {sorted(allowed)}"
+            )
+        if len(toks) != len(set(toks)):
+            dupes = sorted({t for t in toks if toks.count(t) > 1})
+            raise ValueError(
+                f"Duplicate {target_key} panel tokens: {dupes}"
             )
         return v
 

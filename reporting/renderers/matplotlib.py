@@ -1,0 +1,250 @@
+"""matplotlib renderer.
+
+Builds a ``matplotlib.figure.Figure`` from a ``FigureSpec``, then dispatches
+panel-level rendering by isinstance. Uses the Agg-backed figure path
+(``Figure(layout="constrained")`` + ``FigureCanvasAgg``) for save-only
+calls so we don't init a GUI backend on headless / parallel runs.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+
+from mlframe.reporting.spec import (
+    BarPanelSpec, FigureSpec, HeatmapPanelSpec, HistogramPanelSpec,
+    LinePanelSpec, ScatterPanelSpec, ViolinPanelSpec,
+)
+
+
+class MatplotlibRenderer:
+    backend = "matplotlib"
+
+    def render(self, spec: FigureSpec) -> Any:
+        import matplotlib
+        matplotlib.use("Agg", force=False)  # honor pre-set backend; default to Agg for save-only
+        from matplotlib.figure import Figure
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+        rows = len(spec.panels)
+        cols = max((len(r) for r in spec.panels), default=0)
+        if rows == 0 or cols == 0:
+            raise ValueError("FigureSpec has no panels")
+
+        layout = "constrained" if spec.constrained_layout else None
+        fig = Figure(figsize=spec.figsize, layout=layout)
+        FigureCanvasAgg(fig)
+
+        gs_kwargs = {}
+        if spec.row_height_ratios is not None:
+            gs_kwargs["height_ratios"] = list(spec.row_height_ratios)
+        if spec.col_width_ratios is not None:
+            gs_kwargs["width_ratios"] = list(spec.col_width_ratios)
+        gs = fig.add_gridspec(rows, cols, **gs_kwargs)
+
+        for r, row in enumerate(spec.panels):
+            for c, panel in enumerate(row):
+                if panel is None:
+                    continue
+                ax = fig.add_subplot(gs[r, c])
+                self._render_panel(ax, panel, fig)
+
+        if spec.suptitle:
+            fig.suptitle(spec.suptitle, fontsize=spec.suptitle_fontsize)
+        return fig
+
+    def save(self, fig: Any, path: str, fmt: str) -> None:
+        fmt = fmt.lower()
+        if fmt not in ("png", "pdf", "svg", "jpg", "jpeg"):
+            raise ValueError(
+                f"matplotlib doesn't support format {fmt!r}; "
+                "supported: png/pdf/svg/jpg"
+            )
+        # matplotlib infers format from extension; pass explicitly to be safe.
+        fig.savefig(path, format=fmt)
+
+    def show(self, fig: Any) -> None:
+        # Switch to interactive backend for show-only; rare in mlframe but
+        # supported for notebook users who want pop-up windows.
+        try:
+            import matplotlib.pyplot as plt
+            plt.figure(fig.number)  # bind to pyplot manager
+            plt.show()
+        except Exception:
+            # Headless or missing display -- silent no-op.
+            pass
+
+    # ------------------------------------------------------------------
+    # Per-panel dispatch
+    # ------------------------------------------------------------------
+
+    def _render_panel(self, ax, panel, fig) -> None:
+        if isinstance(panel, ScatterPanelSpec):
+            self._scatter(ax, panel, fig)
+        elif isinstance(panel, HistogramPanelSpec):
+            self._histogram(ax, panel)
+        elif isinstance(panel, HeatmapPanelSpec):
+            self._heatmap(ax, panel, fig)
+        elif isinstance(panel, BarPanelSpec):
+            self._bar(ax, panel)
+        elif isinstance(panel, LinePanelSpec):
+            self._line(ax, panel)
+        elif isinstance(panel, ViolinPanelSpec):
+            self._violin(ax, panel)
+        else:
+            raise TypeError(f"unknown panel type: {type(panel).__name__}")
+
+    def _scatter(self, ax, p: ScatterPanelSpec, fig) -> None:
+        import matplotlib
+        kw = {"alpha": p.point_alpha}
+        if isinstance(p.point_size, np.ndarray):
+            kw["s"] = p.point_size
+        else:
+            kw["s"] = float(p.point_size)
+        if isinstance(p.point_color, np.ndarray):
+            kw["c"] = p.point_color
+            kw["cmap"] = matplotlib.colormaps[p.colormap]
+        elif p.point_color is not None:
+            kw["color"] = p.point_color
+        sc = ax.scatter(p.x, p.y, **kw)
+
+        if p.perfect_fit_line and len(p.x) > 0:
+            xmin, xmax = float(np.min(p.x)), float(np.max(p.x))
+            ax.plot([xmin, xmax], [xmin, xmax], "g--", label="Perfect fit")
+
+        if p.inline_labels:
+            for x, y, txt in p.inline_labels:
+                ax.text(x, y, txt, fontsize=8, ha="right", va="bottom")
+
+        if p.colorbar_label and isinstance(p.point_color, np.ndarray):
+            cbar = fig.colorbar(sc, ax=ax)
+            cbar.set_label(p.colorbar_label)
+
+        ax.set_xlabel(p.xlabel)
+        ax.set_ylabel(p.ylabel)
+        ax.set_title(p.title)
+        if p.legend_label or p.perfect_fit_line:
+            ax.legend(loc="best", fontsize=8, framealpha=0.7)
+        if p.grid:
+            ax.grid(True, alpha=0.3)
+
+    def _histogram(self, ax, p: HistogramPanelSpec) -> None:
+        import matplotlib
+        if p.bin_centers is not None:
+            # Pre-binned: bar plot at centers.
+            heights = np.asarray(p.values)
+            width = float(p.bin_width or (p.bin_centers[1] - p.bin_centers[0]) if len(p.bin_centers) > 1 else 1.0)
+            colors_kw = {"color": p.color}
+            if p.bar_colors is not None:
+                cm = matplotlib.colormaps[p.colormap]
+                _h_min = float(np.min(p.bar_colors))
+                _h_max = float(np.max(p.bar_colors))
+                if _h_max <= _h_min:
+                    _h_max = _h_min + 1.0
+                colors_kw = {"color": cm((np.asarray(p.bar_colors) - _h_min) / (_h_max - _h_min))}
+            ax.bar(p.bin_centers, heights, width=width, align="center",
+                   edgecolor="white", linewidth=0.5, **colors_kw)
+        else:
+            ax.hist(p.values, bins=p.bins, alpha=0.6, color=p.color,
+                    edgecolor="white", linewidth=0.4, density=p.density)
+
+        if p.overlay_normal is not None:
+            mu, sigma = p.overlay_normal
+            if sigma > 0:
+                vals = np.asarray(p.values)
+                x_grid = np.linspace(float(np.min(vals)), float(np.max(vals)), 200)
+                normal_pdf = (
+                    1 / (sigma * np.sqrt(2 * np.pi))
+                    * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
+                )
+                label = p.overlay_label or f"Normal(mu={mu:.2g}, sigma={sigma:.2g})"
+                ax.plot(x_grid, normal_pdf, "r--", linewidth=1.4, label=label)
+                ax.legend(loc="best", fontsize=8, framealpha=0.7)
+
+        ax.set_xlabel(p.xlabel)
+        ax.set_ylabel(p.ylabel)
+        ax.set_title(p.title)
+        ax.set_yscale(p.yscale)
+        if p.grid:
+            ax.grid(True, alpha=0.3)
+
+    def _heatmap(self, ax, p: HeatmapPanelSpec, fig) -> None:
+        import matplotlib
+        cm = matplotlib.colormaps[p.colormap]
+        im = ax.imshow(p.matrix, cmap=cm, aspect="auto")
+        ax.set_xticks(range(len(p.col_labels)))
+        ax.set_xticklabels(p.col_labels, rotation=45, ha="right", fontsize=8)
+        ax.set_yticks(range(len(p.row_labels)))
+        ax.set_yticklabels(p.row_labels, fontsize=8)
+        if p.cell_text is not None:
+            for i in range(p.matrix.shape[0]):
+                for j in range(p.matrix.shape[1]):
+                    ax.text(j, i, format(p.cell_text[i, j], p.text_format),
+                            ha="center", va="center", fontsize=7,
+                            color="black" if p.matrix[i, j] < 0.5 else "white")
+        cbar = fig.colorbar(im, ax=ax)
+        if p.colorbar_label:
+            cbar.set_label(p.colorbar_label)
+        ax.set_xlabel(p.xlabel)
+        ax.set_ylabel(p.ylabel)
+        ax.set_title(p.title)
+
+    def _bar(self, ax, p: BarPanelSpec) -> None:
+        x = np.arange(len(p.categories))
+        if isinstance(p.values, tuple):
+            # Grouped bars.
+            n_series = len(p.values)
+            width = 0.8 / n_series
+            for i, series in enumerate(p.values):
+                offset = (i - (n_series - 1) / 2) * width
+                kw = {}
+                if p.colors is not None and i < len(p.colors):
+                    kw["color"] = p.colors[i]
+                lbl = p.series_labels[i] if p.series_labels else None
+                ax.bar(x + offset, series, width=width, label=lbl, **kw)
+            if p.series_labels:
+                ax.legend(loc="best", fontsize=8, framealpha=0.7)
+        else:
+            kw = {"color": p.colors[0] if p.colors else "steelblue"}
+            ax.bar(x, p.values, **kw)
+        ax.set_xticks(x)
+        ax.set_xticklabels(p.categories, rotation=p.xtick_rotation,
+                           ha="right" if p.xtick_rotation else "center", fontsize=8)
+        ax.set_xlabel(p.xlabel)
+        ax.set_ylabel(p.ylabel)
+        ax.set_title(p.title)
+        if p.grid:
+            ax.grid(True, alpha=0.3, axis="y")
+
+    def _line(self, ax, p: LinePanelSpec) -> None:
+        from mlframe.reporting.colors import line_color
+
+        ys = p.y if isinstance(p.y, tuple) else (p.y,)
+        labels = p.series_labels or (None,) * len(ys)
+        styles = p.line_styles or ("-",) * len(ys)
+        cols = p.colors or tuple(line_color(i) for i in range(len(ys)))
+        for i, y in enumerate(ys):
+            ax.plot(p.x, y, styles[i % len(styles)], color=cols[i % len(cols)],
+                    label=labels[i] if i < len(labels) else None)
+        if any(labels):
+            ax.legend(loc="best", fontsize=8, framealpha=0.7)
+        ax.set_xlabel(p.xlabel)
+        ax.set_ylabel(p.ylabel)
+        ax.set_title(p.title)
+        if p.grid:
+            ax.grid(True, alpha=0.3)
+
+    def _violin(self, ax, p: ViolinPanelSpec) -> None:
+        ax.violinplot(p.groups, showmeans=False, showextrema=False,
+                      showmedians=p.show_box)
+        ax.set_xticks(range(1, len(p.group_labels) + 1))
+        ax.set_xticklabels(p.group_labels, rotation=30, ha="right", fontsize=8)
+        ax.set_xlabel(p.xlabel)
+        ax.set_ylabel(p.ylabel)
+        ax.set_title(p.title)
+        if p.grid:
+            ax.grid(True, alpha=0.3, axis="y")
+
+
+__all__ = ["MatplotlibRenderer"]

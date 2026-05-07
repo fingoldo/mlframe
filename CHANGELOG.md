@@ -1,5 +1,115 @@
 # Changelog
 
+## 2026-05-08 — Reporting backend abstraction (matplotlib + plotly) — PR1
+
+User asked for plotly versions of all charts with config knob to pick
+backend + output formats, and visualisation panels for multi-target
+types. PR1 lands the backend abstraction + plotly support for the
+existing 3 charts (calibration / regression / temporal_audit). PR2
+will land the multi-target panel catalogue.
+
+### Added
+
+- **`mlframe/reporting/`** package: spec dataclasses + renderer
+  Protocol + matplotlib & plotly impls + save dispatch.
+  - ``spec.py``: ``ScatterPanelSpec`` / ``HistogramPanelSpec`` /
+    ``HeatmapPanelSpec`` / ``BarPanelSpec`` / ``LinePanelSpec`` /
+    ``ViolinPanelSpec`` + top-level ``FigureSpec`` (rows × cols panel
+    grid). Pure data + style hints; backend-neutral.
+  - ``output.py``: ``PlotOutputSpec`` + ``parse_plot_output_dsl``.
+    DSL: ``"<backend>[<fmt1>,<fmt2>,...] (+ <backend>[...])*"``.
+    Allowed backends: ``matplotlib`` / ``plotly`` (room for ``bokeh``).
+    Per-backend format allowlist enforced at parse time.
+  - ``renderers/base.py``: ``Renderer`` Protocol + ``get_renderer(name)``
+    factory (lazy-imports the heavy backend modules).
+  - ``renderers/matplotlib.py``: ``MatplotlibRenderer`` -- builds
+    ``Figure`` via Agg backend (save-only path; no GUI init for headless
+    runs). Honors ``constrained_layout`` + ``row_height_ratios``.
+  - ``renderers/plotly.py``: ``PlotlyRenderer`` -- builds ``go.Figure``
+    via ``make_subplots``. Static-image export via kaleido with
+    auto-fallback to HTML + WARN if kaleido missing.
+  - ``renderers/save.py``: ``render_and_save(spec, output, base_path)``.
+    Smart filename policy: single backend × single format ->
+    ``base.fmt``; multi -> ``base.<backend>.<fmt>`` so operator sees
+    which backend produced which file.
+  - ``colors.py``: shared colormaps so matplotlib / plotly produce
+    visually consistent output.
+- **`mlframe/reporting/charts/`** — domain-specific spec builders:
+  - ``calibration.py::build_calibration_spec`` -- 2-row grid (scatter +
+    bin-population histogram with shared colormap).
+  - ``regression.py::build_regression_panel_spec`` -- 1×3 grid
+    (scatter + residuals histogram with Normal overlay + residuals vs
+    predicted). Figure suptitle holds model identity; scatter title
+    holds metrics; residual hypothesis migrated to histogram (per
+    2026-05-08 user feedback).
+  - ``temporal.py::build_temporal_audit_spec`` -- single-line panel
+    for target temporal drift.
+- **`ReportingConfig.plot_outputs: str = "plotly[html,png]"`** -- new
+  default flips to plotly (interactive HTML by default; matplotlib
+  stays as opt-in for static PDFs).
+- **`ReportingConfig.multiclass_panels` / `multilabel_panels` / `ltr_panels`** --
+  per-target_type DSL templates using the same grammar as
+  ``title_metrics_template``. Allowed token sets validated at
+  config-construction. Default = all panels enabled. PR2 wires the
+  actual panel-builder dispatch.
+
+### Tests added (82, all green)
+
+- ``tests/reporting/test_output_dsl.py`` (18): happy-path parsing
+  (single backend / multi backend / case insensitive / whitespace
+  tolerance) + 11 validation-error scenarios.
+- ``tests/reporting/test_renderers.py`` (17): both backends render all
+  6 panel spec types; save in supported formats; reject unsupported.
+- ``tests/reporting/test_save_dispatch.py`` (4): naming policy +
+  keep_handles flag.
+- ``tests/reporting/test_charts.py`` (12): 3 chart builders return
+  the right spec shape, render via both backends.
+- ``tests/reporting/test_reporting_config_dsl.py`` (15): DSL field
+  validators + per-target token allowlists.
+
+### Verification
+
+```bash
+pytest tests/reporting/ --no-cov -p no:randomly
+# 82 passed
+
+# Non-regression on existing reporting / metrics paths
+pytest tests/training/test_reporting_config.py tests/test_metrics.py \
+       tests/training/test_per_split_target_summary.py --no-cov
+# 144 passed
+```
+
+Visual smoke: 2×2 grid (scatter + histogram + heatmap + line) renders
+identically on both backends -- confirmed via
+``D:/Temp/smoke_2x2.{matplotlib.png,plotly.html}``.
+
+### Risks (top 3)
+
+1. **`plotly[png]` requires kaleido** -- soft fallback to ``html`` with
+   WARN if kaleido missing; install hint in error message.
+2. **Cross-backend pixel-equivalent output is impossible** (font /
+   size differences). Tests assert structural correctness (axes count,
+   data values, titles) NOT pixel match.
+3. **Existing chart functions (``show_calibration_plot`` /
+   ``plot_residual_diagnostics`` / ``plot_target_over_time``) NOT yet
+   re-routed through the new spec builders** -- they still call
+   matplotlib directly. Migration to ``render_and_save(spec, ...)``
+   is PR2 work; both old and new paths exist in parallel for now.
+
+### PR2 preview
+
+Multi-target panel catalogue (~6-8h):
+- 7 multiclass panels (CONFUSION, PR_F1, ROC, PR_CURVES, CALIB_GRID,
+  PROB_DIST, TOP_K_ACC)
+- 7 multilabel panels (PR_F1, ROC, CALIB_GRID, COOCCURRENCE,
+  CARDINALITY, JACCARD_DIST, HAMMING_DIST)
+- 6 LTR panels (NDCG_K, NDCG_DIST, LIFT, MRR_DIST, SCORE_BY_REL,
+  TOP1_BY_QSIZE)
+- Token routing: parse template -> dispatch panels -> compose
+  ``FigureSpec`` -> render via active backend.
+- Biz-value tests: param ``["matplotlib", "plotly"]`` ×
+  ``["multiclass", "multilabel", "ltr"]``.
+
 ## 2026-05-07 — Extended multi-target coverage (Linear/NGB/Recurrent)
 
 Follow-up to MLP multi-target landing. Closes 3 gaps from the strategy
