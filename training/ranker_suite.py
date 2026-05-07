@@ -279,6 +279,20 @@ def train_mlframe_ranker_suite(
     except ImportError:
         pass
 
+    # 2026-05-08: sanitize numeric inf values. XGB's sklearn fit raises
+    # ``Input data contains `inf` or a value too large, while `missing`
+    # is not set to `inf``` when raw +/-inf reaches the DMatrix. The
+    # standard classification suite runs a ``process_infinities`` step;
+    # the LTR fork mirrors it minimally here -- replace +/-inf with NaN
+    # so XGB / LGB / CB all treat them as missing values uniformly.
+    if isinstance(df_features, pd.DataFrame):
+        _num_cols = df_features.select_dtypes(include=[np.number]).columns
+        if len(_num_cols) > 0:
+            df_features = df_features.copy()  # avoid SettingWithCopy on slice
+            df_features[_num_cols] = df_features[_num_cols].replace(
+                [np.inf, -np.inf], np.nan,
+            )
+
     # Drop group column + target column from feature matrix. The group
     # identifier is consumed via group_ids / qid kwarg of the rankers; if
     # it leaks into X, XGB raises (collides with qid kwarg) and CB/LGB
@@ -304,6 +318,19 @@ def train_mlframe_ranker_suite(
             if str(dt).startswith("datetime"):
                 df_X = df_X.drop(columns=[col])
             elif dt == object:
+                # 2026-05-08: object-dtype columns can contain either
+                # scalar strings (cat features -> astype('category') OK)
+                # OR nested arrays/lists (embedding features from
+                # pl.List(pl.Float32) round-trip -> astype('category')
+                # raises ``TypeError: unhashable type: 'numpy.ndarray'``
+                # because pandas factorize can't hash arrays). Drop
+                # nested-element columns silently -- the rankers can't
+                # consume them as numeric anyway, and CB/XGB/LGB sklearn
+                # wrappers reject them at fit-time.
+                _sample = next((v for v in df_X[col] if v is not None and not (isinstance(v, float) and np.isnan(v))), None)
+                if _sample is not None and isinstance(_sample, (list, tuple, np.ndarray)):
+                    df_X = df_X.drop(columns=[col])
+                    continue
                 # Fill nulls BEFORE astype("category") so the missing
                 # sentinel becomes a category level (CatBoost rejects NaN
                 # in cat_features; the standard suite uses the same

@@ -218,54 +218,71 @@ def _import_lightning():
         return L
 
 
-def _make_lightning_module(network: nn.Module, loss_name: str, learning_rate: float):
-    L = _import_lightning()
+# 2026-05-08: must be module-level (NOT nested inside _make_lightning_module)
+# so PyTorch Lightning can pickle the class for ``save_hyperparameters`` /
+# ``ModelCheckpoint``. Closure-bound classes raise ``_pickle.PicklingError:
+# Can't pickle ... it's not found as ...<locals>...`` -- caught by fuzz
+# combo c0019 (LTR with mlp + hgb). Lazy-resolve the LightningModule
+# base class at module-import via the same dual-package shim.
+_L_MODULE = _import_lightning()
 
-    class MLPRankerLightningModule(L.LightningModule):
-        def __init__(self, network, loss_name: str, learning_rate: float):
-            super().__init__()
-            self.network = network
-            self.loss_name = loss_name
-            self.learning_rate = learning_rate
-            self.save_hyperparameters(ignore=["network"])
 
-        def forward(self, x):
-            return self.network(x).view(-1)
+class MLPRankerLightningModule(_L_MODULE.LightningModule):
+    """LightningModule for MLPRanker. Module-level so it pickles cleanly
+    for Lightning's checkpointing + save_hyperparameters infrastructure.
 
-        def training_step(self, batch, batch_idx):
-            x, y = batch
+    Constructor arguments are stored via ``save_hyperparameters`` (excluding
+    ``network`` -- the nn.Module is large and lives in ``self.network``
+    via direct assignment instead of as a hyperparameter)."""
+
+    def __init__(self, network, loss_name: str, learning_rate: float):
+        super().__init__()
+        self.network = network
+        self.loss_name = loss_name
+        self.learning_rate = learning_rate
+        self.save_hyperparameters(ignore=["network"])
+
+    def forward(self, x):
+        return self.network(x).view(-1)
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        scores = self.forward(x)
+        if self.loss_name == "ranknet":
+            loss = ranknet_pairwise_loss(scores, y)
+        elif self.loss_name == "listnet":
+            loss = listnet_top1_loss(scores, y)
+        else:
+            raise ValueError(f"unknown loss_name {self.loss_name!r}")
+        self.log("train_loss", loss, prog_bar=False, on_epoch=True, on_step=False)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        with torch.no_grad():
             scores = self.forward(x)
             if self.loss_name == "ranknet":
                 loss = ranknet_pairwise_loss(scores, y)
-            elif self.loss_name == "listnet":
+            else:
                 loss = listnet_top1_loss(scores, y)
-            else:
-                raise ValueError(f"unknown loss_name {self.loss_name!r}")
-            self.log("train_loss", loss, prog_bar=False, on_epoch=True, on_step=False)
-            return loss
+        self.log("val_loss", loss, prog_bar=False, on_epoch=True, on_step=False)
+        return loss
 
-        def validation_step(self, batch, batch_idx):
-            x, y = batch
-            with torch.no_grad():
-                scores = self.forward(x)
-                if self.loss_name == "ranknet":
-                    loss = ranknet_pairwise_loss(scores, y)
-                else:
-                    loss = listnet_top1_loss(scores, y)
-            self.log("val_loss", loss, prog_bar=False, on_epoch=True, on_step=False)
-            return loss
+    def predict_step(self, batch, batch_idx):
+        if isinstance(batch, (tuple, list)):
+            x = batch[0]
+        else:
+            x = batch
+        with torch.no_grad():
+            return self.forward(x)
 
-        def predict_step(self, batch, batch_idx):
-            if isinstance(batch, (tuple, list)):
-                x = batch[0]
-            else:
-                x = batch
-            with torch.no_grad():
-                return self.forward(x)
+    def configure_optimizers(self):
+        return torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
 
-        def configure_optimizers(self):
-            return torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
 
+def _make_lightning_module(network: nn.Module, loss_name: str, learning_rate: float):
+    """Thin factory kept for back-compat with existing call sites in
+    MLPRanker.fit. The real class is module-level above."""
     return MLPRankerLightningModule(network, loss_name, learning_rate)
 
 
