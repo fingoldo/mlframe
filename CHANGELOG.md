@@ -1,5 +1,86 @@
 # Changelog
 
+## 2026-05-08 — Multi-target panel auto-dispatch (suite wiring)
+
+Glue between PR2's panel composers and the per-(model, split) reporting
+hot path. Now ``train_and_evaluate_model`` automatically renders
+multiclass / multilabel / LTR panel grids alongside the existing
+binary-calibration / regression artifacts, with no caller changes
+beyond the ``ReportingConfig`` defaults.
+
+### Added
+
+- **`mlframe/reporting/auto_dispatch.py::render_multi_target_panels`** --
+  shape-based dispatcher. Inspects ``(targets, probs, preds, group_ids)``
+  and picks the right composer:
+  - ``targets.ndim == 2 + probs.ndim == 2 + multilabel_panels`` -> multilabel
+  - ``targets.ndim == 1 + probs.shape[1] >= 3 + multiclass_panels`` -> multiclass
+  - ``group_ids + 1-D preds + ltr_panels`` -> LTR (1-D score guard;
+    falls through to multiclass/multilabel if score is 2-D so a
+    multiclass run that happens to expose ``group_ids`` still emits
+    multiclass panels)
+  - binary / regression / opt-out -> no-op
+  Failures inside any composer are logged + swallowed (panels are
+  additive; the rest of ``report_model_perf`` must not be broken by
+  a degenerate split).
+  Output filename: ``{plot_file}_{multiclass|multilabel|ltr}_panels.{fmt}``.
+
+### Wired
+
+- ``mlframe/training/evaluation.py::report_model_perf`` -- 4 new
+  optional kwargs (``plot_outputs`` + ``multiclass_panels`` /
+  ``multilabel_panels`` / ``ltr_panels``). Dispatcher fires AFTER
+  the existing per-class binary-calibration / regression branches,
+  so legacy artifacts are unchanged.
+- ``mlframe/training/trainer.py::_compute_split_metrics`` +
+  ``train_and_evaluate_model`` -- the same 4 fields now sourced
+  from ``ReportingConfig`` and threaded through
+  ``common_metrics_params`` (mirroring how ``title_metrics_tokens``
+  was plumbed in PR1).
+
+### Tests added (18, all green)
+
+- ``tests/reporting/test_auto_dispatch.py``:
+  - **TestDispatch (5)**: multiclass / multilabel / LTR / binary
+    skip / regression skip.
+  - **TestShortCircuits (5)**: empty ``base_path``, empty
+    ``plot_outputs``, empty per-target template -> no-op.
+  - **TestMultiBackend (1)**: ``"matplotlib[png] + plotly[html]"``
+    emits both files with the correct ``.{backend}.{fmt}`` suffix.
+  - **TestDispatchPrecedence (2)**: 2-D ``probs`` + ``group_ids`` +
+    ``ltr_panels`` -> LTR's 1-D-score guard rejects, falls through
+    to multiclass; 1-D ``preds`` + ``group_ids`` + ``ltr_panels``
+    -> LTR wins regardless of multiclass/multilabel templates.
+    The first test caught a real dispatcher bug (LTR's
+    1-D-score reject path was returning ``None`` instead of falling
+    through; fixed in the same change).
+  - **TestFailureSwallowing (2)**: degenerate inputs return ``None``
+    without raising; explicit ``monkeypatch``-injected composer
+    exception is logged + swallowed.
+  - **TestReportModelPerfIntegration (3)**: end-to-end through
+    ``report_model_perf(model=None, probs=...)`` for multiclass +
+    multilabel; legacy back-compat -- no panels file when caller
+    doesn't opt in.
+
+### Verification
+
+```bash
+pytest tests/reporting/ --no-cov -p no:randomly
+# 136 passed (118 PR1+PR2 + 18 auto-dispatch)
+```
+
+### Risks
+
+- **Default ``plot_outputs="plotly[html,png]"`` means every multiclass
+  / multilabel suite run now writes a panel HTML + PNG.** Operators
+  who don't want this set ``ReportingConfig.multiclass_panels=""``
+  (or per-target equivalents) -- the empty-template short-circuit is
+  unit-tested.
+- **LTR not yet wired.** ``ranker_suite`` has its own metrics flow
+  that doesn't go through ``report_model_perf``. The dispatcher
+  supports LTR; the suite-side hookup is a separate touch (deferred
+  with TODO at the LTR-suite report site).
+
 ## 2026-05-08 — Multi-target panel catalogue — PR2
 
 Multiclass / multilabel / LTR panel builders + composers, dispatched

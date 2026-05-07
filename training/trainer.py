@@ -3585,6 +3585,10 @@ def _compute_split_metrics(
     prob_histogram_yscale: str = "auto",
     show_inline_population_labels: bool = True,
     title_metrics_tokens: Optional[Tuple[str, ...]] = None,
+    plot_outputs: Optional[str] = None,
+    multiclass_panels: Optional[str] = None,
+    multilabel_panels: Optional[str] = None,
+    ltr_panels: Optional[str] = None,
 ):
     """Unified metrics computation for train/val/test splits."""
     # Only skip if we can't compute metrics (no probs AND no df to make predictions)
@@ -3649,6 +3653,10 @@ def _compute_split_metrics(
         prob_histogram_yscale=prob_histogram_yscale,
         show_inline_population_labels=show_inline_population_labels,
         title_metrics_tokens=title_metrics_tokens,
+        plot_outputs=plot_outputs,
+        multiclass_panels=multiclass_panels,
+        multilabel_panels=multilabel_panels,
+        ltr_panels=ltr_panels,
     )
     return preds, probs, columns
 
@@ -4237,6 +4245,10 @@ def train_and_evaluate_model(
     prob_histogram_yscale = reporting.prob_histogram_yscale
     show_inline_population_labels = reporting.show_inline_population_labels
     title_metrics_tokens = reporting.title_metrics_tokens
+    plot_outputs = reporting.plot_outputs
+    multiclass_panels = reporting.multiclass_panels
+    multilabel_panels = reporting.multilabel_panels
+    ltr_panels = reporting.ltr_panels
 
     # ---------------------------------------------------------------------------
     # Unpack output config (was bundled into the display config pre-refactor). Default-construct
@@ -4521,6 +4533,10 @@ def train_and_evaluate_model(
             prob_histogram_yscale=prob_histogram_yscale,
             show_inline_population_labels=show_inline_population_labels,
             title_metrics_tokens=title_metrics_tokens,
+            plot_outputs=plot_outputs,
+            multiclass_panels=multiclass_panels,
+            multilabel_panels=multilabel_panels,
+            ltr_panels=ltr_panels,
         )
 
         has_val = (val_idx is not None and len(val_idx) > 0) or val_df is not None

@@ -121,6 +121,10 @@ def report_model_perf(
     show_inline_population_labels: bool = True,
     title_metrics_tokens: Optional[Tuple[str, ...]] = None,
     multilabel_dispatch_config: Optional["MultilabelDispatchConfig"] = None,
+    plot_outputs: Optional[str] = None,
+    multiclass_panels: Optional[str] = None,
+    multilabel_panels: Optional[str] = None,
+    ltr_panels: Optional[str] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """
     Generate a unified performance report for both classifiers and regressors.
@@ -250,6 +254,28 @@ def report_model_perf(
             n_rows=(len(targets) if hasattr(targets, '__len__') else None),
         ):
             preds, probs = report_regression_model_perf(**common_params)
+
+    # 2026-05-08 PR2 wiring: render multiclass / multilabel / LTR panel
+    # grids when the caller has supplied per-target_type templates +
+    # output DSL. No-op for binary classification / regression / when
+    # templates are unset. Failures are logged + swallowed (panels are
+    # additive; existing perf chart + FI still emit).
+    if plot_file and plot_outputs and (
+        multiclass_panels or multilabel_panels or ltr_panels
+    ):
+        from mlframe.reporting.auto_dispatch import render_multi_target_panels
+        with phase("render_multi_target_panels"):
+            render_multi_target_panels(
+                targets=np.asarray(targets) if not isinstance(targets, np.ndarray) else targets,
+                probs=probs, preds=preds,
+                classes=classes, group_ids=group_ids,
+                plot_outputs=plot_outputs,
+                multiclass_panels=multiclass_panels,
+                multilabel_panels=multilabel_panels,
+                ltr_panels=ltr_panels,
+                base_path=plot_file,
+                suptitle=(report_title + " " + model_name).strip(),
+            )
 
     if show_fi:
         n_cols = n_features if n_features is not None else (len(columns) if columns else 0)
