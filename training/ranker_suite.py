@@ -98,6 +98,9 @@ def train_mlframe_ranker_suite(
     save_dir: Optional[str] = None,
     random_seed: int = 42,
     verbose: int = 1,
+    plot_file: Optional[str] = None,
+    plot_outputs: Optional[str] = None,
+    ltr_panels: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Train a suite of native rankers + (optionally) ensemble them.
 
@@ -431,6 +434,24 @@ def train_mlframe_ranker_suite(
                 flavor, val_metrics["ndcg@10"], test_metrics["ndcg@10"],
             )
 
+        # Auto-emit LTR panel grid per (flavor, split). No-op when caller
+        # didn't supply plot_file / plot_outputs / ltr_panels (legacy
+        # callers see no behavioural change).
+        if plot_file and plot_outputs and ltr_panels:
+            from mlframe.reporting import render_multi_target_panels
+            render_multi_target_panels(
+                targets=y_va, preds=val_scores, group_ids=g_va,
+                plot_outputs=plot_outputs, ltr_panels=ltr_panels,
+                base_path=f"{plot_file}_{model_name}_{flavor}_val",
+                suptitle=f"VAL {model_name} {flavor}",
+            )
+            render_multi_target_panels(
+                targets=y_te, preds=test_scores, group_ids=g_te,
+                plot_outputs=plot_outputs, ltr_panels=ltr_panels,
+                base_path=f"{plot_file}_{model_name}_{flavor}_test",
+                suptitle=f"TEST {model_name} {flavor}",
+            )
+
     # -------------------------------------------------------------
     # 4. Ensemble
     # -------------------------------------------------------------
@@ -461,6 +482,21 @@ def train_mlframe_ranker_suite(
                 "  ensemble (%s, N=%d): val NDCG@10=%.4f / test NDCG@10=%.4f",
                 method, len(flavor_order),
                 ens_val_metrics["ndcg@10"], ens_test_metrics["ndcg@10"],
+            )
+
+        if plot_file and plot_outputs and ltr_panels:
+            from mlframe.reporting import render_multi_target_panels
+            render_multi_target_panels(
+                targets=y_va, preds=ens_val, group_ids=g_va,
+                plot_outputs=plot_outputs, ltr_panels=ltr_panels,
+                base_path=f"{plot_file}_{model_name}_ensemble_val",
+                suptitle=f"VAL {model_name} ensemble[{method}]",
+            )
+            render_multi_target_panels(
+                targets=y_te, preds=ens_test, group_ids=g_te,
+                plot_outputs=plot_outputs, ltr_panels=ltr_panels,
+                base_path=f"{plot_file}_{model_name}_ensemble_test",
+                suptitle=f"TEST {model_name} ensemble[{method}]",
             )
 
     # -------------------------------------------------------------

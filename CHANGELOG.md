@@ -1,5 +1,50 @@
 # Changelog
 
+## 2026-05-08 — LTR suite-side panel wiring
+
+Closes the deferred item from the auto-dispatch landing: the LTR
+ranker suite (``ranker_suite.py``) now emits the same per-target
+panel grids that the classifier path got via ``report_model_perf``.
+
+### Wired
+
+- ``mlframe/training/ranker_suite.py::train_mlframe_ranker_suite`` --
+  3 new optional kwargs (``plot_file`` / ``plot_outputs`` /
+  ``ltr_panels``). When all three are set, the suite calls
+  ``render_multi_target_panels(...)`` per (flavor, split) and once
+  per ensemble (split). When any is missing, no panel files appear
+  -- legacy behaviour preserved.
+- ``mlframe/training/core.py::train_mlframe_models_suite`` -- the
+  LTR delegation branch (line 1944) now pulls ``plot_outputs`` +
+  ``ltr_panels`` from ``ReportingConfig`` and ``plot_file`` from
+  ``OutputConfig``, threading them into ``train_mlframe_ranker_suite``.
+  Matches the threading pattern PR1 + auto-dispatch established for
+  the classifier path.
+
+Output filename pattern (per dispatcher contract):
+``{plot_file}_{model_name}_{flavor}_{val|test}_ltr_panels.{fmt}``
+plus ``{plot_file}_{model_name}_ensemble_{val|test}_ltr_panels.{fmt}``.
+
+### Tests added (4, all green)
+
+``tests/training/test_ltr_panel_wiring.py`` -- direct
+``train_mlframe_ranker_suite`` calls with a tiny synthetic search
+fixture (50 queries × 5 docs):
+- ``test_panels_emitted_per_flavor_per_split`` -- 3 flavors × 2 splits
+  = 6 per-model files + 2 ensemble files appear with non-trivial size.
+- ``test_no_panels_when_kwargs_omitted`` -- legacy back-compat.
+- ``test_no_panels_when_only_plot_file_set`` -- opt-in surface is
+  symmetric across all 3 fields (any missing -> no-op).
+- ``test_dual_backend_emits_both`` -- ``"matplotlib[png] + plotly[html]"``
+  emits both files with the correct ``.{backend}.{fmt}`` suffix.
+
+### Verification
+
+```bash
+pytest tests/training/test_ltr_panel_wiring.py --no-cov
+# 4 passed in 25.45s
+```
+
 ## 2026-05-08 — Multi-target panel auto-dispatch (suite wiring)
 
 Glue between PR2's panel composers and the per-(model, split) reporting

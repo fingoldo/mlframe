@@ -1941,6 +1941,28 @@ def train_mlframe_models_suite(
                 else getattr(hyperparams_config, "early_stopping_rounds", 30)
             )
 
+        # Reporting wiring (auto-emit LTR panel grid per (model, split)).
+        # Pull plot_outputs + ltr_panels from reporting_config and a
+        # base plot_file from output_config; passed through as no-op
+        # when any are missing.
+        _plot_outputs = None
+        _ltr_panels = None
+        if reporting_config is not None:
+            _plot_outputs = (
+                reporting_config.get("plot_outputs") if isinstance(reporting_config, dict)
+                else getattr(reporting_config, "plot_outputs", None)
+            )
+            _ltr_panels = (
+                reporting_config.get("ltr_panels") if isinstance(reporting_config, dict)
+                else getattr(reporting_config, "ltr_panels", None)
+            )
+        _plot_file = None
+        if output_config is not None:
+            _plot_file = (
+                output_config.get("plot_file") if isinstance(output_config, dict)
+                else getattr(output_config, "plot_file", None)
+            )
+
         return train_mlframe_ranker_suite(
             df=df,
             target_name=target_name,
@@ -1956,6 +1978,9 @@ def train_mlframe_models_suite(
             early_stopping_rounds=_es,
             save_dir=_save_dir,
             verbose=verbose,
+            plot_file=_plot_file,
+            plot_outputs=_plot_outputs,
+            ltr_panels=_ltr_panels,
         )
 
     # Validate required parameters
