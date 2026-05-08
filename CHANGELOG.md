@@ -1,5 +1,54 @@
 # Changelog
 
+## 2026-05-09 — Phases O + P: polynomial features + custom user-transforms hatch
+
+Two final foundational phases of the 2026 feature-handling overhaul.
+
+### Phase O: PolynomialFeatureExpander
+
+- ``PolynomialFeatureExpander`` in
+  ``training/feature_handling/polynomial.py`` -- opt-in polynomial
+  feature expansion exposed via ``PreprocessingBackendConfig.
+  polynomial_degree``. Default ``None`` (disabled).
+- Memory safety: logs a WARN at fit when projected output > 5000
+  cols so users spot a degree=3-on-100-features mistake before the
+  cache layer OOMs. Smaller expansions log INFO.
+- Wraps ``sklearn.preprocessing.PolynomialFeatures``; future-proofed
+  with a polars-ds dispatcher hook for when ``Blueprint.polynomial_features``
+  ships upstream.
+
+### Phase P: CustomHandler escape hatch
+
+- ``CustomHandler`` in ``training/feature_handling/custom_handler.py``
+  -- wrapper around a user-supplied sklearn-shaped transformer.
+  Mirrors the existing ``FeatureSelectionConfig.custom_pre_pipelines``
+  precedent so power-users plug in proprietary transforms without
+  forking mlframe.
+- ``validate_custom_transformer(transformer)`` -- structural check
+  for callable ``.fit()`` and ``.transform()`` (round-3 U-R2-16:
+  lambda / function objects rejected at construct time, NOT at
+  fit time with a confusing AttributeError).
+- Column extraction normalises 1-D series to ``(n, 1)`` so sklearn
+  transformers expecting 2-D input (StandardScaler / OneHotEncoder
+  / etc) work without per-handler reshape boilerplate.
+- ``output_kind`` in ``CustomParams`` flows through to the
+  assembler routing -- custom transforms can emit dense / sparse /
+  embedding outputs.
+- ``group_columns`` accepted on the handler for group-aware
+  encoders (round-3 F11 + U-R2-13).
+
+### Tests
+
+21 new in ``test_polynomial_and_custom.py``: polynomial shape
+correctness across degree / interaction_only / include_bias variants;
+memory WARN threshold; small expansion logs INFO; degree validation;
+not-fitted error; custom transformer validator (lambda / function /
+fit-only / non-callable rejected); end-to-end sklearn pipeline +
+CustomHandler; output_kind propagation; signature includes transformer
+type; group_columns stored.
+
+358/358 wide regression (M+A+A2+B+C+D+E+N+K+O+P, 1 POSIX-only skip).
+
 ## 2026-05-09 — Phase K: multi-criteria text-vs-categorical detector
 
 Phase K of the 2026 feature-handling overhaul. Replaces the pre-2026

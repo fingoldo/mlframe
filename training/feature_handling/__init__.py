@@ -37,6 +37,13 @@ from mlframe.training.feature_handling.cache_backend import (
     CacheBackend,
     LocalDiskBackend,
 )
+from mlframe.training.feature_handling.custom_handler import (
+    CustomHandler,
+    validate_custom_transformer,
+)
+from mlframe.training.feature_handling.polynomial import (
+    PolynomialFeatureExpander,
+)
 from mlframe.training.feature_handling.assembler import (
     AssembledMatrix,
     HandlerOutput,
@@ -153,6 +160,11 @@ __all__ = [
     # cache_backend
     "CacheBackend",
     "LocalDiskBackend",
+    # custom user-supplied transforms
+    "CustomHandler",
+    "validate_custom_transformer",
+    # polynomial features (opt-in)
+    "PolynomialFeatureExpander",
     # fingerprint
     "ContentFingerprint",
     "DiskKey",
