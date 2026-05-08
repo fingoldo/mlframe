@@ -1,5 +1,50 @@
 # Changelog
 
+## 2026-05-09 — Phase C: TextColumnEncoder (TF-IDF / Hashing) + polars-ds capability dispatch
+
+Phase C of the 2026 feature-handling overhaul. Per-column text
+vectoriser that downstream phases (E concat, D cache) consume.
+
+### Added
+
+- **`PolarsNativeDispatcher`** in
+  ``training/feature_handling/polars_capability.py``. Runtime probe
+  via ``importlib.util.find_spec`` (round-3 security S5: doesn't
+  execute user-controlled module bodies) + ``hasattr`` walk over
+  ``Blueprint`` and top-level ``polars_ds`` ops. Cached frozenset of
+  capability strings (``"blueprint.tfidf"``, ``"blueprint.impute"``
+  etc) so subsequent dispatches are free. ``reset_capability_cache()``
+  for tests; positive results cached for process lifetime, negative
+  results re-probe (so a mid-session ``pip install polars-ds`` works).
+
+- **`TextColumnEncoder`** in
+  ``training/feature_handling/text_encoder.py``. Per-column TF-IDF
+  / Hashing vectoriser with polars / pandas / sparse symmetry.
+  Output: ``scipy.sparse.csr_matrix``. Train-only fit semantics --
+  ``transform()`` applies the trained vocab to held-out rows so
+  unseen tokens map to zero (no leak).
+  Empty / null / NaN / Unicode (Cyrillic / emoji / RTL) input
+  coerced to "" without crashing the underlying vectoriser
+  (round-3 T8 + T9).
+  Phase C v1: sklearn ``TfidfVectorizer`` / ``HashingVectorizer``
+  fallback only. polars-ds 0.11.x doesn't ship Blueprint TF-IDF
+  / hashing yet (audit confirmed); when the user's upstream PR
+  lands, ``PolarsNativeDispatcher.has("blueprint.tfidf")`` will
+  flip True and the encoder picks up the polars-native path
+  without a code change here.
+
+### Tests
+
+17 new in ``test_text_column_encoder.py``: TF-IDF + hashing happy
+paths, polars/pandas symmetry (same vocab from either form), edge
+inputs (empty / null / NaN / Cyrillic / emoji / RTL), idempotency,
+no-leak (test rows OOV-mapped to zero), capability detector,
+dispatcher routing under prefer_polarsds True/False, signature
+stability.
+
+238/238 wide regression (M + A + A2 + B + C, HF heavy skipped here
+to keep quick suite under 1.5 min). 17/17 phase-C own pack.
+
 ## 2026-05-09 — Phase B: provider Protocols + HuggingFaceProvider + lifecycle registry
 
 Phase B of the 2026 feature-handling overhaul. Wires the provider

@@ -1,0 +1,276 @@
+"""
+Tests for the phase-C :class:`TextColumnEncoder` and
+:class:`PolarsNativeDispatcher`.
+
+Coverage:
+  * Happy-path TF-IDF: shape, vocabulary, sparse output type.
+  * Hashing: deterministic n_features regardless of input size.
+  * polars / pandas symmetry: same vocab built from either input form.
+  * Empty / null / Unicode input doesn't crash (round-3 T8 + T9).
+  * fit() then transform(other_df) keeps train vocab (no leak).
+  * fit_transform == fit().transform() on the same df (idempotent).
+  * Capability detector reports polars-ds version + caps; reset
+    works.
+  * Dispatcher routes correctly when prefer_polarsds=False.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import polars as pl
+import pytest
+from scipy.sparse import csr_matrix, issparse
+
+from mlframe.training.feature_handling import (
+    HashingParams,
+    PolarsNativeDispatcher,
+    TextColumnEncoder,
+    TfidfParams,
+    detect_polars_ds_capabilities,
+    reset_capability_cache,
+)
+
+
+# =====================================================================
+# Fixtures
+# =====================================================================
+
+
+@pytest.fixture
+def small_text_polars():
+    return pl.DataFrame({
+        "txt": [
+            "the quick brown fox",
+            "jumps over the lazy dog",
+            "the lazy dog sleeps",
+            "another sentence about foxes",
+            "polars data science",
+        ],
+    })
+
+
+@pytest.fixture
+def small_text_pandas():
+    return pd.DataFrame({
+        "txt": [
+            "the quick brown fox",
+            "jumps over the lazy dog",
+            "the lazy dog sleeps",
+            "another sentence about foxes",
+            "polars data science",
+        ],
+    })
+
+
+# =====================================================================
+# 1. TF-IDF happy path
+# =====================================================================
+
+
+class TestTfidfHappyPath:
+    def test_fit_then_transform_polars(self, small_text_polars):
+        enc = TextColumnEncoder(
+            column="txt",
+            params=TfidfParams(max_features=50, ngram_range=(1, 1)),
+        )
+        enc.fit(small_text_polars)
+        out = enc.transform(small_text_polars)
+        assert issparse(out)
+        assert isinstance(out, csr_matrix)
+        assert out.shape[0] == 5
+        assert 0 < out.shape[1] <= 50
+
+    def test_fit_transform_pandas(self, small_text_pandas):
+        enc = TextColumnEncoder(
+            column="txt",
+            params=TfidfParams(max_features=50, ngram_range=(1, 1)),
+        )
+        out = enc.fit_transform(small_text_pandas)
+        assert issparse(out)
+        assert out.shape[0] == 5
+
+    def test_idempotency(self, small_text_polars):
+        """fit().transform(df) and fit_transform(df) on the same df
+        should produce identical sparse matrices."""
+        enc1 = TextColumnEncoder(column="txt", params=TfidfParams(max_features=20))
+        enc1.fit(small_text_polars)
+        out1 = enc1.transform(small_text_polars)
+
+        enc2 = TextColumnEncoder(column="txt", params=TfidfParams(max_features=20))
+        out2 = enc2.fit_transform(small_text_polars)
+
+        np.testing.assert_array_equal(out1.toarray(), out2.toarray())
+
+
+# =====================================================================
+# 2. Hashing happy path
+# =====================================================================
+
+
+class TestHashingHappyPath:
+    def test_hashing_deterministic_n_features(self, small_text_polars):
+        enc = TextColumnEncoder(
+            column="txt",
+            params=HashingParams(n_features=128),
+        )
+        enc.fit(small_text_polars)
+        out = enc.transform(small_text_polars)
+        assert out.shape == (5, 128)
+
+    def test_hashing_no_fit_required_semantics(self, small_text_polars):
+        """Hashing is stateless, but our wrapper still enforces fit
+        for API consistency."""
+        enc = TextColumnEncoder(column="txt", params=HashingParams(n_features=64))
+        with pytest.raises(RuntimeError, match="not fitted"):
+            enc.transform(small_text_polars)
+        enc.fit(small_text_polars)
+        out = enc.transform(small_text_polars)
+        assert out.shape == (5, 64)
+
+
+# =====================================================================
+# 3. polars / pandas symmetry
+# =====================================================================
+
+
+class TestSymmetry:
+    def test_same_vocab_from_polars_and_pandas(self, small_text_polars, small_text_pandas):
+        """A polars frame and a pandas frame with the same content
+        produce the same fitted TF-IDF vocabulary."""
+        enc_pl = TextColumnEncoder(
+            column="txt", params=TfidfParams(max_features=50, ngram_range=(1, 1)),
+        )
+        enc_pd = TextColumnEncoder(
+            column="txt", params=TfidfParams(max_features=50, ngram_range=(1, 1)),
+        )
+        enc_pl.fit(small_text_polars)
+        enc_pd.fit(small_text_pandas)
+
+        assert enc_pl._vectorizer.vocabulary_ == enc_pd._vectorizer.vocabulary_
+
+
+# =====================================================================
+# 4. Edge inputs
+# =====================================================================
+
+
+class TestEdgeInputs:
+    def test_empty_strings_dont_crash(self):
+        df = pl.DataFrame({"txt": ["", "", "", "real text"]})
+        enc = TextColumnEncoder(column="txt", params=TfidfParams(max_features=10))
+        enc.fit(df)
+        out = enc.transform(df)
+        assert out.shape == (4, len(enc._vectorizer.vocabulary_))
+        # Empty rows produce zero rows in the sparse matrix.
+        assert out[0].nnz == 0
+
+    def test_null_in_polars_coerced(self):
+        df = pl.DataFrame({"txt": ["hello", None, "world", None]})
+        enc = TextColumnEncoder(column="txt", params=TfidfParams(max_features=10))
+        enc.fit(df)
+        out = enc.transform(df)
+        assert out.shape[0] == 4
+
+    def test_nan_in_pandas_coerced(self):
+        df = pd.DataFrame({"txt": ["hello", float("nan"), "world", float("nan")]})
+        enc = TextColumnEncoder(column="txt", params=TfidfParams(max_features=10))
+        enc.fit(df)
+        out = enc.transform(df)
+        assert out.shape[0] == 4
+
+    def test_unicode_roundtrip(self):
+        df = pl.DataFrame({"txt": ["привет мир", "🔥 launch", "مرحبا", "english"]})
+        enc = TextColumnEncoder(column="txt", params=TfidfParams(max_features=20))
+        enc.fit(df)
+        out = enc.transform(df)
+        assert out.shape == (4, len(enc._vectorizer.vocabulary_))
+
+
+# =====================================================================
+# 5. No leak: train vocab applied to held-out frame
+# =====================================================================
+
+
+class TestNoLeak:
+    def test_train_vocab_applied_to_test(self):
+        train = pl.DataFrame({"txt": ["foo bar", "bar baz", "baz qux"]})
+        test = pl.DataFrame({"txt": ["foo unseen", "qux unseen", "completely new"]})
+
+        enc = TextColumnEncoder(
+            column="txt", params=TfidfParams(max_features=50, ngram_range=(1, 1)),
+        )
+        enc.fit(train)
+        out_train = enc.transform(train)
+        out_test = enc.transform(test)
+
+        # Train and test sparse matrices share columns (vocabulary).
+        assert out_train.shape[1] == out_test.shape[1]
+        # Test should have only TRAIN vocab tokens. "unseen" is not
+        # in train -> contributes 0 features.
+        # The n_unseen "test row" should be all-zero.
+        assert out_test[2].nnz == 0  # "completely new" all OOV
+
+
+# =====================================================================
+# 6. Capability detector + dispatcher
+# =====================================================================
+
+
+class TestCapabilityDetector:
+    def test_detect_returns_set(self):
+        reset_capability_cache()
+        caps = detect_polars_ds_capabilities()
+        assert isinstance(caps, frozenset)
+        # If polars-ds is installed, at least Blueprint methods we use
+        # should be there.
+        if any(c.startswith("polars_ds:") for c in caps):
+            assert "blueprint.scale" in caps
+            assert "blueprint.impute" in caps  # phase M wired this
+            assert "blueprint.ordinal_encode" in caps
+
+    def test_dispatcher_prefer_false_disables(self):
+        d = PolarsNativeDispatcher(prefer_polarsds=False)
+        assert d.has("blueprint.scale") is False
+        assert d.has("blueprint.tfidf") is False
+
+    def test_dispatcher_prefer_true_uses_caps(self):
+        d = PolarsNativeDispatcher(prefer_polarsds=True)
+        # If installed, basic Blueprint ops are available.
+        try:
+            import polars_ds  # noqa: F401
+            assert d.has("blueprint.impute")
+            assert d.has("blueprint.scale")
+        except ImportError:  # pragma: no cover
+            pytest.skip("polars-ds not installed")
+
+    def test_get_version_returns_string(self):
+        reset_capability_cache()
+        d = PolarsNativeDispatcher(prefer_polarsds=True)
+        v = d.get_version()
+        try:
+            import polars_ds  # noqa: F401
+            assert isinstance(v, str)
+        except ImportError:
+            assert v is None
+
+
+# =====================================================================
+# 7. Signature stability
+# =====================================================================
+
+
+class TestSignature:
+    def test_signature_stable_for_same_params(self):
+        e1 = TextColumnEncoder(
+            column="txt", params=TfidfParams(max_features=100, ngram_range=(1, 2)),
+        )
+        e2 = TextColumnEncoder(
+            column="txt", params=TfidfParams(max_features=100, ngram_range=(1, 2)),
+        )
+        assert e1.signature() == e2.signature()
+
+    def test_signature_changes_with_params(self):
+        e1 = TextColumnEncoder(column="txt", params=TfidfParams(max_features=100))
+        e2 = TextColumnEncoder(column="txt", params=TfidfParams(max_features=200))
+        assert e1.signature() != e2.signature()

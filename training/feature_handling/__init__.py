@@ -73,6 +73,11 @@ from mlframe.training.feature_handling.presets import (
     embedding_only,
     tfidf_only,
 )
+from mlframe.training.feature_handling.polars_capability import (
+    PolarsNativeDispatcher,
+    detect_polars_ds_capabilities,
+    reset_capability_cache,
+)
 from mlframe.training.feature_handling.protocols import (
     FrozenFeaturizerProvider,
     TrainableFeaturizerProvider,
@@ -86,6 +91,9 @@ from mlframe.training.feature_handling.registry import (
     provider_status,
     shutdown_all,
     wait_prewarm,
+)
+from mlframe.training.feature_handling.text_encoder import (
+    TextColumnEncoder,
 )
 from mlframe.training.feature_handling.system import (
     CudaErrorClass,
@@ -136,9 +144,15 @@ __all__ = [
     "tfidf_only",
     # providers
     "EmbeddingProvider",
+    # polars-ds capability dispatch
+    "PolarsNativeDispatcher",
+    "detect_polars_ds_capabilities",
+    "reset_capability_cache",
     # protocols
     "FrozenFeaturizerProvider",
     "TrainableFeaturizerProvider",
+    # text encoder
+    "TextColumnEncoder",
     # registry
     "acquire_provider",
     "prewarm",
