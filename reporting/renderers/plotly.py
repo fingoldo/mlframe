@@ -266,25 +266,42 @@ class PlotlyRenderer:
                 else:
                     return  # success
 
-            # Fallback: per-call (oneshot) plotly write_image. Slower
-            # (~13s) but bug-isolated; one bad figure doesn't break the
-            # whole suite.
-            #
-            # Catch ALL exceptions here (not just ImportError/ValueError)
-            # because plotly's wrapper can raise TypeError / KaleidoError
-            # / RuntimeError / OSError from its internal kaleido glue,
-            # and we never want a chart-render failure to abort the
-            # whole suite -- HTML fallback is always safe.
+            # 2026-05-08 v3: when the persistent path burns, ``fig.write_image``
+            # ALSO routes through plotly's wrapper which talks to the SAME
+            # broken kaleido sync server. Verified empirically: c0031 v4
+            # hung past 30 minutes despite the persistent timeout firing
+            # because the oneshot fallback re-entered the same dead queue.
+            # When burned, write HTML directly -- it's a different code
+            # path (write_html doesn't touch kaleido), so it always works.
+            # Lose the static PNG/SVG/PDF artifact but unblock the suite.
+            if persistent_failed:
+                from os.path import splitext
+                root, _ = splitext(path)
+                try:
+                    fig.write_html(root + ".html", include_plotlyjs="cdn", auto_open=False)
+                    logger.warning(
+                        "kaleido burned -- wrote interactive HTML instead of %s "
+                        "to %s (PNG/SVG/PDF unavailable for the rest of this "
+                        "process; restart Python to retry persistent kaleido).",
+                        fmt, root + ".html",
+                    )
+                except Exception as e:
+                    logger.error(
+                        "All save paths failed for %s (%s); diagnostic chart "
+                        "lost but suite continues. Last error: %s",
+                        path, fmt, e,
+                    )
+                return
+
+            # Persistent path skipped (kaleido never started or unavailable);
+            # use plotly oneshot. Catch ALL exceptions for HTML fallback.
             try:
                 fig.write_image(path, format=fmt)
             except Exception as e:
                 logger.warning(
-                    "plotly write_image(%s) oneshot also failed (%s: %s); "
-                    "falling back to .html. %s",
+                    "plotly write_image(%s) oneshot failed (%s: %s); "
+                    "falling back to .html.",
                     fmt, type(e).__name__, e,
-                    "Install kaleido to enable static image export: "
-                    "pip install -U kaleido" if not persistent_failed else
-                    "(persistent server already failed for this figure too).",
                 )
                 from os.path import splitext
                 root, _ = splitext(path)
