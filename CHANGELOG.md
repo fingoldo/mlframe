@@ -1,5 +1,67 @@
 # Changelog
 
+## 2026-05-09 — Phase E: assembler + sparse/dense routing + auto-SVD with WARN
+
+Phase E of the 2026 feature-handling overhaul. Concat layer that
+takes fitted handler outputs and produces the final feature matrix
+in the model-native format (sparse two-track for XGB/CB/LGB/linear,
+dense single-track for HGB/RF/NGB/MLP/recurrent/TabNet).
+
+### Added
+
+- **`routing.py`** with the source-of-truth sparse/dense compatibility
+  table. ``SPARSE_AWARE_MODELS`` (cb / xgb / lgb / linear / ridge /
+  sgd) accept ``scipy.sparse`` natively; ``DENSE_ONLY_MODELS`` (hgb
+  / rf / ngb / mlp / recurrent / tabnet) require densification.
+  ``should_apply_svd(model_kind, n_sparse_cols)`` decides if the
+  TF-IDF / hashing output triggers auto-TruncatedSVD before
+  densification.
+
+- **`hgb_max_features_cap()`** with WARN+cap semantics for HGB's
+  TF-IDF size limit. Round-3 A18: previous silent cap was a
+  footgun -- user sets 5000, gets 500, no log. Now WARN is loud +
+  ``allow_high=True`` opt-out logged at INFO.
+
+- **`HandlerOutput`** dataclass: one fitted handler's contribution
+  (data + column + method + output_kind + optional feature_names).
+  ``name_prefix()`` returns the disambiguating short form
+  (``txt__tfidf``, ``txt__frozen_emb``, ``txt__hash``) so multi-
+  handler concat (round-3 A8) doesn't produce colliding column
+  names.
+
+- **`assemble_for_model(blocks, model_kind, ...)`** in
+  ``training/feature_handling/assembler.py``. Routes per round-3
+  CC5:
+  * Sparse-aware models -> two-track ``(sparse_block, dense_block)``;
+    TF-IDF stays sparse (no 143 GB densification at 7M rows).
+  * Dense-only models -> single-track dense; sparse blocks above
+    ``svd_trigger_ncols`` (default 512) auto-apply TruncatedSVD;
+    smaller sparse blocks ``.toarray()`` densify in place.
+
+- **`_apply_svd`** uses pinned ``n_iter=5`` +
+  ``power_iteration_normalizer="auto"`` so cross-version sklearn
+  doesn't drift the SVD basis between cache miss and cache hit
+  (round-3 R3-08).
+
+- **Same-col + same-method overlap raises** at assembly time
+  (round-3 A8). Same col + different methods is allowed and
+  produces disambiguated column names.
+
+- **`assembled_column_names()`** returns a copy of feature names
+  for SHAP / FI attribution downstream.
+
+### Tests
+
+35 new in ``test_assembler.py``: routing table parametrised, SVD
+trigger parametrised, HGB cap WARN+pass-through, single-handler
+sparse / dense paths, multi-handler same-col disambiguation,
+duplicate-method ValueError, insertion-order preservation,
+two-track XGB output, single-track HGB output with auto-SVD,
+SVD pinned ``n_iter=5`` + ``power_iteration_normalizer``,
+empty-assembly base case, ``assembled_column_names`` returns copy.
+
+294/294 wide regression (M+A+A2+B+C+D+E, 1 POSIX-only skip).
+
 ## 2026-05-09 — Phase D: FeatureCache (two-tier RAM + disk) + ContentFingerprint
 
 Phase D of the 2026 feature-handling overhaul. The cache layer that

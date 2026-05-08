@@ -37,6 +37,12 @@ from mlframe.training.feature_handling.cache_backend import (
     CacheBackend,
     LocalDiskBackend,
 )
+from mlframe.training.feature_handling.assembler import (
+    AssembledMatrix,
+    HandlerOutput,
+    assemble_for_model,
+    assembled_column_names,
+)
 from mlframe.training.feature_handling.cache import (
     FeatureCache,
 )
@@ -95,6 +101,15 @@ from mlframe.training.feature_handling.protocols import (
     FrozenFeaturizerProvider,
     TrainableFeaturizerProvider,
 )
+from mlframe.training.feature_handling.routing import (
+    DENSE_ONLY_MODELS,
+    HGB_TFIDF_MAX_FEATURES_CAP,
+    SPARSE_AWARE_MODELS,
+    accepts_sparse,
+    hgb_max_features_cap,
+    is_dense_only,
+    should_apply_svd,
+)
 from mlframe.training.feature_handling.providers import (
     EmbeddingProvider,
 )
@@ -121,6 +136,11 @@ __all__ = [
     "HandlerSpec",
     "register_handler_spec",
     "get_handler_spec_for_axis",
+    # assembler / multi-handler concat
+    "AssembledMatrix",
+    "HandlerOutput",
+    "assemble_for_model",
+    "assembled_column_names",
     # cache (in-memory + disk tier)
     "FeatureCache",
     # cache_backend
@@ -175,6 +195,14 @@ __all__ = [
     # protocols
     "FrozenFeaturizerProvider",
     "TrainableFeaturizerProvider",
+    # routing
+    "SPARSE_AWARE_MODELS",
+    "DENSE_ONLY_MODELS",
+    "HGB_TFIDF_MAX_FEATURES_CAP",
+    "accepts_sparse",
+    "is_dense_only",
+    "should_apply_svd",
+    "hgb_max_features_cap",
     # text encoder
     "TextColumnEncoder",
     # registry
