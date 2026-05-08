@@ -128,17 +128,34 @@ def prewarm_numba_cache():
     # split of model 1, contributing ~5-10s of cold-start latency to
     # every suite run). Confirmed via cProfile of c0044 (4 models, 80k
     # rows) where numba compile time was 11.7s before this addition.
-    for _dtype in (np.float32, np.float64):
-        _yt = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=_dtype)
-        _yp = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6, 0.5, 0.5], dtype=_dtype)
-        _ = compute_ece_and_brier_decomposition(_yt, _yp, nbins=10)
-    # fast_aucs_per_group_optimized: per-group AUC. group_ids None
-    # path is the common one (unset group_field) -- prewarm both shapes.
-    _y = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.float64)
-    _s = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6, 0.5, 0.5], dtype=np.float64)
-    _ = fast_aucs_per_group_optimized(y_true=_y, y_score=_s, group_ids=None)
-    _gids = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1], dtype=np.int64)
-    _ = fast_aucs_per_group_optimized(y_true=_y, y_score=_s, group_ids=_gids)
+    #
+    # 2026-05-08 cont'd: cover the dominant suite-runtime dtype combo.
+    # In the per-class loop of report_probabilistic_model_perf, y_true
+    # arrives as numpy bool (``targets == class_name``) and y_pred as
+    # float64 (predict_proba column). We only prewarm THIS exact combo
+    # -- prewarming additional dtype-pairs costs ~5-10s each in JIT
+    # compile time (verified empirically) and the suite's hot path is
+    # always (bool, float64) per the per-class slicing convention. Other
+    # callers that need different dtypes (regression, multilabel) hit
+    # the same cold-compile cost on first call but the calibration
+    # report path -- which dominates the 80s c0044 profile -- is now
+    # warm before entering the suite.
+    _yt_bool = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.bool_)
+    _yp_f64 = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6, 0.5, 0.5], dtype=np.float64)
+    try:
+        _ = compute_ece_and_brier_decomposition(_yt_bool, _yp_f64, nbins=10)
+        _ = fast_aucs_per_group_optimized(y_true=_yt_bool, y_score=_yp_f64, group_ids=None)
+        _ = fast_log_loss(_yt_bool, _yp_f64)
+        _ = fast_ice_only(_yt_bool, _yp_f64, nbins=10, use_weights=True)
+    except Exception:
+        pass
+    # format_classification_report: njit-backed, ~3s cold.
+    _yti = np.array([0, 1, 0, 1, 0, 1], dtype=np.int64)
+    _ypi = np.array([0, 1, 0, 0, 1, 1], dtype=np.int64)
+    try:
+        _ = format_classification_report(_yti, _ypi, nclasses=2)
+    except Exception:
+        pass
 
     # CatBoost logits to probs conversion
     logits_binary = np.array([-1.0, 0.0, 1.0, 2.0, -0.5, 0.5, 1.5, -1.5, 0.25, -0.25], dtype=np.float64)
