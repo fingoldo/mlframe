@@ -5201,6 +5201,11 @@ def configure_training_params(
         config_params["target_type"] = target_type
     if n_classes is not None and "n_classes" not in config_params:
         config_params["n_classes"] = n_classes
+    # 2026-05-08 perf: thread mlframe_models -> get_training_configs so
+    # the MLP config block (and its ~14s pytorch / lightning import on
+    # first call) is skipped when no neural model is requested.
+    if mlframe_models is not None and "enabled_models" not in config_params:
+        config_params["enabled_models"] = list(mlframe_models)
 
     if not use_regression:
         if "catboost_custom_classif_metrics" not in config_params:

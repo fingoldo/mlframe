@@ -642,6 +642,12 @@ def get_training_configs(
     # featureselectors
     # ----------------------------------------------------------------------------------------------------------------------------
     rfecv_kwargs: dict = None,
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # 2026-05-08 perf: skip MLP-config build (incl. ~14s pytorch / lightning
+    # import on first call) when MLP isn't in the requested model list.
+    # Default ``None`` preserves legacy behaviour (build all configs).
+    # ----------------------------------------------------------------------------------------------------------------------------
+    enabled_models: Optional[Sequence[str]] = None,
 ) -> tuple:
     """Returns comparable training configs for different types of models,
     based on general params supplied like learning rate, task type, time budget.
@@ -1006,100 +1012,116 @@ def get_training_configs(
     )
     NGB_GENERAL_PARAMS.update(ngb_kwargs)
 
-    mlp_trainer_params: dict = dict(
-        devices=1,  # Always use single device by default to avoid multi-GPU complexity
-        # ----------------------------------------------------------------------------------------------------------------------
-        # Runtime:
-        # ----------------------------------------------------------------------------------------------------------------------
-        min_epochs=1,
-        max_epochs=iterations,
-        max_time={"days": 0, "hours": 0, "minutes": 30},
-        # max_steps=1,
-        # ----------------------------------------------------------------------------------------------------------------------
-        # Intervals:
-        # ----------------------------------------------------------------------------------------------------------------------
-        check_val_every_n_epoch=1,
-        # val_check_interval=val_check_interval,
-        # log_every_n_steps=log_every_n_steps,
-        # ----------------------------------------------------------------------------------------------------------------------
-        # Flags:
-        # ----------------------------------------------------------------------------------------------------------------------
-        enable_model_summary=False,
-        gradient_clip_val=1.0,
-        gradient_clip_algorithm="norm",
-        accumulate_grad_batches=2,
-        # ----------------------------------------------------------------------------------------------------------------------
-        # Precision & accelerators:
-        # ----------------------------------------------------------------------------------------------------------------------
-        precision="32-true",
-        num_nodes=1,
-        # ----------------------------------------------------------------------------------------------------------------------
-        # Logging:
-        # ----------------------------------------------------------------------------------------------------------------------
-        default_root_dir="logs",
+    # 2026-05-08 perf: when caller declares which models are in scope
+    # AND mlp / recurrent are NOT among them, skip the entire MLP
+    # config block (saves ~14s of pytorch + lightning import overhead
+    # on the first call to get_training_configs in a process). Any
+    # caller that asks for MLP_GENERAL_PARAMS later will get None.
+    _mlp_in_scope = (
+        enabled_models is None
+        or any(m in ("mlp", "recurrent") for m in enabled_models)
     )
 
-    if mlp_kwargs:
-        mlp_trainer_params.update(mlp_kwargs.get("trainer_params", {}))
+    if not _mlp_in_scope:
+        # Skip the heavy MLP path entirely. Downstream consumers must
+        # not assume MLP_GENERAL_PARAMS is non-None when mlp isn't
+        # requested -- the dispatch in trainer.py's _get_mlp_imports
+        # gates on the presence of 'mlp' in mlframe_models already.
+        MLP_GENERAL_PARAMS = None
+    else:
+        mlp_trainer_params: dict = dict(
+            devices=1,  # Always use single device by default to avoid multi-GPU complexity
+            # ------------------------------------------------------------------
+            # Runtime:
+            # ------------------------------------------------------------------
+            min_epochs=1,
+            max_epochs=iterations,
+            max_time={"days": 0, "hours": 0, "minutes": 30},
+            # ------------------------------------------------------------------
+            # Intervals:
+            # ------------------------------------------------------------------
+            check_val_every_n_epoch=1,
+            # ------------------------------------------------------------------
+            # Flags:
+            # ------------------------------------------------------------------
+            enable_model_summary=False,
+            gradient_clip_val=1.0,
+            gradient_clip_algorithm="norm",
+            accumulate_grad_batches=2,
+            # ------------------------------------------------------------------
+            # Precision & accelerators:
+            # ------------------------------------------------------------------
+            precision="32-true",
+            num_nodes=1,
+            # ------------------------------------------------------------------
+            # Logging:
+            # ------------------------------------------------------------------
+            default_root_dir="logs",
+        )
 
-    # Lazy imports — only paid when MLP configs are actually being built.
-    import torch
-    import torch.nn.functional as F
-    from mlframe.lightninglib import MLPTorchModel, TorchDataModule
+        if mlp_kwargs:
+            mlp_trainer_params.update(mlp_kwargs.get("trainer_params", {}))
 
-    # Default loss function and dtype (classification)
-    loss_fn = F.cross_entropy
-    labels_dtype = torch.int64
+        # Lazy imports -- only paid when MLP configs are actually being built.
+        import torch
+        import torch.nn.functional as F
+        from mlframe.lightninglib import MLPTorchModel, TorchDataModule
 
-    mlp_model_params = dict(
-        loss_fn=loss_fn,
-        learning_rate=1e-3,
-        l1_alpha=0.0,
-        optimizer=torch.optim.AdamW,
-        optimizer_kwargs={},
-        lr_scheduler=None,
-        lr_scheduler_kwargs={},
-    )
-    if mlp_kwargs:
-        mlp_model_params.update(mlp_kwargs.get("model_params", {}))
+        # Default loss function and dtype (classification)
+        loss_fn = F.cross_entropy
+        labels_dtype = torch.int64
 
-    mlp_dataloader_params = dict(
-        sampler=None,
-        batch_sampler=None,
-        num_workers=0,
-        drop_last=False,
-        timeout=0,
-        worker_init_fn=None,
-        prefetch_factor=None,
-        persistent_workers=False,
-        batch_size=1024,
-        shuffle=False,
-    )
-    if mlp_kwargs:
-        mlp_dataloader_params.update(mlp_kwargs.get("dataloader_params", {}))
+        mlp_model_params = dict(
+            loss_fn=loss_fn,
+            learning_rate=1e-3,
+            l1_alpha=0.0,
+            optimizer=torch.optim.AdamW,
+            optimizer_kwargs={},
+            lr_scheduler=None,
+            lr_scheduler_kwargs={},
+        )
+        if mlp_kwargs:
+            mlp_model_params.update(mlp_kwargs.get("model_params", {}))
 
-    mlp_datamodule_params = dict(
-        read_fcn=None, data_placement_device=None, features_dtype=torch.float32, labels_dtype=labels_dtype, dataloader_params=mlp_dataloader_params
-    )
-    if mlp_kwargs:
-        mlp_datamodule_params.update(mlp_kwargs.get("datamodule_params", {}))
+        mlp_dataloader_params = dict(
+            sampler=None,
+            batch_sampler=None,
+            num_workers=0,
+            drop_last=False,
+            timeout=0,
+            worker_init_fn=None,
+            prefetch_factor=None,
+            persistent_workers=False,
+            batch_size=1024,
+            shuffle=False,
+        )
+        if mlp_kwargs:
+            mlp_dataloader_params.update(mlp_kwargs.get("dataloader_params", {}))
 
-    MLP_GENERAL_PARAMS = dict(
-        model_class=MLPTorchModel,
-        model_params=mlp_model_params,
-        datamodule_class=TorchDataModule,
-        datamodule_params=mlp_datamodule_params,  # includes dataloader_params
-        trainer_params=mlp_trainer_params,
-        use_swa=mlp_kwargs.get("use_swa", False) if mlp_kwargs else False,
-        swa_params=(
-            mlp_kwargs.get("swa_params", dict(swa_epoch_start=5, annealing_epochs=5, swa_lrs=1e-4))
-            if mlp_kwargs
-            else dict(swa_epoch_start=5, annealing_epochs=5, swa_lrs=1e-4)
-        ),
-        tune_params=mlp_kwargs.get("tune_params", False) if mlp_kwargs else False,
-        float32_matmul_precision=mlp_kwargs.get("float32_matmul_precision", None) if mlp_kwargs else None,
-        early_stopping_rounds=early_stopping_rounds,
-    )
+        mlp_datamodule_params = dict(
+            read_fcn=None, data_placement_device=None,
+            features_dtype=torch.float32, labels_dtype=labels_dtype,
+            dataloader_params=mlp_dataloader_params,
+        )
+        if mlp_kwargs:
+            mlp_datamodule_params.update(mlp_kwargs.get("datamodule_params", {}))
+
+        MLP_GENERAL_PARAMS = dict(
+            model_class=MLPTorchModel,
+            model_params=mlp_model_params,
+            datamodule_class=TorchDataModule,
+            datamodule_params=mlp_datamodule_params,
+            trainer_params=mlp_trainer_params,
+            use_swa=mlp_kwargs.get("use_swa", False) if mlp_kwargs else False,
+            swa_params=(
+                mlp_kwargs.get("swa_params", dict(swa_epoch_start=5, annealing_epochs=5, swa_lrs=1e-4))
+                if mlp_kwargs
+                else dict(swa_epoch_start=5, annealing_epochs=5, swa_lrs=1e-4)
+            ),
+            tune_params=mlp_kwargs.get("tune_params", False) if mlp_kwargs else False,
+            float32_matmul_precision=mlp_kwargs.get("float32_matmul_precision", None) if mlp_kwargs else None,
+            early_stopping_rounds=early_stopping_rounds,
+        )
 
     if rfecv_kwargs is None:
         rfecv_kwargs = {}
@@ -1136,7 +1158,8 @@ def get_training_configs(
                         LGB_GENERAL_PARAMS, XGB_GENERAL_PARAMS,
                         XGB_GENERAL_CLASSIF, XGB_CALIB_CLASSIF,
                         MLP_GENERAL_PARAMS, COMMON_RFECV_PARAMS):
-            _params.pop("early_stopping_rounds", None)
+            if _params is not None:  # MLP_GENERAL_PARAMS may be None when MLP not in scope
+                _params.pop("early_stopping_rounds", None)
         # HGB uses early_stopping=True + n_iter_no_change; force ES off explicitly
         HGB_GENERAL_PARAMS["early_stopping"] = False
         HGB_GENERAL_PARAMS.pop("n_iter_no_change", None)
