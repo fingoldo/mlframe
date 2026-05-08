@@ -363,8 +363,11 @@ class TestLogLossPerformance:
         import time
         y_true, y_score = large_data
 
-        # Warm up numba
+        # Warm up numba. fast_log_loss dispatches seq vs par by N; the
+        # par kernel has its own JIT compile cost (~1.5s cold) and a
+        # small-N warmup hits seq only. Warm both paths.
         _ = fast_log_loss(y_true[:1000], y_score[:1000])
+        _ = fast_log_loss(y_true, y_score)
 
         # Time custom (10 iterations)
         start = time.perf_counter()
