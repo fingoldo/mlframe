@@ -58,12 +58,26 @@ this list -- XGB's native multi-quantile path skips this wrapper.
 def _probe_alpha_param_name(base_estimator: BaseEstimator) -> str:
     """Identify which kwarg name the base estimator uses for the quantile.
 
-    Raises if neither standard name is in the estimator's signature.
+    Probes ``get_params`` first (works for sklearn-pure estimators);
+    falls back to ``set_params`` (succeeds when the estimator accepts
+    the kwarg via __init__/**kwargs even when ``get_params`` omits it
+    -- LightGBM's LGBMRegressor matches this pattern: ``alpha`` is a
+    valid loss-function kwarg but not in get_params(deep=False)).
+    Raises if neither candidate is accepted.
     """
     params = base_estimator.get_params(deep=False)
     for name in _ALPHA_PARAM_CANDIDATES:
         if name in params:
             return name
+    # Fallback: try set_params with each candidate and see which sticks.
+    # We use a clone so probing doesn't mutate the user's estimator.
+    test_clone = clone(base_estimator)
+    for name in _ALPHA_PARAM_CANDIDATES:
+        try:
+            test_clone.set_params(**{name: 0.5})
+            return name
+        except (ValueError, TypeError):
+            continue
     raise ValueError(
         f"_QuantileMultiOutputWrapper: base estimator "
         f"{type(base_estimator).__name__} does not accept any of the "
@@ -132,11 +146,12 @@ class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
     def fit(self, X, y, sample_weight=None):
         if y is None:
             raise ValueError("_QuantileMultiOutputWrapper requires non-None y.")
-        y_arr = np.asarray(y).ravel()
-        if y_arr.ndim != 1:
+        y_raw = np.asarray(y)
+        if y_raw.ndim != 1:
             raise ValueError(
-                f"_QuantileMultiOutputWrapper expects 1-D y; got shape {y_arr.shape}"
+                f"_QuantileMultiOutputWrapper expects 1-D y; got shape {y_raw.shape}"
             )
+        y_arr = y_raw
         alpha_param = _probe_alpha_param_name(self.base_estimator)
         n_jobs = _resolve_n_jobs(self.n_jobs, len(self.alphas))
 

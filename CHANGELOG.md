@@ -1,5 +1,115 @@
 # Changelog
 
+## 2026-05-08 — QUANTILE_REGRESSION: native CB/XGB + wrapper LGB/HGB/Linear + 5 viz panels
+
+Sixth target type (joining REGRESSION / BINARY / MULTICLASS / MULTILABEL
+/ LEARNING_TO_RANK). Predicts K conditional quantiles in one fit (CB
+``MultiQuantile``, XGB >=2.0 ``quantile_alpha=[...]``) or via K
+independent stacked fits (LGB / HGB / sklearn QuantileRegressor) with
+post-hoc crossing fix.
+
+### Added
+
+- **`TargetTypes.QUANTILE_REGRESSION`** + ``.is_quantile`` property.
+  QR is its own class -- not classification, not plain regression.
+- **`QuantileRegressionConfig`** with ``alphas: tuple = (0.1, 0.5, 0.9)``,
+  ``crossing_fix: "sort"|"isotonic"|"none"``, ``point_estimate_alpha``
+  (auto-snaps to nearest alpha if not in set), ``coverage_pairs``,
+  ``wrapper_n_jobs``. Validators: alphas in (0,1) strict, sorted,
+  unique; coverage_pairs must be in alphas with lo < hi.
+- **Strategy ABC additions**: ``supports_native_quantile`` flag,
+  ``get_quantile_objective_kwargs(qr_cfg)``, ``wrap_quantile``.
+  CB + XGB override flag to True; default for everyone else routes
+  through the wrapper.
+- **`mlframe/training/quantile_wrapper.py::_QuantileMultiOutputWrapper`**
+  -- sklearn-shaped wrapper that fits K cloned base estimators in
+  parallel (joblib, auto n_jobs ceiling at cpu//2 to avoid nested-
+  parallelism thrashing). Param-name probing: tries ``alpha`` then
+  ``quantile`` via ``get_params`` then ``set_params`` (LGBMRegressor
+  exposes ``alpha`` via set_params but not get_params(deep=False)).
+- **`mlframe/training/quantile_postproc.py::fix_quantile_crossing`**
+  -- ``sort`` (default, idempotent), ``isotonic`` (per-row
+  IsotonicRegression), ``none``.
+- **`mlframe/quantile_metrics.py`** -- numba-JITed: ``pinball_loss``,
+  ``pinball_loss_per_alpha`` (matches sklearn ``mean_pinball_loss`` to
+  1e-12), ``coverage``, ``mean_interval_width``, ``winkler_score``,
+  ``pit_values``, ``quantile_summary``.
+- **`mlframe/reporting/charts/quantile.py`** -- 5 panels +
+  ``compose_quantile_figure`` + ``ALLOWED_QUANTILE_PANEL_TOKENS``:
+  - ``RELIABILITY``: empirical-vs-nominal coverage line
+  - ``PINBALL_BY_ALPHA``: pinball loss curve per alpha
+  - ``INTERVAL_BAND``: per-row q_lo/median/q_hi sorted by median
+    (capped at 1000 sample points for plot readability)
+  - ``WIDTH_DIST``: histogram of interval widths (sharpness)
+  - ``PIT_HIST``: probability-integral-transform histogram
+    (uniform = calibrated; placeholder for K < 3)
+- **`ReportingConfig.quantile_panels`** DSL field with validator.
+- **Auto-dispatch QR branch**: ``render_multi_target_panels`` checks
+  QR (gated on quantile_alphas + 2-D preds + 1-D targets) before
+  multilabel/multiclass branches. Output:
+  ``{base}_quantile_panels.{ext}``.
+- **End-to-end wiring**: ``report_model_perf`` accepts
+  ``quantile_panels`` + ``quantile_alphas`` kwargs;
+  ``_compute_split_metrics`` + ``train_and_evaluate_model`` thread
+  them through; alphas come from ``model._mlframe_quantile_alphas``
+  attribute (per-fit context, not per-session config).
+
+### Tests added (87, all green)
+
+- ``tests/training/test_quantile_config.py`` (15): enum predicates,
+  config validators (empty/unsorted/out-of-range/duplicate alphas,
+  coverage_pairs membership + lo<hi, point_estimate snap-to-nearest).
+- ``tests/training/test_quantile_metrics.py`` (16): pinball matches
+  sklearn bit-equivalent, coverage closed-form, Winkler with
+  hand-computed below/above penalties, PIT median maps to 0.5,
+  PIT KS-uniform on 5000-sample synthetic.
+- ``tests/training/test_quantile_postproc.py`` (9): sort idempotent +
+  fixes crossings, isotonic strictly monotone after, none = no-op,
+  invalid mode + 1-D + shape-mismatch errors.
+- ``tests/training/test_quantile_strategies.py`` (15): native flag
+  CB+XGB true / others false; objective_kwargs format; wrap_quantile
+  passthrough vs wrap; real fits CB native + XGB native + LGB/HGB/
+  Linear wrapper; wrapper rejects estimators without alpha/quantile
+  param; wrapper rejects 2-D y.
+- ``tests/training/test_bizvalue_quantile.py`` (2): held-out empirical
+  coverage of 80% PI lands in [0.55, 0.95] for CB + XGB on synthetic
+  data with planted Gaussian noise.
+- ``tests/reporting/test_charts_quantile.py`` (24): per-token spec
+  shape; PIT placeholder for K<3; composer subset + unknown-token +
+  shape-mismatch + suptitle; matplotlib + plotly render smoke.
+- ``tests/reporting/test_quantile_auto_dispatch.py`` (5): dispatch
+  fires on QR shape; missing alphas/template -> no-op; dual-backend
+  emission; composer-side exception logged + swallowed.
+
+### Verification
+
+```bash
+pytest tests/training/test_quantile_*.py tests/training/test_bizvalue_quantile.py \
+       tests/reporting/test_charts_quantile.py tests/reporting/test_quantile_auto_dispatch.py \
+       --no-cov -p no:randomly
+# 87 passed
+```
+
+CB MultiQuantile + XGB ``quantile_alpha=[0.1,0.5,0.9]`` both produce
+in-sample 80%-PI coverage close to nominal (0.80-0.90 on synthetic
+regression data). LGB / HGB / Linear all fan out to K independent
+fits via the wrapper; output (N, K) is post-processed via crossing
+fix (default ``sort``).
+
+### Not in scope (deferred)
+
+- **MLP / Recurrent native K-head + summed pinball loss** -- routes
+  through the wrapper for now (K independent fits). Native K-head
+  needs PyTorch model + Lightning task_type='quantile' branch +
+  hand-rolled pinball loss; documented as future work.
+- **NGBoost adapter** -- NGB is naturally probabilistic and could
+  extract any quantile from its fitted distribution; separate epic.
+- **Conformal prediction** (split-conformal / cross-conformal /
+  jackknife+) -- complementary technique on top of quantile reg;
+  future epic.
+- **Multi-target QR** -- multiple y-columns predicted simultaneously;
+  for one y first.
+
 ## 2026-05-08 — LTR suite-side panel wiring
 
 Closes the deferred item from the auto-dispatch landing: the LTR
