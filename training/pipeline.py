@@ -358,18 +358,68 @@ def _select_scalable_numeric_columns(
     """
     scalable: List[str] = []
     skipped_reasons: dict = {}
-    for col_name, dtype in train_df.schema.items():
-        if not dtype.is_numeric():
-            continue
-        col = train_df[col_name]
-        n_non_null = col.drop_nulls().drop_nans().filter(col.drop_nulls().drop_nans().is_finite()).len() if hasattr(col, "drop_nans") else col.drop_nulls().len()
-        if n_non_null == 0:
-            skipped_reasons[col_name] = "all-null/non-finite"
-            continue
+
+    numeric_cols = [name for name, dtype in train_df.schema.items() if dtype.is_numeric()]
+    if not numeric_cols:
+        return scalable
+
+    # 2026-05-08 perf: batch all per-col stats into ONE collect via
+    # lazy select. Previous loop did 3 collects per col (n_non_null
+    # check + 2 stat computations for the chosen ``method``); on c0031
+    # (~15 numeric cols, method=robust) that was ~45 PyLazyFrame.collect
+    # calls = ~0.4s wasted. Batched -> 1 collect total.
+    has_drop_nans = all(hasattr(train_df[c], "drop_nans") for c in numeric_cols)
+    select_exprs = []
+    for c in numeric_cols:
+        if has_drop_nans:
+            n_expr = (
+                pl.col(c).drop_nulls().drop_nans()
+                .filter(pl.col(c).drop_nulls().drop_nans().is_finite())
+                .len().alias(f"__n__{c}")
+            )
+        else:
+            n_expr = pl.col(c).drop_nulls().len().alias(f"__n__{c}")
+        select_exprs.append(n_expr)
+
+        if method == "robust":
+            select_exprs.append(pl.col(c).quantile(q_low, interpolation="linear").alias(f"__qlo__{c}"))
+            select_exprs.append(pl.col(c).quantile(q_high, interpolation="linear").alias(f"__qhi__{c}"))
+        elif method == "standard":
+            select_exprs.append(pl.col(c).std().alias(f"__std__{c}"))
+        elif method == "min_max":
+            select_exprs.append(pl.col(c).min().alias(f"__mn__{c}"))
+            select_exprs.append(pl.col(c).max().alias(f"__mx__{c}"))
+
+    try:
+        stats_row = train_df.lazy().select(select_exprs).collect()
+    except Exception as exc:
+        # Fall back to per-col loop on any batched-eval failure.
+        stats_row = None
+
+    def _scalar(col_name: str, suffix: str):
+        return stats_row[f"__{suffix}__{col_name}"][0] if stats_row is not None else None
+
+    for col_name in numeric_cols:
         try:
+            n_non_null = _scalar(col_name, "n")
+            if stats_row is None:
+                col = train_df[col_name]
+                if has_drop_nans:
+                    nfin = col.drop_nulls().drop_nans()
+                    n_non_null = nfin.filter(nfin.is_finite()).len()
+                else:
+                    n_non_null = col.drop_nulls().len()
+            if n_non_null is None or n_non_null == 0:
+                skipped_reasons[col_name] = "all-null/non-finite"
+                continue
+
             if method == "robust":
-                _q_lo = col.quantile(q_low, interpolation="linear")
-                _q_hi = col.quantile(q_high, interpolation="linear")
+                _q_lo = _scalar(col_name, "qlo")
+                _q_hi = _scalar(col_name, "qhi")
+                if stats_row is None:
+                    col = train_df[col_name]
+                    _q_lo = col.quantile(q_low, interpolation="linear")
+                    _q_hi = col.quantile(q_high, interpolation="linear")
                 if _q_lo is None or _q_hi is None:
                     skipped_reasons[col_name] = "quantile=None"
                     continue
@@ -377,12 +427,18 @@ def _select_scalable_numeric_columns(
                     skipped_reasons[col_name] = "zero-IQR"
                     continue
             elif method == "standard":
-                _std = col.std()
+                _std = _scalar(col_name, "std")
+                if stats_row is None:
+                    _std = train_df[col_name].std()
                 if _std is None or _std == 0:
                     skipped_reasons[col_name] = "zero-std"
                     continue
             elif method == "min_max":
-                _mn, _mx = col.min(), col.max()
+                _mn = _scalar(col_name, "mn")
+                _mx = _scalar(col_name, "mx")
+                if stats_row is None:
+                    col = train_df[col_name]
+                    _mn, _mx = col.min(), col.max()
                 if _mn is None or _mx is None or _mx - _mn == 0:
                     skipped_reasons[col_name] = "zero-range"
                     continue
