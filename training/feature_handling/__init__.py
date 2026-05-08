@@ -37,9 +37,41 @@ from mlframe.training.feature_handling.cache_backend import (
     CacheBackend,
     LocalDiskBackend,
 )
+from mlframe.training.feature_handling.compat import (
+    register_model_axis_support,
+    validate_handler_for_model,
+    validate_fhc_handlers,
+)
+from mlframe.training.feature_handling.config import (
+    AutoDeriveConfig,
+    CacheConfig,
+    FeatureHandlingConfig,
+    LoggingConfig,
+    MemoryConfig,
+    ModelHandlingOverride,
+    PricingConfig,
+    ReproConfig,
+    TextDetectionConfig,
+)
+from mlframe.training.feature_handling.handlers import (
+    CatHandlerSpec,
+    CustomParams,
+    FrozenEmbeddingParams,
+    HashingParams,
+    LearnableEmbeddingParams,
+    NoParams,
+    TargetEncodeParams,
+    TextHandlerSpec,
+    TfidfParams,
+)
 from mlframe.training.feature_handling.locking import (
     PIDAwareFileLock,
     StaleLockReclaimed,
+)
+from mlframe.training.feature_handling.presets import (
+    cb_native_only,
+    embedding_only,
+    tfidf_only,
 )
 from mlframe.training.feature_handling.system import (
     CudaErrorClass,
@@ -57,9 +89,37 @@ __all__ = [
     # cache_backend
     "CacheBackend",
     "LocalDiskBackend",
+    # compat
+    "register_model_axis_support",
+    "validate_handler_for_model",
+    "validate_fhc_handlers",
+    # config (sub + top-level)
+    "AutoDeriveConfig",
+    "CacheConfig",
+    "FeatureHandlingConfig",
+    "LoggingConfig",
+    "MemoryConfig",
+    "ModelHandlingOverride",
+    "PricingConfig",
+    "ReproConfig",
+    "TextDetectionConfig",
+    # handlers
+    "CatHandlerSpec",
+    "CustomParams",
+    "FrozenEmbeddingParams",
+    "HashingParams",
+    "LearnableEmbeddingParams",
+    "NoParams",
+    "TargetEncodeParams",
+    "TextHandlerSpec",
+    "TfidfParams",
     # locking
     "PIDAwareFileLock",
     "StaleLockReclaimed",
+    # presets
+    "cb_native_only",
+    "embedding_only",
+    "tfidf_only",
     # system
     "CudaErrorClass",
     "classify_cuda_error",

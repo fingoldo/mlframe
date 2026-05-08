@@ -1,5 +1,105 @@
 # Changelog
 
+## 2026-05-09 — Phase A: FeatureHandlingConfig surface + compat matrix + presets
+
+Second phase of the 2026 feature-handling overhaul. Phase M shipped
+the foundation modules (Axis enum, locking, system, cache_backend);
+phase A delivers the configuration surface that downstream phases
+consume.
+
+### Added
+
+- **Top-level `FeatureHandlingConfig`** with 6 nested sub-configs
+  (`text_detection`, `cache`, `memory`, `pricing`, `logging`, `repro`).
+  Round-2 UX U-R2-1: previously-flat 25-field surface nested into
+  themed groups so user-facing autocomplete shows ~8 top-level fields.
+  All sub-configs use `extra="forbid"` -- typos surface at construction.
+
+- **`TextHandlerSpec` / `CatHandlerSpec`** per-axis specs with
+  discriminated-union `params: Union[TfidfParams, HashingParams,
+  FrozenEmbeddingParams, LearnableEmbeddingParams, TargetEncodeParams,
+  CustomParams, NoParams] = Field(discriminator="kind")`. Round-3
+  R2-5: silent method/params mismatch (e.g. `method="hashing"` with
+  `params=TfidfParams()`) caught by `model_post_init` validator.
+  Naming finalised per round-3 user confirmation:
+  `frozen_text_embedding` / `learnable_text_embedding` /
+  `output="as_embedding_feature"`.
+
+- **Compat matrix `_MODEL_AXIS_SUPPORT`** + `validate_handler_for_model` /
+  `validate_fhc_handlers`. Cross-cutting rules
+  (`learnable_text_embedding` requires neural model;
+  `output="as_embedding_feature"` requires native-embedding model)
+  precede matrix lookup so users get actionable error messages.
+  `difflib.get_close_matches(n=3)` suggestions on typo'd method names.
+  `register_model_axis_support()` extension point for custom models.
+
+- **Auto-derived memory budgets** at FHC construction. cgroup-aware
+  via `detect_memory_limit_bytes` -- containers honour cgroup limits,
+  not host RAM (round-3 R2-1). `MLFRAME_MEMORY_BUDGET_GB` env override
+  takes precedence. On any 16+ GB system the auto-derive cascade is:
+  `memory.budget_gb = total × 0.7`,
+  `cache.ram_max_gb = budget × 0.3`,
+  `cache.ram_reserve_gb = max(2 GB, total × 0.1)`.
+  Auto-derived `cache.ram_max_gb` is silently capped to `total - reserve`
+  if the user sets a `memory.budget_gb` larger than total RAM (legitimate
+  case: host with swap headroom). Explicit `cache.ram_max_gb` exceeding
+  available raises early with actionable message.
+
+- **Presets** `tfidf_only(max_features=...)`, `cb_native_only()`,
+  `embedding_only(provider=...)` — round-2 U-R2-2: 80% case fits on
+  one line.
+
+- **`describe(short=True)`** -- printable resolution plan exposing
+  `mode`, `cache.persistence`, `resolved` numeric values.
+  Round-3 U-R2-5: auto-derived budgets now visible at debug time.
+
+- **`ModelHandlingOverride`** with `text` / `cat` (replace defaults)
+  AND `text_append` / `cat_append` (extend defaults). Round-3 U-R2-4
+  partial-inheritance pattern.
+
+- **TypedDict params**: `TfidfParams`, `HashingParams`,
+  `FrozenEmbeddingParams`, `LearnableEmbeddingParams (extends frozen)`,
+  `TargetEncodeParams`, `CustomParams`, `NoParams`. Each has
+  `extra="forbid"` and `kind: Literal[...]` discriminator.
+
+- **`ReproConfig`** sub-config (opt-in) with `deterministic_torch`,
+  `pinned_revision`, `langdetect_seed`, `pinned_svd_solver_params`.
+  Round-3 R3-01 et al.: cross-machine bit-stable mode is opt-in for
+  CI parity tests; default off for dev workflow due to 10-25% perf
+  cost on `torch.use_deterministic_algorithms`.
+
+- **`TextDetectionConfig`** with multi-criteria triggers + anti-UUID
+  guard at `min_alphabet_entropy >= 4.5` (round-3 R2-21: UUID-v4
+  entropy ≈ 4.04 was at the previous threshold, now safely below).
+  `respect_explicit_categorical_dtype: bool = True` migrates the
+  `honor_user_dtype` semantic (user-confirmed, default flipped to
+  True for greenfield -- pl.Categorical/Enum dtype signals user
+  intent over the cardinality heuristic).
+
+### Tests
+
+49 new tests in `tests/training/test_feature_handling_config.py`.
+Coverage: typed-dict typo rejection, method/params discrimination
+mismatch lock, compat matrix early validation with difflib
+suggestions, auto-memory cascade across mocked machine sizes,
+cgroup-limit usage, env override, invariant violation on tiny
+machines, sub-config `extra="forbid"`, replace/append override
+semantics, preset factories, `apply_to_columns`, `describe()` shape.
+
+49/49 imputer + phase-A + 172/172 wide regression
+(pipeline + imputer + XGB shim + LGB shim + FHC) green.
+
+### Notes
+
+- Phase A is structural -- the `FeatureHandlingConfig` is built and
+  validated, but no consumer in `train_mlframe_models_suite` reads
+  it yet. Phases B (providers), C (TF-IDF/hashing encoders), D
+  (cache layer), E (multi-handler concat) wire the consumers.
+- `per_target` field reserved (round-3 F10) but raises if non-empty
+  (validator deferred to phase J).
+- `default_text_provider: Optional[Any]` is a placeholder; the
+  proper `EmbeddingProvider` structured object lands in phase A2.
+
 ## 2026-05-09 — Phase M: feature-handling overhaul foundation
 
 First foundation phase of the multi-phase 2026 feature-handling overhaul

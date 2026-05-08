@@ -75,13 +75,18 @@ class HandlerSpec(ABC):
     Subclasses MUST:
       * declare ``axis`` as a classmethod returning their ``Axis``;
       * register themselves via :func:`register_handler_spec` at
-        module load.
-    """
+        module load;
+      * declare ``apply_to`` as a pydantic field of type
+        :data:`ApplyToColumns` (round-3 F8: list-of-names | regex |
+        callable for late-binding);
+      * declare ``group_columns: Optional[List[str]] = None`` for
+        group-aware encoding (round-3 F11: lifted to ABC contract so
+        symmetric across cat and text).
 
-    # `apply_to` lifted to ABC per round-3 F11 (group-aware embedding
-    # aggregation should work for both cat and text axes, not just cat).
-    apply_to: ApplyToColumns = None
-    group_columns: Optional[List[str]] = None
+    NOTE: contract via docstring rather than class attributes here so
+    the ABC doesn't declare instance-level defaults that pydantic
+    would warn-about-shadowing in the BaseModel-subclass.
+    """
 
     @classmethod
     @abstractmethod
