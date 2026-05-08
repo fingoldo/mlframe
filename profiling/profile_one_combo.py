@@ -69,6 +69,9 @@ def main():
     p.add_argument("--rows", type=int, default=100_000)
     p.add_argument("--top", type=int, default=30)
     p.add_argument("--combo-pool", type=int, default=150)
+    p.add_argument("--master-seed", type=int, default=2026_04_22,
+                   help="Seed for enumerate_combos. Different seed = different "
+                        "150-combo space, useful for sampling fresh hotspots.")
     p.add_argument("--save-stats", type=str, default=None,
                    help="Optional path to write the .prof file (snakeviz-compatible).")
     args = p.parse_args()
@@ -80,7 +83,7 @@ def main():
     except Exception:
         pass
 
-    combos = enumerate_combos(target=args.combo_pool)
+    combos = enumerate_combos(target=args.combo_pool, master_seed=args.master_seed)
     matches = [c for c in combos if c.short_id() == args.combo]
     if not matches:
         print(f"!! combo {args.combo!r} not found", flush=True)

@@ -57,6 +57,30 @@ after, list on-disk artifacts, etc. Reading the code is not enough.**
 - `c0088_110cbfb8` (hgb+lgb+xgb binary mrmr ensembles, 80k rows): 55.6s, 38s in calibration-report charts. Drilled into `show_calibration_plot`'s callees -- 290ms intrinsic per chart, no further easy cuts.
 - `c0074_618df307`: hit a real bug (rankers don't handle text features). Filed as data point, not optimised.
 - Tiny suite (1k rows, lgb-only, 5 iter): 4.3s -> 3.0s with prewarm + new parallel kick.
+- Warm-suite second call (5k rows, lgb-only): 1.76s, 75% in matplotlib chart rendering. **Chart rendering is the floor for warm runs.**
+
+### Larger-scale combos (fresh master_seed=20260508, 200k rows)
+
+After session 2/3 fixes, profiled new combo space:
+
+| combo | shape | total | dominant cost |
+|---|---|---|---|
+| `c0066` (xgb-only multiclass, pandas) | 200k x N | 52s | kaleido threading (24s) + matplotlib (10s) -- multi-target panel grid |
+| `c0072` (hgb-only binary, polars_nullable) | 200k x N | 15.6s | clean -- HGB.fit (5.5s), polars work (4.6s collects), matplotlib (3.4s) |
+| `c0008` (cb+hgb regression mrmr ens) | 200k x N | 52.7s | ensembling + chart rendering (matplotlib constrained_layout solver: 15.6s for 32 charts) |
+| `c0105` (cb+hgb+lgb binary) | 200k x N | ~100s | CB.fit dominates 95% (94s) -- pure model work |
+
+### Floor identified
+
+For non-multiclass non-LTR combos at production scale, the floor is:
+- **CB.fit / XGB.fit / LGB.fit** -- real model training, can't optimize (60-95% of total)
+- **matplotlib constrained_layout solver** -- 15s+ on 32 regression charts -- would need shared-figure refactor (~100 LOC, brittle vs chart shape changes); not pursued
+- **kaleido per-figure work + JS bug recovery** -- bounded by win #10 v4 to ~60s worst-case before HTML fallback takes over
+
+Further wins would require either:
+1. Matplotlib figure reuse architecture (medium-risk refactor)
+2. Lower DPI / smaller chart spec (quality tradeoff)
+3. Skip per-class binary calib charts when multi-target panels active (behavior change, would have flagged user pushback like #7)
 
 ### Lesson learned (2026-05-08)
 
