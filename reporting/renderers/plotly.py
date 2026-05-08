@@ -35,6 +35,29 @@ logger = logging.getLogger(__name__)
 # 32 PNG calls), this saved 32 * ~13s = ~7 minutes of wall time.
 _KALEIDO_SERVER_STARTED = False
 
+# 2026-05-08 v2 hardening: process-wide flag that the persistent path
+# has burned itself on a JS error / hang. Once True, all subsequent
+# saves in this process go straight to oneshot (no retry), guaranteeing
+# bounded wallclock per save. Reset only on interpreter exit.
+_KALEIDO_PERSISTENT_BURNED = False
+
+# Hard ceiling on a single persistent write_fig_sync call. Beyond this,
+# the call is treated as hung; we leave the worker thread to die on
+# process exit (the kaleido server holds an asyncio loop so we can't
+# safely cancel it from outside). Empirical normal cost after warmup:
+# 0.13s/call. Cold persistent warmup: ~8s. 30s is well above both,
+# while still bounding c0031-style hangs to 30s instead of infinity.
+_KALEIDO_PERSISTENT_TIMEOUT_S = 30.0
+
+
+def _is_kaleido_persistent_burned() -> bool:
+    return _KALEIDO_PERSISTENT_BURNED
+
+
+def _mark_kaleido_persistent_burned() -> None:
+    global _KALEIDO_PERSISTENT_BURNED
+    _KALEIDO_PERSISTENT_BURNED = True
+
 
 def _restart_kaleido_server() -> bool:
     """Stop + restart the kaleido sync server. Used after a JS error
@@ -186,42 +209,93 @@ class PlotlyRenderer:
             #   3. Retry once via ONESHOT path (slower but isolated).
             #   4. If that also fails, fall back to HTML so the suite
             #      doesn't lose the diagnostic entirely.
-            persistent_failed = False
-            if _ensure_kaleido_server_started():
+            #
+            # 2026-05-08 hardening v2: even with restart-on-error (above),
+            # certain figure shapes (multiclass + recency in c0031)
+            # produce JS errors that DON'T raise from write_fig_sync --
+            # they cancel the asyncio task chain INSIDE the server, but
+            # write_fig_sync waits forever on the queue. Mitigation: run
+            # write_fig_sync in a worker thread with a hard timeout. If
+            # it doesn't return in PERSISTENT_TIMEOUT_SECONDS, mark the
+            # persistent path "burned" for the rest of the process and
+            # forever-after use oneshot. We also do NOT retry the
+            # persistent path on failures within ONE process -- once
+            # any call fails, every later call goes oneshot directly.
+            persistent_failed = _is_kaleido_persistent_burned()
+            if not persistent_failed and _ensure_kaleido_server_started():
                 import kaleido as _kal
-                try:
-                    # kaleido infers format from path extension; pass
-                    # ``opts`` defensively in case path lacks the right ext.
-                    _kal.write_fig_sync(fig, path, opts={"format": fmt})
-                    return
-                except Exception as e:
+                import threading
+
+                _result: list = [None]
+                _exc: list = [None]
+
+                def _do_persistent():
+                    try:
+                        _kal.write_fig_sync(fig, path, opts={"format": fmt})
+                    except Exception as ee:
+                        _exc[0] = ee
+
+                th = threading.Thread(target=_do_persistent, daemon=True)
+                th.start()
+                th.join(timeout=_KALEIDO_PERSISTENT_TIMEOUT_S)
+                if th.is_alive():
+                    # Hung -- mark persistent burned, fall through.
                     persistent_failed = True
+                    _mark_kaleido_persistent_burned()
                     logger.warning(
-                        "kaleido persistent-server save(%s) failed (%s); "
-                        "restarting server + retrying via oneshot.",
-                        fmt, type(e).__name__,
+                        "kaleido persistent write_fig_sync(%s) did not "
+                        "return in %.0fs -- marking persistent path burned, "
+                        "falling back to oneshot for this and subsequent saves.",
+                        fmt, _KALEIDO_PERSISTENT_TIMEOUT_S,
                     )
-                    # Restart the server so the next call gets a clean
-                    # async chain. _restart_kaleido_server is idempotent.
-                    _restart_kaleido_server()
+                    # Don't try to restart the server -- a hung server may
+                    # have stop_sync_server() ALSO blocking. Just leave it
+                    # behind; it'll get cleaned up at process exit. The
+                    # oneshot fallback below uses plotly's own kaleido
+                    # spawn (fresh subprocess per call), which is bug-
+                    # isolated.
+                elif _exc[0] is not None:
+                    persistent_failed = True
+                    _mark_kaleido_persistent_burned()
+                    logger.warning(
+                        "kaleido persistent save(%s) raised %s; "
+                        "marking persistent path burned, falling back to "
+                        "oneshot for this and subsequent saves.",
+                        fmt, type(_exc[0]).__name__,
+                    )
+                else:
+                    return  # success
 
             # Fallback: per-call (oneshot) plotly write_image. Slower
             # (~13s) but bug-isolated; one bad figure doesn't break the
             # whole suite.
+            #
+            # Catch ALL exceptions here (not just ImportError/ValueError)
+            # because plotly's wrapper can raise TypeError / KaleidoError
+            # / RuntimeError / OSError from its internal kaleido glue,
+            # and we never want a chart-render failure to abort the
+            # whole suite -- HTML fallback is always safe.
             try:
                 fig.write_image(path, format=fmt)
-            except (ImportError, ValueError) as e:
+            except Exception as e:
                 logger.warning(
-                    "plotly write_image(%s) oneshot also failed (%s); "
+                    "plotly write_image(%s) oneshot also failed (%s: %s); "
                     "falling back to .html. %s",
-                    fmt, e,
+                    fmt, type(e).__name__, e,
                     "Install kaleido to enable static image export: "
                     "pip install -U kaleido" if not persistent_failed else
                     "(persistent server already failed for this figure too).",
                 )
                 from os.path import splitext
                 root, _ = splitext(path)
-                fig.write_html(root + ".html", include_plotlyjs="cdn", auto_open=False)
+                try:
+                    fig.write_html(root + ".html", include_plotlyjs="cdn", auto_open=False)
+                except Exception as e2:
+                    logger.error(
+                        "All save paths failed for %s (%s); diagnostic chart "
+                        "lost but suite continues. Last error: %s",
+                        path, fmt, e2,
+                    )
         else:
             raise ValueError(
                 f"plotly doesn't support format {fmt!r}; "
