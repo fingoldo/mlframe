@@ -94,7 +94,7 @@ def _build_fte_from_combo(combo: FuzzCombo) -> SimpleFeaturesAndTargetsExtractor
 
 
 def _profile_one_combo(
-    combo: FuzzCombo, top: int = 20,
+    combo: FuzzCombo, top: int = 20, save_dir: Optional[str] = None,
 ) -> Optional[pstats.Stats]:
     """Run one combo under cProfile + print top hotspots. Returns the
     pstats object so an outer aggregator can sum across combos."""
@@ -142,6 +142,10 @@ def _profile_one_combo(
 
     elapsed = time.time() - t0
     print(f"\nTotal elapsed: {elapsed:.2f}s")
+    if save_dir:
+        prof_path = os.path.join(save_dir, f"{combo.short_id()}.prof")
+        profiler.dump_stats(prof_path)
+        print(f"Stats saved to {prof_path}")
     stats = pstats.Stats(profiler)
     stats.sort_stats("cumulative")
     print(f"\nTop {top} hotspots (cumulative):")
@@ -193,7 +197,12 @@ def main():
     p.add_argument("--prefer-models", type=str, default="lgb,xgb,cb",
                    help="Comma-separated subset of models to prefer when sampling. "
                         "Combos with at least one model from this list pass the filter.")
+    p.add_argument("--save-dir", type=str, default=None,
+                   help="If set, write one .prof file per combo here for later "
+                        "aggregation via aggregate_prof.py.")
     args = p.parse_args()
+    if args.save_dir:
+        os.makedirs(args.save_dir, exist_ok=True)
 
     print("Pre-warming numba JIT cache...")
     try:
@@ -215,7 +224,7 @@ def main():
     all_stats = []
     for combo in sample:
         resized = _resize_combo(combo, args.rows_target)
-        s = _profile_one_combo(resized, top=args.top)
+        s = _profile_one_combo(resized, top=args.top, save_dir=args.save_dir)
         if s is not None:
             all_stats.append(s)
 
