@@ -26,6 +26,13 @@ logging.basicConfig(level=logging.WARNING)
 for noisy in ("sklearn", "lightgbm", "xgboost", "catboost", "matplotlib"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
+# 2026-05-08: force matplotlib to Agg in the profiler. Without this,
+# pyplot's first ``subplots()`` call probes the Qt backend on Windows
+# and fires ~820 ``activateWindow`` calls (~1.45s wasted on c0088).
+# Profile is for measuring training cost, not GUI overhead.
+import matplotlib  # noqa: E402
+matplotlib.use("Agg", force=False)
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tests.training._fuzz_combo import (  # noqa: E402

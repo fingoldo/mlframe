@@ -52,6 +52,11 @@ logging.basicConfig(level=logging.WARNING)
 for noisy in ("sklearn", "lightgbm", "xgboost", "catboost", "matplotlib"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
+# 2026-05-08: force matplotlib Agg in the profiler so we measure
+# mlframe-side cost, not Qt-backend probe overhead.
+import matplotlib  # noqa: E402
+matplotlib.use("Agg", force=False)
+
 # Project imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
