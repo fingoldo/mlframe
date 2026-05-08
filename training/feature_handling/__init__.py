@@ -73,8 +73,19 @@ from mlframe.training.feature_handling.presets import (
     embedding_only,
     tfidf_only,
 )
+from mlframe.training.feature_handling.protocols import (
+    FrozenFeaturizerProvider,
+    TrainableFeaturizerProvider,
+)
 from mlframe.training.feature_handling.providers import (
     EmbeddingProvider,
+)
+from mlframe.training.feature_handling.registry import (
+    acquire_provider,
+    prewarm,
+    provider_status,
+    shutdown_all,
+    wait_prewarm,
 )
 from mlframe.training.feature_handling.system import (
     CudaErrorClass,
@@ -125,9 +136,25 @@ __all__ = [
     "tfidf_only",
     # providers
     "EmbeddingProvider",
+    # protocols
+    "FrozenFeaturizerProvider",
+    "TrainableFeaturizerProvider",
+    # registry
+    "acquire_provider",
+    "prewarm",
+    "wait_prewarm",
+    "shutdown_all",
+    "provider_status",
+    "shutdown",
     # system
     "CudaErrorClass",
     "classify_cuda_error",
     "detect_memory_limit_bytes",
     "long_path_safe",
 ]
+
+
+def shutdown() -> None:
+    """Public alias for :func:`shutdown_all` -- frees all provider
+    weights, useful between notebook reloads (round-3 chaos C18)."""
+    shutdown_all()

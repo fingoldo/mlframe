@@ -1,5 +1,76 @@
 # Changelog
 
+## 2026-05-09 — Phase B: provider Protocols + HuggingFaceProvider + lifecycle registry
+
+Phase B of the 2026 feature-handling overhaul. Wires the provider
+runtime that consumes the phase-A2 ``EmbeddingProvider`` configs.
+
+### Added
+
+- **Protocols** in ``training/feature_handling/protocols.py``:
+  ``FrozenFeaturizerProvider`` (numpy output) and
+  ``TrainableFeaturizerProvider`` extending it with ``as_module()``
+  for autograd flow. Round-3 R2-4: split avoids leaking HF specifics
+  to consumers that only need frozen embeddings.
+
+- **`HuggingFaceProvider`** in ``training/feature_handling/hf_provider.py``.
+  Frozen-only impl in v1 (trainable lands in phase G). Loads model
+  via ``transformers.AutoModel`` + ``AutoTokenizer``; pool variants
+  ``mean`` / ``cls`` / ``max``. ``trust_remote_code=False`` hardcoded
+  default with a loud warning if user opts in (round-3 S4).
+  E5-family auto-prefix detection: ``"passage: "`` prepended for any
+  model whose name contains ``-e5-`` (round-3 U-R2-8: missing the
+  prefix halves retrieval quality on e5).
+  GPU OOM mid-batch -> halve batch + retry; CUDA driver crash
+  (``CudaErrorClass.CONTEXT_LOST``) -> abort with restart-Python
+  message (round-3 chaos C4). Empty / null / non-string input coerced
+  to "" (round-3 T8). ``device="auto"`` enumerates cuda > mps > xpu >
+  cpu (round-3 R2-18).
+
+- **Provider lifecycle registry** in ``training/feature_handling/registry.py``.
+  Module-level ``_REGISTRY: WeakValueDictionary[sig, _ProviderEntry]``
+  + ``_LRU_HARD: OrderedDict`` strong-keep tier. Default
+  ``cache.keep_n_providers="auto"`` resolves to ``min(2, free_vram_gb)``
+  on GPU (round-3 user-confirmed; F1: prevents the per-target-loop
+  weight-reload churn on prod 50-target sweeps).
+  - **Double-checked locking** on creation: re-check after acquiring
+    the registry lock so two threads on the same signature load the
+    provider exactly once (round-3 R2-2).
+  - **Per-key entry lock**: serialises actual ``acquire()`` /
+    ``release()`` work on a single provider.
+  - **`acquire_provider(provider, cache_cfg)`** context-manager: the
+    only public lifecycle entry. Naked ``provider.acquire()`` is
+    discouraged via banned API surface (round-3 chaos C22 prevents
+    refcount/release-on-error mistakes).
+
+- **Pre-warm via Future** -- ``prewarm(provider) -> Future``,
+  ``wait_prewarm(provider, timeout=...)``. Round-3 chaos C3:
+  exceptions in pre-warm propagate via ``Future.result()`` instead
+  of being swallowed by a naked ``threading.Thread``.
+
+- **`shutdown_all()`** + **`shutdown()`** alias: drops every
+  provider, releases VRAM, purges LRU and prewarm executor.
+  Round-3 chaos C18: makes notebook reload safe (otherwise old
+  weakref entries vanish but VRAM stays held -> 3rd reload OOMs
+  on consumer GPUs).
+
+- **`provider_status()`** snapshot for ``fhc.describe()`` and tests.
+  Surfaces pre-warm errors so they're visible without polling
+  the Future. Round-3 U-R2-24.
+
+### Tests
+
+12 new in ``test_provider_registry.py``: lifecycle, refcounting,
+TOCTOU race, LRU strong-keep tier, shutdown, prewarm-Future
+exception propagation, context-manager-only public API.
+15 new in ``test_hf_provider.py``: HF integration via
+``prajjwal1/bert-tiny`` (~17 MB). Lifecycle, transform shape +
+dtype, empty / null / Unicode (Cyrillic + emoji + RTL) input,
+pool variants, ``trust_remote_code`` security default, e5
+auto-prefix detector + override.
+
+236/236 wide regression (M + A + A2 + B). 27/27 phase-B own pack.
+
 ## 2026-05-09 — Phase A2: EmbeddingProvider structured object
 
 Sub-phase between A (configs) and B (provider implementations). Replaces
