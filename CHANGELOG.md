@@ -1,5 +1,60 @@
 # Changelog
 
+## 2026-05-09 — Phase A2: EmbeddingProvider structured object
+
+Sub-phase between A (configs) and B (provider implementations). Replaces
+the previously stub-typed ``Optional[Any]`` provider field with a
+fully-validated pydantic model.
+
+### Added
+
+- **`EmbeddingProvider`** in ``training/feature_handling/providers.py``.
+  Replaces the round-2 colon-string format (``"hf:model"``) which broke
+  on model names containing colons (Windows paths, ``cuda:0`` device
+  refs) and had no slot for provider-specific params (OpenAI
+  ``dimensions``, ``api_key``, HF ``trust_remote_code``).
+  Supported kinds: ``huggingface``, ``sentence-transformers``,
+  ``openai``, ``cohere``, ``jina``, ``voyage``, ``onnx``, ``fasttext``,
+  ``tfhub``, ``custom``. ``extra="forbid"``.
+
+- **`EmbeddingProvider.from_uri(uri)`** convenience parser. URL-style
+  grammar ``<kind>://<model>[?param=value(&param=value)*]``. Aliases:
+  ``hf://`` -> huggingface, ``sbert://`` -> sentence-transformers.
+
+- **`signature`** property returns a stable ``{kind}:{model}:{params_hash}``
+  string for cache-key use. Round-3 R2-6: secrets are scrubbed BEFORE
+  hashing so a swapped env-var value (``OPENAI_API_KEY`` rotation)
+  does NOT invalidate the cache.
+
+- **`resolve_secrets()`** swaps ``"env:VAR_NAME"`` indirections with
+  the resolved env var value. Loud-failure on missing env (``KeyError``)
+  -- silent missing-secret would be the worst-case for debug.
+
+- **`model_dump(scrub_secrets=True)`** (default True) and
+  **`__repr__`** mask any param key matching the heuristic set
+  ``key|token|secret|auth|bearer|credential|password|passwd``
+  (round-3 S6: previously incomplete; broadened to cover ``hf_auth``
+  / ``Bearer`` / etc). Pass ``scrub_secrets=False`` only at the
+  provider acquire step in phase B.
+
+### Changed
+
+- ``FeatureHandlingConfig.default_text_provider`` typed as
+  ``Optional[EmbeddingProvider]`` (was ``Optional[Any]``).
+  ``FrozenEmbeddingParams.provider`` likewise.
+
+### Tests
+
+37 new in ``tests/training/test_embedding_provider.py``. Coverage:
+construction + ``extra="forbid"``; URI parsing happy path AND malformed
+URIs (per round-2 test agent's correction: colon-in-query-value is
+RFC 3986 valid, NOT malformed); signature stability across run /
+insertion-order / secret-value-change; ``resolve_secrets`` env swap
++ missing-env loud failure; scrub_secrets parametrized over 8 secret-
+keyword variants; FHC integration accepts EmbeddingProvider.
+
+209/209 wide regression (M + A + A2). 37/37 phase-A2 own pack.
+
 ## 2026-05-09 — Phase A: FeatureHandlingConfig surface + compat matrix + presets
 
 Second phase of the 2026 feature-handling overhaul. Phase M shipped

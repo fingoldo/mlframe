@@ -73,6 +73,9 @@ from mlframe.training.feature_handling.presets import (
     embedding_only,
     tfidf_only,
 )
+from mlframe.training.feature_handling.providers import (
+    EmbeddingProvider,
+)
 from mlframe.training.feature_handling.system import (
     CudaErrorClass,
     classify_cuda_error,
@@ -120,6 +123,8 @@ __all__ = [
     "cb_native_only",
     "embedding_only",
     "tfidf_only",
+    # providers
+    "EmbeddingProvider",
     # system
     "CudaErrorClass",
     "classify_cuda_error",

@@ -34,6 +34,10 @@ from mlframe.training.feature_handling.axis import (
 if TYPE_CHECKING:
     from mlframe.training.feature_handling.providers import EmbeddingProvider  # noqa: F401
 
+# Eager import for pydantic v2 -- forward ref resolution at module load
+# rather than via ``model_rebuild()`` which can fail if order changes.
+from mlframe.training.feature_handling.providers import EmbeddingProvider  # noqa: E402
+
 
 # =====================================================================
 # Per-method TypedDict params
@@ -73,14 +77,11 @@ class FrozenEmbeddingParams(BaseModel):
     """Params for ``method="frozen_text_embedding"``.
 
     The ``provider`` field, when set, overrides the FHC-level
-    ``default_text_provider``. Type stub-typed as ``Any`` here to avoid
-    a circular import with ``providers``; the actual type is
-    :class:`mlframe.training.feature_handling.providers.EmbeddingProvider`,
-    landed in phase A2.
+    ``default_text_provider``.
     """
     model_config = ConfigDict(extra="forbid")
     kind: Literal["frozen_text_embedding"] = "frozen_text_embedding"
-    provider: Optional[Any] = None  # EmbeddingProvider — phase A2
+    provider: Optional["EmbeddingProvider"] = None
     pool: Literal["cls", "mean", "max"] = "mean"
     max_length: int = 512
     batch_size: Union[int, Literal["auto"]] = "auto"

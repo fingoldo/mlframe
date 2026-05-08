@@ -38,6 +38,7 @@ from mlframe.training.feature_handling.handlers import (
     CatHandlerSpec,
     TextHandlerSpec,
 )
+from mlframe.training.feature_handling.providers import EmbeddingProvider
 from mlframe.training.feature_handling.system import detect_memory_limit_bytes
 
 logger = logging.getLogger(__name__)
@@ -257,8 +258,10 @@ class FeatureHandlingConfig(BaseConfig):
     # === Mode (round-3 F13)
     mode: Literal["fit", "predict"] = "fit"
 
-    # === Provider config
-    default_text_provider: Optional[Any] = None  # EmbeddingProvider -- phase A2
+    # === Provider config (round-3 user-confirmed: structured object,
+    # not colon-string; multilingual default since corpus may be any
+    # language).
+    default_text_provider: Optional[EmbeddingProvider] = None
 
     # auto-locale: when "off" the default_text_provider falls back to
     # ``intfloat/multilingual-e5-small`` (more general, per user
