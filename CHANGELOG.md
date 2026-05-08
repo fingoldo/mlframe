@@ -1,5 +1,94 @@
 # Changelog
 
+## 2026-05-09 — Phase D: FeatureCache (two-tier RAM + disk) + ContentFingerprint
+
+Phase D of the 2026 feature-handling overhaul. The cache layer that
+makes the 50-target prod sweep amortise transformer / TF-IDF /
+ordinal-encoder costs across models, targets, and weight schemas.
+
+### Added
+
+- **`SessionToken`** + ``current_session()`` / ``reset_session()``
+  in ``training/feature_handling/fingerprint.py``. Per-suite-call
+  identity so in-memory cache keys can use cheap ``id(train_df)``
+  without cross-session collisions. Round-3 user simplification:
+  inside ONE ``train_mlframe_models_suite`` call the dataset is
+  immutable (we hold strong refs) so content hashing in hot path
+  is unnecessary -- 30s/fit overhead from arrow-buffer materialisation
+  eliminated.
+
+- **`InMemoryKey`** -- cheap key for the in-process cache:
+  ``(session_id, df_token, train_idx_token, column,
+  params_canonical_hash, provider_signature)``. Sub-microsecond
+  construction; no serialisation cost.
+
+- **`ContentFingerprint`** + **`DiskKey`** for cross-session disk
+  cache. Stride-sampled blake2b hash (default 4096 rows) that's
+  ~1000x cheaper than full content hash. Round-3 R2-3 fix:
+  ``np.unique(np.linspace(...).round())`` so tiny frames don't
+  degenerate to all-duplicate indices. Round-3 R3-07 fix: explicit
+  early-return for ``n <= n_sample`` hashes the entire frame.
+  ``DiskKey.filename()`` hashes column names so path-traversal via
+  malicious column names is neutralised (round-3 S2).
+
+- **`canonical_params_hash`** -- blake2b over ``json.dumps(...,
+  sort_keys=True)``. Pinned canonical form for params dictionaries
+  so the same logical params always yield the same hash.
+  Round-3 R3-11 fix.
+
+- **`FeatureCache`** in ``training/feature_handling/cache.py``.
+  Two-tier:
+  1. **In-memory tier** keyed on ``InMemoryKey``. Default LRU
+     eviction; ``size_weighted`` and ``lfu`` strategies opt-in.
+     Memory cap from ``cache.ram_max_gb`` AND psutil-probed
+     ``cache.ram_reserve_gb`` headroom -- evicts whichever
+     constraint binds first.
+  2. **Disk tier (opt-in)** activated by
+     ``cache.persistence in {"auto","read_write"}``. Atomic writes
+     via existing ``mlframe.training.io.atomic_write_bytes`` (round-3
+     chaos C1: tempfile + os.replace + try/finally cleanup, no
+     stranded ``.tmp`` files on ENOSPC). ``cache.dir`` mode 0o700
+     on POSIX (round-3 S11 cross-tenant defence). fp16 ndarrays
+     stored via ``np.savez``; sparse CSR matrices serialise
+     ``data/indices/indptr/shape`` triple. Memmap-on-read for
+     ndarray paths (round-3 P8: fp16 memmap saves 5-10 GB peak RAM
+     on 7M-row embedding caches).
+
+- **`get_or_compute(key, fn)`** -- the ONLY consumer API. Guarantees
+  the compute fn runs at most once per (key, session). Hit/miss
+  stats exposed via ``cache.stats()`` for ``fhc.describe()``
+  introspection (round-3 U-R2-19).
+
+### Tests
+
+22 new in ``test_feature_cache.py`` (1 POSIX-only skip on Windows
+-- file mode bits). Coverage:
+  * Fingerprint determinism, content-change detection, schema-
+    change detection, tiny / empty df handling.
+  * Disk-key filename safe against ``column="../../etc/passwd"``.
+  * Session token rotation isolates id-collision keys.
+  * In-memory hit/miss/call_count_one (round-3 T2 efficiency lock).
+  * Eviction strategies LRU vs LFU vs size_weighted produce
+    different victims.
+  * Disk persistence: ndarray + sparse CSR roundtrip via
+    fresh-cache (simulating new process).
+  * persistence="off" leaves disk untouched.
+  * ``cache.dir`` mode 0o700 on POSIX.
+  * Hit-correctness: same key returns identical object reference
+    (cache stores by reference, not copy).
+
+259/259 wide regression (M+A+A2+B+C+D, 1 POSIX-only skip on Windows).
+22 phase-D own pack.
+
+### Notes
+
+- ``cache.persistence="off"`` is the v1 default. The user opts in
+  to disk caching for long-running prod sweeps where the 10+ minute
+  transformer inference cost amortises across reruns.
+- Phase D.4 (TF-IDF vocabulary cache + categorical codebook cache)
+  ships in a follow-on subcommit; both build on top of
+  ``FeatureCache.get_or_compute``.
+
 ## 2026-05-09 — Phase C: TextColumnEncoder (TF-IDF / Hashing) + polars-ds capability dispatch
 
 Phase C of the 2026 feature-handling overhaul. Per-column text

@@ -37,10 +37,23 @@ from mlframe.training.feature_handling.cache_backend import (
     CacheBackend,
     LocalDiskBackend,
 )
+from mlframe.training.feature_handling.cache import (
+    FeatureCache,
+)
 from mlframe.training.feature_handling.compat import (
     register_model_axis_support,
     validate_handler_for_model,
     validate_fhc_handlers,
+)
+from mlframe.training.feature_handling.fingerprint import (
+    ContentFingerprint,
+    DiskKey,
+    InMemoryKey,
+    SessionToken,
+    canonical_params_hash,
+    current_session,
+    fingerprint_df,
+    reset_session,
 )
 from mlframe.training.feature_handling.config import (
     AutoDeriveConfig,
@@ -108,9 +121,20 @@ __all__ = [
     "HandlerSpec",
     "register_handler_spec",
     "get_handler_spec_for_axis",
+    # cache (in-memory + disk tier)
+    "FeatureCache",
     # cache_backend
     "CacheBackend",
     "LocalDiskBackend",
+    # fingerprint
+    "ContentFingerprint",
+    "DiskKey",
+    "InMemoryKey",
+    "SessionToken",
+    "canonical_params_hash",
+    "current_session",
+    "fingerprint_df",
+    "reset_session",
     # compat
     "register_model_axis_support",
     "validate_handler_for_model",
