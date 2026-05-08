@@ -37,9 +37,20 @@ _KALEIDO_SERVER_STARTED = False
 
 # 2026-05-08 v2 hardening: process-wide flag that the persistent path
 # has burned itself on a JS error / hang. Once True, all subsequent
-# saves in this process go straight to oneshot (no retry), guaranteeing
-# bounded wallclock per save. Reset only on interpreter exit.
+# saves in this process go straight to HTML fallback (skipping kaleido
+# entirely because plotly's oneshot also routes through the SAME
+# broken sync server -- verified empirically on c0031). Reset only on
+# interpreter exit.
 _KALEIDO_PERSISTENT_BURNED = False
+
+# Count of consecutive timeouts/errors. Burn after this many.
+# v3 (single-burn-on-first-failure) was paying 12 x 30s timeouts in
+# c0031 because each timeout fires once before "burning" via the
+# next-call path. Decrement: cap at 2 consecutive failures (~60s
+# wasted before HTML fallback takes over). Single-failure runs (rare
+# transient) still get a retry; pathological combos burn fast.
+_KALEIDO_PERSISTENT_FAIL_COUNT = 0
+_KALEIDO_PERSISTENT_FAIL_THRESHOLD = 2
 
 # Hard ceiling on a single persistent write_fig_sync call. Beyond this,
 # the call is treated as hung; we leave the worker thread to die on
@@ -54,7 +65,20 @@ def _is_kaleido_persistent_burned() -> bool:
     return _KALEIDO_PERSISTENT_BURNED
 
 
+def _record_kaleido_persistent_failure() -> bool:
+    """Increment failure counter; return True if we just crossed the
+    threshold (caller should burn the persistent path)."""
+    global _KALEIDO_PERSISTENT_FAIL_COUNT, _KALEIDO_PERSISTENT_BURNED
+    _KALEIDO_PERSISTENT_FAIL_COUNT += 1
+    if _KALEIDO_PERSISTENT_FAIL_COUNT >= _KALEIDO_PERSISTENT_FAIL_THRESHOLD:
+        _KALEIDO_PERSISTENT_BURNED = True
+        return True
+    return False
+
+
 def _mark_kaleido_persistent_burned() -> None:
+    """Force-burn the persistent path (legacy entry, kept for tests
+    and external callers)."""
     global _KALEIDO_PERSISTENT_BURNED
     _KALEIDO_PERSISTENT_BURNED = True
 
@@ -239,29 +263,27 @@ class PlotlyRenderer:
                 th.start()
                 th.join(timeout=_KALEIDO_PERSISTENT_TIMEOUT_S)
                 if th.is_alive():
-                    # Hung -- mark persistent burned, fall through.
                     persistent_failed = True
-                    _mark_kaleido_persistent_burned()
+                    burned_now = _record_kaleido_persistent_failure()
                     logger.warning(
                         "kaleido persistent write_fig_sync(%s) did not "
-                        "return in %.0fs -- marking persistent path burned, "
-                        "falling back to oneshot for this and subsequent saves.",
+                        "return in %.0fs%s.",
                         fmt, _KALEIDO_PERSISTENT_TIMEOUT_S,
+                        "; persistent path BURNED for this process -- subsequent "
+                        "saves write HTML directly" if burned_now else
+                        " (will retry persistent up to threshold before burning)",
                     )
                     # Don't try to restart the server -- a hung server may
                     # have stop_sync_server() ALSO blocking. Just leave it
-                    # behind; it'll get cleaned up at process exit. The
-                    # oneshot fallback below uses plotly's own kaleido
-                    # spawn (fresh subprocess per call), which is bug-
-                    # isolated.
+                    # behind; it'll get cleaned up at process exit.
                 elif _exc[0] is not None:
                     persistent_failed = True
-                    _mark_kaleido_persistent_burned()
+                    burned_now = _record_kaleido_persistent_failure()
                     logger.warning(
-                        "kaleido persistent save(%s) raised %s; "
-                        "marking persistent path burned, falling back to "
-                        "oneshot for this and subsequent saves.",
+                        "kaleido persistent save(%s) raised %s%s.",
                         fmt, type(_exc[0]).__name__,
+                        "; persistent path BURNED" if burned_now else
+                        " (will retry up to threshold)",
                     )
                 else:
                     return  # success
