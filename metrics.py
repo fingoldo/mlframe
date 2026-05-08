@@ -82,6 +82,28 @@ def prewarm_numba_cache():
     Calls all @njit functions with small dummy data to trigger JIT compilation
     before timing-sensitive operations. Warms up both float32 and float64 paths.
     """
+    # 2026-05-08 perf: kick the loky/wmic physical-core-count probe in a
+    # background thread BEFORE numba JIT. The probe is a Windows wmic
+    # subprocess (~1.5s wall) that loky caches per-process. Running it
+    # in parallel with the JIT compile (which is THIS-process CPU work,
+    # not subprocess) overlaps the wait, so the suite never pays the
+    # 1.5s when it later asks for cpu_count via joblib. Daemon thread
+    # so it dies with the interpreter if the user interrupts. No-op if
+    # joblib isn't installed (it is, on every supported config).
+    try:
+        import threading
+
+        def _kick_cpu_count():
+            try:
+                from joblib.parallel import cpu_count as _cc
+                _cc()
+            except Exception:
+                pass
+
+        threading.Thread(target=_kick_cpu_count, daemon=True).start()
+    except Exception:
+        pass
+
     # Warm up with both float32 and float64 (Numba compiles for each type separately)
     for dtype in [np.float32, np.float64]:
         y_true = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=dtype)
