@@ -1,5 +1,59 @@
 # Changelog
 
+## 2026-05-09 — Phase K: multi-criteria text-vs-categorical detector
+
+Phase K of the 2026 feature-handling overhaul. Replaces the pre-2026
+single-trigger ``cat_text_cardinality_threshold > 300`` with a
+multi-criteria heuristic + anti-UUID guards.
+
+### Added
+
+- **`detect_text_columns(df, candidate_columns, config)`** in
+  ``training/feature_handling/text_detection.py``. Returns
+  ``(text_cols, decisions)`` where ``decisions`` is one
+  :class:`TextDetectionDecision` per evaluated column with the
+  exact rule that fired -- surfaces "why was this classified text"
+  for ``fhc.describe()`` (round-3 U-R2-20).
+
+- Triggers (any -> text):
+  1. ``mean_chars >= 100`` (definitely-long text)
+  2. ``mean_chars >= 30 AND mean_tokens >= 4`` (medium with tokens)
+  3. ``unique_ratio >= 0.95 AND mean_chars >= 15`` (high-unique +
+     meaningful)
+  4. ``cardinality > 300 AND mean_chars >= 30`` (high-cardinality
+     legacy trigger; still matches the original pre-2026 path
+     when the column has substance)
+
+- **Anti-UUID guard** -- BOTH must hold for ID-classification:
+  * ``alphabet_entropy < 4.5`` (narrow alphabet; UUID-v4 hex ≈ 4.04)
+  * ``mean_tokens < 2.0`` (no whitespace -> single-token IDs)
+  Round-3 R2-21: previous threshold 4.0 had UUID-v4 sitting right
+  on the edge; the AND-of-two-signals form rules out IDs without
+  catching short English (which has spaces even at low entropy).
+
+- **`respect_explicit_categorical_dtype: bool = True`** (round-3
+  user-confirmed greenfield default). Polars Categorical / Enum
+  / pandas Categorical signals user intent and bypasses the
+  heuristic. Disable per-FHC via ``TextDetectionConfig
+  (respect_explicit_categorical_dtype=False)``.
+
+- User overrides:
+  * ``explicit_text_columns`` -- always text
+  * ``explicit_categorical_columns`` -- always cat
+  * ``skip_columns`` -- excluded from analysis
+
+### Tests
+
+20 new in ``test_text_detection.py``: each trigger fires correctly
+on the right shape, anti-UUID guard rejects UUID-v4 by entropy
++ no-space hash IDs by token guard, natural English passes both,
+user overrides bypass heuristic, polars/pandas Categorical dtype
+respected (with the disable knob), numeric/boolean columns rejected,
+URL-only / single-char / pure emoji / empty corner cases, decisions
+list shape with stats per column.
+
+337/337 wide regression (M+A+A2+B+C+D+E+N+K, 1 POSIX-only skip).
+
 ## 2026-05-09 — Phase N: LeakageSafeEncoder + target encoders
 
 Phase N of the 2026 feature-handling overhaul. Out-of-fold target

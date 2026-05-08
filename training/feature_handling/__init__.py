@@ -123,6 +123,10 @@ from mlframe.training.feature_handling.registry import (
 from mlframe.training.feature_handling.target_encoders import (
     LeakageSafeEncoder,
 )
+from mlframe.training.feature_handling.text_detection import (
+    TextDetectionDecision,
+    detect_text_columns,
+)
 from mlframe.training.feature_handling.text_encoder import (
     TextColumnEncoder,
 )
@@ -208,6 +212,9 @@ __all__ = [
     "hgb_max_features_cap",
     # target encoders (leakage-safe)
     "LeakageSafeEncoder",
+    # text auto-detection
+    "TextDetectionDecision",
+    "detect_text_columns",
     # text encoder
     "TextColumnEncoder",
     # registry
