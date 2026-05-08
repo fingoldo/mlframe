@@ -258,10 +258,8 @@ def quantile_summary(
         col_hi = a_arr.index(hi_a)
         q_lo = preds_NK[:, col_lo]
         q_hi = preds_NK[:, col_hi]
-        nominal_miscov = max(1e-12, hi_a - lo_a)  # interval width on alpha-axis
-        # NB: nominal-miscoverage for Winkler = (1 - nominal-coverage), and
-        # nominal-coverage = (hi_a - lo_a). So nominal_miscov_for_winkler =
-        # 1 - (hi_a - lo_a).
+        # Nominal miscoverage = 1 - nominal-coverage = 1 - (hi_a - lo_a).
+        # E.g. (0.1, 0.9) -> 80% nominal coverage -> miscov = 0.2.
         nominal_miscov_winkler = max(1e-12, 1.0 - (hi_a - lo_a))
         out[f"coverage_{lo_a}_{hi_a}"] = coverage(y_true, q_lo, q_hi)
         out[f"mean_width_{lo_a}_{hi_a}"] = mean_interval_width(q_lo, q_hi)

@@ -203,11 +203,12 @@ class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
 
     def __sklearn_tags__(self):
         # Inherit base estimator's tags but flag the multioutput shape.
+        # Falls through to BaseEstimator's default __sklearn_tags__ when
+        # the base estimator predates the tags-protocol (sklearn < 1.6).
         if hasattr(self.base_estimator, "__sklearn_tags__"):
             tags = self.base_estimator.__sklearn_tags__()
         else:
-            from sklearn.utils._tags import default_tags
-            tags = default_tags(self.base_estimator)
+            tags = super().__sklearn_tags__()
         tags.target_tags.multi_output = True
         return tags
 
