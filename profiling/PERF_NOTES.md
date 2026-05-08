@@ -20,6 +20,7 @@ removable cost).
 
 - `c0002_7b21cbe5` (lgb regression, 30k rows): **64s -> 5s** (mostly from MLP-skip)
 - `c0114_db5cb49a` (lgb+xgb multiclass, 100k rows, plotly[html,png] dispatcher): **618s -> 135s** (4.6×, from kaleido persistent + MLP-skip)
+- `c0149_a7ff1d5a` (hgb+lgb multilabel, 50k rows): 55s -- profiled for additional hotspots; remaining cost is dominated by sklearn `MultiOutputClassifier.fit` (15.7s, model fit), joblib parallel polling (`time.sleep × 1481: 15.5s`, joblib internal), and matplotlib chart drawing (10.7s for 12 charts via legacy + multi-target dispatcher coexistence). None have non-controversial fixes.
 - Reporting test suite: 191/191 still passing after all optimizations.
 
 ### Hotspots that survived (deliberately not optimized)
