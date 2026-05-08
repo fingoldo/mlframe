@@ -761,18 +761,42 @@ class XGBoostStrategy(TreeModelStrategy):
         ]
         candidate_cols = [c for c in candidate_cols if c in train_df.columns]
 
+        # 2026-05-08 perf: batch per-column unique extraction into one
+        # collect() per frame (train + val). The previous loop did
+        # ``df[col].unique()`` per cat col -- on c0031 (15 cat cols x
+        # 2 frames = 30 collects per build) that cost ~300ms across
+        # the suite via PyLazyFrame.collect. Batched via implode() it's
+        # 2 collects total per call. Same pattern as session 1 win #2
+        # (get_trainset_features_stats_polars). Falls back to per-col
+        # loop on any error so one bad cast doesn't poison the frame.
         out: Dict[str, "pl.Enum"] = {}
+
+        def _batched_unique(df: "pl.DataFrame") -> "Dict[str, list]":
+            cols_present = [c for c in candidate_cols if c in df.columns]
+            if not cols_present:
+                return {}
+            try:
+                lf = df.lazy().select([
+                    pl.col(c).cast(pl.String).drop_nulls().unique().implode().alias(c)
+                    for c in cols_present
+                ])
+                row = lf.collect()
+                return {c: row[c][0].to_list() for c in cols_present}
+            except Exception:
+                d: Dict[str, list] = {}
+                for c in cols_present:
+                    try:
+                        d[c] = df[c].drop_nulls().unique().cast(pl.String).to_list()
+                    except Exception:
+                        d[c] = []
+                return d
+
+        train_levels = _batched_unique(train_df)
+        val_levels = _batched_unique(val_df) if val_df is not None else {}
         for col in candidate_cols:
             levels: set = set()
-            try:
-                levels.update(train_df[col].drop_nulls().unique().cast(pl.String).to_list())
-            except Exception:
-                continue
-            if val_df is not None and col in val_df.columns:
-                try:
-                    levels.update(val_df[col].drop_nulls().unique().cast(pl.String).to_list())
-                except Exception:
-                    pass
+            levels.update(train_levels.get(col, []))
+            levels.update(val_levels.get(col, []))
             out[col] = pl.Enum(sorted(levels))
         return out
 
@@ -897,18 +921,42 @@ class HGBStrategy(ModelPipelineStrategy):
         ]
         candidate_cols = [c for c in candidate_cols if c in train_df.columns]
 
+        # 2026-05-08 perf: batch per-column unique extraction into one
+        # collect() per frame (train + val). The previous loop did
+        # ``df[col].unique()`` per cat col -- on c0031 (15 cat cols x
+        # 2 frames = 30 collects per build) that cost ~300ms across
+        # the suite via PyLazyFrame.collect. Batched via implode() it's
+        # 2 collects total per call. Same pattern as session 1 win #2
+        # (get_trainset_features_stats_polars). Falls back to per-col
+        # loop on any error so one bad cast doesn't poison the frame.
         out: Dict[str, "pl.Enum"] = {}
+
+        def _batched_unique(df: "pl.DataFrame") -> "Dict[str, list]":
+            cols_present = [c for c in candidate_cols if c in df.columns]
+            if not cols_present:
+                return {}
+            try:
+                lf = df.lazy().select([
+                    pl.col(c).cast(pl.String).drop_nulls().unique().implode().alias(c)
+                    for c in cols_present
+                ])
+                row = lf.collect()
+                return {c: row[c][0].to_list() for c in cols_present}
+            except Exception:
+                d: Dict[str, list] = {}
+                for c in cols_present:
+                    try:
+                        d[c] = df[c].drop_nulls().unique().cast(pl.String).to_list()
+                    except Exception:
+                        d[c] = []
+                return d
+
+        train_levels = _batched_unique(train_df)
+        val_levels = _batched_unique(val_df) if val_df is not None else {}
         for col in candidate_cols:
             levels: set = set()
-            try:
-                levels.update(train_df[col].drop_nulls().unique().cast(pl.String).to_list())
-            except Exception:
-                continue
-            if val_df is not None and col in val_df.columns:
-                try:
-                    levels.update(val_df[col].drop_nulls().unique().cast(pl.String).to_list())
-                except Exception:
-                    pass
+            levels.update(train_levels.get(col, []))
+            levels.update(val_levels.get(col, []))
             out[col] = pl.Enum(sorted(levels))
         return out
 

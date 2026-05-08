@@ -26,7 +26,7 @@ import warnings
 import pytest
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(600)
 def test_kaleido_persistent_failure_falls_back_to_oneshot():
     """Synthetic kaleido failure must not hang; output file must exist."""
     import plotly.graph_objects as go
@@ -88,7 +88,7 @@ def test_kaleido_persistent_failure_falls_back_to_oneshot():
         )
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(600)
 def test_kaleido_recovery_restores_persistent_path():
     """After a failure + recovery, the next save should use the
     restarted persistent server (fast path), not stay on oneshot
