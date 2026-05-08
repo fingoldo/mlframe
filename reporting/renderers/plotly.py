@@ -36,6 +36,25 @@ logger = logging.getLogger(__name__)
 _KALEIDO_SERVER_STARTED = False
 
 
+def _restart_kaleido_server() -> bool:
+    """Stop + restart the kaleido sync server. Used after a JS error
+    poisons the async task chain so subsequent calls don't deadlock.
+    Idempotent / no-op when the server isn't started.
+    """
+    global _KALEIDO_SERVER_STARTED
+    try:
+        import kaleido
+    except ImportError:
+        return False
+    if _KALEIDO_SERVER_STARTED:
+        try:
+            kaleido.stop_sync_server(silence_warnings=True)
+        except Exception:
+            pass
+        _KALEIDO_SERVER_STARTED = False
+    return _ensure_kaleido_server_started()
+
+
 def _ensure_kaleido_server_started() -> bool:
     """Start the kaleido sync server (idempotent). Returns True if the
     server is up after the call, False if kaleido isn't installed.
@@ -147,29 +166,59 @@ class PlotlyRenderer:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(fig.to_json())
         elif fmt in ("png", "svg", "pdf"):
-            try:
-                # Persistent-server fast path: write_fig_sync reuses one
-                # Chromium subprocess across all calls in the process,
-                # dropping per-call cost from ~13s (oneshot) to ~0.13s.
-                # Falls through to plotly's default write_image when the
-                # sync server can't be started (kaleido missing, etc.).
-                if _ensure_kaleido_server_started():
-                    import kaleido as _kal
+            # Persistent-server fast path: write_fig_sync reuses one
+            # Chromium subprocess across all calls in the process,
+            # dropping per-call cost from ~13s (oneshot) to ~0.13s.
+            # Falls through to plotly's default write_image when the
+            # sync server can't be started (kaleido missing, etc.).
+            #
+            # 2026-05-08 brittleness fix: a single figure that triggers
+            # a JS error inside kaleido (e.g. "Error 525: Cannot read
+            # properties of undefined (reading 'v')") asyncio-cancels
+            # the persistent server's task chain and leaves
+            # ``write_fig_sync`` blocked on ``await asyncio.gather``
+            # FOREVER -- killing the whole suite. Real reproducer:
+            # c0031_c58ed4fc (lgb+xgb+hgb multiclass + recency
+            # weights). Recovery strategy:
+            #   1. Try persistent server.
+            #   2. On any kaleido / asyncio error, stop+restart the
+            #      sync server (clears the broken async-task chain).
+            #   3. Retry once via ONESHOT path (slower but isolated).
+            #   4. If that also fails, fall back to HTML so the suite
+            #      doesn't lose the diagnostic entirely.
+            persistent_failed = False
+            if _ensure_kaleido_server_started():
+                import kaleido as _kal
+                try:
                     # kaleido infers format from path extension; pass
-                    # ``opts`` only when the path-extension doesn't
-                    # match the requested fmt (defensive).
+                    # ``opts`` defensively in case path lacks the right ext.
                     _kal.write_fig_sync(fig, path, opts={"format": fmt})
-                else:
-                    fig.write_image(path, format=fmt)
+                    return
+                except Exception as e:
+                    persistent_failed = True
+                    logger.warning(
+                        "kaleido persistent-server save(%s) failed (%s); "
+                        "restarting server + retrying via oneshot.",
+                        fmt, type(e).__name__,
+                    )
+                    # Restart the server so the next call gets a clean
+                    # async chain. _restart_kaleido_server is idempotent.
+                    _restart_kaleido_server()
+
+            # Fallback: per-call (oneshot) plotly write_image. Slower
+            # (~13s) but bug-isolated; one bad figure doesn't break the
+            # whole suite.
+            try:
+                fig.write_image(path, format=fmt)
             except (ImportError, ValueError) as e:
-                # kaleido missing or write_image refused.
                 logger.warning(
-                    "plotly write_image(%s) failed (%s); falling back to .html. "
-                    "Install kaleido to enable static image export: "
-                    "pip install -U kaleido",
+                    "plotly write_image(%s) oneshot also failed (%s); "
+                    "falling back to .html. %s",
                     fmt, e,
+                    "Install kaleido to enable static image export: "
+                    "pip install -U kaleido" if not persistent_failed else
+                    "(persistent server already failed for this figure too).",
                 )
-                # Same path stem, swap extension to .html.
                 from os.path import splitext
                 root, _ = splitext(path)
                 fig.write_html(root + ".html", include_plotlyjs="cdn", auto_open=False)
