@@ -205,6 +205,59 @@ matrix, full benchmark, and what these tools do NOT fix
 - **`outlier_detection_config`** — outlier-detection settings (`OutlierDetectionConfig` or dict): `detector` (sklearn OutlierMixin), `apply_to_val`.
 - **`verbose`** — when `True`, logs timing and shape info for every major phase (data loading, splitting, pipeline, per-model training, metrics)
 
+### Feature-handling overhaul (2026-05, 11 phases shipped)
+
+The legacy ad-hoc per-model wiring of categorical / text / numeric features (one branch per model, scattered across `core.py` / `trainer.py` / `pipeline.py`) is being replaced by a single `FeatureHandlingConfig` + supporting infrastructure under [training/feature_handling/](training/feature_handling/).
+
+**Status as of phase L:** foundation + 10 functional phases shipped, ~10 600 LOC of new infrastructure, 358/358 tests green. The new `FeatureHandlingConfig` is built and validated but NOT yet wired into `train_mlframe_models_suite()` -- phases B-G of the **consumer-side** wiring land in a follow-up PR. Current users see only the cleanups (renamed `PolarsPipelineConfig` → `PreprocessingBackendConfig` + `prefer_polarsds`; the long-standing imputer-strategy debt fixed in pipeline.py).
+
+**The new architecture:**
+
+```
+                     train_mlframe_models_suite(...)
+                                |
+                                v
+                  FeatureHandlingConfig (top-level, ~8 fields)
+                  ├─ default_text: List[TextHandlerSpec] | str | None
+                  ├─ default_cat:  List[CatHandlerSpec]  | str | None
+                  ├─ per_model: Dict[str, ModelHandlingOverride]
+                  ├─ default_text_provider: Optional[EmbeddingProvider]
+                  └─ sub-configs: cache / memory / pricing / logging / repro / text_detection
+                                |
+              ┌─────────────────┼──────────────────┐
+              v                 v                  v
+   detect_text_columns   per-handler fit    assemble_for_model(blocks, model_kind)
+   (multi-criteria       via TextColumn-    │
+    + anti-UUID)         Encoder /          ├─ sparse-aware (cb/xgb/lgb/linear)
+                         HuggingFaceProvider│  → two-track (sparse_block, dense_block)
+                         /LeakageSafeEncoder│
+                         /CustomHandler     └─ dense-only (hgb/mlp/rf/ngb/tabnet/recurrent)
+                                |              → single-track + auto-SVD with WARN
+                                v
+                   FeatureCache (in-memory + disk, opt-in)
+                   ├─ session-keyed in-memory (no hashing in hot path)
+                   ├─ content-fingerprint disk tier (when persistence != "off")
+                   └─ provider lifecycle: WeakValueDictionary + LRU strong-keep
+```
+
+**Highlights per phase:**
+
+| Phase | Theme | Key deliverable |
+|---|---|---|
+| **M** | Foundation | `Axis` enum, `HandlerSpec` ABC, `PIDAwareFileLock`, cgroup-aware memory probe, `CudaErrorClass`, Windows long-path helper, `CacheBackend` Protocol; `imputer_strategy` finally wired |
+| **A** | Config surface | `FeatureHandlingConfig` + 6 nested sub-configs, per-method TypedDict params, compat matrix with `difflib.get_close_matches()` suggestions, auto-derived memory budgets |
+| **A2** | Provider config | `EmbeddingProvider` structured object, `from_uri()` parser, env-var indirection for secrets, scrubbed serialisation |
+| **B** | Provider runtime | `FrozenFeaturizerProvider` + `TrainableFeaturizerProvider` Protocols, `HuggingFaceProvider` impl, registry with WeakValueDictionary + LRU + double-checked locking, `Future`-based pre-warm, `shutdown()` for notebook reload |
+| **C** | Text encoders | `TextColumnEncoder` (TF-IDF + Hashing), `PolarsNativeDispatcher` (runtime probe, future-proofs polars-ds upstream additions) |
+| **D** | Cache layer | `FeatureCache` two-tier (in-memory session-keyed + opt-in disk), `ContentFingerprint`, LRU/LFU/size-weighted eviction, watermark-aware |
+| **E** | Assembly | `assemble_for_model()` with sparse/dense routing, multi-handler concat with disambiguated names, auto-`TruncatedSVD` with WARN for dense-only models above 512 sparse cols |
+| **N** | Target encoders | `LeakageSafeEncoder` with K-fold OOF (5 method variants); leakage probe in tests locks the contract |
+| **K** | Auto-detection | Multi-criteria text-vs-categorical detector with anti-UUID guards (entropy ≥ 4.5 AND tokens ≥ 2.0 AND-form catches IDs without rejecting short text) |
+| **O** | Polynomial | `PolynomialFeatureExpander` opt-in (memory WARN at >5000 projected cols) |
+| **P** | Custom hatch | `CustomHandler` for sklearn-shaped user pipelines + `validate_custom_transformer()` |
+
+See [`docs/feature_handling_examples.md`](docs/feature_handling_examples.md) for cookbook examples and [`CHANGELOG.md`](CHANGELOG.md) (entries dated 2026-05-09) for the per-phase delta.
+
 ### Calibration metrics emitted per class
 
 The per-class `class_metrics` dict carries (alongside `roc_auc`, `pr_auc`, `precision`, `recall`, `f1`):

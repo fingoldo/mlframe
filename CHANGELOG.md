@@ -1,5 +1,46 @@
 # Changelog
 
+## 2026-05-09 — Phase L: documentation (README architecture section + cookbook)
+
+Final phase of the foundation track. Phases M / A / A2 / B / C / D /
+E / N / K / O / P shipped the infrastructure (~10 600 LOC,
+358 tests). Phase L makes it discoverable.
+
+### Added
+
+- New section in `README.md` -- "Feature-handling overhaul (2026-05,
+  11 phases shipped)". Includes:
+  * status note that the FHC is built + validated but not yet wired
+    into ``train_mlframe_models_suite()`` (consumer wiring lands in
+    a follow-up PR);
+  * ASCII data-flow diagram of FHC -> detectors -> handlers ->
+    assembler -> cache -> model;
+  * per-phase summary table (M / A / A2 / B / C / D / E / N / K /
+    O / P) with key deliverables.
+
+- New file `docs/feature_handling_examples.md` -- 12 worked recipes:
+  1. Zero-config defaults walkthrough
+  2. TF-IDF for everyone with larger vocab
+  3. CatBoost-native everywhere
+  4. Embedding-only (frozen) pipeline
+  5. Per-model mix (TF-IDF for trees, learnable HF block for MLP)
+  6. Multi-handler chain (TF-IDF + frozen embedding concat)
+  7. Append vs replace override semantics
+  8. High-cardinality cat + leakage-safe target encoding
+  9. Disk persistence opt-in for long suite reruns
+  10. Custom user-supplied sklearn pipeline as a handler
+  11. Reproducibility mode for CI parity tests
+  12. Multi-criteria text detection with explicit overrides
+  + introspection tips (`describe()`, `provider_status()`,
+    `validate_against_models()`) and the phase-J provider roadmap.
+
+### Notes
+
+- 358/358 wide regression unchanged (docs-only changes).
+- README's existing "Quick Start" section continues to use the
+  legacy (pre-overhaul) config path; the new FHC section is
+  forward-looking and labelled as such.
+
 ## 2026-05-09 — Phases O + P: polynomial features + custom user-transforms hatch
 
 Two final foundational phases of the 2026 feature-handling overhaul.
