@@ -120,6 +120,9 @@ from mlframe.training.feature_handling.registry import (
     shutdown_all,
     wait_prewarm,
 )
+from mlframe.training.feature_handling.target_encoders import (
+    LeakageSafeEncoder,
+)
 from mlframe.training.feature_handling.text_encoder import (
     TextColumnEncoder,
 )
@@ -203,6 +206,8 @@ __all__ = [
     "is_dense_only",
     "should_apply_svd",
     "hgb_max_features_cap",
+    # target encoders (leakage-safe)
+    "LeakageSafeEncoder",
     # text encoder
     "TextColumnEncoder",
     # registry

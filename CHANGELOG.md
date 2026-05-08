@@ -1,5 +1,57 @@
 # Changelog
 
+## 2026-05-09 — Phase N: LeakageSafeEncoder + target encoders
+
+Phase N of the 2026 feature-handling overhaul. Out-of-fold target
+encoding for high-cardinality categorical columns. Round-3 A17 +
+T14: target encoding inside fit/transform leaks the target unless
+the encoding for each train row is computed from a fold that
+EXCLUDES that row. Naive ``mean(target | category)`` is the silent
+worst-case ML bug class; this phase ships the protection.
+
+### Added
+
+- **`LeakageSafeEncoder`** in
+  ``training/feature_handling/target_encoders.py``. Per-column
+  K-fold OOF encoder. ``fit_transform()`` returns OOF-computed
+  encodings on train rows; ``transform()`` on held-out rows uses
+  the full-train statistic (no leak risk for held-out, they were
+  never in any fold's train set).
+
+- Five method variants (round-3 plan §1.4):
+  * ``target_mean`` -- standard smoothed mean (default).
+  * ``target_m_estimate`` -- m-estimate; mathematically identical
+    to ``target_mean`` with smoothing == m.
+  * ``target_james_stein`` -- shrinkage toward prior with a
+    sample-size-aware factor.
+  * ``target_loo`` -- leave-one-out; row-wise (not k-fold).
+  * ``woe`` -- weight of evidence ``log(P(c|y=1) / P(c|y=0))``;
+    binary-classification-only with Laplace smoothing.
+
+- Sentinel ``"__NULL__"`` category for None / NaN values so they
+  form their own group rather than being silently dropped.
+
+- Reproducibility: ``random_state`` defaults to 42 (was None) so
+  two runs with identical config produce byte-identical encodings
+  (round-3 R3-09).
+
+### Tests
+
+23 new in ``test_target_encoders.py``. Headline:
+* **Leakage probe** (T14): high-cardinality cat (each value
+  unique) + random binary target. Naive encoding -> train AUC ≈ 1.0
+  (memorisation); LeakageSafeEncoder OOF -> AUC < 0.7 (the leak
+  is broken, the encoding can't memorise row-level noise).
+
+Plus: shape coverage for all 5 methods, smoothing-pulls-toward-prior
+behaviour at high vs low smoothing, unseen-categories-at-transform
+return prior, None+NaN sentinel category, reproducibility same/
+different random_state, WoE rejects non-binary, validation errors
+(invalid method / cv<2 / negative smoothing / X-y length mismatch /
+transform-before-fit).
+
+317/317 wide regression (M+A+A2+B+C+D+E+N, 1 POSIX-only skip).
+
 ## 2026-05-09 — Phase E: assembler + sparse/dense routing + auto-SVD with WARN
 
 Phase E of the 2026 feature-handling overhaul. Concat layer that
