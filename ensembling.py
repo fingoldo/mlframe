@@ -847,17 +847,6 @@ def _process_single_ensemble_method(
         kwargs_copy.pop(_metrics_kwarg, None)
 
     # Build config objects from flat params
-    # 2026-05-08 perf: ensemble chart writes are wasteful -- each
-    # ensemble method (mean/median/geomean/...) overwrites the same
-    # plot_file, so users only see the LAST one. Force plot_file="" +
-    # show_perf_chart=False here so we compute METRICS without paying
-    # ~0.7s per chart × N ensemble methods × {val, test} splits. The
-    # caller's reporting_config.plot_outputs path (auto_dispatcher)
-    # still emits the multi-target panel grid for the ensembled
-    # predictions where applicable.
-    kwargs_copy = dict(kwargs_copy)
-    kwargs_copy["plot_file"] = ""
-    kwargs_copy["show_perf_chart"] = False
     flat_params = dict(
         df=None,
         drop_columns=[],

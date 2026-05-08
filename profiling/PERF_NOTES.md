@@ -16,17 +16,36 @@ removable cost).
 | 4 | `lgb_shim` `eval_set` 2-tuple unpack vs 3-tuple actuality | robust positional unpack | unblocks LGB e2e test |
 | 5 | **kaleido oneshot Chromium spawn per plotly PNG export** | `start_sync_server` on first save + `kaleido.write_fig_sync` (persistent server) + `atexit` cleanup | **13s/call -> 0.13s/call (100×)**; on c0114 (32 PNG saves): 432s -> 12s |
 | 6 | regression report `tight_layout` recompute per chart | `layout="constrained"` on plt.subplots; constrained_layout caches solver state | ~3s on c0089 (32 charts); cleaner code |
-| 7 | **ensembling re-rendered chart per method (overwriting same file)** | `plot_file=""` + `show_perf_chart=False` in `_process_single_ensemble_method` flat_params | **c0025 82s -> 50s (39%)**; eliminates 24 redundant chart writes per 6-method ensemble |
+| 7 | ~~ensembling re-rendered chart per method (overwriting same file)~~ **REVERTED** | `plot_file=""` + `show_perf_chart=False` in `_process_single_ensemble_method` flat_params | **REGRESSION** -- the premise was wrong; charts had unique filenames via `slugify(model_name_prefix)` (`Ens{METHOD}-N{n}_*_perfplot.png`). Per user feedback, reverted on 2026-05-08; sensor test in `tests/training/test_ensembling_chart_artifacts.py` now guards against re-applying this. |
 
 ### Numbers
 
 - `c0002_7b21cbe5` (lgb regression, 30k rows): **64s -> 5s** (mostly from MLP-skip)
 - `c0114_db5cb49a` (lgb+xgb multiclass, 100k rows, plotly[html,png] dispatcher): **618s -> 135s** (4.6×, from kaleido persistent + MLP-skip)
 - `c0149_a7ff1d5a` (hgb+lgb multilabel, 50k rows): 55s -- profiled for additional hotspots; remaining cost is dominated by sklearn `MultiOutputClassifier.fit` (15.7s, model fit), joblib parallel polling (`time.sleep × 1481: 15.5s`, joblib internal), and matplotlib chart drawing (10.7s for 12 charts via legacy + multi-target dispatcher coexistence). None have non-controversial fixes.
-- `c0025_98d57fbf` (cb+hgb+lgb binary, lof outlier detection, 30k rows): **82s -> 50s** (39%, from ensemble chart skip).
+- ~~`c0025_98d57fbf` (cb+hgb+lgb binary, lof outlier detection, 30k rows): 82s -> 50s~~ -- **the win was from a regression** (deleting per-method ensemble charts that have unique filenames). Reverted on 2026-05-08.
 - `c0089_246583d5` (hgb+xgb regression with mrmr + 8 cat cols, 80k rows): 44s -> 41s (constrained_layout marginal).
 - `c0097_5ea069f9` (hgb+linear regression with mrmr + 8 cat cols, polars_utf8, 50k rows): 20.5s. Already well-optimized -- remaining cost is matplotlib chart drawing (10s) + actual model fits.
 - Reporting test suite: 191/191 still passing after all optimizations.
+
+### Lesson learned (2026-05-08)
+
+Win #7 was reverted after user pushback. The "optimization" hard-coded
+``plot_file=""`` inside the ensembling re-entry path on the false
+premise that all ensemble methods overwrote the same file. They DON'T:
+``trainer._setup_model_info_and_paths`` already prefixes plot_file
+with ``slugify(model_name_prefix)``, and the ensembling loop sets
+``model_name_prefix=f"Ens{METHOD}-N{n}"`` per method, so each writes
+to a unique path (``EnsARITHM-N6_val_perfplot.png``,
+``EnsGEO-N6_val_perfplot.png``, ...). The "win" was really
+_silently dropping 24 user-visible artifacts_ -- per-method
+calibration charts that operators legitimately compare. The premise
+was never empirically verified before the patch landed.
+
+**Process rule going forward**: before applying a perf "optimization"
+that disables a feature, list the existing on-disk artifacts and
+verify they actually collide. Reading the path-construction code is
+not a substitute -- empirical `os.walk` is.
 
 ### Validation against pre-fix aggregate
 
