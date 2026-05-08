@@ -23,7 +23,31 @@ removable cost).
 - `c0002_7b21cbe5` (lgb regression, 30k rows): **64s -> 5s** (mostly from MLP-skip)
 - `c0114_db5cb49a` (lgb+xgb multiclass, 100k rows, plotly[html,png] dispatcher): **618s -> 135s** (4.6×, from kaleido persistent + MLP-skip)
 - `c0149_a7ff1d5a` (hgb+lgb multilabel, 50k rows): 55s -- profiled for additional hotspots; remaining cost is dominated by sklearn `MultiOutputClassifier.fit` (15.7s, model fit), joblib parallel polling (`time.sleep × 1481: 15.5s`, joblib internal), and matplotlib chart drawing (10.7s for 12 charts via legacy + multi-target dispatcher coexistence). None have non-controversial fixes.
+- `c0025_98d57fbf` (cb+hgb+lgb binary, lof outlier detection, 30k rows): **82s -> 50s** (39%, from ensemble chart skip).
+- `c0089_246583d5` (hgb+xgb regression with mrmr + 8 cat cols, 80k rows): 44s -> 41s (constrained_layout marginal).
+- `c0097_5ea069f9` (hgb+linear regression with mrmr + 8 cat cols, polars_utf8, 50k rows): 20.5s. Already well-optimized -- remaining cost is matplotlib chart drawing (10s) + actual model fits.
 - Reporting test suite: 191/191 still passing after all optimizations.
+
+### Session conclusion
+
+After 8+ iterations across diverse combo shapes (binary / multiclass /
+multilabel / LTR / regression × small / mid / large), the dominant
+remaining costs are:
+
+1. **Real model fits** (CB, XGB, LGB, HGB) -- can't be optimized at
+   the mlframe layer.
+2. **matplotlib PNG encoding + draw** -- ~0.5-1s per chart; further
+   reduction requires DPI lowering (visual quality tradeoff) or
+   skipping per-class binary-calib charts when the multi-target
+   dispatcher draws the multiclass grid (behavior change).
+3. **joblib parallel polling sleeps** -- upstream `time.sleep(0.01)`
+   in joblib's wait loop; not actionable from mlframe.
+4. **numba JIT first-call cost** for non-prewarmed dtype combos --
+   prewarming all combos costs more than it saves.
+
+These are noted but not pursued. Further profile-and-optimize work
+should target the suite-level path -- e.g. caching across (target,
+model, weight_schema) iterations -- rather than per-call hotspots.
 
 ### Hotspots that survived (deliberately not optimized)
 
