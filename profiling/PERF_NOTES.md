@@ -35,12 +35,13 @@ the profile-and-optimize loop with a strict rule: **before any
 performance patch, verify the premise empirically -- bench before/
 after, list on-disk artifacts, etc. Reading the code is not enough.**
 
-### Wins shipped (2)
+### Wins shipped (3)
 
 | # | hotspot | fix | impact (verified) |
 |---|---|---|---|
 | 8 | loky `_count_physical_cores_win32` (wmic subprocess) blocks suite for ~1.65s on first call | kick `cpu_count()` in a daemon thread BEFORE numba JIT inside `prewarm_numba_cache`; subprocess overlaps with this-process JIT compile | **~1.0s saved per fresh suite run** (3-run bench: 4.16s -> 3.03s). Verified with controlled "neuter the kick" test. |
 | 9 | profile drivers fired matplotlib's Qt backend probe (~1.45s of `activateWindow` calls on c0088) | `matplotlib.use("Agg", force=False)` at top of `profile_one_combo.py` and `profile_fuzz_chains.py` | dev-quality only (production suite unchanged) -- removes Qt noise from profile traces |
+| **10** | **CRITICAL DEADLOCK** -- win #5 (persistent kaleido server) regression: a single figure that triggers a JS error inside kaleido (`KaleidoError: Error 525...`) cancels the asyncio task chain and every subsequent `write_fig_sync` hangs forever in `await asyncio.gather`. Reproduced empirically: c0031 hung 2+ hours on `multiclass + recency + ensembling` combo. | `PlotlyRenderer.save`: catch ALL exceptions from persistent-path write (not just ImportError/ValueError); call new `_restart_kaleido_server()` helper to clear the broken async chain; retry via plotly's oneshot `write_image` (~13s but bug-isolated). | **c0031 unstuck: 2+h hang -> 84s completion**. .prof file actually produced (was 0 bytes before). Two regression sensor tests in `tests/reporting/test_kaleido_recovery.py` monkey-patch kaleido to raise and assert no hang + file written. |
 
 ### Hotspots considered + skipped (with empirical justification)
 
