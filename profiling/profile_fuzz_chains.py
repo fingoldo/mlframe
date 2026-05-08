@@ -132,6 +132,7 @@ def _profile_one_combo(
                 hyperparams_config={"iterations": max(combo.iterations, 30)},
                 output_config=OutputConfig(data_dir=tmpdir, models_dir="models"),
                 use_mlframe_ensembles=combo.use_ensembles,
+                behavior_config={"prefer_gpu_configs": False},
                 verbose=0,
             )
         except Exception as e:
