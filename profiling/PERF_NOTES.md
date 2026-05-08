@@ -28,6 +28,33 @@ removable cost).
 - `c0097_5ea069f9` (hgb+linear regression with mrmr + 8 cat cols, polars_utf8, 50k rows): 20.5s. Already well-optimized -- remaining cost is matplotlib chart drawing (10s) + actual model fits.
 - Reporting test suite: 191/191 still passing after all optimizations.
 
+## 2026-05-08 session 2
+
+After the user's pushback on win #7 (which was reverted), restarted
+the profile-and-optimize loop with a strict rule: **before any
+performance patch, verify the premise empirically -- bench before/
+after, list on-disk artifacts, etc. Reading the code is not enough.**
+
+### Wins shipped (2)
+
+| # | hotspot | fix | impact (verified) |
+|---|---|---|---|
+| 8 | loky `_count_physical_cores_win32` (wmic subprocess) blocks suite for ~1.65s on first call | kick `cpu_count()` in a daemon thread BEFORE numba JIT inside `prewarm_numba_cache`; subprocess overlaps with this-process JIT compile | **~1.0s saved per fresh suite run** (3-run bench: 4.16s -> 3.03s). Verified with controlled "neuter the kick" test. |
+| 9 | profile drivers fired matplotlib's Qt backend probe (~1.45s of `activateWindow` calls on c0088) | `matplotlib.use("Agg", force=False)` at top of `profile_one_combo.py` and `profile_fuzz_chains.py` | dev-quality only (production suite unchanged) -- removes Qt noise from profile traces |
+
+### Hotspots considered + skipped (with empirical justification)
+
+- **`show_inline_population_labels`** (10 text overlays per calibration chart): bench showed 277ms with vs 253ms without per chart -- only 24ms saved, doesn't justify the readability hit.
+- **`show_perf_chart=False` Agg fast-path**: bench showed 290ms in both modes -- no actual win because savefig itself dominates, not pyplot init.
+- **matplotlib `tight_layout` -> `constrained_layout`**: previous fix #6 already shipped; constrained_layout's solver still costs ~17s on c0088 but reverting to no-auto-layout would be a quality regression.
+
+### Combos profiled
+
+- `c0103_d00d3792` (hgb+mlp multilabel ensembling, 30k rows): 774s -- 348s in **cold-disk** lightning import (one-off, not recurring; subsequent calls in same process pay sys.modules cache ~14s).
+- `c0088_110cbfb8` (hgb+lgb+xgb binary mrmr ensembles, 80k rows): 55.6s, 38s in calibration-report charts. Drilled into `show_calibration_plot`'s callees -- 290ms intrinsic per chart, no further easy cuts.
+- `c0074_618df307`: hit a real bug (rankers don't handle text features). Filed as data point, not optimised.
+- Tiny suite (1k rows, lgb-only, 5 iter): 4.3s -> 3.0s with prewarm + new parallel kick.
+
 ### Lesson learned (2026-05-08)
 
 Win #7 was reverted after user pushback. The "optimization" hard-coded
