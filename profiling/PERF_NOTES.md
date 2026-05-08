@@ -69,6 +69,8 @@ After session 2/3 fixes, profiled new combo space:
 | `c0072` (hgb-only binary, polars_nullable) | 200k x N | 15.6s | clean -- HGB.fit (5.5s), polars work (4.6s collects), matplotlib (3.4s) |
 | `c0008` (cb+hgb regression mrmr ens) | 200k x N | 52.7s | ensembling + chart rendering (matplotlib constrained_layout solver: 15.6s for 32 charts) |
 | `c0105` (cb+hgb+lgb binary) | 200k x N | ~100s | CB.fit dominates 95% (94s) -- pure model work |
+| `c0001` (xgb-only multiclass, polars_nullable, 15 cats) | 200k x N | 19.9s | report_model_perf 18.0s = kaleido lock-wait 10.9s + matplotlib 5.0s -- multi-target panel grid + 6 calibration plots |
+| `c0071` (mlp-only regression, polars_utf8) | 200k x N | 184s | PyTorch Lightning fit 165s (89%) -- pure MLP training cost, no mlframe overhead optimizable |
 
 ### Floor identified
 
