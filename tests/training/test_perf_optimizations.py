@@ -395,7 +395,7 @@ class TestFeatureSelectorsWithTextEmbedding:
         from .shared import SimpleFeaturesAndTargetsExtractor
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training import (
-            PolarsPipelineConfig,
+            PreprocessingBackendConfig,
             FeatureTypesConfig,
             TargetTypes,
             FeatureSelectionConfig,
@@ -409,7 +409,7 @@ class TestFeatureSelectorsWithTextEmbedding:
             model_name="mrmr_txt",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            pipeline_config=PolarsPipelineConfig(use_polarsds_pipeline=True),
+            pipeline_config=PreprocessingBackendConfig(prefer_polarsds=True),
             feature_types_config=FeatureTypesConfig(
                 text_features=["text_feat"], auto_detect_feature_types=False
             ),
@@ -431,7 +431,7 @@ class TestFeatureSelectorsWithTextEmbedding:
         from .shared import SimpleFeaturesAndTargetsExtractor
         from mlframe.training.core import train_mlframe_models_suite
         from mlframe.training.configs import (
-            PolarsPipelineConfig,
+            PreprocessingBackendConfig,
             FeatureTypesConfig,
         )
 
@@ -443,7 +443,7 @@ class TestFeatureSelectorsWithTextEmbedding:
             model_name="mrmr_emb",
             features_and_targets_extractor=fte,
             mlframe_models=["cb"],
-            pipeline_config=PolarsPipelineConfig(use_polarsds_pipeline=True),
+            pipeline_config=PreprocessingBackendConfig(prefer_polarsds=True),
             feature_types_config=FeatureTypesConfig(
                 embedding_features=["emb_feat"], auto_detect_feature_types=False
             ),

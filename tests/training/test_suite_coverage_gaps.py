@@ -27,7 +27,7 @@ import pytest
 
 from mlframe.training import (
     FeatureTypesConfig,
-    PolarsPipelineConfig,
+    PreprocessingBackendConfig,
     PreprocessingConfig,
     TrainingBehaviorConfig,
     FeatureSelectionConfig,
@@ -1169,7 +1169,7 @@ def test_strict_configs_reject_unknown_fields():
 def test_permissive_configs_warn_on_unknown_fields(caplog):
     """Permissive configs (extra='allow') must WARN on unknown fields
     — silent absorption is the real prod-risk (``iteratoins=100``
-    typo slipping through unused). ``PolarsPipelineConfig`` and
+    typo slipping through unused). ``PreprocessingBackendConfig`` and
     ``TrainingBehaviorConfig`` are permissive; typos must still
     produce a visible WARNING via ``_warn_on_unknown_extras``.
     """
@@ -1178,12 +1178,12 @@ def test_permissive_configs_warn_on_unknown_fields(caplog):
     caplog.set_level(logging.WARNING, logger="mlframe.training.configs")
 
     # Should NOT raise (extra='allow'), but must emit a WARNING.
-    cfg = PolarsPipelineConfig(use_polrsds_pipeline=True)  # typo: missing 'a'
+    cfg = PreprocessingBackendConfig(use_polrsds_pipeline=True)  # typo: missing 'a'
     assert cfg is not None
 
     log_text = caplog.text.lower()
     assert "unknown field" in log_text, (
-        "PolarsPipelineConfig did not warn on unknown field — "
+        "PreprocessingBackendConfig did not warn on unknown field — "
         "silent-absorption bug returned. Log: " + log_text[-300:]
     )
 

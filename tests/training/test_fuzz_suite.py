@@ -100,7 +100,7 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
     typically do so BECAUSE they're declaring the lists manually."""
     from mlframe.training import (
     
-        PolarsPipelineConfig,
+        PreprocessingBackendConfig,
         FeatureTypesConfig,
         TrainingBehaviorConfig,
         PreprocessingConfig,
@@ -199,8 +199,8 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
     # TypeError when this dict is **-splatted alongside the explicit
     # ``preprocessing_config=...``.
     return {
-        "pipeline_config": PolarsPipelineConfig(
-            use_polarsds_pipeline=combo.use_polarsds_pipeline,
+        "pipeline_config": PreprocessingBackendConfig(
+            prefer_polarsds=combo.prefer_polarsds,
             scaler_name=combo.scaler_name_cfg,
             categorical_encoding=combo.categorical_encoding_cfg,
             skip_categorical_encoding=combo.skip_categorical_encoding_cfg,

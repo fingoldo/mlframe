@@ -841,7 +841,7 @@ from pyutilz.system import ensure_dir_exists
 from .configs import (
     PreprocessingConfig,
     TrainingSplitConfig,
-    PolarsPipelineConfig,
+    PreprocessingBackendConfig,
     FeatureTypesConfig,
     FeatureSelectionConfig,
     ModelHyperparamsConfig,
@@ -1604,7 +1604,7 @@ def _create_initial_metadata(
     target_name: str,
     mlframe_models: List[str],
     preprocessing_config: PreprocessingConfig,
-    pipeline_config: PolarsPipelineConfig,
+    pipeline_config: PreprocessingBackendConfig,
     split_config: TrainingSplitConfig,
 ) -> Dict[str, Any]:
     """
@@ -1789,7 +1789,7 @@ def train_mlframe_models_suite(
     # Existing typed configs (can be dicts or Pydantic objects)
     preprocessing_config: Optional[Union[PreprocessingConfig, Dict]] = None,
     split_config: Optional[Union[TrainingSplitConfig, Dict]] = None,
-    pipeline_config: Optional[Union[PolarsPipelineConfig, Dict]] = None,
+    pipeline_config: Optional[Union[PreprocessingBackendConfig, Dict]] = None,
     preprocessing_extensions: Optional[Union["PreprocessingExtensionsConfig", Dict]] = None,
     feature_types_config: Optional[Union[FeatureTypesConfig, Dict]] = None,
     linear_model_config: Optional[LinearModelConfig] = None,
@@ -2000,7 +2000,7 @@ def train_mlframe_models_suite(
 
     # Convert dict configs to Pydantic if needed
     preprocessing_config = _ensure_config(preprocessing_config, PreprocessingConfig, {})
-    pipeline_config = _ensure_config(pipeline_config, PolarsPipelineConfig, {})
+    pipeline_config = _ensure_config(pipeline_config, PreprocessingBackendConfig, {})
     feature_types_config = _ensure_config(feature_types_config, FeatureTypesConfig, {})
     split_config = _ensure_config(split_config, TrainingSplitConfig, {})
     hyperparams_config = _ensure_config(hyperparams_config, ModelHyperparamsConfig, {})
@@ -2448,7 +2448,7 @@ def train_mlframe_models_suite(
         logger.info("  fit_and_transform_pipeline done in %s", _elapsed_str(t0_fit_pipeline))
 
     # Track if Polars-ds pipeline was applied (to skip redundant pre_pipeline transforms later)
-    polars_pipeline_applied = was_polars_input and pipeline_config.use_polarsds_pipeline and pipeline is not None
+    polars_pipeline_applied = was_polars_input and pipeline_config.prefer_polarsds and pipeline is not None
 
     # Apply shared sklearn-based extensions (scaler override / poly / dim-reducer / ...).
     # When preprocessing_extensions is None (default) this is a zero-cost noop and the
@@ -4088,7 +4088,7 @@ def train_mlframe_models_suite(
                             # pre_pipeline run in trainer.py.
                             #
                             # 2026-04-23 extension (fuzz c0003 / HGB +
-                            # polars_enum + use_polarsds_pipeline=False):
+                            # polars_enum + prefer_polarsds=False):
                             # when the shared polars-ds pipeline does NOT
                             # run, Fix 11's left-hand side collapses to
                             # False -- the gate was then False for HGB too,

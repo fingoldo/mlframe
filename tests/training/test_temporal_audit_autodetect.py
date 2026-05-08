@@ -224,7 +224,7 @@ def test_suite_auto_detects_ts_field_from_fte_and_logs(caplog, tmp_path):
     metadata['target_temporal_audit']."""
     from mlframe.training import train_mlframe_models_suite, TrainingBehaviorConfig
     from mlframe.training.configs import (
-        ModelHyperparamsConfig, PolarsPipelineConfig, FeatureTypesConfig,
+        ModelHyperparamsConfig, PreprocessingBackendConfig, FeatureTypesConfig,
     )
     df = _make_fixture(n=400, with_drift=True)
     fte = _FTEWithTsField(target_col="y", ts_field="ts")

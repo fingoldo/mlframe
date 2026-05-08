@@ -31,7 +31,7 @@ from .utils import maybe_clean_ram_adaptive
 from pyutilz.pandaslib import ensure_dataframe_float32_convertability
 
 from .utils import log_ram_usage
-from .configs import PolarsPipelineConfig, PreprocessingExtensionsConfig
+from .configs import PreprocessingBackendConfig, PreprocessingExtensionsConfig
 from .strategies import PANDAS_CATEGORICAL_DTYPES, get_polars_cat_columns
 
 
@@ -457,7 +457,7 @@ def _select_scalable_numeric_columns(
 
 def create_polarsds_pipeline(
     train_df: pl.DataFrame,
-    config: PolarsPipelineConfig,
+    config: PreprocessingBackendConfig,
     pipeline_name: str = "feature_pipeline",
     verbose: int = 1,
     exclude_from_encoding: Optional[set] = None,
@@ -497,6 +497,33 @@ def create_polarsds_pipeline(
     t0_bp = timer()
     # Build blueprint
     bp = PdsBlueprint(train_df, name=pipeline_name)
+
+    # Imputation -- runs BEFORE scaling so the scaler never sees NaN
+    # (NaN * x = NaN propagates through scaling and would leave NaN in
+    # the output). Phase M wiring of ``imputer_strategy``: the field was
+    # declared since 2026-04 but never connected, so NaN in numeric
+    # columns survived the pipeline and crashed downstream models.
+    # Sensor tests in ``tests/training/test_imputer_wiring.py``.
+    if config.imputer_strategy is not None:
+        # Numeric-only target: text/string/categorical columns are
+        # handled by the categorical encoder, not here. Reuse the same
+        # column filter as the scaler so the two stay aligned.
+        _imputable_cols = [
+            name for name, dtype in train_df.schema.items()
+            if dtype.is_numeric() and not dtype == pl.Boolean
+        ]
+        if _imputable_cols:
+            # ``config.imputer_strategy`` has been canonicalised by the
+            # validator to one of {mean, median, mode} so it maps
+            # directly to polars-ds's ``Blueprint.impute`` API.
+            bp = bp.impute(_imputable_cols, method=config.imputer_strategy)
+            if verbose:
+                logger.info(
+                    "  Imputer wired: strategy=%s on %d numeric columns",
+                    config.imputer_strategy, len(_imputable_cols),
+                )
+        elif verbose:
+            logger.info("  No numeric columns to impute; skipping imputer step")
 
     # Add scaling. polars-ds's ``robust_scale`` divides by ``q_high - q_low``
     # which collapses to zero (or NaN) for all-constant or all-null
@@ -669,7 +696,7 @@ def fit_and_transform_pipeline(
     train_df: Union[pd.DataFrame, pl.DataFrame],
     val_df: Optional[Union[pd.DataFrame, pl.DataFrame]],
     test_df: Optional[Union[pd.DataFrame, pl.DataFrame]],
-    config: PolarsPipelineConfig,
+    config: PreprocessingBackendConfig,
     ensure_float32: bool = True,
     verbose: int = 1,
     text_features: Optional[List[str]] = None,
@@ -703,7 +730,7 @@ def fit_and_transform_pipeline(
     # decomposed any datetime columns by the time we run.
 
     # Handle Polars DataFrames with polars-ds
-    if isinstance(train_df, pl.DataFrame) and config.use_polarsds_pipeline:
+    if isinstance(train_df, pl.DataFrame) and config.prefer_polarsds:
         # Detect cat_features from the ORIGINAL schema before the pipeline possibly
         # ordinal/one-hot-encodes them to numeric (which would erase their categorical dtype).
         _orig_cat_features = [
@@ -757,7 +784,7 @@ def fit_and_transform_pipeline(
         cat_features = _orig_cat_features if _orig_cat_features else post_cat
 
     # Handle Polars DataFrames without polars-ds pipeline - just detect cat_features
-    elif isinstance(train_df, pl.DataFrame) and not config.use_polarsds_pipeline:
+    elif isinstance(train_df, pl.DataFrame) and not config.prefer_polarsds:
         # Detect categorical features from schema (no transformation, just detection)
         cat_features = [c for c in get_polars_cat_columns(train_df) if c not in _exclude_from_encoding]
         if verbose and cat_features:

@@ -20,7 +20,7 @@ import tempfile
 from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.io import save_mlframe_model, load_mlframe_model
 from mlframe.training.pipeline import fit_and_transform_pipeline
-from mlframe.training.configs import PolarsPipelineConfig, TargetTypes
+from mlframe.training.configs import PreprocessingBackendConfig, TargetTypes
 from .shared import SimpleFeaturesAndTargetsExtractor
 
 
@@ -188,7 +188,7 @@ class TestPerformance:
         train_df = df[feature_names].iloc[:700]
         val_df = df[feature_names].iloc[700:]
 
-        config = PolarsPipelineConfig(use_polarsds_pipeline=False)
+        config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         start = time.time()
 
@@ -293,8 +293,8 @@ class TestConcurrency:
         results = []
 
         for i, config in enumerate(configs):
-            pipeline_config = PolarsPipelineConfig(
-                use_polarsds_pipeline=False,
+            pipeline_config = PreprocessingBackendConfig(
+                prefer_polarsds=False,
                 **config,
             )
 

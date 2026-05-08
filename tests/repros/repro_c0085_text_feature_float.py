@@ -7,7 +7,7 @@ sys.path.insert(0, r'D:/Upd/Programming/PythonCodeRepository/mlframe/tests/train
 from _fuzz_combo import enumerate_combos, build_frame_for_combo
 from shared import SimpleFeaturesAndTargetsExtractor
 from mlframe.training.core import train_mlframe_models_suite
-from mlframe.training.configs import PolarsPipelineConfig, FeatureTypesConfig, TrainingBehaviorConfig
+from mlframe.training.configs import PreprocessingBackendConfig, FeatureTypesConfig, TrainingBehaviorConfig
 import category_encoders as ce
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
@@ -47,7 +47,7 @@ cb.Pool.__init__ = _diag_pool
 
 combos = enumerate_combos(target=150, master_seed=20260422)
 c = next(x for x in combos if x.short_id() == 'c0085_39d4cb7b')
-print(f'c0085: models={c.models} input={c.input_type} ncats={c.cat_feature_count} mrmr={c.use_mrmr_fs} polarsds={c.use_polarsds_pipeline} autocat={c.auto_detect_cats} text={c.text_col_count} emb={c.embedding_col_count} null={c.null_fraction_cats}', flush=True)
+print(f'c0085: models={c.models} input={c.input_type} ncats={c.cat_feature_count} mrmr={c.use_mrmr_fs} polarsds={c.prefer_polarsds} autocat={c.auto_detect_cats} text={c.text_col_count} emb={c.embedding_col_count} null={c.null_fraction_cats}', flush=True)
 df, target_col, _ = build_frame_for_combo(c)
 fte = SimpleFeaturesAndTargetsExtractor(target_column=target_col, regression=c.target_type=='regression')
 preprocessing_overrides = PreprocessingConfig(
@@ -80,7 +80,7 @@ try:
         ),
         use_ordinary_models=True, use_mlframe_ensembles=False,
         output_config=OutputConfig(data_dir=tmp, models_dir='models'), verbose=0,
-        pipeline_config=PolarsPipelineConfig(use_polarsds_pipeline=c.use_polarsds_pipeline),
+        pipeline_config=PreprocessingBackendConfig(prefer_polarsds=c.prefer_polarsds),
         feature_types_config=FeatureTypesConfig(
             auto_detect_feature_types=c.auto_detect_cats,
             use_text_features=c.use_text_features, honor_user_dtype=c.honor_user_dtype,

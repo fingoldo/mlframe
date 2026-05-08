@@ -20,7 +20,7 @@ import polars as pl
 from pathlib import Path
 
 from mlframe.training.core import train_mlframe_models_suite
-from mlframe.training.configs import PolarsPipelineConfig
+from mlframe.training.configs import PreprocessingBackendConfig
 from mlframe.training.configs import TargetTypes
 from .shared import SimpleFeaturesAndTargetsExtractor, get_cpu_config, skip_if_dependency_missing
 
@@ -205,7 +205,7 @@ class TestCategoricalFeatures:
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Configure pipeline with categorical encoding
-        pipeline_config = PolarsPipelineConfig(
+        pipeline_config = PreprocessingBackendConfig(
             categorical_encoding=encoding,
         )
 
@@ -263,7 +263,7 @@ class TestCategoricalFeatures:
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
         # Configure pipeline with categorical encoding
-        pipeline_config = PolarsPipelineConfig(
+        pipeline_config = PreprocessingBackendConfig(
             categorical_encoding=encoding,
         )
 

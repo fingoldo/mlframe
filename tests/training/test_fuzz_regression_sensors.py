@@ -112,7 +112,7 @@ def _run_sensor_combo(combo: FuzzCombo, tmp_path):
     # "emit only when cb is in models" gate) — otherwise a combo with
     # ``auto_detect_cats=False`` would orphan any emitted text/emb column.
     from mlframe.training import (
-        PolarsPipelineConfig,
+        PreprocessingBackendConfig,
         FeatureTypesConfig,
         TrainingBehaviorConfig,
         FeatureSelectionConfig,
@@ -140,8 +140,8 @@ def _run_sensor_combo(combo: FuzzCombo, tmp_path):
             use_mrmr_fs=combo.use_mrmr_fs,
             mrmr_kwargs=mrmr_kwargs,
         ),
-        pipeline_config=PolarsPipelineConfig(
-            use_polarsds_pipeline=combo.use_polarsds_pipeline,
+        pipeline_config=PreprocessingBackendConfig(
+            prefer_polarsds=combo.prefer_polarsds,
         ),
         feature_types_config=FeatureTypesConfig(
             auto_detect_feature_types=combo.auto_detect_cats,
@@ -635,7 +635,7 @@ def test_sensor_polarsds_does_not_encode_text_features(tmp_path):
         auto_detect_cats=False,
         align_polars_categorical_dicts=True,
         seed=85,
-        use_polarsds_pipeline=True,
+        prefer_polarsds=True,
         use_text_features=True,
         honor_user_dtype=False,
         text_col_count=1,
@@ -680,7 +680,7 @@ def test_sensor_enum_null_fill_reaches_lazy_pandas_conversion(tmp_path):
 
     Combo specifics: CB + Linear (mixed polars-native + non-native) +
     polars_enum input + nulls + 8 cat columns + MRMR + emb column +
-    ``use_polarsds_pipeline=False`` (so fill_null is the only sentinel
+    ``prefer_polarsds=False`` (so fill_null is the only sentinel
     source). If this test goes red, the likely regression is either
     the Enum fill losing its expand-then-cast dance, or the alias
     sync block after fill/align being removed.
@@ -698,7 +698,7 @@ def test_sensor_enum_null_fill_reaches_lazy_pandas_conversion(tmp_path):
         auto_detect_cats=True,
         align_polars_categorical_dicts=False,
         seed=121,
-        use_polarsds_pipeline=False,
+        prefer_polarsds=False,
         use_text_features=True,
         honor_user_dtype=False,
         text_col_count=1,
@@ -751,7 +751,7 @@ def test_sensor_polars_utf8_cats_cast_before_lazy_pandas_conversion(tmp_path):
         auto_detect_cats=False,
         align_polars_categorical_dicts=True,
         seed=21,
-        use_polarsds_pipeline=True,
+        prefer_polarsds=True,
         use_text_features=True,
         honor_user_dtype=False,
         text_col_count=0,

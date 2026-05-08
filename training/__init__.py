@@ -18,7 +18,7 @@ All configuration uses Pydantic models but supports dict-like instantiation:
 
 - `PreprocessingConfig`: Data preprocessing settings
 - `TrainingSplitConfig`: Train/val/test splitting settings
-- `PolarsPipelineConfig`: Polars-ds pipeline settings
+- `PreprocessingBackendConfig`: Polars-ds pipeline settings
 - `LinearModelConfig`: Linear model hyperparameters
 - `TreeModelConfig`: Tree model hyperparameters
 - `MLPConfig`: Neural network settings
@@ -72,7 +72,7 @@ _LAZY_IMPORTS = {
     # Configuration classes
     'PreprocessingConfig': ('.configs', 'PreprocessingConfig'),
     'TrainingSplitConfig': ('.configs', 'TrainingSplitConfig'),
-    'PolarsPipelineConfig': ('.configs', 'PolarsPipelineConfig'),
+    'PreprocessingBackendConfig': ('.configs', 'PreprocessingBackendConfig'),
     'PreprocessingExtensionsConfig': ('.configs', 'PreprocessingExtensionsConfig'),
     'FeatureSelectionConfig': ('.configs', 'FeatureSelectionConfig'),
     'FeatureTypesConfig': ('.configs', 'FeatureTypesConfig'),
@@ -231,7 +231,7 @@ __all__ = [
     # Configuration
     'PreprocessingConfig',
     'TrainingSplitConfig',
-    'PolarsPipelineConfig',
+    'PreprocessingBackendConfig',
     'PreprocessingExtensionsConfig',
     'FeatureSelectionConfig',
     'FeatureTypesConfig',

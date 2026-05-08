@@ -189,7 +189,9 @@ matrix, full benchmark, and what these tools do NOT fix
 - **`hyperparams_config`** — model hyperparameters (`ModelHyperparamsConfig` or dict): iterations, learning_rate, early_stopping_rounds, per-model kwargs (cb_kwargs, lgb_kwargs, etc.)
 - **`behavior_config`** — training behavior flags (`TrainingBehaviorConfig` or dict): prefer_calibrated_classifiers, prefer_gpu_configs, fairness_features, etc.
 - **`mlframe_models`** — list of model types to train: `["cb", "lgb", "xgb", "hgb", "ridge", "mlp", ...]`
-- **`pipeline_config`** — Polars-ds pipeline configuration (see `PolarsPipelineConfig`)
+- **`pipeline_config`** — basic preprocessing engine selection + scaler/imputer/encoder params (see `PreprocessingBackendConfig`, renamed from `PolarsPipelineConfig` in 2026-05-09 phase M)
+  - `prefer_polarsds` (was `use_polarsds_pipeline`) — prefer polars-ds Blueprint over sklearn equivalents when input is polars and the operation is available. Pandas inputs always fall back to sklearn.
+  - `imputer_strategy` — `"mean"` / `"median"` / `"most_frequent"` (mapped to polars-ds `"mode"`) / `None`. Wired to polars-ds `Blueprint.impute()` since 2026-05-09; previously declared but ignored. Numeric-only target — string columns are imputed by the categorical encoder, not here.
   - `skip_categorical_encoding` — auto-set to `True` when all `mlframe_models` support Polars natively (cb, xgb, hgb), skipping unnecessary ordinal/onehot encoding in the pipeline. Can also be set manually.
 - **`feature_types_config`** — feature type configuration (`FeatureTypesConfig` or dict):
   - `text_features` — list of free-text string columns (passed to CatBoost via `fit(text_features=[...])`, dropped for other models)

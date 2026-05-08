@@ -463,10 +463,10 @@ class TestTrainMLFrameModelsSuiteConfigurations:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        from mlframe.training.configs import PolarsPipelineConfig
+        from mlframe.training.configs import PreprocessingBackendConfig
 
-        pipeline_config = PolarsPipelineConfig(
-            use_polarsds_pipeline=False,  # Disable polars-ds pipeline
+        pipeline_config = PreprocessingBackendConfig(
+            prefer_polarsds=False,  # Disable polars-ds pipeline
         )
 
         models, metadata = train_mlframe_models_suite(
@@ -1966,11 +1966,11 @@ class TestFeatureSelectorsWithPolarsPipeline:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        from mlframe.training.configs import PolarsPipelineConfig
+        from mlframe.training.configs import PreprocessingBackendConfig
 
         # Enable polars-ds pipeline
-        pipeline_config = PolarsPipelineConfig(
-            use_polarsds_pipeline=True,
+        pipeline_config = PreprocessingBackendConfig(
+            prefer_polarsds=True,
         )
 
         # Train with MRMR feature selection
@@ -2008,11 +2008,11 @@ class TestFeatureSelectorsWithPolarsPipeline:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
-        from mlframe.training.configs import PolarsPipelineConfig
+        from mlframe.training.configs import PreprocessingBackendConfig
 
         # Enable polars-ds pipeline
-        pipeline_config = PolarsPipelineConfig(
-            use_polarsds_pipeline=True,
+        pipeline_config = PreprocessingBackendConfig(
+            prefer_polarsds=True,
         )
 
         # Train with MRMR feature selection
@@ -2058,11 +2058,11 @@ class TestFeatureSelectorsWithPolarsPipeline:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        from mlframe.training.configs import PolarsPipelineConfig
+        from mlframe.training.configs import PreprocessingBackendConfig
 
         # Enable polars-ds pipeline
-        pipeline_config = PolarsPipelineConfig(
-            use_polarsds_pipeline=True,
+        pipeline_config = PreprocessingBackendConfig(
+            prefer_polarsds=True,
         )
 
         # Train with RFECV feature selection using CatBoost
@@ -2092,11 +2092,11 @@ class TestFeatureSelectorsWithPolarsPipeline:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        from mlframe.training.configs import PolarsPipelineConfig
+        from mlframe.training.configs import PreprocessingBackendConfig
 
         # Disable polars-ds pipeline
-        pipeline_config = PolarsPipelineConfig(
-            use_polarsds_pipeline=False,
+        pipeline_config = PreprocessingBackendConfig(
+            prefer_polarsds=False,
         )
 
         # Train with MRMR feature selection
@@ -2130,11 +2130,11 @@ class TestFeatureSelectorsWithPolarsPipeline:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        from mlframe.training.configs import PolarsPipelineConfig
+        from mlframe.training.configs import PreprocessingBackendConfig
 
         # Enable polars-ds pipeline
-        pipeline_config = PolarsPipelineConfig(
-            use_polarsds_pipeline=True,
+        pipeline_config = PreprocessingBackendConfig(
+            prefer_polarsds=True,
         )
 
         # Train with both ordinary models AND MRMR models
@@ -2167,11 +2167,11 @@ class TestFeatureSelectorsWithPolarsPipeline:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        from mlframe.training.configs import PolarsPipelineConfig
+        from mlframe.training.configs import PreprocessingBackendConfig
 
         # Enable polars-ds pipeline
-        pipeline_config = PolarsPipelineConfig(
-            use_polarsds_pipeline=True,
+        pipeline_config = PreprocessingBackendConfig(
+            prefer_polarsds=True,
         )
 
         # Train with MRMR on Polars input
@@ -2208,11 +2208,11 @@ class TestFeatureSelectorsWithPolarsPipeline:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        from mlframe.training.configs import PolarsPipelineConfig
+        from mlframe.training.configs import PreprocessingBackendConfig
 
         # Enable polars-ds pipeline (handles scaling)
-        pipeline_config = PolarsPipelineConfig(
-            use_polarsds_pipeline=True,
+        pipeline_config = PreprocessingBackendConfig(
+            prefer_polarsds=True,
         )
 
         # Train with MRMR + linear model
@@ -3452,7 +3452,7 @@ class TestPolarsNativeFastpath:
     def test_skip_categorical_encoding_manual_flag(self, temp_data_dir, common_init_params, monkeypatch):
         """Manually setting skip_categorical_encoding=True is preserved in the pipeline config."""
         pytest.importorskip("catboost")
-        from mlframe.training.configs import PolarsPipelineConfig
+        from mlframe.training.configs import PreprocessingBackendConfig
 
         np.random.seed(42)
         n = 200
@@ -3485,7 +3485,7 @@ class TestPolarsNativeFastpath:
             mlframe_models=["cb"],
             reporting_config=common_init_params,
             hyperparams_config={"iterations": 10},
-            pipeline_config=PolarsPipelineConfig(skip_categorical_encoding=True),
+            pipeline_config=PreprocessingBackendConfig(skip_categorical_encoding=True),
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
@@ -4149,7 +4149,7 @@ class TestTextAndEmbeddingFeatures:
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
         # Force clone by mixing polars-native and non-native models with encoding
-        from mlframe.training.configs import PolarsPipelineConfig
+        from mlframe.training.configs import PreprocessingBackendConfig
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -4157,7 +4157,7 @@ class TestTextAndEmbeddingFeatures:
             model_name="post_pipeline_del_test",
             features_and_targets_extractor=fte,
             mlframe_models=["ridge"],
-            pipeline_config=PolarsPipelineConfig(categorical_encoding="ordinal"),
+            pipeline_config=PreprocessingBackendConfig(categorical_encoding="ordinal"),
             reporting_config=common_init_params,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,

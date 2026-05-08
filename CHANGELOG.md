@@ -1,5 +1,94 @@
 # Changelog
 
+## 2026-05-09 — Phase M: feature-handling overhaul foundation
+
+First foundation phase of the multi-phase 2026 feature-handling overhaul
+(see plan in `docs/feature_handling_architecture.md` -- forthcoming).
+Mostly invisible at the suite-call level; lays the groundwork for
+phases A through L.
+
+### Renamed (greenfield -- no aliases, no deprecation cycle)
+
+- `PolarsPipelineConfig` → `PreprocessingBackendConfig`. The previous
+  name described WHICH library ran the transforms (polars-ds); the new
+  name describes the responsibility (which BACKEND -- polars-native vs
+  sklearn -- is preferred).
+- `PolarsPipelineConfig.use_polarsds_pipeline` → `prefer_polarsds`.
+  Same boolean, name now reads as a preference rather than a switch.
+- 26 callsites updated across `training/`, `tests/`, `profile_mixed_dtypes.py`,
+  `README.md`. `legacy/training_old.py` left untouched (frozen
+  reference, not active).
+
+### Fixed
+
+- **Imputer wiring debt closed** (`PreprocessingBackendConfig.imputer_strategy`
+  declared since 2026-04, never connected to the polars-ds Blueprint --
+  audit at `training/pipeline.py:458-585` confirmed). Numeric-column
+  NaN now flows through `Blueprint.impute(method=...)` BEFORE scaling
+  so the scaler never sees NaN. Strategies: `"mean"`, `"median"`,
+  `"most_frequent"` (mapped to polars-ds `"mode"`). Sensor tests in
+  `tests/training/test_imputer_wiring.py` (NaN in / NaN out behavioural,
+  not source-grep). Also locks: train-only fit semantic (test set
+  imputed with TRAIN mean, not test mean), idempotency on clean data,
+  numeric-only target (string columns untouched), and proper composition
+  with the scaler.
+
+### Added
+
+New `mlframe.training.feature_handling` subpackage. Foundation pieces;
+the real consumers (FHC, providers, cache layer) land in phases A-D.
+
+- **`Axis` enum + `HandlerSpec` ABC + axis registry**
+  (`feature_handling/axis.py`). Replaces the implicit
+  `{cat, text, numeric}` triple with an extensible registry so future
+  axes (image, audio, sequence) ship as one new file plus one
+  `register_handler_spec` call. `apply_to` accepts list-of-names,
+  `re.Pattern`, or callable for late-binding pipelines that synthesize
+  columns. `group_columns` lifted to ABC so group-aware encoders work
+  for both cat and text.
+- **`PIDAwareFileLock`** (`feature_handling/locking.py`). Wraps
+  `filelock.FileLock` with PID-in-lockfile + `psutil.pid_exists()`
+  reclaim. One OOM-killed process holding a lock no longer permanently
+  bricks the cache directory (round-3 chaos C5). Surfaces reclaim via
+  `StaleLockReclaimed` warning so test fixtures can `pytest.warns(...)`
+  it. Pin: `filelock>=3.15.0`.
+- **`detect_memory_limit_bytes`** (`feature_handling/system.py`).
+  cgroup v1/v2-aware memory probe. Inside Docker/K8s honours the
+  cgroup limit instead of host RAM (round-3 chaos R2-1: previous
+  `psutil.virtual_memory().total` × 0.7 derived `budget=179 GB` on
+  a 4 GB container of a 256 GB host -> instant OOM-kill). Honours
+  `MLFRAME_MEMORY_BUDGET_GB` env override. Handles cgroup-v2 `"max"`
+  string sentinel (round-3 chaos C25) and cgroup-v1 9.2e18 sentinel.
+- **`CudaErrorClass` + `classify_cuda_error`** (same file). Splits
+  retryable `OutOfMemoryError` from non-retryable
+  `"CUDA error: unknown error"` driver crashes (round-3 chaos C4).
+  Halve-batch-and-retry loops no longer spin forever after a CUDA
+  context loss.
+- **`long_path_safe`** (same file). Prepends `\\?\` UNC marker on
+  Windows so cache paths >260 chars don't `FileNotFoundError` through
+  `os.replace` (round-3 chaos C7).
+- **`CacheBackend` Protocol + `LocalDiskBackend`**
+  (`feature_handling/cache_backend.py`). The seam for future S3 / GCS
+  / NFS / Ray backends (round-3 future-proofing F5). v1 ships only
+  `LocalDiskBackend` (atomic writes via existing
+  `mlframe.training.io.atomic_write_bytes`, mode 0o700 on construct,
+  per-key locks via `PIDAwareFileLock`). Bytes-oriented API so the
+  serialisation tier (memmap, fp16, etc.) added in phase D stays
+  backend-agnostic.
+
+### Notes
+
+- Test count delta: +9 in `test_imputer_wiring.py` (one of which
+  asserts the no-leak invariant -- test set imputed with TRAIN mean,
+  not test mean).
+- The `mlframe.training.feature_handling` package re-exports its
+  symbols at the top level, so `from mlframe.training.feature_handling
+  import Axis, CacheBackend, ...` is the public entry-point for
+  downstream phases.
+- All new abstractions are intentionally stub-light: phase M
+  establishes the **shape** of the contract; phases A-D fill in
+  concrete `TextHandlerSpec` / `EmbeddingProvider` / cache layer.
+
 ## 2026-05-08 — QUANTILE_REGRESSION: native CB/XGB + wrapper LGB/HGB/Linear + 5 viz panels
 
 Sixth target type (joining REGRESSION / BINARY / MULTICLASS / MULTILABEL
@@ -1508,7 +1597,7 @@ campaign uncovered and fixed 13 real production bugs.
 
 - **Batch 1** (8 axes): `PreprocessingConfig.fix_infinities` /
   `ensure_float32_dtypes` / `remove_constant_columns`,
-  `PolarsPipelineConfig.imputer_strategy`,
+  `PreprocessingBackendConfig.imputer_strategy`,
   `TrainingSplitConfig.shuffle_val` / `shuffle_test` /
   `wholeday_splitting` / `val_sequential_fraction`.
 - **Batch 2** (axis-value expansion): `n_rows` += 5000,
@@ -4169,7 +4258,7 @@ String cast was both slower (CatBoost hashes strings per row during fit and pred
 ## 2026-04-17 — Fix metadata pickle failure with duplicate mlframe installs
 
 ### Fixed
-- `_create_initial_metadata`: Pydantic config objects (`preprocessing_config`, `pipeline_config`, `split_config`) are now stored in `metadata["configs"]` as plain dicts via `.model_dump()` instead of raw Pydantic instances. This prevents `_pickle.PicklingError: Can't pickle <class 'mlframe.training.configs.PolarsPipelineConfig'>: it's not the same object as mlframe.training.configs.PolarsPipelineConfig` when two copies of mlframe are reachable via `sys.path` (e.g. a dev checkout plus an older pip install, or Jupyter autoreload duplicating a module). Tests only assert key presence (`"preprocessing" in metadata["configs"]`), so the change is backward compatible.
+- `_create_initial_metadata`: Pydantic config objects (`preprocessing_config`, `pipeline_config`, `split_config`) are now stored in `metadata["configs"]` as plain dicts via `.model_dump()` instead of raw Pydantic instances. This prevents `_pickle.PicklingError: Can't pickle <class 'mlframe.training.configs.PreprocessingBackendConfig'>: it's not the same object as mlframe.training.configs.PreprocessingBackendConfig` when two copies of mlframe are reachable via `sys.path` (e.g. a dev checkout plus an older pip install, or Jupyter autoreload duplicating a module). Tests only assert key presence (`"preprocessing" in metadata["configs"]`), so the change is backward compatible.
 
 ## 2026-04-17 — Polars→pandas conversion benchmark
 
@@ -4465,7 +4554,7 @@ train_mlframe_models_suite(
 
 ### Added
 
-- **`skip_categorical_encoding`** flag on `PolarsPipelineConfig`: when `True`, the polars-ds pipeline and sklearn pandas path skip ordinal/onehot encoding of categorical features. **Auto-detected** by `train_mlframe_models_suite` — when all requested `mlframe_models` support Polars natively (cb, xgb, hgb), the flag is set automatically, avoiding wasted encoding work and preserving original categorical dtypes.
+- **`skip_categorical_encoding`** flag on `PreprocessingBackendConfig`: when `True`, the polars-ds pipeline and sklearn pandas path skip ordinal/onehot encoding of categorical features. **Auto-detected** by `train_mlframe_models_suite` — when all requested `mlframe_models` support Polars natively (cb, xgb, hgb), the flag is set automatically, avoiding wasted encoding work and preserving original categorical dtypes.
 - **Verbose timing & shape logging** across the training pipeline (`verbose=True`):
   - `core.py`: Phase 1 (data loading, FTE, preprocessing), Phase 2 (splitting with shapes), Phase 3 (pipeline with dtypes), per-model `process_model()` timing, Polars fastpath activation logging
   - `trainer.py`: `model.fit()` timing with shape, `_apply_pre_pipeline_transforms` timing with shape, metrics computation timing

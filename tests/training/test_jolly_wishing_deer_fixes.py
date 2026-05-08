@@ -307,7 +307,7 @@ def test_fix6_use_text_features_false_end_to_end_xgb_does_not_see_highcard(tmp_p
     helper's return value in isolation."""
     pytest.importorskip("xgboost")
     from mlframe.training.core import train_mlframe_models_suite
-    from mlframe.training.configs import FeatureTypesConfig, PolarsPipelineConfig, OutputConfig
+    from mlframe.training.configs import FeatureTypesConfig, PreprocessingBackendConfig, OutputConfig
     from .shared import SimpleFeaturesAndTargetsExtractor
 
     rng = np.random.default_rng(0)
@@ -333,8 +333,8 @@ def test_fix6_use_text_features_false_end_to_end_xgb_does_not_see_highcard(tmp_p
         mlframe_models=["xgb"],
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        pipeline_config=PolarsPipelineConfig(
-            use_polarsds_pipeline=False,
+        pipeline_config=PreprocessingBackendConfig(
+            prefer_polarsds=False,
             categorical_encoding=None,
             scaler_name=None,
             imputer_strategy=None,
@@ -763,7 +763,7 @@ def test_align_polars_categorical_dicts_no_test_leakage(tmp_path):
     from mlframe.training import (
         FeatureTypesConfig,
         TrainingBehaviorConfig,
-        PolarsPipelineConfig,
+        PreprocessingBackendConfig,
         TrainingSplitConfig,
         OutputConfig,
     )
@@ -820,8 +820,8 @@ def test_align_polars_categorical_dicts_no_test_leakage(tmp_path):
         mlframe_models=["cb"],
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        pipeline_config=PolarsPipelineConfig(
-            use_polarsds_pipeline=False,
+        pipeline_config=PreprocessingBackendConfig(
+            prefer_polarsds=False,
             categorical_encoding=None,
             scaler_name=None,
             imputer_strategy=None,

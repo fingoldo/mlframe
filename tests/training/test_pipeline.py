@@ -7,12 +7,12 @@ Test Coverage Matrix for fit_and_transform_pipeline:
 ----------------------------------------------------
 The function has multiple code paths based on:
 1. DataFrame type: pandas vs Polars
-2. use_polarsds_pipeline: True vs False
+2. prefer_polarsds: True vs False
 3. polars-ds availability: available vs not installed
 4. Has categorical features: yes vs no
 
 All combinations should be tested to prevent regressions like the one where
-Polars + use_polarsds_pipeline=False didn't detect categorical features.
+Polars + prefer_polarsds=False didn't detect categorical features.
 """
 
 import pytest
@@ -21,7 +21,7 @@ import pandas as pd
 import polars as pl
 
 from mlframe.training.pipeline import fit_and_transform_pipeline, prepare_df_for_catboost, create_polarsds_pipeline
-from mlframe.training.configs import PolarsPipelineConfig
+from mlframe.training.configs import PreprocessingBackendConfig
 from unittest.mock import patch
 
 
@@ -66,19 +66,19 @@ class TestCategoricalFeatureDetection:
             'cat_feature': np.random.choice(['A', 'B', 'C'], 500),
         })
 
-    @pytest.mark.parametrize("use_polarsds_pipeline", [False, True])
-    def test_polars_categorical_detection(self, categorical_data_polars_categorical, use_polarsds_pipeline):
-        """Test that pl.Categorical columns are detected regardless of use_polarsds_pipeline setting.
+    @pytest.mark.parametrize("prefer_polarsds", [False, True])
+    def test_polars_categorical_detection(self, categorical_data_polars_categorical, prefer_polarsds):
+        """Test that pl.Categorical columns are detected regardless of prefer_polarsds setting.
 
-        This test covers the bug where Polars + use_polarsds_pipeline=False didn't detect cat_features,
-        AND the bug where Polars + use_polarsds_pipeline=True with polars-ds unavailable didn't detect cat_features.
+        This test covers the bug where Polars + prefer_polarsds=False didn't detect cat_features,
+        AND the bug where Polars + prefer_polarsds=True with polars-ds unavailable didn't detect cat_features.
         """
         pl_df = categorical_data_polars_categorical
         train_size = int(0.7 * len(pl_df))
         train_df = pl_df[:train_size]
         val_df = pl_df[train_size:]
 
-        config = PolarsPipelineConfig(use_polarsds_pipeline=use_polarsds_pipeline)
+        config = PreprocessingBackendConfig(prefer_polarsds=prefer_polarsds)
 
         train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
             train_df=train_df,
@@ -90,19 +90,19 @@ class TestCategoricalFeatureDetection:
         )
 
         assert 'cat_feature' in cat_features, (
-            f"Polars Categorical column not detected with use_polarsds_pipeline={use_polarsds_pipeline}. "
+            f"Polars Categorical column not detected with prefer_polarsds={prefer_polarsds}. "
             f"Got cat_features={cat_features}"
         )
 
-    @pytest.mark.parametrize("use_polarsds_pipeline", [False, True])
-    def test_polars_string_detection(self, categorical_data_polars_string, use_polarsds_pipeline):
-        """Test that pl.String/Utf8 columns are detected regardless of use_polarsds_pipeline setting."""
+    @pytest.mark.parametrize("prefer_polarsds", [False, True])
+    def test_polars_string_detection(self, categorical_data_polars_string, prefer_polarsds):
+        """Test that pl.String/Utf8 columns are detected regardless of prefer_polarsds setting."""
         pl_df = categorical_data_polars_string
         train_size = int(0.7 * len(pl_df))
         train_df = pl_df[:train_size]
         val_df = pl_df[train_size:]
 
-        config = PolarsPipelineConfig(use_polarsds_pipeline=use_polarsds_pipeline)
+        config = PreprocessingBackendConfig(prefer_polarsds=prefer_polarsds)
 
         train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
             train_df=train_df,
@@ -114,7 +114,7 @@ class TestCategoricalFeatureDetection:
         )
 
         assert 'cat_feature' in cat_features, (
-            f"Polars String column not detected with use_polarsds_pipeline={use_polarsds_pipeline}. "
+            f"Polars String column not detected with prefer_polarsds={prefer_polarsds}. "
             f"Got cat_features={cat_features}"
         )
 
@@ -127,7 +127,7 @@ class TestCategoricalFeatureDetection:
 
         # Use categorical_encoding="none" to preserve cat_features (for CatBoost-style models)
         # When encoding is "ordinal" or "onehot", cat_features gets cleared since columns become numeric
-        config = PolarsPipelineConfig(use_polarsds_pipeline=False, categorical_encoding="none")
+        config = PreprocessingBackendConfig(prefer_polarsds=False, categorical_encoding="none")
 
         train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
             train_df=train_df,
@@ -145,7 +145,7 @@ class TestCategoricalFeatureDetection:
     def test_polars_with_mocked_polarsds_unavailable(self, categorical_data_polars_categorical):
         """Test that cat_features is still detected when polars-ds import fails.
 
-        This specifically tests the bug where use_polarsds_pipeline=True but polars-ds
+        This specifically tests the bug where prefer_polarsds=True but polars-ds
         is not installed would result in empty cat_features.
         """
         pl_df = categorical_data_polars_categorical
@@ -153,7 +153,7 @@ class TestCategoricalFeatureDetection:
         train_df = pl_df[:train_size]
         val_df = pl_df[train_size:]
 
-        config = PolarsPipelineConfig(use_polarsds_pipeline=True)
+        config = PreprocessingBackendConfig(prefer_polarsds=True)
 
         # Mock polars-ds as unavailable
         with patch.dict('sys.modules', {'polars_ds': None, 'polars_ds.pipeline': None}):
@@ -186,7 +186,7 @@ class TestFitAndTransformPipeline:
         val_df = df[feature_names].iloc[train_size:train_size + 100]
         test_df = df[feature_names].iloc[train_size + 100:]
 
-        config = PolarsPipelineConfig(use_polarsds_pipeline=False)
+        config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform
         train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
@@ -216,7 +216,7 @@ class TestFitAndTransformPipeline:
         val_df = pl_df[feature_names][train_size:train_size + 100]
         test_df = pl_df[feature_names][train_size + 100:]
 
-        config = PolarsPipelineConfig(use_polarsds_pipeline=False)
+        config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform
         train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
@@ -247,7 +247,7 @@ class TestFitAndTransformPipeline:
         train_df = df.iloc[:train_size]
         val_df = df.iloc[train_size:]
 
-        config = PolarsPipelineConfig(use_polarsds_pipeline=False, categorical_encoding="none")
+        config = PreprocessingBackendConfig(prefer_polarsds=False, categorical_encoding="none")
 
         # Fit and transform
         train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
@@ -264,10 +264,10 @@ class TestFitAndTransformPipeline:
         assert len(cat_features) == 1
 
     def test_fit_pipeline_with_polars_categorical_no_pipeline(self):
-        """Test that categorical features are detected from Polars DataFrame when use_polarsds_pipeline=False.
+        """Test that categorical features are detected from Polars DataFrame when prefer_polarsds=False.
 
         This is a critical test for CatBoost compatibility:
-        - When using Polars input with use_polarsds_pipeline=False
+        - When using Polars input with prefer_polarsds=False
         - Categorical columns (pl.Categorical dtype) must be detected
         - cat_features list must be populated for CatBoost to handle them correctly
         """
@@ -286,7 +286,7 @@ class TestFitAndTransformPipeline:
         train_df = pl_df[:train_size]
         val_df = pl_df[train_size:]
 
-        config = PolarsPipelineConfig(use_polarsds_pipeline=False)
+        config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform
         train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
@@ -301,7 +301,7 @@ class TestFitAndTransformPipeline:
         # CRITICAL: cat_features must be detected from Polars Categorical columns
         assert 'cat_feature' in cat_features, (
             f"Expected 'cat_feature' in cat_features, got {cat_features}. "
-            "Polars Categorical columns must be detected when use_polarsds_pipeline=False."
+            "Polars Categorical columns must be detected when prefer_polarsds=False."
         )
         assert len(cat_features) == 1
 
@@ -327,7 +327,7 @@ class TestFitAndTransformPipeline:
         train_df = pl_df[:train_size]
         val_df = pl_df[train_size:]
 
-        config = PolarsPipelineConfig(use_polarsds_pipeline=False)
+        config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform
         train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
@@ -342,7 +342,7 @@ class TestFitAndTransformPipeline:
         # String columns should also be detected as categorical
         assert 'string_feature' in cat_features, (
             f"Expected 'string_feature' in cat_features, got {cat_features}. "
-            "Polars String/Utf8 columns must be detected as categorical when use_polarsds_pipeline=False."
+            "Polars String/Utf8 columns must be detected as categorical when prefer_polarsds=False."
         )
 
     def test_fit_pipeline_with_no_validation_set(self, sample_regression_data):
@@ -351,7 +351,7 @@ class TestFitAndTransformPipeline:
 
         train_df = df[feature_names].iloc[:700]
 
-        config = PolarsPipelineConfig(use_polarsds_pipeline=False)
+        config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform
         train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
@@ -374,7 +374,7 @@ class TestFitAndTransformPipeline:
 
         train_df = df[feature_names].iloc[:700]
 
-        config = PolarsPipelineConfig(use_polarsds_pipeline=False)
+        config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform with float32 conversion
         train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
@@ -435,7 +435,7 @@ class TestPipelineEdgeCases:
         # Create empty DataFrame
         df = pd.DataFrame(columns=['feature_0', 'feature_1'])
 
-        config = PolarsPipelineConfig(use_polarsds_pipeline=False)
+        config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # This might raise an error or handle gracefully
         # depending on implementation
@@ -461,7 +461,7 @@ class TestPipelineEdgeCases:
             'feature_1': [2.0],
         })
 
-        config = PolarsPipelineConfig(use_polarsds_pipeline=False)
+        config = PreprocessingBackendConfig(prefer_polarsds=False)
 
         # Fit and transform
         train_transformed, val_transformed, test_transformed, pipeline, cat_features = fit_and_transform_pipeline(
@@ -488,8 +488,8 @@ class TestPipelineConfigurations:
 
         # Test with different scalers (polars-ds supports: standard, min_max, abs_max)
         for scaler_name in ['standard', 'min_max', 'abs_max']:
-            config = PolarsPipelineConfig(
-                use_polarsds_pipeline=False,
+            config = PreprocessingBackendConfig(
+                prefer_polarsds=False,
                 scaler_name=scaler_name,
             )
 
@@ -517,8 +517,8 @@ class TestPipelineConfigurations:
 
         # Test with different imputer strategies
         for strategy in ['mean', 'median', 'most_frequent']:
-            config = PolarsPipelineConfig(
-                use_polarsds_pipeline=False,
+            config = PreprocessingBackendConfig(
+                prefer_polarsds=False,
                 imputer_strategy=strategy,
             )
 
@@ -546,7 +546,7 @@ class TestCreatePolardsPipeline:
             "feature_0": [1.0, 2.0, 3.0],
             "feature_1": [4.0, 5.0, 6.0],
         })
-        config = PolarsPipelineConfig()
+        config = PreprocessingBackendConfig()
 
         with patch.dict('sys.modules', {'polars_ds': None, 'polars_ds.pipeline': None}):
             result = create_polarsds_pipeline(pl_df, config, verbose=0)
@@ -557,8 +557,8 @@ class TestCreatePolardsPipeline:
         """Test basic pipeline creation with Polars DataFrame."""
         pl_df, feature_names, _ = sample_polars_data
 
-        config = PolarsPipelineConfig(
-            use_polarsds_pipeline=True,
+        config = PreprocessingBackendConfig(
+            prefer_polarsds=True,
             scaler_name="standard",
         )
 
@@ -586,8 +586,8 @@ class TestCreatePolardsPipeline:
             pytest.skip("polars-ds not installed")
 
         for scaler_name in ['standard', 'min_max', 'abs_max', 'robust']:
-            config = PolarsPipelineConfig(
-                use_polarsds_pipeline=True,
+            config = PreprocessingBackendConfig(
+                prefer_polarsds=True,
                 scaler_name=scaler_name,
             )
 
@@ -611,8 +611,8 @@ class TestCreatePolardsPipeline:
         except ImportError:
             pytest.skip("polars-ds not installed")
 
-        config = PolarsPipelineConfig(
-            use_polarsds_pipeline=True,
+        config = PreprocessingBackendConfig(
+            prefer_polarsds=True,
             categorical_encoding="ordinal",
         )
 
@@ -636,8 +636,8 @@ class TestCreatePolardsPipeline:
         except ImportError:
             pytest.skip("polars-ds not installed")
 
-        config = PolarsPipelineConfig(
-            use_polarsds_pipeline=True,
+        config = PreprocessingBackendConfig(
+            prefer_polarsds=True,
             categorical_encoding="onehot",
         )
 
@@ -658,8 +658,8 @@ class TestCreatePolardsPipeline:
         except ImportError:
             pytest.skip("polars-ds not installed")
 
-        config = PolarsPipelineConfig(
-            use_polarsds_pipeline=True,
+        config = PreprocessingBackendConfig(
+            prefer_polarsds=True,
             scaler_name="standard",
         )
 
@@ -684,8 +684,8 @@ class TestCreatePolardsPipeline:
         except ImportError:
             pytest.skip("polars-ds not installed")
 
-        config = PolarsPipelineConfig(
-            use_polarsds_pipeline=True,
+        config = PreprocessingBackendConfig(
+            prefer_polarsds=True,
             scaler_name=None,  # No scaling
         )
 
@@ -706,8 +706,8 @@ class TestCreatePolardsPipeline:
         except ImportError:
             pytest.skip("polars-ds not installed")
 
-        config = PolarsPipelineConfig(
-            use_polarsds_pipeline=True,
+        config = PreprocessingBackendConfig(
+            prefer_polarsds=True,
             scaler_name="standard",
         )
 
@@ -733,8 +733,8 @@ class TestCreatePolardsPipeline:
         except ImportError:
             pytest.skip("polars-ds not installed")
 
-        config = PolarsPipelineConfig(
-            use_polarsds_pipeline=True,
+        config = PreprocessingBackendConfig(
+            prefer_polarsds=True,
             scaler_name="standard",
         )
 

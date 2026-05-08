@@ -313,7 +313,7 @@ class TestTrainSuiteRobustness:
         from mlframe.training import (
     
             ModelHyperparamsConfig, TrainingBehaviorConfig,
-            TrainingSplitConfig, PolarsPipelineConfig,
+            TrainingSplitConfig, PreprocessingBackendConfig,
     FeatureSelectionConfig,
     OutputConfig
 )
@@ -342,8 +342,8 @@ class TestTrainSuiteRobustness:
                 prefer_gpu_configs=False,
                 continue_on_model_failure=True,
             ),
-            pipeline_config=PolarsPipelineConfig(
-                use_polarsds_pipeline=False,
+            pipeline_config=PreprocessingBackendConfig(
+                prefer_polarsds=False,
                 categorical_encoding=None,
                 scaler_name=None,
                 imputer_strategy=None,
@@ -379,7 +379,7 @@ class TestTrainSuiteRobustness:
         from mlframe.training import (
     
             ModelHyperparamsConfig, TrainingBehaviorConfig,
-            TrainingSplitConfig, PolarsPipelineConfig,
+            TrainingSplitConfig, PreprocessingBackendConfig,
     FeatureSelectionConfig,
     OutputConfig
 )
@@ -408,8 +408,8 @@ class TestTrainSuiteRobustness:
                 prefer_gpu_configs=False,
                 continue_on_model_failure=True,
             ),
-            pipeline_config=PolarsPipelineConfig(
-                use_polarsds_pipeline=False,
+            pipeline_config=PreprocessingBackendConfig(
+                prefer_polarsds=False,
                 categorical_encoding=None,
                 scaler_name=None,
                 imputer_strategy=None,

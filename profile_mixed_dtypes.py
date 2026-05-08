@@ -36,7 +36,7 @@ from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.configs import (
     ModelHyperparamsConfig,
     OutputConfig,
-    PolarsPipelineConfig,
+    PreprocessingBackendConfig,
     ReportingConfig,
     TrainingBehaviorConfig,
     TrainingSplitConfig,
@@ -67,8 +67,8 @@ def run_suite(tmp_path: Path) -> None:
         mlframe_models=["cb"],
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        pipeline_config=PolarsPipelineConfig(
-            use_polarsds_pipeline=False,
+        pipeline_config=PreprocessingBackendConfig(
+            prefer_polarsds=False,
             categorical_encoding=None,
             scaler_name=None,
             imputer_strategy=None,

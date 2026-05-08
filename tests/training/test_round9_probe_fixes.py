@@ -35,7 +35,7 @@ import pytest
 
 
 class _TfidfConfig:
-    """Minimal duck-typed config matching PolarsPipelineConfig's TF-IDF
+    """Minimal duck-typed config matching PreprocessingBackendConfig's TF-IDF
     surface. Using a stand-in avoids pulling the full Pydantic stack
     for what's essentially a data bag."""
     def __init__(self, tfidf_columns):

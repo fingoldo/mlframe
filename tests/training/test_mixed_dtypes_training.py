@@ -18,7 +18,7 @@ import pytest
 from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.configs import (
     ModelHyperparamsConfig,
-    PolarsPipelineConfig,
+    PreprocessingBackendConfig,
     TrainingBehaviorConfig,
     TrainingSplitConfig,
 )
@@ -108,7 +108,7 @@ class TestMixedDtypesTraining:
             verbose=1,
         )
 
-        mlframe_models, metadata = train_mlframe_models_suite(df=synthetic_df, target_name='H', model_name='prod_jobsdetails', features_and_targets_extractor=ft_extractor, mlframe_models=['cb'], use_ordinary_models=True, use_mlframe_ensembles=False, pipeline_config=PolarsPipelineConfig(use_polarsds_pipeline=False, categorical_encoding=None, scaler_name=None, imputer_strategy=None), split_config=TrainingSplitConfig(shuffle_val=False, shuffle_test=False, test_size=0.1, val_size=0.1, wholeday_splitting=False), hyperparams_config=ModelHyperparamsConfig(iterations=20, early_stopping_rounds=5), behavior_config=TrainingBehaviorConfig(prefer_calibrated_classifiers=False), reporting_config=ReportingConfig(show_perf_chart=True, show_fi=True), verbose=True, output_config=OutputConfig(data_dir=str(tmp_path / 'data')))
+        mlframe_models, metadata = train_mlframe_models_suite(df=synthetic_df, target_name='H', model_name='prod_jobsdetails', features_and_targets_extractor=ft_extractor, mlframe_models=['cb'], use_ordinary_models=True, use_mlframe_ensembles=False, pipeline_config=PreprocessingBackendConfig(prefer_polarsds=False, categorical_encoding=None, scaler_name=None, imputer_strategy=None), split_config=TrainingSplitConfig(shuffle_val=False, shuffle_test=False, test_size=0.1, val_size=0.1, wholeday_splitting=False), hyperparams_config=ModelHyperparamsConfig(iterations=20, early_stopping_rounds=5), behavior_config=TrainingBehaviorConfig(prefer_calibrated_classifiers=False), reporting_config=ReportingConfig(show_perf_chart=True, show_fi=True), verbose=True, output_config=OutputConfig(data_dir=str(tmp_path / 'data')))
 
         # Verify models were trained
         assert mlframe_models is not None

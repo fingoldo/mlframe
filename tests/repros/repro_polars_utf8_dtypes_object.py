@@ -11,7 +11,7 @@ os.environ["FUZZ_SEED"] = "20260430"
 from _fuzz_combo import enumerate_combos, build_frame_for_combo
 from shared import SimpleFeaturesAndTargetsExtractor
 from mlframe.training.core import train_mlframe_models_suite
-from mlframe.training.configs import PolarsPipelineConfig, FeatureTypesConfig, TrainingBehaviorConfig
+from mlframe.training.configs import PreprocessingBackendConfig, FeatureTypesConfig, TrainingBehaviorConfig
 
 from _fuzz_combo import FuzzCombo
 
@@ -28,7 +28,7 @@ c = FuzzCombo(
     auto_detect_cats=False,
     align_polars_categorical_dicts=True,
     seed=21,
-    use_polarsds_pipeline=True,
+    prefer_polarsds=True,
     use_text_features=True,
     honor_user_dtype=False,
     text_col_count=0,
@@ -36,7 +36,7 @@ c = FuzzCombo(
 )
 
 print(
-    f"FOUND: models={c.models} input={c.input_type} polarsds={c.use_polarsds_pipeline} autocat={c.auto_detect_cats} align={c.align_polars_categorical_dicts} null={c.null_fraction_cats} ncats={c.cat_feature_count}",
+    f"FOUND: models={c.models} input={c.input_type} polarsds={c.prefer_polarsds} autocat={c.auto_detect_cats} align={c.align_polars_categorical_dicts} null={c.null_fraction_cats} ncats={c.cat_feature_count}",
     flush=True,
 )
 df, target_col, _ = build_frame_for_combo(c)
@@ -80,7 +80,7 @@ try:
         use_mlframe_ensembles=False,
         output_config=OutputConfig(data_dir=tmp, models_dir="models"),
         verbose=1,
-        pipeline_config=PolarsPipelineConfig(use_polarsds_pipeline=c.use_polarsds_pipeline),
+        pipeline_config=PreprocessingBackendConfig(prefer_polarsds=c.prefer_polarsds),
         feature_types_config=FeatureTypesConfig(
             auto_detect_feature_types=c.auto_detect_cats,
             use_text_features=c.use_text_features,

@@ -127,7 +127,7 @@ AXES: dict[str, tuple[Any, ...]] = {
     # 2026-04-24 expansion: flags that previously had NO coverage despite
     # being runtime-visible knobs. AXES-driven ≠ actually-wired — these
     # flags need corresponding prop-through in test_fuzz_suite.py runner.
-    "use_polarsds_pipeline": (True, False),
+    "prefer_polarsds": (True, False),
     "use_text_features": (True, False),
     "honor_user_dtype": (True, False),
     # Rare column types that the frame builder previously omitted — this
@@ -161,9 +161,9 @@ AXES: dict[str, tuple[Any, ...]] = {
     # defaults despite being user-facing knobs. Each axis exercises
     # a distinct code path that prior fuzz couldn't reach.
     "fillna_value_cfg": (None, 0.0),                             # PreprocessingConfig.fillna_value
-    "scaler_name_cfg": ("standard", "robust", None),             # PolarsPipelineConfig.scaler_name
-    "categorical_encoding_cfg": ("ordinal", "onehot"),           # PolarsPipelineConfig.categorical_encoding
-    "skip_categorical_encoding_cfg": (False, True),              # PolarsPipelineConfig.skip_categorical_encoding
+    "scaler_name_cfg": ("standard", "robust", None),             # PreprocessingBackendConfig.scaler_name
+    "categorical_encoding_cfg": ("ordinal", "onehot"),           # PreprocessingBackendConfig.categorical_encoding
+    "skip_categorical_encoding_cfg": (False, True),              # PreprocessingBackendConfig.skip_categorical_encoding
     "val_placement_cfg": ("forward", "backward"),                # TrainingSplitConfig.val_placement
     "test_size_cfg": (0.1, 0.2),                                 # TrainingSplitConfig.test_size
     "trainset_aging_limit_cfg": (None, 0.5),                     # TrainingSplitConfig.trainset_aging_limit
@@ -184,7 +184,7 @@ AXES: dict[str, tuple[Any, ...]] = {
     "fix_infinities_cfg": (True, False),                         # PreprocessingConfig.fix_infinities
     "ensure_float32_cfg": (True, False),                         # PreprocessingConfig.ensure_float32_dtypes
     "remove_constant_columns_cfg": (True, False),                # PreprocessingConfig.remove_constant_columns
-    "imputer_strategy_cfg": ("mean", "median", "most_frequent", None),  # PolarsPipelineConfig.imputer_strategy
+    "imputer_strategy_cfg": ("mean", "median", "most_frequent", None),  # PreprocessingBackendConfig.imputer_strategy
     "shuffle_val_cfg": (False, True),                            # TrainingSplitConfig.shuffle_val
     "shuffle_test_cfg": (False, True),                           # TrainingSplitConfig.shuffle_test
     "wholeday_splitting_cfg": (True, False),                     # TrainingSplitConfig.wholeday_splitting
@@ -246,7 +246,7 @@ class FuzzCombo:
     seed: int
     # New axes 2026-04-24 — have defaults so existing pinned sensor combos
     # and stored ``_fuzz_results.jsonl`` rows keep deserialising cleanly.
-    use_polarsds_pipeline: bool = True
+    prefer_polarsds: bool = True
     use_text_features: bool = True
     honor_user_dtype: bool = False
     text_col_count: int = 0
@@ -359,7 +359,7 @@ class FuzzCombo:
             self.target_type,
             self.auto_detect_cats,
             align,
-            self.use_polarsds_pipeline,
+            self.prefer_polarsds,
             self.use_text_features,
             self.honor_user_dtype,
             # text_col_count: passthrough. The historical canonicalisation
@@ -549,7 +549,7 @@ class FuzzCombo:
         # recurrent path's StandardScaler (np.asarray on string columns
         # raises). Require either zero cats or polars-ds encoding active.
         if self.cat_feature_count > 0 and not (
-            self.use_polarsds_pipeline
+            self.prefer_polarsds
             and self.categorical_encoding_cfg in ("ordinal", "onehot")
             and not self.skip_categorical_encoding_cfg
         ):
@@ -612,7 +612,7 @@ class FuzzCombo:
             return None
         if self.cat_feature_count > 0:
             cats_will_be_encoded = (
-                self.use_polarsds_pipeline
+                self.prefer_polarsds
                 and self.categorical_encoding_cfg in ("ordinal", "onehot")
                 and not self.skip_categorical_encoding_cfg
             )
@@ -765,7 +765,7 @@ class FuzzCombo:
             "auto_detect_cats": self.auto_detect_cats,
             "align_polars_categorical_dicts": self.align_polars_categorical_dicts,
             "seed": self.seed,
-            "use_polarsds_pipeline": self.use_polarsds_pipeline,
+            "prefer_polarsds": self.prefer_polarsds,
             "use_text_features": self.use_text_features,
             "honor_user_dtype": self.honor_user_dtype,
             "text_col_count": self.text_col_count,
@@ -1002,7 +1002,7 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         auto_detect_cats=axes["auto_detect_cats"],
         align_polars_categorical_dicts=axes["align_polars_categorical_dicts"],
         seed=seed,
-        use_polarsds_pipeline=axes.get("use_polarsds_pipeline", True),
+        prefer_polarsds=axes.get("prefer_polarsds", True),
         use_text_features=axes.get("use_text_features", True),
         honor_user_dtype=axes.get("honor_user_dtype", False),
         text_col_count=axes.get("text_col_count", 0),
@@ -1094,7 +1094,7 @@ def _combo_pairs(combo: FuzzCombo) -> set[tuple[str, Any, str, Any]]:
         "target_type": combo.target_type,
         "auto_detect_cats": combo.auto_detect_cats,
         "align_polars_categorical_dicts": combo.align_polars_categorical_dicts,
-        "use_polarsds_pipeline": combo.use_polarsds_pipeline,
+        "prefer_polarsds": combo.prefer_polarsds,
         "use_text_features": combo.use_text_features,
         "honor_user_dtype": combo.honor_user_dtype,
         "text_col_count": combo.text_col_count,

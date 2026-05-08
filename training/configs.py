@@ -379,22 +379,46 @@ class TrainingSplitConfig(BaseConfig):
         return self
 
 
-class PolarsPipelineConfig(BaseConfig):
-    """Configuration for Polars-ds preprocessing pipeline.
+class PreprocessingBackendConfig(BaseConfig):
+    """Selects the engine and parameters for *basic* preprocessing -- scaling,
+    imputation, categorical encoding -- and is consumed both by the
+    legacy ``train_mlframe_models_suite`` path and (from phase A onward)
+    by the new ``FeatureHandlingConfig``-driven path.
 
-    Controls data preprocessing using Polars-based transformations including
-    scaling, imputation, and categorical encoding.
+    Renamed from ``PolarsPipelineConfig`` in phase M of the 2026 feature-
+    handling overhaul. The previous name described WHICH library ran the
+    transforms (polars-ds); the new name describes the responsibility
+    (which BACKEND -- polars-native vs sklearn -- is preferred), which is
+    closer to what the field actually controls. ``prefer_polarsds`` is
+    the new boolean dispatch flag (was ``use_polarsds_pipeline``). The
+    rename is greenfield: there are no users beyond the author, no
+    aliases, no deprecation cycle.
+
+    The ``imputer_strategy`` field, declared since 2026-04 but never
+    wired (see ``training/pipeline.py:458-585`` audit), is *now*
+    connected through to the polars-ds ``Blueprint.impute()`` step in
+    ``create_polarsds_pipeline``. Behavioural sensor tests live in
+    ``tests/training/test_imputer_wiring.py``.
 
     Parameters
     ----------
-    use_polarsds_pipeline : bool
-        Whether to use the Polars-ds pipeline (default: True).
+    prefer_polarsds : bool
+        Prefer polars-ds Blueprint operations over sklearn equivalents
+        when the input is a polars DataFrame and polars-ds exposes the
+        operation. Default ``True``. Pandas inputs always fall back to
+        sklearn; this flag only controls the polars-input path.
+    fallback_to_sklearn : bool
+        If polars-ds lacks a requested operation (e.g. TF-IDF), fall
+        back to sklearn rather than failing. Default ``True``.
     scaler_name : str, optional
         Scaler type: "standard", "min_max", "abs_max", "robust", or None.
         Case-insensitive, normalized to lowercase (default: "standard").
     imputer_strategy : str, optional
-        Strategy for imputing missing values: "mean", "median", etc. (default: "mean").
-        Pass None to skip imputation.
+        Strategy for imputing missing values in *numeric* columns.
+        Accepted values: "mean", "median", "most_frequent" (mapped to
+        polars-ds "mode"), or None. Default "mean". Numeric-only -- text
+        and string columns are imputed by the categorical encoding step,
+        not here. Pass None to skip the imputer entirely.
     categorical_encoding : str, optional
         Encoding for categorical features: "ordinal", "onehot", "target" (default: "ordinal").
         Pass None to skip categorical encoding.
@@ -409,7 +433,8 @@ class PolarsPipelineConfig(BaseConfig):
         Upper quantile for robust scaling (default: 0.99).
     """
 
-    use_polarsds_pipeline: bool = True
+    prefer_polarsds: bool = True
+    fallback_to_sklearn: bool = True
     scaler_name: Optional[str] = "standard"
     imputer_strategy: Optional[str] = "mean"
     categorical_encoding: Optional[str] = "ordinal"
@@ -427,6 +452,29 @@ class PolarsPipelineConfig(BaseConfig):
         valid_names = {"standard", "min_max", "abs_max", "robust"}
         if v_lower not in valid_names:
             raise ValueError(f"scaler_name must be one of {valid_names} or None, got '{v}'")
+        return v_lower
+
+    @field_validator("imputer_strategy", mode="before")
+    @classmethod
+    def normalize_imputer_strategy(cls, v: Optional[str]) -> Optional[str]:
+        """Normalize imputer_strategy to a value the wiring layer can route.
+
+        Accepts sklearn-style names (``most_frequent``) and maps them to
+        the equivalent polars-ds value (``mode``) so the rest of the
+        codebase only sees one canonical form.
+        """
+        if v is None:
+            return None
+        v_lower = v.lower().strip()
+        # Map sklearn convention to polars-ds convention.
+        alias = {"most_frequent": "mode"}
+        v_lower = alias.get(v_lower, v_lower)
+        valid = {"mean", "median", "mode"}
+        if v_lower not in valid:
+            raise ValueError(
+                f"imputer_strategy must be one of {{'mean','median','most_frequent','mode'}} or None, "
+                f"got '{v}'"
+            )
         return v_lower
 
 
@@ -1392,8 +1440,8 @@ class TrainingConfig(BaseConfig):
         Data preprocessing settings.
     split : TrainingSplitConfig
         Train/val/test split settings.
-    pipeline : PolarsPipelineConfig
-        Polars pipeline settings.
+    pipeline : PreprocessingBackendConfig
+        Preprocessing backend settings (polars-ds vs sklearn dispatch + scaler/imputer/encoder).
     feature_selection : FeatureSelectionConfig
         Feature selection settings.
     linear_config : LinearModelConfig, optional
@@ -1439,7 +1487,7 @@ class TrainingConfig(BaseConfig):
     # Sub-configurations
     preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
     split: TrainingSplitConfig = Field(default_factory=TrainingSplitConfig)
-    pipeline: PolarsPipelineConfig = Field(default_factory=PolarsPipelineConfig)
+    pipeline: PreprocessingBackendConfig = Field(default_factory=PreprocessingBackendConfig)
     feature_selection: FeatureSelectionConfig = Field(default_factory=FeatureSelectionConfig)
 
     # Model-specific configs (can be overridden per model)
@@ -2072,7 +2120,7 @@ __all__ = [
     "BaseConfig",
     "PreprocessingConfig",
     "TrainingSplitConfig",
-    "PolarsPipelineConfig",
+    "PreprocessingBackendConfig",
     "FeatureTypesConfig",
     "FeatureSelectionConfig",
     "ModelConfig",

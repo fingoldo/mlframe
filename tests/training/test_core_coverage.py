@@ -20,7 +20,7 @@ from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training import (
     FeatureTypesConfig,
     ModelHyperparamsConfig,
-    PolarsPipelineConfig,
+    PreprocessingBackendConfig,
     PreprocessingConfig,
     TargetTypes,
     TrainingBehaviorConfig,
