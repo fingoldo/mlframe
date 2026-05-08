@@ -28,6 +28,30 @@ removable cost).
 - `c0097_5ea069f9` (hgb+linear regression with mrmr + 8 cat cols, polars_utf8, 50k rows): 20.5s. Already well-optimized -- remaining cost is matplotlib chart drawing (10s) + actual model fits.
 - Reporting test suite: 191/191 still passing after all optimizations.
 
+### Validation against pre-fix aggregate
+
+A 2-combo `profile_fuzz_chains` run launched BEFORE the kaleido fix
+(c0023 + c0114, 100k rows each) finally completed after 4+ hours of
+buffered runtime. Its aggregate top-50 confirms the kaleido oneshot
+bug as the #1 hotspot in pre-fix mlframe:
+
+```
+cumtime      function
+1093.186     train_mlframe_models_suite
+ 933.351     render_multi_target_panels (32 calls)
+ 918.023     plotly.basedatatypes.write_image (32 calls)
+ 917.953     _thread.lock acquire (302 calls)  <- kaleido sync wait
+ 916.587     kaleido._sync_server.oneshot_async_run (32 calls)
+ 850.876     ensembling.score_ensemble
+ 118.502     fast_calibration_report (72 calls)
+ ...
+```
+
+That's 916.6s (84% of total) spent in 32 kaleido oneshot Chromium
+spawns. Win #5 (persistent server) replaces those 32 × 28.6s/call
+spawns with 1 × 8.1s warmup + 31 × 0.13s reuses = ~12s total. Net
+saving: ~905s per 2-combo run with multi-target panel emission.
+
 ### Session conclusion
 
 After 8+ iterations across diverse combo shapes (binary / multiclass /
