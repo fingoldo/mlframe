@@ -637,10 +637,23 @@ def _warn_on_schema_drift(
             split_name, len(extra_in_other), sorted(extra_in_other),
         )
 
+    # 2026-05-08 perf: compare dtypes via str() instead of native ``!=``.
+    # On c0034 the native ``!=`` was triggering Series.equals via
+    # pandas Index.__eq__ machinery (some dtype values had pandas-like
+    # __ne__) costing ~270ms per call x 6 calls = 1.6s wasted. str()
+    # forces a plain Python string compare (microseconds) and matches
+    # the existing ``str(train_schema[col]), str(other_schema[col])``
+    # used for the WARN message anyway. Semantic difference: two
+    # otherwise-equal Enum dtypes with the SAME underlying category
+    # set (but different memory layout) now compare equal via str
+    # representation, which is what the user-visible warn was already
+    # asserting.
     dtype_mismatches = []
     for col in train_cols & other_cols:
-        if train_schema[col] != other_schema[col]:
-            dtype_mismatches.append((col, str(train_schema[col]), str(other_schema[col])))
+        train_dt_str = str(train_schema[col])
+        other_dt_str = str(other_schema[col])
+        if train_dt_str != other_dt_str:
+            dtype_mismatches.append((col, train_dt_str, other_dt_str))
     if dtype_mismatches:
         logger.warning(
             "Schema drift: %s split has %d column(s) with dtype different "
