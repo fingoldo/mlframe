@@ -1291,5 +1291,231 @@ class TestPerGroupAUCEdgeCases:
         )
 
 
+try:
+    import cupy as _cupy_test_marker  # noqa: F401
+    _cupy_available = True
+except ImportError:
+    _cupy_available = False
+
+
+@pytest.mark.skipif(not _cupy_available, reason="GPU tests require cupy")
+class TestGpuMetrics:
+    """Correctness checks for the cupy GPU batch metrics in mlframe.metrics.
+
+    cupy is optional; missing -> whole class is skipped (no GPU is required
+    to run the rest of the suite).
+    """
+
+    def test_rmse_matches_numpy_continuous(self):
+        from mlframe.metrics import gpu_multiple_rmse_scores
+        import cupy as cp
+
+        rng = np.random.default_rng(42)
+        N, M = 5_000, 4
+        y = rng.standard_normal(N)
+        p = rng.standard_normal((N, M))
+        cpu = np.sqrt(np.mean((y[:, None] - p) ** 2.0, axis=0))
+        gpu = cp.asnumpy(gpu_multiple_rmse_scores(y, p))
+        np.testing.assert_allclose(gpu, cpu, rtol=0, atol=1e-12)
+
+    def test_rmse_accepts_2d_actual(self):
+        from mlframe.metrics import gpu_multiple_rmse_scores
+        import cupy as cp
+
+        rng = np.random.default_rng(0)
+        N, M = 1_000, 3
+        y = rng.standard_normal((N, M))
+        p = rng.standard_normal((N, M))
+        cpu = np.sqrt(np.mean((y - p) ** 2.0, axis=0))
+        gpu = cp.asnumpy(gpu_multiple_rmse_scores(y, p))
+        np.testing.assert_allclose(gpu, cpu, rtol=0, atol=1e-12)
+
+    def test_roc_auc_matches_sklearn_continuous(self):
+        from mlframe.metrics import gpu_multiple_roc_auc_scores
+        import cupy as cp
+
+        rng = np.random.default_rng(11)
+        N, M = 5_000, 5
+        y = (rng.standard_normal(N) > 0).astype(np.int8)
+        p = rng.standard_normal((N, M))
+        ref = np.array([roc_auc_score(y, p[:, j]) for j in range(M)])
+        gpu = cp.asnumpy(gpu_multiple_roc_auc_scores(y, p))
+        np.testing.assert_allclose(gpu, ref, rtol=0, atol=1e-12)
+
+    def test_roc_auc_matches_sklearn_with_ties(self):
+        """avg-rank impl must match sklearn bit-for-bit on heavily tied
+        scores (probability bins). The naive ``argsort(argsort)`` snippet
+        drifts ~1e-5 here -- this test guards against re-introducing it."""
+        from mlframe.metrics import gpu_multiple_roc_auc_scores
+        import cupy as cp
+
+        rng = np.random.default_rng(22)
+        N, M = 5_000, 4
+        y = (rng.standard_normal(N) > 0).astype(np.int8)
+        bins = np.linspace(0.0, 1.0, 10)
+        p = rng.choice(bins, size=(N, M))
+        ref = np.array([roc_auc_score(y, p[:, j]) for j in range(M)])
+        gpu = cp.asnumpy(gpu_multiple_roc_auc_scores(y, p))
+        np.testing.assert_allclose(gpu, ref, rtol=0, atol=1e-12)
+
+    def test_pr_auc_matches_sklearn_continuous(self):
+        from mlframe.metrics import gpu_multiple_pr_auc_scores
+        from sklearn.metrics import average_precision_score
+        import cupy as cp
+
+        rng = np.random.default_rng(55)
+        N, M = 5_000, 4
+        y = (rng.standard_normal(N) > 0).astype(np.int8)
+        p = rng.standard_normal((N, M))
+        ref = np.array([average_precision_score(y, p[:, j]) for j in range(M)])
+        gpu = cp.asnumpy(gpu_multiple_pr_auc_scores(y, p))
+        np.testing.assert_allclose(gpu, ref, rtol=0, atol=1e-12)
+
+    def test_pr_auc_matches_sklearn_with_ties(self):
+        from mlframe.metrics import gpu_multiple_pr_auc_scores
+        from sklearn.metrics import average_precision_score
+        import cupy as cp
+
+        rng = np.random.default_rng(66)
+        N, M = 5_000, 4
+        y = (rng.standard_normal(N) > 0).astype(np.int8)
+        p = rng.choice(np.linspace(0, 1, 10), size=(N, M))
+        ref = np.array([average_precision_score(y, p[:, j]) for j in range(M)])
+        gpu = cp.asnumpy(gpu_multiple_pr_auc_scores(y, p))
+        np.testing.assert_allclose(gpu, ref, rtol=0, atol=1e-12)
+
+    def test_pr_auc_returns_nan_on_single_class(self):
+        from mlframe.metrics import gpu_multiple_pr_auc_scores
+        import cupy as cp
+        rng = np.random.default_rng(77)
+        N = 1_000
+        y = np.zeros(N, dtype=np.int8)  # all-negative
+        p = rng.standard_normal((N, 3))
+        gpu = cp.asnumpy(gpu_multiple_pr_auc_scores(y, p))
+        assert np.all(np.isnan(gpu)), gpu
+
+    def test_aucs_accept_1d_predicted(self):
+        from mlframe.metrics import (
+            gpu_multiple_pr_auc_scores,
+            gpu_multiple_roc_auc_scores,
+        )
+        from sklearn.metrics import average_precision_score
+        import cupy as cp
+
+        rng = np.random.default_rng(33)
+        N = 2_000
+        y = (rng.standard_normal(N) > 0).astype(np.int8)
+        p = rng.standard_normal(N)
+        ref_roc = roc_auc_score(y, p)
+        ref_pr = average_precision_score(y, p)
+        gpu_roc = float(cp.asnumpy(gpu_multiple_roc_auc_scores(y, p))[0])
+        gpu_pr = float(cp.asnumpy(gpu_multiple_pr_auc_scores(y, p))[0])
+        assert abs(gpu_roc - ref_roc) < 1e-12
+        assert abs(gpu_pr - ref_pr) < 1e-12
+
+
+@pytest.mark.skipif(not _cupy_available, reason="dispatcher tests use the GPU side too")
+class TestGpuDispatchers:
+    """``compute_batch_aucs`` / ``compute_batch_rmse`` / threshold knobs."""
+
+    def test_compute_batch_rmse_auto_below_threshold_uses_cpu(self):
+        from mlframe.metrics import compute_batch_rmse, _GPU_BATCH_THRESHOLD_N
+
+        rng = np.random.default_rng(0)
+        # Below threshold (default 100k): auto picks CPU.
+        N = max(100, _GPU_BATCH_THRESHOLD_N // 100)
+        y = rng.standard_normal(N)
+        p = rng.standard_normal((N, 3))
+        out = compute_batch_rmse(y, p)
+        ref = np.sqrt(np.mean((y[:, None] - p) ** 2.0, axis=0))
+        np.testing.assert_allclose(out, ref, rtol=0, atol=1e-12)
+        assert isinstance(out, np.ndarray)
+
+    def test_compute_batch_aucs_force_cpu_matches_loop(self):
+        from mlframe.metrics import compute_batch_aucs, fast_aucs
+
+        rng = np.random.default_rng(7)
+        N, M = 2_000, 3
+        y = (rng.standard_normal(N) > 0).astype(np.int8)
+        p = rng.standard_normal((N, M))
+        roc, pr = compute_batch_aucs(y, p, force_backend="cpu")
+        ref_roc = np.empty(M)
+        ref_pr = np.empty(M)
+        for j in range(M):
+            ref_roc[j], ref_pr[j] = fast_aucs(y, p[:, j])
+        np.testing.assert_allclose(roc, ref_roc, rtol=0, atol=1e-12)
+        np.testing.assert_allclose(pr, ref_pr, rtol=0, atol=1e-12)
+
+    def test_compute_batch_aucs_force_gpu_matches_sklearn(self):
+        from mlframe.metrics import compute_batch_aucs
+        from sklearn.metrics import average_precision_score
+
+        rng = np.random.default_rng(8)
+        N, M = 5_000, 4
+        y = (rng.standard_normal(N) > 0).astype(np.int8)
+        p = rng.standard_normal((N, M))
+        roc, pr = compute_batch_aucs(y, p, force_backend="gpu")
+        ref_roc = np.array([roc_auc_score(y, p[:, j]) for j in range(M)])
+        ref_pr = np.array([average_precision_score(y, p[:, j]) for j in range(M)])
+        np.testing.assert_allclose(roc, ref_roc, rtol=0, atol=1e-12)
+        np.testing.assert_allclose(pr, ref_pr, rtol=0, atol=1e-12)
+
+    def test_set_gpu_thresholds_changes_dispatch(self):
+        from mlframe.metrics import (
+            compute_batch_aucs,
+            set_gpu_thresholds,
+            _GPU_BATCH_THRESHOLD_N,
+        )
+
+        rng = np.random.default_rng(9)
+        N, M = 5_000, 3
+        y = (rng.standard_normal(N) > 0).astype(np.int8)
+        p = rng.standard_normal((N, M))
+
+        # Baseline result for parity check
+        roc_cpu, pr_cpu = compute_batch_aucs(y, p, force_backend="cpu")
+
+        original = _GPU_BATCH_THRESHOLD_N
+        try:
+            set_gpu_thresholds(n=1_000)  # below 5_000 so auto picks GPU
+            roc_auto, pr_auto = compute_batch_aucs(y, p)
+            np.testing.assert_allclose(roc_auto, roc_cpu, rtol=0, atol=1e-12)
+            np.testing.assert_allclose(pr_auto, pr_cpu, rtol=0, atol=1e-12)
+        finally:
+            set_gpu_thresholds(n=original)
+
+    def test_force_backend_invalid_raises(self):
+        from mlframe.metrics import compute_batch_aucs
+
+        rng = np.random.default_rng(10)
+        y = (rng.standard_normal(100) > 0).astype(np.int8)
+        p = rng.standard_normal((100, 2))
+        with pytest.raises(ValueError, match="force_backend"):
+            compute_batch_aucs(y, p, force_backend="cudnn")
+
+
+@pytest.mark.skipif(_cupy_available, reason="Skipped when cupy IS present")
+class TestGpuMetricsImportError:
+    """When cupy is NOT installed, ``gpu_*`` helpers must raise a clear
+    ImportError (not a generic ``ModuleNotFoundError``). Dispatchers
+    fall back to CPU silently."""
+
+    def test_rmse_raises_clear_error_without_cupy(self):
+        from mlframe.metrics import gpu_multiple_rmse_scores
+        with pytest.raises(ImportError, match="cupy"):
+            gpu_multiple_rmse_scores(np.zeros(10), np.zeros((10, 2)))
+
+    def test_dispatcher_falls_back_to_cpu_without_cupy(self):
+        """Dispatcher should NOT raise when cupy is missing -- it just
+        runs on CPU."""
+        from mlframe.metrics import compute_batch_rmse
+        rng = np.random.default_rng(0)
+        y = rng.standard_normal(200)
+        p = rng.standard_normal((200, 3))
+        out = compute_batch_rmse(y, p)  # no force_backend; auto -> CPU
+        ref = np.sqrt(np.mean((y[:, None] - p) ** 2.0, axis=0))
+        np.testing.assert_allclose(out, ref, rtol=0, atol=1e-12)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

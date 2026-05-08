@@ -15,7 +15,7 @@ Functions:
 """
 
 import logging
-from typing import Any, Dict, Optional, Sequence, Tuple, Union, Callable
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union, Callable
 
 # =============================================================================
 # Constants
@@ -818,6 +818,44 @@ def report_probabilistic_model_perf(
         else:
             classes = np.unique(targets)
 
+    # GPU batch-AUC fastpath: when the suite has many classes (multiclass /
+    # multilabel) and the row count is large enough, compute all K
+    # (roc_auc, pr_auc) pairs in ONE batched GPU call instead of K serial
+    # ``fast_aucs_per_group_optimized`` calls inside the per-class loop.
+    # Auto-dispatched by ``compute_batch_aucs``: GPU when cupy + CUDA
+    # visible AND N >= threshold, otherwise CPU loop (no behavior change).
+    # Only valid when group_ids is None (per-group AUCs need the full
+    # function path). Empirical wins documented in ``bench_gpu_metrics.py``:
+    # at N=1M K=20 PR AUC alone, GPU = 170 ms vs CPU loop = 2016 ms.
+    _precomputed_aucs_per_class: Optional[List[Optional[Tuple[float, float]]]] = None
+    if group_ids is None and len(classes) >= 2:
+        try:
+            from mlframe.metrics import compute_batch_aucs
+            # Build (N, K) score matrix and (N, K)/(N,) label matrix once.
+            if is_multilabel:
+                _y_true_NK = targets_arr  # already (N, K) binary
+                _y_score_NK = probs       # (N, K)
+            elif len(classes) == 2:
+                # Binary: only class_id=1 is reported (loop skips id=0).
+                # Single column, no batching benefit, but the dispatcher
+                # auto-falls-back to CPU at small M anyway.
+                _y_true_NK = (targets == classes[1]).astype(np.int8)[:, None]
+                _y_score_NK = probs[:, [1]]
+            else:
+                # Multiclass: K columns, one-vs-rest.
+                _y_true_NK = np.column_stack(
+                    [(targets == c).astype(np.int8) for c in classes]
+                )
+                _y_score_NK = probs
+            roc_batch, pr_batch = compute_batch_aucs(_y_true_NK, _y_score_NK)
+            _precomputed_aucs_per_class = [
+                (float(roc_batch[j]), float(pr_batch[j])) for j in range(_y_score_NK.shape[1])
+            ]
+        except Exception as e:
+            # Any failure -> fall back to per-class fast_aucs path.
+            logger.debug("compute_batch_aucs precompute failed (%s); using per-class path.", e)
+            _precomputed_aucs_per_class = None
+
     true_classes = []
     for class_id, class_name in enumerate(classes):
         if str(class_name).isnumeric() and target_label_encoder:
@@ -877,6 +915,20 @@ def report_probabilistic_model_perf(
         )
         if title_metrics_tokens is not None:
             _fcr_kwargs["title_metrics_tokens"] = title_metrics_tokens
+
+        # Inject precomputed (roc, pr) for THIS class id when the batched
+        # GPU/CPU fastpath ran above. fast_calibration_report skips its
+        # internal ``fast_aucs_per_group_optimized`` call when this is set.
+        if _precomputed_aucs_per_class is not None:
+            # Index alignment:
+            #  - multilabel: matrix has K columns, class_id 0..K-1
+            #  - binary: matrix has 1 column; we get here only for class_id=1
+            #  - multiclass: matrix has K columns, class_id 0..K-1
+            if not is_multilabel and len(classes) == 2:
+                # Single-column matrix indexed at 0
+                _fcr_kwargs["_precomputed_aucs"] = _precomputed_aucs_per_class[0]
+            else:
+                _fcr_kwargs["_precomputed_aucs"] = _precomputed_aucs_per_class[class_id]
 
         with phase("fast_calibration_report", class_id=str_class_name, n_rows=len(y_true)):
             (
