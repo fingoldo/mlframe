@@ -71,6 +71,7 @@ After session 2/3 fixes, profiled new combo space:
 | `c0105` (cb+hgb+lgb binary) | 200k x N | ~100s | CB.fit dominates 95% (94s) -- pure model work |
 | `c0001` (xgb-only multiclass, polars_nullable, 15 cats) | 200k x N | 19.9s | report_model_perf 18.0s = kaleido lock-wait 10.9s + matplotlib 5.0s -- multi-target panel grid + 6 calibration plots |
 | `c0071` (mlp-only regression, polars_utf8) | 200k x N | 184s | PyTorch Lightning fit 165s (89%) -- pure MLP training cost, no mlframe overhead optimizable |
+| `c0015` (hgb+lgb multilabel ens, polars_enum, 8 cats) | 50k x N | 127s | report_model_perf 109s (86%) = 84 calibration plots × 728ms savefig + constrained_layout 33s + render_multi_target_panels 28s. Ensembling re-enters report through `_process_single_ensemble_method` so 6 methods × 14 train+eval × 2 splits = 168 charts. Same chart-bound floor as c0001 but amplified by ensembling. |
 
 ### Floor identified
 
@@ -127,10 +128,11 @@ spawns. Win #5 (persistent server) replaces those 32 × 28.6s/call
 spawns with 1 × 8.1s warmup + 31 × 0.13s reuses = ~12s total. Net
 saving: ~905s per 2-combo run with multi-target panel emission.
 
-### Session conclusion
+### Session conclusion (extended 2026-05-08)
 
-After 8+ iterations across diverse combo shapes (binary / multiclass /
-multilabel / LTR / regression × small / mid / large), the dominant
+After 11+ iterations across diverse combo shapes (binary / multiclass /
+multilabel / LTR / regression × MLP / pure-tree × small / mid / large
+× pandas / polars_enum / polars_utf8 / polars_nullable), the dominant
 remaining costs are:
 
 1. **Real model fits** (CB, XGB, LGB, HGB) -- can't be optimized at
