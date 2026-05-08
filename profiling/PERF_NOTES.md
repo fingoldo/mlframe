@@ -15,6 +15,8 @@ removable cost).
 | 3 | Numba JIT cold-start for `compute_ece_and_brier_decomposition` / `fast_aucs_per_group_optimized` / `fast_log_loss` / `fast_ice_only` / `format_classification_report` | extend `prewarm_numba_cache` with the (bool, float64) suite-runtime combo | ~3-5s saved on first calibration-report call |
 | 4 | `lgb_shim` `eval_set` 2-tuple unpack vs 3-tuple actuality | robust positional unpack | unblocks LGB e2e test |
 | 5 | **kaleido oneshot Chromium spawn per plotly PNG export** | `start_sync_server` on first save + `kaleido.write_fig_sync` (persistent server) + `atexit` cleanup | **13s/call -> 0.13s/call (100×)**; on c0114 (32 PNG saves): 432s -> 12s |
+| 6 | regression report `tight_layout` recompute per chart | `layout="constrained"` on plt.subplots; constrained_layout caches solver state | ~3s on c0089 (32 charts); cleaner code |
+| 7 | **ensembling re-rendered chart per method (overwriting same file)** | `plot_file=""` + `show_perf_chart=False` in `_process_single_ensemble_method` flat_params | **c0025 82s -> 50s (39%)**; eliminates 24 redundant chart writes per 6-method ensemble |
 
 ### Numbers
 
