@@ -1520,5 +1520,135 @@ class TestGpuMetricsImportError:
         np.testing.assert_allclose(out, ref, rtol=0, atol=1e-12)
 
 
+class TestFastRegressionMetrics:
+    """fast_mean_absolute_error / mean_squared_error / root_mean_squared_error
+    / max_error / r2_score must be bit-exact drop-ins for sklearn across
+    1-D / 2-D, weighted / unweighted, and every multioutput aggregation."""
+
+    @pytest.fixture
+    def rng(self):
+        return np.random.default_rng(0)
+
+    def _data(self, rng, shape):
+        y = rng.standard_normal(shape)
+        p = y + 0.1 * rng.standard_normal(shape)
+        return y, p
+
+    def test_mae_1d_unweighted(self, rng):
+        from sklearn.metrics import mean_absolute_error as sk
+        from mlframe.metrics import fast_mean_absolute_error
+        y, p = self._data(rng, 5_000)
+        assert abs(fast_mean_absolute_error(y, p) - sk(y, p)) < 1e-12
+
+    def test_mae_1d_weighted(self, rng):
+        from sklearn.metrics import mean_absolute_error as sk
+        from mlframe.metrics import fast_mean_absolute_error
+        y, p = self._data(rng, 5_000)
+        w = rng.random(5_000) + 0.1
+        assert abs(fast_mean_absolute_error(y, p, sample_weight=w) - sk(y, p, sample_weight=w)) < 1e-12
+
+    def test_mae_2d_uniform_average(self, rng):
+        from sklearn.metrics import mean_absolute_error as sk
+        from mlframe.metrics import fast_mean_absolute_error
+        y, p = self._data(rng, (5_000, 4))
+        assert abs(fast_mean_absolute_error(y, p) - sk(y, p)) < 1e-12
+
+    def test_mae_2d_raw_values(self, rng):
+        from sklearn.metrics import mean_absolute_error as sk
+        from mlframe.metrics import fast_mean_absolute_error
+        y, p = self._data(rng, (5_000, 4))
+        ref = sk(y, p, multioutput="raw_values")
+        out = fast_mean_absolute_error(y, p, multioutput="raw_values")
+        np.testing.assert_allclose(out, ref, rtol=0, atol=1e-12)
+
+    def test_mae_2d_weighted_array_multioutput(self, rng):
+        from sklearn.metrics import mean_absolute_error as sk
+        from mlframe.metrics import fast_mean_absolute_error
+        y, p = self._data(rng, (5_000, 3))
+        w = rng.random(5_000) + 0.1
+        out_w = np.array([2.0, 1.0, 0.5])
+        ref = sk(y, p, sample_weight=w, multioutput=out_w)
+        out = fast_mean_absolute_error(y, p, sample_weight=w, multioutput=out_w)
+        assert abs(out - ref) < 1e-12
+
+    def test_mse_1d_weighted(self, rng):
+        from sklearn.metrics import mean_squared_error as sk
+        from mlframe.metrics import fast_mean_squared_error
+        y, p = self._data(rng, 5_000)
+        w = rng.random(5_000) + 0.1
+        assert abs(fast_mean_squared_error(y, p, sample_weight=w) - sk(y, p, sample_weight=w)) < 1e-12
+
+    def test_rmse_2d_raw_values(self, rng):
+        from mlframe.metrics import fast_root_mean_squared_error, fast_mean_squared_error
+        y, p = self._data(rng, (5_000, 3))
+        # sklearn rmse = per-output RMSE, then aggregated. raw_values returns sqrt(mse_per_col).
+        ref = np.sqrt(fast_mean_squared_error(y, p, multioutput="raw_values"))
+        out = fast_root_mean_squared_error(y, p, multioutput="raw_values")
+        np.testing.assert_allclose(out, ref, rtol=0, atol=1e-12)
+
+    def test_rmse_matches_sklearn_2d_weighted(self, rng):
+        try:
+            from sklearn.metrics import root_mean_squared_error as sk
+        except ImportError:
+            pytest.skip("sklearn root_mean_squared_error not available")
+        from mlframe.metrics import fast_root_mean_squared_error
+        y, p = self._data(rng, (5_000, 3))
+        w = rng.random(5_000) + 0.1
+        assert abs(fast_root_mean_squared_error(y, p, sample_weight=w)
+                   - sk(y, p, sample_weight=w)) < 1e-12
+
+    def test_max_error_1d_matches_sklearn(self, rng):
+        from sklearn.metrics import max_error as sk
+        from mlframe.metrics import fast_max_error
+        y, p = self._data(rng, 5_000)
+        assert abs(fast_max_error(y, p) - sk(y, p)) < 1e-12
+
+    def test_max_error_2d_per_output(self, rng):
+        from mlframe.metrics import fast_max_error
+        y, p = self._data(rng, (5_000, 3))
+        out = fast_max_error(y, p)  # default raw_values
+        # Verify against direct numpy
+        ref = np.max(np.abs(y - p), axis=0)
+        np.testing.assert_allclose(out, ref, rtol=0, atol=1e-12)
+
+    def test_r2_1d_weighted(self, rng):
+        from sklearn.metrics import r2_score as sk
+        from mlframe.metrics import fast_r2_score
+        y, p = self._data(rng, 5_000)
+        w = rng.random(5_000) + 0.1
+        assert abs(fast_r2_score(y, p, sample_weight=w) - sk(y, p, sample_weight=w)) < 1e-12
+
+    def test_r2_2d_raw_values(self, rng):
+        from sklearn.metrics import r2_score as sk
+        from mlframe.metrics import fast_r2_score
+        y, p = self._data(rng, (5_000, 4))
+        ref = sk(y, p, multioutput="raw_values")
+        out = fast_r2_score(y, p, multioutput="raw_values")
+        np.testing.assert_allclose(out, ref, rtol=0, atol=1e-12)
+
+    def test_r2_2d_variance_weighted(self, rng):
+        from sklearn.metrics import r2_score as sk
+        from mlframe.metrics import fast_r2_score
+        y, p = self._data(rng, (5_000, 4))
+        ref = sk(y, p, multioutput="variance_weighted")
+        out = fast_r2_score(y, p, multioutput="variance_weighted")
+        assert abs(out - ref) < 1e-12
+
+    def test_r2_2d_variance_weighted_with_sample_weight(self, rng):
+        from sklearn.metrics import r2_score as sk
+        from mlframe.metrics import fast_r2_score
+        y, p = self._data(rng, (5_000, 3))
+        w = rng.random(5_000) + 0.1
+        ref = sk(y, p, sample_weight=w, multioutput="variance_weighted")
+        out = fast_r2_score(y, p, sample_weight=w, multioutput="variance_weighted")
+        assert abs(out - ref) < 1e-12
+
+    def test_unknown_multioutput_raises(self, rng):
+        from mlframe.metrics import fast_mean_absolute_error
+        y, p = self._data(rng, (5_000, 3))
+        with pytest.raises(ValueError, match="multioutput"):
+            fast_mean_absolute_error(y, p, multioutput="not-a-thing")
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

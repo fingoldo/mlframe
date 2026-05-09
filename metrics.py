@@ -223,13 +223,21 @@ def prewarm_numba_cache():
         # the suite needs it.
         _reg_y = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0], dtype=np.float64)
         _reg_p = _reg_y + 0.05
+        _reg_w = np.ones_like(_reg_y)
         _ = _fast_mae_seq(_reg_y, _reg_p)
         _ = _fast_mae_par(_reg_y, _reg_p)
+        _ = _fast_mae_weighted_seq(_reg_y, _reg_p, _reg_w)
+        _ = _fast_mae_weighted_par(_reg_y, _reg_p, _reg_w)
         _ = _fast_mse_seq(_reg_y, _reg_p)
         _ = _fast_mse_par(_reg_y, _reg_p)
+        _ = _fast_mse_weighted_seq(_reg_y, _reg_p, _reg_w)
+        _ = _fast_mse_weighted_par(_reg_y, _reg_p, _reg_w)
         _ = _fast_max_error_seq(_reg_y, _reg_p)
         _ = _fast_r2_score_seq(_reg_y, _reg_p)
         _ = _fast_r2_score_par(_reg_y, _reg_p)
+        _ = _fast_r2_score_weighted_seq(_reg_y, _reg_p, _reg_w)
+        _ = _fast_r2_score_weighted_par(_reg_y, _reg_p, _reg_w)
+        _ = _fast_r2_variance_seq(_reg_y)
     except Exception:
         # Parallel kernels cache the same way njit kernels do; a bad
         # cache or a numba-runtime hiccup is non-fatal — the seq path
@@ -2869,13 +2877,22 @@ brier_score_loss = fast_brier_score_loss
 # sklearn input-validation overhead dominates these tiny reductions: at
 # N=1M, sklearn's ``mean_absolute_error`` takes 12 ms while the numba
 # kernel does the same work in ~1.5 ms (8x). Adding parallel=True drops
-# it further to 0.7 ms (17x over sklearn). Bench: ``bench_regression_metrics.py``.
+# it further to 0.7 ms (17x over sklearn).
 # Speedups vs sklearn at N=1M:
 #   MAE   17x  | MSE   15x  | RMSE  same as MSE | max_error 6x | R2 23x
 #
-# Drop-in compatible with sklearn's signature: takes (y_true, y_pred) as
-# 1-D float arrays. Multioutput / sample_weight are NOT supported here
-# (callers use sklearn for those rare paths).
+# Full sklearn signature support:
+#   - 1-D and 2-D ``y_true`` / ``y_pred`` (multioutput).
+#   - ``sample_weight`` (1-D weights, broadcast across outputs).
+#   - ``multioutput`` in ``'raw_values'``, ``'uniform_average'``, an
+#     array of per-output weights, or (R² only) ``'variance_weighted'``.
+#
+# 1-D unweighted is the fastest path (single numba kernel call). 2-D
+# multioutput loops per column inside Python (M is typically small).
+# Weighted variants use a separate numba kernel.
+
+
+# ---------- 1-D unweighted ----------
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -2894,15 +2911,6 @@ def _fast_mae_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     for i in numba.prange(n):
         s += abs(y_true[i] - y_pred[i])
     return s / n
-
-
-def fast_mean_absolute_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Drop-in for ``sklearn.metrics.mean_absolute_error`` on 1-D float
-    arrays. ~17× faster at N=1M (8× from skipping sklearn's input
-    validation, +2× from parallel reduction)."""
-    if len(y_true) >= _PARALLEL_REDUCTION_THRESHOLD:
-        return _fast_mae_par(y_true, y_pred)
-    return _fast_mae_seq(y_true, y_pred)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -2925,20 +2933,6 @@ def _fast_mse_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return s / n
 
 
-def fast_mean_squared_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Drop-in for ``sklearn.metrics.mean_squared_error`` on 1-D float
-    arrays. ~15× faster at N=1M."""
-    if len(y_true) >= _PARALLEL_REDUCTION_THRESHOLD:
-        return _fast_mse_par(y_true, y_pred)
-    return _fast_mse_seq(y_true, y_pred)
-
-
-def fast_root_mean_squared_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Drop-in for ``sklearn.metrics.root_mean_squared_error``."""
-    import math as _m
-    return _m.sqrt(fast_mean_squared_error(y_true, y_pred))
-
-
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _fast_max_error_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     n = len(y_true)
@@ -2948,15 +2942,6 @@ def _fast_max_error_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         if d > m:
             m = d
     return m
-
-
-def fast_max_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Drop-in for ``sklearn.metrics.max_error``. ~6× faster at N=1M.
-
-    Note: parallel variant tested but barely beats seq even at N=10M
-    (per-thread max bookkeeping overhead). Always uses seq numba.
-    """
-    return _fast_max_error_seq(y_true, y_pred)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -2998,13 +2983,342 @@ def _fast_r2_score_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return 1.0 - ss_res / ss_tot
 
 
-def fast_r2_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Drop-in for ``sklearn.metrics.r2_score`` on 1-D float arrays.
-    ~23× faster at N=1M (sklearn's R2 is the slowest of the regression
-    metrics due to two-pass + mean computation in pure Python)."""
-    if len(y_true) >= _PARALLEL_REDUCTION_THRESHOLD:
-        return _fast_r2_score_par(y_true, y_pred)
-    return _fast_r2_score_seq(y_true, y_pred)
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _fast_r2_variance_seq(y_true: np.ndarray) -> float:
+    """SS_tot for r2_variance_weighted multioutput aggregation."""
+    n = len(y_true)
+    ymean = 0.0
+    for i in range(n):
+        ymean += y_true[i]
+    ymean /= n
+    ss = 0.0
+    for i in range(n):
+        d = y_true[i] - ymean
+        ss += d * d
+    return ss
+
+
+# ---------- 1-D weighted ----------
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _fast_mae_weighted_seq(y_true, y_pred, w):
+    n = len(y_true)
+    s = 0.0
+    wsum = 0.0
+    for i in range(n):
+        s += abs(y_true[i] - y_pred[i]) * w[i]
+        wsum += w[i]
+    return s / wsum
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
+def _fast_mae_weighted_par(y_true, y_pred, w):
+    n = len(y_true)
+    s = 0.0
+    wsum = 0.0
+    for i in numba.prange(n):
+        s += abs(y_true[i] - y_pred[i]) * w[i]
+        wsum += w[i]
+    return s / wsum
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _fast_mse_weighted_seq(y_true, y_pred, w):
+    n = len(y_true)
+    s = 0.0
+    wsum = 0.0
+    for i in range(n):
+        d = y_true[i] - y_pred[i]
+        s += d * d * w[i]
+        wsum += w[i]
+    return s / wsum
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
+def _fast_mse_weighted_par(y_true, y_pred, w):
+    n = len(y_true)
+    s = 0.0
+    wsum = 0.0
+    for i in numba.prange(n):
+        d = y_true[i] - y_pred[i]
+        s += d * d * w[i]
+        wsum += w[i]
+    return s / wsum
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _fast_r2_score_weighted_seq(y_true, y_pred, w):
+    n = len(y_true)
+    ymean = 0.0
+    wsum = 0.0
+    for i in range(n):
+        ymean += y_true[i] * w[i]
+        wsum += w[i]
+    ymean /= wsum
+    ss_res = 0.0
+    ss_tot = 0.0
+    for i in range(n):
+        d_res = y_true[i] - y_pred[i]
+        d_tot = y_true[i] - ymean
+        ss_res += d_res * d_res * w[i]
+        ss_tot += d_tot * d_tot * w[i]
+    if ss_tot == 0.0:
+        return 0.0
+    return 1.0 - ss_res / ss_tot
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
+def _fast_r2_score_weighted_par(y_true, y_pred, w):
+    n = len(y_true)
+    ymean = 0.0
+    wsum = 0.0
+    for i in numba.prange(n):
+        ymean += y_true[i] * w[i]
+        wsum += w[i]
+    ymean /= wsum
+    ss_res = 0.0
+    ss_tot = 0.0
+    for i in numba.prange(n):
+        d_res = y_true[i] - y_pred[i]
+        d_tot = y_true[i] - ymean
+        ss_res += d_res * d_res * w[i]
+        ss_tot += d_tot * d_tot * w[i]
+    if ss_tot == 0.0:
+        return 0.0
+    return 1.0 - ss_res / ss_tot
+
+
+# ---------- multioutput aggregation ----------
+
+
+def _aggregate_multioutput(values: np.ndarray, multioutput) -> Union[float, np.ndarray]:
+    """Apply sklearn's ``multioutput`` aggregation to a per-output values array.
+
+    - ``'raw_values'`` -> ``values`` unchanged.
+    - ``'uniform_average'`` -> ``np.mean(values)``.
+    - array-like -> ``np.average(values, weights=multioutput)``.
+    - other strings / inputs -> ValueError.
+    """
+    # Type check FIRST: ``multioutput == "raw_values"`` on an ndarray
+    # broadcasts and raises 'ambiguous truth value'. Handle the
+    # array-weights path before any string compare.
+    if isinstance(multioutput, (np.ndarray, list, tuple)):
+        return float(np.average(values, weights=np.asarray(multioutput, dtype=np.float64)))
+    if multioutput == "raw_values":
+        return values
+    if multioutput == "uniform_average":
+        return float(values.mean())
+    raise ValueError(
+        f"multioutput must be 'raw_values', 'uniform_average', or an array; got {multioutput!r}"
+    )
+
+
+def _to_2d(arr: np.ndarray) -> np.ndarray:
+    """Promote ``(N,)`` to ``(N, 1)``; pass-through ``(N, M)``."""
+    if arr.ndim == 1:
+        return arr[:, np.newaxis]
+    return arr
+
+
+# ---------- public wrappers ----------
+
+
+def fast_mean_absolute_error(
+    y_true,
+    y_pred,
+    *,
+    sample_weight=None,
+    multioutput: Union[str, np.ndarray] = "uniform_average",
+):
+    """Drop-in for ``sklearn.metrics.mean_absolute_error``.
+
+    Faster than sklearn (17× at N=1M) while supporting the full sklearn
+    signature: ``sample_weight`` (1-D, broadcast across outputs) and
+    ``multioutput`` in ``{'raw_values', 'uniform_average'}`` or an
+    array of per-output weights.
+    """
+    yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
+    yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
+    if sample_weight is not None:
+        w = np.ascontiguousarray(np.asarray(sample_weight), dtype=np.float64)
+    else:
+        w = None
+
+    if yt.ndim == 1:
+        n = yt.shape[0]
+        if w is None:
+            return _fast_mae_par(yt, yp) if n >= _PARALLEL_REDUCTION_THRESHOLD else _fast_mae_seq(yt, yp)
+        return _fast_mae_weighted_par(yt, yp, w) if n >= _PARALLEL_REDUCTION_THRESHOLD else _fast_mae_weighted_seq(yt, yp, w)
+
+    yt2 = _to_2d(yt)
+    yp2 = _to_2d(yp)
+    n = yt2.shape[0]
+    M = yt2.shape[1]
+    per_out = np.empty(M, dtype=np.float64)
+    use_par = n >= _PARALLEL_REDUCTION_THRESHOLD
+    for j in range(M):
+        col_yt = np.ascontiguousarray(yt2[:, j])
+        col_yp = np.ascontiguousarray(yp2[:, j])
+        if w is None:
+            per_out[j] = _fast_mae_par(col_yt, col_yp) if use_par else _fast_mae_seq(col_yt, col_yp)
+        else:
+            per_out[j] = _fast_mae_weighted_par(col_yt, col_yp, w) if use_par else _fast_mae_weighted_seq(col_yt, col_yp, w)
+    return _aggregate_multioutput(per_out, multioutput)
+
+
+def fast_mean_squared_error(
+    y_true,
+    y_pred,
+    *,
+    sample_weight=None,
+    multioutput: Union[str, np.ndarray] = "uniform_average",
+):
+    """Drop-in for ``sklearn.metrics.mean_squared_error``. 15× faster at
+    N=1M with full sample_weight + multioutput support."""
+    yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
+    yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
+    if sample_weight is not None:
+        w = np.ascontiguousarray(np.asarray(sample_weight), dtype=np.float64)
+    else:
+        w = None
+
+    if yt.ndim == 1:
+        n = yt.shape[0]
+        if w is None:
+            return _fast_mse_par(yt, yp) if n >= _PARALLEL_REDUCTION_THRESHOLD else _fast_mse_seq(yt, yp)
+        return _fast_mse_weighted_par(yt, yp, w) if n >= _PARALLEL_REDUCTION_THRESHOLD else _fast_mse_weighted_seq(yt, yp, w)
+
+    yt2 = _to_2d(yt)
+    yp2 = _to_2d(yp)
+    n = yt2.shape[0]
+    M = yt2.shape[1]
+    per_out = np.empty(M, dtype=np.float64)
+    use_par = n >= _PARALLEL_REDUCTION_THRESHOLD
+    for j in range(M):
+        col_yt = np.ascontiguousarray(yt2[:, j])
+        col_yp = np.ascontiguousarray(yp2[:, j])
+        if w is None:
+            per_out[j] = _fast_mse_par(col_yt, col_yp) if use_par else _fast_mse_seq(col_yt, col_yp)
+        else:
+            per_out[j] = _fast_mse_weighted_par(col_yt, col_yp, w) if use_par else _fast_mse_weighted_seq(col_yt, col_yp, w)
+    return _aggregate_multioutput(per_out, multioutput)
+
+
+def fast_root_mean_squared_error(
+    y_true,
+    y_pred,
+    *,
+    sample_weight=None,
+    multioutput: Union[str, np.ndarray] = "uniform_average",
+):
+    """Drop-in for ``sklearn.metrics.root_mean_squared_error``.
+
+    Computes per-output RMSE = sqrt(MSE) BEFORE aggregating
+    (``raw_values`` returns per-output RMSEs; ``uniform_average``
+    averages them after sqrt). Matches sklearn's behaviour exactly.
+    """
+    if isinstance(multioutput, str) and multioutput == "raw_values":
+        per_out_mse = fast_mean_squared_error(
+            y_true, y_pred, sample_weight=sample_weight, multioutput="raw_values",
+        )
+        return np.sqrt(np.atleast_1d(per_out_mse))
+    # For aggregated forms, sklearn computes per-output RMSE then averages.
+    per_out_mse = np.atleast_1d(
+        fast_mean_squared_error(
+            y_true, y_pred, sample_weight=sample_weight, multioutput="raw_values",
+        )
+    )
+    per_out_rmse = np.sqrt(per_out_mse)
+    return _aggregate_multioutput(per_out_rmse, multioutput)
+
+
+def fast_max_error(
+    y_true,
+    y_pred,
+    *,
+    multioutput: Union[str, np.ndarray] = "raw_values",
+):
+    """Drop-in for ``sklearn.metrics.max_error``. ~6× faster at N=1M.
+
+    sklearn's ``max_error`` raises on multioutput input; we extend with
+    ``multioutput`` support (default ``'raw_values'`` returns per-output
+    max). ``sample_weight`` does NOT apply to max-error (max is max).
+    """
+    yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
+    yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
+    if yt.ndim == 1:
+        return _fast_max_error_seq(yt, yp)
+    yt2 = _to_2d(yt)
+    yp2 = _to_2d(yp)
+    M = yt2.shape[1]
+    per_out = np.empty(M, dtype=np.float64)
+    for j in range(M):
+        per_out[j] = _fast_max_error_seq(
+            np.ascontiguousarray(yt2[:, j]),
+            np.ascontiguousarray(yp2[:, j]),
+        )
+    return _aggregate_multioutput(per_out, multioutput)
+
+
+def fast_r2_score(
+    y_true,
+    y_pred,
+    *,
+    sample_weight=None,
+    multioutput: Union[str, np.ndarray] = "uniform_average",
+):
+    """Drop-in for ``sklearn.metrics.r2_score``. 23× faster at N=1M with
+    full sample_weight + multioutput support, including
+    ``'variance_weighted'`` aggregation."""
+    yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
+    yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
+    if sample_weight is not None:
+        w = np.ascontiguousarray(np.asarray(sample_weight), dtype=np.float64)
+    else:
+        w = None
+
+    if yt.ndim == 1:
+        n = yt.shape[0]
+        if w is None:
+            return _fast_r2_score_par(yt, yp) if n >= _PARALLEL_REDUCTION_THRESHOLD else _fast_r2_score_seq(yt, yp)
+        return _fast_r2_score_weighted_par(yt, yp, w) if n >= _PARALLEL_REDUCTION_THRESHOLD else _fast_r2_score_weighted_seq(yt, yp, w)
+
+    yt2 = _to_2d(yt)
+    yp2 = _to_2d(yp)
+    n = yt2.shape[0]
+    M = yt2.shape[1]
+    per_out = np.empty(M, dtype=np.float64)
+    use_par = n >= _PARALLEL_REDUCTION_THRESHOLD
+    for j in range(M):
+        col_yt = np.ascontiguousarray(yt2[:, j])
+        col_yp = np.ascontiguousarray(yp2[:, j])
+        if w is None:
+            per_out[j] = _fast_r2_score_par(col_yt, col_yp) if use_par else _fast_r2_score_seq(col_yt, col_yp)
+        else:
+            per_out[j] = _fast_r2_score_weighted_par(col_yt, col_yp, w) if use_par else _fast_r2_score_weighted_seq(col_yt, col_yp, w)
+
+    if isinstance(multioutput, str) and multioutput == "variance_weighted":
+        # Per-output variance of y_true (weighted if w supplied).
+        ss_tots = np.empty(M, dtype=np.float64)
+        for j in range(M):
+            col_yt = np.ascontiguousarray(yt2[:, j])
+            if w is None:
+                ss_tots[j] = _fast_r2_variance_seq(col_yt)
+            else:
+                # Weighted variance = SS_tot_w / sum(w). The relative
+                # weights are what matters for the average; using SS_tot
+                # directly preserves the proportions sklearn uses.
+                wsum = float(w.sum())
+                wmean = float((col_yt * w).sum() / wsum)
+                ss_tots[j] = float(((col_yt - wmean) ** 2 * w).sum())
+        if ss_tots.sum() == 0.0:
+            # Degenerate: all outputs constant. sklearn returns 0.0
+            # when all SS_tot are zero (otherwise raises).
+            return 0.0
+        return float(np.average(per_out, weights=ss_tots))
+
+    return _aggregate_multioutput(per_out, multioutput)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)

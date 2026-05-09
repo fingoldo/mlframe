@@ -398,31 +398,21 @@ def report_regression_model_perf(
     if isinstance(targets, pd.Series):
         targets = targets.values
 
-    # Use fast (numba) helpers on the 1-D float path (the common case);
-    # multioutput / non-float / sample_weight paths still hit sklearn.
+    # 2026-05-09: numba fast helpers now cover full sklearn signature
+    # (1-D / 2-D, sample_weight, multioutput) so all regression metric
+    # call sites here go through the fast path. 6-23x faster than
+    # sklearn at production size.
     targets_arr = np.asarray(targets)
     preds_arr = np.asarray(preds)
-    _is_1d_float = (
-        targets_arr.ndim == 1 and preds_arr.ndim == 1
-        and targets_arr.dtype.kind == "f" and preds_arr.dtype.kind == "f"
-    )
-    if _is_1d_float:
-        MAE = fast_mean_absolute_error(targets_arr, preds_arr)
-    else:
-        MAE = mean_absolute_error(y_true=targets, y_pred=preds)
-    # sklearn's max_error refuses multioutput targets (2-D y) -- it only
-    # supports a single output. Multilabel-classification + linear regressor
-    # routes (N, K) targets through this regression report; compute per-output
-    # max-error and report the worst, matching the metric's intent.
     if targets_arr.ndim > 1 and targets_arr.shape[1] > 1:
-        # 2026-04-28 (batch 4): WARN-loud when this band-aid path fires.
-        # Multilabel classification SHOULD route to
+        # 2026-04-28 (batch 4): WARN-loud when this multioutput path
+        # fires. Multilabel classification SHOULD route to
         # ``report_probabilistic_model_perf`` via the
         # ``is_classifier(model)`` dispatch upstream; (N, K) reaching the
         # regression path means a classifier-mixin wasn't recognised
         # (likely a model wrapped in something that strips
-        # ClassifierMixin). The downstream metrics will still compute
-        # per-output, but the dispatch root cause needs fixing.
+        # ClassifierMixin). Fast helpers now compute per-output
+        # correctly, but the dispatch root cause still needs fixing.
         logger.warning(
             "report_regression_model_perf received a multioutput target "
             "(shape=%s); this almost certainly indicates an upstream "
@@ -432,17 +422,13 @@ def report_regression_model_perf(
             "instead.",
             targets_arr.shape,
         )
-        MaxError = float(np.max(np.abs(targets_arr - preds_arr)))
-    elif _is_1d_float:
-        MaxError = fast_max_error(targets_arr, preds_arr)
-    else:
-        MaxError = max_error(y_true=targets, y_pred=preds)
-    if _is_1d_float:
-        R2 = fast_r2_score(targets_arr, preds_arr)
-        RMSE = fast_root_mean_squared_error(targets_arr, preds_arr)
-    else:
-        R2 = r2_score(y_true=targets, y_pred=preds)
-        RMSE = root_mean_squared_error(y_true=targets, y_pred=preds)
+    MAE = fast_mean_absolute_error(targets_arr, preds_arr)
+    # 2-D max_error returns per-output array; the existing reporting
+    # contract is a single scalar (overall max), so reduce explicitly.
+    _max_err = fast_max_error(targets_arr, preds_arr)
+    MaxError = float(np.max(_max_err)) if isinstance(_max_err, np.ndarray) else _max_err
+    R2 = fast_r2_score(targets_arr, preds_arr)
+    RMSE = fast_root_mean_squared_error(targets_arr, preds_arr)
 
     current_metrics = dict(
         MAE=MAE,
