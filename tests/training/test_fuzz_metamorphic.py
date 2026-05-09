@@ -48,16 +48,52 @@ from .shared import SimpleFeaturesAndTargetsExtractor
 # dropping features), not 0.01-AUC wobble.
 _CLF_AUC_TOLERANCE = 0.15  # |Δ roc_auc|
 _REG_R2_TOLERANCE = 0.20  # |Δ r2|
+_LTR_NDCG_TOLERANCE = 0.15  # |Δ ndcg@10|; same range as AUC (0..1)
+
+
+_LTR_RANKER_FLAVORS = ("cb", "xgb", "lgb", "mlp", "ensemble")
 
 
 def _extract_primary_val_metric(trained: dict) -> float | None:
     """Return the first non-NaN val metric found in the nested trained dict.
 
-    Classification → roc_auc from the first class. Regression → R² if
-    reported, else mean(abs(val_preds)) as a fallback signal.
+    Three known shapes:
+
+    * Classification (binary / multiclass / multilabel) → roc_auc from the
+      first class slot in the nested ``{tt: {tname: [entry, ...]}}``
+      structure produced by ``train_mlframe_models_suite``.
+    * Regression → R² from the same shape (flat val dict).
+    * Learning-to-rank → ``ndcg@10`` from the
+      ``{flavor: {"val_metrics": {"ndcg@10": ...}}}`` shape that
+      ``train_mlframe_ranker_suite`` returns. Used as the metamorphic
+      stability metric just like roc_auc / R² above.
     """
     if not isinstance(trained, dict):
         return None
+
+    # LTR ranker_suite shape: top-level keys are model flavors, each value
+    # has 'val_metrics' / 'test_metrics' dicts with keys like 'ndcg@10'.
+    # Detect by sniffing for that shape before falling through to the
+    # classifier/regressor structure.
+    if any(k in trained for k in _LTR_RANKER_FLAVORS):
+        for flavor in _LTR_RANKER_FLAVORS:
+            entry = trained.get(flavor)
+            if not isinstance(entry, dict):
+                continue
+            val_metrics = entry.get("val_metrics")
+            if not isinstance(val_metrics, dict):
+                continue
+            # Prefer ndcg@10, then any ndcg@*, then map@*, then mrr.
+            for preferred in ("ndcg@10", "ndcg@5", "ndcg@1"):
+                v = val_metrics.get(preferred)
+                if v is not None and np.isfinite(v):
+                    return float(v)
+            for k, v in val_metrics.items():
+                if isinstance(k, str) and (k.startswith("ndcg@") or k.startswith("map@") or k == "mrr"):
+                    if v is not None and np.isfinite(v):
+                        return float(v)
+        # Sniff matched but no usable metric: fall through to None.
+
     for tt, by_name in trained.items():
         if not isinstance(by_name, dict):
             continue
@@ -166,7 +202,28 @@ def _run_suite(combo: FuzzCombo, df, target_col: str, tmp_path) -> dict:
 
 
 def _tolerance_for(combo: FuzzCombo) -> float:
-    return _REG_R2_TOLERANCE if combo.target_type == "regression" else _CLF_AUC_TOLERANCE
+    if combo.target_type == "regression":
+        return _REG_R2_TOLERANCE
+    if combo.target_type == "learning_to_rank":
+        return _LTR_NDCG_TOLERANCE
+    return _CLF_AUC_TOLERANCE
+
+
+def _no_signal(combo: FuzzCombo, m_base: float, m_perturbed: float) -> bool:
+    """Return True when the metric pair indicates a near-random base model;
+    metamorphic stability claims are then meaningless and we skip rather
+    than fail. Per-target-type thresholds reflect the metric's range:
+
+    * regression: R² < 0 ⇒ worse than mean predictor → no signal
+    * binary/multi*: |AUC - 0.5| < 0.05 ⇒ near-coin-flip
+    * LTR: NDCG@10 < 0.25 ⇒ near-random (≥0.5 is achievable on synthetic
+      4-graded relevance with a real ranker)
+    """
+    if combo.target_type == "regression":
+        return m_base < 0.0 or m_perturbed < 0.0
+    if combo.target_type == "learning_to_rank":
+        return m_base < 0.25 or m_perturbed < 0.25
+    return abs(m_base - 0.5) < 0.05 or abs(m_perturbed - 0.5) < 0.05
 
 
 # ---------------------------------------------------------------------------
@@ -261,11 +318,12 @@ def test_metamorphic_column_rename_invariance(combo: FuzzCombo, tmp_path):
     if m_base is None or m_renamed is None:
         pytest.skip("no val metric produced; metamorphic check not applicable")
 
-    # See note in test_metamorphic_duplicate_rows_stable: skip when base lacks signal.
-    if combo.target_type == "regression" and (m_base < 0.0 or m_renamed < 0.0):
-        pytest.skip(f"base/renamed R^2 indicates non-learning model (base={m_base:.3f}, renamed={m_renamed:.3f})")
-    if combo.target_type != "regression" and (abs(m_base - 0.5) < 0.05 or abs(m_renamed - 0.5) < 0.05):
-        pytest.skip(f"base/renamed AUC near 0.5 (no signal); metamorphic check not meaningful")
+    if _no_signal(combo, m_base, m_renamed):
+        pytest.skip(
+            f"base/renamed metric lacks signal "
+            f"({combo.target_type}: base={m_base:.3f}, renamed={m_renamed:.3f}); "
+            f"metamorphic check not meaningful"
+        )
 
     tol = _tolerance_for(combo)
     assert abs(m_base - m_renamed) <= tol, (
@@ -332,16 +390,12 @@ def test_metamorphic_duplicate_rows_stable(combo: FuzzCombo, tmp_path):
     if m_base is None or m_dup is None:
         pytest.skip("no val metric produced; metamorphic check not applicable")
 
-    # Skip when the base model has essentially no signal: stability claims about
-    # a near-random predictor are meaningless. Random-noise-driven local minima
-    # (n=300 regression with hgb+lgb routinely lands at R^2<0 base / 0.4 dup or
-    # vice-versa from a 5% perturbation) trip the tolerance without indicating
-    # a real bug. The test's intent is "did a learned model become unstable",
-    # not "did a non-learner stay non-learning".
-    if combo.target_type == "regression" and (m_base < 0.0 or m_dup < 0.0):
-        pytest.skip(f"base/dup R^2 indicates non-learning model (base={m_base:.3f}, dup={m_dup:.3f})")
-    if combo.target_type != "regression" and (abs(m_base - 0.5) < 0.05 or abs(m_dup - 0.5) < 0.05):
-        pytest.skip(f"base/dup AUC near 0.5 (no signal); metamorphic check not meaningful")
+    if _no_signal(combo, m_base, m_dup):
+        pytest.skip(
+            f"base/dup metric lacks signal "
+            f"({combo.target_type}: base={m_base:.3f}, dup={m_dup:.3f}); "
+            f"metamorphic check not meaningful"
+        )
 
     tol = _tolerance_for(combo)
     assert abs(m_base - m_dup) <= tol, (
