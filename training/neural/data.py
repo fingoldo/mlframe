@@ -76,10 +76,21 @@ class TorchDataset(Dataset):
             # ``(target.shape != input.shape)``. Pure 1-D labels
             # (regression / single-label classification) keep their
             # original shape via the ``_arr.ndim == 1`` no-op branch.
+            # 2026-05-09 (c0103): ``pl.DataFrame.to_numpy()`` on a
+            # single-column frame returns ``(N, 1)`` -- under default
+            # ``labels_dtype=int64`` cross_entropy then sees a 2-D Long
+            # target and errors with ``Expected floating point type for
+            # target with class probabilities, got Long``. Squeeze the
+            # trailing length-1 dim so single-label classification
+            # delivers ``(N,)`` regardless of whether the upstream
+            # carrier was a Series or a 1-col DataFrame. Genuine
+            # multilabel ``(N, K>=2)`` is unaffected.
             _arr = np.asarray(labels)
             if _arr.ndim == 1:
                 _arr = _arr.reshape(-1)  # explicit 1-D contiguous (no-op for already-1D)
-            # 2-D ndarray passes through; ndim>=3 untouched (caller's responsibility)
+            elif _arr.ndim == 2 and _arr.shape[1] == 1:
+                _arr = _arr.reshape(-1)  # collapse (N, 1) -> (N,) for single-label paths
+            # 2-D ndarray with K>=2 passes through; ndim>=3 untouched (caller's responsibility)
             self.labels = torch.tensor(_arr, dtype=labels_dtype, device=device)
             dataset_length = len(self.labels)
         else:

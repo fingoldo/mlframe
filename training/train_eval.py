@@ -382,9 +382,50 @@ def select_target(
         # contextual rates are appended downstream in _compute_split_metrics.
 
         def _binary_pos_rate(arr):
-            if arr is None or arr.size == 0:
+            """Robust binary-positive-rate computation.
+
+            Round-2026-05-09: hardened against object-arrays of arrays
+            (some LTR / hybrid target shapes hand back ``np.array([np.array([...]),
+            ...], dtype=object)`` so naive ``arr == 1`` comparisons
+            broadcast per-cell into nested bool arrays, and the outer
+            comparison trips ``ValueError: truth value of an array
+            with more than one element is ambiguous``). Surfaced by
+            metamorphic-test fuzz combo c0103 (hgb_mlp pl_utf8 n5000).
+            """
+            if arr is None:
                 return None
-            return float((arr == 1).sum()) / arr.size
+            # Coerce to a 1-D numeric numpy array. ``ravel()`` flattens
+            # any (n, 1) / (n,) / (n, K) -- for multilabel-like 2D
+            # targets the rate is computed across all positions, which
+            # is the closest reasonable analog to "binary pos rate" on
+            # a non-strictly-binary target. The model_name suffix is
+            # only used for display; an inexact rate on edge target
+            # shapes is preferable to crashing the suite.
+            try:
+                if hasattr(arr, "to_numpy"):
+                    arr_np = arr.to_numpy()
+                else:
+                    arr_np = np.asarray(arr)
+                # If the array's dtype is object (e.g. nested arrays),
+                # try unwrapping one level. ``np.concatenate`` of an
+                # object-array of arrays gives a flat numeric array
+                # when the elements are array-like.
+                if arr_np.dtype == object and arr_np.size > 0 and isinstance(arr_np.flat[0], np.ndarray):
+                    arr_np = np.concatenate([np.asarray(a).ravel() for a in arr_np.ravel()])
+                arr_np = arr_np.ravel()
+                size = arr_np.size
+                if size == 0:
+                    return None
+                # Cast to numeric where possible; for non-numeric
+                # targets (e.g. string labels) the comparison is fine
+                # but ``==1`` returns an all-False array which is the
+                # correct semantic ("no row equals integer 1").
+                count = int(np.asarray(arr_np == 1, dtype=bool).sum())
+                return float(count) / size
+            except Exception:
+                # Defensive: never crash the suite from a display-only
+                # metric. Return None so the caller falls back.
+                return None
 
         train_perc = _binary_pos_rate(train_t)
 

@@ -89,15 +89,46 @@ def _extract_primary_val_metric(trained: dict) -> float | None:
     return None
 
 
+_COMBO_TT_TO_TARGET_TYPE = {
+    # combo.target_type (string from _fuzz_combo) → TargetTypes enum
+    # Required for non-binary/non-regression combos so the FTE
+    # (a) produces a correctly-shaped target ndarray (2-D for multilabel)
+    # and (b) the suite dispatches the right loss_fn / labels_dtype to MLP.
+    # Without this mapping, a multilabel ``List(Int8)`` polars column
+    # arrives at TorchDataset as ``(N, K)`` int64 under cross_entropy and
+    # crashes ("class probabilities, got Long"). Surfaced by c0103.
+    "multiclass_classification": "MULTICLASS_CLASSIFICATION",
+    "multilabel_classification": "MULTILABEL_CLASSIFICATION",
+    "learning_to_rank": "LEARNING_TO_RANK",
+}
+
+
+def _resolve_target_type_for_combo(combo: FuzzCombo):
+    """Map combo.target_type → TargetTypes enum value (or None for binary).
+
+    Binary classification and regression don't need an explicit target_type:
+    SimpleFeaturesAndTargetsExtractor resolves them from ``regression=...``.
+    """
+    from mlframe.training.configs import TargetTypes
+    if combo.target_type in ("binary_classification", "regression"):
+        return None
+    name = _COMBO_TT_TO_TARGET_TYPE.get(combo.target_type)
+    if name is None:
+        return None
+    return getattr(TargetTypes, name)
+
+
 def _run_suite(combo: FuzzCombo, df, target_col: str, tmp_path) -> dict:
     """Run the suite on the given frame; return trained dict. Reuses the
     combo's model/config choices but ignores its data — caller supplies
     the (possibly-mutated) frame."""
     from mlframe.training.core import train_mlframe_models_suite
 
+    target_type = _resolve_target_type_for_combo(combo)
     fte = SimpleFeaturesAndTargetsExtractor(
         target_column=target_col,
         regression=(combo.target_type == "regression"),
+        target_type=target_type,
     )
     # iterations=5 left models under-converged on n=300, so a 5% row-duplication
     # perturbation could flip R^2 from negative (worse than mean predictor) to
@@ -113,7 +144,7 @@ def _run_suite(combo: FuzzCombo, df, target_col: str, tmp_path) -> dict:
     if "lgb" in combo.models:
         hyper["lgb_kwargs"] = {"device_type": "cpu", "verbose": -1}
 
-    trained, _ = train_mlframe_models_suite(
+    suite_kwargs: dict[str, Any] = dict(
         df=df,
         target_name=combo.short_id() + "_mm",
         model_name=combo.short_id() + "_mm",
@@ -124,6 +155,9 @@ def _run_suite(combo: FuzzCombo, df, target_col: str, tmp_path) -> dict:
         output_config=OutputConfig(data_dir=tmp_path, models_dir="models"),
         verbose=0,
     )
+    if target_type is not None:
+        suite_kwargs["target_type"] = target_type
+    trained, _ = train_mlframe_models_suite(**suite_kwargs)
     return trained
 
 
