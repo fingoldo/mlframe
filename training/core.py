@@ -1935,6 +1935,7 @@ def train_mlframe_models_suite(
 
         # Hyperparams from hyperparams_config if provided.
         _iter, _lr, _es = 200, 0.1, 30
+        _mlp_kwargs = None
         if hyperparams_config is not None:
             _iter = (
                 hyperparams_config.get("iterations", 200) if isinstance(hyperparams_config, dict)
@@ -1947,6 +1948,16 @@ def train_mlframe_models_suite(
             _es = (
                 hyperparams_config.get("early_stopping_rounds", 30) if isinstance(hyperparams_config, dict)
                 else getattr(hyperparams_config, "early_stopping_rounds", 30)
+            )
+            # mlp_kwargs forwarded to MLPRanker.__init__ when LTR + 'mlp'
+            # is in mlframe_models. Mirrors the non-LTR mlp_kwargs path
+            # via _configure_mlp_params; users who want to flip
+            # enable_checkpointing, change hidden_layers, etc. for the
+            # ranker MLP should put those keys in
+            # ``hyperparams_config["mlp_kwargs"]``.
+            _mlp_kwargs = (
+                hyperparams_config.get("mlp_kwargs", None) if isinstance(hyperparams_config, dict)
+                else getattr(hyperparams_config, "mlp_kwargs", None)
             )
 
         # Reporting wiring (auto-emit LTR panel grid per (model, split)).
@@ -1989,6 +2000,7 @@ def train_mlframe_models_suite(
             plot_file=_plot_file,
             plot_outputs=_plot_outputs,
             ltr_panels=_ltr_panels,
+            mlp_kwargs=_mlp_kwargs,
         )
 
     # Validate required parameters

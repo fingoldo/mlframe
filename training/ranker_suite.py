@@ -101,6 +101,7 @@ def train_mlframe_ranker_suite(
     plot_file: Optional[str] = None,
     plot_outputs: Optional[str] = None,
     ltr_panels: Optional[str] = None,
+    mlp_kwargs: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Train a suite of native rankers + (optionally) ensemble them.
 
@@ -401,6 +402,12 @@ def train_mlframe_ranker_suite(
         strategy = _strategy_for_model(flavor)
         iter_kw = "iterations" if flavor == "cb" else "n_estimators"
         model_kwargs = {iter_kw: iterations, "learning_rate": learning_rate}
+        # MLPRanker-specific knobs (e.g. enable_checkpointing,
+        # hidden_layers, dropout) are forwarded only for the mlp
+        # flavor; for cb / xgb / lgb they would be unknown init
+        # kwargs and raise a TypeError.
+        if flavor == "mlp" and mlp_kwargs:
+            model_kwargs.update(mlp_kwargs)
         if verbose >= 2:
             logger.info("Training %s ranker...", flavor)
         fitted = fit_ranker(

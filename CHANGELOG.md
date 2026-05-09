@@ -1,5 +1,58 @@
 # Changelog
 
+## 2026-05-09 — MLPRanker.fit: 19.6% wall-time reduction + softplus ranknet
+
+Driven by a deep cProfile of LTR combo c0136 (lgb + mlp, n=300) which
+identified Lightning's default ModelCheckpoint + per-step
+``self.log("train_loss")`` as the dominant non-loss overhead inside
+``Trainer.fit``. Two minimal, opt-out-able changes; one cleanup.
+
+### Changed
+
+- **`training/neural/ranker.py:MLPRankerLightningModule.training_step`**
+  --- removed ``self.log("train_loss", ...)``. Nothing in the suite
+  reads it (val_loss drives EarlyStopping; ranking metrics are
+  computed from per-row ``predict`` scores in ``ranker_suite.py``),
+  and Lightning's metric-tracker hook chain per step was a
+  measurable per-step tax. ``self.log("val_loss")`` is unchanged
+  because EarlyStopping requires it.
+- **`training/neural/ranker.py:ranknet_pairwise_loss`** --- rewritten
+  via ``F.softplus(-score_diff[pair_mask]).mean()``. BCE-with-logits
+  at target=1 reduces to softplus(-x), so the (N, N)
+  ``torch.ones_like`` target allocation + boolean gather of the BCE
+  output is replaced by a 1-D softplus on the masked diff vector.
+  Same gradients (verified to ~3e-8 max-abs over random queries),
+  two fewer lines, one fewer (N, N) allocation per call.
+  Wall-time-neutral on a realistic LTR pipeline; kept for clarity.
+
+### Added
+
+- **`MLPRanker.__init__(enable_checkpointing=False)`** --- exposes
+  Lightning's ``Trainer(enable_checkpointing=...)`` to direct
+  callers. Defaulting to ``False`` skips the per-epoch
+  ``ModelCheckpoint`` write that ``ranker_suite`` doesn't read
+  (suite serialises models via joblib at the end of fit) AND
+  silences the ``"Checkpoint directory ... is not empty"`` warning.
+  Set to ``True`` if you need resume-capable Lightning checkpoints.
+- **`train_mlframe_ranker_suite(mlp_kwargs=...)`** + propagation from
+  ``train_mlframe_models_suite`` via
+  ``hyperparams_config["mlp_kwargs"]``. Mirrors the non-LTR
+  ``mlp_kwargs`` path in ``_configure_mlp_params``: kwargs land on
+  ``MLPRanker.__init__`` only when flavor is ``"mlp"``, so they
+  don't leak into CB / XGB / LGB ranker init (which would raise
+  ``TypeError: unexpected keyword argument``).
+
+### Verified
+
+- 18/18 PASS in ``tests/training/test_mlp_ranker.py`` (111s vs 140s
+  pre-change; -20% wall, matches the dedicated A/B benchmark).
+- Wall-time A/B (5 runs each, n=300 LTR + n_estimators=20):
+  pre-change 4650 +- 96 ms, post-change 3740 +- 98 ms; saved
+  910 ms / 19.6% per fit.
+- End-to-end smoke: ``hyperparams_config={"mlp_kwargs": {
+  "enable_checkpointing": True}}`` produces an ``epoch=0-step=21-vN
+  .ckpt`` under ``./checkpoints``; default produces none.
+
 ## 2026-05-09 — Metamorphic fuzz hardening: c0103 + LTR coverage
 
 Three real framework bugs surfaced during the post-Phase-Q metamorphic

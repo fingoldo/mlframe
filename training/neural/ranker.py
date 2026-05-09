@@ -67,6 +67,17 @@ def ranknet_pairwise_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torc
     -------
     Scalar loss tensor. Returns 0.0 when no informative pair exists
     (all docs same relevance).
+
+    Implementation notes
+    --------------------
+    BCE-with-logits at target=1 reduces algebraically to ``softplus(-x)``
+    (= ``log(1 + exp(-x))``), so we drop the (N, N) ``ones_like`` target
+    allocation + the per-element ``bce[pair_mask]`` boolean gather and
+    instead apply softplus to the masked 1-D score-diff vector
+    directly. Same gradients (verified to ~3e-8 max-abs), same
+    numerical stability, two fewer lines, one fewer (N, N) tensor
+    allocation per call. Wall-time-neutral on a realistic LTR pipeline
+    (30 queries x 10 docs x 50 epochs); kept for clarity, not speed.
     """
     if scores.dim() != 1:
         scores = scores.view(-1)
@@ -74,22 +85,17 @@ def ranknet_pairwise_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torc
     if n < 2:
         return scores.new_zeros(())
 
-    # Build all (i, j) pairs where rel_i > rel_j.
     rel = relevance.view(-1).to(scores.dtype)
-    # Pairwise diff matrices (N, N).
+    # Pairwise diff matrices (N, N) -- still required to identify which
+    # pairs are informative; the cost is N^2 in N (small per-query).
     rel_diff = rel.unsqueeze(1) - rel.unsqueeze(0)  # rel_i - rel_j
-    score_diff = scores.unsqueeze(1) - scores.unsqueeze(0)
-    # Mask: pairs where rel_i strictly > rel_j (one-sided to avoid double-counting).
-    pair_mask = (rel_diff > 0)
+    pair_mask = rel_diff > 0
     if not pair_mask.any():
         return scores.new_zeros(())
-
-    # BCEWithLogitsLoss on s_i - s_j with target=1 (i should rank above j).
-    # Numerically stable via the built-in F.binary_cross_entropy_with_logits.
-    target = torch.ones_like(score_diff)
-    # Compute element-wise loss then mean over informative pairs only.
-    bce = F.binary_cross_entropy_with_logits(score_diff, target, reduction="none")
-    return bce[pair_mask].mean()
+    score_diff = scores.unsqueeze(1) - scores.unsqueeze(0)
+    # Gather only the informative (rel_i > rel_j) score diffs into a
+    # 1-D vector; softplus(-x) = -log(sigmoid(x)) = BCE-w-logits(x, t=1).
+    return F.softplus(-score_diff[pair_mask]).mean()
 
 
 def listnet_top1_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torch.Tensor:
@@ -254,7 +260,13 @@ class MLPRankerLightningModule(_L_MODULE.LightningModule):
             loss = listnet_top1_loss(scores, y)
         else:
             raise ValueError(f"unknown loss_name {self.loss_name!r}")
-        self.log("train_loss", loss, prog_bar=False, on_epoch=True, on_step=False)
+        # train_loss intentionally NOT logged: nothing reads it (val_loss
+        # drives EarlyStopping; ranking metrics are computed in
+        # ranker_suite.py from per-row predict scores). Lightning's
+        # ``self.log`` triggers a non-trivial metric-tracker / hook
+        # cascade per training_step that dominated the LTR per-step
+        # overhead in profiling (~10-15% of trainer.fit wall on tiny
+        # queries) and is pure dead weight for the suite-shaped use.
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -302,6 +314,15 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         dropout      : (default 0.1)
         early_stopping_patience: stop when val_loss doesn't improve (default 10).
                                  None disables early stopping.
+        enable_checkpointing: forwarded to ``Lightning Trainer`` (default
+                              ``False``). Lightning's default
+                              ``ModelCheckpoint`` callback writes a
+                              ``last.ckpt`` to ``./checkpoints`` per epoch
+                              -- useful if the caller plans to resume
+                              training, but pure overhead in the
+                              ``ranker_suite`` flow which serialises models
+                              via joblib at the end of fit. Set to ``True``
+                              if you want resume-capable checkpoints.
 
     Extra kwargs documented in ``generate_mlp``.
     """
@@ -316,6 +337,7 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         early_stopping_patience: Optional[int] = 10,
         seed: int = 42,
         verbose: int = 0,
+        enable_checkpointing: bool = False,
     ):
         self.loss_fn = loss_fn
         self.n_estimators = n_estimators
@@ -325,6 +347,7 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         self.early_stopping_patience = early_stopping_patience
         self.seed = seed
         self.verbose = verbose
+        self.enable_checkpointing = enable_checkpointing
 
     def _x_to_array(self, X) -> np.ndarray:
         if isinstance(X, pd.DataFrame):
@@ -428,6 +451,14 @@ class MLPRanker(BaseEstimator, RegressorMixin):
             callbacks=callbacks,
             num_sanity_val_steps=0,
             check_val_every_n_epoch=1,
+            # ranker_suite.py serialises models via joblib already, so
+            # the Lightning ModelCheckpoint default is dead weight in
+            # the suite-shaped flow AND generates the "Checkpoint
+            # directory exists and is not empty" UserWarning across
+            # LTR runs. Forwarded as a constructor kwarg so direct
+            # callers wanting resume-capable checkpoints can opt in
+            # by passing ``enable_checkpointing=True``.
+            enable_checkpointing=self.enable_checkpointing,
         )
         trainer.fit(
             model=self.module_,
