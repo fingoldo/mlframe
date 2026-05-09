@@ -94,11 +94,15 @@ def plot_feature_importance(
         if show_plots:
             plt.ion()
             plt.show()
-        else:
-            # Previously only the last-assigned fig was closed — the
-            # top-FI figure leaked whenever the BOTTOM branch also fired.
-            for f in figs:
-                plt.close(f)
+        # Close ALL figs (top + bottom) unless inside an IPython /
+        # Jupyter kernel where the inline display already rendered
+        # them. Previously only the last-assigned fig was closed in
+        # the ``not show_plots`` branch (top-FI leaked whenever the
+        # bottom branch also fired) AND the ``show_plots=True`` path
+        # never closed anything (suite-default leak per fit). 2026-
+        # 05-09 leak fix; helper unifies the detection across modules.
+        from mlframe.metrics import _close_unless_interactive
+        _close_unless_interactive(figs, was_shown=show_plots)
 
     return df
 

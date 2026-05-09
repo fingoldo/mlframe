@@ -1,5 +1,59 @@
 # Changelog
 
+## 2026-05-09 — Matplotlib figure-leak fix: -24.8% wall on plot-heavy fits
+
+Surfaced by a profile cycle (seed=51) on c0104 (hgb+mlp multilabel
+pandas n=300). After cold-start GPU init was paid, 55% of warm
+suite-call wall was ``fast_calibration_report`` ->
+``show_calibration_plot`` with 12 calls × ~178 ms. A
+figure-creator trace pinpointed all 12 figures coming from one
+``plt.subplots`` site that left the figures alive in pyplot's
+registry, accumulating across the 12+ cal-plot calls per
+multilabel fit and tripping ``UserWarning: More than 20 figures
+have been opened`` plus a real per-fit slowdown.
+
+### Fixed
+
+- **`mlframe.metrics.show_calibration_plot`** -- closed the figure
+  in the ``show_plots=True`` path. Previously only the
+  ``show_plots=False`` path called ``plt.close``; the default
+  ``show_plots=True`` ran ``plt.ion(); plt.show()`` and left the
+  figure open.
+- **`mlframe.feature_importance.plot_feature_importances`** --
+  closed BOTH (top + bottom) figs in all paths. Previously the
+  ``show_plots=False`` branch only closed the last-assigned fig
+  (top-FI leak when the bottom branch fired); the
+  ``show_plots=True`` branch never closed anything (suite-default
+  leak per fit).
+- **`mlframe.training.evaluation`** (regression perf chart) --
+  same close-after-show pattern.
+
+### Added
+
+- **`mlframe.metrics._close_unless_interactive(figs, was_shown)`** --
+  shared helper. Detects a true IPython / Jupyter kernel via the
+  ``__IPYTHON__`` builtin (set only by an active
+  ``IPython.core.interactiveshell``) and falls back to ``hasattr(
+  sys, "ps1")`` for the bare REPL. Avoids the naive ``"IPython"
+  in sys.modules`` heuristic which gives false positives because
+  matplotlib + many ML libraries drag IPython into ``sys.modules``
+  transitively even in plain Python scripts (the false positive
+  is what made the first close-fix attempt silently no-op). When
+  inside a kernel AND ``was_shown=True``, the figure is left
+  alive so the inline display preserves the rendered output;
+  otherwise the figure is closed immediately.
+
+### Verified
+
+- ``find_fig_leak.py`` instrumentation: ``final n_open_figs: 12 -> 0``
+  on c0104 multilabel fit.
+- ``bench_calplot_close.py`` (5 fits each, fresh process):
+    pre-fix:  3027 +- 828 ms per fit
+    post-fix: 2275 +- 185 ms per fit
+    saved:    752 ms / 24.8% per fit; stdev 4.5x tighter.
+- ``test_mlp_ranker.py`` (18) + ``test_fuzz_metamorphic.py`` (8 + 2
+  expected non-learning regression skips) = **26 passed, 2 skipped**.
+
 ## 2026-05-09 — fuzz-3way: 20/20 PASS via polars-ds mode-imputer fallback
 
 Surfaced by the broader pairwise + 3-way fuzz coverage cycle (in

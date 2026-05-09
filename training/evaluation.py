@@ -568,8 +568,13 @@ def report_regression_model_perf(
             if show_perf_chart:
                 plt.ion()
                 plt.show()
-            else:
-                plt.close(fig)
+            # 2026-05-09 leak fix (regression perf chart): close the
+            # figure unless inside an IPython / Jupyter kernel where
+            # the inline display already rendered it. Previously the
+            # default ``show_perf_chart=True`` path leaked one figure
+            # per train/val/test report per regression fit.
+            from mlframe.metrics import _close_unless_interactive
+            _close_unless_interactive(fig, was_shown=show_perf_chart)
 
     if print_report:
         print(report_title + " " + model_name)

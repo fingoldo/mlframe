@@ -3,6 +3,7 @@
 # ----------------------------------------------------------------------------------------------------------------------------
 
 import logging
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -1378,6 +1379,53 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     return freqs_predicted, freqs_true, hits
 
 
+def _close_unless_interactive(figs, was_shown: bool) -> None:
+    """Close one or more matplotlib figures unless we're running inside a
+    real IPython / Jupyter kernel.
+
+    Parameters
+    ----------
+    figs : Figure or iterable of Figures
+        The figure(s) to potentially close. ``None`` and empty iterables
+        are silently ignored.
+    was_shown : bool
+        Whether the caller already ran ``plt.ion(); plt.show()``. When
+        ``False`` we always close (caller decided not to display); when
+        ``True`` we close only outside an interactive Python kernel
+        (the Jupyter / IPython inline backends register the figure with
+        their display hooks during ``plt.show()``, so closing right
+        after preserves the inline render).
+
+    Detection: a true IPython kernel sets the ``__IPYTHON__`` builtin;
+    the bare REPL sets ``sys.ps1``. The naive ``"IPython" in
+    sys.modules`` heuristic is unreliable -- matplotlib + many ML
+    libraries drag IPython into ``sys.modules`` as a transitive
+    dependency even from plain Python scripts, giving false positives
+    that cause figures to leak across the training-suite calls (~12
+    cal-plots / fit, tripping the matplotlib ``More than 20 figures
+    have been opened`` warning + a real per-fit slowdown).
+
+    Background: 2026-05-09 leak fix on top of show_calibration_plot;
+    extracted as a helper after the same pattern was needed in
+    feature_importance.py and training/evaluation.py.
+    """
+    try:
+        is_interactive = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+    except NameError:
+        is_interactive = hasattr(sys, "ps1")
+    if is_interactive and was_shown:
+        return  # let the kernel's inline display keep the rendered figure
+    # Either we never showed (no display happened), OR we're in a
+    # script / GUI session where leaving figures alive just leaks them.
+    if figs is None:
+        return
+    if hasattr(figs, "savefig"):  # single Figure
+        plt.close(figs)
+        return
+    for f in figs:
+        plt.close(f)
+
+
 def show_calibration_plot(
     freqs_predicted: np.ndarray,
     freqs_true: np.ndarray,
@@ -1603,11 +1651,28 @@ def show_calibration_plot(
         if plot_file:
             fig.savefig(plot_file)
 
+        # 2026-05-09: ``show_plots=True`` previously ran ``plt.ion();
+        # plt.show()`` and left the figure open. In an automated /
+        # headless / fuzz / CI run (no REPL, no Jupyter kernel),
+        # ``plt.show()`` is either a no-op (Agg canvas, with
+        # ``UserWarning: FigureCanvasAgg is non-interactive``) or
+        # opens an unowned Qt window the script cannot dismiss; in
+        # both cases the figure stayed alive in pyplot's registry,
+        # accumulating across the 12+ cal-plot calls per multilabel
+        # fit and tripping ``More than 20 figures have been opened``
+        # plus a real per-fit slowdown (each new ``plt.subplots`` has
+        # to track all live figures). Detect interactive consumer
+        # (Python REPL / IPython / Jupyter kernel) by ``sys.ps1`` and
+        # ``IPython`` in ``sys.modules``; if neither is present, close
+        # the figure right after the (no-op or fire-and-forget)
+        # ``plt.show()``. Inline-display backends (Jupyter inline
+        # ``%matplotlib inline``, ipympl) register the figure with the
+        # display hooks during ``plt.show()`` BEFORE we close it, so
+        # the rendered output is preserved.
         if show_plots:
             plt.ion()
             plt.show()
-        else:
-            plt.close(fig)
+        _close_unless_interactive(fig, was_shown=show_plots)
 
     else:
 
