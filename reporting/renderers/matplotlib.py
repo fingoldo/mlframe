@@ -178,11 +178,23 @@ class MatplotlibRenderer:
         ax.set_yticks(range(len(p.row_labels)))
         ax.set_yticklabels(p.row_labels, fontsize=8)
         if p.cell_text is not None:
-            for i in range(p.matrix.shape[0]):
-                for j in range(p.matrix.shape[1]):
+            from mlframe.reporting.colors import auto_text_color
+            # Compute global vmin / vmax so each cell's text color reflects
+            # its position in the actual color range — naive
+            # ``< 0.5`` threshold fails when the matrix range is e.g.
+            # [0.3, 0.85] (all values map to the high-luminance end of
+            # the colormap and white text becomes invisible).
+            mat = p.matrix
+            vmin = float(np.nanmin(mat))
+            vmax = float(np.nanmax(mat))
+            for i in range(mat.shape[0]):
+                for j in range(mat.shape[1]):
+                    text_color = auto_text_color(
+                        float(mat[i, j]), p.colormap, vmin=vmin, vmax=vmax,
+                    )
                     ax.text(j, i, format(p.cell_text[i, j], p.text_format),
                             ha="center", va="center", fontsize=7,
-                            color="black" if p.matrix[i, j] < 0.5 else "white")
+                            color=text_color)
         cbar = fig.colorbar(im, ax=ax)
         if p.colorbar_label:
             cbar.set_label(p.colorbar_label)

@@ -267,7 +267,13 @@ def report_model_perf(
             "report_regression_model_perf",
             n_rows=(len(targets) if hasattr(targets, '__len__') else None),
         ):
-            preds, probs = report_regression_model_perf(**common_params)
+            # 2026-05-09: thread plot_outputs explicitly so the regression
+            # report can pick the plotly DSL path. Probabilistic path
+            # uses plot_outputs differently (multi_target_panels at L277);
+            # regression's only consumer is the residual-diagnostics chart.
+            preds, probs = report_regression_model_perf(
+                **common_params, plot_outputs=plot_outputs,
+            )
 
     # 2026-05-08 PR2 wiring: render multiclass / multilabel / LTR panel
     # grids when the caller has supplied per-target_type templates +
@@ -334,6 +340,7 @@ def report_regression_model_perf(
     plot_sample_size: int = DEFAULT_PLOT_SAMPLE_SIZE,
     metrics: Optional[Dict[str, Any]] = None,
     n_features: Optional[int] = None,
+    plot_outputs: Optional[str] = None,
 ) -> Tuple[np.ndarray, None]:
     """
     Generate a detailed performance report for regression models.
@@ -498,83 +505,86 @@ def report_regression_model_perf(
                     f"skipping scatter plot -- per-output plotting would mix K clouds]"
                 )
         else:
-            # Local RNG -- do not pollute global numpy state. Cache by (n, size, seed)
-            # so repeated reports on the same prediction length reuse the sample.
-            idx = _get_cached_plot_idx(len(preds), plot_sample_size, DEFAULT_RANDOM_SEED)
-            idx = idx[np.argsort(preds[idx])]
-
-            # 2026-04-26 Session 7 batch 3: residual diagnostics. The
-            # original single-panel scatter is now the leftmost of three
-            # panels. The middle panel is a residual histogram with an
-            # overlaid fitted-Normal density (heavy tails, skew, and
-            # multimodality jump out visually). The right panel is
-            # residuals vs predicted (the funnel-shape signature of
-            # heteroscedasticity). The audit's text diagnostics + noise-
-            # distribution hypothesis are printed below the scatter
-            # via ``format_residual_audit_report``.
             from .regression_residual_audit import (
                 plot_residual_diagnostics as _plot_residual_diagnostics,
             )
             _audit = _residual_audit  # reuse pre-computed audit
 
-            # Three-panel figure: scatter | residuals histogram | residuals vs predicted.
-            # 2026-05-08: figure suptitle gets the model identity (was eating
-            # ~3 lines of the scatter's own title); scatter title shows ONLY
-            # the regression metrics (MAE/RMSE/MaxError/R2); residual
-            # hypothesis migrated entirely to the histogram subplot.
-            # 2026-05-08 perf: layout="constrained" instead of an
-            # explicit tight_layout(rect=...) call. tight_layout
-            # recomputes subplot positions from scratch on every chart
-            # (~430ms / call on c0089 80k-row regression × 32 charts =
-            # 13.8s wasted). constrained_layout caches its solver state
-            # and re-uses it across draws -- same visual result without
-            # the per-call recompute.
-            fig, axes = plt.subplots(
-                1, 3, figsize=(figsize[0] * 3 / 2, figsize[1]),
-                layout="constrained",
-            )
-            ax_scatter, ax_hist, ax_resid = axes
-
-            fig.suptitle(header_str, fontsize=11, y=0.995)
-
-            ax_scatter.scatter(
-                preds[idx], targets[idx], marker=plot_marker, alpha=0.3,
-            )
-            ax_scatter.plot(
-                preds[idx], preds[idx], linestyle="--", color="green",
-                label="Perfect fit",
-            )
-            ax_scatter.set_xlabel("Predictions")
-            ax_scatter.set_ylabel("True values")
-            ax_scatter.set_title(metrics_str)
-            ax_scatter.grid(True, alpha=0.3)
-            ax_scatter.legend(loc="best", fontsize=8, framealpha=0.7)
-
-            if _audit is not None:
+            # 2026-05-09: when ReportingConfig.plot_outputs is set
+            # (default ``"plotly[html,png]"``), bypass the inline
+            # matplotlib block and route through the FigureSpec / DSL
+            # pipeline so plotly + matplotlib emit per the user's
+            # config. The DSL builder lives at
+            # ``mlframe/reporting/charts/regression.py``.
+            if plot_outputs and plot_file and _audit is not None:
                 _plot_residual_diagnostics(
                     targets, preds, audit=_audit,
-                    ax_hist=ax_hist, ax_resid_vs_pred=ax_resid,
+                    plot_outputs=plot_outputs,
+                    base_path=plot_file,
+                    header_str=header_str,
+                    metrics_str=metrics_str,
+                    plot_sample_size=plot_sample_size,
+                    seed=DEFAULT_RANDOM_SEED,
                 )
             else:
-                ax_hist.set_visible(False)
-                ax_resid.set_visible(False)
+                # Legacy matplotlib-only path. Kept for callers that
+                # still want axes injection (e.g. notebooks composing
+                # the chart into a larger figure).
+                #
+                # Local RNG -- do not pollute global numpy state. Cache
+                # by (n, size, seed) so repeated reports on the same
+                # prediction length reuse the sample.
+                idx = _get_cached_plot_idx(len(preds), plot_sample_size, DEFAULT_RANDOM_SEED)
+                idx = idx[np.argsort(preds[idx])]
 
-            # constrained_layout (set on subplots above) handles spacing
-            # automatically -- no tight_layout() call needed.
+                # Three-panel figure: scatter | residuals histogram | residuals vs predicted.
+                # constrained_layout cached solver state -- ~13s saved
+                # vs tight_layout per-chart on multi-chart reports.
+                fig, axes = plt.subplots(
+                    1, 3, figsize=(figsize[0] * 3 / 2, figsize[1]),
+                    layout="constrained",
+                )
+                ax_scatter, ax_hist, ax_resid = axes
 
-            if plot_file:
-                fig.savefig(plot_file)
+                # 2026-05-09 fix: y=1.02 puts the suptitle ABOVE the
+                # axes region so constrained_layout auto-extends the
+                # top margin. Previously y=0.995 placed the suptitle
+                # inside the axes row, causing collision with the
+                # multiline subplot titles (hist/resid panels carry
+                # 2-line titles for hypothesis + heteroscedasticity).
+                fig.suptitle(header_str, fontsize=11, y=1.02)
 
-            if show_perf_chart:
-                plt.ion()
-                plt.show()
-            # 2026-05-09 leak fix (regression perf chart): close the
-            # figure unless inside an IPython / Jupyter kernel where
-            # the inline display already rendered it. Previously the
-            # default ``show_perf_chart=True`` path leaked one figure
-            # per train/val/test report per regression fit.
-            from mlframe.metrics import _close_unless_interactive
-            _close_unless_interactive(fig, was_shown=show_perf_chart)
+                ax_scatter.scatter(
+                    preds[idx], targets[idx], marker=plot_marker, alpha=0.3,
+                )
+                ax_scatter.plot(
+                    preds[idx], preds[idx], linestyle="--", color="green",
+                    label="Perfect fit",
+                )
+                ax_scatter.set_xlabel("Predictions")
+                ax_scatter.set_ylabel("True values")
+                ax_scatter.set_title(metrics_str)
+                ax_scatter.grid(True, alpha=0.3)
+                ax_scatter.legend(loc="best", fontsize=8, framealpha=0.7)
+
+                if _audit is not None:
+                    _plot_residual_diagnostics(
+                        targets, preds, audit=_audit,
+                        ax_hist=ax_hist, ax_resid_vs_pred=ax_resid,
+                    )
+                else:
+                    ax_hist.set_visible(False)
+                    ax_resid.set_visible(False)
+
+                if plot_file:
+                    fig.savefig(plot_file)
+
+                if show_perf_chart:
+                    plt.ion()
+                    plt.show()
+                # Leak fix: close unless interactive (Jupyter inline).
+                from mlframe.metrics import _close_unless_interactive
+                _close_unless_interactive(fig, was_shown=show_perf_chart)
 
     if print_report:
         print(report_title + " " + model_name)

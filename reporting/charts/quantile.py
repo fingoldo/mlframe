@@ -152,9 +152,16 @@ def _width_dist_panel(y_true, preds_NK, alphas) -> HistogramPanelSpec:
     """
     P = np.asarray(preds_NK, dtype=np.float64)
     widths = P[:, -1] - P[:, 0]
+    # Degenerate: all rows have the same width (e.g. linear quantile
+    # regressor that just adds a constant offset per alpha). numpy
+    # raises ``Too many bins for data range`` when bins>=2 and
+    # max==min. Clamp bins to a safe value -- numpy still emits a 1-bin
+    # histogram which renders as a single bar (faithful representation).
+    n_unique = int(np.unique(widths).size)
+    bins = min(30, max(1, n_unique))
     return HistogramPanelSpec(
         values=widths,
-        bins=30,
+        bins=bins,
         title=(
             f"Width(q_{alphas[-1]} - q_{alphas[0]}) "
             f"(mean={widths.mean():.3f}, max={widths.max():.3f})"

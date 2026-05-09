@@ -14,6 +14,7 @@ Save formats:
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any, List
 
 import numpy as np
@@ -161,14 +162,20 @@ class PlotlyRenderer:
                     row_specs.append({"type": "xy"})
             sub_specs.append(row_specs)
 
-        # Build subplot titles list (row-major).
+        # Build subplot titles list (row-major). Plotly's subplot_titles
+        # are HTML annotations — newlines need ``<br>`` instead of ``\n``,
+        # otherwise the linebreak character is dropped and 2-line panel
+        # titles render as one long string that bleeds into adjacent
+        # subplots horizontally (visible bug 2026-05-09 on regression
+        # chart with hypothesis + heteroscedasticity multiline titles).
         subplot_titles = []
         for row in spec.panels:
             for c in range(cols):
                 if c >= len(row) or row[c] is None:
                     subplot_titles.append("")
                 else:
-                    subplot_titles.append(getattr(row[c], "title", ""))
+                    raw_title = getattr(row[c], "title", "") or ""
+                    subplot_titles.append(raw_title.replace("\n", "<br>"))
 
         subplots_kwargs = dict(
             rows=rows, cols=cols,
@@ -187,6 +194,14 @@ class PlotlyRenderer:
 
         fig = make_subplots(**subplots_kwargs)
 
+        # 2026-05-09: shrink subplot-title font from plotly default (16)
+        # to match matplotlib's ~11. With three columns at the typical
+        # (18in, 4in) figsize, default-16 titles overflow horizontally
+        # into adjacent subplots (e.g. regression chart left-panel title
+        # "MAE=... R2=..." bleeds into middle-panel "Residuals (skew=...)").
+        for ann in fig.layout.annotations:
+            ann.font = dict(size=11)
+
         for r, row in enumerate(spec.panels, start=1):
             for c in range(1, cols + 1):
                 if c - 1 >= len(row) or row[c - 1] is None:
@@ -201,7 +216,19 @@ class PlotlyRenderer:
             width=int(spec.figsize[0] * 80),   # ~80px per matplotlib inch
             height=int(spec.figsize[1] * 80),
             margin=dict(l=60, r=40, t=80 if spec.suptitle else 50, b=50),
-            showlegend=False,  # per-panel legend handled inline
+            # 2026-05-09: kept at ``False`` after a brief experiment
+            # with ``True``. Plotly stacks legend entries from ALL
+            # subplots into a single legend in the top-right corner —
+            # for multi-panel grids this both overlaps subplot colorbars
+            # and makes the legend a meaningless soup
+            # (precision/recall/F1 from the bar panel mixed with
+            # label_0..N from the reliability lines and true/predicted
+            # from the cardinality bars). Plotly users get color
+            # identification via hover-tooltips on the interactive HTML
+            # output. Multi-figure legends would need ``legendgroup``
+            # + per-subplot legend domains (plotly 5.x feature) — TODO
+            # if a user files a real complaint.
+            showlegend=False,
         )
         return fig
 
@@ -371,10 +398,22 @@ class PlotlyRenderer:
         import plotly.graph_objects as go
 
         marker = dict(opacity=p.point_alpha)
+        # ScatterPanelSpec.point_size follows matplotlib's ``s=`` semantics
+        # (area in points-squared). plotly's ``marker.size`` is the
+        # marker DIAMETER in pixels. Without conversion, large
+        # mpl-area sizes blow up to giant circles and plotly's
+        # auto-axis range goes haywire (calibration chart visible bug
+        # 2026-05-09: 500-area markers rendered as 500-px diameter,
+        # extending y-axis to [-3, 1] instead of [0, 1]).
+        # Conversion: plotly_diameter_px = sqrt(mpl_area_pt2) * 1.33
+        # (approx 1.33 px per point at default DPI).
+        def _mpl_area_to_plotly_size(area_value: float) -> float:
+            return float(math.sqrt(max(area_value, 0.0)) * 1.33)
+
         if isinstance(p.point_size, np.ndarray):
-            marker["size"] = p.point_size.tolist()
+            marker["size"] = [_mpl_area_to_plotly_size(s) for s in p.point_size]
         else:
-            marker["size"] = float(p.point_size)
+            marker["size"] = _mpl_area_to_plotly_size(float(p.point_size))
         if isinstance(p.point_color, np.ndarray):
             marker["color"] = p.point_color.tolist()
             marker["colorscale"] = _mpl_to_plotly_cmap(p.colormap)
@@ -476,21 +515,36 @@ class PlotlyRenderer:
     def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
         import plotly.graph_objects as go
 
-        text_kw = {}
-        if p.cell_text is not None:
-            text_kw["text"] = [[format(v, p.text_format) for v in r] for r in p.cell_text]
-            text_kw["texttemplate"] = "%{text}"
-            text_kw["textfont"] = dict(size=10)
-
         fig.add_trace(
             go.Heatmap(z=p.matrix.tolist(),
                        x=list(p.col_labels), y=list(p.row_labels),
                        colorscale=_mpl_to_plotly_cmap(p.colormap),
                        colorbar=dict(title=p.colorbar_label) if p.colorbar_label else None,
-                       showscale=True,
-                       **text_kw),
+                       showscale=True),
             row=row, col=col,
         )
+        # 2026-05-09: per-cell text via add_annotation instead of
+        # plotly's built-in ``text`` + ``texttemplate`` (which uses
+        # one global font color and produces white-on-yellow
+        # invisibility on viridis high-end / RdYlBu high-end). Per-cell
+        # ``auto_text_color`` flips by perceived luminance.
+        if p.cell_text is not None:
+            from mlframe.reporting.colors import auto_text_color
+            mat = p.matrix
+            vmin = float(np.nanmin(mat))
+            vmax = float(np.nanmax(mat))
+            for i in range(mat.shape[0]):
+                for j in range(mat.shape[1]):
+                    text_color = auto_text_color(
+                        float(mat[i, j]), p.colormap, vmin=vmin, vmax=vmax,
+                    )
+                    fig.add_annotation(
+                        text=format(p.cell_text[i, j], p.text_format),
+                        x=p.col_labels[j], y=p.row_labels[i],
+                        showarrow=False,
+                        font=dict(color=text_color, size=10),
+                        row=row, col=col,
+                    )
         fig.update_xaxes(title_text=p.xlabel, row=row, col=col,
                          tickangle=-45)
         fig.update_yaxes(title_text=p.ylabel, row=row, col=col,
