@@ -2084,6 +2084,15 @@ def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group
 def compute_grouped_group_aucs(sorted_group_ids: np.ndarray, sorted_y_true: np.ndarray, sorted_y_score: np.ndarray) -> Dict[int, Tuple[float, float]]:
     """
     Compute AUCs for each group from pre-sorted data.
+
+    NOT parallelised. Benched 2026-05-09 against a ``parallel=True`` variant
+    that pre-computes group boundaries + writes to per-thread arrays
+    (avoiding Dict-write contention). Result: ``par/seq`` ratio 1.77-4.80×
+    SLOWER than seq across (n_groups, avg_size) shapes from (100, 10) up
+    to (100_000, 10). Reason: per-group work (argsort + AUC scan on 5-50
+    elements) is microseconds; numba prange thread-spawn overhead per
+    iteration dominates. Bench preserved at
+    ``profiling/bench_grouped_aucs_parallel.py``.
     """
     group_aucs = {}
     n = len(sorted_group_ids)
@@ -2581,6 +2590,17 @@ def compute_probabilistic_multiclass_error(
     ``multilabel=True``: y_true is a 2D (n_samples, n_classes) indicator matrix, each column
     treated as an independent binary target. Single-label (``y_true == class_id``) comparison
     is wrong for multilabel data because a sample can carry multiple positives simultaneously.
+
+    NOT threaded across classes. Benched 2026-05-09 against a
+    ``ThreadPoolExecutor.map`` variant fanning each class to its own
+    thread. Result: ``par/seq`` ratio 2.65-10.65× SLOWER across (N, K)
+    shapes from (10k, 3) to (1M, 5). Reason: per-class work is small
+    (each inner kernel already releases GIL, but Python-level fanout
+    overhead dominates) AND the inner kernels (fast_brier_score_loss,
+    fast_ice_only) already auto-dispatch to par at N>=100k, so threading
+    over classes layers concurrency on top of per-kernel concurrency
+    and produces oversubscription. Bench preserved at
+    ``profiling/bench_multiclass_error_parallel.py``.
     """
 
     assert method in ("multicrit", "brier_score", "precision")
