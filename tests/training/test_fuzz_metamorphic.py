@@ -125,10 +125,14 @@ def _run_suite(combo: FuzzCombo, df, target_col: str, tmp_path) -> dict:
     from mlframe.training.core import train_mlframe_models_suite
 
     target_type = _resolve_target_type_for_combo(combo)
+    # LTR builder in _fuzz_combo emits a 'qid' column that the ranker suite
+    # requires the FTE to expose via group_field.
+    group_field = "qid" if combo.target_type == "learning_to_rank" else None
     fte = SimpleFeaturesAndTargetsExtractor(
         target_column=target_col,
         regression=(combo.target_type == "regression"),
         target_type=target_type,
+        group_field=group_field,
     )
     # iterations=5 left models under-converged on n=300, so a 5% row-duplication
     # perturbation could flip R^2 from negative (worse than mean predictor) to
