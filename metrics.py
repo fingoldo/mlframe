@@ -216,6 +216,20 @@ def prewarm_numba_cache():
         _ = _max_abs_pct_error_kernel_par(_yt_f64, _yp_f64)
         _yt_i64_psep = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.int64)
         _ = _probability_separation_score_par(_yt_i64_psep, _yp_f64, 1, 0.5)
+
+        # Round 3: regression-metric par variants. Each kernel adds
+        # ~1-1.5s of cold JIT compile if hit during a real run; prewarm
+        # them here so the regression report path is warm by the time
+        # the suite needs it.
+        _reg_y = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0], dtype=np.float64)
+        _reg_p = _reg_y + 0.05
+        _ = _fast_mae_seq(_reg_y, _reg_p)
+        _ = _fast_mae_par(_reg_y, _reg_p)
+        _ = _fast_mse_seq(_reg_y, _reg_p)
+        _ = _fast_mse_par(_reg_y, _reg_p)
+        _ = _fast_max_error_seq(_reg_y, _reg_p)
+        _ = _fast_r2_score_seq(_reg_y, _reg_p)
+        _ = _fast_r2_score_par(_reg_y, _reg_p)
     except Exception:
         # Parallel kernels cache the same way njit kernels do; a bad
         # cache or a numba-runtime hiccup is non-fatal — the seq path
@@ -2846,6 +2860,151 @@ def fast_brier_score_loss(y_true: np.ndarray, y_prob: np.ndarray) -> float:
 # Backward-compat alias — older code and tests import `brier_score_loss` from this module.
 # Keep the name visible but route it to the renamed fast_brier_score_loss so the intent is clear.
 brier_score_loss = fast_brier_score_loss
+
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Regression metrics: numba-accelerated drop-in replacements for sklearn
+# ----------------------------------------------------------------------------------------------------------------------------
+#
+# sklearn input-validation overhead dominates these tiny reductions: at
+# N=1M, sklearn's ``mean_absolute_error`` takes 12 ms while the numba
+# kernel does the same work in ~1.5 ms (8x). Adding parallel=True drops
+# it further to 0.7 ms (17x over sklearn). Bench: ``bench_regression_metrics.py``.
+# Speedups vs sklearn at N=1M:
+#   MAE   17x  | MSE   15x  | RMSE  same as MSE | max_error 6x | R2 23x
+#
+# Drop-in compatible with sklearn's signature: takes (y_true, y_pred) as
+# 1-D float arrays. Multioutput / sample_weight are NOT supported here
+# (callers use sklearn for those rare paths).
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _fast_mae_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    n = len(y_true)
+    s = 0.0
+    for i in range(n):
+        s += abs(y_true[i] - y_pred[i])
+    return s / n
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
+def _fast_mae_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    n = len(y_true)
+    s = 0.0
+    for i in numba.prange(n):
+        s += abs(y_true[i] - y_pred[i])
+    return s / n
+
+
+def fast_mean_absolute_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Drop-in for ``sklearn.metrics.mean_absolute_error`` on 1-D float
+    arrays. ~17× faster at N=1M (8× from skipping sklearn's input
+    validation, +2× from parallel reduction)."""
+    if len(y_true) >= _PARALLEL_REDUCTION_THRESHOLD:
+        return _fast_mae_par(y_true, y_pred)
+    return _fast_mae_seq(y_true, y_pred)
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _fast_mse_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    n = len(y_true)
+    s = 0.0
+    for i in range(n):
+        d = y_true[i] - y_pred[i]
+        s += d * d
+    return s / n
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
+def _fast_mse_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    n = len(y_true)
+    s = 0.0
+    for i in numba.prange(n):
+        d = y_true[i] - y_pred[i]
+        s += d * d
+    return s / n
+
+
+def fast_mean_squared_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Drop-in for ``sklearn.metrics.mean_squared_error`` on 1-D float
+    arrays. ~15× faster at N=1M."""
+    if len(y_true) >= _PARALLEL_REDUCTION_THRESHOLD:
+        return _fast_mse_par(y_true, y_pred)
+    return _fast_mse_seq(y_true, y_pred)
+
+
+def fast_root_mean_squared_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Drop-in for ``sklearn.metrics.root_mean_squared_error``."""
+    import math as _m
+    return _m.sqrt(fast_mean_squared_error(y_true, y_pred))
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _fast_max_error_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    n = len(y_true)
+    m = 0.0
+    for i in range(n):
+        d = abs(y_true[i] - y_pred[i])
+        if d > m:
+            m = d
+    return m
+
+
+def fast_max_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Drop-in for ``sklearn.metrics.max_error``. ~6× faster at N=1M.
+
+    Note: parallel variant tested but barely beats seq even at N=10M
+    (per-thread max bookkeeping overhead). Always uses seq numba.
+    """
+    return _fast_max_error_seq(y_true, y_pred)
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _fast_r2_score_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Two-pass: mean of y_true, then SS_res and SS_tot."""
+    n = len(y_true)
+    ymean = 0.0
+    for i in range(n):
+        ymean += y_true[i]
+    ymean /= n
+    ss_res = 0.0
+    ss_tot = 0.0
+    for i in range(n):
+        d_res = y_true[i] - y_pred[i]
+        d_tot = y_true[i] - ymean
+        ss_res += d_res * d_res
+        ss_tot += d_tot * d_tot
+    if ss_tot == 0.0:
+        return 0.0  # sklearn convention for constant y_true
+    return 1.0 - ss_res / ss_tot
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
+def _fast_r2_score_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    n = len(y_true)
+    ymean = 0.0
+    for i in numba.prange(n):
+        ymean += y_true[i]
+    ymean /= n
+    ss_res = 0.0
+    ss_tot = 0.0
+    for i in numba.prange(n):
+        d_res = y_true[i] - y_pred[i]
+        d_tot = y_true[i] - ymean
+        ss_res += d_res * d_res
+        ss_tot += d_tot * d_tot
+    if ss_tot == 0.0:
+        return 0.0
+    return 1.0 - ss_res / ss_tot
+
+
+def fast_r2_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Drop-in for ``sklearn.metrics.r2_score`` on 1-D float arrays.
+    ~23× faster at N=1M (sklearn's R2 is the slowest of the regression
+    metrics due to two-pass + mean computation in pure Python)."""
+    if len(y_true) >= _PARALLEL_REDUCTION_THRESHOLD:
+        return _fast_r2_score_par(y_true, y_pred)
+    return _fast_r2_score_seq(y_true, y_pred)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)

@@ -52,11 +52,11 @@ A good isolation bench:
 - Runs the upstream call that crashed, verbatim.
 - Prints an `OK` / `FAIL <error repr>` line.
 
-Examples in the repo root:
+Examples in `profiling/`:
 
-- [`bench_polars_largestring_cb_xgb.py`](../bench_polars_largestring_cb_xgb.py) — tests the large_string hypothesis against CB and XGB.
-- [`bench_polars_cb_repro.py`](../bench_polars_cb_repro.py) — feature-by-feature sweep (Int16, Boolean, multi-cat, text_features, null-cat) to find which axis triggers.
-- [`bench_polars_cb_nullfrac.py`](../bench_polars_cb_nullfrac.py) — null-fraction binary search proving any null triggers.
+- [`bench_polars_largestring_cb_xgb.py`](../profiling/bench_polars_largestring_cb_xgb.py) — tests the large_string hypothesis against CB and XGB.
+- [`bench_polars_cb_repro.py`](../profiling/bench_polars_cb_repro.py) — feature-by-feature sweep (Int16, Boolean, multi-cat, text_features, null-cat) to find which axis triggers.
+- [`bench_polars_cb_nullfrac.py`](../profiling/bench_polars_cb_nullfrac.py) — null-fraction binary search proving any null triggers.
 
 ### 2. Test one variable at a time
 
@@ -80,10 +80,11 @@ the failure shape match the prod error exactly:
 
 ### 4. Keep the benches in the repo
 
-The three benches live in the repo root. They're not tests (don't
-assert, don't fit into pytest's setup chain), but they're authoritative
-evidence. Anyone debugging the same family of upstream issues should
-be able to run them and see the same outcomes six months later.
+The three benches live in `profiling/` (alongside other repro / profiling
+scripts). They're not tests (don't assert, don't fit into pytest's
+setup chain), but they're authoritative evidence. Anyone debugging
+the same family of upstream issues should be able to run them and see
+the same outcomes six months later.
 
 ### 5. Use the bench to write the sensor
 

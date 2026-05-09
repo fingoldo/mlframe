@@ -62,6 +62,18 @@ from sklearn.metrics import (
     classification_report,
 )
 
+# 2026-05-09: numba-accelerated drop-ins for the regression metrics.
+# Used on 1-D float arrays (the common case in report_regression_model_perf);
+# 6-23x faster than sklearn at N=1M (sklearn's input validation overhead
+# dominates the tiny reductions). Multioutput / sample_weight paths still
+# use sklearn (the fast helpers don't cover those).
+from mlframe.metrics import (
+    fast_mean_absolute_error,
+    fast_max_error,
+    fast_r2_score,
+    fast_root_mean_squared_error,
+)
+
 try:
     from sklearn.metrics import root_mean_squared_error
 except ImportError:
@@ -386,13 +398,22 @@ def report_regression_model_perf(
     if isinstance(targets, pd.Series):
         targets = targets.values
 
-    MAE = mean_absolute_error(y_true=targets, y_pred=preds)
+    # Use fast (numba) helpers on the 1-D float path (the common case);
+    # multioutput / non-float / sample_weight paths still hit sklearn.
+    targets_arr = np.asarray(targets)
+    preds_arr = np.asarray(preds)
+    _is_1d_float = (
+        targets_arr.ndim == 1 and preds_arr.ndim == 1
+        and targets_arr.dtype.kind == "f" and preds_arr.dtype.kind == "f"
+    )
+    if _is_1d_float:
+        MAE = fast_mean_absolute_error(targets_arr, preds_arr)
+    else:
+        MAE = mean_absolute_error(y_true=targets, y_pred=preds)
     # sklearn's max_error refuses multioutput targets (2-D y) -- it only
     # supports a single output. Multilabel-classification + linear regressor
     # routes (N, K) targets through this regression report; compute per-output
     # max-error and report the worst, matching the metric's intent.
-    targets_arr = np.asarray(targets)
-    preds_arr = np.asarray(preds)
     if targets_arr.ndim > 1 and targets_arr.shape[1] > 1:
         # 2026-04-28 (batch 4): WARN-loud when this band-aid path fires.
         # Multilabel classification SHOULD route to
@@ -412,10 +433,16 @@ def report_regression_model_perf(
             targets_arr.shape,
         )
         MaxError = float(np.max(np.abs(targets_arr - preds_arr)))
+    elif _is_1d_float:
+        MaxError = fast_max_error(targets_arr, preds_arr)
     else:
         MaxError = max_error(y_true=targets, y_pred=preds)
-    R2 = r2_score(y_true=targets, y_pred=preds)
-    RMSE = root_mean_squared_error(y_true=targets, y_pred=preds)
+    if _is_1d_float:
+        R2 = fast_r2_score(targets_arr, preds_arr)
+        RMSE = fast_root_mean_squared_error(targets_arr, preds_arr)
+    else:
+        R2 = r2_score(y_true=targets, y_pred=preds)
+        RMSE = root_mean_squared_error(y_true=targets, y_pred=preds)
 
     current_metrics = dict(
         MAE=MAE,
