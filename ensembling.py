@@ -285,6 +285,108 @@ def enrich_ensemble_preds_with_numaggs(
         return res
 
 
+def compute_member_quality_gate(
+    preds_list: Sequence,
+    *,
+    max_mae: float = 0.0,
+    max_std: float = 0.0,
+    max_mae_relative: float = 2.5,
+    max_std_relative: float = 2.5,
+) -> Tuple[List[int], List[Tuple[int, str]], dict]:
+    """Cross-member outlier filter for ensemble preds.
+
+    Computes per-member MAE / STD against the cross-member median and
+    returns the indices to keep + a list of (excluded_index, reason)
+    tuples + a stats dict (median_mae, median_std, rel_mae_threshold,
+    rel_std_threshold). Pure: no logging, no side effects.
+
+    Use this from a SUITE-level scorer (e.g. ``score_ensemble``) to do
+    the gate ONCE before iterating ensemble flavors -- the previous
+    behaviour ran the same filter inside ``ensemble_probabilistic_
+    predictions`` once per flavor x split, printing the same
+    "ens member ... excluded ..." line ~20 times per suite call on
+    a 4-model x 5-flavor x 2-split layout (regression suite, 2026-05
+    prod log).
+
+    Returns
+    -------
+    kept_indices : list[int]
+        Indices into ``preds_list`` to keep. May equal all indices.
+    excluded : list[tuple[int, str]]
+        (member_index, human-readable-reason) for each dropped member.
+    stats : dict
+        ``{"median_mae", "median_std", "rel_mae_threshold",
+          "rel_std_threshold", "per_member_mae", "per_member_std"}``.
+    """
+    n = len(preds_list)
+    if n <= 2:
+        # Filter only fires for 3+ members; ensembling 2 members
+        # doesn't have a well-defined median to outlier-test against.
+        return list(range(n)), [], {}
+
+    arr = np.asarray(preds_list, dtype=np.float64)
+    median_preds = np.quantile(arr, 0.5, axis=0)
+    per_member_mae = np.empty(n, dtype=np.float64)
+    per_member_std = np.empty(n, dtype=np.float64)
+    for i, pred in enumerate(preds_list):
+        diffs = np.abs(pred - median_preds)
+        mae_per_col = diffs.mean(axis=0)
+        std_per_col = np.sqrt(((diffs - mae_per_col) ** 2).mean(axis=0))
+        per_member_mae[i] = mae_per_col.mean()
+        per_member_std[i] = std_per_col.mean()
+
+    median_mae = float(np.median(per_member_mae))
+    median_std = float(np.median(per_member_std))
+    rel_mae_threshold = max_mae_relative * median_mae if max_mae_relative > 0 else 0.0
+    rel_std_threshold = max_std_relative * median_std if max_std_relative > 0 else 0.0
+
+    kept: list = []
+    excluded: list = []
+    for i in range(n):
+        tot_mae = float(per_member_mae[i])
+        tot_std = float(per_member_std[i])
+        abs_violation = (
+            (max_mae > 0 and tot_mae > max_mae)
+            or (max_std > 0 and tot_std > max_std)
+        )
+        rel_violation = (
+            (rel_mae_threshold > 0 and tot_mae > rel_mae_threshold)
+            or (rel_std_threshold > 0 and tot_std > rel_std_threshold)
+        )
+        if abs_violation or rel_violation:
+            reason_parts = []
+            if abs_violation:
+                reason_parts.append(f"abs(mae>{max_mae}|std>{max_std})")
+            if rel_violation:
+                reason_parts.append(
+                    f"rel(mae>{rel_mae_threshold:.4f}|std>{rel_std_threshold:.4f}; "
+                    f"median_mae={median_mae:.4f},median_std={median_std:.4f})"
+                )
+            excluded.append((i, f"mae={tot_mae:.4f}, std={tot_std:.4f} [{'; '.join(reason_parts)}]"))
+        else:
+            kept.append(i)
+    # Defensive: if every member was excluded, the filter is too tight
+    # for the data; fall back to the original list (else
+    # ensemble_probabilistic_predictions returns a degenerate empty
+    # ensemble downstream).
+    if not kept:
+        return list(range(n)), [], {
+            "median_mae": median_mae, "median_std": median_std,
+            "rel_mae_threshold": rel_mae_threshold,
+            "rel_std_threshold": rel_std_threshold,
+            "per_member_mae": per_member_mae,
+            "per_member_std": per_member_std,
+            "filter_too_restrictive": True,
+        }
+    return kept, excluded, {
+        "median_mae": median_mae, "median_std": median_std,
+        "rel_mae_threshold": rel_mae_threshold,
+        "rel_std_threshold": rel_std_threshold,
+        "per_member_mae": per_member_mae,
+        "per_member_std": per_member_std,
+    }
+
+
 def ensemble_probabilistic_predictions(
     *preds,
     ensemble_method="harm",
@@ -1083,6 +1185,82 @@ def score_ensemble(
     test_target_arr = test_target.to_numpy() if isinstance(test_target, pd.Series) else test_target
     val_target_arr = val_target.to_numpy() if isinstance(val_target, pd.Series) else val_target
     target_arr = target.to_numpy() if isinstance(target, pd.Series) else target
+
+    # 2026-05-10: ONE-pass member quality gate before iterating ensemble
+    # flavors. The previous behaviour ran the same outlier filter inside
+    # ``ensemble_probabilistic_predictions`` once per flavor x split,
+    # which on a 4-model x 5-flavor x (full+conf) x 2-split layout
+    # printed the same "ens member N excluded ..." line ~20x per suite
+    # call. Compute on val_preds (or test/train fallback) ONCE here,
+    # log the decision once, then pass only kept members to the flavor
+    # loop and disable the embedded filter so no duplicate prints fire.
+    _gate_source_split = None
+    _gate_preds_for_check: Optional[List[np.ndarray]] = None
+    for _attr, _label in (("val_preds", "val"), ("test_preds", "test"), ("train_preds", "train"),
+                          ("val_probs", "val"), ("test_probs", "test"), ("train_probs", "train")):
+        _candidate = [getattr(m, _attr, None) for m in level_models_and_predictions]
+        if all(p is not None for p in _candidate):
+            _gate_preds_for_check = _candidate
+            _gate_source_split = _label
+            break
+
+    _ensemble_member_tags: List[str] = []
+    for _m in level_models_and_predictions:
+        _name_attr = getattr(_m, "model_name", None) or getattr(_m, "name", None)
+        if _name_attr:
+            _ensemble_member_tags.append(str(_name_attr))
+        else:
+            _model_obj = getattr(_m, "model", _m)
+            _ensemble_member_tags.append(type(_model_obj).__name__)
+
+    if _gate_preds_for_check is not None and len(_gate_preds_for_check) > 2:
+        _kept_idx, _excluded, _gate_stats = compute_member_quality_gate(
+            _gate_preds_for_check,
+            max_mae=max_mae, max_std=max_std,
+            max_mae_relative=max_mae_relative, max_std_relative=max_std_relative,
+        )
+        if verbose:
+            # Per-member visual table: tag + MAE-vs-median + ✓/✗ + reason
+            _per_mae = _gate_stats.get("per_member_mae", [])
+            _med_mae = _gate_stats.get("median_mae", 0.0)
+            _excl_idx = {i for i, _ in _excluded}
+            _kept_lbls = [
+                f"{_ensemble_member_tags[i]} (MAE={float(_per_mae[i]):.4f})"
+                for i in _kept_idx
+            ]
+            _excl_lbls = [
+                f"{_ensemble_member_tags[i]} (MAE={float(_per_mae[i]):.4f}, >{max_mae_relative:g}x median={_med_mae:.4f})"
+                for i in _excl_idx
+            ]
+            logger.info(
+                "[ensemble] member quality gate (split=%s): kept %d/%d -- %s%s",
+                _gate_source_split, len(_kept_idx), len(_gate_preds_for_check),
+                ", ".join(_kept_lbls) if _kept_lbls else "(none)",
+                ("; excluded: " + ", ".join(_excl_lbls)) if _excl_lbls else "",
+            )
+            if _excluded:
+                # Approximate downstream-saved-work reporting so the user
+                # sees ROI of the gate.
+                _est_skipped_iters = len(_excluded) * len(ensembling_methods) * 2
+                logger.info(
+                    "[ensemble] gate saves ~%d redundant per-flavor x per-split ensemble computations on these excluded members",
+                    _est_skipped_iters,
+                )
+            if _gate_stats.get("filter_too_restrictive"):
+                logger.warning(
+                    "[ensemble] gate would have excluded ALL members; falling back to original list (filter too restrictive for this combo)"
+                )
+        if _excluded and not _gate_stats.get("filter_too_restrictive"):
+            level_models_and_predictions = [
+                level_models_and_predictions[i] for i in _kept_idx
+            ]
+            # Disable the embedded per-flavor filter -- members are already
+            # gated, so re-running it would just reprint the same exclusion
+            # line per flavor (the noise this commit set out to eliminate).
+            max_mae = 0.0
+            max_std = 0.0
+            max_mae_relative = 0.0
+            max_std_relative = 0.0
 
     for ensembling_level in range(max_ensembling_level):
 

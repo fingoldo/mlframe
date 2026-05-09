@@ -855,6 +855,7 @@ from .configs import (
     OutputConfig,
     OutlierDetectionConfig,
     ConfidenceAnalysisConfig,
+    BaselineDiagnosticsConfig,
 )
 from .preprocessing import (
     load_and_prepare_dataframe,
@@ -891,6 +892,7 @@ from ..ensembling import score_ensemble
 # Training execution functions from train_eval module
 from .train_eval import process_model, select_target
 from .drift_report import compute_label_distribution_drift, format_drift_report
+from .baseline_diagnostics import BaselineDiagnostics, format_baseline_diagnostics_report
 
 # Fairness subgroups creation
 from mlframe.metrics import create_fairness_subgroups
@@ -1802,6 +1804,12 @@ def train_mlframe_models_suite(
     outlier_detection_config: Optional[Union["OutlierDetectionConfig", Dict]] = None,
     feature_selection_config: Optional[Union[FeatureSelectionConfig, Dict]] = None,
     confidence_analysis_config: Optional[Union["ConfidenceAnalysisConfig", Dict]] = None,
+    # 2026-05-10: opt-out diagnostic that runs once per (target_type, target_name)
+    # before per-target training. Reports raw headline metric, top-K feature
+    # ablation deltas, init_score baseline, and a composite_recommendation flag
+    # consumed by future composite-target discovery. Default ON; set
+    # ``BaselineDiagnosticsConfig(enabled=False)`` to skip.
+    baseline_diagnostics_config: Optional[Union["BaselineDiagnosticsConfig", Dict]] = None,
     # 2026-05-09 phase Q: opt-in feature-handling overhaul. When set,
     # the suite logs the resolved per-model handler chain via
     # ``fhc.describe()`` at start. Consumer wiring (replacing
@@ -2050,6 +2058,9 @@ def train_mlframe_models_suite(
     outlier_detection_config = _ensure_config(outlier_detection_config, OutlierDetectionConfig, {})
     feature_selection_config = _ensure_config(feature_selection_config, FeatureSelectionConfig, {})
     confidence_analysis_config = _ensure_config(confidence_analysis_config, ConfidenceAnalysisConfig, {})
+    baseline_diagnostics_config = _ensure_config(
+        baseline_diagnostics_config, BaselineDiagnosticsConfig, {}
+    )
 
     # 2026-04-27: pull scalar fields out of the typed configs for the existing
     # downstream code that takes plain locals. The scalar names match the
@@ -2060,6 +2071,28 @@ def train_mlframe_models_suite(
     data_dir = output_config.data_dir
     models_dir = output_config.models_dir
     save_charts = output_config.save_charts
+
+    # 2026-05-10 (rec e): surface reporting-knob resolution at suite
+    # entry so the reader knows up-front whether plots will be saved /
+    # rendered / short-circuited. Pre-2026-05-10 the cal-plot short-
+    # circuit (no consumer in non-interactive sessions) was invisible
+    # in logs; this line makes the active path explicit.
+    if verbose:
+        try:
+            _is_interactive_logp = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+        except NameError:
+            import sys as _sys_logp
+            _is_interactive_logp = hasattr(_sys_logp, "ps1")
+        _plot_dir = (
+            f"{data_dir}/{models_dir}/{model_name}" if data_dir and save_charts else "(no save)"
+        )
+        _short_circuit_active = (not _is_interactive_logp) and not save_charts
+        logger.info(
+            "[reporting] save_charts=%s, plot_dir=%s, interactive=%s -- "
+            "cal-plot short-circuit %s",
+            save_charts, _plot_dir, _is_interactive_logp,
+            "ACTIVE (renders skipped, no consumer)" if _short_circuit_active else "INACTIVE",
+        )
     outlier_detector = outlier_detection_config.detector
     od_val_set = outlier_detection_config.apply_to_val
     use_mrmr_fs = feature_selection_config.use_mrmr_fs
@@ -3477,6 +3510,38 @@ def train_mlframe_models_suite(
                 metadata.setdefault("label_distribution_drift", {}) \
                     .setdefault(str(target_type), {})[cur_target_name] = _drift_report
 
+                # 2026-05-10: baseline diagnostics. Cheap pre-training
+                # pass that surfaces (a) headline metric of a quick fit,
+                # (b) top-K feature ablation deltas, (c) init_score
+                # native-residual baseline. Output stored on metadata
+                # so composite-target discovery (future component) can
+                # gate its expensive screening loops on the
+                # ``composite_recommendation`` flag.
+                try:
+                    if baseline_diagnostics_config.enabled and (
+                        str(target_type) in baseline_diagnostics_config.apply_to_target_types
+                    ):
+                        _bd = BaselineDiagnostics(baseline_diagnostics_config)
+                        _bd_report = _bd.fit_and_report(
+                            train_df=filtered_train_df,
+                            train_target=current_train_target,
+                            feature_cols=list(filtered_train_df.columns),
+                            target_type=str(target_type),
+                            target_name=cur_target_name,
+                            cat_features=cat_features,
+                        )
+                        logger.info(format_baseline_diagnostics_report(
+                            _bd_report, target_name=cur_target_name,
+                        ))
+                        metadata.setdefault("baseline_diagnostics", {}) \
+                            .setdefault(str(target_type), {})[cur_target_name] = _bd_report.to_dict()
+                except Exception as _bd_err:
+                    logger.warning(
+                        "baseline_diagnostics failed for target='%s' (%s): %s. "
+                        "Training continues without diagnostics.",
+                        cur_target_name, target_type, _bd_err,
+                    )
+
                 # Look up the precomputed temporal audit (built ONCE
                 # for all targets above the loop via the batch API).
                 _audit = _all_target_audits.get(target_type, {}).get(cur_target_name)
@@ -3640,10 +3705,35 @@ def train_mlframe_models_suite(
                 tier_enum_map_cache: Dict[tuple, Optional[Dict[str, Any]]] = {}
                 prev_tier = None
 
+                _total_models_in_run = len(list(sorted_models))
+                _model_idx_in_run = 0
                 for mlframe_model_name in tqdmu_lazy_start(sorted_models, desc="mlframe model"):
                     # Skip CatBoost model with metamodel_func due to sklearn clone issue
                     if _should_skip_catboost_metamodel(mlframe_model_name, target_type, behavior_config):
                         continue
+                    _model_idx_in_run += 1
+                    # 2026-05-10 (rec a): mid-run phase progress so the
+                    # operator sees fractional progress AND per-model RAM
+                    # snapshot in real time, instead of waiting for the
+                    # phase summary at suite end. Logged once at MODEL
+                    # entry (before the weight-schemas inner loop); the
+                    # existing per-(model, weight) DONE line at the
+                    # bottom of the inner loop already carries the
+                    # post-fit duration + RAM. Together they bracket
+                    # each model so the operator can see "model 2/4
+                    # cb starting at RAM=7.2 GB" in the live tail.
+                    if verbose:
+                        try:
+                            import psutil as _ps
+                            _ram_gb_now = _ps.Process().memory_info().rss / (1024 ** 3)
+                        except Exception:
+                            _ram_gb_now = 0.0
+                        logger.info(
+                            "  process_model(%s) START -- model %d/%d, RAM=%.1fGB",
+                            mlframe_model_name,
+                            _model_idx_in_run, _total_models_in_run,
+                            _ram_gb_now,
+                        )
 
                     if mlframe_model_name not in models_params:
                         logger.warning(f"mlframe model {mlframe_model_name} not known, skipping...")
@@ -4498,6 +4588,47 @@ def train_mlframe_models_suite(
 
     if verbose:
         logger.info("[phases] Top phases by wall-clock time:\n%s", format_phase_summary())
+
+        # 2026-05-10 (rec f): top-N wall-share so the reader immediately
+        # sees where the time went vs total. Reads from the same phase
+        # registry as ``format_phase_summary``; percentages computed
+        # against the longest-running phase (effectively the suite root).
+        # Helps spot plot/render-bound vs train-bound runs at a glance.
+        try:
+            from .phases import phase_snapshot
+            _snap = phase_snapshot()
+            if _snap:
+                _root_wall = _snap[0][1] if _snap else 0.0
+                if _root_wall > 0:
+                    _share_str = ", ".join(
+                        f"{p}={tot/_root_wall*100:.1f}%"
+                        for p, tot, _ in _snap[:8]
+                    )
+                    logger.info("[wall-share] top: %s", _share_str)
+        except Exception:
+            pass
+
+        # Kaleido oneshot fallback summary (rec b cont'd): if any plotly
+        # PNG/SVG/PDF saves took the slow oneshot path, surface the
+        # cumulative cost so the reader knows the ROI of upgrading
+        # kaleido. The per-call warning was suppressed (idempotent),
+        # so this is the canonical place to learn about it.
+        try:
+            from mlframe.reporting.renderers.plotly import (
+                get_kaleido_oneshot_stats, reset_kaleido_oneshot_stats,
+            )
+            _kal_n, _kal_wall = get_kaleido_oneshot_stats()
+            if _kal_n > 0:
+                logger.info(
+                    "[plotly-render] kaleido oneshot fallback fired %d times "
+                    "(cumulative %.1fs wall, %.0fms/call avg). Persistent "
+                    "sync-server path would be ~10-100x faster -- upgrade "
+                    "kaleido (>=1.x ships ``start_sync_server``) to enable.",
+                    _kal_n, _kal_wall, (_kal_wall / _kal_n) * 1000,
+                )
+            reset_kaleido_oneshot_stats()
+        except Exception:
+            pass
 
     # Surface the selected-features list per trained model so callers
     # can introspect feature-selection outputs (MRMR / RFECV) without

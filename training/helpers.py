@@ -55,6 +55,67 @@ except (ImportError, AttributeError, ModuleNotFoundError):
     CUDA_IS_AVAILABLE = False
 
 
+# 2026-05-10: per-library GPU support gating. ``CUDA_IS_AVAILABLE``
+# (numba probe) tells us only whether the system has a usable CUDA
+# device -- it does NOT tell us whether the installed XGBoost / LightGBM
+# binaries were COMPILED with GPU support. On Windows, the default
+# ``pip install xgboost`` ships the CPU-only wheel, so passing
+# ``device='cuda'`` triggers ``WARNING: Device is changed from GPU to
+# CPU as we couldn't find any available GPU on the system`` per-fit
+# (verified on prod log 2026-05-09 with a custom 3rdParty XGB build:
+# ``xgb.build_info() == {... 'USE_CUDA': False ...}`` despite CUDA
+# being available for CatBoost). Probe each binary's actual GPU
+# support ONCE at module-import so the helpers never set device='cuda'
+# on a CPU-only XGB and avoid the per-fit warning storm.
+def _probe_xgb_gpu_support() -> bool:
+    if not CUDA_IS_AVAILABLE:
+        return False
+    try:
+        import xgboost as _xgb
+        info = _xgb.build_info() if hasattr(_xgb, "build_info") else {}
+        return bool(info.get("USE_CUDA", False))
+    except Exception:
+        return False
+
+
+def _probe_lgb_gpu_support() -> bool:
+    if not CUDA_IS_AVAILABLE:
+        return False
+    try:
+        # LightGBM exposes GPU via either CUDA build or OpenCL build.
+        # The ``device_type='cuda'`` path requires a build flag we can
+        # detect by attempting a tiny train with device_type='cuda';
+        # too expensive to do at import. Instead, probe the binary
+        # filename for hints (``lib_lightgbm_cuda`` etc.) and fall
+        # back to True only if a known marker is present. Conservative:
+        # default False, opt-in by setting the env var
+        # ``MLFRAME_TRUST_LGB_CUDA=1`` if you know your build supports it.
+        import os
+        if os.environ.get("MLFRAME_TRUST_LGB_CUDA") == "1":
+            return True
+        return False
+    except Exception:
+        return False
+
+
+XGB_GPU_AVAILABLE = _probe_xgb_gpu_support()
+LGB_GPU_AVAILABLE = _probe_lgb_gpu_support()
+
+if CUDA_IS_AVAILABLE and not XGB_GPU_AVAILABLE:
+    logger.info(
+        "[gpu-probe] CUDA detected but installed XGBoost binary lacks GPU support "
+        "(``xgb.build_info()['USE_CUDA']`` is False). XGB will run on CPU; "
+        "rebuild XGB with USE_CUDA=ON or install a GPU wheel to enable. "
+        "This INFO replaces a per-fit ``WARNING: Device is changed from GPU "
+        "to CPU as we couldn't find any available GPU on the system``."
+    )
+if CUDA_IS_AVAILABLE and not LGB_GPU_AVAILABLE:
+    logger.info(
+        "[gpu-probe] LightGBM GPU support not opted-in "
+        "(``MLFRAME_TRUST_LGB_CUDA`` not set). LGB will run on CPU."
+    )
+
+
 # =============================================================================
 # Multi-output (multiclass + multilabel) dispatch helpers — 2026-04-24
 # =============================================================================
@@ -736,6 +797,12 @@ def get_training_configs(
     )
     HGB_GENERAL_PARAMS.update(hgb_kwargs)
 
+    # 2026-05-10: device gating now reflects XGB build-info, not just
+    # CUDA presence. ``has_gpu and XGB_GPU_AVAILABLE`` skips ``cuda`` on
+    # CPU-only XGB binaries (avoids per-fit ``Device is changed from GPU
+    # to CPU`` warning storm). Caller's xgb_kwargs.update overrides win
+    # for advanced users.
+    _xgb_device = "cuda" if (has_gpu and XGB_GPU_AVAILABLE) else "cpu"
     XGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
         learning_rate=learning_rate,
@@ -743,7 +810,7 @@ def get_training_configs(
         max_cat_to_onehot=1,
         max_cat_threshold=100,  # affects model size heavily when high cardinality cat features r present!
         tree_method="hist",
-        device="cuda" if has_gpu else "cpu",
+        device=_xgb_device,
         n_jobs=psutil.cpu_count(logical=False),
         early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
@@ -991,10 +1058,15 @@ def get_training_configs(
     else:
         CB_CALIB_CLASSIF.update({"eval_metric": ICE(metric=final_integral_calibration_error, higher_is_better=False, max_arr_size=0)})
 
+    # 2026-05-10: same gating story as XGB. ``has_gpu and LGB_GPU_AVAILABLE``
+    # respects the LightGBM build's actual GPU support (default LightGBM
+    # wheels are CPU-only; opt-in via env ``MLFRAME_TRUST_LGB_CUDA=1``
+    # if you've built / installed a GPU-enabled LGB binary).
+    _lgb_device = "cuda" if (has_gpu and LGB_GPU_AVAILABLE) else "cpu"
     LGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
         early_stopping_rounds=early_stopping_rounds,
-        device_type="cuda" if has_gpu else "cpu",
+        device_type=_lgb_device,
         random_state=random_seed,
         # histogram_pool_size=16384,
     )

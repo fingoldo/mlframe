@@ -53,6 +53,38 @@ _KALEIDO_PERSISTENT_BURNED = False
 _KALEIDO_PERSISTENT_FAIL_COUNT = 0
 _KALEIDO_PERSISTENT_FAIL_THRESHOLD = 2
 
+# 2026-05-10: idempotency guard for the "Failed to start kaleido sync
+# server" warning. Pre-2026-05-10, the warn fired on EVERY call when
+# the kaleido binary lacked ``start_sync_server`` (e.g. kaleido 0.x
+# wheels) -- 32+ times per suite call on plot-heavy regression suites,
+# polluting the log. Once True we suppress repeats; the suite-end
+# wall-share log will still surface the cumulative oneshot-fallback
+# cost so the user notices the missing fast path.
+_KALEIDO_START_WARN_EMITTED = False
+# Counter of fallback PNG/SVG/PDF writes that took the slow oneshot
+# path. Reported in the suite-end summary so the reader sees ROI for
+# upgrading kaleido.
+_KALEIDO_ONESHOT_CALL_COUNT = 0
+_KALEIDO_ONESHOT_TOTAL_WALL_S = 0.0
+
+
+def get_kaleido_oneshot_stats() -> Tuple[int, float]:
+    """Returns (n_oneshot_calls, total_wall_seconds) so suite-end
+    reporting can quote concrete numbers. Cleared via ``reset_kaleido_oneshot_stats``."""
+    return _KALEIDO_ONESHOT_CALL_COUNT, _KALEIDO_ONESHOT_TOTAL_WALL_S
+
+
+def reset_kaleido_oneshot_stats() -> None:
+    global _KALEIDO_ONESHOT_CALL_COUNT, _KALEIDO_ONESHOT_TOTAL_WALL_S
+    _KALEIDO_ONESHOT_CALL_COUNT = 0
+    _KALEIDO_ONESHOT_TOTAL_WALL_S = 0.0
+
+
+def record_kaleido_oneshot_call(wall_s: float) -> None:
+    global _KALEIDO_ONESHOT_CALL_COUNT, _KALEIDO_ONESHOT_TOTAL_WALL_S
+    _KALEIDO_ONESHOT_CALL_COUNT += 1
+    _KALEIDO_ONESHOT_TOTAL_WALL_S += wall_s
+
 # Hard ceiling on a single persistent write_fig_sync call. Beyond this,
 # the call is treated as hung; we leave the worker thread to die on
 # process exit (the kaleido server holds an asyncio loop so we can't
@@ -131,10 +163,16 @@ def _ensure_kaleido_server_started() -> bool:
         atexit.register(_stop)
         return True
     except Exception as e:
-        logger.warning(
-            "Failed to start kaleido sync server (%s); will fall back to "
-            "the slower per-call oneshot path.", e,
-        )
+        global _KALEIDO_START_WARN_EMITTED
+        if not _KALEIDO_START_WARN_EMITTED:
+            logger.warning(
+                "[plotly-render] kaleido sync server unavailable (%s); will "
+                "use the slower per-call oneshot path. This warning fires "
+                "ONCE per process; check the suite-end wall-share summary "
+                "for cumulative oneshot cost. To enable the fast path, "
+                "upgrade kaleido (>=1.x ships ``start_sync_server``).", e,
+            )
+            _KALEIDO_START_WARN_EMITTED = True
         return False
 
 
@@ -344,24 +382,37 @@ class PlotlyRenderer:
 
             # Persistent path skipped (kaleido never started or unavailable);
             # use plotly oneshot. Catch ALL exceptions for HTML fallback.
+            # 2026-05-10: instrument oneshot wall-time + call count so the
+            # suite-end summary surfaces the cumulative cost (e.g. on the
+            # 2026-05-09 prod log: 32 oneshots x ~13s = 7+ minutes that
+            # disappear when kaleido is upgraded to a build with
+            # ``start_sync_server``).
+            import time as _time
+            _t0 = _time.time()
             try:
-                fig.write_image(path, format=fmt)
-            except Exception as e:
-                logger.warning(
-                    "plotly write_image(%s) oneshot failed (%s: %s); "
-                    "falling back to .html.",
-                    fmt, type(e).__name__, e,
-                )
-                from os.path import splitext
-                root, _ = splitext(path)
                 try:
-                    fig.write_html(root + ".html", include_plotlyjs="cdn", auto_open=False)
-                except Exception as e2:
-                    logger.error(
-                        "All save paths failed for %s (%s); diagnostic chart "
-                        "lost but suite continues. Last error: %s",
-                        path, fmt, e2,
+                    fig.write_image(path, format=fmt)
+                except Exception as e:
+                    logger.warning(
+                        "plotly write_image(%s) oneshot failed (%s: %s); "
+                        "falling back to .html.",
+                        fmt, type(e).__name__, e,
                     )
+                    from os.path import splitext
+                    root, _ = splitext(path)
+                    try:
+                        fig.write_html(root + ".html", include_plotlyjs="cdn", auto_open=False)
+                    except Exception as e2:
+                        logger.error(
+                            "All save paths failed for %s (%s); diagnostic chart "
+                            "lost but suite continues. Last error: %s",
+                            path, fmt, e2,
+                        )
+            finally:
+                # Record cumulative oneshot wall regardless of success /
+                # exception path; the suite-end summary uses this to
+                # quote concrete savings of upgrading kaleido.
+                record_kaleido_oneshot_call(_time.time() - _t0)
         else:
             raise ValueError(
                 f"plotly doesn't support format {fmt!r}; "
