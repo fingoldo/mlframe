@@ -71,6 +71,22 @@ def plot_feature_importance(
     if positive_fi_only:
         df = df[df.fi > 0.0]
 
+    # 2026-05-09: short-circuit when nothing consumes the plot. Same
+    # rule as ``mlframe.metrics.show_calibration_plot``: in a script /
+    # CI / fuzz run the ``show_plots=True`` default renders a figure
+    # for nobody (``plt.show()`` is a no-op on Agg, no ``plot_file``
+    # to disk). The FI bar plot is 80-150 ms / call; the suite emits
+    # one per (model, train+val+test) so this saves ~300-450 ms per
+    # fit on top of cal-plot wins.
+    if plot_file == "" and show_plots:
+        try:
+            _is_interactive_session = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+        except NameError:
+            import sys as _sys
+            _is_interactive_session = hasattr(_sys, "ps1")
+        if not _is_interactive_session:
+            return df  # render-side skipped; the importance series is the data return
+
     if plot_file or show_plots:
         figs = []
         fig_top = plt.figure(figsize=figsize)

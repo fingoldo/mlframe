@@ -464,6 +464,22 @@ def report_regression_model_perf(
                 model_name, _audit_err,
             )
 
+    # 2026-05-09: short-circuit when there is NO consumer for the chart.
+    # Same logic as ``mlframe.metrics.show_calibration_plot``: in a script /
+    # CI / fuzz process (no IPython kernel, no ``sys.ps1``) the
+    # ``show_perf_chart=True`` default renders a matplotlib figure that
+    # nobody can see AND nothing is written to disk because ``plot_file``
+    # is empty. The figure render is 100-200 ms / call and dominates
+    # warm-state regression report wall.
+    if show_perf_chart and not plot_file:
+        try:
+            _is_interactive_session = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+        except NameError:
+            import sys as _sys
+            _is_interactive_session = hasattr(_sys, "ps1")
+        if not _is_interactive_session:
+            show_perf_chart = False  # disable for the guards below
+
     if show_perf_chart or plot_file:
         # 2026-05-08 (user feedback): split the long title into three pieces.
         # - ``header_str``: split / model_name + [features/rows] -> figure SUPTITLE
