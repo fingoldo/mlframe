@@ -34,17 +34,25 @@ logger = logging.getLogger(__name__)
 
 
 class _PhaseRegistry:
-    __slots__ = ("_lock", "_totals", "_counts")
+    __slots__ = ("_lock", "_totals", "_counts", "_ram_deltas_gb")
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._totals: Dict[str, float] = {}
         self._counts: Dict[str, int] = {}
+        # 2026-05-10 (rec d): per-phase cumulative RAM delta (GB).
+        # Phase-level RAM growth surfaces leaks that the per-call ``Done.
+        # RAM usage: NGB`` line can't show -- e.g. "compute_split_metrics
+        # +1.2GB across 32 calls" tells the operator which phase to
+        # investigate when total RSS climbs unexpectedly.
+        self._ram_deltas_gb: Dict[str, float] = {}
 
-    def record(self, name: str, seconds: float) -> None:
+    def record(self, name: str, seconds: float, ram_delta_gb: float = 0.0) -> None:
         with self._lock:
             self._totals[name] = self._totals.get(name, 0.0) + seconds
             self._counts[name] = self._counts.get(name, 0) + 1
+            if ram_delta_gb:
+                self._ram_deltas_gb[name] = self._ram_deltas_gb.get(name, 0.0) + ram_delta_gb
 
     def snapshot(self) -> List[Tuple[str, float, int]]:
         with self._lock:
@@ -53,10 +61,20 @@ class _PhaseRegistry:
                 key=lambda kv: -kv[1],
             )
 
+    def ram_delta_snapshot(self) -> Dict[str, float]:
+        """Per-phase cumulative RAM delta in GB. Sorted by absolute
+        magnitude to surface biggest leaks/releases first."""
+        with self._lock:
+            return dict(sorted(
+                self._ram_deltas_gb.items(),
+                key=lambda kv: -abs(kv[1]),
+            ))
+
     def reset(self) -> None:
         with self._lock:
             self._totals.clear()
             self._counts.clear()
+            self._ram_deltas_gb.clear()
 
 
 _registry = _PhaseRegistry()
@@ -67,10 +85,11 @@ def reset_phase_registry() -> None:
     _registry.reset()
 
 
-def record_phase(name: str, seconds: float) -> None:
+def record_phase(name: str, seconds: float, ram_delta_gb: float = 0.0) -> None:
     """Manually add a timing without using the context manager (e.g. to backfill
-    an already-measured duration)."""
-    _registry.record(name, seconds)
+    an already-measured duration). ``ram_delta_gb`` optional; not all callers
+    have a RAM measurement available."""
+    _registry.record(name, seconds, ram_delta_gb=ram_delta_gb)
 
 
 def phase_snapshot() -> List[Tuple[str, float, int]]:
@@ -78,18 +97,47 @@ def phase_snapshot() -> List[Tuple[str, float, int]]:
     return _registry.snapshot()
 
 
+def phase_ram_snapshot() -> Dict[str, float]:
+    """Return ``{phase_name: cumulative_ram_delta_gb}`` sorted by abs magnitude."""
+    return _registry.ram_delta_snapshot()
+
+
+def _try_get_rss_gb() -> float:
+    """Best-effort current process RSS in GB; 0.0 if psutil missing."""
+    try:
+        import psutil
+        return psutil.Process().memory_info().rss / (1024 ** 3)
+    except Exception:
+        return 0.0
+
+
 def format_phase_summary(top: int = 30) -> str:
-    """Format the top-N phases by accumulated wall-clock time into a table."""
+    """Format the top-N phases by accumulated wall-clock time into a table.
+
+    2026-05-10 (rec d): adds a ``+/-RAM_GB`` column when the registry has
+    captured per-phase RAM deltas (auto-populated by the ``phase()`` ctx
+    manager). Phases where the delta is exactly 0.0 (no measurement, or
+    truly zero net change) render as ``     `` (blank) so the column
+    only highlights phases that moved RSS.
+    """
     rows = _registry.snapshot()[:top]
     if not rows:
         return "[phases] no timings recorded"
+    ram_deltas = _registry.ram_delta_snapshot()
     name_w = max(len("phase"), max(len(n) for n, _, _ in rows))
-    header = f"{'phase'.ljust(name_w)}   total       calls    avg"
+    header = f"{'phase'.ljust(name_w)}   total       calls    avg     +/-RAM"
     sep = "-" * len(header)
     lines = [header, sep]
     for name, total, count in rows:
         avg = total / count if count else 0.0
-        lines.append(f"{name.ljust(name_w)}  {total:8.2f}s  {count:6d}  {avg:7.3f}s")
+        delta = ram_deltas.get(name, 0.0)
+        if abs(delta) >= 0.05:  # only show >=50MB to suppress noise
+            ram_str = f" {delta:+6.2f}GB"
+        else:
+            ram_str = "        "
+        lines.append(
+            f"{name.ljust(name_w)}  {total:8.2f}s  {count:6d}  {avg:7.3f}s{ram_str}"
+        )
     return "\n".join(lines)
 
 
@@ -143,6 +191,10 @@ def phase(name: str, level: int = logging.DEBUG, **context: Any) -> Iterator[Non
     ctx_str = _format_ctx(context)
     logger.log(level, f"[phase] {name} START {ctx_str}".rstrip())
     t0 = _timer()
+    # 2026-05-10 (rec d): bracket each phase with RSS sample so the
+    # registry accumulates a RAM-delta column. psutil-optional; if
+    # missing or transiently fails, we simply skip the delta.
+    rss_pre_gb = _try_get_rss_gb()
     raised: BaseException | None = None
     try:
         yield
@@ -151,8 +203,13 @@ def phase(name: str, level: int = logging.DEBUG, **context: Any) -> Iterator[Non
         raise
     finally:
         dt = _timer() - t0
-        _registry.record(name, dt)
+        rss_post_gb = _try_get_rss_gb()
+        ram_delta = (rss_post_gb - rss_pre_gb) if (rss_pre_gb > 0 and rss_post_gb > 0) else 0.0
+        _registry.record(name, dt, ram_delta_gb=ram_delta)
+        # Render +/-XXX MB on the DONE line only when the change is
+        # >=50MB; otherwise the lines spam without information.
+        ram_str = f" delta_RAM={ram_delta*1024:+.0f}MB" if abs(ram_delta) >= 0.05 else ""
         if raised is not None:
-            logger.warning(f"[phase] {name} RAISED {type(raised).__name__} after {dt:.2f}s {ctx_str}".rstrip())
+            logger.warning(f"[phase] {name} RAISED {type(raised).__name__} after {dt:.2f}s{ram_str} {ctx_str}".rstrip())
         else:
-            logger.log(level, f"[phase] {name} DONE in {dt:.2f}s {ctx_str}".rstrip())
+            logger.log(level, f"[phase] {name} DONE in {dt:.2f}s{ram_str} {ctx_str}".rstrip())
