@@ -1029,6 +1029,15 @@ def get_training_configs(
         # gates on the presence of 'mlp' in mlframe_models already.
         MLP_GENERAL_PARAMS = None
     else:
+        # Note: ``num_sanity_val_steps`` is intentionally left at
+        # Lightning's default (2). A 2026-05-09 A/B benchmark on the
+        # tightest MLP combo (c0120: cb+mlp pandas n=300 multiclass)
+        # showed setting it to 0 saves only 32 ms / 1.7% per fit
+        # (within combined stdev), because the "Sanity Checking" pass
+        # is just the first forward through cuDNN's auto-tuner --
+        # disabling it pushes the same kernel selection cost onto
+        # epoch 0 instead. Keeping the default preserves Lightning's
+        # fail-fast on a broken val pipeline at no measurable cost.
         mlp_trainer_params: dict = dict(
             devices=1,  # Always use single device by default to avoid multi-GPU complexity
             # ------------------------------------------------------------------
