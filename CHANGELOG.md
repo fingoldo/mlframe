@@ -1,5 +1,54 @@
 # Changelog
 
+## 2026-05-09 — Metamorphic fuzz hardening: c0103 + LTR coverage
+
+Three real framework bugs surfaced during the post-Phase-Q metamorphic
+fuzz cycle and are fixed here. Two were silently masked by the
+metamorphic test only carrying ``regression=...`` to the FTE (not the
+full ``target_type``); the third was a label-shape edge case that hit
+the cross-entropy boundary on multilabel targets.
+
+### Fixed
+
+- **`training/train_eval.py:_binary_pos_rate`** — hardened against
+  object-arrays of arrays (multilabel ``List(Int8)`` polars target
+  shape). Previously crashed the whole suite with ``ValueError: truth
+  value of an array with more than one element is ambiguous`` from a
+  display-only metric path. Now unwraps via ``np.concatenate`` before
+  the ``==1`` comparison; falls back to ``None`` on any failure so a
+  display metric can never take down training.
+- **`training/neural/data.py:TorchDataset`** — squeeze ``(N, 1) Long``
+  labels to ``(N,) Long`` for single-label paths. ``pl.DataFrame
+  .to_numpy()`` on a single-column frame returns ``(N, 1)``, which
+  combined with ``labels_dtype=int64`` made cross_entropy interpret
+  the target as 2-D class probabilities (``Expected floating point
+  type for target with class probabilities, got Long``). Genuine
+  multilabel ``(N, K>=2)`` is unaffected.
+
+### Tests
+
+- **`test_fuzz_metamorphic.py`** — propagate ``combo.target_type`` to
+  the FTE *and* the suite call. ``multiclass_classification``,
+  ``multilabel_classification``, and ``learning_to_rank`` combos now
+  resolve their proper ``TargetTypes`` enum (previously collapsed to
+  ``BINARY_CLASSIFICATION``); LTR combos additionally set
+  ``group_field='qid'`` so ``train_mlframe_ranker_suite`` can dispatch.
+- **LTR-specific perturbations**: ``_add_duplicate_rows`` accepts a
+  ``sort_by`` parameter and stable-sorts by ``qid`` for LTR combos
+  (XGB ranker requires non-decreasing qid); ``_rename_first_numeric``
+  accepts a ``protect`` tuple and excludes ``qid`` from rename so the
+  FTE's ``group_field`` resolves on the perturbed frame.
+- **`_extract_primary_val_metric`** — sniff for the
+  ``train_mlframe_ranker_suite`` shape (top-level keys are model
+  flavors, each with ``val_metrics["ndcg@10"]``) and pull NDCG@10 as
+  the LTR stability metric. Refactored ``_no_signal`` per-target
+  threshold helper; added ``_LTR_NDCG_TOLERANCE = 0.15``.
+- **Verified**: 8 passed + 2 expected non-learning regression skips
+  on the 5-combo curated suite; 6/6 passed on the 3 small-LTR combos
+  under ``MLFRAME_METAMORPHIC_ALL=1``.
+
+Commits: ``b0f1e6d``, ``02344e8``, ``d6162ba``, ``61f7f5e``.
+
 ## 2026-05-09 — Phase Q: feature_handling_apply() bridge + suite kwarg
 
 Final consumer-facing wiring of the 2026 feature-handling overhaul.
