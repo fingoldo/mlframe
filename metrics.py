@@ -1586,6 +1586,15 @@ def show_calibration_plot(
         # Save-only fast path: bypass pyplot + GUI backend (Qt init costs ~1.7s per call).
         # Using Figure + FigureCanvasAgg directly drops this to ~0.2s. Also thread-safe,
         # which matters for parallel val/test evaluation.
+        #
+        # 2026-05-09: tried extending the guard to also fire for
+        # ``show_plots=True`` outside an IPython kernel, hypothesising
+        # that the GUI-bound path's pyplot+Qt overhead was wasted in
+        # script / CI runs. Two A/B benches on c0104 (5 fits each)
+        # showed 2733 +- 236 ms and 3145 +- 723 ms vs the
+        # close-fix-only baseline of 2275 +- 185 ms -- a regression,
+        # not a win. Revert; keep the original guard. Closing figures
+        # in the interactive path (already done above) is enough.
         if plot_file and not show_plots:
             from matplotlib.figure import Figure
             from matplotlib.backends.backend_agg import FigureCanvasAgg
