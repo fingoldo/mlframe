@@ -410,7 +410,12 @@ class TestPresetFactories:
         assert fhc.default_text[0].method == "tfidf"
         assert fhc.default_text[0].params.max_features == 10000
         assert fhc.default_text[0].params.ngram_range == (1, 3)
-        assert fhc.default_cat[0].method == "native"
+        # Phase Q (2026-05-09) flipped the universal cat default from
+        # "native" (works only for cb/xgb/lgb/tabnet) to "ordinal"
+        # (works for ALL model kinds). The cat=native restriction caused
+        # validate_against_models() to reject HGB/MLP/linear/etc users
+        # of the preset; "ordinal" passes validation everywhere.
+        assert fhc.default_cat[0].method == "ordinal"
 
     def test_cb_native_only(self):
         fhc = cb_native_only()

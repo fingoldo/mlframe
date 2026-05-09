@@ -1,5 +1,71 @@
 # Changelog
 
+## 2026-05-09 — Phase Q: feature_handling_apply() bridge + suite kwarg
+
+Final consumer-facing wiring of the 2026 feature-handling overhaul.
+Phases M-L shipped the foundation primitives; phase Q is the
+end-to-end bridge that takes a :class:`FeatureHandlingConfig`, a
+dataset, and a target model into the assembled feature matrix.
+Existing pipeline_config / feature_types_config consumer paths in
+``train_mlframe_models_suite`` continue to work unchanged -- phase
+Q is opt-in and side-by-side, not a replacement.
+
+### Added
+
+- **`feature_handling_apply()`** in
+  ``training/feature_handling/apply.py``. The single callable that
+  composes detector + handlers + assembler + cache + target encoders
+  into one operation. Accepts ``train_df`` + optional ``val_df`` /
+  ``test_df`` so held-out frames pass through the train-fitted
+  handlers (no leak). Returns :class:`FeatureHandlingResult` with
+  per-split assembled matrices + the auto-detection decisions trace.
+
+- **`feature_handling_config`** kwarg on ``train_mlframe_models_suite``.
+  When set, the suite calls ``fhc.validate_against_models()`` at start
+  so any compat-matrix mismatch (e.g. ``learnable_text_embedding`` on
+  XGB) raises BEFORE any model fit. Logs the resolved plan via
+  ``fhc.describe(short=True)`` at INFO level. Existing behaviour
+  unchanged when the kwarg is None (default).
+
+- Integration paths wired through ``feature_handling_apply``:
+  * TF-IDF / Hashing (phase C ``TextColumnEncoder``).
+  * Target encoders (phase N ``LeakageSafeEncoder``) -- ``train_target``
+    plumbed through; missing target on ``target_*`` method raises
+    actionable ValueError.
+  * Custom user transforms (phase P ``CustomHandler``).
+  * Frozen / learnable text embeddings flagged for phase G consumer
+    wiring (the heavy HF inference is gated behind the
+    TabularInputEncoder neural integration which lands in a follow-up).
+
+### Tests
+
+14 new in ``test_feature_handling_apply.py``:
+  * Sparse-aware path (XGB / LGB) -> two-track output.
+  * Dense-only path (HGB) -> single-track + auto-SVD above 512 cols.
+  * End-to-end LogisticRegression fit on assembled sparse matrix.
+  * Numeric block concatenation via ``numeric_block_train`` kwarg.
+  * **Cache reuse**: 3 models in one suite call -> exactly ONE
+    encoder fit (round-3 T2 efficiency lock).
+  * Cache hit yields identical sparse matrix across consumers
+    (round-3 T4 hit-correctness).
+  * Target encoder integration: dense block emitted; missing
+    ``train_target`` raises.
+  * Auto-text-detection wired through.
+  * Suite-level: ``feature_handling_config`` kwarg present in
+    signature; invalid FHC raises at suite start.
+  * Held-out transform: train/val/test share train-fitted vocab.
+
+### Notes
+
+- Phase Q ships the BRIDGE; replacing the legacy ``pipeline_config``
+  + ``feature_types_config`` path with FHC-driven feature matrices
+  is a multi-month follow-up that touches every model strategy in
+  ``training/strategies.py`` and ``training/trainer.py``.
+- Default presets (``tfidf_only`` / ``embedding_only``) updated to
+  use ``cat="ordinal"`` instead of ``cat="native"`` so they validate
+  against ALL model kinds, not just CB / XGB / LGB / TabNet (which
+  alone support native cat). Greenfield rename, no migration needed.
+
 ## 2026-05-09 — Phase L: documentation (README architecture section + cookbook)
 
 Final phase of the foundation track. Phases M / A / A2 / B / C / D /

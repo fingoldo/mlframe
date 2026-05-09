@@ -1802,6 +1802,14 @@ def train_mlframe_models_suite(
     outlier_detection_config: Optional[Union["OutlierDetectionConfig", Dict]] = None,
     feature_selection_config: Optional[Union[FeatureSelectionConfig, Dict]] = None,
     confidence_analysis_config: Optional[Union["ConfidenceAnalysisConfig", Dict]] = None,
+    # 2026-05-09 phase Q: opt-in feature-handling overhaul. When set,
+    # the suite logs the resolved per-model handler chain via
+    # ``fhc.describe()`` at start. Consumer wiring (replacing
+    # pipeline_config / feature_types_config with FHC-driven handler
+    # outputs) lands in phase F-J follow-up; phase Q just exposes the
+    # surface so existing pipelines aren't disturbed and users can
+    # build + introspect FHC alongside the legacy path.
+    feature_handling_config: Optional[Any] = None,
     # Misc
     verbose: int = 1,
 ) -> Tuple[Dict, Dict]:
@@ -1997,6 +2005,26 @@ def train_mlframe_models_suite(
 
     if verbose:
         log_phase(f"Starting mlframe training suite: {model_name}")
+
+    # Phase Q wiring: when the user passed a FeatureHandlingConfig,
+    # log the resolved plan and validate against the active model
+    # list so config-mismatch errors surface BEFORE any model fit.
+    # The actual consumer-side wiring (replacing the legacy
+    # pipeline_config + feature_types_config path with FHC-driven
+    # handler outputs) lands in phases F-J.
+    if feature_handling_config is not None:
+        try:
+            from mlframe.training.feature_handling import FeatureHandlingConfig as _FHC
+            if isinstance(feature_handling_config, _FHC):
+                if mlframe_models:
+                    feature_handling_config.validate_against_models(list(mlframe_models))
+                if verbose:
+                    logger.info(
+                        "[fhc] FeatureHandlingConfig active; resolved plan: %s",
+                        feature_handling_config.describe(short=True),
+                    )
+        except ImportError:  # pragma: no cover
+            pass
 
     # Convert dict configs to Pydantic if needed
     preprocessing_config = _ensure_config(preprocessing_config, PreprocessingConfig, {})

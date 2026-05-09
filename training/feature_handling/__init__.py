@@ -44,6 +44,10 @@ from mlframe.training.feature_handling.custom_handler import (
 from mlframe.training.feature_handling.polynomial import (
     PolynomialFeatureExpander,
 )
+from mlframe.training.feature_handling.apply import (
+    FeatureHandlingResult,
+    feature_handling_apply,
+)
 from mlframe.training.feature_handling.assembler import (
     AssembledMatrix,
     HandlerOutput,
@@ -150,6 +154,9 @@ __all__ = [
     "HandlerSpec",
     "register_handler_spec",
     "get_handler_spec_for_axis",
+    # apply (end-to-end integration helper)
+    "FeatureHandlingResult",
+    "feature_handling_apply",
     # assembler / multi-handler concat
     "AssembledMatrix",
     "HandlerOutput",

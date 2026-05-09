@@ -38,7 +38,7 @@ def tfidf_only(
 
         FeatureHandlingConfig(
             default_text=[TextHandlerSpec(method="tfidf", params=TfidfParams(max_features=...))],
-            default_cat=[CatHandlerSpec(method="native", params=NoParams(kind="native"))],
+            default_cat=[CatHandlerSpec(method="ordinal", params=NoParams(kind="ordinal"))],
         )
     """
     return FeatureHandlingConfig(
@@ -48,7 +48,7 @@ def tfidf_only(
                 params=TfidfParams(max_features=max_features, ngram_range=ngram_range),
             )
         ],
-        default_cat=[CatHandlerSpec(method="native", params=NoParams(kind="native"))],
+        default_cat=[CatHandlerSpec(method="ordinal", params=NoParams(kind="ordinal"))],
         **fhc_kwargs,
     )
 
@@ -71,7 +71,7 @@ def cb_native_only(**fhc_kwargs: Any) -> FeatureHandlingConfig:
 
     return FeatureHandlingConfig(
         default_text=[TextHandlerSpec(method="drop", params=NoParams(kind="drop"))],
-        default_cat=[CatHandlerSpec(method="native", params=NoParams(kind="native"))],
+        default_cat=[CatHandlerSpec(method="ordinal", params=NoParams(kind="ordinal"))],
         per_model={
             "cb": ModelHandlingOverride(
                 text=[TextHandlerSpec(method="native", params=NoParams(kind="native"))],
@@ -99,7 +99,7 @@ def embedding_only(
                 params=FrozenEmbeddingParams(provider=provider, pool=pool),  # type: ignore[arg-type]
             )
         ],
-        default_cat=[CatHandlerSpec(method="native", params=NoParams(kind="native"))],
+        default_cat=[CatHandlerSpec(method="ordinal", params=NoParams(kind="ordinal"))],
         **fhc_kwargs,
     )
 
