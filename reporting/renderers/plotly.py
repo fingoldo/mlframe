@@ -553,12 +553,21 @@ class PlotlyRenderer:
     def _bar(self, fig, p: BarPanelSpec, row: int, col: int) -> None:
         import plotly.graph_objects as go
 
+        from mlframe.reporting.colors import line_color
         if isinstance(p.values, tuple):
             for i, series in enumerate(p.values):
                 lbl = p.series_labels[i] if p.series_labels else f"series {i}"
-                col_kw = {}
+                # 2026-05-09: default plotly's qualitative palette
+                # ('Plotly': bright violet/red/green) is too saturated
+                # and clashes with matplotlib's tab10 in the same
+                # figure. Fall back to ``line_color(i)`` (tab10) when
+                # the spec doesn't pin colors -- cross-backend parity
+                # with matplotlib's bar default.
                 if p.colors is not None and i < len(p.colors):
-                    col_kw["marker"] = dict(color=p.colors[i])
+                    color = p.colors[i]
+                else:
+                    color = line_color(i)
+                col_kw = {"marker": dict(color=color)}
                 fig.add_trace(
                     go.Bar(x=list(p.categories), y=series.tolist(),
                            name=lbl, showlegend=True, **col_kw),
@@ -604,13 +613,20 @@ class PlotlyRenderer:
 
     def _violin(self, fig, p: ViolinPanelSpec, row: int, col: int) -> None:
         import plotly.graph_objects as go
+        from mlframe.reporting.colors import line_color
 
         for i, group in enumerate(p.groups):
+            # tab10 cycle for cross-backend parity (plotly default
+            # 'Plotly' qualitative is over-saturated next to mpl bars).
+            color = line_color(i)
             fig.add_trace(
                 go.Violin(y=np.asarray(group).tolist(),
                           name=p.group_labels[i],
                           box_visible=p.show_box,
                           meanline_visible=False,
+                          line_color=color,
+                          fillcolor=color,
+                          opacity=0.6,
                           showlegend=False),
                 row=row, col=col,
             )

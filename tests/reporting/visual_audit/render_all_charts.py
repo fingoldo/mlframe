@@ -42,8 +42,13 @@ from typing import Any, Sequence
 
 import numpy as np
 
+# Production chart headers go through ``_strip_internal_model_suffixes``
+# in training/trainer.py so internal mixin class names
+# (XGBClassifierWithDMatrixReuse / LGBMClassifierWithDatasetReuse /
+# *WithFastpath) get reduced to the canonical upstream name.
+# Mirror that here so the audit reflects what real users see.
 PROD_HEADER = (
-    "TEST XGBClassifierWithFastpath-recency_07 "
+    "TEST XGBClassifier-recency_07 "
     "[114F+11491.3506 trained on 4.1M rows @iter=37/125F/527.4K rows]"
 )
 

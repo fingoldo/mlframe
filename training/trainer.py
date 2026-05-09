@@ -778,6 +778,27 @@ def _validate_infinity_and_columns(df, train_df, skip_infinity_checks, drop_colu
     return real_drop_columns
 
 
+def _strip_internal_model_suffixes(name: str) -> str:
+    """Remove implementation-detail suffixes from a model class name
+    so user-facing chart titles / log lines show the canonical model
+    type (``XGBClassifier`` not ``XGBClassifierWithDMatrixReuse``).
+
+    These suffixes come from internal mixin subclasses we wrap around
+    upstream sklearn-API classes -- valuable for code clarity, noise
+    in user-visible output:
+
+      XGBClassifierWithDMatrixReuse  -> XGBClassifier
+      XGBRegressorWithDMatrixReuse   -> XGBRegressor
+      LGBMClassifierWithDatasetReuse -> LGBMClassifier
+      LGBMRegressorWithDatasetReuse  -> LGBMRegressor
+      *WithFastpath                  -> *  (legacy)
+    """
+    for suffix in ("WithDMatrixReuse", "WithDatasetReuse", "WithFastpath"):
+        if name.endswith(suffix):
+            return name[:-len(suffix)]
+    return name
+
+
 def _setup_model_info_and_paths(model, model_name, model_name_prefix, plot_file, data_dir, models_subdir):
     """Extract model object info and construct naming/path information."""
     if type(model).__name__ == "Pipeline":
@@ -789,6 +810,11 @@ def _setup_model_info_and_paths(model, model_name, model_name_prefix, plot_file,
         if isinstance(model_obj, TransformedTargetRegressor):
             model_obj = model_obj.regressor
     model_type_name = type(model_obj).__name__ if model_obj is not None else ""
+    # 2026-05-09: strip internal mixin suffixes so chart titles show
+    # the canonical class name (XGBClassifier, not the
+    # XGBClassifierWithDMatrixReuse internal subclass). Implementation
+    # detail not relevant to end users.
+    model_type_name = _strip_internal_model_suffixes(model_type_name)
 
     if plot_file:
         if not plot_file.endswith(os_sep):
