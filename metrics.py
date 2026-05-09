@@ -1469,6 +1469,27 @@ def show_calibration_plot(
     assert backend in ("plotly", "matplotlib")
     assert prob_histogram_yscale in ("auto", "log", "linear")
 
+    # 2026-05-09: short-circuit when there is NO plot consumer. The
+    # ``show_plots=True`` default expresses "render if a human can see
+    # it"; in a script / CI / fuzz process (no IPython kernel, no
+    # ``sys.ps1``) that's a contradiction -- ``plt.show()`` is a
+    # documented no-op (UserWarning: ``FigureCanvasAgg is non-
+    # interactive, and thus cannot be shown``) AND nothing is written
+    # to disk because ``plot_file`` is empty. The figure render is
+    # 130-180 ms / call and dominates the warm wall on plot-heavy
+    # multilabel fits (e.g. c0104: 12 cal-plots / fit -> 1.6-2.2 s of
+    # pure waste per fit). Caller can opt back in by passing a real
+    # ``plot_file`` (saves to disk regardless of session) OR by
+    # running inside IPython / Jupyter where the inline display
+    # backends will pick up the figure.
+    if show_plots and not plot_file:
+        try:
+            _is_interactive = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+        except NameError:
+            _is_interactive = hasattr(sys, "ps1")
+        if not _is_interactive:
+            return None
+
     # 2026-05-08: opt-in DSL render path. When ``plot_outputs`` + ``base_path``
     # are supplied, route through the shared spec pipeline (matplotlib +
     # plotly + any future backends via the same DSL). Default behaviour

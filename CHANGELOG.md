@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-05-09 — show_calibration_plot: short-circuit when no plot consumer (-47% wall on top of leak fix)
+
+Surfaced after the figure-leak fix (8028faa) by an instrumented
+``fig.savefig`` trace on the c0104 multilabel suite call: 0 savefigs
+fired, but 12 ``show_calibration_plot`` calls / fit still rendered
+matplotlib figures for nobody. The ``show_plots=True`` default
+expresses "render if a human can see it"; in a script / CI / fuzz
+process there's no human AND no ``plot_file`` to disk -- pure waste.
+
+### Fixed
+
+- **`mlframe.metrics.show_calibration_plot`** -- short-circuit when
+  ``show_plots=True AND plot_file="" AND not is_interactive_session``.
+  Detects interactive via the same ``__IPYTHON__`` builtin /
+  ``sys.ps1`` pair as the leak fix. Caller can opt back in by passing
+  a real ``plot_file`` (saves to disk regardless of session) OR by
+  running inside an IPython / Jupyter kernel where the inline
+  display backends will pick up the figure during ``plt.show()``.
+
+### Verified (cumulative on c0104 multilabel hgb+mlp n=300, 5 fits each)
+
+  v0 baseline (no fixes):           3027 +- 828 ms / fit
+  v4 (fig-leak close):              2275 +- 185 ms / fit  (-25% vs v0)
+  v6 (short-circuit + leak close):  1196 +- 53  ms / fit  (-47% vs v4, -60% vs v0)
+
+  stdev tightened 15.6x (828 -> 53 ms) -- fewer matplotlib internals
+  fired = less variance from the global pyplot registry's bookkeeping.
+
+- ``test_mlp_ranker.py`` (18) + ``test_fuzz_metamorphic.py`` (8 + 2
+  expected non-learning regression skips) = **26 passed, 2 skipped**
+  in 18m9s. No regression.
+
 ## 2026-05-09 — Matplotlib figure-leak fix: -24.8% wall on plot-heavy fits
 
 Surfaced by a profile cycle (seed=51) on c0104 (hgb+mlp multilabel
