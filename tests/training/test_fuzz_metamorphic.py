@@ -210,22 +210,28 @@ _METAMORPHIC_COMBOS = _curated_metamorphic_combos()
 # ---------------------------------------------------------------------------
 
 
-def _rename_first_numeric(df, target_col: str) -> tuple[Any, str]:
+def _rename_first_numeric(df, target_col: str, protect: tuple[str, ...] = ()) -> tuple[Any, str]:
     """Rename the first numeric non-target column to a new name. Returns
-    (new_df, new_column_name_to_exclude_from_diff)."""
+    (new_df, new_column_name_to_exclude_from_diff).
+
+    ``protect`` lists additional column names that must not be renamed
+    (e.g. ``"qid"`` for LTR combos -- renaming it would break the
+    FTE.group_field lookup at suite entry).
+    """
     import polars as pl
 
+    blocked = {target_col, *protect}
     if isinstance(df, pl.DataFrame):
         for name, dtype in df.schema.items():
-            if name == target_col:
+            if name in blocked:
                 continue
-            if dtype.is_numeric() and name != target_col:
+            if dtype.is_numeric():
                 new_name = f"{name}_renamed"
                 return df.rename({name: new_name}), new_name
         return df, ""
     else:
         for name in df.columns:
-            if name == target_col:
+            if name in blocked:
                 continue
             if np.issubdtype(df[name].dtype, np.number):
                 new_name = f"{name}_renamed"
@@ -242,7 +248,11 @@ def _rename_first_numeric(df, target_col: str) -> tuple[Any, str]:
 def test_metamorphic_column_rename_invariance(combo: FuzzCombo, tmp_path):
     """Renaming a non-target feature must not change val metric materially."""
     df_base, target_col, _ = build_frame_for_combo(combo)
-    df_renamed, renamed_col = _rename_first_numeric(df_base, target_col)
+    # LTR combos: protect 'qid' from being chosen as the rename target;
+    # the suite resolves it via FTE.group_field, so renaming it would
+    # break ranker dispatch (different bug than the metamorphic invariant).
+    protect: tuple[str, ...] = ("qid",) if combo.target_type == "learning_to_rank" else ()
+    df_renamed, renamed_col = _rename_first_numeric(df_base, target_col, protect=protect)
     if not renamed_col:
         pytest.skip("no numeric column available to rename")
 
@@ -269,8 +279,16 @@ def test_metamorphic_column_rename_invariance(combo: FuzzCombo, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _add_duplicate_rows(df, frac: float = 0.05):
-    """Return df with ``frac`` (deterministic) duplicated rows appended."""
+def _add_duplicate_rows(df, frac: float = 0.05, sort_by: str | None = None):
+    """Return df with ``frac`` (deterministic) duplicated rows appended.
+
+    When ``sort_by`` is given (LTR combos use ``"qid"``), the resulting
+    frame is sorted by that column so query-grouped libraries (XGB,
+    LGB, CatBoost rankers) still see qid in non-decreasing order. The
+    LTR property under test (duplicate-row stability) is preserved
+    because rows within the same qid stay adjacent and the per-query
+    document distribution is unchanged save for the duplicated rows.
+    """
     import polars as pl
 
     n_new = max(2, int(df.shape[0] * frac))
@@ -278,14 +296,20 @@ def _add_duplicate_rows(df, frac: float = 0.05):
         rng = np.random.default_rng(12345)
         idx = rng.integers(0, df.shape[0], size=n_new).tolist()
         dup = df[idx]
-        return pl.concat([df, dup])
+        out = pl.concat([df, dup])
+        if sort_by is not None and sort_by in out.columns:
+            out = out.sort(sort_by, maintain_order=True)
+        return out
     else:
         rng = np.random.default_rng(12345)
         idx = rng.integers(0, df.shape[0], size=n_new)
         dup = df.iloc[idx]
         import pandas as pd
 
-        return pd.concat([df, dup], ignore_index=True)
+        out = pd.concat([df, dup], ignore_index=True)
+        if sort_by is not None and sort_by in out.columns:
+            out = out.sort_values(sort_by, kind="stable").reset_index(drop=True)
+        return out
 
 
 @pytest.mark.timeout(300)
@@ -297,7 +321,11 @@ def _add_duplicate_rows(df, frac: float = 0.05):
 def test_metamorphic_duplicate_rows_stable(combo: FuzzCombo, tmp_path):
     """Adding 5% duplicated rows must not swing val metric beyond noise."""
     df_base, target_col, _ = build_frame_for_combo(combo)
-    df_dup = _add_duplicate_rows(df_base, frac=0.05)
+    # LTR combos: keep qid sorted post-duplication so query-grouped rankers
+    # (XGB / LGB / CB ranker) still see non-decreasing qid (libxgboost asserts
+    # this and crashes loudly otherwise).
+    sort_by = "qid" if combo.target_type == "learning_to_rank" else None
+    df_dup = _add_duplicate_rows(df_base, frac=0.05, sort_by=sort_by)
 
     m_base = _extract_primary_val_metric(_run_suite(combo, df_base, target_col, str(tmp_path / "base")))
     m_dup = _extract_primary_val_metric(_run_suite(combo, df_dup, target_col, str(tmp_path / "dup")))
