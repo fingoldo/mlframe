@@ -1,6 +1,64 @@
 # Changelog
 
-## 2026-05-09 — Group-aware splits in `train_mlframe_models_suite` (Phase 0.5)
+## 2026-05-09 — fuzz-3way: 20/20 PASS via polars-ds mode-imputer fallback
+
+Surfaced by the broader pairwise + 3-way fuzz coverage cycle (in
+addition to the metamorphic suite). All three 3-way failures shared
+the same root cause and fix:
+
+### Discovered
+
+- **polars-ds bug** in
+  `polars_ds.pipeline.transforms.impute(method="mode")`: the implementation
+  reads `pl.col(cols).mode().list.first()`, which assumes `.mode()`
+  returns a List dtype (true on polars <1.x). On polars 1.x `.mode()`
+  returns a Series of the original scalar dtype with one row per
+  modal value; `.list.first()` then crashes with
+  `SchemaError: invalid series dtype: expected `List`, got
+  `i8`/`f32`/...`. Surfaced by fuzz-3way combos c0009 (cb_linear,
+  pl_nullable, n=5000), c0010 (cb_mlp, pandas, n=5000), and c0013
+  (linear_xgb, pl_nullable, n=5000), all hitting the imputer on a
+  numeric column with `imputer_strategy="mode"` (canonicaliser
+  output).
+
+### Fixed (in our local polars-ds fork)
+
+- Patched `polars_ds_fork/python/polars_ds/pipeline/transforms.py`
+  to:
+  1. Build a per-column expression list with `pl.col(c).mode()
+     .first()` (polars 1.x form). Multi-column `pl.col(cols).mode()`
+     would otherwise raise `ShapeError: ... length doesn't match the
+     DataFrame height of N` whenever any column has tied modes.
+  2. Wrap in a `try/except (SchemaError, ComputeError, AttributeError)`
+     fallback that uses `.list.first()` for old-API polars. Both
+     branches end with a single scalar per column.
+- Patch lives only in the local fork checkout
+  (`D:/Machine Learning/3rdParty/polars_ds_fork`); not pushed to the
+  upstream `abstractqqq/polars_ds_extension` repo (per the project
+  rule against opening third-party PRs without explicit per-message
+  confirmation).
+
+### Moved
+
+- `D:/Temp/polars_ds_fork` → `D:/Machine Learning/3rdParty/polars_ds_fork`
+  (`pip install -e` re-pointed at the new location).
+- `mlframe/explore/polars_ds_audit/` (40 files; benches, leak_tests,
+  upstream_demo, REPORT.md) →
+  `D:/Machine Learning/3rdParty/PRs/polars_ds_audit/`. Out-of-tree so
+  the audit + benchmarking artefacts live alongside the fork they
+  describe rather than inside the consumer (mlframe) repo.
+
+### Verified
+
+- fuzz-3way: 17/20 → 20/20 PASS after the patch (3 fixed combos
+  re-validated individually from the new fork location).
+- fuzz-1 (pairwise, 20 combos): 19 pass + 1 expected skip (c0018 LTR
+  with hgb+linear, neither has a native ranker).
+- Metamorphic suite (curated 5 combos × D1+D2 invariants): 8 pass +
+  2 expected non-learning regression skips. No regression after the
+  fork relocation + patch.
+
+
 
 Wired the existing `groups=` parameter of `make_train_test_split` through
 `train_mlframe_models_suite` so that an extractor with `group_field` set
