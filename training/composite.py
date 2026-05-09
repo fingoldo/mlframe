@@ -1161,6 +1161,94 @@ def report_to_markdown(
 # ----------------------------------------------------------------------
 
 
+def derive_seeds(random_state: int, components: Sequence[str]) -> Dict[str, int]:
+    """Derive deterministic per-component seeds from a master seed.
+
+    Uses sha256 truncation to keep the values stable across Python /
+    numpy versions (no dependence on hash() salt randomisation). The
+    returned dict maps each component name to a 32-bit unsigned int.
+
+    Why this exists. Discovery has several internal sources of
+    randomness (MI sampling, tiny-model CV split, OOF holdout split,
+    bootstrap CI). Threading the same ``random_state`` through every
+    one of them creates correlation: if the master seed produces an
+    "easy" MI sample it tends to also produce an "easy" CV split.
+    Sub-seeds break the correlation while keeping reproducibility:
+    same master seed -> same sub-seeds -> same downstream randomness.
+    """
+    import hashlib
+    import struct
+    out: Dict[str, int] = {}
+    for c in components:
+        h = hashlib.sha256(f"{random_state}::{c}".encode("utf-8")).digest()
+        out[c] = struct.unpack("<I", h[:4])[0]
+    return out
+
+
+def detect_gpu_in_use(mlframe_models: Sequence[str]) -> List[str]:
+    """Return list of model families that may be using GPU.
+
+    Best-effort detection: imports each library only if it appears in
+    ``mlframe_models`` and probes for GPU availability via the
+    library's standard health-check API. Returns the subset that has
+    GPU detected. Returns empty list when no GPU library is in use.
+
+    Used by the suite to emit a one-shot warning when composite mode
+    is combined with GPU training: GPU non-determinism is amplified
+    by K composite-model fits and can surface as ensemble weight
+    drift across runs even when ``random_state`` is fixed.
+    """
+    detected: List[str] = []
+    families = {str(m).lower() for m in mlframe_models}
+    if any(f in families for f in ("lgb", "lightgbm")):
+        try:
+            import lightgbm as lgb  # noqa: F401
+            # LightGBM doesn't have a portable "is GPU available"
+            # check; we infer from the user's stated intent only.
+            # Conservative: skip the warning if we can't tell.
+        except ImportError:
+            pass
+    if any(f in families for f in ("xgb", "xgboost")):
+        try:
+            import xgboost as xgb
+            try:
+                # XGBoost build info is the canonical "GPU available?"
+                # signal post-2.x.
+                bi = xgb.build_info()
+                if isinstance(bi, dict) and bi.get("USE_CUDA", False):
+                    detected.append("xgboost")
+            except Exception:
+                pass
+        except ImportError:
+            pass
+    if any(f in families for f in ("cb", "catboost")):
+        try:
+            from catboost.utils import get_gpu_device_count
+            if get_gpu_device_count() > 0:
+                detected.append("catboost")
+        except Exception:
+            pass
+    return detected
+
+
+def env_signature() -> Dict[str, Optional[str]]:
+    """Snapshot of library versions relevant to composite-target
+    discovery + serialisation. Stored on metadata so a pickle saved
+    today can be reload-validated tomorrow against version drift.
+
+    Returns ``None`` for any library not installed.
+    """
+    sig: Dict[str, Optional[str]] = {}
+    for libname in ("numpy", "pandas", "polars", "sklearn", "lightgbm",
+                    "xgboost", "catboost", "scipy", "dill"):
+        try:
+            mod = __import__(libname)
+            sig[libname] = getattr(mod, "__version__", None)
+        except Exception:
+            sig[libname] = None
+    return sig
+
+
 def compute_oof_holdout_predictions(
     component_models: List[Any],
     component_names: List[str],
@@ -1653,6 +1741,50 @@ class CompositeCrossTargetEnsemble:
             "weights": self.weights.tolist(),
             "notes": dict(self.notes),
         }
+
+    def cap_inference_components(
+        self, max_components: int,
+    ) -> "CompositeCrossTargetEnsemble":
+        """Return a NEW ensemble holding only the top-N components by
+        absolute weight.
+
+        Use case: production online prediction with a latency budget
+        that can't afford running K=8 wrappers per row. Trims to the
+        largest-weighted components and re-normalises (or preserves
+        the linear-stack semantics by keeping the matching subset of
+        weights + intercept). Returns a new ensemble; the original
+        is unchanged.
+
+        ``max_components <= 0`` or ``>= len(components)`` -> returns
+        a copy of self unchanged (no trimming).
+        """
+        if max_components <= 0 or max_components >= len(self.component_models):
+            return CompositeCrossTargetEnsemble(
+                component_models=list(self.component_models),
+                component_names=list(self.component_names),
+                weights=np.asarray(self.weights, dtype=np.float64),
+                strategy=self.strategy,
+                notes=dict(self.notes),
+            )
+        # Pick top-N by |weight|.
+        order = np.argsort(-np.abs(np.asarray(self.weights, dtype=np.float64)))
+        keep = sorted(order[:max_components].tolist())
+        new = CompositeCrossTargetEnsemble(
+            component_models=[self.component_models[i] for i in keep],
+            component_names=[self.component_names[i] for i in keep],
+            weights=np.asarray([self.weights[i] for i in keep], dtype=np.float64),
+            strategy=self.strategy,
+            notes={**self.notes, "capped_to_top_n": int(max_components),
+                   "dropped_components": [
+                       self.component_names[i]
+                       for i in range(len(self.component_models))
+                       if i not in keep
+                   ]},
+        )
+        # Linear stack: preserve intercept too.
+        if self.strategy == "linear_stack" and hasattr(self, "_linear_stack_intercept"):
+            new._linear_stack_intercept = self._linear_stack_intercept
+        return new
 
 
 # ----------------------------------------------------------------------

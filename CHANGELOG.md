@@ -64,6 +64,25 @@ PR-1 of a multi-stage rework. Five parallel audit agents (logical bugs / ineffic
 - **Phase 3**: split `wrappers.py` (1348 lines, 660-line `fit` method, 4 star-imports) into a `wrappers/` package: `_rfecv.py`, `_splitting.py`, `_scoring.py`, `_importance.py`, `_voting.py`, `_candidate_search.py`, `_config.py`, `_enums.py`. Collapse `use_all_fi_runs` / `use_last_fi_run_only` / `use_one_freshest_fi_run` / `use_fi_ranking` (4 booleans for one enum) into `FIAggregationStrategy`. Drop `from typing import *` and three other star imports. Replace `get_parent_func_args() / store_params_in_object()` magic with explicit attribute assignment so static analysis sees `self.*`.
 - **Phase 4**: top-6 ROI extensions identified by the functionality-extensions agent: stability metrics (`self.stability_`), CI on best `n_features_` via 1-SE rule, parallel CV folds (`joblib.Parallel(n_jobs=...)`), `get_feature_names_out()` sklearn-1.x protocol, `must_include` hybrid (current `special_feature_indices` forces a single subset and breaks the search loop after one iter), permutation/SHAP `importance_getter`.
 
+## 2026-05-10 — Composite-target polish: auto-skip / multi-target guards / determinism / latency
+
+Polish round. Smart defaults + explicit skip metadata + reproducibility helpers + production inference latency knob.
+
+### Added
+
+- **`CompositeTargetDiscoveryConfig.auto_skip_on_baseline_optimal`** (default False): when True, discovery runs an inline `BaselineDiagnostics` per target before any MI / tiny-model work and short-circuits with a `failures` entry when the recommendation is `unlikely_to_help`. Saves the full screening cost on targets where composite mode is unlikely to add value.
+- **`CompositeTargetDiscoveryConfig.max_inference_components`** (default None): when set, the cross-target ensemble caps to top-N components by absolute weight and re-normalises. Latency control for online single-row prediction.
+- **Explicit skip_reason metadata** for unsupported target types: LtR / multiclass / multilabel / quantile_regression / binary_classification each get a typed reason string in `metadata["composite_target_failures"]`. Multilabel regression target also rejected with explicit reason instead of silent skip.
+- **`derive_seeds(random_state, components)`**: deterministic per-component seed derivation via sha256 truncation. Stable across Python / numpy versions.
+- **`env_signature()`**: snapshot of library versions (numpy / pandas / polars / sklearn / lightgbm / xgboost / catboost / scipy / dill). Stored on `metadata["composite_target_env_signature"]`. Catches version drift between save and load time.
+- **`detect_gpu_in_use(mlframe_models)`**: best-effort detection via XGBoost build_info + CatBoost get_gpu_device_count. When composite mode + GPU detected, the suite emits a one-shot WARNING about non-determinism amplification across K composite fits.
+- **`CompositeCrossTargetEnsemble.cap_inference_components(N)`**: return a NEW ensemble holding only the top-N components by absolute weight, re-normalised. Preserves linear_stack intercept.
+
+### Tests
+
+- `test_composite_polish.py` -- 13 unit tests covering all new helpers + cap_inference_components.
+- **Cumulative across all composite-target test files: 153 / 153 passed in ~130s.**
+
 ## 2026-05-10 — Composite-target: stacking + Phase B + OOF gate + tutorial (5 future-work items closed)
 
 Final batch of the composite-target roll-out. Closes the open

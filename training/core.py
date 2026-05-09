@@ -3185,6 +3185,57 @@ def train_mlframe_models_suite(
     # before adding entries.
     metadata["composite_target_specs"] = {}
     metadata["composite_target_failures"] = {}
+    if composite_target_discovery_config.enabled:
+        # Snapshot env once per discovery run; persists on metadata
+        # so a v2-loaded suite can detect numpy / sklearn / lgb / xgb
+        # version drift between save time and load time.
+        from .composite import env_signature as _env_sig, detect_gpu_in_use as _detect_gpu
+        metadata["composite_target_env_signature"] = _env_sig()
+        # GPU non-determinism warning. Composite mode trains K extra
+        # models; on GPU each model can produce slightly different
+        # predictions across runs even with random_state fixed, and
+        # the K-fold amplification surfaces as ensemble weight drift.
+        # Emit a single info-level note so operators see the risk
+        # without spamming on every per-target call.
+        _gpu_families = _detect_gpu(mlframe_models or [])
+        if _gpu_families:
+            logger.warning(
+                "[CompositeTargetDiscovery] composite mode + GPU training "
+                "detected (%s). GPU non-determinism is amplified by K composite "
+                "fits; ensemble weights may drift across runs even with "
+                "random_state fixed. Set deterministic=True / "
+                "single_precision_histogram=True / force_row_wise=True on the "
+                "inner estimators if reproducibility matters.",
+                ", ".join(_gpu_families),
+            )
+    # Skip target types that aren't in scope for composite-target
+    # discovery. We mark them explicitly on the failures map so
+    # callers can tell "we considered this and chose not to" apart
+    # from "we never looked".
+    for _tt_skip, _named_skip in target_by_type.items():
+        if not isinstance(_named_skip, dict):
+            continue
+        if _tt_skip == TargetTypes.REGRESSION:
+            continue
+        # Per-target skip reasons keyed by target_type stringified key.
+        reason = None
+        if _tt_skip == TargetTypes.LEARNING_TO_RANK:
+            reason = "ltr_unsupported_pairwise_breaks_with_residual"
+        elif _tt_skip == TargetTypes.MULTICLASS_CLASSIFICATION:
+            reason = "multiclass_unsupported_no_residual_semantics"
+        elif _tt_skip == TargetTypes.MULTILABEL_CLASSIFICATION:
+            reason = "multilabel_classification_unsupported"
+        elif _tt_skip == TargetTypes.QUANTILE_REGRESSION:
+            reason = "quantile_regression_unsupported_per_quantile_inverse_undefined"
+        elif _tt_skip == TargetTypes.BINARY_CLASSIFICATION:
+            reason = "binary_classification_unsupported_init_score_logit_offset"
+        if reason is not None:
+            for _tn_skip in _named_skip:
+                metadata["composite_target_failures"].setdefault(
+                    str(_tt_skip), {})[_tn_skip] = [{
+                        "name": _tn_skip, "kept": False, "rejected": True,
+                        "reason": reason,
+                    }]
     if (composite_target_discovery_config.enabled
             and TargetTypes.REGRESSION in target_by_type):
         target_by_type = {
@@ -5463,6 +5514,19 @@ def train_mlframe_models_suite(
                         "%s. Skipping.", _orig_tname, _ens_err,
                     )
                     continue
+                # Optionally cap to the top-N components by weight
+                # for online-latency-bounded serving. Configured via
+                # ``max_inference_components``; 0 / None preserves
+                # the full ensemble.
+                _max_components = getattr(
+                    composite_target_discovery_config,
+                    "max_inference_components", None,
+                )
+                if (_max_components is not None and _max_components > 0
+                        and isinstance(_ensemble, _CrossEns)):
+                    _ensemble = _ensemble.cap_inference_components(
+                        int(_max_components)
+                    )
                 # Wrap as a SimpleNamespace entry so downstream
                 # iterators that expect ``.model`` / ``.columns`` keep
                 # working. ``columns`` = union of inner columns; we
