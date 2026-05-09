@@ -1083,3 +1083,330 @@ class TestValPlacementBackwardIntegration:
                 "codepath; structural WARN source check passed instead."
             )
         assert conflict_warns, "expected backward/recency conflict WARN"
+
+
+# ============================================================================
+# Group-aware splitting (groups= parameter + TrainingSplitConfig.use_groups
+# wiring through train_mlframe_models_suite). Critical for non-IID data
+# (wells, users, sessions, patients): one group must never straddle
+# train/val/test, otherwise the model memorises the group rather than the
+# underlying signal -- a silent failure mode that only surfaces as a
+# val-vs-production gap once deployed.
+# ============================================================================
+
+
+class TestMakeTrainTestSplitGroups:
+    """Direct splitter coverage for the existing ``groups=`` parameter."""
+
+    @pytest.fixture
+    def grouped_df(self):
+        """30 groups × 50 rows = 1500 rows. Enough rows that the
+        20%/20%/60% split lands a non-trivial number of groups in each
+        of train/val/test."""
+        rng = np.random.default_rng(42)
+        n_groups = 30
+        rows_per_group = 50
+        feature = rng.standard_normal(n_groups * rows_per_group)
+        groups = np.repeat(np.arange(n_groups), rows_per_group)
+        df = pd.DataFrame({"feature": feature, "group_id": groups})
+        return df, groups
+
+    def test_groups_no_overlap_across_splits(self, grouped_df):
+        """No group appears in two different splits simultaneously --
+        the core invariant of GroupShuffleSplit-driven splitting."""
+        df, groups = grouped_df
+
+        train_idx, val_idx, test_idx, *_ = make_train_test_split(
+            df, test_size=0.2, val_size=0.2, groups=groups, random_seed=42,
+        )
+        train_groups = set(groups[train_idx].tolist())
+        val_groups = set(groups[val_idx].tolist())
+        test_groups = set(groups[test_idx].tolist())
+
+        assert not (train_groups & val_groups), (
+            f"train and val share groups: {sorted(train_groups & val_groups)}"
+        )
+        assert not (train_groups & test_groups), (
+            f"train and test share groups: {sorted(train_groups & test_groups)}"
+        )
+        assert not (val_groups & test_groups), (
+            f"val and test share groups: {sorted(val_groups & test_groups)}"
+        )
+
+    def test_groups_full_coverage(self, grouped_df):
+        """All rows accounted for, no duplicates, every group lands
+        somewhere. Catches the failure mode where GroupShuffleSplit's
+        return value is misinterpreted as positions vs. labels."""
+        df, groups = grouped_df
+
+        train_idx, val_idx, test_idx, *_ = make_train_test_split(
+            df, test_size=0.2, val_size=0.2, groups=groups, random_seed=42,
+        )
+
+        all_idx = np.concatenate([train_idx, val_idx, test_idx])
+        assert len(all_idx) == len(df), "row count must match"
+        assert len(np.unique(all_idx)) == len(all_idx), "indices must be unique"
+
+        seen_groups = (
+            set(groups[train_idx].tolist())
+            | set(groups[val_idx].tolist())
+            | set(groups[test_idx].tolist())
+        )
+        expected = set(np.unique(groups).tolist())
+        assert seen_groups == expected, (
+            f"missing groups: {expected - seen_groups}"
+        )
+
+    def test_groups_reproducibility(self, grouped_df):
+        """Same seed + same groups → identical splits, byte-for-byte."""
+        df, groups = grouped_df
+
+        a = make_train_test_split(
+            df, test_size=0.2, val_size=0.2, groups=groups, random_seed=42,
+        )
+        b = make_train_test_split(
+            df, test_size=0.2, val_size=0.2, groups=groups, random_seed=42,
+        )
+
+        np.testing.assert_array_equal(a[0], b[0])
+        np.testing.assert_array_equal(a[1], b[1])
+        np.testing.assert_array_equal(a[2], b[2])
+
+    def test_groups_changes_split_vs_iid(self, grouped_df):
+        """Group-aware split must differ from a plain shuffle split on
+        the same data (sanity that ``groups=`` actually engages the
+        GroupShuffleSplit path rather than falling through to IID)."""
+        df, groups = grouped_df
+
+        grouped = make_train_test_split(
+            df, test_size=0.2, val_size=0.2, groups=groups, random_seed=42,
+        )
+        iid = make_train_test_split(
+            df, test_size=0.2, val_size=0.2, groups=None,
+            shuffle_test=True, shuffle_val=True, random_seed=42,
+        )
+        # Different test indices is the cleanest signal: GroupShuffleSplit
+        # bunches whole groups together, IID does not.
+        assert not np.array_equal(np.sort(grouped[2]), np.sort(iid[2])), (
+            "groups=... should produce a different test set than IID shuffle"
+        )
+
+
+class TestTrainingSplitConfigUseGroups:
+    """``TrainingSplitConfig.use_groups`` field plumbing."""
+
+    def test_default_is_true(self):
+        """Default is opt-in: if the extractor produced ``group_ids``,
+        groups participate in splitting unless explicitly disabled."""
+        from mlframe.training.configs import TrainingSplitConfig
+
+        assert TrainingSplitConfig().use_groups is True
+
+    def test_can_disable(self):
+        """Opt-out path -- e.g. when groups are needed for sample
+        weighting or post-hoc audit but should not constrain the split."""
+        from mlframe.training.configs import TrainingSplitConfig
+
+        cfg = TrainingSplitConfig(use_groups=False)
+        assert cfg.use_groups is False
+
+    def test_exclude_use_groups_from_dump(self):
+        """Contract that ``core.py`` relies on: ``use_groups`` is a
+        meta-field for split routing, not a splitter parameter --
+        ``model_dump(exclude={'use_groups'})`` must drop it cleanly so
+        the splitter (which does NOT take ``use_groups``) gets a valid
+        kwarg set when called via ``**split_config.model_dump(...)``."""
+        from mlframe.training.configs import TrainingSplitConfig
+
+        cfg = TrainingSplitConfig(use_groups=True)
+        dumped = cfg.model_dump(exclude={"use_groups"})
+
+        assert "use_groups" not in dumped
+        assert "test_size" in dumped
+        assert "val_placement" in dumped
+
+
+class TestTrainMlframeModelsSuiteUseGroups:
+    """End-to-end wiring: ``group_ids`` extracted by the FTE reaches
+    ``make_train_test_split`` when ``use_groups=True`` (default), and is
+    suppressed when ``use_groups=False``.
+
+    Implementation strategy: monkeypatch ``make_train_test_split`` in
+    core.py to capture the ``groups=`` argument and short-circuit to a
+    trivial 3-way split. This is much faster than a full training run
+    (no GBDT fitting) and more targeted than asserting via metadata,
+    which doesn't carry the raw groups array.
+    """
+
+    def _build_grouped_frame(self, n_groups=12, rows_per_group=20):
+        """Pandas frame with feature + binary target + group_id column."""
+        rng = np.random.default_rng(0)
+        n = n_groups * rows_per_group
+        return pd.DataFrame({
+            "feature": rng.standard_normal(n),
+            "target": rng.integers(0, 2, n),
+            "well_id": np.repeat(np.arange(n_groups), rows_per_group),
+        })
+
+    def _spy_split(self, monkeypatch, captured):
+        """Install a spy that captures the ``groups`` kwarg and returns
+        a deterministic 60/20/20 split so the rest of the suite can run."""
+        from mlframe.training import core as core_mod
+
+        def _fake_split(df, **kwargs):
+            captured["groups"] = kwargs.get("groups")
+            n = len(df)
+            n_test = max(1, n // 5)
+            n_val = max(1, n // 5)
+            test_idx = np.arange(n - n_test, n)
+            val_idx = np.arange(n - n_test - n_val, n - n_test)
+            train_idx = np.arange(0, n - n_test - n_val)
+            return train_idx, val_idx, test_idx, "", "", ""
+
+        monkeypatch.setattr(core_mod, "make_train_test_split", _fake_split)
+
+    def test_groups_flow_when_use_groups_true(self, monkeypatch, tmp_path):
+        """Extractor's ``group_ids`` reaches splitter under default config."""
+        from mlframe.training.core import train_mlframe_models_suite
+        from mlframe.training import (
+            TrainingSplitConfig,
+            TrainingBehaviorConfig,
+            OutputConfig,
+            PreprocessingConfig,
+        )
+        from .shared import SimpleFeaturesAndTargetsExtractor
+
+        df = self._build_grouped_frame()
+        captured = {}
+        self._spy_split(monkeypatch, captured)
+
+        fte = SimpleFeaturesAndTargetsExtractor(
+            target_column="target",
+            regression=False,
+            group_field="well_id",
+        )
+
+        try:
+            train_mlframe_models_suite(
+                df=df,
+                target_name="grp_default",
+                model_name="grp_default_run",
+                features_and_targets_extractor=fte,
+                mlframe_models=["cb"],
+                hyperparams_config={"iterations": 2},
+                split_config=TrainingSplitConfig(),  # use_groups=True default
+                behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False),
+                preprocessing_config=PreprocessingConfig(drop_columns=[]),
+                use_ordinary_models=True,
+                use_mlframe_ensembles=False,
+                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+                verbose=0,
+            )
+        except Exception:
+            # We only assert the spy fired -- downstream training failures
+            # (e.g. tiny synthetic dataset, GBDT diagnostics) shouldn't
+            # mask the wiring check.
+            pass
+
+        assert "groups" in captured, "splitter never got called"
+        assert captured["groups"] is not None, (
+            "group_ids extracted by FTE must reach the splitter when "
+            "use_groups=True (default)"
+        )
+        assert len(captured["groups"]) == len(df), (
+            "groups array length must match the dataframe length"
+        )
+
+    def test_groups_suppressed_when_use_groups_false(self, monkeypatch, tmp_path):
+        """``use_groups=False`` ignores extractor groups -- IID fallback."""
+        from mlframe.training.core import train_mlframe_models_suite
+        from mlframe.training import (
+            TrainingSplitConfig,
+            TrainingBehaviorConfig,
+            OutputConfig,
+            PreprocessingConfig,
+        )
+        from .shared import SimpleFeaturesAndTargetsExtractor
+
+        df = self._build_grouped_frame()
+        captured = {}
+        self._spy_split(monkeypatch, captured)
+
+        fte = SimpleFeaturesAndTargetsExtractor(
+            target_column="target",
+            regression=False,
+            group_field="well_id",
+        )
+
+        try:
+            train_mlframe_models_suite(
+                df=df,
+                target_name="grp_off",
+                model_name="grp_off_run",
+                features_and_targets_extractor=fte,
+                mlframe_models=["cb"],
+                hyperparams_config={"iterations": 2},
+                split_config=TrainingSplitConfig(use_groups=False),
+                behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False),
+                preprocessing_config=PreprocessingConfig(drop_columns=[]),
+                use_ordinary_models=True,
+                use_mlframe_ensembles=False,
+                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+                verbose=0,
+            )
+        except Exception:
+            pass
+
+        assert "groups" in captured, "splitter never got called"
+        assert captured["groups"] is None, (
+            "use_groups=False must suppress group_ids -- got "
+            f"{captured['groups']!r}"
+        )
+
+    def test_no_group_field_passes_none(self, monkeypatch, tmp_path):
+        """Regression: extractor without ``group_field`` produces no
+        groups. The new code path must NOT manufacture an empty groups
+        array -- splitter must receive ``None`` so the IID fallback
+        engages."""
+        from mlframe.training.core import train_mlframe_models_suite
+        from mlframe.training import (
+            TrainingSplitConfig,
+            TrainingBehaviorConfig,
+            OutputConfig,
+            PreprocessingConfig,
+        )
+        from .shared import SimpleFeaturesAndTargetsExtractor
+
+        df = self._build_grouped_frame()
+        captured = {}
+        self._spy_split(monkeypatch, captured)
+
+        fte = SimpleFeaturesAndTargetsExtractor(
+            target_column="target",
+            regression=False,
+            group_field=None,  # no groups
+        )
+
+        try:
+            train_mlframe_models_suite(
+                df=df,
+                target_name="grp_none",
+                model_name="grp_none_run",
+                features_and_targets_extractor=fte,
+                mlframe_models=["cb"],
+                hyperparams_config={"iterations": 2},
+                split_config=TrainingSplitConfig(),
+                behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False),
+                preprocessing_config=PreprocessingConfig(drop_columns=[]),
+                use_ordinary_models=True,
+                use_mlframe_ensembles=False,
+                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+                verbose=0,
+            )
+        except Exception:
+            pass
+
+        assert "groups" in captured, "splitter never got called"
+        assert captured["groups"] is None, (
+            "no group_field on extractor → splitter must receive None"
+        )

@@ -2282,12 +2282,21 @@ def train_mlframe_models_suite(
                         _stratify_y = _arr
             except Exception:
                 _stratify_y = None
+    # Group-aware splitting opt-in. When the extractor produced ``group_ids``
+    # (e.g. ``SimpleFeaturesAndTargetsExtractor(group_field="well_id")``) and
+    # ``split_config.use_groups`` is True (default), route through
+    # ``GroupShuffleSplit`` so that no well straddles train/val/test. The
+    # splitter already supports this via the ``groups=`` argument; we just
+    # need to wire ``group_ids`` through (previously it was extracted but
+    # never reached the splitter).
+    _groups = group_ids if (split_config.use_groups and group_ids is not None and len(group_ids) > 0) else None
     with phase("split_data"):
         train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
             df=df,
             timestamps=timestamps,
             stratify_y=_stratify_y,
-            **split_config.model_dump(),
+            groups=_groups,
+            **split_config.model_dump(exclude={"use_groups"}),
         )
     if verbose:
         log_ram_usage()

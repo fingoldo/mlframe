@@ -371,6 +371,21 @@ class TrainingSplitConfig(BaseConfig):
     #     finance), neither forward nor backward val is fully trustworthy.
     val_placement: Literal["forward", "backward"] = "forward"
 
+    # When True (default), if the FeaturesAndTargetsExtractor produced
+    # ``group_ids`` (e.g. ``SimpleFeaturesAndTargetsExtractor(group_field="well_id")``),
+    # the splitter routes through ``GroupShuffleSplit`` so that no group
+    # straddles train/val/test. Critical for non-IID data: wells, users,
+    # patients, sessions. Without it, an unlucky shuffle leaks rows from
+    # the same well into both train and val -- the model memorises the
+    # well rather than the underlying signal, val metric inflates, and
+    # the gap between val and held-out test (let alone production) is
+    # the kind of silent failure that gets caught only after deploy.
+    # Set to False to ignore an existing ``group_ids`` and fall back to
+    # the historical IID path -- e.g. when groups are present for some
+    # downstream purpose (sample weighting) but should not constrain
+    # the split.
+    use_groups: bool = True
+
     @model_validator(mode="after")
     def validate_split_sizes(self) -> "TrainingSplitConfig":
         """Ensure test_size + val_size <= 1.0 to leave room for training data."""

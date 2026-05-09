@@ -1,5 +1,65 @@
 # Changelog
 
+## 2026-05-09 — Group-aware splits in `train_mlframe_models_suite` (Phase 0.5)
+
+Wired the existing `groups=` parameter of `make_train_test_split` through
+`train_mlframe_models_suite` so that an extractor with `group_field` set
+(e.g. `SimpleFeaturesAndTargetsExtractor(group_field="well_id")`) now
+produces train/val/test slices in which no group straddles the
+boundary. Critical for non-IID data (wells, users, sessions, patients):
+without this an unlucky shuffle leaks rows from the same group into
+both train and val, the model memorises the group rather than the
+underlying signal, val metric inflates, and the gap between val and
+held-out test (or production) is the kind of silent failure that gets
+caught only after deploy.
+
+`make_train_test_split` already supports `groups=` (`GroupShuffleSplit`
++ time-aware reassignment for groups straddling temporal cutoffs). The
+extractor already returns `group_ids`. The two were just not connected.
+This change connects them.
+
+### Changed
+
+- **`training/configs.py:TrainingSplitConfig`** — added
+  `use_groups: bool = True` field. Default is opt-in: if the extractor
+  produced `group_ids`, groups participate in splitting unless
+  explicitly disabled. Set `use_groups=False` to ignore an existing
+  `group_ids` and fall back to the historical IID path (e.g. when
+  groups are present for sample-weighting / per-group AUC reporting
+  but should not constrain the split).
+- **`training/core.py:train_mlframe_models_suite`** — wires
+  `group_ids` (already extracted upstream by the FTE) into
+  `make_train_test_split(groups=...)` when `split_config.use_groups`
+  is True. Pydantic `model_dump(exclude={"use_groups"})` keeps the
+  splitter kwargs clean — `use_groups` is a routing meta-field, not
+  a splitter parameter.
+
+### Added
+
+- **`tests/training/test_splitting.py`** — three new test classes
+  (10 tests total, all pass):
+  - `TestMakeTrainTestSplitGroups` — direct splitter coverage:
+    no-overlap-across-splits invariant, full coverage, reproducibility
+    on same seed, non-trivial divergence from IID shuffle.
+  - `TestTrainingSplitConfigUseGroups` — config plumbing: default is
+    True, opt-out works, `model_dump(exclude={"use_groups"})` keeps
+    the splitter contract intact.
+  - `TestTrainMlframeModelsSuiteUseGroups` — end-to-end wiring via
+    monkeypatched splitter spy: groups flow through under default
+    config, are suppressed under `use_groups=False`, and `None` is
+    passed when the extractor has no `group_field`.
+
+### Why this is Phase 0.5 and not part of a larger CV pipeline
+
+A full Kaggle-grade CV pipeline (K-fold, OOF predictions, test-bagging,
+adversarial validation, fold persistence, pseudo-labeling, nested CV,
+calibration, hill-climbing blender, drift monitoring) is planned as
+Phases 1-10 of a larger effort. Phase 0.5 ships the minimum viable
+group-aware single split independently — it's three lines of code,
+non-breaking, and unblocks production tabular tasks on non-IID data
+(wells, users, sessions) without waiting for the full pipeline. Plan
+file: `~/.claude/plans/warm-snacking-kazoo.md`.
+
 ## 2026-05-09 — MLPRanker.fit: 19.6% wall-time reduction + softplus ranknet
 
 Driven by a deep cProfile of LTR combo c0136 (lgb + mlp, n=300) which
