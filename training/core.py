@@ -52,6 +52,101 @@ def _ensure_logging_visible(level: int = logging.INFO) -> None:
         root.setLevel(level)
 
 
+def _entry_metric(entry, split: str, name: str) -> float:
+    """Pull a per-split per-name metric value out of an entry.
+
+    Entries shipped by the per-target loop carry a ``metrics`` mapping
+    in any of several shapes (legacy), e.g.:
+    - ``entry.metrics[split][name]`` -> {'train': {'RMSE': 0.42, ...}}
+    - ``entry.metrics[name]`` -> {'RMSE': 0.42, ...} (split-less)
+    - flat key like ``f"{split}_{name}"``: ``{'train_RMSE': 0.42}``
+
+    Returns ``float('nan')`` on any miss so callers can treat absent
+    metrics uniformly.
+    """
+    metrics = getattr(entry, "metrics", None)
+    if not isinstance(metrics, dict):
+        return float("nan")
+    inner = metrics.get(split)
+    if isinstance(inner, dict):
+        v = inner.get(name)
+        if isinstance(v, (int, float)):
+            return float(v)
+    v = metrics.get(name)
+    if isinstance(v, (int, float)):
+        return float(v)
+    v = metrics.get(f"{split}_{name}")
+    if isinstance(v, (int, float)):
+        return float(v)
+    return float("nan")
+
+
+def _build_full_column_from_splits(
+    col_name,
+    train_df,
+    val_df,
+    test_df,
+    train_idx,
+    val_idx,
+    test_idx,
+    n_total,
+):
+    """Reassemble a single column at the FULL n_total row index space
+    from the per-split frames produced upstream of the per-target loop.
+
+    Used by composite-target discovery integration: discovery's
+    ``forward`` transform needs the base column at every row in the
+    full df (so val and test rows get T values for the per-target
+    training loop's slicing). The base column is split across
+    ``train_df`` / ``val_df`` / ``test_df`` after the suite's
+    train/val/test partition; this helper writes each split's column
+    back into a single n_total-sized ndarray indexed by the original
+    split indices.
+
+    Parameters
+    ----------
+    col_name : str
+        Column to extract.
+    train_df, val_df, test_df : pandas.DataFrame | polars.DataFrame | None
+        Per-split frames. ``val_df`` / ``test_df`` may be None when
+        the suite was configured without a val or test split.
+    train_idx, val_idx, test_idx : ndarray | None
+        Row indices INTO the n_total-sized full frame.
+    n_total : int
+        Size of the full row index space.
+
+    Returns
+    -------
+    ndarray
+        Float64 array of length ``n_total`` with the column values
+        slotted at the appropriate indices. Rows not covered by any
+        split (rare, but possible when the FTE drops rows) keep NaN.
+    """
+    import numpy as _np
+    out = _np.full(n_total, _np.nan, dtype=_np.float64)
+    for _split_df, _split_idx in (
+        (train_df, train_idx), (val_df, val_idx), (test_df, test_idx),
+    ):
+        if _split_df is None or _split_idx is None:
+            continue
+        if col_name not in _split_df.columns:
+            continue
+        try:
+            col_vals = _split_df[col_name].to_numpy() if hasattr(_split_df[col_name], "to_numpy") \
+                else _np.asarray(_split_df[col_name])
+        except Exception:
+            continue
+        col_vals = _np.asarray(col_vals).reshape(-1).astype(_np.float64, copy=False)
+        idx_arr = _np.asarray(_split_idx).reshape(-1)
+        if len(col_vals) != len(idx_arr):
+            # Frame and index disagree (e.g. OD-filtered train_df
+            # paired with raw train_idx). Skip rather than
+            # mis-aligning silently.
+            continue
+        out[idx_arr] = col_vals
+    return out
+
+
 def _drop_cols_df(df, cols):
     """Drop ``cols`` from ``df`` (pandas or Polars), ignoring missing names.
 
@@ -856,6 +951,7 @@ from .configs import (
     OutlierDetectionConfig,
     ConfidenceAnalysisConfig,
     BaselineDiagnosticsConfig,
+    CompositeTargetDiscoveryConfig,
 )
 from .preprocessing import (
     load_and_prepare_dataframe,
@@ -893,6 +989,7 @@ from ..ensembling import score_ensemble
 from .train_eval import process_model, select_target
 from .drift_report import compute_label_distribution_drift, format_drift_report
 from .baseline_diagnostics import BaselineDiagnostics, format_baseline_diagnostics_report
+from .composite import CompositeTargetDiscovery
 
 # Fairness subgroups creation
 from mlframe.metrics import create_fairness_subgroups
@@ -1810,6 +1907,17 @@ def train_mlframe_models_suite(
     # consumed by future composite-target discovery. Default ON; set
     # ``BaselineDiagnosticsConfig(enabled=False)`` to skip.
     baseline_diagnostics_config: Optional[Union["BaselineDiagnosticsConfig", Dict]] = None,
+    # 2026-05-10: opt-IN auto-discovery of composite-target transforms
+    # (``T = f(y, base)``) for regression targets. When enabled, runs
+    # MI-gain ranking after baseline_diagnostics and adds the discovered
+    # composite targets to ``target_by_type``; the existing per-target
+    # training loop then trains models on each. Discovered specs are
+    # stored on ``metadata["composite_target_specs"]`` for downstream
+    # inversion at predict time. Default OFF; set
+    # ``CompositeTargetDiscoveryConfig(enabled=True)`` to opt in.
+    # ``MLFRAME_DISABLE_COMPOSITE=1`` env var overrides to OFF
+    # regardless of the config (kill switch for production rollback).
+    composite_target_discovery_config: Optional[Union["CompositeTargetDiscoveryConfig", Dict]] = None,
     # 2026-05-09 phase Q: opt-in feature-handling overhaul. When set,
     # the suite logs the resolved per-model handler chain via
     # ``fhc.describe()`` at start. Consumer wiring (replacing
@@ -2061,6 +2169,20 @@ def train_mlframe_models_suite(
     baseline_diagnostics_config = _ensure_config(
         baseline_diagnostics_config, BaselineDiagnosticsConfig, {}
     )
+    composite_target_discovery_config = _ensure_config(
+        composite_target_discovery_config, CompositeTargetDiscoveryConfig, {}
+    )
+    # Production kill-switch: if the env var is set, force composite
+    # discovery off regardless of the config the caller passed. Lets
+    # ops disable on deployed services without code changes.
+    import os as _os
+    if _os.environ.get("MLFRAME_DISABLE_COMPOSITE", "").lower() in {"1", "true", "yes"}:
+        composite_target_discovery_config = _ensure_config(
+            {"enabled": False}, CompositeTargetDiscoveryConfig, {}
+        )
+        logger.info(
+            "[CompositeTargetDiscovery] disabled by MLFRAME_DISABLE_COMPOSITE env var."
+        )
 
     # 2026-04-27: pull scalar fields out of the typed configs for the existing
     # downstream code that takes plain locals. The scalar names match the
@@ -2196,6 +2318,13 @@ def train_mlframe_models_suite(
         pipeline_config=pipeline_config,
         split_config=split_config,
     )
+    # 2026-05-10: schema bump for composite-target discovery integration.
+    # v1 = no composite-target keys. v2 adds:
+    # ``composite_target_specs``, ``composite_target_failures``,
+    # ``baseline_diagnostics``. Existing v1 loaders that ``.get(...)``
+    # the new keys with a default continue to work; loaders that hard-
+    # require all-known keys must check ``schema_version >= 2``.
+    metadata["schema_version"] = 2
 
     # ==================================================================================
     # 2. DATA LOADING & PREPROCESSING
@@ -3035,6 +3164,228 @@ def train_mlframe_models_suite(
         train_df_polars = train_df_polars.filter(pl.Series(train_od_idx))
     if val_od_idx is not None and val_df_polars is not None:
         val_df_polars = val_df_polars.filter(pl.Series(val_od_idx))
+
+    # ==================================================================================
+    # 4.6 COMPOSITE-TARGET DISCOVERY (opt-in; default OFF)
+    # ==================================================================================
+    #
+    # Run AFTER outlier detection so transform parameters (alpha/beta for
+    # linear_residual, MAD for logratio, ...) are fitted on the same rows
+    # the per-target training loop will use; run BEFORE the temporal-audit
+    # batch (line ~3310) and BEFORE the per-target loop (line ~3500) so
+    # the new composite-target columns flow through both. Each discovered
+    # spec contributes ONE entry to target_by_type[regression] keyed by
+    # ``f"{target}__{transform}__{base}"``. Specs are stored on
+    # ``metadata["composite_target_specs"]`` for downstream inversion at
+    # predict time (post-PR4 wiring).
+    #
+    # Defensive: caller may have wired the same FTE into multiple suite
+    # calls; we MUST NOT mutate the FTE-returned target_by_type
+    # in-place. Shallow copy the outer dict and the per-type inner dict
+    # before adding entries.
+    metadata["composite_target_specs"] = {}
+    metadata["composite_target_failures"] = {}
+    if (composite_target_discovery_config.enabled
+            and TargetTypes.REGRESSION in target_by_type):
+        target_by_type = {
+            tt: dict(named) if isinstance(named, dict) else named
+            for tt, named in target_by_type.items()
+        }
+        # Get the "filtered" feature columns: training feature columns at
+        # the OD-filtered DataFrame. Discovery reads from filtered_train_df
+        # to keep one row-set semantics.
+        try:
+            _disc_feature_cols = list(filtered_train_df.columns)
+        except Exception:
+            _disc_feature_cols = list(train_df_pd.columns)
+        # Build the train_idx into the filtered frame: discovery's
+        # train_idx is "indices INTO ``df``". filtered_train_df is
+        # already row-aligned to filtered_train_idx, so we hand
+        # discovery a contiguous range and use the filtered frame
+        # directly as ``df``.
+        _disc_train_idx = np.arange(len(filtered_train_df))
+        # Auto-skip per-target when BaselineDiagnostics recommended
+        # "unlikely_to_help" AND the user opted in to the auto-skip.
+        # The diagnostic recommendation lives at:
+        # ``metadata["baseline_diagnostics"][target_type][target_name]
+        #   ["composite_recommendation"]``.
+        # Note: BaselineDiagnostics runs INSIDE the per-target loop
+        # which is BELOW our position here, so at this point the
+        # metadata key does NOT yet exist. We can only auto-skip
+        # for targets where the user pre-populated the diagnostic
+        # (rare) OR we'd need to lift the BaselineDiagnostics call
+        # above this block. For PR-time minimal scope we evaluate
+        # the recommendation lazily: discovery runs the full
+        # screening pipeline, but if the BaselineDiagnostics output
+        # is already available (e.g. caller invoked the suite twice
+        # and metadata persisted) we honour the recommendation.
+        _auto_skip = bool(getattr(
+            composite_target_discovery_config,
+            "auto_skip_on_baseline_optimal", False,
+        ))
+        _existing_diags = metadata.get("baseline_diagnostics", {})
+        for _tt_disc, _named_disc in list(target_by_type.items()):
+            if _tt_disc != TargetTypes.REGRESSION:
+                continue
+            for _tname_disc, _tvals_disc in list(_named_disc.items()):
+                _y_arr = np.asarray(_tvals_disc)
+                if _y_arr.ndim != 1:
+                    metadata["composite_target_failures"].setdefault(
+                        str(_tt_disc), {})[_tname_disc] = [{
+                            "name": _tname_disc, "kept": False, "rejected": True,
+                            "reason": "multilabel target unsupported (R3.18 future PR)",
+                        }]
+                    continue  # multilabel: skip with explicit metadata
+                # Auto-skip on baseline-optimal recommendation. The
+                # per-target BaselineDiagnostics runs INSIDE the
+                # per-target loop further down, so on the first pass
+                # the metadata key isn't populated yet. Run a lightweight
+                # inline diagnostic here when auto-skip is enabled.
+                if _auto_skip:
+                    _diag = (
+                        _existing_diags.get(str(_tt_disc), {}).get(_tname_disc)
+                    )
+                    if _diag is None:
+                        try:
+                            _bd_inline = BaselineDiagnostics(
+                                baseline_diagnostics_config
+                            )
+                            _y_train_for_diag = (
+                                _y_arr[filtered_train_idx]
+                                if filtered_train_idx is not None else _y_arr
+                            )
+                            _diag_report = _bd_inline.fit_and_report(
+                                train_df=filtered_train_df,
+                                train_target=_y_train_for_diag,
+                                feature_cols=list(filtered_train_df.columns),
+                                target_type=str(_tt_disc),
+                                target_name=_tname_disc,
+                                cat_features=cat_features,
+                            )
+                            _diag = _diag_report.to_dict()
+                        except Exception as _bd_err:
+                            logger.info(
+                                "[CompositeTargetDiscovery] auto-skip "
+                                "diagnostic precompute failed for '%s': %s; "
+                                "discovery proceeds normally.",
+                                _tname_disc, _bd_err,
+                            )
+                            _diag = None
+                    if (_diag is not None
+                            and _diag.get("composite_recommendation") == "unlikely_to_help"):
+                        logger.info(
+                            "[CompositeTargetDiscovery] auto-skip target='%s': "
+                            "BaselineDiagnostics recommendation='unlikely_to_help' "
+                            "(reason: %s).",
+                            _tname_disc,
+                            _diag.get("composite_recommendation_reason", "")[:120],
+                        )
+                        metadata["composite_target_failures"].setdefault(
+                            str(_tt_disc), {})[_tname_disc] = [{
+                                "name": _tname_disc, "kept": False, "rejected": True,
+                                "reason": "auto_skip_on_baseline_optimal=True + "
+                                          "diagnostic='unlikely_to_help'",
+                            }]
+                        continue
+                # Subset y to filtered_train_df rows. y_arr is row-aligned
+                # to the FULL frame; filtered_train_df is row-aligned to
+                # filtered_train_idx (post split + OD).
+                _y_train_aligned = _y_arr[filtered_train_idx]
+                if len(_y_train_aligned) != len(filtered_train_df):
+                    logger.warning(
+                        "[CompositeTargetDiscovery] target='%s' row-align mismatch "
+                        "(y[%d] vs filtered_train_df[%d]); skipping discovery.",
+                        _tname_disc, len(_y_train_aligned), len(filtered_train_df),
+                    )
+                    continue
+                # Build a tiny working frame: filtered_train_df + target column.
+                if isinstance(filtered_train_df, pd.DataFrame):
+                    _disc_df = filtered_train_df.copy(deep=False)
+                    _disc_df[_tname_disc] = _y_train_aligned
+                else:
+                    _disc_df = filtered_train_df.with_columns(
+                        pl.Series(_tname_disc, _y_train_aligned)
+                    )
+                try:
+                    _disc = CompositeTargetDiscovery(composite_target_discovery_config).fit(
+                        df=_disc_df,
+                        target_col=_tname_disc,
+                        feature_cols=_disc_feature_cols,
+                        train_idx=_disc_train_idx,
+                    )
+                except Exception as _disc_err:
+                    logger.warning(
+                        "[CompositeTargetDiscovery] fit failed for target='%s': %s. "
+                        "Per-target training continues without composite expansion.",
+                        _tname_disc, _disc_err,
+                    )
+                    continue
+                # Persist specs + report.
+                metadata["composite_target_specs"].setdefault(str(_tt_disc), {})
+                metadata["composite_target_specs"][str(_tt_disc)][_tname_disc] = (
+                    _disc.export_specs()
+                )
+                metadata["composite_target_failures"].setdefault(str(_tt_disc), {})
+                metadata["composite_target_failures"][str(_tt_disc)][_tname_disc] = [
+                    r for r in _disc.report() if r.get("rejected")
+                ]
+                # Apply each discovered spec's transform to the FULL row
+                # index space (train + val + test). Discovery fitted
+                # transform params on filtered_train_idx ONLY (leakage
+                # discipline preserved); we now apply those frozen
+                # params to all rows so the per-target training loop
+                # has T values for val / test rows when it slices by
+                # filtered_train_idx / filtered_val_idx / test_idx.
+                # NaN rows (domain violations on val / test) get
+                # imputed with median(T_train) so the trainer's NaN
+                # guard at trainer.py:~703 doesn't trip; the substitute
+                # is biased but never propagates to predictions because
+                # the inverse layer (PR5) fills via y_train_median for
+                # those rows.
+                from .composite import get_transform as _get_transform_local
+                for _spec in _disc.specs_:
+                    _transform = _get_transform_local(_spec.transform_name)
+                    _base_full = _build_full_column_from_splits(
+                        _spec.base_column,
+                        train_df_pd, val_df_pd, test_df_pd,
+                        train_idx, val_idx, test_idx,
+                        n_total=_y_arr.shape[0],
+                    )
+                    _valid = _transform.domain_check(_y_arr, _base_full)
+                    _ct_t_full = np.full(_y_arr.shape[0], np.nan, dtype=np.float64)
+                    if _valid.any():
+                        _ct_t_full[_valid] = _transform.forward(
+                            _y_arr[_valid], _base_full[_valid], _spec.fitted_params,
+                        )
+                    # Impute NaN rows (domain violations) with the
+                    # train-fitted T median so trainer doesn't refuse.
+                    if not np.all(np.isfinite(_ct_t_full)):
+                        _t_train_for_median = _ct_t_full[filtered_train_idx]
+                        _t_train_for_median = _t_train_for_median[
+                            np.isfinite(_t_train_for_median)
+                        ]
+                        if _t_train_for_median.size > 0:
+                            _ct_t_full[~np.isfinite(_ct_t_full)] = float(
+                                np.median(_t_train_for_median)
+                            )
+                    target_by_type[_tt_disc][_spec.name] = _ct_t_full
+                    logger.info(
+                        "[CompositeTargetDiscovery] added composite target '%s' "
+                        "to target_by_type[%s].", _spec.name, _tt_disc,
+                    )
+        # If any specs were discovered, log a one-liner summary so
+        # operators see the impact at suite level even without
+        # reading metadata.
+        n_specs_total = sum(
+            len(v) for tt_specs in metadata["composite_target_specs"].values()
+            for v in tt_specs.values()
+        )
+        if n_specs_total > 0:
+            logger.info(
+                "[CompositeTargetDiscovery] %d composite target(s) added to "
+                "target_by_type. They will be trained alongside raw targets in the "
+                "per-target loop.", n_specs_total,
+            )
 
     # ------------------------------------------------------------------
     # Round-11c fill: Polars Categorical cat_features with null values
@@ -4672,6 +5023,478 @@ def train_mlframe_models_suite(
         # diagnostic detail can find it.
         metadata["selected_features"] = sorted(_selected_features_union)
         metadata["selected_features_per_model"] = _selected_features_per_model
+
+    # ==================================================================================
+    # 6. COMPOSITE-TARGET WRAPPING (post-fit, y-scale predictions)
+    # ==================================================================================
+    #
+    # The per-target loop trained models on the T-scale composite
+    # target (e.g. ``T = y - alpha*base - beta`` for linear_residual).
+    # Predict-time those models return T-scale, which is useless for
+    # downstream consumers expecting the original y-scale. Wrap each
+    # fitted composite-target model in a ``CompositeTargetEstimator``
+    # so ``model.predict(X)`` automatically applies the inverse
+    # transform and returns y-scale.
+    #
+    # Wrapping is post-hoc (no re-training): the wrapper takes the
+    # ALREADY-fitted inner model + the spec's fitted_params and adds
+    # the inverse / clip / fallback machinery on top.
+    composite_specs_by_target_type = metadata.get("composite_target_specs", {}) or {}
+    if composite_specs_by_target_type:
+        from .composite import CompositeTargetEstimator as _CTE
+        for _tt_w, _by_name in (models or {}).items():
+            if not isinstance(_by_name, dict):
+                continue
+            _tt_specs = composite_specs_by_target_type.get(str(_tt_w), {})
+            if not _tt_specs:
+                continue
+            # Build ``composite_name -> (original_target, spec)`` lookup
+            # so wrapping is O(K) per pass.
+            _name_to_spec: Dict[str, Tuple[str, Dict[str, Any]]] = {}
+            for _orig_tname, _spec_list in _tt_specs.items():
+                for _spec in _spec_list:
+                    _name_to_spec[_spec["name"]] = (_orig_tname, _spec)
+            for _composite_name, _entries in list(_by_name.items()):
+                if _composite_name not in _name_to_spec:
+                    continue  # not a composite target
+                _orig_tname, _spec = _name_to_spec[_composite_name]
+                # ``y_train`` for wrapping = original y values (NOT T)
+                # at the train rows the wrapper saw at fit time.
+                _y_full = target_by_type.get(_tt_w, {}).get(_orig_tname)
+                if _y_full is None:
+                    logger.warning(
+                        "[CompositeTargetEstimator] missing original target '%s' "
+                        "in target_by_type for composite='%s'; skipping wrap. "
+                        "Predictions will remain in T-scale.",
+                        _orig_tname, _composite_name,
+                    )
+                    continue
+                try:
+                    _y_train_for_wrap = np.asarray(_y_full)[filtered_train_idx]
+                except Exception as _y_err:
+                    logger.warning(
+                        "[CompositeTargetEstimator] cannot align y_train for '%s': %s. "
+                        "Skipping wrap.",
+                        _composite_name, _y_err,
+                    )
+                    continue
+                if not isinstance(_entries, list):
+                    continue
+                for _i, _entry in enumerate(_entries):
+                    # Entries may be plain estimators OR wrapper objects
+                    # carrying the model on ``.model``. Try ``.model``
+                    # first, fall back to the entry itself.
+                    _inner = getattr(_entry, "model", None) or _entry
+                    if not hasattr(_inner, "predict"):
+                        # Not an estimator -- skip (e.g. metadata-only
+                        # placeholder entry).
+                        continue
+                    try:
+                        _wrapper = _CTE.from_fitted_inner(
+                            fitted_inner=_inner,
+                            transform_name=_spec["transform_name"],
+                            base_column=_spec["base_column"],
+                            transform_fitted_params=_spec["fitted_params"],
+                            y_train=_y_train_for_wrap,
+                        )
+                    except Exception as _wrap_err:
+                        logger.warning(
+                            "[CompositeTargetEstimator] wrap failed for '%s' (entry %d): %s. "
+                            "Predictions will remain in T-scale.",
+                            _composite_name, _i, _wrap_err,
+                        )
+                        continue
+                    # Replace the inner model on the entry (preserve
+                    # auxiliary metadata: columns, model_name, metrics).
+                    if hasattr(_entry, "model"):
+                        try:
+                            _entry.model = _wrapper
+                        except Exception:
+                            # Read-only attribute: replace the entry
+                            # itself with the wrapper.
+                            _entries[_i] = _wrapper
+                    else:
+                        _entries[_i] = _wrapper
+                logger.info(
+                    "[CompositeTargetEstimator] wrapped %d model(s) for composite "
+                    "target '%s'; predictions now y-scale.",
+                    len(_entries), _composite_name,
+                )
+                # Compute parallel y-scale RMSE / MAE for each wrapped
+                # entry on train + val + test slices. The per-target
+                # loop's metrics were computed on T-scale BEFORE wrap;
+                # this block fills the y-scale gap so callers can
+                # compare composite to raw on the same scale.
+                _metrics_dict = metadata.setdefault(
+                    "composite_target_y_scale_metrics", {},
+                ).setdefault(str(_tt_w), {}).setdefault(_composite_name, [])
+                _metrics_dict.clear()
+                _y_full_metric = target_by_type.get(_tt_w, {}).get(_orig_tname)
+                if _y_full_metric is None:
+                    continue
+                _y_arr_metric = np.asarray(_y_full_metric)
+                for _entry in _entries:
+                    _wrapper_for_score = getattr(_entry, "model", None) or _entry
+                    _entry_y_scores: Dict[str, Dict[str, float]] = {}
+                    for _split_name, _split_idx, _split_df in (
+                        ("train", filtered_train_idx, filtered_train_df),
+                        ("val", filtered_val_idx, filtered_val_df),
+                        ("test", test_idx, test_df_pd),
+                    ):
+                        if _split_idx is None or _split_df is None:
+                            continue
+                        try:
+                            _y_split = _y_arr_metric[_split_idx]
+                            _y_pred = np.asarray(
+                                _wrapper_for_score.predict(_split_df)
+                            ).reshape(-1).astype(np.float64)
+                            _diff = _y_pred - _y_split.astype(np.float64)
+                            _finite = np.isfinite(_diff)
+                            if _finite.sum() == 0:
+                                continue
+                            _entry_y_scores[_split_name] = {
+                                "RMSE": float(
+                                    np.sqrt(np.mean(_diff[_finite] * _diff[_finite]))
+                                ),
+                                "MAE": float(np.mean(np.abs(_diff[_finite]))),
+                                "n_rows_finite": int(_finite.sum()),
+                            }
+                        except Exception:
+                            # Best-effort: any predict failure simply
+                            # omits that split's y-scale metrics.
+                            continue
+                    _metrics_dict.append({
+                        "model_name": getattr(_entry, "model_name", None),
+                        "metrics": _entry_y_scores,
+                    })
+
+    # ==================================================================================
+    # 7. CROSS-TARGET ENSEMBLE (post-wrap; opt-in via config)
+    # ==================================================================================
+    #
+    # After every composite-target model is wrapped to y-scale we can
+    # combine them into one final predictor per original target. The
+    # ensemble is OPT-IN via ``cross_target_ensemble_strategy`` and
+    # produces a SimpleNamespace entry under
+    # ``models[type][f"_CT_ENSEMBLE__{original_target}"]`` so downstream
+    # consumers can pick it without having to know which composite to
+    # trust.
+    _ce_strategy = getattr(
+        composite_target_discovery_config, "cross_target_ensemble_strategy", "off",
+    )
+    if (composite_target_discovery_config.enabled
+            and _ce_strategy != "off"
+            and composite_specs_by_target_type):
+        from .composite import CompositeCrossTargetEnsemble as _CrossEns
+        for _tt_e, _tt_specs in composite_specs_by_target_type.items():
+            if not _tt_specs:
+                continue
+            for _orig_tname, _spec_list in _tt_specs.items():
+                # Collect all wrapped composite-target entries plus the
+                # raw-target entries for this original target. The raw
+                # entries are at ``models[tt][orig_tname]``.
+                _components: List[Any] = []
+                _component_names: List[str] = []
+                _orig_entries = (models or {}).get(_tt_e, {}).get(_orig_tname, []) or []
+                for _i, _entry in enumerate(_orig_entries):
+                    _inner = getattr(_entry, "model", None) or _entry
+                    if not hasattr(_inner, "predict"):
+                        continue
+                    _components.append(_inner)
+                    _component_names.append(f"raw#{_i}")
+                for _spec in _spec_list:
+                    _composite_entries = (models or {}).get(_tt_e, {}).get(
+                        _spec["name"], []
+                    ) or []
+                    for _i, _entry in enumerate(_composite_entries):
+                        _inner = getattr(_entry, "model", None) or _entry
+                        if not hasattr(_inner, "predict"):
+                            continue
+                        _components.append(_inner)
+                        _component_names.append(f"{_spec['name']}#{_i}")
+                if len(_components) < 2:
+                    logger.info(
+                        "[CompositeCrossTargetEnsemble] target='%s': only %d "
+                        "component(s); ensemble skipped.",
+                        _orig_tname, len(_components),
+                    )
+                    continue
+                # Score every component on the train slice in y-scale.
+                # Wrapped composite-target components predict in y-scale
+                # via their inverse layer; raw-target components predict
+                # y-scale directly. Use the same train rows the wrappers
+                # were fitted against to keep the comparison fair.
+                _y_full_for_rmse = target_by_type.get(_tt_e, {}).get(_orig_tname)
+                _component_train_rmses: List[float] = []
+                if _y_full_for_rmse is not None:
+                    _y_train_for_rmse = np.asarray(_y_full_for_rmse)[filtered_train_idx]
+                    for _comp, _name in zip(_components, _component_names):
+                        try:
+                            _pred = np.asarray(_comp.predict(filtered_train_df)).reshape(-1)
+                            _diff = (_pred.astype(np.float64)
+                                     - _y_train_for_rmse.astype(np.float64))
+                            _component_train_rmses.append(
+                                float(np.sqrt(np.mean(_diff * _diff)))
+                            )
+                        except Exception as _rmse_err:
+                            logger.warning(
+                                "[CompositeCrossTargetEnsemble] could not score "
+                                "component '%s' on train: %s. Skipping in "
+                                "ensemble weighting.", _name, _rmse_err,
+                            )
+                            _component_train_rmses.append(float("nan"))
+                else:
+                    _component_train_rmses = [float("nan")] * len(_components)
+                _rmse_arr = np.asarray(_component_train_rmses, dtype=np.float64)
+                _finite = np.isfinite(_rmse_arr)
+                if _finite.sum() == 0:
+                    logger.warning(
+                        "[CompositeCrossTargetEnsemble] target='%s': no "
+                        "component scored on train; ensemble skipped.",
+                        _orig_tname,
+                    )
+                    continue
+                if not _finite.all():
+                    _rmse_arr[~_finite] = float(np.median(_rmse_arr[_finite]))
+                # If oof_holdout_frac > 0, replace train-RMSE proxy
+                # with honest holdout predictions: re-fit each
+                # component on (1-frac) of train and predict on the
+                # held-out frac. This is the correct objective for
+                # ensemble weighting / stacking; the cost is one
+                # extra fit per component.
+                _oof_frac = float(getattr(
+                    composite_target_discovery_config, "oof_holdout_frac", 0.0,
+                ))
+                _oof_y_full = _y_full_for_rmse
+                _oof_pred_matrix = None
+                _oof_y_holdout = None
+                _oof_components = _components
+                _oof_names = _component_names
+                _oof_rmses = _rmse_arr  # train-RMSE proxy by default
+                if _oof_frac > 0.0 and _oof_y_full is not None:
+                    from .composite import compute_oof_holdout_predictions
+                    # Build per-spec base column on filtered_train_df
+                    # rows (composite components need this for the
+                    # transform.forward step inside the OOF helper).
+                    _base_full_per_spec: Dict[str, np.ndarray] = {}
+                    for _spec_for_oof in _spec_list:
+                        _b = _build_full_column_from_splits(
+                            _spec_for_oof["base_column"],
+                            train_df_pd, val_df_pd, test_df_pd,
+                            train_idx, val_idx, test_idx,
+                            n_total=len(_oof_y_full),
+                        )
+                        _base_full_per_spec[_spec_for_oof["base_column"]] = (
+                            _b[filtered_train_idx]
+                        )
+                    # Build the spec-or-None list parallel to components.
+                    _component_specs: List[Optional[Dict[str, Any]]] = []
+                    for _name in _component_names:
+                        if _name.startswith("raw#"):
+                            _component_specs.append(None)
+                        else:
+                            # Composite name format "{compname}#{i}".
+                            _comp_name = _name.split("#", 1)[0]
+                            _matching = next(
+                                (s for s in _spec_list
+                                 if s["name"] == _comp_name), None,
+                            )
+                            _component_specs.append(_matching)
+                    try:
+                        _oof_pred_matrix, _oof_y_holdout, _surviving = (
+                            compute_oof_holdout_predictions(
+                                component_models=_components,
+                                component_names=_component_names,
+                                component_specs=_component_specs,
+                                train_X=filtered_train_df,
+                                y_train_full=np.asarray(_oof_y_full)[filtered_train_idx],
+                                base_train_full_per_spec=_base_full_per_spec,
+                                holdout_frac=_oof_frac,
+                                random_state=getattr(
+                                    composite_target_discovery_config,
+                                    "oof_random_state", 42,
+                                ),
+                            )
+                        )
+                    except Exception as _oof_err:
+                        logger.warning(
+                            "[CompositeCrossTargetEnsemble] OOF computation failed "
+                            "for target='%s': %s. Falling back to train-RMSE proxy.",
+                            _orig_tname, _oof_err,
+                        )
+                        _oof_pred_matrix, _oof_y_holdout, _surviving = (
+                            None, None, [],
+                        )
+                    if _oof_pred_matrix is not None and _oof_pred_matrix.shape[1] > 0:
+                        # Re-align components / names / rmses to the
+                        # surviving set returned by the OOF helper.
+                        _surviving_set = set(_surviving)
+                        _oof_components = [
+                            c for c, n in zip(_components, _component_names)
+                            if n in _surviving_set
+                        ]
+                        _oof_names = list(_surviving)
+                        # Compute holdout RMSE per surviving component.
+                        _oof_rmses_list = []
+                        for _i_col in range(_oof_pred_matrix.shape[1]):
+                            _diff = _oof_pred_matrix[:, _i_col] - _oof_y_holdout
+                            _finite = np.isfinite(_diff)
+                            if _finite.sum() == 0:
+                                _oof_rmses_list.append(float("nan"))
+                            else:
+                                _oof_rmses_list.append(float(np.sqrt(np.mean(
+                                    _diff[_finite] * _diff[_finite]
+                                ))))
+                        _oof_rmses = np.asarray(_oof_rmses_list, dtype=np.float64)
+                        logger.info(
+                            "[CompositeCrossTargetEnsemble] target='%s' using "
+                            "honest OOF holdout (frac=%.2f, n=%d) for ensemble "
+                            "weights / stacking.",
+                            _orig_tname, _oof_frac, len(_oof_y_holdout),
+                        )
+
+                try:
+                    if _ce_strategy == "mean":
+                        _ensemble = _CrossEns.from_uniform_weights(
+                            component_models=_oof_components,
+                            component_names=_oof_names,
+                        )
+                    elif _ce_strategy in ("linear_stack", "nnls_stack"):
+                        # Use OOF holdout predictions if available
+                        # (honest stacking), otherwise the train-set
+                        # predictions (biased but always available).
+                        if _oof_pred_matrix is not None and _oof_pred_matrix.shape[1] > 0:
+                            _pred_matrix = _oof_pred_matrix
+                            _y_for_stack = _oof_y_holdout
+                        else:
+                            _y_for_stack = (
+                                np.asarray(_oof_y_full)[filtered_train_idx]
+                                if _oof_y_full is not None else None
+                            )
+                            if _y_for_stack is None:
+                                raise RuntimeError(
+                                    "stacking requires train target alignment"
+                                )
+                            _pred_matrix_cols = []
+                            for _comp, _name in zip(_oof_components, _oof_names):
+                                _pred = np.asarray(
+                                    _comp.predict(filtered_train_df)
+                                ).reshape(-1).astype(np.float64)
+                                _pred_matrix_cols.append(_pred)
+                            _pred_matrix = np.column_stack(_pred_matrix_cols)
+                        if _ce_strategy == "linear_stack":
+                            _ensemble = _CrossEns.from_linear_stack(
+                                component_models=_oof_components,
+                                component_names=_oof_names,
+                                component_predictions=_pred_matrix,
+                                y_train=_y_for_stack,
+                            )
+                        else:  # nnls_stack
+                            _ensemble = _CrossEns.from_nnls_stack(
+                                component_models=_oof_components,
+                                component_names=_oof_names,
+                                component_predictions=_pred_matrix,
+                                y_train=_y_for_stack,
+                            )
+                    else:  # "oof_weighted"
+                        _ensemble = _CrossEns.from_train_metrics(
+                            component_models=_oof_components,
+                            component_names=_oof_names,
+                            component_train_rmse=_oof_rmses.tolist(),
+                            baseline_train_rmse=None,
+                        )
+                    # True OOF validation gate: if we have honest
+                    # holdout predictions, compare ensemble holdout
+                    # RMSE vs best single holdout RMSE. If the
+                    # ensemble is worse, fall back to the best single.
+                    if (_oof_pred_matrix is not None
+                            and _oof_pred_matrix.shape[1] > 0
+                            and isinstance(_ensemble, _CrossEns)):
+                        try:
+                            _ens_pred = _ensemble.predict(filtered_train_df)
+                            # Use the SAME train rows used for OOF;
+                            # ensemble.predict on filtered_train_df is
+                            # in-sample for raw-target components but
+                            # the comparison is component-fair (all
+                            # components see the same X at same rows).
+                            # NB: this is approximate -- the proper
+                            # check would predict on stack_holdout. We
+                            # do that next:
+                            # Recompute ensemble preds on stack_holdout
+                            # by weighted-combining the cached
+                            # _oof_pred_matrix with the ensemble's
+                            # weights.
+                            _w_full = np.asarray(_ensemble.weights, dtype=np.float64)
+                            if _ce_strategy == "linear_stack":
+                                _intercept = float(getattr(
+                                    _ensemble, "_linear_stack_intercept", 0.0,
+                                ))
+                                _ens_holdout = (
+                                    (_oof_pred_matrix * _w_full[None, :]).sum(axis=1)
+                                    + _intercept
+                                )
+                            else:
+                                _w_norm = _w_full / max(_w_full.sum(), 1e-12)
+                                _ens_holdout = (
+                                    _oof_pred_matrix * _w_norm[None, :]
+                                ).sum(axis=1)
+                            _ens_diff = _ens_holdout - _oof_y_holdout
+                            _ens_rmse = float(np.sqrt(np.mean(_ens_diff ** 2)))
+                            _best_single_rmse = float(np.nanmin(_oof_rmses))
+                            if _ens_rmse > _best_single_rmse:
+                                _best_idx = int(np.nanargmin(_oof_rmses))
+                                logger.warning(
+                                    "[CompositeCrossTargetEnsemble] target='%s' "
+                                    "honest OOF gate fired: ensemble RMSE %.4g > "
+                                    "best single '%s' RMSE %.4g. Falling back to "
+                                    "best single component.",
+                                    _orig_tname, _ens_rmse,
+                                    _oof_names[_best_idx], _best_single_rmse,
+                                )
+                                _ensemble = _oof_components[_best_idx]
+                        except Exception as _gate_err:
+                            logger.info(
+                                "[CompositeCrossTargetEnsemble] OOF gate check "
+                                "skipped (%s); ensemble retained.", _gate_err,
+                            )
+                except Exception as _ens_err:
+                    logger.warning(
+                        "[CompositeCrossTargetEnsemble] target='%s' build failed: "
+                        "%s. Skipping.", _orig_tname, _ens_err,
+                    )
+                    continue
+                # Wrap as a SimpleNamespace entry so downstream
+                # iterators that expect ``.model`` / ``.columns`` keep
+                # working. ``columns`` = union of inner columns; we
+                # leave it empty -- the ensemble itself does not need
+                # a fixed feature list (each component knows its own).
+                from types import SimpleNamespace as _SN
+                _ens_entry = _SN(
+                    model=_ensemble,
+                    model_name="CT_ENSEMBLE",
+                    columns=None,
+                    pre_pipeline=None,
+                    metrics={},
+                )
+                # Dedicated key with prefix ``_CT_ENSEMBLE__`` so
+                # downstream code that loops over composite-target
+                # entries can trivially detect the ensemble entry and
+                # skip / pick it.
+                _ens_key = f"_CT_ENSEMBLE__{_orig_tname}"
+                _by_name = models.setdefault(_tt_e, {})
+                _by_name[_ens_key] = [_ens_entry]
+                metadata.setdefault("composite_target_ensemble", {}) \
+                    .setdefault(str(_tt_e), {})[_orig_tname] = (
+                    _ensemble.export_metadata()
+                    if hasattr(_ensemble, "export_metadata")
+                    else {"strategy": "single_best_fallback"}
+                )
+                logger.info(
+                    "[CompositeCrossTargetEnsemble] target='%s' built strategy='%s' "
+                    "over %d component(s); stored at models[%s][%s].",
+                    _orig_tname, _ce_strategy, len(_components),
+                    _tt_e, _ens_key,
+                )
 
     return dict(models), metadata
 

@@ -110,6 +110,38 @@ If you find a bug that genuinely needs a copy, escalate — the user would
 rather ship a design change than accept an unconditional copy on a hot
 DataFrame path.
 
+### Frame-type conversions are caller responsibility, NOT wrapper auto-magic
+
+Helpers / wrappers / estimators MUST NOT silently down-convert polars
+to pandas (or pandas to ndarray, or any other format-shift) on a hot
+path "to make the inner library happy". A 100+ GB polars frame turning
+into a 100+ GB pandas frame doubles RAM and bypasses every zero-copy
+Arrow optimisation the rest of the codebase paid for.
+
+The mlframe convention is unambiguous:
+
+- `train_mlframe_models_suite` and the strategies layer
+  (`training/strategies.py`) decide once at the suite boundary whether
+  a given inner estimator wants polars or pandas, then pass the
+  correct flavour through.
+- Downstream wrappers (`CompositeTargetEstimator`, the new pre-pipeline
+  estimators, anything else that holds a `base_estimator`) MUST NOT
+  re-convert. If the inner estimator chokes on what it gets, that is
+  a strategy-layer wiring issue to fix at the suite boundary, not
+  inside the wrapper's `fit` / `predict` hot path.
+- The ONLY allowed in-wrapper read of a polars column is the targeted
+  `_extract_base`-style narrow column pull (one ndarray, not a frame
+  copy). Even then the surrounding row mask / row subset must use the
+  format-native `.filter(...)` / `.iloc[...]` -- never `to_pandas()`
+  on the whole frame.
+
+Concrete example (2026-05-10): `CompositeTargetEstimator` originally
+did `X.to_pandas()` inside both `fit` and `predict` to work around
+LightGBM 4.5 + sklearn 1.6 not accepting polars (the `feature_names_in_`
+write-path bug). On a 100 GB polars frame this would have OOM'd the
+host. Removed; the test suite now demonstrates the in-suite pattern
+(caller does the conversion at the boundary if the inner needs it).
+
 ## Open work items
 
 (Nothing tracked here currently. Polars support for MRMR — both the

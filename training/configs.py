@@ -1771,6 +1771,268 @@ class OutlierDetectionConfig(BaseConfig):
     apply_to_val: bool = True
 
 
+class CompositeTargetDiscoveryConfig(BaseConfig):
+    """Configuration for composite-target discovery.
+
+    Discovery looks for transformations of the target ``y`` of the form
+    ``T = f(y, base)`` such that the model trained on ``T`` (and a
+    feature set excluding ``base``) generalises better than the model
+    trained on raw ``y``. Typical case: ``y = TVT`` with ``base = TVT_prev``
+    where the autoregressive lag dominates feature importance.
+
+    All fitted parameters (alpha/beta for linear_residual, MAD bounds
+    for logratio, etc.) are computed from rows passed via ``train_idx``
+    only. Validation and test rows are NEVER touched at fit time.
+
+    Default OFF: opt in by setting ``enabled=True`` and configuring
+    base candidates explicitly OR leaving ``base_candidates="auto"``
+    for automatic discovery via MI-gain ranking.
+    """
+
+    enabled: bool = False
+
+    # Base candidate selection.
+    # - "auto": rank all numeric features by structural MI gain
+    #   (MI(y - LinearFit(x), X \ {x}) on train) and take the top
+    #   ``auto_base_top_k`` after applying forbidden-pattern + corr
+    #   + ptp filters.
+    # - list[str]: explicit list of column names. Still passes through
+    #   the forbidden / corr / ptp guards; columns failing the guard
+    #   are skipped with a warning.
+    base_candidates: Union[List[str], str] = "auto"
+    auto_base_top_k: int = 3
+
+    # Transform names from the registry (mlframe.training.composite).
+    transforms: List[str] = Field(
+        default_factory=lambda: ["diff", "ratio", "logratio", "linear_residual"]
+    )
+
+    # MI screening. Sample to keep the diagnostic under one minute on
+    # 4M-row datasets; mi_sample_n=None uses full train.
+    mi_sample_n: Optional[int] = 200_000
+    top_k_after_mi: int = 8
+    eps_mi_gain: float = 0.01  # Drop candidates with mi_gain <= eps.
+    mi_n_neighbors: int = 3  # sklearn mutual_info_regression k.
+
+    # Phase B: tiny-model rerank. After MI screening narrows to top-K,
+    # train a tiny model (LightGBM or per-family) per surviving
+    # candidate and re-rank by CV-RMSE measured on the y-scale (after
+    # inverse). This is the "true objective" -- MI is a proxy. Skip
+    # by setting ``screening`` = ``"mi"``.
+    screening: str = "mi"  # "mi" | "tiny_model" | "hybrid"
+    tiny_model_n_estimators: int = 60
+    tiny_model_num_leaves: int = 15
+    tiny_model_learning_rate: float = 0.1
+    tiny_model_cv_folds: int = 3
+    tiny_model_sample_n: int = 20_000  # rows used per tiny-model fit
+    top_m_after_tiny: int = 3  # final top-M after Phase B re-rank
+
+    # Per-family screening: instead of one tiny LightGBM, train a
+    # tiny model of each family in the user's ``mlframe_models``
+    # list (cb / lgb / xgb / linear). Different families pick
+    # different top features on the same data, so a candidate that
+    # wins for one family may lose for another. Aggregation via
+    # ``tiny_consensus``:
+    # - "single_lgbm" (default): one LightGBM, fastest.
+    # - "per_family": train ``tiny_screening_models`` per family;
+    #   aggregate by ``tiny_consensus`` ("union": top-M from each
+    #   family; "borda": Borda-count rank aggregation).
+    tiny_screening_models: str = "single_lgbm"  # "single_lgbm" | "per_family"
+    tiny_screening_families: Tuple[str, ...] = ("lightgbm",)
+    tiny_consensus: str = "union"  # "union" | "borda"
+
+    @field_validator("screening", mode="before")
+    @classmethod
+    def _normalise_screening(cls, v: str) -> str:
+        v_lower = str(v).lower()
+        valid = {"mi", "tiny_model", "hybrid"}
+        if v_lower not in valid:
+            raise ValueError(f"screening must be one of {valid}, got '{v}'")
+        return v_lower
+
+    @field_validator("tiny_screening_models", mode="before")
+    @classmethod
+    def _normalise_tiny_screening_models(cls, v: str) -> str:
+        v_lower = str(v).lower()
+        valid = {"single_lgbm", "per_family"}
+        if v_lower not in valid:
+            raise ValueError(
+                f"tiny_screening_models must be one of {valid}, got '{v}'"
+            )
+        return v_lower
+
+    @field_validator("tiny_consensus", mode="before")
+    @classmethod
+    def _normalise_tiny_consensus(cls, v: str) -> str:
+        v_lower = str(v).lower()
+        valid = {"union", "borda"}
+        if v_lower not in valid:
+            raise ValueError(f"tiny_consensus must be one of {valid}, got '{v}'")
+        return v_lower
+
+    # Forbidden base filters. Block columns whose names match any of
+    # these regex patterns (target leakage via target encoding /
+    # rolling target stats / etc.).
+    forbidden_base_patterns: List[str] = Field(
+        default_factory=lambda: [
+            r"^target_enc_",
+            r"^mean_target_",
+            r"_te$",
+            r"^lagged_target_",
+            r"^y_smooth_",
+        ]
+    )
+
+    # Block columns with corr(base, y) above this threshold (likely
+    # derived-from-y rather than independent feature).
+    forbidden_base_corr_threshold: float = 0.999
+
+    # Block constant or near-constant base columns (zero variance ->
+    # OLS in linear_residual is degenerate; ratio / logratio are
+    # uninformative).
+    constant_base_eps: float = 1e-12
+
+    # Domain validity. Drop a (base, transform) candidate entirely if
+    # fewer than this fraction of train rows pass the transform's
+    # domain_check (e.g. logratio requires y, base > 0).
+    min_valid_domain_frac: float = 0.7
+
+    # Behaviour when no candidate clears eps_mi_gain.
+    # - "fallback_raw": warn and emit no composite targets (caller
+    #   trains on raw target only).
+    # - "raise": raise RuntimeError -- useful in CI / scripted modes
+    #   to flag degenerate inputs.
+    # - "warn": warn but emit the best-of-bad candidates anyway.
+    fail_on_no_gain: str = "fallback_raw"
+
+    random_state: int = DEFAULT_RANDOM_SEED
+
+    # Cross-target ensemble strategy. Run after each composite-target
+    # model is wrapped to y-scale, builds one combined predictor over
+    # all (raw + K composite) wrappers.
+    # - "off": no ensemble; ``models[type][f"_CT_ENSEMBLE__{target}"]`` not created.
+    # - "mean": equal-weight average over all components.
+    # - "oof_weighted": gain-over-baseline weighting using per-component
+    #   RMSE (train-RMSE proxy by default; honest holdout RMSE when
+    #   ``oof_holdout_frac > 0``); auto-falls-back to best-single
+    #   component if no component clears the baseline.
+    # - "linear_stack": Ridge regression on per-component predictions.
+    # - "nnls_stack": non-negative least squares on per-component preds.
+    cross_target_ensemble_strategy: str = "off"
+
+    # When True AND the per-target ``baseline_diagnostics`` reports
+    # ``composite_recommendation == "unlikely_to_help"``, discovery
+    # short-circuits with a warning and produces no specs. Saves
+    # the MI / tiny-model / re-fit cost on targets where composite
+    # mode is unlikely to add value (init_score baseline already
+    # captures the dominance, or no feature dominates strongly).
+    # Default False so explicit opt-ins don't get silently overridden.
+    auto_skip_on_baseline_optimal: bool = False
+
+    # Cap the number of components combined at predict time. Useful
+    # for online single-row latency-sensitive serving where running
+    # K=8 wrappers per row blows the SLA. When > 0, the ensemble
+    # keeps only the top-N components by weight (after the standard
+    # weight computation), drops the rest, and re-normalises. None
+    # / 0 means keep all components (default).
+    max_inference_components: Optional[int] = None
+
+    # Opt-in honest OOF for the ensemble gate / stacking.
+    #
+    # When > 0, the suite carves an extra holdout slice (this fraction
+    # of filtered_train_idx) and at ensemble-build time re-fits a
+    # clone of every component on the (1-frac) stack_train slice,
+    # then predicts on the held-out slice. The honest holdout
+    # predictions feed the stacking solvers (linear_stack /
+    # nnls_stack) and the gain-over-baseline weights, replacing the
+    # train-RMSE proxy that overstates accuracy. Cost: re-fits every
+    # component once on (1-frac) of train rows. Default 0.0 (use
+    # train-RMSE proxy, no extra fits).
+    oof_holdout_frac: float = 0.0
+    oof_random_state: int = DEFAULT_RANDOM_SEED
+
+    @field_validator("cross_target_ensemble_strategy", mode="before")
+    @classmethod
+    def _normalise_ensemble_strategy(cls, v: str) -> str:
+        v_lower = str(v).lower()
+        valid = {"off", "mean", "oof_weighted", "linear_stack", "nnls_stack"}
+        if v_lower not in valid:
+            raise ValueError(
+                f"cross_target_ensemble_strategy must be one of {valid}, got '{v}'"
+            )
+        return v_lower
+
+    @field_validator("fail_on_no_gain", mode="before")
+    @classmethod
+    def _normalise_fail_mode(cls, v: str) -> str:
+        v_lower = str(v).lower()
+        valid = {"fallback_raw", "raise", "warn"}
+        if v_lower not in valid:
+            raise ValueError(f"fail_on_no_gain must be one of {valid}, got '{v}'")
+        return v_lower
+
+
+class BaselineDiagnosticsConfig(BaseConfig):
+    """Configuration for the auto-baseline diagnostics pass.
+
+    Runs once per (target_type, target_name) before per-target training
+    starts. Cheap (~30-90 s on a sampled view of train+val) and reports:
+
+    1. Headline baseline metric (RMSE/MAE/R^2 for regression;
+       AUC/logloss for binary). One quick model.
+    2. Sequential ablation: drop top-K features by feature_importances_,
+       retrain, measure metric delta. Surfaces dominant features.
+    3. ``init_score`` baseline for regression: refits a quick LightGBM
+       with the top-1 dominant feature passed via init_score (model
+       learns only the residual). If this baseline already matches raw
+       within ``init_score_optimal_threshold_pct``, composite-target
+       discovery is unlikely to add value (recommendation downgrade).
+    4. ``composite_recommendation`` flag in {high_potential, marginal,
+       unlikely_to_help} consumed by composite-target discovery to gate
+       expensive screening loops.
+
+    Default ON for regression and binary classification; multiclass /
+    multilabel / LtR / quantile_regression skipped (init_score semantics
+    don't carry).
+    """
+
+    enabled: bool = True
+
+    # Ablation: drop top-K features ranked by quick-model FI.
+    ablation_top_k: int = 5
+
+    # Quick-model knobs. LightGBM is the workhorse: fast, supports
+    # init_score natively for regression, robust on cold caches.
+    quick_model_family: Literal["lightgbm"] = "lightgbm"
+    quick_model_n_estimators: int = 200
+    quick_model_num_leaves: int = 31
+    quick_model_learning_rate: float = 0.05
+
+    # init_score baseline: regression-only in MVP. Top-K dominant
+    # features are summed; for K=1 the single base is passed as
+    # init_score, for K>1 a quick OLS combines them first.
+    init_score_top_k: int = 1
+    init_score_apply_to_target_types: Tuple[str, ...] = ("regression",)
+
+    # Sample size for ablation/init-score fits. Capped well below the
+    # full 4M-row regime so the diagnostic stays under ~1 minute on
+    # large datasets. None means "use full train".
+    sample_n: Optional[int] = 50_000
+
+    # Recommendation thresholds (in PERCENT of headline metric).
+    # Ablation Δ% is computed as (metric_after_drop / metric_raw - 1) * 100.
+    # Higher Δ% means the dropped feature contributed more.
+    high_potential_min_dominance_pct: float = 5.0  # >5pct from any top-K feature -> dominant
+    init_score_optimal_threshold_pct: float = 1.0  # init_score within 1pct of raw -> already optimal
+    marginal_threshold_pct: float = 2.0  # 2pct <= dominance < 5pct -> marginal
+
+    # Higher-is-better metrics (AUC) flip the sign convention for
+    # ablation Δ% computation. Auto-derived from target_type at runtime.
+    apply_to_target_types: Tuple[str, ...] = ("regression", "binary_classification")
+
+    random_state: int = DEFAULT_RANDOM_SEED
+
+
 # Title-metrics token grammar - mirrors metrics.TITLE_METRIC_TOKENS but kept
 # duplicated here to avoid importing from metrics.py at config-class
 # definition time (import-cost concern, plus configs is a foundational

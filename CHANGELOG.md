@@ -1,5 +1,677 @@
 # Changelog
 
+## 2026-05-10 — RFECV (`feature_selection/wrappers.py`): bug fixes, perf, h2h-sklearn benchmarks, biz-value tests
+
+PR-1 of a multi-stage rework. Five parallel audit agents (logical bugs / inefficiencies / test gaps / functionality extensions / coding best practices) surfaced 18 real correctness bugs, 3 measurable perf wins, 27 hygiene findings, 43 test coverage gaps. This commit lands the bug + perf + test layers; structural module split (Phase 3) and new functionality (Phase 4) follow in subsequent PRs.
+
+### Fixed
+
+#### Correctness (P0/P1)
+
+- **F5 (P0): sign-aware dummy-baseline**. Pre-fix, the no-features placeholder used `score / 10` for sign==1 scorers, which inverted on negative R² (model worse than predicting mean): the dummy ended up *better* than the model, breaking the early-stop logic. Replaced with magnitude-relative downward fudge (`score - 9 * max(|score|, 1e-3)`) that always makes the dummy strictly worse regardless of sign convention or scale.
+- **F1**: `OptimumSearch.{ScipyLocal, ScipyGlobal, ExhaustiveDichotomic}` raised `UnboundLocalError` past iter 0 (those branches were declared in the enum but never wired in `get_next_features_subset`). Now raises `NotImplementedError` with explicit message naming the enum value.
+- **F14**: zero-variance / all-null filter only inspected `select_dtypes(include="number")`; constant categorical / string / bool columns leaked into `support_` and tripped `transform`-time column-set drift. Vectorised via `X.nunique(dropna=True) <= 1` over all dtypes; also fixes Perf #5 (Python-loop overhead on 10k-col x 1M-row tables, 30-300s one-time win).
+- **F21**: `best_score = -1e6` floor was too high; high-error scorers (neg-MSE on noisy regression targets) never improved past it, so `n_noimproving_iters` triggered premature stop. Init now `-np.inf`.
+- **F23**: `np.mean(scores)` / `np.std(scores)` propagated NaN from a single degenerate fold to the entire iter's `final_score`. Now uses `np.nanmean` / `np.nanstd` when partial NaN is detected; the existing operator warning is preserved.
+- **F35**: `selected_features_per_nfeatures[len(current_features)] = current_features` overwrote silently when MBH re-explored the same N with a worse subset, downgrading both the curve and the cached selection. `store_averaged_cv_scores` now gates the write on best-score-comparison and returns a `was_stored` flag the caller uses to decide whether to commit `selected_features`.
+- **F38**: `importance_getter='auto'` (the default) crashed on `LinearRegression` / `Ridge` / `Lasso` / `SVC(linear)` / `SGDClassifier` because the old dispatch hardcoded `LogisticRegression -> coef_, else -> feature_importances_`. Resolution now defers to `get_feature_importances`, which inspects the *fitted* model's attributes and picks `feature_importances_` if present, `coef_` otherwise, raising `AttributeError` with a clear message if neither.
+- **F41**: `np.arange(1, len(original_features))` excluded the all-features candidate, so the optimiser could never re-evaluate the full feature set. `+1` on the upper bound; the misnamed "0 vs all features" early-stop comment is also corrected (iter 1 explores the seeded candidate count, not `n_features`).
+- **F25**: `range(nfeatures + 1, n_original_features)` in `select_appropriate_feature_importances` excluded the FI run on the full feature set as a "freshest preceding" candidate. `+1` on the upper bound.
+
+#### Correctness (P2)
+
+- **F6**: `_selected_cols_cache` is now invalidated at fit *entry* so a partial-fit failure cannot leave a previous fit's cached selection silently active for the next `transform`.
+- **F8**: `select_optimal_nfeatures_` no longer crashes with `UnboundLocalError` when only `nfeatures==0` was ever evaluated (e.g. the search loop broke at iter 1 with empty `current_features`); it now sets `n_features_=0`, `support_=np.array([])`, and returns gracefully.
+- **F11**: when `cv` is a `LeaveOneOut` or iterator-based custom CV that doesn't accept `n_splits` via `get_params()`, the silent fallback path now logs a clear warning - the user's `early_stopping_val_nsplits` is otherwise IGNORED (the CV computes its split count from the data).
+- **F17**: when `current_features` holds integer indices (ndarray X path), set-membership against string column names always missed and silently dropped every `cat_features` / `text_features` / `embedding_features` entry from `fit_params`. Now skips name-set filtering on the integer path so user-supplied lists pass through.
+- **F32 + F33**: switched per-fold `copy.copy(estimator)` to `sklearn.base.clone(estimator)`, and now ALWAYS clone (not only when `keep_estimators=True`). The prior shallow copy shared mutable state, and `keep_estimators=False` reused the same instance fold after fold so any `set_params(text_processing=...)` mutation persisted across iters. The CB `text_processing` mutation is now applied to the per-fold clone, not the outer estimator.
+
+#### Default behaviour
+
+- **`optimizer_plotting=None` now defaults to `'No'`**, not `OnScoreImprovement`. The previous default called `plt.show()` on every score improvement inside MBHOptimizer, blocking pytest / headless runs indefinitely on Qt's event loop. Users wanting plots must opt in explicitly.
+
+### Performance
+
+- **Perf #2**: `split_into_train_test` integer-index path replaced chained `X.iloc[rows].iloc[:, cols]` (which materialised the full row-slab before column selection) with single-shot `X.iloc[np.ix_(rows, cols_int)]`, mirroring the numpy branch. Cuts ~2-7% of total wall-clock on wide-table runs (200k rows x 10k cols).
+- **Perf #5** (bundled with F14): zero-variance filter now one C-level pass via `nunique()` instead of per-column Python loop. 30-300s one-time win on 10k-col x 1M-row inputs.
+- **Perf #4 (Leaderboard caching) and Perf #1 (CV-split materialisation, `clean_ram` gating) deferred to Phase 3 module split** - they require deeper structural rework to land cleanly.
+
+### Tests
+
+- New `tests/feature_selection/test_wrappers_bug_fixes.py` (22 tests, all green): one focused red-green test per Phase 1 finding plus 2 smoke tests. Files in three categories: pure-helper unit tests (state of `store_averaged_cv_scores`, `select_appropriate_feature_importances`, `get_feature_importances`), small-fit integration tests (LR + RF), parametrised tests for the unwired-search-method dispatch (F1) and sign-direction safety (F5).
+- New `tests/feature_selection/test_wrappers_biz_value.py` (5 tests, all green): proves the method actually works.
+  - Recovers ≥50% of true informative features on a 48-feature problem (vs the prior `recall>=0.2` test that admitted all 5 estimators failed at 0.4)
+  - Score lift > +0.01 on an unregularised LogisticRegression on a noisy 80-feature problem (measured: **+0.10**)
+  - Collinear-feature dedup: 5 perfectly collinear copies → ≤4 selected with `feature_cost=0.05` (measured: 1)
+  - `feature_cost` monotonicity: cost=0.1 produces ≤ features than cost=0 (measured: 5→2)
+  - Selection stability across seeds: mean pairwise Jaccard ≥0.5 (measured: 1.0)
+- New `tests/feature_selection/test_wrappers_h2h_sklearn.py` (5 tests, all green): CI guard-rail vs `sklearn.feature_selection.RFECV`.
+  - Score parity (within ε) on 3 synthetic problems × 3 estimators (LR / RF / Ridge)
+  - Subset-size sanity (we don't pick everything on redundant problems)
+  - Informative-feature recall ≥0.5 (measured: 1.0 on the noisy 4-informative problem)
+
+### Benchmarks
+
+- New `feature_selection/_benchmarks/bench_rfecv_vs_sklearn.py`: standalone full h2h report generator. 6 synthetic problems × {LR, RF, optionally CB} × 3 seeds, recording (a) CV score on selected subset under independent CV, (b) recall of true informative features, (c) wall-clock fit time, (d) selection stability (Jaccard across seeds). Outputs aggregated JSON to `_benchmarks/_results/h2h_<timestamp>.json` plus a 5-panel matplotlib comparison PNG (CV score / recall / nfeatures / stability / fit time, side-by-side per problem-estimator). Run via `D:/ProgramData/anaconda3/python.exe -m mlframe.feature_selection._benchmarks.bench_rfecv_vs_sklearn`.
+
+### Verification
+
+- 99 passed in 171s on `tests/feature_selection/test_wrappers.py + test_wrappers_bug_fixes.py` (all 77 existing tests + 22 new bug-fix tests, zero regressions).
+- 10 passed in 139s on `test_wrappers_biz_value.py + test_wrappers_h2h_sklearn.py`.
+
+### Deferred (subsequent PRs)
+
+- **Phase 3**: split `wrappers.py` (1348 lines, 660-line `fit` method, 4 star-imports) into a `wrappers/` package: `_rfecv.py`, `_splitting.py`, `_scoring.py`, `_importance.py`, `_voting.py`, `_candidate_search.py`, `_config.py`, `_enums.py`. Collapse `use_all_fi_runs` / `use_last_fi_run_only` / `use_one_freshest_fi_run` / `use_fi_ranking` (4 booleans for one enum) into `FIAggregationStrategy`. Drop `from typing import *` and three other star imports. Replace `get_parent_func_args() / store_params_in_object()` magic with explicit attribute assignment so static analysis sees `self.*`.
+- **Phase 4**: top-6 ROI extensions identified by the functionality-extensions agent: stability metrics (`self.stability_`), CI on best `n_features_` via 1-SE rule, parallel CV folds (`joblib.Parallel(n_jobs=...)`), `get_feature_names_out()` sklearn-1.x protocol, `must_include` hybrid (current `special_feature_indices` forces a single subset and breaks the search loop after one iter), permutation/SHAP `importance_getter`.
+
+## 2026-05-10 — Composite-target: stacking + Phase B + OOF gate + tutorial (5 future-work items closed)
+
+Final batch of the composite-target roll-out. Closes the open
+"future work" list from the prior CHANGELOG entry. The feature is
+now production-complete: every plan-mode item has an implementation
+backed by passing tests.
+
+### Added
+
+#### Linear / NNLS stacking strategies (`CompositeCrossTargetEnsemble`)
+
+- ``from_linear_stack(...)``: Ridge-stacked ensemble. Fits
+  ``y_train ~ X @ w + intercept`` where ``X`` is the per-component
+  prediction matrix on train (or honest holdout when ``oof_holdout_frac > 0``).
+  Negative weights are allowed (a component's prediction may be
+  subtracted). The intercept is preserved on
+  ``ensemble._linear_stack_intercept`` and added back at predict time.
+- ``from_nnls_stack(...)``: non-negative LS via ``scipy.optimize.nnls``.
+  Weights are non-negative and normalised to sum 1. Less prone to
+  overfitting than Ridge on small data; recommended when components
+  are all already y-scale predictors.
+- Both fall back to ``mean`` when fewer than ``K+2`` finite training
+  rows are available, NNLS additionally falls back when the solver
+  produces zero or non-finite weights.
+- Wired into ``cross_target_ensemble_strategy``: now accepts
+  ``"linear_stack"`` / ``"nnls_stack"`` alongside ``mean`` and
+  ``oof_weighted``.
+
+#### Phase B: tiny-model rerank (`CompositeTargetDiscovery`)
+
+- Two-stage screening: MI-pre-filter (Phase A, existing) followed by
+  CV-RMSE rerank on a tiny LightGBM trained per surviving candidate
+  (Phase B, new). Phase B's RMSE is computed on the y-scale (after
+  inverse), which is the actual prediction objective; MI was a
+  proxy. Configured via ``screening`` field:
+  - ``"mi"``: MI-only (default, fastest).
+  - ``"tiny_model"``: skip MI pre-filter (slow on many candidates).
+  - ``"hybrid"``: MI-pre-filter -> tiny-model rerank (recommended).
+- Per-family rerank: when ``tiny_screening_models == "per_family"``,
+  Phase B trains tiny models of each family in
+  ``tiny_screening_families`` (lightgbm / xgboost / catboost / linear)
+  and aggregates rankings via ``tiny_consensus`` (``"union"`` for
+  best-case-across-families, ``"borda"`` for mean rank). Catches
+  candidates that win for one family but lose for another.
+- New config fields: ``screening``, ``tiny_model_n_estimators``,
+  ``tiny_model_num_leaves``, ``tiny_model_learning_rate``,
+  ``tiny_model_cv_folds``, ``tiny_model_sample_n``,
+  ``top_m_after_tiny``, ``tiny_screening_models``,
+  ``tiny_screening_families``, ``tiny_consensus``.
+- New helper: ``_tiny_cv_rmse_y_scale(...)`` -- KFold CV on a single
+  tiny model with on-the-fly transform.forward / inverse for the
+  y-scale RMSE.
+- New helper: ``_build_tiny_model(family, ...)`` -- lazy-build a
+  tiny regressor for any of lightgbm / xgboost / catboost / linear,
+  imported only when requested.
+
+#### Honest OOF-based ensemble validation gate
+
+- New config field ``oof_holdout_frac`` (default 0.0 = use train-RMSE
+  proxy, no extra compute). When set to e.g. 0.2, the suite carves
+  a 20% holdout slice of filtered_train_idx at ensemble-build time
+  and re-fits a clone of every component on the remaining 80%.
+  Holdout predictions are honest (out-of-sample for that clone) and
+  drive both the ensemble weights / stacking and the validation
+  gate.
+- ``compute_oof_holdout_predictions(...)`` (new public function in
+  ``composite.py``): single-split honest OOF computation. For
+  composite-target wrappers re-applies the spec's ``transform.forward``
+  on stack_train, fits the inner clone on (X_stack_train,
+  T_stack_train), wraps via ``from_fitted_inner``, and predicts in
+  y-scale on stack_holdout.
+- True validation gate at ensemble-build time: when honest holdout
+  predictions are available, the suite computes the ensemble's
+  holdout RMSE and the best single component's holdout RMSE; if
+  the ensemble is worse, falls back to the best single component
+  and logs a WARNING. Replaces the train-RMSE-based gate from PR6
+  which was biased optimistic.
+
+#### Tutorial notebook
+
+- ``mlframe/docs/composite_targets_tutorial.ipynb`` (16 cells):
+  end-to-end TVT walkthrough covering data synthesis, baseline
+  diagnostics, composite-target opt-in, spec inspection,
+  baseline-vs-ensemble RMSE comparison, ``report_to_markdown``
+  rendering, when NOT to use composite-mode, and the kill-switch
+  env var. Estimated runtime 1-2 minutes on a laptop.
+
+### Tests
+
+- ``test_composite_ensemble.py``: +5 tests (linear_stack basic +
+  fallback + intercept; nnls_stack basic + fallback) -> 19 total.
+- ``test_composite_discovery.py``: +3 tests (Phase B trim,
+  ``screening='mi'`` skips Phase B, per-family screening runs) ->
+  29 total.
+- ``test_composite_integration.py``: +1 test (OOF holdout gate runs
+  without crashing) -> 9 total.
+- **Cumulative across all composite-target test files: 140/140
+  passed in ~70s.**
+
+### What's now delivered end-to-end
+
+```python
+from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
+cfg = CompositeTargetDiscoveryConfig(
+    enabled=True,
+    base_candidates="auto",
+    transforms=["diff", "ratio", "logratio", "linear_residual"],
+    screening="hybrid",                           # PR-Phase-B: MI -> tiny CV-RMSE
+    tiny_screening_models="per_family",           # PR-per-family: rerank per family
+    tiny_screening_families=("lightgbm", "xgboost"),
+    tiny_consensus="union",
+    top_m_after_tiny=3,
+    cross_target_ensemble_strategy="linear_stack",  # PR-stacking: Ridge stack
+    oof_holdout_frac=0.2,                         # PR-OOF: honest holdout
+)
+```
+
+The ``CompositeTargetDiscovery`` workflow now runs MI-pre-filter ->
+tiny-model rerank (per-family if requested) -> wrap each surviving
+spec's model post-fit so ``.predict()`` returns y-scale -> compute
+honest holdout predictions per component -> stack via Ridge / NNLS
+on those honest preds -> apply the OOF validation gate -> emit a
+``_CT_ENSEMBLE__{target}`` entry under ``models[regression]``. All
+intermediate decisions land on ``metadata`` keys for audit
+(``composite_target_specs``, ``composite_target_failures``,
+``composite_target_ensemble``, ``composite_target_y_scale_metrics``).
+
+## 2026-05-10 — Composite-target benchmark + Provenance + y-scale metrics + Cross-target ensemble
+
+Final batch of the composite-target roll-out (PR6, PR8, T-scale fix,
+PR9). Closes the feature: cross-target ensembling, production-grade
+provenance metadata, parallel y-scale metric reporting alongside the
+existing T-scale metrics, and a synthetic benchmark suite.
+
+### Added
+
+- **``CompositeCrossTargetEnsemble``** (``mlframe.training.composite``):
+  weighted-average ensemble over K composite-target wrappers plus the
+  raw-target predictor. Two strategies on the public surface:
+  - ``mean`` via ``from_uniform_weights`` -- equal weights.
+  - ``oof_weighted`` via ``from_train_metrics`` -- gain-over-baseline
+    weighting with a built-in "no component beats baseline" gate that
+    falls back to the single best component when nothing improves
+    over the baseline RMSE. The independence-bound RMSE gate from
+    the plan was deliberately dropped: composite predictions are
+    correlated, so the formula overestimates ensemble RMSE and would
+    spuriously fall back on legitimate ensembles. The true OOF gate
+    is documented as future work pending CV-OOF storage in the
+    per-target loop.
+  - ``predict`` re-normalises weights over surviving components if
+    any predict call raises -- a single broken composite doesn't
+    take down the whole prediction batch.
+- **``CompositeTargetDiscoveryConfig.cross_target_ensemble_strategy``**:
+  ``"off"`` (default) | ``"mean"`` | ``"oof_weighted"``. When non-off,
+  the suite builds the ensemble after wrapping and stores it under
+  ``models[regression][f"_CT_ENSEMBLE__{target}"]`` plus
+  ``metadata["composite_target_ensemble"][type][target]`` for the
+  per-component weights.
+- **``CompositeProvenance``** frozen dataclass with rich production
+  metadata (``composite_id`` deterministic sha256-prefix from
+  fitted_params, discovery timestamp, random_state, fitted_params,
+  mi_y / mi_t / mi_gain, valid_domain_frac, ensemble weight). Convert
+  to dict via ``to_dict`` (JSON-clean) or to a stakeholder-ready
+  paragraph via ``to_audit_trail``.
+- **``report_to_markdown``**: renders a Markdown leaderboard for one
+  target's discovery output -- discovered specs table, per-spec
+  audit paragraph, rejected candidates with reasons, optional
+  ensemble section.
+- **``metadata["composite_target_y_scale_metrics"]``**: parallel
+  y-scale RMSE / MAE per composite-target wrapper per split. Closes
+  the "T-scale only" gap from PR4: the per-target loop's metrics
+  are still on T-scale but the integration block now also runs
+  ``wrapped.predict()`` on train / val / test slices and stores the
+  y-scale results next to them. Callers can finally compare composite
+  vs raw on the same scale without re-running predict themselves.
+- **``mlframe/benchmarks/composite_target_benchmark.py``** -- module-
+  runnable synthetic benchmark on 5 scenarios:
+  - ``pure_lag``: ``y = base + noise`` -> expected winner ``diff``.
+  - ``lag_with_signal``: ``y = 0.95*base + g(X) + noise`` -> ``linear_residual``.
+  - ``multiplicative``: ``y = base * exp(g(X) + noise)`` -> ``logratio``.
+  - ``proportional``: ``y = base * (1 + 0.1*g(X)) + noise`` -> ``ratio``.
+  - ``no_dominant``: equal-weight features (control). PASS = composite
+    does NOT meaningfully beat raw (\|improvement\| < 5%).
+  - Outputs JSON results + Markdown leaderboard. Run with:
+    ``python -m mlframe.benchmarks.composite_target_benchmark``
+  - ``--fast`` flag for smoke runs; configurable n via ``--n``.
+- ``mlframe/tests/training/test_composite_ensemble.py`` -- 14 unit
+  tests for the ensemble class (constructor / weights / validation
+  gate / predict robustness / export_metadata).
+- ``mlframe/tests/training/test_composite_provenance.py`` -- 15 tests
+  for ``CompositeProvenance`` + ``report_to_markdown`` (including
+  composite_id determinism, formula interpolation per transform,
+  Markdown rendering with all sections).
+- ``test_composite_integration.py``: 2 new tests for the cross-target
+  ensemble entry shape and y-scale metric population.
+
+### What's still future work
+
+- True OOF-based ensemble validation gate (requires CV-OOF storage
+  in the per-target loop -- currently we use train-RMSE as a proxy).
+- Tiny-model rerank Phase B of the screening pipeline.
+- Per-family screening (CB / LGB / XGB rankings differ; current
+  discovery uses one MI estimator).
+- Tutorial notebook (deferred -- the docs / CHANGELOG / report
+  helpers cover the production-readiness gap).
+
+### Cumulative test count
+
+131 tests in the composite-target test suites (PR1-9 cumulative):
+- ``test_baseline_diagnostics.py``: 31
+- ``test_composite.py``: 39
+- ``test_composite_discovery.py``: 26
+- ``test_composite_integration.py``: 6
+- ``test_composite_ensemble.py``: 14
+- ``test_composite_provenance.py``: 15
+
+All pass in 55s on a cold cache.
+
+## 2026-05-10 — Composite-target wrapping: y-scale predictions end-to-end
+
+PR5 of the composite-target roll-out. Closes the loop on user value:
+when composite-target discovery is enabled, the resulting models in
+``models_dict`` now ``.predict(X)`` returns y-scale (the original
+target scale) instead of T-scale (the residual scale the model was
+trained on). The full pipeline -- raw target, discovery, residual
+training, inverse, prediction -- is now end-to-end functional.
+
+### Added
+
+- **``CompositeTargetEstimator.from_fitted_inner(...)``** classmethod:
+  build a wrapper around an ALREADY-FITTED inner model without
+  re-training. Bypasses ``fit`` and populates ``estimator_`` /
+  ``fitted_params_`` / ``runtime_stats_`` directly from the spec's
+  fitted_params + caller-provided ``y_train``. Used by the suite-
+  level integration to convert each per-target-trained composite
+  model to a y-scale predictor post-fit.
+- ``train_mlframe_models_suite``: new post-loop wrapping block that
+  walks ``models[regression]`` for composite-target keys and replaces
+  each fitted inner model with a ``CompositeTargetEstimator`` wrap.
+  Wrapping is non-destructive: entries with a ``.model`` attribute
+  get the wrapper assigned to ``entry.model`` (preserves auxiliary
+  metadata like ``columns`` / ``model_name`` / ``metrics``); plain-
+  estimator entries get replaced in-place. Failures fall back to
+  T-scale predictions with an explicit warning.
+- ``mlframe/tests/training/test_composite_integration.py::test_composite_models_predict_in_y_scale_after_wrap``:
+  end-to-end test that runs ``train_mlframe_models_suite`` with
+  composite discovery enabled, finds the composite-target entries
+  in ``models_dict``, and asserts that at least one is a
+  ``CompositeTargetEstimator`` whose ``.predict()`` output stays
+  inside the y range of the training data (not clustered near zero
+  as T-scale residual predictions would be).
+
+### Why
+
+PR4 added composite targets to the per-target loop but the resulting
+models predicted on the residual scale, which is not directly usable
+by downstream consumers. PR5 makes the wrapping automatic: the user
+configures discovery once and gets working y-scale predictions out
+of ``models[regression][f"target__transform__base"]`` with no
+post-processing required.
+
+### What's still in T-scale
+
+- The per-target loop's metrics (RMSE / MAE / R^2 reported in
+  ``metadata["fairness_report"]``, the visual perf charts) are still
+  computed on T-scale predictions because they're computed inside
+  the per-target loop BEFORE the post-loop wrap. This means the
+  T-scale RMSE for composite targets is not directly comparable
+  to the raw-target RMSE. A future PR will move the metric
+  computation outside the per-target loop OR compute a parallel
+  y-scale metric.
+
+### Out of scope (future PRs)
+
+- Cross-target ensembling: combining the K composite-target
+  predictions (and the raw target prediction) into one final
+  prediction per row. Requires one of: ``mean``, ``oof_weighted``,
+  ``linear_stack`` -- all opt-in.
+- Tiny-model rerank Phase B of the screening pipeline.
+- y-scale metric reporting (see "What's still in T-scale" above).
+
+## 2026-05-10 — Composite-target discovery wired into train_mlframe_models_suite
+
+PR4 of the composite-target roll-out: integration. The ``CompositeTargetDiscovery``
+class (previous PR) now runs inside the suite at the right moment in
+the pipeline; discovered composite targets are added to
+``target_by_type`` as additional regression targets and trained by
+the existing per-target loop. Wrapping / inversion at predict time
+remains in scope of the next PR -- this one ships as
+"developer-mode opt-in" only (default OFF).
+
+### Added
+
+- **`train_mlframe_models_suite`** -- new ``composite_target_discovery_config``
+  kwarg accepting ``CompositeTargetDiscoveryConfig`` or a dict.
+  Default ``None``, meaning ``enabled=False``. When a caller opts in,
+  discovery runs inside the suite RIGHT AFTER the global outlier-detection
+  pass and BEFORE the temporal-audit batch / per-target training loop,
+  so the new composite targets flow naturally through both downstream
+  stages.
+- ``MLFRAME_DISABLE_COMPOSITE`` env-var kill switch. When set to
+  ``"1"`` / ``"true"`` / ``"yes"``, forces composite discovery off
+  regardless of what the caller passed in the config. Used for
+  production rollback without code changes.
+- ``metadata["schema_version"] = 2`` schema bump. v1 loaders that
+  call ``.get(...)`` with defaults continue to work; loaders that
+  hard-require all keys must check ``schema_version >= 2``.
+- ``metadata["composite_target_specs"]`` and
+  ``metadata["composite_target_failures"]`` populated under each
+  ``target_type`` / ``target_name`` key. Specs carry the full
+  ``fitted_params`` dict (alpha / beta / MAD / etc.) needed to
+  reconstruct a ``CompositeTargetEstimator`` wrapper at inference
+  time. Failures list rejected candidates with reasons.
+- ``mlframe.training.core._build_full_column_from_splits(...)`` helper:
+  reassembles a single column at the FULL n_total row index space
+  from ``train_df`` / ``val_df`` / ``test_df`` partitions.
+  Used by the discovery integration to apply each spec's
+  ``forward`` transform to all rows so val and test rows get T values
+  at the per-target loop's split-index slicing.
+- ``mlframe/tests/training/test_composite_integration.py`` -- 3 tests:
+  * default-off behaviour preserves the historical
+    ``target_by_type`` keys + ``models_dict`` shape.
+  * opt-in populates ``metadata["composite_target_specs"]`` with at
+    least one entry under ``regression / target`` and trains models
+    on the composite target.
+  * ``MLFRAME_DISABLE_COMPOSITE=1`` overrides the config.
+
+### Integration discipline
+
+- Discovery fits transform parameters (alpha / beta for
+  linear_residual, MAD for logratio, eps for ratio) from
+  ``filtered_train_idx`` ONLY. Validation and test rows are never
+  read at fit time. The ``test_alpha_train_only_changes_with_train_idx``
+  test from PR3 still proves this end-to-end.
+- T values for val / test rows are computed using the
+  train-fitted params applied to (y_val, base_val) and (y_test,
+  base_test). Domain-violation rows on val / test get imputed with
+  ``median(T_train)`` so ``trainer.py``'s NaN-target guard at
+  ``trainer.py:~703`` doesn't trip; the imputation is biased but
+  predictions on those rows are corrected at inverse time (PR5).
+- ``target_by_type`` is shallow-copied before mutation: the FTE may
+  cache its returned dict and feed it to multiple suite calls; mutating
+  it in place would compound on each call (e.g. ``target__diff__base__diff__base``
+  on the second call).
+- The integration block is wrapped in a try/except: any internal
+  failure logs a warning and per-target training continues with
+  raw targets only. Composite discovery never blocks the suite.
+
+### Out of scope (next PR)
+
+- ``CompositeTargetEstimator`` wrapping: the per-target training loop
+  currently trains models on the T-scale composite target; predictions
+  come out in T-scale, not y-scale. The wrapper from PR2 is ready to
+  fit; the integration of "wrap each composite-target model post-fit
+  so .predict() returns y-scale" lands in PR5.
+- Cross-target ensembling.
+- Domain-validity reporting on the per-target loop's metric outputs
+  (T-scale RMSE is reported today, not y-scale).
+
+## 2026-05-10 — CompositeTargetDiscovery: auto-find dominant-base composite targets
+
+Builds on the transform registry + ``CompositeTargetEstimator`` wrapper
+landed earlier this day. Adds the *discovery* layer: given a regression
+target and a feature set, returns the K best ``(base, transform)`` pairs
+ranked by mutual-information gain over the raw target on the same
+feature set.
+
+### Added
+
+- **`mlframe.training.composite.CompositeTargetDiscovery`**:
+  - ``fit(df, target_col, feature_cols, train_idx, val_idx?, test_idx?)``
+    requires explicit ``train_idx`` -- no implicit "use full df" shortcut.
+    Every fitted parameter (``alpha`` / ``beta`` for ``linear_residual``,
+    MAD floor for ``logratio``, ``eps`` for ``ratio``, MI screening edges)
+    is computed from train rows ONLY. Validation and test rows are never
+    touched at fit time.
+  - ``iter_transform(df) -> Iterator[(name, T_array)]`` streams one
+    composite target column at a time so a 4M-row frame with K=8 specs
+    doesn't materialise a ~250 MB block.
+  - ``export_specs()`` returns plain-dict snapshots for ``metadata``
+    storage. ``report()`` returns all evaluated candidates (kept and
+    rejected) with reasons.
+  - Auto-base ranking: by default ranks features by per-feature
+    ``MI(y, x)`` on the screening sample and takes top-K. Pairwise MI
+    surfaces the canonical ``TVT_prev``-style autoregressive lag at
+    rank 1; the more elaborate "structural-MI gain" approach from the
+    plan review was implemented and removed when it was shown to invert
+    the desired ranking on the canonical case (it ranks features whose
+    *removal* leaves a residual easily predicted from the *remaining*
+    features, which favours weak contributors over the dominant one).
+  - MI gain definition: per-base, ``mi_gain = MI(T, X \ {base})
+    - MI(y, X \ {base})`` -- both halves use the same feature set
+    (X without the base column) so the metric measures pure
+    target-transformation effect, not the confounded effect of removing
+    the dominant feature.
+  - Forbidden-base filters (catch leakage-prone candidates before any
+    MI computation):
+    * regex pattern list (``target_enc_*``, ``mean_target_*``, ``*_te``,
+      ``lagged_target_*``, ``y_smooth_*`` -- target encoding and rolling
+      target stats);
+    * correlation guard: ``|corr(base, y)| >= 0.999`` -> drop (likely
+      derived-from-y);
+    * constancy guard: ``np.ptp(base) <= 1e-12`` -> drop (zero-variance
+      makes OLS in linear_residual degenerate);
+    * non-numeric guard: object / category columns rejected (cast bomb
+      risk).
+  - Domain-validity gate: a ``(base, transform)`` candidate is dropped
+    if fewer than ``min_valid_domain_frac`` (default 0.7) of train rows
+    pass ``transform.domain_check``. Prevents ``logratio`` from being
+    promoted on data where 60% of rows have ``y <= 0``.
+  - ``fail_on_no_gain`` modes: ``fallback_raw`` (default; warn and
+    return empty specs), ``raise`` (RuntimeError -- useful in CI
+    scripted modes), ``warn`` (log but proceed with best-of-bad).
+- **`mlframe.training.configs.CompositeTargetDiscoveryConfig`** (Pydantic
+  ``BaseConfig``): 13 fields, ``enabled=False`` by default (opt in
+  explicitly). Validates ``fail_on_no_gain`` against an enum.
+- **`CompositeSpec`** frozen dataclass: ``name``, ``target_col``,
+  ``transform_name``, ``base_column``, ``fitted_params``, ``mi_gain``,
+  ``mi_y``, ``mi_t``, ``valid_domain_frac``, ``n_train_rows``.
+- ``mlframe/tests/training/test_composite_discovery.py`` -- 26 tests:
+  * Config defaults + enum normalisation + invalid-mode raise.
+  * Auto-base surfaces dominant feature; explicit base list passes
+    through filters.
+  * **Leakage-guard tests** (load-bearing):
+    - ``test_alpha_train_only_changes_with_train_idx``: fits the same
+      data with two non-overlapping ``train_idx`` slices whose
+      generative coefficients differ (alpha 0.95 vs 1.10). Discovered
+      alphas reflect the slice; if the implementation regressed to
+      "use full df" both alphas would converge to the midpoint ~1.025.
+      This test fails IFF leakage was reintroduced.
+    - ``test_test_rows_never_touched``: corrupting test rows after fit
+      doesn't change discovered specs.
+    - ``test_iter_transform_uses_train_fitted_params_for_full_frame``:
+      iter_transform applies ``train``-fitted params to all rows.
+  * Forbidden-base filters: regex / corr / ptp / non-numeric.
+  * Domain validity: logratio with mostly-negative ``y`` skipped.
+  * ``fail_on_no_gain`` modes propagate correctly.
+  * ``iter_transform`` streaming + empty when no specs.
+  * ``export_specs`` / ``report`` shape contract.
+  * Polars input + reproducibility + tiny-train-idx + unknown-transform-skip.
+
+### Why
+
+The user only learns which feature dominates a regression target after
+a full suite finishes and the FI chart is rendered. Discovery surfaces
+the (base, transform) candidates *before* per-target training begins,
+quantifies how much of the residual structure is recoverable, and
+hands back a ranked list of specs ready to plug into the next layer
+(future PR: integration into ``train_mlframe_models_suite``).
+
+### MI estimator choice
+
+Uses ``sklearn.feature_selection.mutual_info_regression`` (Kraskov
+kNN). Independent of the in-progress refactor of
+``mlframe/feature_selection/filters.py`` -- discovery is parallel work
+and does not import ``mi_direct``. Future migration to the project's
+own MI estimator is trivial (single ``_mi_to_target`` helper).
+
+### Out of scope (future PRs)
+
+- Tiny-model rerank (Phase B of the hybrid screening). Discovery here
+  is MI-only; a follow-up PR adds tiny-LightGBM CV-RMSE rerank to the
+  top-K and prunes to top-M.
+- Integration into ``train_mlframe_models_suite``: wiring discovery
+  into ``target_by_type`` expansion, calling the wrapper from existing
+  per-target training loop, schema-bump metadata.
+- Cross-target ensemble: combining the K composite-target predictions.
+- Per-family screening (different model families may rank composite
+  targets differently).
+
+## 2026-05-10 — Composite-target primitives: transform registry + CompositeTargetEstimator
+
+Foundation for upcoming composite-target discovery (next PR). Ships
+the building blocks only -- no auto-discovery, no MI screening, no
+ensembling.
+
+### Added
+
+- **`mlframe.training.composite`** -- new module with:
+  - ``Transform`` frozen dataclass: declarative registry entry tying
+    together ``forward`` / ``inverse`` / ``fit`` / ``domain_check``
+    pure functions with a tag set for preset filtering.
+  - ``_TRANSFORMS_REGISTRY`` with 4 core transforms tagged
+    ``{"core", "regression"}``:
+    - **``diff``**: ``T = y - base``; inverse ``y_hat = T_hat + base``.
+      No fitted parameters.
+    - **``ratio``**: ``T = y / base``; inverse ``y_hat = T_hat * base``.
+      Requires ``|base| > 0`` (eps fitted from train scale).
+    - **``logratio``**: ``T = log(y) - log(base)``; inverse
+      ``y_hat = base * exp(softcap(T_hat))``. Soft-cap is centred on
+      ``median(T_train)`` with width ``k * MAD_eff``, where
+      ``MAD_eff = max(MAD(T_train), 1e-3 * std(y_train))``. The MAD
+      floor defends against degenerate constant-T train distributions
+      that would otherwise collapse all predictions to ``base * exp(0)``.
+    - **``linear_residual``**: ``T = y - alpha*base - beta`` with
+      ``(alpha, beta)`` fitted via ``np.linalg.lstsq`` on train.
+      Inverse ``y_hat = T_hat + alpha*base + beta``.
+  - ``CompositeTargetEstimator`` (sklearn ``BaseEstimator + RegressorMixin``):
+    - Holds ``base_estimator``, ``transform_name`` (looked up in the
+      registry at fit/predict, never stored as a callable -- structurally
+      PII-safe and pickle-clean), ``base_column``, ``fallback_predict``
+      (``"y_train_median"`` or ``"nan"``), ``drop_invalid_rows``.
+    - At ``fit``: extracts ``base`` from ``X[base_column]``, drops rows
+      failing ``domain_check`` (or raises if ``drop_invalid_rows=False``),
+      fits transform-specific params on the surviving train rows,
+      computes ``T = forward(y, base, params)``, fits a clone of
+      ``base_estimator`` on ``(X_filtered, T)``, and stashes the
+      post-inverse y-clip envelope ``[Q001(y_train) - 0.9*span,
+      Q999(y_train) + 9*span]`` plus ``y_train_median`` in
+      ``fitted_params_`` for predict-time use.
+    - At ``predict``: gates incoming rows on
+      ``np.isfinite(base) AND domain_check(base)``, applies the
+      inverse on valid rows, falls back to ``y_train_median`` (or
+      NaN) on the rest, then clips the full output to the y-envelope.
+      Updates live ``runtime_stats_`` counters
+      (``predict_rows_total``, ``domain_violation_rows``,
+      ``y_clip_low_hits``, ``y_clip_high_hits``) cumulatively across
+      calls so multi-batch inference accumulates.
+    - Delegates ``feature_importances_``, ``coef_``, ``intercept_``,
+      ``n_features_in_``, ``get_booster()`` (XGB), ``booster_`` (LGB)
+      to the inner. Unfitted property access returns ``None``
+      gracefully.
+  - Public exceptions: ``UnknownTransformError``, ``DomainViolationError``.
+  - Public helpers: ``get_transform``, ``list_transforms`` (tag filter).
+- ``mlframe/tests/training/test_composite.py`` -- coverage:
+  - Registry lookup (known/unknown/tag-filter).
+  - Round-trip on fixed grids per transform; logratio extreme-y
+    finiteness check.
+  - **Hypothesis property tests** for round-trip on random domains
+    (diff/ratio/linear_residual; 30 examples each).
+  - Domain-check correctness per transform.
+  - End-to-end with LightGBM on TVT-like synthetic data: wrapper
+    beats the naive ``y_hat = base`` baseline by RMSE; ``linear_residual``
+    matches or beats ``diff`` (captures the autoregressive 0.95
+    coefficient explicitly).
+  - Adversarial input handling at predict: ``base = +/-inf``,
+    ``base <= 0`` for logratio -- rows fall back to median, no
+    NaN/inf in output, ``runtime_stats_`` counters update.
+  - MAD-soft-cap + post-inverse y-clip on synthesised extreme T_hat:
+    inner stub returns ``T_hat = 50``, ``exp(50) = 5e21`` is clipped
+    to the y-envelope and the ``y_clip_high_hits`` counter increments.
+  - ``sklearn.clone()`` round-trip: clone preserves params, inner is
+    cloned (not aliased), fit state is NOT carried across clone.
+  - ``pickle`` round-trip after fit: revived wrapper produces
+    bit-identical predictions.
+  - Delegation tests: ``feature_importances_``, ``n_features_in_``
+    reach the inner LightGBM.
+  - fit-time validation tests: missing base_estimator, empty
+    base_column, missing column in X, ``drop_invalid_rows=False``
+    raises ``DomainViolationError``.
+  - Polars input acceptance (fit + predict).
+
+### Why
+
+The wrapper hides the transform-and-invert loop behind a standard
+sklearn API: ``wrapper.predict(X)`` returns ``y_hat`` in the original
+scale, so downstream code (existing ensemblers, FI / SHAP delegates,
+prediction tooling, persistence) doesn't need to know about the
+transformation. Looking transforms up by name from a frozen registry
+(rather than storing callables on instances) sidesteps the closure
+trap that would otherwise leak training data into pickles via
+``inspect.getclosurevars``-detectable references, and keeps
+``sklearn.clone`` and Optuna parallel workers honest.
+
+### Cost
+
+Module is ~700 LOC with ~430 LOC tests. ``CompositeTargetEstimator``
+adds one OLS / quantile / MAD pass at fit (microseconds on typical
+n_train) plus row-mask + clip ops at predict (vectorised ndarray,
+microseconds for 1000 rows). The inverse-transform overhead is
+dominated by the inner estimator's predict, not the wrapper.
+
+### Out of scope (future PRs)
+
+- Auto-discovery of ``base`` and best transform (PR3).
+- Cross-target ensembling (PR5+).
+- ``base_margin`` / classification residuals.
+- ``predict_quantile`` for ConfidenceAnalysisConfig integration.
+
+## 2026-05-10 — Baseline diagnostics (auto-discovered dominant features + init_score baseline + composite_recommendation)
+
+A cheap (~30-90 s on a 50 000-row sample) per-target diagnostic that runs once before per-target training in ``train_mlframe_models_suite``. Surfaces three things operators ask for after a model train:
+
+- **Headline metric** of a quick LightGBM fit (RMSE for regression, AUC for binary).
+- **Top-K feature ablation**: drop each top-FI feature one at a time, refit, measure metric Δ%. Identifies dominant features at percentage-point resolution. The ``TVT_prev``-style autoregressive lag case from the original motivation now surfaces explicitly, with quantification, before the user has to read FI charts and re-configure.
+- **`init_score` baseline** (regression-only in MVP): refits the quick model with the top-1 dominant feature passed via LightGBM's native ``init_score`` so the model learns only the residual. Mirrors the ``base_margin`` pattern in XGBoost. If the init_score baseline already matches raw within a configurable threshold, native residual learning is sufficient and downstream composite-target discovery is unlikely to add value.
+- **`composite_recommendation`** flag in ``{high_potential, marginal, unlikely_to_help, skipped}`` that future composite-target discovery can use to gate expensive MI / tiny-model screening loops.
+
+### Added
+
+- **`mlframe.training.baseline_diagnostics`** -- new module:
+  - ``BaselineDiagnostics`` class with single ``fit_and_report(...)`` entry point.
+  - ``BaselineDiagnosticsReport``, ``AblationEntry``, ``InitScoreBaseline`` dataclasses (frozen).
+  - ``format_baseline_diagnostics_report(...)`` pretty-printer mirroring the style of ``format_drift_report``.
+  - Pure helpers: ``_delta_pct`` (sign convention: +Δ% = "drop hurt"), ``_select_metric`` (per target_type), ``_compute_metric``.
+- **`mlframe.training.configs.BaselineDiagnosticsConfig`** -- Pydantic ``BaseConfig`` subclass with knobs for ``ablation_top_k``, ``init_score_top_k``, recommendation thresholds, ``apply_to_target_types``, and a ``sample_n`` cap (default 50 000) so the diagnostic stays under one minute on large datasets.
+- **`train_mlframe_models_suite`** -- new ``baseline_diagnostics_config`` kwarg. Default ON for regression and binary classification; multiclass / multilabel / LtR / quantile_regression skipped. Output lands at ``metadata["baseline_diagnostics"][target_type][cur_target_name]``. Failures are caught and logged as warnings; suite training never blocks on diagnostic errors.
+- ``mlframe/tests/training/test_baseline_diagnostics.py`` -- unit tests for: config defaults, ``_delta_pct`` numeric edge cases, skip paths (disabled / unsupported target type / empty features / length mismatch), regression happy path with structurally dominant feature (``base`` lands top-1 of ablation), binary classification happy path, "no dominant feature" recommendation downgrade, polars input acceptance, ``to_dict`` round-trip, formatter rendering, and direct unit tests for the recommendation classifier (``high_potential`` / ``marginal`` / ``unlikely_to_help`` / ``init_score sufficient``).
+
+### Why
+
+Before this change, a user predicting ``TVT`` on ~100 features only learned that ``TVT_prev`` dominated FI by reading the FI chart after the full suite finished. That's hours of training to discover a one-line diagnostic. This module surfaces the dominant feature and quantifies its contribution before per-target training starts, so the user can decide whether to (a) accept the dominance, (b) drop the feature, (c) configure composite-target discovery.
+
+### Cost
+
+On the 4M-row TVT dataset, the diagnostic runs on a 50 000-row sample (configurable). Default ablation_top_k=5 + one init_score refit = 6 quick LightGBM fits with n_estimators=200 = ~30-90 s overhead before per-target training begins. Default ON because the value-to-cost ratio is high; flip ``BaselineDiagnosticsConfig(enabled=False)`` to skip.
+
 ## 2026-05-09 — show_calibration_plot: short-circuit when no plot consumer (-47% wall on top of leak fix)
 
 Surfaced after the figure-leak fix (8028faa) by an instrumented

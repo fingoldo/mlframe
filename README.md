@@ -137,6 +137,30 @@ split's prior diverges from train's by more than 5pp (binary/multi)
 or 0.5σ (regression). The structured report is also stored on
 `metadata["label_distribution_drift"]` for retrospective inspection.
 
+### Baseline diagnostics (auto-emitted; default ON)
+
+A second pre-training pass (after drift detection) runs ~30-90s on a
+50 000-row sample, logs three things, and writes a structured report
+to `metadata["baseline_diagnostics"][target_type][target_name]`:
+
+1. headline metric of a quick LightGBM fit (RMSE for regression, AUC
+   for binary);
+2. **top-K feature ablation** — drop each top-FI feature in turn, refit,
+   measure metric Δ% (positive Δ% = "drop hurt"). Surfaces dominant
+   features (the ``TVT_prev``-style autoregressive case) at
+   percentage-point resolution before you have to read FI charts;
+3. **`init_score` baseline** (regression only) — refits with the top-1
+   dominant feature passed via LightGBM's native ``init_score`` so the
+   model learns only the residual. Mirrors XGBoost's ``base_margin``
+   pattern.
+
+Output ends with a `composite_recommendation` flag in
+`{high_potential, marginal, unlikely_to_help, skipped}` consumable by
+downstream composite-target discovery.
+
+Disable via `baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=False)`.
+Full guide in [docs/baseline_diagnostics_guide.md](docs/baseline_diagnostics_guide.md).
+
 ```python
 from mlframe.training import compute_label_distribution_drift, format_drift_report
 
