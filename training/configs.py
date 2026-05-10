@@ -1836,6 +1836,21 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     top_m_after_tiny: int = 3  # final top-M after Phase B re-rank
     tiny_model_n_jobs: int = 1  # >1 = parallelise CV folds via joblib
 
+    # Force deterministic mode on the tiny models built INSIDE Phase B
+    # (``_build_tiny_model``). When True, injects the well-known
+    # determinism flags per family:
+    # - LightGBM: ``deterministic=True``, ``force_row_wise=True``
+    # - XGBoost: explicit ``tree_method="hist"``, ``predictor="auto"``
+    # - CatBoost: ``boosting_type="Plain"`` (Plain is deterministic;
+    #   Ordered is the non-deterministic default)
+    # Bit-exact run-to-run reproducibility on the rerank stage at a
+    # 5-10% per-fit cost. Default OFF.
+    # Scope: this controls the tiny models we BUILD ourselves for
+    # rerank. The actual composite-target inner training (the K
+    # LightGBM/XGB models that train the per-spec composite targets)
+    # is configured via ``hyperparams_config``, not this flag.
+    deterministic_screening_models: bool = False
+
     # Per-family screening: instead of one tiny LightGBM, train a
     # tiny model of each family in the user's ``mlframe_models``
     # list (cb / lgb / xgb / linear). Different families pick

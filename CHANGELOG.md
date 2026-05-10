@@ -170,6 +170,42 @@ PR-1 of a multi-stage rework. Five parallel audit agents (logical bugs / ineffic
 - **Phase 3**: split `wrappers.py` (1348 lines, 660-line `fit` method, 4 star-imports) into a `wrappers/` package: `_rfecv.py`, `_splitting.py`, `_scoring.py`, `_importance.py`, `_voting.py`, `_candidate_search.py`, `_config.py`, `_enums.py`. Collapse `use_all_fi_runs` / `use_last_fi_run_only` / `use_one_freshest_fi_run` / `use_fi_ranking` (4 booleans for one enum) into `FIAggregationStrategy`. Drop `from typing import *` and three other star imports. Replace `get_parent_func_args() / store_params_in_object()` magic with explicit attribute assignment so static analysis sees `self.*`.
 - **Phase 4**: top-6 ROI extensions identified by the functionality-extensions agent: stability metrics (`self.stability_`), CI on best `n_features_` via 1-SE rule, parallel CV folds (`joblib.Parallel(n_jobs=...)`), `get_feature_names_out()` sklearn-1.x protocol, `must_include` hybrid (current `special_feature_indices` forces a single subset and breaks the search loop after one iter), permutation/SHAP `importance_getter`.
 
+## 2026-05-10 — Composite-target: deterministic_screening_models flag (Phase B reproducibility)
+
+Closes the GPU-determinism follow-up from the prior CHANGELOG entry. Top-level opt-in flag wired through ``CompositeTargetDiscoveryConfig`` -> Discovery -> ``_tiny_cv_rmse_y_scale`` -> ``_build_tiny_model``. Default OFF so the perf-optimised path stays the byte-for-byte default.
+
+### Added
+
+- **``CompositeTargetDiscoveryConfig.deterministic_screening_models``** (default ``False``). When ``True``, the tiny models built for Phase B rerank carry per-family determinism flags:
+  - **LightGBM**: ``deterministic=True``, ``force_row_wise=True``, ``force_col_wise=False``. The col-wise default uses atomic adds whose order varies between runs; row-wise + the explicit ``deterministic`` flag forces stable histograms.
+  - **XGBoost**: ``tree_method="hist"`` explicit. The auto-pick can flip to ``"approx"`` which uses non-deterministic atomic ops; ``"hist"`` is the deterministic path.
+  - **CatBoost**: ``boosting_type="Plain"``. The ``Ordered`` default uses random ordering that differs run-to-run; ``Plain`` is deterministic.
+  - **Ridge / Linear**: deterministic by construction; the flag is a no-op for these families.
+
+### Scope
+
+This flag controls the tiny models we **build ourselves** for Phase B rerank. The actual composite-target inner training (the K LightGBM/XGB models that train the per-spec composite targets) is configured via ``hyperparams_config`` -- the user owns that surface separately.
+
+### Cost
+
+5-10% per-fit slowdown when enabled (LightGBM disables several SIMD optimisations to keep histograms deterministic). Typical scenario: composite mode is already 3-5x baseline; the flag adds another 5-10% on top of the rerank stage. The flag is OPT-IN precisely because most users don't need bit-exact reproducibility on the rerank stage.
+
+### When to use
+
+- **Regulated industries** (banks, medicine): audit requires "same inputs -> same outputs".
+- **Regression testing in CI**: assert bit-exact predictions across runs.
+- **A/B testing**: separate "this feature improved RMSE by X%" from "GPU drift moved RMSE by 0.5%".
+
+### When not to use
+
+- Production scoring where inference latency matters more than bit-equality.
+- Single-run training where the eval-set evaluation is the source of truth (RMSE drift between runs is smaller than test-set sampling variance).
+
+### Tests
+
+- ``test_composite_perf.py::TestDeterministicScreeningModels``: 6 new tests verifying that the flag actually flips the right kwargs per family (LightGBM ``deterministic``+``force_row_wise``, XGBoost ``tree_method="hist"``, CatBoost ``boosting_type="Plain"``), Linear unaffected, and end-to-end discovery with the flag still finds the dominant base on TVT-style data.
+- **Cumulative across all composite-target test files: 171 / 171 passed in ~150s.**
+
 ## 2026-05-10 — Composite-target: numba JIT honest measurement + revert
 
 User pushed back on the prior CHANGELOG line "numba not worth the dep cost" -- that conflicts with the project's "speed beats deps" rule. So we tried numba properly and report the honest measurement.

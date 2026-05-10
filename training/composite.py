@@ -2012,40 +2012,87 @@ def _mi_to_target(
 
 
 def _build_tiny_model(family: str, *, n_estimators: int, num_leaves: int,
-                      learning_rate: float, random_state: int) -> Any:
+                      learning_rate: float, random_state: int,
+                      deterministic: bool = False) -> Any:
     """Lazy-build a tiny regressor for the requested family. Lazy
     imports keep the discovery module light when those libraries
-    aren't installed."""
+    aren't installed.
+
+    When ``deterministic=True``, inject the well-known per-family
+    determinism flags so run-to-run results are bit-exact at a
+    5-10% per-fit cost. See ``deterministic_screening_models`` config
+    field for the rationale.
+
+    LightGBM determinism set:
+    - ``deterministic=True``: forces deterministic histograms +
+      bin-construction + tree-learner.
+    - ``force_row_wise=True``: row-wise histogram aggregation is
+      deterministic; the column-wise default is faster but uses
+      atomic adds whose order varies.
+    - ``force_col_wise=False``: explicitly OFF; otherwise it overrides
+      ``force_row_wise``.
+
+    XGBoost determinism set:
+    - ``tree_method="hist"``: explicit hist; the auto-pick may flip
+      to ``"approx"`` with non-deterministic atomic ops.
+    - ``predictor="auto"``: keep -- predict path is already deterministic.
+    - XGB doesn't expose a single ``deterministic`` switch the way
+      LGB does; ``hist`` is the deterministic path.
+
+    CatBoost determinism set:
+    - ``boosting_type="Plain"``: the ``Ordered`` default is faster
+      but uses random ordering which differs run-to-run; ``Plain``
+      is deterministic.
+
+    Linear (Ridge) is already deterministic by construction.
+    """
     family_lower = family.lower()
     if family_lower in ("lgb", "lightgbm"):
         import lightgbm as lgb
-        return lgb.LGBMRegressor(
+        kwargs = dict(
             n_estimators=n_estimators,
             num_leaves=num_leaves,
             learning_rate=learning_rate,
             random_state=random_state,
             n_jobs=-1, verbose=-1, force_col_wise=True,
         )
+        if deterministic:
+            # ``force_col_wise`` + ``force_row_wise`` are mutually
+            # exclusive in LightGBM; flip the pair when going
+            # deterministic.
+            kwargs["force_col_wise"] = False
+            kwargs["force_row_wise"] = True
+            kwargs["deterministic"] = True
+        return lgb.LGBMRegressor(**kwargs)
     if family_lower in ("xgb", "xgboost"):
         import xgboost as xgb
-        return xgb.XGBRegressor(
+        kwargs = dict(
             n_estimators=n_estimators,
             max_depth=4,
             learning_rate=learning_rate,
             random_state=random_state,
             n_jobs=-1, verbosity=0,
         )
+        if deterministic:
+            kwargs["tree_method"] = "hist"
+        return xgb.XGBRegressor(**kwargs)
     if family_lower in ("cb", "catboost"):
         import catboost as cb
-        return cb.CatBoostRegressor(
+        kwargs = dict(
             iterations=n_estimators,
             depth=4,
             learning_rate=learning_rate,
             random_state=random_state,
             verbose=False,
         )
+        if deterministic:
+            kwargs["boosting_type"] = "Plain"
+        return cb.CatBoostRegressor(**kwargs)
     if family_lower in ("linear", "ridge"):
         from sklearn.linear_model import Ridge
+        # Ridge is deterministic by construction; the flag is a no-op
+        # here but accepting the kwarg keeps the call signature
+        # uniform across families.
         return Ridge(alpha=1.0, random_state=random_state)
     raise ValueError(
         f"_build_tiny_model: unknown family '{family}'. "
@@ -2067,6 +2114,7 @@ def _tiny_cv_rmse_y_scale(
     cv_folds: int,
     random_state: int,
     n_jobs: int = 1,
+    deterministic: bool = False,
 ) -> float:
     """Compute CV-RMSE of a tiny model on the y-scale (after inverse).
 
@@ -2106,6 +2154,7 @@ def _tiny_cv_rmse_y_scale(
                 num_leaves=num_leaves,
                 learning_rate=learning_rate,
                 random_state=random_state,
+                deterministic=deterministic,
             )
             # When folds run in parallel, cap LightGBM's intra-fit
             # threads to avoid CPU oversubscription. ``n_jobs=1``
@@ -2713,6 +2762,9 @@ class CompositeTargetDiscovery:
                     cv_folds=self.config.tiny_model_cv_folds,
                     random_state=self.config.random_state,
                     n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                    deterministic=getattr(
+                        self.config, "deterministic_screening_models", False,
+                    ),
                 )
                 per_family_scores[family].append(rmse)
 

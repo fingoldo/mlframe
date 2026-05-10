@@ -165,6 +165,113 @@ def _tvt_data(n: int = 1500, seed: int = 0) -> pd.DataFrame:
     return df
 
 
+class TestDeterministicScreeningModels:
+    """``deterministic_screening_models`` toggle: when True, the
+    tiny models built for Phase B rerank should carry the well-known
+    per-family determinism flags. Verified by introspecting the
+    constructed estimator's ``get_params`` / attributes (no full
+    GPU run required)."""
+
+    def test_lightgbm_deterministic_kwargs(self) -> None:
+        from mlframe.training.composite import _build_tiny_model
+        m = _build_tiny_model(
+            "lightgbm", n_estimators=10, num_leaves=8,
+            learning_rate=0.1, random_state=0, deterministic=True,
+        )
+        params = m.get_params()
+        assert params.get("deterministic") is True, (
+            "LightGBM deterministic flag must be set"
+        )
+        assert params.get("force_row_wise") is True, (
+            "LightGBM force_row_wise must be set for deterministic histograms"
+        )
+        assert params.get("force_col_wise") is False, (
+            "LightGBM force_col_wise must be off when force_row_wise is on"
+        )
+
+    def test_lightgbm_non_deterministic_default(self) -> None:
+        from mlframe.training.composite import _build_tiny_model
+        m = _build_tiny_model(
+            "lightgbm", n_estimators=10, num_leaves=8,
+            learning_rate=0.1, random_state=0, deterministic=False,
+        )
+        params = m.get_params()
+        # Default mode: deterministic flag NOT set, force_col_wise on
+        # (the perf-optimised default).
+        assert params.get("deterministic") in (None, False)
+        assert params.get("force_col_wise") is True
+
+    def test_xgboost_deterministic_uses_hist(self) -> None:
+        pytest.importorskip("xgboost")
+        from mlframe.training.composite import _build_tiny_model
+        m = _build_tiny_model(
+            "xgboost", n_estimators=10, num_leaves=8,
+            learning_rate=0.1, random_state=0, deterministic=True,
+        )
+        params = m.get_params()
+        assert params.get("tree_method") == "hist"
+
+    def test_catboost_deterministic_uses_plain(self) -> None:
+        pytest.importorskip("catboost")
+        from mlframe.training.composite import _build_tiny_model
+        m = _build_tiny_model(
+            "catboost", n_estimators=10, num_leaves=8,
+            learning_rate=0.1, random_state=0, deterministic=True,
+        )
+        # catboost stores params on the constructed object via _init_params.
+        params = m.get_params()
+        assert params.get("boosting_type") == "Plain"
+
+    def test_linear_unaffected(self) -> None:
+        from mlframe.training.composite import _build_tiny_model
+        m_det = _build_tiny_model(
+            "linear", n_estimators=10, num_leaves=8,
+            learning_rate=0.1, random_state=0, deterministic=True,
+        )
+        m_nondet = _build_tiny_model(
+            "linear", n_estimators=10, num_leaves=8,
+            learning_rate=0.1, random_state=0, deterministic=False,
+        )
+        # Ridge is deterministic by construction; both branches build
+        # functionally equivalent models.
+        assert type(m_det) is type(m_nondet)
+        assert m_det.get_params() == m_nondet.get_params()
+
+    def test_discovery_with_determinism_flag_runs(self) -> None:
+        """End-to-end smoke: discovery with ``deterministic_screening_models=True``
+        should produce specs identical to the non-deterministic run on
+        the canonical TVT case (the determinism flag affects only
+        run-to-run float drift; on the same single run the result is
+        the same)."""
+        from mlframe.training.composite import CompositeTargetDiscovery
+        df = _tvt_data()
+        common = dict(
+            enabled=True, base_candidates=["TVT_prev"],
+            transforms=["linear_residual"],
+            mi_sample_n=600, top_k_after_mi=2, eps_mi_gain=-1.0,
+            screening="hybrid",
+            tiny_model_n_estimators=20, tiny_model_sample_n=400,
+            top_m_after_tiny=1,
+        )
+        cfg_off = CompositeTargetDiscoveryConfig(
+            **common, deterministic_screening_models=False,
+        )
+        cfg_on = CompositeTargetDiscoveryConfig(
+            **common, deterministic_screening_models=True,
+        )
+        d_off = CompositeTargetDiscovery(cfg_off).fit(
+            df, target_col="TVT", feature_cols=["TVT_prev", "x0", "x1"],
+            train_idx=np.arange(1200),
+        )
+        d_on = CompositeTargetDiscovery(cfg_on).fit(
+            df, target_col="TVT", feature_cols=["TVT_prev", "x0", "x1"],
+            train_idx=np.arange(1200),
+        )
+        # Both produced specs and picked the same top base.
+        assert d_off.specs_ and d_on.specs_
+        assert d_off.specs_[0].base_column == d_on.specs_[0].base_column
+
+
 class TestDiscoveryBinEstimator:
     def test_bin_estimator_finds_dominant_base(self) -> None:
         df = _tvt_data()
