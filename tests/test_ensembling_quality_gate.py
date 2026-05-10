@@ -106,6 +106,74 @@ def test_uniform_members_keeps_all():
     assert excluded == []
 
 
+def test_score_ensemble_label_drops_excluded_member(caplog):
+    """User-facing: after the member quality gate fires, the
+    ``ensemble_name`` used for downstream model_name_prefix / report
+    titles must be rebuilt from SURVIVING members. The historical
+    behaviour kept the caller's stamped label (e.g. ``[cb+xgb+lgb+linear]``)
+    advertising the dropped member, which made the report misleading.
+
+    Setup: 4 members, one clear outlier; assert the gate's per-flavor
+    log line still mentions the outlier (it's the source of truth
+    about WHO was dropped) but the ensemble model_name_prefix /
+    flavor result names show only the survivors.
+    """
+    import logging
+    from types import SimpleNamespace
+    from mlframe.ensembling import score_ensemble
+
+    rng = np.random.default_rng(0)
+    n_rows = 200
+    ground = rng.random(n_rows)
+    members = []
+    member_names = ["cb", "xgb", "lgb", "linear"]
+    for i, name in enumerate(member_names):
+        if i == 3:  # outlier
+            preds = ground + rng.standard_normal(n_rows) * 5.0
+        else:
+            preds = ground + rng.standard_normal(n_rows) * 0.05
+        members.append(SimpleNamespace(
+            model=None, model_name=name,
+            val_preds=preds, test_preds=preds, train_preds=preds,
+            val_probs=None, test_probs=None, train_probs=None,
+            columns=[], pre_pipeline=None,
+        ))
+
+    with caplog.at_level(logging.INFO, logger="mlframe.ensembling"):
+        score_ensemble(
+            models_and_predictions=members,
+            ensemble_name="[cb+xgb+lgb+linear] ",
+            target=ground, train_target=ground, val_target=ground, test_target=ground,
+            train_idx=np.arange(n_rows), val_idx=np.arange(n_rows),
+            test_idx=np.arange(n_rows),
+            df=None, verbose=True,
+            max_mae_relative=2.5,
+            ensembling_methods=("arithm",),
+        )
+
+    # The gate log line should mention the dropped outlier so user can
+    # diagnose the exclusion.
+    gate_lines = [r.getMessage() for r in caplog.records
+                  if "member quality gate" in r.getMessage()]
+    assert any("linear" in m for m in gate_lines), (
+        f"expected gate line to flag 'linear' as excluded; got: {gate_lines}"
+    )
+
+    # ANY downstream prefix line referencing the ensemble must NOT
+    # include the dropped 'linear' member in the [...] label.
+    # The model_name_prefix builds out via "Ens... {ensemble_name}"
+    # so we look for matching log lines.
+    ens_prefix_lines = [
+        r.getMessage() for r in caplog.records
+        if "[cb+xgb+lgb+linear]" in r.getMessage()
+        and "quality gate" not in r.getMessage()
+    ]
+    assert not ens_prefix_lines, (
+        f"ensemble name should drop 'linear' after gate; still saw: "
+        f"{ens_prefix_lines}"
+    )
+
+
 def test_multioutput_predictions_supported():
     """Members can be (N, K) 2-D predictions; gate aggregates per-column
     distance into per-member MAE / STD scalars."""

@@ -3009,6 +3009,22 @@ def format_suite_end_summary(
             dummy_val = strongest_row.get(primary_metric)
             if dummy_val is None:
                 continue
+            # 2026-05-11: for composite targets the per-target loop
+            # also stashed a y-scale dummy metric (inverted via the
+            # spec's transform.inverse). Prefer that for the
+            # comparison so the lift number is apples-to-apples with
+            # the model's y-scale metric (the wrapped composite model
+            # is reported on y-scale). Splits the primary_metric name
+            # like "val_RMSE" into (split="val", metric="RMSE") and
+            # looks it up in y_scale_strongest_metrics.
+            _yscale = rep_dict.get("y_scale_strongest_metrics")
+            _used_yscale = False
+            if _yscale and isinstance(primary_metric, str) and "_" in primary_metric:
+                _split_name, _metric_name = primary_metric.split("_", 1)
+                _split_yscale = _yscale.get(_split_name)
+                if _split_yscale and _metric_name in _split_yscale:
+                    dummy_val = _split_yscale[_metric_name]
+                    _used_yscale = True
 
             # Best model metric lookup (optional)
             best_model_name = "-"
@@ -3091,8 +3107,11 @@ def format_suite_end_summary(
                         f"direction; check sign of cost_function."
                     )
 
+            _strongest_label = (
+                f"{strongest} [y]" if _used_yscale else str(strongest)
+            )
             lines.append(
-                f"{str(target_name)[:24]:<24} {str(strongest)[:28]:<28} "
+                f"{str(target_name)[:24]:<24} {_strongest_label[:28]:<28} "
                 f"{primary_metric}={dummy_val:<.4f}     {str(best_model_name)[:12]:<12} "
                 f"{(primary_metric + '=' + (f'{model_val:.4f}' if model_val is not None else '-'))[:22]:<22} "
                 f"{lift_str:<8} {verdict}"

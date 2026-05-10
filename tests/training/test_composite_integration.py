@@ -337,12 +337,22 @@ class TestCompositeIntegration:
             verbose=0,
             composite_target_discovery_config=cfg,
         )
-        regression_models = (
-            models.get("regression")
-            or models.get(__import__("mlframe.training.configs",
-                                      fromlist=["TargetTypes"]).TargetTypes.REGRESSION)
-            or {}
+        # Strict: ensemble must be reachable via the enum key that
+        # downstream consumers (predict_mlframe_models) iterate. A
+        # fallback-string-OR-enum chain would mask the regression
+        # users actually hit (silent absence of CT_ENSEMBLE entries
+        # despite the gate firing) so we keep both checks separate
+        # and assert BOTH succeed.
+        from mlframe.training.configs import TargetTypes as _TT
+        regression_models_via_enum = models.get(_TT.REGRESSION) or {}
+        regression_models_via_str = models.get("regression") or {}
+        # StrEnum invariant: both lookups must agree.
+        assert regression_models_via_enum.keys() == regression_models_via_str.keys(), (
+            "models dict has divergent string vs enum keys -- StrEnum "
+            "invariant violated; cross-target ensemble write path likely "
+            "used wrong key type."
         )
+        regression_models = regression_models_via_enum
         # Look for the ensemble key.
         ensemble_keys = [k for k in regression_models if k.startswith("_CT_ENSEMBLE__")]
         assert ensemble_keys, (
@@ -371,6 +381,122 @@ class TestCompositeIntegration:
         )
         assert ens_meta is not None
         assert "weights" in ens_meta and "component_names" in ens_meta
+
+    def test_cross_target_ensemble_entry_banner_logged(self, tmp_path, caplog) -> None:
+        """User reported "CompositeCrossTargetEnsemble line absent from
+        output" — the root cause is hard to diagnose without an entry
+        banner that always fires when discovery is enabled. This test
+        locks the banner contract: whenever ``enabled=True`` the suite
+        emits at least one ``[CompositeCrossTargetEnsemble] entry: ...``
+        log line, regardless of whether the gate ultimately opens (eg.
+        strategy='off' should still log the banner so users see the
+        config state in their script output).
+        """
+        import logging
+        from mlframe.training.configs import CompositeTargetDiscoveryConfig
+        from mlframe.training.core import train_mlframe_models_suite
+
+        df = _tvt_dataset(n=400)
+        cfg = CompositeTargetDiscoveryConfig(
+            enabled=True,
+            base_candidates=["TVT_prev"],
+            transforms=["diff"],
+            mi_sample_n=200,
+            top_k_after_mi=1,
+            eps_mi_gain=-1.0,
+            cross_target_ensemble_strategy="off",
+        )
+        with caplog.at_level(logging.INFO, logger="mlframe.training.core"):
+            train_mlframe_models_suite(
+                df=df,
+                target_name="target",
+                model_name="composite_banner",
+                features_and_targets_extractor=_build_minimal_fte(),
+                mlframe_models=["linear"],
+                output_config={"data_dir": str(tmp_path / "data"),
+                               "models_dir": "models"},
+                verbose=0,
+                composite_target_discovery_config=cfg,
+            )
+        banners = [r for r in caplog.records
+                   if "[CompositeCrossTargetEnsemble] entry:" in r.getMessage()]
+        assert banners, (
+            "expected at least one entry banner from cross-target "
+            "ensemble gate so users can diagnose missing-ensemble case; "
+            f"got log records: {[r.getMessage() for r in caplog.records[-20:]]}"
+        )
+
+    def test_composite_dummy_baseline_inverted_to_y_scale(self, tmp_path) -> None:
+        """When the per-target loop computes dummy baselines on a
+        composite target, the strongest dummy predictions live on the
+        T-scale (e.g. ``median(T_train)``). The suite-end verdict block
+        compares them against the wrapped composite model's y-scale
+        RMSE, so the T-scale dummy must be inverted to y-scale via the
+        spec's ``transform.inverse`` before comparison — otherwise the
+        lift is apples-to-oranges and falsely fires
+        ``MODELS_BARELY_BEAT_TRIVIAL``.
+
+        This test locks the inversion contract:
+        ``metadata['dummy_baselines'][regression][<composite_name>]
+        ['y_scale_strongest_metrics']`` must be populated and the
+        RMSE_y values must lie in the same order of magnitude as the
+        raw target's range, not the (much smaller) residual range.
+        """
+        from mlframe.training.configs import CompositeTargetDiscoveryConfig
+        from mlframe.training.core import train_mlframe_models_suite
+
+        df = _tvt_dataset(n=600)
+        cfg = CompositeTargetDiscoveryConfig(
+            enabled=True,
+            base_candidates=["TVT_prev"],
+            transforms=["linear_residual"],
+            mi_sample_n=200,
+            top_k_after_mi=1,
+            eps_mi_gain=-1.0,
+            cross_target_ensemble_strategy="off",
+        )
+        models, metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="target",
+            model_name="composite_yscale_dummy",
+            features_and_targets_extractor=_build_minimal_fte(),
+            mlframe_models=["linear"],
+            output_config={"data_dir": str(tmp_path / "data"),
+                           "models_dir": "models"},
+            verbose=0,
+            composite_target_discovery_config=cfg,
+        )
+        db = metadata.get("dummy_baselines", {}).get("regression", {})
+        # Find the composite-target entry (name contains "__linear_residual__").
+        composite_names = [n for n in db if "__linear_residual__" in n]
+        assert composite_names, (
+            f"expected a composite target dummy entry; got keys={list(db.keys())}"
+        )
+        rep = db[composite_names[0]]
+        ys = rep.get("y_scale_strongest_metrics")
+        assert ys, (
+            "expected y_scale_strongest_metrics populated for composite "
+            "target (inverted via transform.inverse) so the suite-end "
+            "verdict can compare apples-to-apples with model RMSE_y; "
+            f"got: {rep.keys()}"
+        )
+        # Val and test sub-entries each carry RMSE / MAE finite numbers.
+        for split in ("val", "test"):
+            if split not in ys:
+                continue
+            assert "RMSE" in ys[split]
+            assert "MAE" in ys[split]
+            assert np.isfinite(ys[split]["RMSE"])
+            assert np.isfinite(ys[split]["MAE"])
+            # The dummy RMSE on y-scale should be roughly the std of y
+            # (predicting a constant on y-scale). For our synthetic TVT
+            # data y has std ~ 3-5, so RMSE_y in [1, 20] is sane and
+            # SUBSTANTIALLY larger than the T-scale RMSE (residual std
+            # ~ 0.3).
+            assert 0.5 < ys[split]["RMSE"] < 50, (
+                f"y-scale RMSE_y={ys[split]['RMSE']:.4g} out of range; "
+                f"either inversion math is wrong or test data drifted"
+            )
 
     def test_env_var_kill_switch_disables_even_when_config_opts_in(self, tmp_path) -> None:
         """``MLFRAME_DISABLE_COMPOSITE=1`` must override the config."""

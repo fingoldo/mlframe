@@ -56,9 +56,11 @@ Out of scope for this module
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import math
 import re
+import warnings
 from dataclasses import dataclass, field
 from timeit import default_timer as timer
 from typing import (
@@ -2265,6 +2267,48 @@ def _mi_to_target(
     return float(np.mean(per_feat))
 
 
+@contextlib.contextmanager
+def _silence_tiny_model_output():
+    """Context manager: silence the per-fold tiny-model fit/predict
+    noise without changing the numeric path (no DataFrame->ndarray
+    conversion — we keep the user's frame as-is for performance).
+
+    Suppressed:
+    - sklearn ``UserWarning`` for "X has feature names, but X was
+      fitted without feature names" / vice versa (we mix ndarray-fit
+      with DataFrame-predict on the cross-target ensemble path).
+    - sklearn ``ConvergenceWarning`` from Ridge / linear models on
+      degenerate folds.
+    - ``RuntimeWarning`` from numpy on near-singular regressors.
+    - LightGBM "No further splits with positive gain" info messages
+      that escape ``verbose=-1`` via the C library (silenced through
+      ``logging.getLogger('lightgbm')`` level bump).
+
+    Not touched: errors, structured logging from mlframe itself,
+    catboost / xgboost (already silenced via their own kwargs).
+    """
+    import logging as _logging
+    _lgb_logger = _logging.getLogger("lightgbm")
+    _prev_level = _lgb_logger.level
+    _lgb_logger.setLevel(_logging.ERROR)
+    try:
+        from sklearn.exceptions import ConvergenceWarning as _CW
+    except Exception:  # pragma: no cover - sklearn always installed in our deps
+        _CW = UserWarning  # type: ignore[assignment]
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=".*feature names.*",
+            category=UserWarning,
+        )
+        warnings.filterwarnings("ignore", category=_CW)
+        warnings.filterwarnings("ignore", category=RuntimeWarning)
+        try:
+            yield
+        finally:
+            _lgb_logger.setLevel(_prev_level)
+
+
 def _build_tiny_model(family: str, *, n_estimators: int, num_leaves: int,
                       learning_rate: float, random_state: int,
                       deterministic: bool = False) -> Any:
@@ -2426,8 +2470,9 @@ def _tiny_cv_rmse_raw_y(
                     model.set_params(n_jobs=1)
                 except Exception:
                     pass
-            model.fit(x_clean[train_fold], y_clean[train_fold])
-            y_hat = np.asarray(model.predict(x_clean[val_fold])).reshape(-1)
+            with _silence_tiny_model_output():
+                model.fit(x_clean[train_fold], y_clean[train_fold])
+                y_hat = np.asarray(model.predict(x_clean[val_fold])).reshape(-1)
             diff = y_hat.astype(np.float64) - y_clean[val_fold]
             finite = np.isfinite(diff)
             if finite.sum() == 0:
@@ -2703,8 +2748,9 @@ def _tiny_cv_rmse_y_scale(
                     model.set_params(n_jobs=1)
                 except Exception:
                     pass
-            model.fit(x_clean[train_fold], t_clean[train_fold])
-            t_hat = np.asarray(model.predict(x_clean[val_fold])).reshape(-1)
+            with _silence_tiny_model_output():
+                model.fit(x_clean[train_fold], t_clean[train_fold])
+                t_hat = np.asarray(model.predict(x_clean[val_fold])).reshape(-1)
             y_hat = transform.inverse(
                 t_hat, base_clean[val_fold], fitted_params,
             )

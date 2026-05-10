@@ -1254,6 +1254,30 @@ def score_ensemble(
             level_models_and_predictions = [
                 level_models_and_predictions[i] for i in _kept_idx
             ]
+            # 2026-05-11: refresh ``ensemble_name`` to reflect the kept
+            # members so downstream model_name_prefix / report titles
+            # show [cb+xgb+lgb] (gate-survivors) instead of the original
+            # [cb+xgb+lgb+linear] which advertises members that didn't
+            # actually contribute to the ensemble. The caller stamped
+            # the label assuming all members participate; we rebuild it
+            # from the surviving tag list using the same caller-side
+            # format ([cb+xgb+lgb] for <=4, [N=K] otherwise).
+            try:
+                _kept_tags = [_ensemble_member_tags[i] for i in _kept_idx]
+                _re_label = ("[" + "+".join(_kept_tags) + "]"
+                             if len(_kept_tags) <= 4
+                             else f"[N={len(_kept_tags)}]")
+                # Replace any [...] / [N=k] in ``ensemble_name`` with
+                # the new label. The caller pattern is
+                # ``f"{pre_pipeline}{_members_label} "`` so we look for
+                # the first bracketed substring and substitute.
+                import re as _re_mod
+                if _re_mod.search(r"\[[^\]]+\]", ensemble_name):
+                    ensemble_name = _re_mod.sub(
+                        r"\[[^\]]+\]", _re_label, ensemble_name, count=1,
+                    )
+            except Exception:  # pragma: no cover -- defensive
+                pass
             # Disable the embedded per-flavor filter -- members are already
             # gated, so re-running it would just reprint the same exclusion
             # line per flavor (the noise this commit set out to eliminate).

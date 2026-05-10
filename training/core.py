@@ -4455,6 +4455,109 @@ def train_mlframe_models_suite(
                                 )
                         metadata.setdefault("dummy_baselines", {}) \
                             .setdefault(str(target_type), {})[cur_target_name] = _db_report.to_dict()
+                        # 2026-05-11: y-scale dummy for composite targets.
+                        # If ``cur_target_name`` matches a composite spec,
+                        # the dummy report above is on the T-scale (e.g.
+                        # ``median(T_train)``) which is apples-to-oranges
+                        # vs raw-target dummy (median(y_train)) and ALSO
+                        # vs the wrapped composite model whose RMSE is
+                        # reported y-scale post-wrap. Invert the strongest
+                        # dummy predictions to y-scale via the spec's
+                        # ``transform.inverse`` and recompute RMSE / MAE
+                        # against the raw y so the suite-end verdict block
+                        # compares both numbers on the same scale.
+                        _specs_for_tt = (
+                            metadata.get("composite_target_specs", {})
+                            .get(str(target_type), {})
+                        )
+                        _matching_spec = None
+                        for _tname_specs in _specs_for_tt.values():
+                            for _s in _tname_specs or []:
+                                if _s.get("name") == cur_target_name:
+                                    _matching_spec = _s
+                                    break
+                            if _matching_spec is not None:
+                                break
+                        if (_matching_spec is not None
+                                and _db_report.strongest is not None
+                                and _db_report.extras.get("strongest_val_preds")
+                                is not None):
+                            try:
+                                from .composite import get_transform
+                                _tf = get_transform(
+                                    _matching_spec["transform_name"]
+                                )
+                                _fp = _matching_spec["fitted_params"]
+                                _base_col = _matching_spec["base_column"]
+                                _raw_target_col = _matching_spec["target_col"]
+                                _raw_y_full = target_by_type.get(
+                                    target_type, {}
+                                ).get(_raw_target_col)
+                                _y_scale_dummy_metrics: Dict[str, Dict[str, float]] = {}
+                                for _split_name, _split_df, _split_idx, _T_preds_key in (
+                                    ("val", filtered_val_df, filtered_val_idx,
+                                     "strongest_val_preds"),
+                                    ("test", test_df_pd, test_idx,
+                                     "strongest_test_preds"),
+                                ):
+                                    _T_preds = _db_report.extras.get(_T_preds_key)
+                                    if (_T_preds is None or _split_df is None
+                                            or _split_idx is None
+                                            or _raw_y_full is None
+                                            or _base_col not in _split_df.columns):
+                                        continue
+                                    _base_split = np.asarray(
+                                        _split_df[_base_col], dtype=np.float64,
+                                    )
+                                    _y_dummy_split = _tf.inverse(
+                                        np.asarray(_T_preds, dtype=np.float64),
+                                        _base_split, _fp,
+                                    )
+                                    _y_true_split = np.asarray(
+                                        _raw_y_full, dtype=np.float64,
+                                    )[_split_idx]
+                                    _diff = (
+                                        _y_dummy_split.astype(np.float64)
+                                        - _y_true_split
+                                    )
+                                    _finite = np.isfinite(_diff)
+                                    if _finite.sum() == 0:
+                                        continue
+                                    _y_scale_dummy_metrics[_split_name] = {
+                                        "RMSE": float(np.sqrt(np.mean(
+                                            _diff[_finite] * _diff[_finite]
+                                        ))),
+                                        "MAE": float(np.mean(np.abs(
+                                            _diff[_finite]
+                                        ))),
+                                        "n_rows_finite": int(_finite.sum()),
+                                    }
+                                if _y_scale_dummy_metrics:
+                                    metadata["dummy_baselines"][str(target_type)][
+                                        cur_target_name
+                                    ]["y_scale_strongest_metrics"] = (
+                                        _y_scale_dummy_metrics
+                                    )
+                                    _ys_log_parts = [
+                                        f"{k.upper()}=RMSE_y:{v['RMSE']:.4g} "
+                                        f"MAE_y:{v['MAE']:.4g}"
+                                        for k, v in _y_scale_dummy_metrics.items()
+                                    ]
+                                    logger.info(
+                                        "[DUMMY_BASELINES] composite='%s' "
+                                        "strongest='%s' y-scale metrics "
+                                        "(inverted from T via %s): %s",
+                                        cur_target_name, _db_report.strongest,
+                                        _matching_spec["transform_name"],
+                                        " | ".join(_ys_log_parts),
+                                    )
+                            except Exception as _yscale_err:
+                                logger.warning(
+                                    "[DUMMY_BASELINES] failed to compute "
+                                    "y-scale dummy for composite '%s': %s. "
+                                    "T-scale metrics remain in metadata.",
+                                    cur_target_name, _yscale_err,
+                                )
                 except Exception as _db_err:
                     logger.warning(
                         "[DUMMY_BASELINES] FAILED target='%s' (%s): %s. "
@@ -5738,11 +5841,24 @@ def train_mlframe_models_suite(
                             _finite = np.isfinite(_diff)
                             if _finite.sum() == 0:
                                 continue
+                            # R^2 = 1 - SS_res / SS_tot. When the split's
+                            # y has zero variance R^2 is undefined; we
+                            # emit NaN so the summary explicitly marks
+                            # the degenerate case rather than 0.0.
+                            _y_finite = _y_split.astype(np.float64)[_finite]
+                            _ss_tot = float(np.sum(
+                                (_y_finite - _y_finite.mean()) ** 2
+                            ))
+                            _ss_res = float(np.sum(
+                                _diff[_finite] * _diff[_finite]
+                            ))
+                            _r2 = (1.0 - _ss_res / _ss_tot) if _ss_tot > 0 else float("nan")
                             _entry_y_scores[_split_name] = {
                                 "RMSE": float(
                                     np.sqrt(np.mean(_diff[_finite] * _diff[_finite]))
                                 ),
                                 "MAE": float(np.mean(np.abs(_diff[_finite]))),
+                                "R2": _r2,
                                 "n_rows_finite": int(_finite.sum()),
                             }
                         except Exception:
@@ -5753,6 +5869,32 @@ def train_mlframe_models_suite(
                         "model_name": getattr(_entry, "model_name", None),
                         "metrics": _entry_y_scores,
                     })
+                    # User-facing fix (2026-05-11): the per-target loop
+                    # printed RMSE / MAE / R^2 on the T-scale (composite
+                    # target before inverse), which is apples-to-oranges
+                    # vs raw-target models. Log a y-scale summary here
+                    # so the user sees the COMPARABLE numbers in the
+                    # script output for each wrapped composite model.
+                    if _entry_y_scores:
+                        _y_summary_parts: List[str] = []
+                        for _split_name in ("train", "val", "test"):
+                            _s = _entry_y_scores.get(_split_name)
+                            if not _s:
+                                continue
+                            _y_summary_parts.append(
+                                f"{_split_name.upper()}=RMSE_y:{_s['RMSE']:.4g} "
+                                f"MAE_y:{_s['MAE']:.4g} "
+                                f"R2_y:{_s.get('R2', float('nan')):.4g}"
+                            )
+                        if _y_summary_parts:
+                            logger.info(
+                                "[CompositeTargetEstimator] composite='%s' "
+                                "model='%s' y-scale metrics (post-inverse, "
+                                "comparable to raw): %s",
+                                _composite_name,
+                                getattr(_entry, "model_name", "?"),
+                                " | ".join(_y_summary_parts),
+                            )
 
     # ==================================================================================
     # 7. CROSS-TARGET ENSEMBLE (post-wrap; opt-in via config)
@@ -5768,6 +5910,26 @@ def train_mlframe_models_suite(
     _ce_strategy = getattr(
         composite_target_discovery_config, "cross_target_ensemble_strategy", "off",
     )
+    # Diagnostic: emit a one-line state banner whenever the user has
+    # composite discovery enabled, regardless of whether the gate
+    # actually opens. Without this, users who set
+    # ``cross_target_ensemble_strategy="nnls_stack"`` but get no
+    # ``[CompositeCrossTargetEnsemble] ...`` lines have no way to tell
+    # whether the gate was closed (strategy=off, no specs) or whether
+    # the build silently failed for every target. Emitting the banner
+    # unconditionally turns "no log lines" into a debuggable signal.
+    if composite_target_discovery_config.enabled:
+        _n_specs_total = sum(
+            sum(len(v) for v in _tt_specs.values())
+            for _tt_specs in (composite_specs_by_target_type or {}).values()
+        )
+        logger.info(
+            "[CompositeCrossTargetEnsemble] entry: strategy='%s', "
+            "target_types=%d, composite_specs=%d",
+            _ce_strategy,
+            len(composite_specs_by_target_type or {}),
+            _n_specs_total,
+        )
     if (composite_target_discovery_config.enabled
             and _ce_strategy != "off"
             and composite_specs_by_target_type):
@@ -5810,6 +5972,18 @@ def train_mlframe_models_suite(
 
         for _tt_e, _tt_specs in composite_specs_by_target_type.items():
             if not _tt_specs:
+                continue
+            # StrEnum: ``models.get(str_key)`` is hash-equivalent to
+            # ``models.get(enum_key)`` so a plain string key works here.
+            # Guard with explicit-skip log when the target type has no
+            # trained models (e.g. dropped at split time) so users see
+            # WHY the ensemble didn't fire for that type rather than a
+            # silent skip.
+            if _tt_e not in (models or {}):
+                logger.info(
+                    "[CompositeCrossTargetEnsemble] target_type='%s': no models "
+                    "registered; ensemble skipped.", _tt_e,
+                )
                 continue
             for _orig_tname, _spec_list in _tt_specs.items():
                 # Collect all wrapped composite-target entries plus the
@@ -6188,21 +6362,48 @@ def train_mlframe_models_suite(
                         "RMSE" in _metric_name or "MAE" in _metric_name
                         or "log_loss" in _metric_name or "pinball" in _metric_name
                     )
+                    # For composite targets: prefer the y-scale model
+                    # metric (post-inverse, comparable to raw / y-scale
+                    # dummy) over the T-scale ``_entry_metric`` value
+                    # that was computed during the per-target loop on
+                    # the unwrapped inner model. The y-scale numbers
+                    # live in metadata["composite_target_y_scale_metrics"]
+                    # populated by the wrap pass at section 6.
+                    _yscale_entries = (
+                        metadata.get("composite_target_y_scale_metrics", {})
+                        .get(str(_tt), {})
+                        .get(_tname, [])
+                    )
                     _best_val: Optional[float] = None
                     _best_name = "-"
-                    for _m in _model_list:
-                        _v = _entry_metric(_m, "val", _metric_name)
-                        if not np.isfinite(_v):
-                            continue
-                        if (
-                            _best_val is None
-                            or (_is_minimize and _v < _best_val)
-                            or (not _is_minimize and _v > _best_val)
-                        ):
-                            _best_val = _v
-                            _best_name = getattr(_m, "model_name", None) or type(
-                                getattr(_m, "model", _m)
-                            ).__name__
+                    if _yscale_entries:
+                        # y-scale path: iterate stored entries.
+                        for _ye in _yscale_entries:
+                            _split_metric = _ye.get("metrics", {}).get("val", {})
+                            _v = _split_metric.get(_metric_name)
+                            if _v is None or not np.isfinite(_v):
+                                continue
+                            if (
+                                _best_val is None
+                                or (_is_minimize and _v < _best_val)
+                                or (not _is_minimize and _v > _best_val)
+                            ):
+                                _best_val = float(_v)
+                                _best_name = _ye.get("model_name") or "Composite"
+                    else:
+                        for _m in _model_list:
+                            _v = _entry_metric(_m, "val", _metric_name)
+                            if not np.isfinite(_v):
+                                continue
+                            if (
+                                _best_val is None
+                                or (_is_minimize and _v < _best_val)
+                                or (not _is_minimize and _v > _best_val)
+                            ):
+                                _best_val = _v
+                                _best_name = getattr(_m, "model_name", None) or type(
+                                    getattr(_m, "model", _m)
+                                ).__name__
                     if _best_val is not None:
                         _best_metrics[(str(_tt), str(_tname))] = {
                             _pm: _best_val,
