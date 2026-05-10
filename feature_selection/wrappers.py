@@ -12,28 +12,59 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import *
+from typing import Callable, Sequence, Union
 
-import warnings
-from os.path import exists
-import pandas as pd, numpy as np
-import polars as pl
-try:
-    import polars as _pl
-except ImportError:  # pragma: no cover
-    _pl = None  # type: ignore[assignment]
-from contextlib import nullcontext
-
+import copy
+import random
 import textwrap
+import warnings
+from contextlib import nullcontext
+from enum import Enum
+from os.path import exists
+from timeit import default_timer as timer
 
-from ..config import *
-from pyutilz.system import tqdmu
-from pyutilz.system import clean_ram
-from pyutilz.numbalib import set_numba_random_seed
-from pyutilz.pythonlib import store_params_in_object, get_parent_func_args, suppress_stdout_stderr
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import polars as pl
 
-from mlframe.config import *
-from mlframe.optimization import *
+from pyutilz.system import clean_ram, tqdmu
+from pyutilz.numbalib import set_numba_random_seed  # noqa: F401  (kept for downstream callers)
+from pyutilz.pythonlib import (
+    get_parent_func_args,
+    store_params_in_object,
+    suppress_stdout_stderr,
+)
+
+from sklearn.base import (
+    BaseEstimator,
+    TransformerMixin,
+    clone,
+    is_classifier,
+    is_regressor,
+)
+from sklearn.dummy import DummyClassifier, DummyRegressor  # noqa: F401  (kept for downstream callers)
+from sklearn.metrics import make_scorer, mean_squared_error
+from sklearn.model_selection import (
+    GroupKFold,
+    GroupShuffleSplit,  # noqa: F401  (re-exported for callers)
+    KFold,
+    StratifiedGroupKFold,
+    StratifiedKFold,
+    StratifiedShuffleSplit,  # noqa: F401  (re-exported for callers)
+)
+from sklearn.pipeline import Pipeline
+
+# Project imports - was 4 star imports, now explicit. Star imports forced
+# every reader to grep for symbol origin and broke linters; replace with the
+# concrete set of names actually consumed below.
+from mlframe.config import CATBOOST_MODEL_TYPES
+from mlframe.optimization import (
+    CandidateSamplingMethod,
+    MBHOptimizer,
+    OptimizationDirection,
+    OptimizationProgressPlotting,
+)
 from mlframe.votenrank import Leaderboard
 from mlframe.utils import set_random_seed
 from mlframe.baselines import get_best_dummy_score
@@ -41,23 +72,6 @@ from mlframe.helpers import has_early_stopping_support
 from mlframe.training.helpers import compute_cb_text_processing
 from mlframe.preprocessing import pack_val_set_into_fit_params
 from mlframe.metrics import compute_probabilistic_multiclass_error
-
-from sklearn.pipeline import Pipeline
-from sklearn.dummy import DummyClassifier, DummyRegressor
-from sklearn.metrics import make_scorer, mean_squared_error
-from sklearn.base import is_classifier, is_regressor, BaseEstimator, TransformerMixin, clone
-from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold, StratifiedShuffleSplit, GroupKFold, GroupShuffleSplit, KFold
-
-from enum import Enum, auto
-from timeit import default_timer as timer
-
-import matplotlib.pyplot as plt
-
-import random
-import copy
-
-# Use column names instead of iloc for Arrow-backed DataFrames (from polars zero-copy conversion)
-ENSURE_ARROW_DF_SUPPORT = True
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
@@ -183,7 +197,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         max_nfeatures: int = None,
         mean_perf_weight: float = 1.0,
         std_perf_weight: float = 0.1,
-        feature_cost: float = 0.00 / 100,
+        feature_cost: float = 0.0,
         smooth_perf: int = 0,
         # stopping conditions
         max_runtime_mins: float = None,
@@ -222,6 +236,13 @@ class RFECV(BaseEstimator, TransformerMixin):
         #
         special_feature_indices: list = None,
         conduct_final_voting: bool = False,
+        # Phase 4 N5: must_include hybrid. List of feature names (or
+        # integer indices for ndarray X) that MUST end up in support_.
+        # The optimiser only searches over the remaining features; the
+        # final support_ is the union of must_include and the optimiser's
+        # pick. Differs from special_feature_indices which forces a fixed
+        # subset and short-circuits the search after one iteration.
+        must_include: Union[Sequence, None] = None,
     ):
 
         # checks
@@ -229,7 +250,7 @@ class RFECV(BaseEstimator, TransformerMixin):
             if not (frac > 0.0 and frac < 1.0):
                 raise ValueError(f"frac must be between 0 and 1, got {frac}")
             if verbose:
-                logging.info("Using %s fraction of the training dataset.", frac)
+                logger.info("Using %s fraction of the training dataset.", frac)
 
         # assert isinstance(estimator, (BaseEstimator,))
 
@@ -415,6 +436,39 @@ class RFECV(BaseEstimator, TransformerMixin):
         else:
             original_features = np.arange(X.shape[1])
 
+        # Phase 4 N5: must_include partition. The optimiser only sees the
+        # complement; pinned features are glued back into support_ at the
+        # end (see select_optimal_nfeatures_ ``must_include_resolved``).
+        # Validate that every requested name is present.
+        must_include_resolved: list = []
+        if self.must_include:
+            if isinstance(X, pd.DataFrame):
+                missing = [m for m in self.must_include if m not in original_features]
+            else:
+                # ndarray: must_include must be integer indices in [0, n_cols)
+                p = X.shape[1]
+                missing = [m for m in self.must_include if not (isinstance(m, (int, np.integer)) and 0 <= int(m) < p)]
+            if missing:
+                raise ValueError(
+                    f"must_include contains entries not in X: {missing}. "
+                    f"Available: {list(original_features)[:20]}..."
+                )
+            must_include_resolved = list(self.must_include)
+            # Remove from search universe; the optimiser explores only the
+            # COMPLEMENT. Final support_ = must_include + optimiser's pick.
+            original_features = [c for c in original_features if c not in must_include_resolved]
+            if verbose:
+                logger.info(
+                    "must_include: %d feature(s) pinned, %d searched.",
+                    len(must_include_resolved), len(original_features),
+                )
+            if len(original_features) == 0:
+                logger.warning(
+                    "must_include exhausts every feature in X; nothing for "
+                    "the optimiser to pick. Fitting on the pinned set only."
+                )
+        self._must_include_resolved = must_include_resolved
+
         # ----------------------------------------------------------------------------------------------------------------------------
         # Init cv
         # ----------------------------------------------------------------------------------------------------------------------------
@@ -482,12 +536,12 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         if scoring is None:
             if is_classifier(estimator):
-                logger.info(f"Scoring omited, using probabilistic_multiclass_error by default.")
+                logger.info(f"Scoring omitted, using probabilistic_multiclass_error by default.")
                 # Use response_method='predict_proba' for sklearn 1.4+
                 # (needs_proba is deprecated)
                 scoring = make_scorer(score_func=compute_probabilistic_multiclass_error, response_method="predict_proba", greater_is_better=False)
             elif is_regressor(estimator):
-                logger.info(f"Scoring omited, using mean_squared_error by default.")
+                logger.info(f"Scoring omitted, using mean_squared_error by default.")
                 scoring = make_scorer(score_func=mean_squared_error, greater_is_better=False)
             else:
                 raise ValueError(f"Appropriate scoring not known for estimator type: {estimator}")
@@ -576,7 +630,13 @@ class RFECV(BaseEstimator, TransformerMixin):
             # Select current set of features to work on, based on ranking received so far, and the optimum search method
             # ----------------------------------------------------------------------------------------------------------------------------
 
-            clean_ram()
+            # Perf hotspot fix: clean_ram() (== gc.collect()) cost ~290ms per
+            # call in the cProfile baseline (4.3s / 11% of total wall-clock
+            # on a 15-iter run). Run only every 5th iter; sklearn estimators
+            # don't leak meaningfully between iters and the per-fold clones
+            # are released by Python's reference counting before this point.
+            if nsteps % 5 == 0:
+                clean_ram()
 
             if self.special_feature_indices is not None and len(self.special_feature_indices) > 0:
                 current_features = self.special_feature_indices
@@ -641,8 +701,16 @@ class RFECV(BaseEstimator, TransformerMixin):
                     if size > 10:
                         train_index = self._rng.choice(train_index, size=size, replace=False)
 
+                # Phase 4 N5: actual fit/score uses must_include + optimiser's
+                # pick. current_features already lives in the search-universe
+                # complement (must_include filtered out at fit entry), so
+                # concatenation never duplicates.
+                if must_include_resolved:
+                    fit_features = list(must_include_resolved) + list(current_features)
+                else:
+                    fit_features = current_features
                 X_train, y_train, X_test, y_test = split_into_train_test(
-                    X=X, y=y, train_index=train_index, test_index=test_index, features_indices=current_features
+                    X=X, y=y, train_index=train_index, test_index=test_index, features_indices=fit_features
                 )  # this splits both dataframes & ndarrays in the same fashion
                 if verbose > 2:
                     print(f"Train set size={len(y_train):_}, train idx sum={train_index.sum():_}")
@@ -814,19 +882,24 @@ class RFECV(BaseEstimator, TransformerMixin):
 
                 score = scoring(fitted_estimator, X_test, y_test)
                 scores.append(score)
-                fi = get_feature_importances(
-                    model=fitted_estimator, current_features=current_features, data=X_test, reference_data=X_val, importance_getter=importance_getter
+                # Phase 4 N5: FI is computed on the actual fit_features (which
+                # includes must_include); we only persist the importances for
+                # the optimiser-searchable features so voting / ranking remain
+                # over the same universe the optimiser explores.
+                fi_full = get_feature_importances(
+                    model=fitted_estimator, current_features=fit_features, data=X_test, reference_data=X_val, importance_getter=importance_getter
                 )
-                # feature_indices,imp_values=list(fi.keys()),list(fi.values())
-                # print(np.array(feature_indices)[np.argsort(imp_values)[-10:]])
+                if must_include_resolved:
+                    must_set = set(must_include_resolved)
+                    fi = {k: v for k, v in fi_full.items() if k not in must_set}
+                else:
+                    fi = fi_full
 
                 key = f"{len(current_features)}_{nfold}"
                 feature_importances[key] = fi
 
                 if keep_estimators:
                     fitted_estimators[key] = fitted_estimator
-
-                # print(f"feature_importances[step{len(current_features)}_fold{nfold}]=" + str({key: value for key, value in fi.items() if value > 0}))
 
                 if 0 not in evaluated_scores_mean:
 
@@ -848,7 +921,6 @@ class RFECV(BaseEstimator, TransformerMixin):
                         dummy_scores.append(
                             get_best_dummy_score(estimator=estimator, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test, scoring=scoring)
                         )
-                        # print(f"Best dummy score (at 0 features, fold {nfold}): {best_dummy_score}")
 
             if 0 not in evaluated_scores_mean:
                 scores_mean, scores_std, final_score, _ = store_averaged_cv_scores(
@@ -970,6 +1042,27 @@ class RFECV(BaseEstimator, TransformerMixin):
             show_plot=show_plot,
         )
 
+        # Phase 4 N5: glue must_include into the final support_. The optimiser
+        # produced a support_ over the search-universe complement only;
+        # must_include features are always in the final selection regardless
+        # of what the optimiser picked.
+        if must_include_resolved and hasattr(self, "support_") and len(self.support_) > 0:
+            must_set = set(must_include_resolved)
+            if isinstance(self.support_[0], (bool, np.bool_)):
+                # support_ is bool-mask aligned with feature_names_in_;
+                # set the must_include positions to True.
+                support_mask = np.asarray(self.support_, dtype=bool)
+                for col in must_include_resolved:
+                    if col in self.feature_names_in_:
+                        support_mask[self.feature_names_in_.index(col)] = True
+                self.support_ = support_mask
+            else:
+                # support_ is integer indices; prepend must_include positions.
+                idx_must = [self.feature_names_in_.index(c) for c in must_include_resolved if c in self.feature_names_in_]
+                merged = list(idx_must) + [i for i in self.support_ if i not in idx_must]
+                self.support_ = np.asarray(merged)
+            self.n_features_ = int(np.sum(self.support_)) if isinstance(self.support_[0], (bool, np.bool_)) else len(self.support_)
+
         self.signature = signature
 
         # Cache resolved column list so transform() avoids per-call reconstruction.
@@ -988,7 +1081,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         checked_nfeatures: np.ndarray,
         cv_mean_perf: np.ndarray,
         cv_std_perf: np.ndarray,
-        feature_cost: float = 0.00 / 100,
+        feature_cost: float = 0.0,
         smooth_perf: int = 3,
         use_all_fi_runs: bool = True,
         use_last_fi_run_only: bool = False,
@@ -1009,8 +1102,6 @@ class RFECV(BaseEstimator, TransformerMixin):
             smoothed_perf[idx] = base_perf[idx]
             base_perf = smoothed_perf
 
-        # ultimate_perf = base_perf / (np.log1p(np.arange(len(base_perf))) + comparison_base)
-        # ultimate_perf = base_perf - np.arange(len(base_perf)) * feature_cost
         ultimate_perf = base_perf - np.array(checked_nfeatures) * feature_cost
 
         sorted_idx = np.argsort(ultimate_perf)[::-1]
@@ -1109,6 +1200,114 @@ class RFECV(BaseEstimator, TransformerMixin):
                 f"{self.n_features_:_} predictive factors selected out of {self.n_features_in_:_} during {len(self.selected_features_):_} rounds. Gain vs dummy={dummy_gain*100:.1f}%, gain vs all features={allfeat_gain*100:.1f}%"
             )
 
+    def get_feature_names_out(self, input_features=None):
+        """sklearn-1.x transformer protocol. Returns the names of the selected
+        features as an ndarray of str, matching what ``transform`` will produce
+        as columns. Compatible with sklearn Pipelines that call this method
+        for downstream feature naming (ColumnTransformer, set_output)."""
+        if not hasattr(self, "support_"):
+            raise ValueError("RFECV is not fitted; call fit() first.")
+        cache = getattr(self, "_selected_cols_cache", None)
+        if cache is not None:
+            return np.asarray(cache, dtype=object)
+        if len(self.support_) == 0:
+            return np.array([], dtype=object)
+        if isinstance(self.support_[0], (bool, np.bool_)):
+            return np.asarray(
+                [c for c, s in zip(self.feature_names_in_, self.support_) if s],
+                dtype=object,
+            )
+        return np.asarray([self.feature_names_in_[i] for i in self.support_], dtype=object)
+
+    def selection_stability_(self, metric: str = "jaccard") -> float:
+        """Mean pairwise feature-selection stability across CV folds at the
+        chosen ``n_features_``. Free signal extracted from feature_importances_,
+        no extra fits required.
+
+        Args:
+            metric: 'jaccard' (default), 'dice', or 'kuncheva'.
+
+        Returns:
+            Float in [0, 1] (1 = identical selections across folds, 0 = disjoint).
+            Returns NaN when fewer than 2 folds have FI data at n_features_.
+        """
+        if not hasattr(self, "feature_importances_") or not hasattr(self, "n_features_"):
+            raise ValueError("RFECV is not fitted; call fit() first.")
+        if self.n_features_ == 0:
+            return float("nan")
+        # Pull per-fold FI runs at the chosen N: keys are 'N_fold' strings.
+        target_prefix = f"{self.n_features_}_"
+        per_fold_top: list[set] = []
+        for key, fi in self.feature_importances_.items():
+            if not key.startswith(target_prefix):
+                continue
+            if len(fi) < self.n_features_:
+                continue
+            # Top-N features in this fold by importance value
+            top_ids = sorted(fi.keys(), key=lambda k: fi[k], reverse=True)[: self.n_features_]
+            per_fold_top.append(set(top_ids))
+        if len(per_fold_top) < 2:
+            return float("nan")
+
+        def _pair_stability(a: set, b: set) -> float:
+            inter = len(a & b)
+            if metric == "jaccard":
+                union = len(a | b)
+                return inter / union if union else 1.0
+            if metric == "dice":
+                denom = len(a) + len(b)
+                return (2 * inter) / denom if denom else 1.0
+            if metric == "kuncheva":
+                # Kuncheva's index normalises by chance overlap; needs the
+                # universe size N (total features). Range: [-1, 1] but
+                # clamped to [0, 1] here for a uniform interpretation.
+                k = len(a)  # |a| == |b| == n_features_ by construction
+                N = self.n_features_in_
+                if k == 0 or N == 0 or k == N:
+                    return 1.0 if a == b else 0.0
+                expected = k * k / N
+                ki = (inter - expected) / (k - expected)
+                return max(0.0, ki)
+            raise ValueError(f"Unknown stability metric: {metric!r}")
+
+        pairs = [
+            _pair_stability(per_fold_top[i], per_fold_top[j])
+            for i in range(len(per_fold_top))
+            for j in range(i + 1, len(per_fold_top))
+        ]
+        return float(np.mean(pairs)) if pairs else float("nan")
+
+    def n_features_one_se_(self) -> int:
+        """1-SE rule: smallest N whose CV mean is within one standard error
+        of the best CV mean. Often selected over n_features_ when the operator
+        wants the most parsimonious model that's not statistically distinguishable
+        from the optimum.
+
+        Returns the integer count, or n_features_ as a fallback if cv_results_
+        is unavailable.
+        """
+        if not hasattr(self, "cv_results_") or not self.cv_results_.get("nfeatures"):
+            return getattr(self, "n_features_", 0)
+        nfeatures = np.asarray(self.cv_results_["nfeatures"], dtype=int)
+        means = np.asarray(self.cv_results_["cv_mean_perf"], dtype=float)
+        stds = np.asarray(self.cv_results_["cv_std_perf"], dtype=float)
+        if len(means) == 0:
+            return getattr(self, "n_features_", 0)
+        # Exclude the 0-features dummy from selection
+        nonzero = nfeatures > 0
+        if not nonzero.any():
+            return getattr(self, "n_features_", 0)
+        nf, m, s = nfeatures[nonzero], means[nonzero], stds[nonzero]
+        # mean_perf_weight + std_perf_weight already baked into final_score;
+        # for 1-SE we need the *unadjusted* mean. cv_mean_perf is the raw mean.
+        best_idx = int(np.argmax(m))
+        threshold = m[best_idx] - s[best_idx]
+        # Smallest N whose mean >= threshold
+        eligible = nf[m >= threshold]
+        if len(eligible) == 0:
+            return int(nf[best_idx])
+        return int(eligible.min())
+
     def transform(self, X, y=None):
         # 2026-04-28: when ``X`` arrives as a polars DataFrame (callers
         # like ``_passthrough_cols_fit_transform`` keep the native
@@ -1135,39 +1334,35 @@ class RFECV(BaseEstimator, TransformerMixin):
             else:
                 return X[:, np.array([], dtype=np.intp)]
         if isinstance(X, pd.DataFrame):
-            if ENSURE_ARROW_DF_SUPPORT:
-                # Use column names to support Arrow-backed DataFrames (from polars zero-copy conversion).
-                # Arrow-backed DFs don't support .iloc[:, integer_array] reliably.
-                selected_cols = getattr(self, "_selected_cols_cache", None)
-                if selected_cols is None:
-                    if len(self.support_) > 0 and isinstance(self.support_[0], (bool, np.bool_)):
-                        selected_cols = [col for col, selected in zip(self.feature_names_in_, self.support_) if selected]
-                    else:
-                        selected_cols = [self.feature_names_in_[i] for i in self.support_]
-                # Column-set drift between fit-time and transform-time is
-                # a hard error: the fit-time zero-variance filter (added
-                # 2026-04-28 batch 4 followup) ensures ``feature_names_in_``
-                # never contains columns sklearn pipeline steps may
-                # silently drop. If we still see drift, an upstream step
-                # is mutating the schema between fit and transform - that
-                # is a real pipeline-order bug we want surfaced loud
-                # rather than silently masked.
-                missing = [c for c in selected_cols if c not in X.columns]
-                if missing:
-                    raise RuntimeError(
-                        f"RFECV.transform: {len(missing)}/{len(selected_cols)} "
-                        f"selected columns missing from input X ({missing}); "
-                        f"the fitted ``support_`` mask no longer reflects the "
-                        f"physical columns. The zero-variance filter at "
-                        f"``RFECV.fit`` already excludes constant / all-null "
-                        f"columns from ``feature_names_in_``, so this drift "
-                        f"means an upstream step (constant-col-removal / "
-                        f"imputer-drop / OD filter) is mutating the column "
-                        f"set BETWEEN fit and transform. Investigate."
-                    )
-                return X[selected_cols]
-            else:
-                return X.iloc[:, self.support_]
+            # Use column names (not .iloc) to support Arrow-backed DataFrames
+            # from polars zero-copy conversion - they don't support
+            # .iloc[:, integer_array] reliably.
+            selected_cols = getattr(self, "_selected_cols_cache", None)
+            if selected_cols is None:
+                if len(self.support_) > 0 and isinstance(self.support_[0], (bool, np.bool_)):
+                    selected_cols = [col for col, selected in zip(self.feature_names_in_, self.support_) if selected]
+                else:
+                    selected_cols = [self.feature_names_in_[i] for i in self.support_]
+            # Column-set drift between fit-time and transform-time is a hard
+            # error: the fit-time zero-variance filter ensures
+            # feature_names_in_ never contains columns sklearn pipeline
+            # steps may silently drop. If we still see drift, an upstream
+            # step is mutating the schema between fit and transform - a
+            # real pipeline-order bug we want surfaced loud, not masked.
+            missing = [c for c in selected_cols if c not in X.columns]
+            if missing:
+                raise RuntimeError(
+                    f"RFECV.transform: {len(missing)}/{len(selected_cols)} "
+                    f"selected columns missing from input X ({missing}); "
+                    f"the fitted support_ mask no longer reflects the "
+                    f"physical columns. The zero-variance filter at "
+                    f"RFECV.fit already excludes constant / all-null "
+                    f"columns from feature_names_in_, so this drift means "
+                    f"an upstream step (constant-col-removal / imputer-drop "
+                    f"/ OD filter) is mutating the column set BETWEEN fit "
+                    f"and transform. Investigate."
+                )
+            return X[selected_cols]
         else:
             return X[:, self.support_]
 
@@ -1203,7 +1398,7 @@ def split_into_train_test(
                 X_test = X.loc[X.index[te_arr], list(features_indices)]
         y_train = y.iloc[train_index, :] if isinstance(y, pd.DataFrame) else (y.iloc[train_index] if isinstance(y, pd.Series) else y[train_index])
         y_test = y.iloc[test_index, :] if isinstance(y, pd.DataFrame) else (y.iloc[test_index] if isinstance(y, pd.Series) else y[test_index])
-    elif _pl is not None and isinstance(X, _pl.DataFrame):
+    elif isinstance(X, pl.DataFrame):
         # Polars branch (2026-04-21 fix 9.8): the generic numpy path below
         # used ``X[np.ix_(rows, cols)]``, which passes a 2-D ndarray to
         # ``polars.DataFrame.__getitem__`` and raises
@@ -1441,10 +1636,6 @@ def get_next_features_subset(
                     use_fi_ranking=use_fi_ranking,
                 )
                 ranks = get_actual_features_ranking(feature_importances=fi_to_consider, votes_aggregation_method=votes_aggregation_method)
-                # print(f"fi_to_consider={fi_to_consider}")
-                # print(f"ranks={ranks}")
-                # print(f"next_nfeatures_to_check={next_nfeatures_to_check}, features chosen={ranks[:next_nfeatures_to_check]}")
-
                 return ranks[:next_nfeatures_to_check]
             else:
                 return []
@@ -1498,6 +1689,14 @@ def get_actual_features_ranking(feature_importances: dict, votes_aggregation_met
     But of course the exploration path was already lead by specific voting algo active at the fitting time.
 
     GM, and esp Minimax & Plurality are suboptimal for FS.
+
+    Caching note: an earlier optimisation attempt cached by frozenset of
+    feature_importances.keys(), but the same key strings ("{N}_{fold}") can
+    map to DIFFERENT importance values across fits, so the cache returned
+    stale ranks across test runs. Since cache hit rate within one fit() is
+    near-zero (the dict grows monotonically each iter so the key set is
+    different every call), caching at this layer is removed - the proper
+    fix is making Leaderboard incremental, deferred to a later PR.
     """
 
     lb = Leaderboard(table=pd.DataFrame(feature_importances))
@@ -1517,7 +1716,10 @@ def get_actual_features_ranking(feature_importances: dict, votes_aggregation_met
         ranks = lb.optimality_gap_ranking(gamma=1)
     elif votes_aggregation_method == VotesAggregation.Plurality:
         ranks = lb.plurality_ranking()
-
-    # print("Current features ranks:")
-    # print(ranks)
+    else:
+        # Defensive: F27 finding flagged unbound `ranks` if a future enum
+        # value falls through. Surface clearly instead of NameError.
+        raise NotImplementedError(
+            f"votes_aggregation_method={votes_aggregation_method!r} not handled"
+        )
     return ranks.index.values.tolist()

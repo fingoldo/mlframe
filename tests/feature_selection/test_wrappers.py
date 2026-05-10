@@ -139,7 +139,7 @@ class TestStoreAveragedCVScores:
         evaluated_scores_mean = {}
         evaluated_scores_std = {}
 
-        mean, std, final = store_averaged_cv_scores(
+        mean, std, final, *_ = store_averaged_cv_scores(
             pos=5, scores=scores,
             evaluated_scores_mean=evaluated_scores_mean,
             evaluated_scores_std=evaluated_scores_std,
@@ -162,7 +162,7 @@ class TestStoreAveragedCVScores:
         evaluated_scores_mean = {}
         evaluated_scores_std = {}
 
-        mean, std, final = store_averaged_cv_scores(
+        mean, std, final, *_ = store_averaged_cv_scores(
             pos=1, scores=scores,
             evaluated_scores_mean=evaluated_scores_mean,
             evaluated_scores_std=evaluated_scores_std,
@@ -229,7 +229,7 @@ class TestStoreAveragedCVScoresNaNWarning:
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
-            mean, std, final = store_averaged_cv_scores(
+            mean, std, final, *_ = store_averaged_cv_scores(
                 pos=0,
                 scores=[],
                 evaluated_scores_mean={},
@@ -703,11 +703,9 @@ class TestRFECVSyntheticClassification:
         """Test that RFECV identifies informative features in binary classification."""
         X, y, informative_indices = simple_classification_data
 
-        importance_getter = 'coef_' if name == 'LogisticRegression' else 'feature_importances_'
 
         rfecv = RFECV(
             estimator=estimator,
-            importance_getter=importance_getter,
             max_refits=5,
             max_noimproving_iters=3,
             verbose=0,
@@ -742,11 +740,9 @@ class TestRFECVSyntheticClassification:
         """Test RFECV on imbalanced classification data."""
         X, y, informative_indices = imbalanced_classification_data
 
-        importance_getter = 'coef_' if name == 'LogisticRegression' else 'feature_importances_'
 
         rfecv = RFECV(
             estimator=estimator,
-            importance_getter=importance_getter,
             max_refits=5,
             max_noimproving_iters=3,
             verbose=0,
@@ -767,11 +763,9 @@ class TestRFECVSyntheticClassification:
         """Test RFECV on multiclass classification data."""
         X, y, informative_indices = multiclass_data
 
-        importance_getter = 'coef_' if name == 'LogisticRegression' else 'feature_importances_'
 
         rfecv = RFECV(
             estimator=estimator,
-            importance_getter=importance_getter,
             max_refits=4,
             max_noimproving_iters=2,
             verbose=0,
@@ -791,11 +785,9 @@ class TestRFECVSyntheticClassification:
         """Test RFECV on high-dimensional data (p > n)."""
         X, y, informative_indices = high_dimensional_data
 
-        importance_getter = 'coef_' if name == 'LogisticRegression' else 'feature_importances_'
 
         rfecv = RFECV(
             estimator=estimator,
-            importance_getter=importance_getter,
             max_refits=4,
             max_noimproving_iters=2,
             verbose=0,
@@ -817,11 +809,9 @@ class TestRFECVSyntheticClassification:
         """Test RFECV on data with correlated informative features."""
         X, y, informative_indices = correlated_features_data
 
-        importance_getter = 'coef_' if name == 'LogisticRegression' else 'feature_importances_'
 
         rfecv = RFECV(
             estimator=estimator,
-            importance_getter=importance_getter,
             max_refits=5,
             max_noimproving_iters=3,
             verbose=0,
@@ -850,11 +840,9 @@ class TestRFECVSyntheticRegression:
         """Test that RFECV identifies informative features in regression."""
         X, y, informative_indices = simple_regression_data
 
-        importance_getter = 'coef_' if name == 'LinearRegression' else 'feature_importances_'
 
         rfecv = RFECV(
             estimator=estimator,
-            importance_getter=importance_getter,
             max_refits=5,
             max_noimproving_iters=3,
             verbose=0,
