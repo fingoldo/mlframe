@@ -1,5 +1,59 @@
 # Changelog
 
+## 2026-05-10 — Refactor: `feature_selection/filters.py` (4187 LOC) → 12-file `filters/` package + 25+ bug fixes
+
+Multi-etap refactor of the mRMR monolith. Public API (`MRMR.fit/.transform/.support_/.n_features_/.n_features_in_`, plus the legacy module-level helpers `entropy`, `mi`, `conditional_mi`, `merge_vars`, `compute_mi_from_classes`, `categorize_dataset`, `discretize_array`) is preserved bit-exact via the `filters/__init__.py` re-export shim. All 10 external importers (`training/`, `legacy/`, `finance/`, `tests/training/*`, `tests/repros/*`, `tests/test_fs_fe_fixes.py`) work unchanged.
+
+### Changed
+
+- Split `mlframe/feature_selection/filters.py` (4187 LOC) into a package under `mlframe/feature_selection/filters/` with 12 modules: `__init__.py`, `_internals.py` (constants + smart_log/sanitize/njit_functions_dict), `_numba_utils.py` (cross-module @njit helpers), `info_theory.py`, `discretization.py`, `permutation.py`, `gpu.py`, `fleuret.py`, `evaluation.py`, `screen.py`, `feature_engineering.py`, `mrmr.py`. Module dependency graph is acyclic; `_numba_utils.py` enforces a meta-test invariant (`tests/test_meta/test_filters_numba_invariant.py`).
+- Default of `MAX_CONFIRMATION_CAND_NBINS` (literal 50) **kept** at 50 in this PR -- the B13 default flip is deferred to a follow-up two-commit PR per the plan. The constant is now documented in `_internals.py` with explicit basis.
+- Default of FE-fallback-to-all-on-empty-screen kept at `True` in this PR; the B15 default flip is deferred to the same follow-up PR.
+
+### Fixed
+
+- **B12 (Critical)**: silent correctness bug in the `arr2str` cache-key encoder. Pre-fix `"".join(str(el) for el in arr)` collapsed `sorted([1, 11])` and `sorted([1, 1, 1])` to identical `"111"` strings, aliasing entropy-cache slots. Per-scenario collision census in `_benchmarks/_results/collision_census_pre_refactor.json` shows 1.75%-5.67% collision rates for routine `(n_features, max_order)` configurations (e.g. `(100, 2)`, `(200, 2)`). Replaced with `_` separator. Verified bit-exact on 4 golden scenarios.
+- **B22 (High, expanded)**: `parallel_mi`, `parallel_fleuret`, and the caller-side `confidence = 1 - nfailed / nchecked` now guard against `npermutations == 0` / `nchecked == 0`. Legacy code raised `UnboundLocalError` / `ZeroDivisionError` in those branches.
+- **B4 (High)**: `conditional_mi` reused a single `key` local across four cache branches; now split into `key_z`, `key_xz`, `key_yz`, `key_xyz`. Semantic-preserving cleanup; `tests/feature_selection/test_info_theory_cache.py` enumerates all four `(can_use_x_cache, can_use_y_cache)` combos.
+- **B14 (High)**: removed two dead string-literal blocks (referenced undefined `cv`, `jobs`, `parallel_run` symbols).
+- **B11**: `init_kernels` lock upgraded from `threading.Lock` to `multiprocessing.Lock` (Windows spawn-safe). RawKernel registration uses `sys.modules[__name__]` instead of the `global` keyword.
+- **B20**: replaced `try/except NameError` reflex with explicit `try: import cupy as cp; cp.random.seed(...) except ImportError`.
+- **B10**: polars dispatch via `isinstance(X, pl.DataFrame)` (legacy `hasattr(X, "iloc")` false-positives on Arrow-backed pandas). LazyFrame auto-collected at boundary; struct columns and Polars `Expr` raise descriptive `ValueError`.
+- **B18**: renamed `classes_y_safe` → `_cpu` / `_gpu` to clarify CPU vs GPU array origin at boundary.
+- **B26**: `MRMR.fit` runs an explicit input validation contract: empty / single-row inputs, n*p > 1e9 memory bombs, `quantization_nbins > 1000`, `interactions_max_order > 5`, `fe_max_steps > 20`, duplicate column names, infinite values, polars LazyFrame/Expr/Struct columns, all-same-class y. Each guard either raises `ValueError` or warns + applies a safe default.
+- **B27**: `MRMR.__setstate__` injects defaults for `max_confirmation_cand_nbins`, `fe_fallback_to_all`, `_engineered_features_` so old joblib / cloudpickle pipelines unpickle cleanly.
+- **B1**: post-FE name-to-index mapping no longer raises on engineered names -- they are recorded in `MRMR._engineered_features_` and excluded from the original-feature `support_` index list.
+
+### Added
+
+- `mlframe/feature_selection/_benchmarks/` -- `bench_mrmr.py`, `_datasets.py`, `_aggregate.py`, `collision_census.py` (B12 evidence). Pre-refactor baseline captured in `_benchmarks/_results/`. Per-process numba cache dir on Windows avoids file-lock races during parallel hyperparameter search.
+- `tests/feature_selection/test_internals.py` -- characterization unit tests for previously zero-coverage helpers.
+- `tests/feature_selection/test_info_theory_cache.py` -- B4 cache-combos regression test.
+- `tests/test_meta/test_filters_numba_invariant.py` -- enforces the cross-module @njit rule.
+- `tests/feature_selection/golden/{pre_refactor,intermediate}/*.json` -- baseline snapshots.
+- 10-file thematic split of the legacy 985-LOC `tests/feature_selection/test_filters.py`.
+
+### Removed
+
+- Dead code (verified zero call-sites): `categorize_dataset_old` (B9). Legacy `caching_hits_*` counters (B8) deferred to etap 13.
+
+### Verified
+
+- Full feature_selection test suite: **212 passed** (150 pre-refactor + 62 new tests).
+- `test_meta/test_filters_numba_invariant` green.
+- B12 collision census: 1.75% to 5.67% collision rates confirm the silent bug.
+- B22 expanded: `parallel_mi(npermutations=0)` and `mi_direct(npermutations=0)` no longer crash.
+- Etap 10a screen_predictors physical move: 4 / 4 golden scenarios bit-exact.
+- Post-refactor cProfile pass on a representative `n=5000, p=100, fe_max_steps=1` MRMR.fit found `_discretize_array_impl` consuming 48% of total time (0.93s out of 1.94s) due to `get_binning_edges` decorated `@jit(nopython=False)` (object mode) -- it forced every caller, including the ostensibly-njit `_discretize_array_impl`, to fall through to pure-Python execution. Switched to `@njit(cache=True)`. Total wall-time `1.938s -> 1.789s (-7.7%)`. After the switch `_discretize_array_impl` no longer appears in the top-30 hotspot list. Bit-exact verified against all 4 golden scenarios. Profile script and `.prof` artifact at `feature_selection/_benchmarks/profile_hotspots.py` and `_benchmarks/_results/profile_*.prof`.
+
+### Deferred to follow-up PRs
+
+- Etap 10b: `@dataclass ScreenState` + 4 free phase functions. Identity move at etap 10a in place; decomposing 700 LOC with >40 shared locals needs richer golden coverage than this PR's 4 scenarios.
+- Etap 12 (B13/B15 default flips): two-commit PR with before/after regression tests; current values preserved.
+- Etap 13 (B7a unused alias delete + B8 dead counters): bundled with etap 12.
+- Etaps 14-15 (Phase 1 numba prange + Phase 2 CuPy expansion): gated on Phase 0 profiling.
+- B23, B25, B7b: separate PRs.
+
 ## 2026-05-10 — RFECV: Phase 3 hygiene + Phase 4 features + cProfile hotspot fix + anti-mask meta-tests
 
 PR-2 of the multi-stage RFECV rework. Phase 1+2 was 5ec67ee. This commit lands:
@@ -115,6 +169,34 @@ PR-1 of a multi-stage rework. Five parallel audit agents (logical bugs / ineffic
 
 - **Phase 3**: split `wrappers.py` (1348 lines, 660-line `fit` method, 4 star-imports) into a `wrappers/` package: `_rfecv.py`, `_splitting.py`, `_scoring.py`, `_importance.py`, `_voting.py`, `_candidate_search.py`, `_config.py`, `_enums.py`. Collapse `use_all_fi_runs` / `use_last_fi_run_only` / `use_one_freshest_fi_run` / `use_fi_ranking` (4 booleans for one enum) into `FIAggregationStrategy`. Drop `from typing import *` and three other star imports. Replace `get_parent_func_args() / store_params_in_object()` magic with explicit attribute assignment so static analysis sees `self.*`.
 - **Phase 4**: top-6 ROI extensions identified by the functionality-extensions agent: stability metrics (`self.stability_`), CI on best `n_features_` via 1-SE rule, parallel CV folds (`joblib.Parallel(n_jobs=...)`), `get_feature_names_out()` sklearn-1.x protocol, `must_include` hybrid (current `special_feature_indices` forces a single subset and breaks the search loop after one iter), permutation/SHAP `importance_getter`.
+
+## 2026-05-10 — Composite-target: numba JIT honest measurement + revert
+
+User pushed back on the prior CHANGELOG line "numba not worth the dep cost" -- that conflicts with the project's "speed beats deps" rule. So we tried numba properly and report the honest measurement.
+
+### What we tried for `_mi_pair_bin`
+
+| approach | n=1000 | n=5000 | n=20000 | n=100000 |
+|---|---:|---:|---:|---:|
+| pure numpy (baseline) | 0.58 ms | 1.34 ms | 3.68 ms | 14.73 ms |
+| numba JIT (full pipeline) | 0.22 ms (+5s compile) | 0.94 ms | 4.03 ms | 23.49 ms |
+| np.partition for cut edges | n/a | 1.34 ms (microbench: 1.4x faster) | 3.23 ms | **20.20 ms (slower!)** |
+
+### Honest finding
+
+- numba JIT wins on n<10K but **loses on production-relevant n>=10K** because numpy's sort / searchsorted / bincount are SIMD-vectorised C, and JIT'd Python loops cannot beat them. Plus a one-shot ~5 s compile cost.
+- np.partition microbenchmark looks 1.5x faster than np.quantile, but the multi-position `np.partition(x, [a, b, c, ...])` becomes O(n * nbins) and **ends up slower than np.quantile's sort-based path** when integrated into the full bin-MI call on n=100000.
+- Production callers always pass `mi_sample_n>=20K` rows, where numpy wins. Both numba JIT and np.partition were reverted.
+
+### Lesson for the next engineer
+
+The "speed beats deps" rule applies to *choosing* numba when it wins, not to adding numba on principle everywhere. Vectorised-C operations (`np.sort`, `np.searchsorted`, `np.bincount`, `np.linalg.lstsq`, `np.quantile`) are typically at the speed-of-light floor for their algorithms; numba JIT'd Python loops cannot beat them.
+
+The `_mi_pair_bin` docstring now records each rejected attempt with a one-liner reason so the next person to wonder "why no numba here" finds the answer in the source.
+
+### Numbers from the prior CHANGELOG entry stand
+
+The 38x bin-MI vs Kraskov speedup and 5.7x end-to-end discovery speedup measured in the previous entry are unchanged -- those came from the algorithm choice (bin-MI vs kNN-MI) and infrastructure (parallel CV folds + train-prediction cache), not from JIT compilation.
 
 ## 2026-05-10 — Composite-target: algorithmic optimisations (5.7x discovery speedup)
 
