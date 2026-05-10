@@ -3197,6 +3197,7 @@ def train_mlframe_models_suite(
     # before adding entries.
     metadata["composite_target_specs"] = {}
     metadata["composite_target_failures"] = {}
+    metadata["composite_target_filter_drops"] = {}
     if composite_target_discovery_config.enabled:
         # Snapshot env once per discovery run; persists on metadata
         # so a v2-loaded suite can detect numpy / sklearn / lgb / xgb
@@ -3392,6 +3393,16 @@ def train_mlframe_models_suite(
                 metadata["composite_target_failures"][str(_tt_disc)][_tname_disc] = [
                     r for r in _disc.report() if r.get("rejected")
                 ]
+                # Pre-MI filter drops (forbidden pattern, non-numeric,
+                # constant, corr-threshold) so users can audit cases
+                # where an obvious base candidate "vanished" before
+                # ranking. The corr-threshold filter is the most common
+                # culprit on autoregressive lag features.
+                metadata.setdefault("composite_target_filter_drops", {})
+                metadata["composite_target_filter_drops"].setdefault(
+                    str(_tt_disc), {})
+                metadata["composite_target_filter_drops"][str(_tt_disc)][
+                    _tname_disc] = _disc.filter_drops()
                 # Apply each discovered spec's transform to the FULL row
                 # index space (train + val + test). Discovery fitted
                 # transform params on filtered_train_idx ONLY (leakage

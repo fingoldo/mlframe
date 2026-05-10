@@ -1936,9 +1936,20 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
         ]
     )
 
-    # Block columns with corr(base, y) above this threshold (likely
-    # derived-from-y rather than independent feature).
-    forbidden_base_corr_threshold: float = 0.999
+    # Block columns whose Pearson |corr(base, y)| exceeds this threshold.
+    # Intent: catch literal copies / trivial linear transforms of y
+    # (e.g. ``y_renamed = y``, ``y_scaled = y / 1000``). NOT intended
+    # to catch autoregressive lag features such as ``TVT_prev`` --
+    # those legitimately reach corr ~ 0.999 on slow-moving series due
+    # to autocorrelation, and they are exactly the kind of dominant
+    # feature composite-target discovery exists to handle.
+    #
+    # The primary defence against target-encoding leakage is the regex
+    # patterns above (``forbidden_base_patterns``); the corr threshold
+    # is just a backstop. Default raised from 0.999 to 0.99999 in
+    # 2026-05-10 after observing it filtered out legitimate
+    # ``TVT_prev`` (lag-1) on a real production run.
+    forbidden_base_corr_threshold: float = 0.99999
 
     # Block constant or near-constant base columns (zero variance ->
     # OLS in linear_residual is degenerate; ratio / logratio are

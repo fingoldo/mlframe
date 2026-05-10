@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-05-10 — Composite-target hotfix: corr-threshold filter no longer drops legitimate autoregressive lag features
+
+### Fixed
+
+- **`CompositeTargetDiscoveryConfig.forbidden_base_corr_threshold` default raised from `0.999` -> `0.99999`.** Production run revealed the old default filtered out `TVT_prev` (lag-1 of a slow-moving series) before MI ranking, because `corr(TVT, TVT_prev) >= 0.999` due to legitimate autocorrelation -- not target-encoding leakage. Auto-base discovery then ranked unrelated spatial coordinates as bases despite `BaselineDiagnostics` correctly reporting `TVT_prev` ablation delta% = +501.42. The corr filter is meant to catch literal copies of `y` (`y_renamed = y`); the regex patterns (`forbidden_base_patterns`) remain the primary defence against target-encoding leakage. New default only triggers on `|corr| >= 0.99999`, i.e. effectively-identical-to-y.
+- **`CompositeTargetDiscovery.filter_drops()`** -- new public method returning the list of columns rejected before MI ranking with reason (`forbidden_pattern`, `non_numeric`, `insufficient_finite_rows`, `constant_or_near_constant`, `forbidden_base_corr_threshold`) and the offending value (corr, ptp, n_finite). Lets callers audit "missing base candidate" cases without re-running discovery.
+- **Loud INFO log when corr threshold drops any column** -- previously silent. Now logs the dropped feature names with their `|corr|` values and the active threshold, plus a hint to raise the threshold or pass `base_candidates=[...]` explicitly if a legitimate strong predictor was caught.
+- **`metadata["composite_target_filter_drops"]`** -- per-target-type dict surfacing `filter_drops()` output through `train_mlframe_models_suite`. Same shape as `composite_target_failures` but populated for pre-MI rejections.
+
+### Tests
+
+- `test_autoregressive_lag_with_corr_999_is_kept_under_default` -- regression test reproducing the production failure: AR(1) series with `0.999` autocorrelation, `TVT_prev` MUST appear in `disc.specs_` under default config.
+- `test_filter_drops_records_corr_threshold_reason` -- when an explicit aggressive threshold catches a literal y-copy, the audit list records reason + corr + threshold values.
+
 ## 2026-05-10 — Composite-target polish round 2: Prometheus hook + sample weights + predict_quantile + plots + stratified-MI honest revert
 
 Easy-wins batch closing the production-polish backlog. Five features shipped, one (stratified MI) shipped as opt-in with honest negative-result documentation.

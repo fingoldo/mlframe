@@ -354,6 +354,82 @@ class TestForbiddenFilters:
         for s in disc.specs_:
             assert s.base_column != "category"
 
+    def test_autoregressive_lag_with_corr_999_is_kept_under_default(self) -> None:
+        """Regression: legitimate lag features whose corr(base, y) reaches
+        ~0.999 due to autocorrelation (slow-moving series, near-noise-
+        free lag-1) MUST NOT be filtered out by the corr threshold under
+        the default config.
+
+        Reproduces the production failure where TVT_prev was dropped
+        before MI ranking and discovery picked unrelated spatial
+        coordinates as bases. Default raised from 0.999 to 0.99999 in
+        2026-05-10 to fix this.
+        """
+        rng = np.random.default_rng(0)
+        n = 2000
+        # Slow-moving AR(1) series; lag-1 has corr ~ 0.999 with current.
+        y = np.zeros(n)
+        y[0] = rng.normal()
+        for i in range(1, n):
+            y[i] = 0.999 * y[i - 1] + rng.normal(scale=0.05)
+        prev = np.r_[y[0], y[:-1]]
+        x1 = rng.normal(size=n)
+        x2 = rng.normal(size=n)
+        df = pd.DataFrame({"TVT_prev": prev, "x1": x1, "x2": x2, "TVT": y})
+
+        # Sanity: corr(TVT_prev, TVT) actually clears the *old* 0.999
+        # threshold, demonstrating why the old default was wrong.
+        c = float(np.corrcoef(prev[:1500], y[:1500])[0, 1])
+        assert abs(c) >= 0.99, f"fixture too weak: corr={c:.6f}"
+
+        cfg = CompositeTargetDiscoveryConfig(
+            enabled=True, mi_sample_n=800, top_k_after_mi=4,
+            eps_mi_gain=-1.0,  # accept any gain so we can inspect ranking
+            base_candidates=["TVT_prev", "x1", "x2"],
+            transforms=["diff", "linear_residual"],
+        )
+        disc = CompositeTargetDiscovery(cfg)
+        disc.fit(df, target_col="TVT",
+                 feature_cols=["TVT_prev", "x1", "x2"],
+                 train_idx=np.arange(1500))
+        # TVT_prev MUST survive the filters under the new default.
+        bases = {s.base_column for s in disc.specs_}
+        assert "TVT_prev" in bases, (
+            f"TVT_prev was filtered out under default corr threshold "
+            f"(specs: {[(s.base_column, s.transform_name) for s in disc.specs_]}). "
+            "This is the production-reported regression."
+        )
+        # And the corr drop list should NOT mention TVT_prev.
+        corr_drops = [
+            d for d in disc.filter_drops()
+            if d.get("reason") == "forbidden_base_corr_threshold"
+        ]
+        assert all(d["name"] != "TVT_prev" for d in corr_drops)
+
+    def test_filter_drops_records_corr_threshold_reason(self) -> None:
+        """When a literal copy of y IS dropped by corr threshold, the
+        ``filter_drops()`` audit list records it with reason +
+        offending corr value."""
+        df = _tvt_strong()
+        df["leaked"] = df["TVT"] + np.random.default_rng(0).normal(
+            scale=1e-9, size=len(df))
+        cfg = CompositeTargetDiscoveryConfig(
+            enabled=True, mi_sample_n=600,
+            base_candidates=["leaked", "TVT_prev"], transforms=["diff"],
+            forbidden_base_corr_threshold=0.99,  # explicit aggressive
+        )
+        disc = CompositeTargetDiscovery(cfg)
+        disc.fit(df, target_col="TVT",
+                 feature_cols=["TVT_prev", "x1", "leaked"],
+                 train_idx=np.arange(1200))
+        drops = disc.filter_drops()
+        leaked_drops = [d for d in drops
+                        if d["name"] == "leaked"
+                        and d["reason"] == "forbidden_base_corr_threshold"]
+        assert len(leaked_drops) == 1
+        assert leaked_drops[0]["corr"] >= 0.99
+        assert leaked_drops[0]["threshold"] == 0.99
+
 
 # ----------------------------------------------------------------------
 # Domain validity gating

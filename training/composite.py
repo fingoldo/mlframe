@@ -2785,6 +2785,15 @@ class CompositeTargetDiscovery:
         """All evaluated candidates including rejected ones with reasons."""
         return list(getattr(self, "report_", []))
 
+    def filter_drops(self) -> List[Dict[str, Any]]:
+        """Columns that were filtered out before MI ranking, with reason
+        and the offending value (corr, ptp, n_finite). Useful for audit
+        when discovery seems to "miss" an obvious base candidate -- the
+        most common cause is a corr-threshold false positive on a
+        legitimate autoregressive lag feature.
+        """
+        return list(getattr(self, "_filter_drops", []))
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
@@ -2798,25 +2807,70 @@ class CompositeTargetDiscovery:
     ) -> List[str]:
         """Drop columns that are non-numeric, near-constant on train,
         match a forbidden name pattern, or correlate suspiciously
-        highly with y on train (likely derived-from-y leakage)."""
+        highly with y on train (likely derived-from-y leakage).
+
+        Drops are recorded on ``self._filter_drops`` (list of dicts
+        with name + reason + value) so :meth:`fit` can surface them
+        in the report and so callers can audit false positives -- the
+        corr filter in particular is prone to misfiring on legitimate
+        autoregressive lag features such as ``TVT_prev``.
+        """
         kept: List[str] = []
+        drops: List[Dict[str, Any]] = []
+        corr_drops: List[Tuple[str, float]] = []
         for col in feature_cols:
             if col == self._target_col:
                 continue
             if any(p.search(col) for p in self._patterns_compiled):
+                drops.append({"name": col, "reason": "forbidden_pattern"})
                 continue
             if not _is_numeric_column(df, col):
+                drops.append({"name": col, "reason": "non_numeric"})
                 continue
             arr = _extract_column_array(df, col)[train_idx]
-            if not np.all(np.isfinite(arr)) and np.isfinite(arr).sum() < 50:
+            finite_mask = np.isfinite(arr)
+            if finite_mask.sum() < 50:
+                drops.append({
+                    "name": col, "reason": "insufficient_finite_rows",
+                    "n_finite": int(finite_mask.sum()),
+                })
                 continue
-            ptp = float(np.ptp(arr[np.isfinite(arr)])) if np.isfinite(arr).any() else 0.0
+            ptp = float(np.ptp(arr[finite_mask]))
             if ptp <= self.config.constant_base_eps:
+                drops.append({
+                    "name": col, "reason": "constant_or_near_constant",
+                    "ptp": ptp,
+                })
                 continue
             corr = abs(_safe_corr(arr, y_train))
             if corr >= self.config.forbidden_base_corr_threshold:
+                drops.append({
+                    "name": col, "reason": "forbidden_base_corr_threshold",
+                    "corr": float(corr),
+                    "threshold": float(self.config.forbidden_base_corr_threshold),
+                })
+                corr_drops.append((col, float(corr)))
                 continue
             kept.append(col)
+        self._filter_drops = drops
+        # Loud warning for corr-threshold drops: this is the filter
+        # most likely to misfire on legitimate strong predictors
+        # (autoregressive lags, near-deterministic features). Make it
+        # visible at INFO so users can spot a false positive.
+        if corr_drops:
+            corr_drops.sort(key=lambda t: -t[1])
+            preview = ", ".join(f"{n}=|corr|{c:.6f}" for n, c in corr_drops[:5])
+            logger.info(
+                "[CompositeTargetDiscovery] corr-threshold filter dropped "
+                "%d feature(s) (threshold=%.6f): %s%s. If a legitimate "
+                "lag/strong predictor was dropped, raise "
+                "forbidden_base_corr_threshold or pass it via "
+                "base_candidates=[...] explicitly.",
+                len(corr_drops),
+                self.config.forbidden_base_corr_threshold,
+                preview,
+                "" if len(corr_drops) <= 5 else f" (+{len(corr_drops) - 5} more)",
+            )
         return kept
 
     def _resolve_base_candidates(
