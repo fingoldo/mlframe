@@ -121,6 +121,58 @@ Multilabel notes:
 
 See [docs/MULTI_OUTPUT.md](docs/MULTI_OUTPUT.md) for the full design notes.
 
+## Feature selection
+
+`mlframe.feature_selection.filters.MRMR` is the in-house mRMR (Minimum
+Redundancy Maximum Relevance) feature selector. Sklearn-compatible
+estimator with `.fit / .transform / .fit_transform / .support_ /
+.n_features_in_` surface.
+
+### Package layout
+
+After the 2026-05 refactor the legacy 4187-LOC `filters.py` monolith
+became a package under `mlframe/feature_selection/filters/`:
+
+| Module | Responsibility |
+|---|---|
+| `__init__.py` | Public API re-exports |
+| `_internals.py` | Constants + small utilities (smart_log, sanitize) |
+| `_numba_utils.py` | Cross-module @njit helpers (arr2str, count_cand_nbins, unpack_and_sort) |
+| `info_theory.py` | entropy, mi, conditional_mi, merge_vars, compute_mi_from_classes |
+| `discretization.py` | Numeric→ordinal binning (categorize_dataset, discretize_*) |
+| `permutation.py` | CPU permutation tests (mi_direct, parallel_mi, distribute_permutations) |
+| `gpu.py` | CuPy raw-kernel GPU permutation (mi_direct_gpu, init_kernels) |
+| `fleuret.py` | Fleuret-criterion confidence (parallel + njit core) |
+| `evaluation.py` | Per-candidate gain / confirmation (evaluate_gain, evaluate_candidate) |
+| `screen.py` | Screening orchestrator (screen_predictors) |
+| `feature_engineering.py` | Pair-discovery FE (check_prospective_fe_pairs, transformations) |
+| `mrmr.py` | The sklearn-compatible MRMR class |
+
+Module dependency graph is acyclic, enforced by `tests/test_meta/test_filters_numba_invariant.py`.
+
+### Behavioural defaults (post-2026-05 refactor)
+
+* `max_confirmation_cand_nbins=None` -> resolves to
+  `quantization_nbins ** interactions_max_order * 2` (default 20 for
+  the canonical `nbins=10, order=1` config; legacy default was a
+  hardcoded 50). Pin to `50` to restore legacy behaviour.
+* `fe_fallback_to_all=False` -> when the screening pass returns zero
+  selected_vars, FE is skipped (legacy fell back to running FE on all
+  features). Set to `True` to restore legacy behaviour.
+
+### Benchmarking
+
+Profile a representative MRMR.fit:
+
+```bash
+python -m mlframe.feature_selection._benchmarks.profile_hotspots --n 5000 --p 100
+python -m mlframe.feature_selection._benchmarks.bench_mrmr --scenarios cpu --tag adhoc
+python -m mlframe.feature_selection._benchmarks._aggregate \
+    --before _results/pre-refactor_<sha>.json --after _results/adhoc_<sha>.json
+```
+
+JSON results live under `mlframe/feature_selection/_benchmarks/_results/`.
+
 ## Selection-bias / drift tools
 
 For binary targets where train/val/test marginals diverge (selection
@@ -167,64 +219,6 @@ from mlframe.training import compute_label_distribution_drift, format_drift_repo
 report = compute_label_distribution_drift(y_train, y_val, y_test, "binary_classification")
 print(format_drift_report(report, target_name="my_target"))
 # WARN: TEST P(y=1)=0.83 vs train 0.74 (Δ=+8.7pp); selection-bias / prior-shift suspected ...
-```
-
-### Dummy baselines (auto-emitted; default ON)
-
-Sit-alongside `BaselineDiagnostics`: answers "is the *task* even hard?" via
-a per-target table of trivial reference predictors that ignore the features.
-Runs once per `(target_type, target_name)` *before* model training; emits a
-1-3 line verdict at INFO + a full per-baseline metrics table at DEBUG, plus
-a single overlay plot for the strongest baseline. Output lands at
-`metadata["dummy_baselines"][target_type][target_name]`.
-
-Covers all 6 target types (regression / binary / multiclass / multilabel /
-LTR / quantile). Catalog includes `mean` / `median` / `prior` /
-`most_frequent` / `per_group_mean` (with cardinality cap + coverage gate +
-entity-overlap diagnostic) / TS-naive baselines (`naive_lag7`,
-`seasonal_naive_pP` from ACF on first-differenced series, `linear_extrap`)
-/ LTR `random_within_query` (n_repeats averaged) / multilabel
-`per_label_prior` / quantile per-α empirical.
-
-After all models train, a suite-end **cross-target verdict block** emits
-with four canonical UPPERCASE WARN tokens grep-able from any log:
-
-- `[DUMMY_BASELINES] WARN BEST_MODEL_BELOW_DUMMY` — model lift < 1.5x →
-  investigate label encoding / target leak / train-test contamination.
-- `[DUMMY_BASELINES] WARN ALL_BASELINES_BELOW_RANDOM` — every binary
-  baseline AUC < 0.5 → label-flip suspect.
-- `[DUMMY_BASELINES] WARN TS_BEATS_TREES` — TS-naive beats best model on
-  val → verify `val_placement='forward'` / leaked-from-future features.
-- `[DUMMY_BASELINES] WARN PARTIAL_FAILURE` — per-baseline NaN rows; review
-  `metadata["dummy_baselines_failures"]`.
-
-Statistical hygiene: paired bootstrap vs runner-up + 95% CI on Δ_metric
-when n is small enough for noise floor to matter; TIE annotation +
-suppressed plot when `P(strongest beats runner-up) < 0.7`. Numba kernels
-on the multilabel macro/micro log-loss path (~57× microbench, ~14× e2e)
-and dtype-aware fast path on `_per_group_predict` for numeric cat columns
-(~13× microbench, 5× e2e). Fully optional dep — graceful sklearn fallback.
-
-Disable via `dummy_baselines_config=DummyBaselinesConfig(enabled=False)`,
-or shrink `apply_to_target_types` to opt out per target_type.
-Full guide in [docs/dummy_baselines_guide.md](docs/dummy_baselines_guide.md).
-
-```python
-from mlframe.training.configs import DummyBaselinesConfig
-
-models, metadata = train_mlframe_models_suite(
-    df=df, target_name="TVT", model_name="exp",
-    features_and_targets_extractor=fte,
-    mlframe_models=["cb", "lgb"],
-    dummy_baselines_config=DummyBaselinesConfig(
-        ts_extra_periods=(365,),       # force annual seasonality on top of ACF
-        per_group_max_cardinality_ratio=0.3,  # tighter cardinality cap
-    ),
-)
-
-rep = metadata["dummy_baselines"]["regression"]["TVT"]
-print(rep["strongest"], rep["primary_metric"], rep["data"][rep["strongest"]])
-# 'seasonal_naive_p7 (ts)' 'val_RMSE' {'val_RMSE': 497.66, 'val_MAE': 385.34, ...}
 ```
 
 ### PU-learning wrapper (selection-biased binary classification)

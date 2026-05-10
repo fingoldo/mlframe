@@ -1,0 +1,26 @@
+{
+  "cache_sizes": {
+    "MIs": null,
+    "cond_MIs": null
+  },
+  "cached_MIs": null,
+  "cached_cond_MIs": null,
+  "n_features_in": 50,
+  "n_features_selected": 12,
+  "scenario": "g_n2k_p50_reg",
+  "seed": 42,
+  "support_set": [
+    0,
+    4,
+    7,
+    10,
+    11,
+    13,
+    16,
+    18,
+    21,
+    36,
+    44,
+    45
+  ]
+}

@@ -9,6 +9,27 @@ import pandas as pd
 from sklearn.datasets import make_classification, make_regression
 
 
+# Register `no_xdist` marker. The marker alone is a no-op without the
+# collection hook below; tests that rely on stable file-system state (golden
+# tests wiping numba __pycache__) must skip when pytest-xdist parallelism is
+# active so workers don't compete for the same cache directory.
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "no_xdist: skip when pytest-xdist is collecting workers in parallel",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    dist = getattr(config.option, "dist", "no")
+    if dist == "no":
+        return
+    skip_xdist = pytest.mark.skip(reason="requires sequential execution (numba cache lock)")
+    for item in items:
+        if "no_xdist" in item.keywords:
+            item.add_marker(skip_xdist)
+
+
 # ================================================================================================
 # Common Classification Fixtures
 # ================================================================================================

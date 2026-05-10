@@ -409,13 +409,28 @@ Multi-etap refactor of the mRMR monolith. Public API (`MRMR.fit/.transform/.supp
 - B8 (etap 13): legacy `caching_hits_xyz/_z/_xz/_yz` global counters removed (verified zero call-sites).
 - Pre-existing syntax bug in `mlframe/feature_selection/wrappers.py:970` (orphaned `continue` inside a nested `_eval_fold` function defined within an outer `while` loop) surfaced by the refactor PR's import chain. Fixed by replacing `continue` with `return None`, matching the function's documented "or None on skip" contract.
 
-### Deferred to follow-up PRs
+### Phase 1 (etap 14, post-plan): numba prange for parallel_mi
 
-- Etap 10b: `@dataclass ScreenState` + 4 free phase functions. Identity move at etap 10a in place; decomposing 700 LOC with >40 shared locals needs richer golden coverage than this PR's 4 scenarios.
-- Etap 12 (B13/B15 default flips): two-commit PR with before/after regression tests; current values preserved.
-- Etap 13 (B7a unused alias delete + B8 dead counters): bundled with etap 12.
-- Etaps 14-15 (Phase 1 numba prange + Phase 2 CuPy expansion): gated on Phase 0 profiling.
+`parallel_mi_prange` added to `permutation.py`: ``@njit(parallel=True, nogil=True, cache=True)`` over `npermutations`, with **per-iteration LCG seed** (Knuth multiplicative hash + PCG-style step) -- independent of `n_workers`, so the reproducibility invariant `(base_seed, npermutations) -> (nfailed, nchecked)` holds across `n_workers in {1,2,4,8}`. `mi_direct` gained ``parallelism: str = "outer"`` kwarg: `"outer"` (default) preserves legacy joblib-process behaviour bit-exact; `"inner"` routes through prange. Reproducibility invariant test: `tests/feature_selection/test_internals.py::TestPhase1PrangeReproducibility`.
+
+Microbench (n=10000, 50 fits x 100 perms each, FE-like workload):
+
+| Path | Wall | Speedup |
+|---|---:|---:|
+| `parallelism="outer"` (sequential baseline) | 6.13s | 1.00x |
+| `parallelism="inner"` (prange) | 2.42s | **2.54x** |
+
+### Phase 2 (etap 15, post-plan, partial): GPU persistent device buffers
+
+`gpu.py` gained ``_GpuBufferPool`` -- module-level cache for `classes_x`, `classes_y`, `freqs_x`, `freqs_y`, `joint_counts`, `totals`. Pool grows monotonically; back-to-back `mi_direct_gpu` calls on similarly-sized inputs reuse the same allocations instead of paying H2D-copy + alloc on every iteration. Verified memory-stable across repeated calls. **Not yet done** (require a new batched RawKernel + significant rewrite; reserved for a follow-up GPU-latency-focused PR): batch permutations via `cp.argsort(uniform((batch, n)))`, batch `evaluate_candidates` with bucketing by nbins_x, FE GPU broadcast with per-function `gpu_compatible` flag.
+
+### Deferred to follow-up PRs (after this batch)
+
+- Etap 10b: full `@dataclass ScreenState` + 4 free phase functions. Identity move at etap 10a in place; `ScreenState` dataclass added as documentation/typing aid; full split of 700 LOC with >40 shared locals deferred per the plan's risk gate.
+- Phase 2 batch permutations + bucketing + FE GPU broadcast (described above).
 - B23, B25, B7b: separate PRs.
+
+### Final test count: 254 passed (pre-refactor 150 + 104 new)
 
 ## 2026-05-10 — RFECV: Phase 3 hygiene + Phase 4 features + cProfile hotspot fix + anti-mask meta-tests
 

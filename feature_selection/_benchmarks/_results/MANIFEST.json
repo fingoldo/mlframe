@@ -1,0 +1,36 @@
+{
+  "captures": [
+    {
+      "capture_ts": "2026-05-10T02:59:06+00:00",
+      "cpu_model": "Intel64 Family 6 Model 158 Stepping 9, GenuineIntel",
+      "git_sha": "nogit",
+      "gpu_model": "NVIDIA GeForce GTX 1050 Ti",
+      "tag": "after-correctness",
+      "versions": {
+        "cupy": "14.0.1",
+        "joblib": "1.5.3",
+        "numba": "0.62.1",
+        "numpy": "2.2.6",
+        "pandas": "2.3.3",
+        "polars": "1.33.1",
+        "sklearn": "1.8.0"
+      }
+    },
+    {
+      "capture_ts": "2026-05-10T03:14:21+00:00",
+      "cpu_model": "Intel64 Family 6 Model 158 Stepping 9, GenuineIntel",
+      "git_sha": "nogit",
+      "gpu_model": "NVIDIA GeForce GTX 1050 Ti",
+      "tag": "after-phases",
+      "versions": {
+        "cupy": "14.0.1",
+        "joblib": "1.5.3",
+        "numba": "0.62.1",
+        "numpy": "2.2.6",
+        "pandas": "2.3.3",
+        "polars": "1.33.1",
+        "sklearn": "1.8.0"
+      }
+    }
+  ]
+}

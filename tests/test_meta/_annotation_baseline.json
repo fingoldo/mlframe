@@ -140,7 +140,6 @@
   "feature_selection/filters.py::arr2str",
   "feature_selection/filters.py::categorize_1d_array",
   "feature_selection/filters.py::categorize_dataset",
-  "feature_selection/filters.py::categorize_dataset_old",
   "feature_selection/filters.py::check_prospective_fe_pairs",
   "feature_selection/filters.py::compute_mi_from_classes",
   "feature_selection/filters.py::compute_pairs_mis",
