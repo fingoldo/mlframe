@@ -262,7 +262,44 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         return _apply_unary_binary(recipe, X)
     if recipe.kind == "factorize":
         return _apply_factorize(recipe, X)
+    if recipe.kind == "target_encoding":
+        return _apply_target_encoding(recipe, X)
     raise ValueError(f"Unknown recipe kind: {recipe.kind!r}")
+
+
+def _apply_target_encoding(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+    """Tier 3.1 replay: look up each test row's (a, b) merged cell in
+    ``cell_means``, return per-row encoded float. Unseen combinations
+    map to ``global_mean`` (or via ``unknown_strategy``)."""
+    if len(recipe.src_names) != 2:
+        raise NotImplementedError(
+            f"target_encoding for k>2 not implemented yet "
+            f"(recipe '{recipe.name}' has {len(recipe.src_names)} src)."
+        )
+    if "cell_means" not in recipe.extra or "factorize_lookup" not in recipe.extra:
+        raise KeyError(
+            f"target_encoding recipe '{recipe.name}' is missing 'cell_means' "
+            f"or 'factorize_lookup' in extra. Re-fit to materialize."
+        )
+    name_a, name_b = recipe.src_names
+    nbins_a, nbins_b = recipe.factorize_nbins
+    factorize_lookup: np.ndarray = recipe.extra["factorize_lookup"]
+    cell_means: np.ndarray = recipe.extra["cell_means"]
+    global_mean: float = recipe.extra["global_mean"]
+
+    vals_a = _coerce_to_int_with_nan_handling(
+        _extract_column(X, name_a), nbins_a, recipe.name, name_a, recipe.unknown_strategy,
+    )
+    vals_b = _coerce_to_int_with_nan_handling(
+        _extract_column(X, name_b), nbins_b, recipe.name, name_b, recipe.unknown_strategy,
+    )
+    vals_a = np.clip(vals_a, 0, nbins_a - 1)
+    vals_b = np.clip(vals_b, 0, nbins_b - 1)
+    pre_prune = vals_a + vals_b * nbins_a
+    cell_idx = factorize_lookup[pre_prune]
+    # cell_idx may be -1 for unseen-and-raise; replace with global_mean
+    out = np.where(cell_idx >= 0, cell_means[np.maximum(cell_idx, 0)], global_mean)
+    return out.astype(np.float64, copy=False)
 
 
 def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:

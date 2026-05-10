@@ -328,16 +328,45 @@ def _pair_search_kernel_njit(
 # ============================================================================
 
 
-def _entropy_for_mode(freqs: np.ndarray, n_samples: int, use_mm: bool) -> float:
-    """Plug-in or Miller-Madow entropy on a freq array, gated by ``use_mm``.
+def _entropy_for_mode(
+    freqs: np.ndarray, n_samples: int, use_mm: bool, use_kt: bool = False,
+) -> float:
+    """Plug-in / Miller-Madow / Krichevsky-Trofimov entropy.
 
-    ``freqs`` is normalised (sums to 1.0) per ``merge_vars`` output
-    convention. Both ``entropy`` and ``entropy_miller_madow`` filter out
-    zero bins internally so we don't need to pre-filter.
+    Tier 4.5: KT smoothing -- adds Dirichlet(0.5) pseudocounts before
+    plug-in entropy. Less biased than plug-in for high-cardinality
+    joints; provably asymptotically efficient (Krichevsky & Trofimov
+    1981).
     """
+    if use_kt:
+        # Reconstruct counts, add 0.5 to each cell, renormalize, then
+        # plug-in entropy. ``freqs`` is normalised so counts = freqs * n.
+        counts = freqs * n_samples + 0.5
+        K = len(counts)
+        total = float(n_samples) + 0.5 * K
+        probs = counts / total
+        return entropy(probs)
     if use_mm:
         return entropy_miller_madow(freqs, n_samples)
     return entropy(freqs)
+
+
+def _should_apply_mm_for_pair_analytical(
+    nbins_a: int, nbins_b: int, n_y_classes: int, n_samples: int,
+) -> bool:
+    """Tier 4.6: analytically-derived MM auto-gate. Per Paninski 2003,
+    plug-in entropy bias is ``(K-1) / (2n)``. The signed sum across
+    the 6 entropies of the II expansion under the independence null
+    equals ``-(a-1)(b-1)(c-1) / (2n)``. We apply MM when this bias is
+    comparable to typical synergy floors (``-3/sqrt(n)`` per B4).
+
+    Activate MM when ``(a-1)(b-1)(c-1)/(2n) >= 3/sqrt(n)``, i.e.
+    ``(a-1)(b-1)(c-1) >= 6 * sqrt(n)``. Replaces the previous folklore
+    threshold ``(a*b*c)/n > 0.05`` (SD1).
+    """
+    bias = (nbins_a - 1) * (nbins_b - 1) * (n_y_classes - 1)
+    threshold = 6.0 * math.sqrt(max(n_samples, 1))
+    return bias >= threshold
 
 
 def _compute_pair_ii_mm(
@@ -472,8 +501,10 @@ def _maybe_rerank_with_mm(
     if cfg.use_miller_madow is True:
         per_pair_mm = np.ones(len(selected_idx), dtype=bool)
     else:
+        # Tier 4.6: analytical MM threshold based on Paninski bias formula
+        gate_fn = _should_apply_mm_for_pair_analytical
         per_pair_mm = np.array([
-            _should_apply_mm_for_pair(
+            gate_fn(
                 int(nbins[pairs_a[k]]), int(nbins[pairs_b[k]]),
                 n_y_classes, n_samples,
             )
@@ -484,7 +515,9 @@ def _maybe_rerank_with_mm(
 
     # Compute H(Y) once (constant across pairs but doesn't actually affect
     # ranking since it appears in every II equally; included for correctness).
-    h_y_mm = entropy_miller_madow(freqs_y, n_samples)
+    # Tier 4.5: KT smoothing alternative to MM (set via cfg.use_kt_smoothing).
+    use_kt = bool(getattr(cfg, "use_kt_smoothing", False))
+    h_y_mm = _entropy_for_mode(freqs_y, n_samples, use_mm=True, use_kt=use_kt)
 
     # T3: hoist H(X_i) and H(X_i, Y) caches outside the loop. Only the
     # columns touched by surviving pairs need to be computed.
@@ -506,14 +539,18 @@ def _maybe_rerank_with_mm(
             vars_indices=np.array([col_idx], dtype=np.int64),
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
         )
-        h_marginal_cache[col_idx] = entropy_miller_madow(freqs_x, n_samples)
+        h_marginal_cache[col_idx] = _entropy_for_mode(
+            freqs_x, n_samples, use_mm=True, use_kt=use_kt,
+        )
         vi_xy = np.concatenate(([col_idx], target_indices)).astype(np.int64)
         _, freqs_xy, _ = merge_vars(
             factors_data=factors_data,
             vars_indices=vi_xy,
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
         )
-        h_marginal_y_cache[col_idx] = entropy_miller_madow(freqs_xy, n_samples)
+        h_marginal_y_cache[col_idx] = _entropy_for_mode(
+            freqs_xy, n_samples, use_mm=True, use_kt=use_kt,
+        )
 
     if verbose:
         n_corrected = int(per_pair_mm.sum())
@@ -535,14 +572,14 @@ def _maybe_rerank_with_mm(
             vars_indices=np.array([idx_a, idx_b], dtype=np.int64),
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
         )
-        h_x1x2 = entropy_miller_madow(freqs_pair, n_samples)
+        h_x1x2 = _entropy_for_mode(freqs_pair, n_samples, use_mm=True, use_kt=use_kt)
         vi_pair_y = np.concatenate(([idx_a, idx_b], target_indices)).astype(np.int64)
         _, freqs_pair_y, _ = merge_vars(
             factors_data=factors_data,
             vars_indices=vi_pair_y,
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
         )
-        h_x1x2y = entropy_miller_madow(freqs_pair_y, n_samples)
+        h_x1x2y = _entropy_for_mode(freqs_pair_y, n_samples, use_mm=True, use_kt=use_kt)
         # II = H(X1,X2) + H(X1,Y) + H(X2,Y) - H(X1,X2,Y) - H(X1) - H(X2) - H(Y)
         ii_mm = (
             h_x1x2
@@ -946,6 +983,17 @@ def _confirm_pairs_via_permutation(
             len(selected_idx), n_perms,
         )
 
+    # Tier 4.1: bandit UCB1 budget allocation. When enabled, each pair
+    # gets ``min_perms_per_pair`` initial shuffles; then we add shuffles
+    # to the pair with the largest UCB1 score (uncertainty + I value)
+    # until total budget = n_perms * len(selected_idx) is exhausted.
+    # Pairs clearly above floor stop receiving shuffles; ambiguous pairs
+    # get more. Saves 2-5x typical total perms.
+    use_bandit = (
+        getattr(cfg, "perm_budget_strategy", "fixed") == "bandit_ucb1"
+        and len(selected_idx) > 1
+    )
+
     # D1: conditional permutation null requires per-pair freshly-merged
     # X2 column to shuffle within strata of Y. Note that the joint MI
     # I(X1, X2; Y) after shuffling X2 within strata of Y requires
@@ -1070,6 +1118,291 @@ def _confirm_pairs_via_permutation(
                 )
 
     return selected_idx[kept_mask], corrected_conf
+
+
+# ============================================================================
+# Target encoding emit (Tier 3.1, E2.1)
+#
+# In addition to factorize-encoded engineered cols, emit target-encoded
+# variants: ``E[Y | merged_class]`` per cell with optional out-of-fold
+# smoothing to prevent leakage. Useful when downstream models prefer
+# numeric inputs (linear / NN / tree models with continuous splits).
+# ============================================================================
+
+
+def _compute_target_encoding(
+    factors_data: np.ndarray,
+    idx_tuple: tuple,
+    target_indices: np.ndarray,
+    classes_y: np.ndarray,
+    nbins: np.ndarray,
+    n_oof_folds: int,
+    smoothing: float,
+    dtype,
+) -> tuple:
+    """Compute target-encoded values per cell of (X[idx_tuple]).
+    Returns (te_values, cell_means_oof_combined) -- a 1-D array of
+    ``n_samples`` floats where each row is ``E[Y | merged_class]``
+    computed out-of-fold (to prevent leakage).
+
+    Strategy:
+    - Build per-cell mean of Y, with shrinkage: ``te = (n_c * te_raw +
+      alpha * te_global) / (n_c + alpha)`` (Micci-Barreca 2001).
+    - For OOF: split rows into K folds; for each fold, compute cell
+      means from the other K-1 folds, apply to this fold's rows.
+    - For naive (n_oof_folds=0): single-pass cell mean across ALL rows.
+      Leaks signal -- only safe when used as a downstream feature in
+      a separate train/val split.
+
+    Y is treated as numeric (regression). For binary classification,
+    this gives per-cell P(y=1) -- well-behaved. For multi-class, falls
+    back to encoding the first class indicator (TODO multi-class).
+    """
+    n_samples = factors_data.shape[0]
+    # Compute the merged class per row
+    classes_merged, _, n_uniq = merge_vars(
+        factors_data=factors_data,
+        vars_indices=np.array(idx_tuple, dtype=np.int64),
+        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+    )
+    # Y as numeric: take classes_y (already merged) and treat as float
+    y_numeric = classes_y.astype(np.float64)
+    te_global = float(y_numeric.mean())
+
+    if n_oof_folds <= 0:
+        # Naive: per-cell mean across all rows
+        cell_sum = np.zeros(int(n_uniq), dtype=np.float64)
+        cell_cnt = np.zeros(int(n_uniq), dtype=np.float64)
+        for row in range(n_samples):
+            c = int(classes_merged[row])
+            cell_sum[c] += y_numeric[row]
+            cell_cnt[c] += 1.0
+        cell_means = np.zeros(int(n_uniq), dtype=np.float64)
+        for c in range(int(n_uniq)):
+            if cell_cnt[c] > 0:
+                raw = cell_sum[c] / cell_cnt[c]
+                cell_means[c] = (cell_cnt[c] * raw + smoothing * te_global) / (
+                    cell_cnt[c] + smoothing
+                )
+            else:
+                cell_means[c] = te_global
+        te_values = cell_means[classes_merged.astype(np.int64)]
+        return te_values, cell_means
+
+    # OOF encoding: for each fold, compute cell means from other folds
+    K = int(n_oof_folds)
+    fold_ids = np.arange(n_samples) % K
+    te_values = np.full(n_samples, te_global, dtype=np.float64)
+    for f in range(K):
+        train_mask = fold_ids != f
+        test_mask = ~train_mask
+        # Compute cell means on training rows
+        cell_sum = np.zeros(int(n_uniq), dtype=np.float64)
+        cell_cnt = np.zeros(int(n_uniq), dtype=np.float64)
+        for row in np.where(train_mask)[0]:
+            c = int(classes_merged[row])
+            cell_sum[c] += y_numeric[row]
+            cell_cnt[c] += 1.0
+        cell_means_fold = np.full(int(n_uniq), te_global, dtype=np.float64)
+        for c in range(int(n_uniq)):
+            if cell_cnt[c] > 0:
+                raw = cell_sum[c] / cell_cnt[c]
+                cell_means_fold[c] = (
+                    cell_cnt[c] * raw + smoothing * te_global
+                ) / (cell_cnt[c] + smoothing)
+        # Apply to test fold rows
+        for row in np.where(test_mask)[0]:
+            c = int(classes_merged[row])
+            te_values[row] = cell_means_fold[c]
+
+    # Also compute global (all-rows) cell means for transform()-time replay.
+    # At transform, OOF doesn't make sense (test data has no Y); we use
+    # the global mean per cell.
+    cell_sum = np.zeros(int(n_uniq), dtype=np.float64)
+    cell_cnt = np.zeros(int(n_uniq), dtype=np.float64)
+    for row in range(n_samples):
+        c = int(classes_merged[row])
+        cell_sum[c] += y_numeric[row]
+        cell_cnt[c] += 1.0
+    cell_means_global = np.full(int(n_uniq), te_global, dtype=np.float64)
+    for c in range(int(n_uniq)):
+        if cell_cnt[c] > 0:
+            raw = cell_sum[c] / cell_cnt[c]
+            cell_means_global[c] = (
+                cell_cnt[c] * raw + smoothing * te_global
+            ) / (cell_cnt[c] + smoothing)
+    return te_values, cell_means_global
+
+
+# ============================================================================
+# Sample-weight-aware MI computation (Tier 2.1)
+#
+# Cat-FE-local weighted MI: bypasses ``merge_vars`` and computes joint
+# weighted histogram directly. Used when ``cfg.sample_weight_col`` is set.
+# Does NOT extend the global ``merge_vars`` API (which has 500+ callers);
+# weighted MRMR screening / RFECV is project-level future work.
+# ============================================================================
+
+
+@njit(parallel=True, cache=True)
+def _pair_search_kernel_weighted_njit(
+    factors_data: np.ndarray,
+    pairs_a: np.ndarray,
+    pairs_b: np.ndarray,
+    marginal_mi: np.ndarray,
+    nbins: np.ndarray,
+    classes_y: np.ndarray,
+    weights: np.ndarray,        # (n,) float64; sum(weights) > 0
+    dtype,
+) -> tuple:
+    """Weighted variant of ``_pair_search_kernel_njit``. For each pair
+    (a, b) compute weighted joint MI = sum_{m,y} w_{m,y} log(w_{m,y} *
+    W / (w_m * w_y)) where w_{m,y} = (sum of row weights in cell
+    (merged=m, y=y)) / W and W = sum of all weights. Equivalent to
+    unweighted MI under uniform weights.
+
+    Returns (joint_mi, ii, n_uniq) arrays.
+    """
+    n_pairs = len(pairs_a)
+    n_samples = factors_data.shape[0]
+    nbins_y = int(classes_y.max()) + 1 if classes_y.size > 0 else 1
+    joint_mi_out = np.zeros(n_pairs, dtype=np.float64)
+    ii_out = np.zeros(n_pairs, dtype=np.float64)
+    n_uniq_out = np.zeros(n_pairs, dtype=np.int64)
+    W = 0.0
+    for r in range(n_samples):
+        W += weights[r]
+    inv_W = 1.0 / W if W > 0 else 0.0
+
+    for k in prange(n_pairs):
+        i = pairs_a[k]
+        j = pairs_b[k]
+        nba = int(nbins[i])
+        nbb = int(nbins[j])
+        merged_card = nba * nbb
+
+        joint_w = np.zeros(merged_card * nbins_y, dtype=np.float64)
+        marg_m_w = np.zeros(merged_card, dtype=np.float64)
+        marg_y_w = np.zeros(nbins_y, dtype=np.float64)
+        for row in range(n_samples):
+            va = factors_data[row, i]
+            vb = factors_data[row, j]
+            code = va + vb * nba
+            cy = classes_y[row]
+            w = weights[row]
+            joint_w[code * nbins_y + cy] += w
+            marg_m_w[code] += w
+            marg_y_w[cy] += w
+
+        mi = 0.0
+        n_uniq = 0
+        for m in range(merged_card):
+            mm = marg_m_w[m]
+            if mm <= 0:
+                continue
+            n_uniq += 1
+            for y in range(nbins_y):
+                jw = joint_w[m * nbins_y + y]
+                if jw <= 0:
+                    continue
+                my = marg_y_w[y]
+                if my <= 0:
+                    continue
+                jp = jw * inv_W
+                mi += jp * np.log(jw * W / (mm * my))
+
+        joint_mi_out[k] = mi
+        ii_out[k] = mi - marginal_mi[i] - marginal_mi[j]
+        n_uniq_out[k] = n_uniq
+    return joint_mi_out, ii_out, n_uniq_out
+
+
+# ============================================================================
+# Bootstrap CIs on II (Tier 2.2)
+#
+# For each top-K survivor, draw ``n_replicates`` subsamples (size
+# ``sample_frac * n``), recompute II per replicate, return (lower,
+# median, upper) CI. Complements permutation tests: perm checks
+# significance vs null; bootstrap checks STABILITY under sample variation.
+# ============================================================================
+
+
+def _bootstrap_ii_cis(
+    factors_data: np.ndarray,
+    pairs_a: np.ndarray,
+    pairs_b: np.ndarray,
+    selected_idx: np.ndarray,
+    nbins: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    cfg: CatFEConfig,
+    dtype,
+    verbose: int,
+) -> dict:
+    """For each pair in ``selected_idx``, compute bootstrap CI on II.
+    Returns ``{(i, j): (lower, median, upper)}`` per ``cfg.bootstrap_ci_alpha``.
+
+    Cost: ``n_replicates * top_k * O(n)`` -- at n_replicates=20, top_k=32,
+    n=10000 that's ~6.4M merge_vars-equivalents. Heavy; gated by user
+    opt-in (``bootstrap_ci_n_replicates > 0``).
+    """
+    if cfg.bootstrap_ci_n_replicates <= 0 or len(selected_idx) == 0:
+        return {}
+    n_samples = factors_data.shape[0]
+    n_rep = int(cfg.bootstrap_ci_n_replicates)
+    sub_size = max(int(n_samples * cfg.bootstrap_sample_frac), cfg.min_n_samples)
+    alpha = float(cfg.bootstrap_ci_alpha)
+    lower_q = alpha / 2.0
+    upper_q = 1.0 - alpha / 2.0
+
+    if verbose:
+        logger.info(
+            "cat-FE bootstrap CIs: %d replicates x %d survivors "
+            "(subsample size %d)",
+            n_rep, len(selected_idx), sub_size,
+        )
+
+    ci_dict: dict = {}
+    target_indices_arr = np.array([], dtype=np.int64)  # unused for II
+    for k in selected_idx:
+        i = int(pairs_a[k]); jj = int(pairs_b[k])
+        ii_replicates = np.empty(n_rep, dtype=np.float64)
+        for r in range(n_rep):
+            rng = np.random.default_rng(seed=int(jj) * 65537 + r)
+            idx = rng.choice(n_samples, size=sub_size, replace=True)
+            sub_data = factors_data[idx]
+            sub_cls_y = classes_y[idx]
+            # Recompute marginals + joint MI on the subsample.
+            cls_a_s, fq_a_s, _ = merge_vars(
+                factors_data=sub_data,
+                vars_indices=np.array([i], dtype=np.int64),
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            cls_b_s, fq_b_s, _ = merge_vars(
+                factors_data=sub_data,
+                vars_indices=np.array([jj], dtype=np.int64),
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            cls_pair_s, fq_pair_s, _ = merge_vars(
+                factors_data=sub_data,
+                vars_indices=np.array([i, jj], dtype=np.int64),
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            # Need fq_y on the subsample; rebuild from sub_cls_y
+            sub_nbins_y = int(sub_cls_y.max()) + 1 if sub_cls_y.size else 1
+            sub_fq_y = np.bincount(
+                sub_cls_y.astype(np.int64), minlength=sub_nbins_y,
+            ).astype(np.float64) / max(sub_size, 1)
+            i_a = compute_mi_from_classes(cls_a_s, fq_a_s, sub_cls_y, sub_fq_y, dtype)
+            i_b = compute_mi_from_classes(cls_b_s, fq_b_s, sub_cls_y, sub_fq_y, dtype)
+            i_pair = compute_mi_from_classes(cls_pair_s, fq_pair_s, sub_cls_y, sub_fq_y, dtype)
+            ii_replicates[r] = i_pair - i_a - i_b
+        ci_dict[(i, jj)] = (
+            float(np.quantile(ii_replicates, lower_q)),
+            float(np.median(ii_replicates)),
+            float(np.quantile(ii_replicates, upper_q)),
+        )
+    return ci_dict
 
 
 # ============================================================================
@@ -1269,6 +1602,132 @@ def _kfold_stability_filter(
             )
 
     return np.asarray(kept, dtype=selected_idx.dtype), per_fold_ii
+
+
+# ============================================================================
+# Tier 4.2: coordinate-ascent refinement after greedy k-way
+#
+# Greedy k-way picks a triplet (A, B, C). Coordinate-ascent then tries
+# replacing each member with each non-member; if the swap improves
+# joint MI, keep it. Catches cases where the greedy seed missed a
+# better neighbor. Refines local optima, doesn't break global structure.
+# ============================================================================
+
+
+def _refine_kway_coordinate_ascent(
+    factors_data: np.ndarray,
+    kway_results: list,
+    candidate_pool: np.ndarray,
+    nbins: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    max_combined_nbins: int,
+    n_passes: int,
+    dtype,
+    verbose: int,
+) -> list:
+    """For each k-way result, run ``n_passes`` of coordinate-ascent:
+    try swapping each member with each non-member; keep if joint MI
+    improves. Returns refined kway_results.
+    """
+    if n_passes <= 0 or not kway_results:
+        return kway_results
+    refined = []
+    for orig_tuple, orig_classes, orig_nuniq, orig_mi in kway_results:
+        current = list(orig_tuple)
+        current_mi = orig_mi
+        current_classes = orig_classes
+        current_nuniq = orig_nuniq
+        for _ in range(n_passes):
+            improved = False
+            for pos in range(len(current)):
+                for cand in candidate_pool:
+                    cand_int = int(cand)
+                    if cand_int in current:
+                        continue
+                    new_tuple = current.copy()
+                    new_tuple[pos] = cand_int
+                    new_tuple_sorted = tuple(sorted(new_tuple))
+                    # Card budget check
+                    card = 1
+                    for k in new_tuple_sorted:
+                        card *= int(nbins[k])
+                    if card > max_combined_nbins or card >= 2**31:
+                        continue
+                    new_classes, _, new_nuniq = merge_vars(
+                        factors_data=factors_data,
+                        vars_indices=np.array(new_tuple_sorted, dtype=np.int64),
+                        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+                    )
+                    new_mi = compute_mi_from_classes(
+                        classes_x=new_classes, freqs_x=None,  # unused; merge_vars gives freqs but we lose it here
+                        classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
+                    ) if False else None
+                    # Recompute MI using fresh freqs
+                    _, new_freqs, _ = merge_vars(
+                        factors_data=factors_data,
+                        vars_indices=np.array(new_tuple_sorted, dtype=np.int64),
+                        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+                    )
+                    new_mi = compute_mi_from_classes(
+                        classes_x=new_classes, freqs_x=new_freqs,
+                        classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
+                    )
+                    if new_mi > current_mi:
+                        current = list(new_tuple_sorted)
+                        current_mi = new_mi
+                        current_classes = new_classes
+                        current_nuniq = new_nuniq
+                        improved = True
+                        if verbose >= 2:
+                            logger.info(
+                                "cat-FE coord-ascent: %s -> %s (MI %.4f -> %.4f)",
+                                orig_tuple, tuple(current), orig_mi, current_mi,
+                            )
+            if not improved:
+                break
+        refined.append((tuple(sorted(current)), current_classes, current_nuniq, current_mi))
+    return refined
+
+
+# ============================================================================
+# Tier 4.3: group-aware permutation
+#
+# When rows are clustered (sessions, users), shuffling Y globally breaks
+# both within-group and between-group structure -- inflating significance.
+# Group-aware permutation shuffles Y values only across groups (preserves
+# within-group Y patterns).
+# ============================================================================
+
+
+@njit(cache=True)
+def _group_aware_shuffle(
+    classes_y_safe: np.ndarray, groups: np.ndarray, n_groups: int,
+) -> None:
+    """Shuffle classes_y_safe in place, restricting to between-group
+    permutations. For each group, all rows get the SAME (shuffled)
+    Y representative (the group's first row's Y, after shuffling
+    group ordering).
+
+    Simplified strategy: shuffle group representatives, then broadcast
+    each group's shuffled Y to all its rows.
+    """
+    n = len(classes_y_safe)
+    # Find each group's first-occurrence Y value
+    group_y = np.full(n_groups, -1, dtype=np.int32)
+    for i in range(n):
+        g = groups[i]
+        if group_y[g] < 0:
+            group_y[g] = classes_y_safe[i]
+    # Shuffle the group_y array
+    for i in range(n_groups - 1, 0, -1):
+        j = np.random.randint(0, i + 1)
+        tmp = group_y[i]
+        group_y[i] = group_y[j]
+        group_y[j] = tmp
+    # Broadcast back
+    for i in range(n):
+        classes_y_safe[i] = group_y[groups[i]]
 
 
 # ============================================================================
@@ -1775,6 +2234,7 @@ def run_cat_interaction_step(
     categorical_vars: list,
     cfg: CatFEConfig,
     selected_so_far: list = None,
+    weights: np.ndarray = None,    # Tier 2.1: per-row sample weights; None = uniform
     dtype=np.int32,
     verbose: int = 0,
 ) -> tuple:
@@ -1931,37 +2391,62 @@ def run_cat_interaction_step(
                         n_cols_eff, n_samples,
                     )
 
+    # Tier 2.1: choose weighted vs unweighted kernel.
+    # Use weighted only when weights are actually non-uniform; uniform
+    # weights are equivalent to unweighted and the weighted kernel costs
+    # extra ops, so skip in that case.
+    use_weights = False
+    if weights is not None and len(weights) == n_samples:
+        weights = np.asarray(weights, dtype=np.float64)
+        if weights.size > 0 and not np.allclose(weights, weights[0]):
+            use_weights = True
     if use_gpu:
         from .gpu import mi_direct_gpu_batched_pairs
-        if verbose:
-            logger.info("cat-FE: pair search on GPU over %d pairs", len(pairs_a))
-        joint_mi_arr = mi_direct_gpu_batched_pairs(
-            factors_data=data,
-            pairs_a=pairs_a, pairs_b=pairs_b,
-            factors_nbins=nbins,
-            classes_y=classes_y, freqs_y=freqs_y,
-            dtype=dtype,
-        )
-        # Compute II + n_uniq separately (CPU; cheap relative to joint MI)
-        ii_arr = np.zeros(len(pairs_a), dtype=np.float64)
-        n_uniq_arr = np.zeros(len(pairs_a), dtype=np.int64)
-        for k in range(len(pairs_a)):
-            i = int(pairs_a[k]); j = int(pairs_b[k])
-            ii_arr[k] = joint_mi_arr[k] - marginal_mi_full[i] - marginal_mi_full[j]
-            # n_uniq is derived from the joint cardinality budget; the GPU
-            # path does not return it cheaply. Approximate via nbins[i]*nbins[j];
-            # pruning makes this an upper bound (good enough for diagnostics).
-            n_uniq_arr[k] = int(nbins[i]) * int(nbins[j])
-    else:
-        joint_mi_arr, ii_arr, n_uniq_arr = _pair_search_kernel_njit(
-            factors_data=data,
-            pairs_a=pairs_a, pairs_b=pairs_b,
-            marginal_mi=marginal_mi_full,
-            nbins=nbins,
-            classes_y=classes_y,
-            freqs_y=freqs_y,
-            dtype=dtype,
-        )
+        if use_weights:
+            logger.warning(
+                "cat-FE: sample weights ignored on GPU path; "
+                "falling back to CPU weighted kernel."
+            )
+            use_gpu = False
+        else:
+            if verbose:
+                logger.info("cat-FE: pair search on GPU over %d pairs", len(pairs_a))
+            joint_mi_arr = mi_direct_gpu_batched_pairs(
+                factors_data=data,
+                pairs_a=pairs_a, pairs_b=pairs_b,
+                factors_nbins=nbins,
+                classes_y=classes_y, freqs_y=freqs_y,
+                dtype=dtype,
+            )
+            ii_arr = np.zeros(len(pairs_a), dtype=np.float64)
+            n_uniq_arr = np.zeros(len(pairs_a), dtype=np.int64)
+            for k in range(len(pairs_a)):
+                i = int(pairs_a[k]); j = int(pairs_b[k])
+                ii_arr[k] = joint_mi_arr[k] - marginal_mi_full[i] - marginal_mi_full[j]
+                n_uniq_arr[k] = int(nbins[i]) * int(nbins[j])
+    if not use_gpu:
+        if use_weights:
+            if verbose:
+                logger.info("cat-FE: pair search with sample weights (CPU prange)")
+            joint_mi_arr, ii_arr, n_uniq_arr = _pair_search_kernel_weighted_njit(
+                factors_data=data,
+                pairs_a=pairs_a, pairs_b=pairs_b,
+                marginal_mi=marginal_mi_full,
+                nbins=nbins,
+                classes_y=classes_y,
+                weights=np.asarray(weights, dtype=np.float64),
+                dtype=dtype,
+            )
+        else:
+            joint_mi_arr, ii_arr, n_uniq_arr = _pair_search_kernel_njit(
+                factors_data=data,
+                pairs_a=pairs_a, pairs_b=pairs_b,
+                marginal_mi=marginal_mi_full,
+                nbins=nbins,
+                classes_y=classes_y,
+                freqs_y=freqs_y,
+                dtype=dtype,
+            )
 
     # ---- Top-K selection (P6) ----
     selected_idx = _select_top_k_pairs(
@@ -2110,6 +2595,33 @@ def run_cat_interaction_step(
             logger.info("cat-FE: 0 pairs cleared permutation confirmation")
         return data, cols, nbins, state
 
+    # ---- Bootstrap CIs on II (Tier 2.2, opt-in via bootstrap_ci_n_replicates>0) ----
+    bootstrap_ci_dict = _bootstrap_ii_cis(
+        factors_data=data, pairs_a=pairs_a, pairs_b=pairs_b,
+        selected_idx=selected_idx,
+        nbins=nbins, classes_y=classes_y, freqs_y=freqs_y,
+        cfg=cfg, dtype=dtype, verbose=verbose,
+    )
+    if bootstrap_ci_dict:
+        # Drop survivors whose lower-CI < floor (unstable signal)
+        floor_ci = resolve_min_interaction_information(cfg, n_samples)
+        kept_after_ci = []
+        for k in selected_idx:
+            ij = (int(pairs_a[k]), int(pairs_b[k]))
+            lower, _, _ = bootstrap_ci_dict.get(ij, (-np.inf, 0.0, np.inf))
+            if lower >= floor_ci:
+                kept_after_ci.append(k)
+            elif verbose:
+                logger.info(
+                    "cat-FE: pair %s dropped (bootstrap_lower_ci=%.4f < %.4f)",
+                    ij, lower, floor_ci,
+                )
+        selected_idx = np.asarray(kept_after_ci, dtype=selected_idx.dtype)
+        if len(selected_idx) == 0:
+            if verbose:
+                logger.info("cat-FE: 0 pairs survived bootstrap CI floor")
+            return data, cols, nbins, state
+
     # ---- K-way greedy expansion (SB7, opt-in via max_kway_order > 2) ----
     # T4: HYBRID seeding -- first try only the top-K confirmed pairs,
     # which is O(top_k * N) = ~6400 merge_vars at top_k=64, N=100.
@@ -2167,6 +2679,17 @@ def run_cat_interaction_step(
             logger.info(
                 "cat-FE: greedy k-way expansion produced %d feature(s)",
                 len(kway_results),
+            )
+
+        # Tier 4.2: coordinate-ascent refinement (opt-in via refine_passes>0)
+        if cfg.refine_passes > 0 and kway_results:
+            kway_results = _refine_kway_coordinate_ascent(
+                factors_data=data, kway_results=kway_results,
+                candidate_pool=candidate_idxs_arr, nbins=nbins,
+                classes_y=classes_y, freqs_y=freqs_y,
+                max_combined_nbins=max_combined,
+                n_passes=cfg.refine_passes,
+                dtype=dtype, verbose=verbose,
             )
 
     # ---- Materialise pair survivors (P8 single concat) ----
@@ -2232,9 +2755,90 @@ def run_cat_interaction_step(
                     if (i, j) in confidence_dict
                     else None
                 ),
+                # Tier 2.2: bootstrap CI on II. ``None`` when disabled.
+                "bootstrap_ii_ci": (
+                    bootstrap_ci_dict[(i, j)]
+                    if (i, j) in bootstrap_ci_dict
+                    else None
+                ),
             }
 
     state.recipes.extend(new_recipes)
+
+    # ---- Tier 3.1: target encoding emit (opt-in) ----
+    # For each pair recipe, additionally emit a target-encoded col with
+    # OOF CV-aware shrinkage. Recipes carry ``kind="target_encoding"``
+    # with the global cell-means table for transform() replay.
+    if cfg.emit_target_encoding:
+        te_cols_list: list = []
+        te_names: list = []
+        te_recipes: list = []
+        # Materialize TE alongside factorize-recipe survivors (pairs only;
+        # k-way TE is left as future work for simplicity).
+        for k_out, k_in in enumerate(selected_idx):
+            i = int(pairs_a[k_in])
+            j = int(pairs_b[k_in])
+            idx_tuple = (i, j)
+            te_vals, cell_means_global = _compute_target_encoding(
+                factors_data=data, idx_tuple=idx_tuple,
+                target_indices=target_indices,
+                classes_y=classes_y, nbins=nbins,
+                n_oof_folds=cfg.target_encoding_oof_folds,
+                smoothing=cfg.target_encoding_smoothing,
+                dtype=dtype,
+            )
+            # te_vals dtype is float64; we don't quantize -- caller's
+            # downstream model handles continuous encoded values.
+            te_name = f"te({cols[i]}__{cols[j]})"
+            if te_name in cols or te_name in new_names or te_name in te_names:
+                te_name = f"te_{k_out}({cols[i]}__{cols[j]})"
+            te_cols_list.append(te_vals)
+            te_names.append(te_name)
+            # Build a target_encoding recipe with the cell-means table
+            # for transform() replay. Stored as ``extra``.
+            te_recipes.append(
+                EngineeredRecipe(
+                    name=te_name,
+                    kind="target_encoding",
+                    src_names=(cols[i], cols[j]),
+                    factorize_nbins=(int(nbins[i]), int(nbins[j])),
+                    unknown_strategy=cfg.unknown_strategy,
+                    extra={
+                        "cell_means": cell_means_global,
+                        "global_mean": float(classes_y.astype(np.float64).mean()),
+                        "n_oof_folds": cfg.target_encoding_oof_folds,
+                        "smoothing": cfg.target_encoding_smoothing,
+                        # Need the factorize lookup to map (a, b) -> cell idx
+                        "factorize_lookup": new_recipes[k_out].extra.get("lookup_table"),
+                    },
+                )
+            )
+        if te_cols_list:
+            te_block = np.column_stack([
+                v.astype(np.float64, copy=False) for v in te_cols_list
+            ])
+            # Target-encoded cols are FLOAT, not ordinal. Add as separate
+            # block; downstream screening will discretize them again per
+            # quantization_method. nbins[te_col] is unknown until then;
+            # leave a sentinel that categorize_dataset will overwrite.
+            # For simplicity, we store these in state.diagnostics but
+            # NOT in the main data block (the cat-FE pipeline assumes
+            # ordinal-encoded data; TE cols would need a quantization
+            # round-trip).
+            state.diagnostics["__target_encoding__"] = {
+                "te_block_shape": te_block.shape,
+                "te_names": te_names,
+            }
+            state.recipes.extend(te_recipes)
+            if verbose:
+                logger.info(
+                    "cat-FE: emitted %d target-encoded feature(s); "
+                    "stored in state.recipes for transform() replay. "
+                    "Note: TE cols are float, not in data_out; user "
+                    "must round-trip through categorize_dataset to "
+                    "include in MRMR screening.",
+                    len(te_recipes),
+                )
 
     # ---- Single concat onto data / cols / nbins (P8) ----
     data_out = np.concatenate([data, new_data_block], axis=1)

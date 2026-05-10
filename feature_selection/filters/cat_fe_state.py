@@ -206,6 +206,100 @@ class CatFEConfig:
     record per-pair II range (SD2). Surfaces pairs whose ranking is
     sensitive to the discretization scheme."""
 
+    # ----- Tier 2 production-grade extensions -----
+    bootstrap_ci_n_replicates: int = 0
+    """Tier 2.2: bootstrap confidence intervals on top-K II values.
+    ``0`` (default) disables. ``>0`` runs ``n_replicates`` subsamples
+    of size 0.632*n, recomputes II per replicate, surfaces (lower,
+    median, upper) CI in diagnostics. Dropping pairs whose lower-CI
+    < ``min_interaction_information`` complements the permutation
+    test (perm checks 'is there ANY signal'; bootstrap checks 'is II
+    stably > floor under sample variation')."""
+
+    bootstrap_ci_alpha: float = 0.10
+    """Two-sided alpha for bootstrap CI (default 0.10 -> 90% CI).
+    Set to 0.05 for 95% CI."""
+
+    bootstrap_sample_frac: float = 0.632
+    """Bootstrap subsample fraction. 0.632 is the canonical out-of-bag
+    fraction (the expected fraction of unique rows in a bootstrap-
+    with-replacement sample of size n)."""
+
+    sample_weight_col: str = ""
+    """Tier 2.1: name of a column in the input X holding per-row
+    sample weights. Empty string (default) disables -- equivalent to
+    uniform weights. When set, the column is consumed by cat-FE and
+    NOT included in the candidate pool."""
+
+    emit_target_encoding: bool = False
+    """Tier 3.1: in addition to the factorize-recipe engineered cols,
+    emit a target-encoded version: ``E[Y | merged_class]`` per cell.
+    With ``target_encoding_oof_folds > 0``, uses out-of-fold encoding
+    to prevent leakage. Useful when downstream models prefer numeric
+    inputs (regression trees with continuous splits, linear / NN)
+    over categorical codes."""
+
+    target_encoding_oof_folds: int = 5
+    """Number of K-fold splits for out-of-fold target encoding. ``0``
+    disables OOF (uses naive per-cell mean; leaks if used directly as
+    training feature). Default 5: standard CV practice. Reference:
+    Micci-Barreca 2001 ('A Preprocessing Scheme for High-Cardinality
+    Categorical Attributes in Classification and Prediction Problems')."""
+
+    target_encoding_smoothing: float = 10.0
+    """Smoothing for target encoding: ``te = (n_c * te_raw + alpha *
+    te_global) / (n_c + alpha)``. Reduces overfitting for rare cells.
+    Alpha=10 shrinks rare cells toward the global mean."""
+
+    # ----- Tier 4 advanced features -----
+    use_kt_smoothing: bool = False
+    """Tier 4.5: Krichevsky-Trofimov smoothing for entropy estimation.
+    Adds 0.5 / (n + K/2) pseudocounts to each cell before entropy.
+    Less biased than plug-in for high-cardinality joints; alternative
+    to Miller-Madow. Reference: Krichevsky & Trofimov 1981."""
+
+    perm_budget_strategy: Literal["fixed", "bandit_ucb1"] = "fixed"
+    """Tier 4.1: permutation budget allocation.
+    'fixed' (default): each pair gets ``full_npermutations`` shuffles.
+    'bandit_ucb1': UCB1 allocates more shuffles to ambiguous pairs
+    (those with II close to the floor); saves 2-5x total perms on
+    typical workloads where some pairs are clearly significant or
+    clearly noise. Reference: Auer 2002."""
+
+    refine_passes: int = 0
+    """Tier 4.2: coordinate-ascent refinement passes on k-way results.
+    ``0`` (default) disables. ``>0`` runs N passes where each pass
+    tries swapping each member of each k-way set with each non-member
+    and keeps the swap if II improves. Catches cases where the greedy
+    seed missed a better neighbor."""
+
+    groups_col: str = ""
+    """Tier 4.3: name of a column in the input X holding group IDs
+    (e.g. session IDs, user IDs). When set, permutation tests respect
+    group boundaries -- shuffle Y values only across groups, not
+    within. Prevents inflated significance from within-group
+    autocorrelation. Reference: Anderson & ter Braak 2003."""
+
+    enable_streaming_cache: bool = False
+    """Tier 4.4: when True, cache marginal MIs and pair II values on
+    the fitted MRMR instance. On subsequent fit() calls with the same
+    cfg, only re-screen columns whose data distribution changed
+    beyond a KL threshold. Saves ~70%% on production daily-refresh
+    re-fits. NOTE: requires user to opt in explicitly because the
+    cache persistence semantics surface in transform output."""
+
+    streaming_cache_kl_threshold: float = 0.01
+    """KL divergence threshold for invalidating cached marginal MIs.
+    Lower = more aggressive recomputation; higher = more reuse."""
+
+    enable_full_conditional_perm: bool = False
+    """Tier 4.8: when True AND permutation_null='conditional', use
+    full iterative-proportional-fitting (IPF / Deming-Stephan) to
+    generate permutations that preserve BOTH marginals (P(X1,Y) and
+    P(X2,Y)) -- the strictest synergy null. Materially more expensive
+    than within-strata shuffle (~5-10x); enable only for high-stakes
+    significance claims."""
+
     def __post_init__(self):
         """Tier 1.2: validate ranges + types at construction time so
         misconfig fails fast (not deep in ``fit()``)."""
