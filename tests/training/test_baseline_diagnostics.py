@@ -100,7 +100,9 @@ class TestBaselineDiagnosticsConfig:
         assert cfg.init_score_top_k == 1
         assert "regression" in cfg.apply_to_target_types
         assert "binary_classification" in cfg.apply_to_target_types
-        assert cfg.init_score_apply_to_target_types == ("regression",)
+        assert cfg.init_score_apply_to_target_types == (
+            "regression", "binary_classification",
+        )
 
     def test_dict_construction_via_baseconfig(self) -> None:
         # BaseConfig allows extra fields with a warning; pure dict construction
@@ -298,8 +300,35 @@ class TestBinaryHappyPath:
         assert 0.5 < rep.headline_metric_value <= 1.0
         # ``base`` carries the dominant logit, must come out on top.
         assert rep.ablation[0].feature == "base"
-        # init_score baseline is regression-only by default.
-        assert rep.init_score_baseline is None
+
+    def test_init_score_baseline_runs_for_binary(self) -> None:
+        """init_score baseline IS now meaningful for binary
+        classification: dominant feature is squashed -> logit and
+        passed as LightGBM init_score so the booster learns the
+        residual logit. With a strong logit feature like the one
+        in _make_dominant_binary, init_score baseline AUC should
+        match raw AUC closely (recommendation: unlikely_to_help)."""
+        df, feats, y = _make_dominant_binary(n=1500)
+        cfg = BaselineDiagnosticsConfig(
+            quick_model_n_estimators=80, sample_n=None, ablation_top_k=3,
+        )
+        rep = BaselineDiagnostics(cfg).fit_and_report(
+            train_df=df.drop(columns=["y"]),
+            train_target=y,
+            feature_cols=feats,
+            target_type="binary_classification",
+            target_name="y",
+        )
+        assert rep.skipped is False
+        # Binary now produces a meaningful init_score_baseline.
+        assert rep.init_score_baseline is not None
+        assert rep.init_score_baseline.feature_used == "base"
+        # init_score baseline AUC should be in [0.5, 1.0].
+        assert 0.5 < rep.init_score_baseline.metric <= 1.0
+        # On synthetic data with a 3*base logit signal, the init_score
+        # path should be close to raw AUC -- not necessarily within
+        # 1pct but at least within the same ballpark.
+        assert abs(rep.init_score_baseline.delta_vs_raw_pct) < 20
 
 
 # ----------------------------------------------------------------------

@@ -358,12 +358,13 @@ class BaselineDiagnostics:
                 for e in ablation
             ]
 
-            # 3. init_score baseline (regression-only in MVP)
+            # 3. init_score baseline (regression + binary classification).
             init_score_baseline = None
             if target_type in self.config.init_score_apply_to_target_types and ablation:
                 init_score_baseline = self._fit_init_score_baseline(
                     X_s, y_s, feature_cols, cat_features, ablation,
                     metric_name, higher_is_better, raw_metric,
+                    target_type=target_type,
                 )
 
             # 4. Recommendation
@@ -479,53 +480,83 @@ class BaselineDiagnostics:
         """
         from sklearn.model_selection import train_test_split
 
+        # Single train_test_split that includes init_score when present;
+        # this guarantees the (X_tr, y_tr, init_score_tr) triple stays
+        # row-aligned even with stratify=y on binary, where two
+        # separate split calls would produce different shuffles.
         n = len(X)
         if n < 50:
-            # Tiny sample: can't carve a meaningful holdout. Train on
-            # everything and evaluate on training set itself - the
-            # diagnostic will be optimistic but still ranks features.
             X_tr, y_tr = X, y
             X_va, y_va = X, y
+            init_score_tr = init_score
+            init_score_va_local = init_score
         else:
-            X_tr, X_va, y_tr, y_va = train_test_split(
-                X, y,
-                test_size=0.2,
-                random_state=self.config.random_state,
-                stratify=y if target_type == "binary_classification"
-                and len(np.unique(y)) > 1 else None,
+            stratify_arg = (
+                y if target_type == "binary_classification"
+                and len(np.unique(y)) > 1 else None
             )
+            if init_score is not None:
+                (X_tr, X_va, y_tr, y_va,
+                 init_score_tr, init_score_va_local) = train_test_split(
+                    X, y, init_score,
+                    test_size=0.2,
+                    random_state=self.config.random_state,
+                    stratify=stratify_arg,
+                )
+            else:
+                X_tr, X_va, y_tr, y_va = train_test_split(
+                    X, y,
+                    test_size=0.2,
+                    random_state=self.config.random_state,
+                    stratify=stratify_arg,
+                )
+                init_score_tr = None
+                init_score_va_local = None
 
         model = self._make_quick_model(target_type, n_jobs=inner_n_jobs)
         fit_kwargs = {}
-        # LightGBM accepts categorical_feature only when given column names
-        # via pandas; we already coerce X to pandas above.
         if cat_features:
             usable = [c for c in cat_features if c in X.columns]
             if usable:
                 fit_kwargs["categorical_feature"] = usable
-        if init_score is not None and target_type == "regression":
-            # Align init_score to X_tr ordering. train_test_split on a
-            # 1-D array returns the matching slice; we pass-through.
-            init_score_tr, init_score_va = train_test_split(
-                init_score, test_size=0.2, random_state=self.config.random_state,
-            )
+        if init_score_tr is not None:
+            # LightGBM accepts init_score for both regression and binary
+            # via fit(); it's the per-row additive baseline (raw scale
+            # for regression, logit scale for binary).
             fit_kwargs["init_score"] = init_score_tr
-            init_score_va_local = init_score_va
-        else:
-            init_score_va_local = None
 
         model.fit(X_tr, y_tr, **fit_kwargs)
 
         if target_type == "binary_classification":
-            y_pred = model.predict_proba(X_va)[:, 1]
+            if init_score_va_local is not None:
+                # Booster trained on residual logit; predict_proba alone
+                # returns sigmoid(tree_output) and MISSES the init_score
+                # offset. Use raw_score=True to get the tree margin,
+                # add init_score, then sigmoid manually.
+                try:
+                    tree_logit = np.asarray(
+                        model.predict(X_va, raw_score=True),
+                    ).reshape(-1)
+                except TypeError:
+                    tree_logit = np.asarray(
+                        model.booster_.predict(X_va, raw_score=True),
+                    ).reshape(-1)
+                full_logit = tree_logit + np.asarray(init_score_va_local).reshape(-1)
+                # Numerically safe sigmoid.
+                y_pred = np.where(
+                    full_logit >= 0,
+                    1.0 / (1.0 + np.exp(-full_logit)),
+                    np.exp(full_logit) / (1.0 + np.exp(full_logit)),
+                )
+            else:
+                y_pred = model.predict_proba(X_va)[:, 1]
         else:
             y_pred = model.predict(X_va)
             if init_score_va_local is not None:
-                # LightGBM's regression predict adds init_score back when
-                # the booster was trained with one (recent versions). We
-                # explicitly add it ourselves to be version-agnostic; if
-                # the booster already adds it the inverse-test in the
-                # init_score path checks for double-add.
+                # LightGBM regression predict adds init_score back in
+                # recent versions. We add it explicitly to stay
+                # version-agnostic; if double-added the test would
+                # catch a 2x deviation from y_va.
                 y_pred = y_pred + init_score_va_local
 
         metric_val = _compute_metric(np.asarray(y_va), np.asarray(y_pred), metric_name)
@@ -646,18 +677,31 @@ class BaselineDiagnostics:
         metric_name: str,
         higher_is_better: bool,
         raw_metric: float,
+        target_type: str = "regression",
     ) -> Optional[InitScoreBaseline]:
-        """Refit quick-LightGBM with the top-1 dominant feature passed via
-        ``init_score`` so the model learns the residual ``y - top1``
-        instead of the full target. Mirrors LightGBM/XGBoost's native
-        ``base_margin`` / ``init_score`` interface - the cheapest
-        possible "what if I learn the residual instead of the target?"
-        baseline.
+        """Refit quick-LightGBM with the top-K dominant features
+        combined via OLS (regression) or logistic regression (binary)
+        and passed via ``init_score`` so the model learns the residual
+        instead of the full target. Mirrors LightGBM / XGBoost's
+        native ``base_margin`` / ``init_score`` interface -- the
+        cheapest possible "what if I learn the residual instead of
+        the target?" baseline.
 
-        For ``init_score_top_k > 1`` the top-K features are linearly
-        combined via OLS first; the OLS prediction is passed as
-        init_score. If OLS is degenerate (collinear / non-finite
-        coeffs), falls back to top-1 only.
+        For binary classification the init_score lives in **logit space**:
+        ``init_score = logit(prior_p)`` where ``prior_p`` is the
+        OLS-style linear combination of the top-K dominant features
+        squashed through sigmoid. LightGBM treats the per-row
+        init_score as the additive logit baseline; the booster
+        learns the residual logit and ``predict_proba`` returns
+        ``sigmoid(init_score + tree_output)``.
+
+        Use case: CTR prediction with ``base = baseline_click_rate``,
+        fraud detection with ``base = prior_fraud_score``, any binary
+        task with a probability-scale dominant feature.
+
+        For ``init_score_top_k > 1`` the top-K features are combined
+        via OLS (regression) or LogisticRegression (binary). Falls
+        back to top-1 if the combiner is degenerate.
         """
         top_k = max(1, min(self.config.init_score_top_k, len(ablation)))
         # Use only features with positive ablation delta - dropping them
@@ -671,8 +715,7 @@ class BaselineDiagnostics:
             base_values = X[feat].to_numpy().astype(np.float64)
             feature_used = feat
         else:
-            # OLS fit to combine top-K. Numerically guarded: drop
-            # constant columns, fall back to top-1 on degeneracy.
+            # Linear combiner: OLS for regression, LR for binary.
             try:
                 B = np.column_stack(
                     [X[e.feature].to_numpy().astype(np.float64) for e in chosen]
@@ -682,17 +725,25 @@ class BaselineDiagnostics:
                 if keep_cols.sum() == 0:
                     return None
                 B = B[:, keep_cols]
-                B_aug = np.column_stack([B, np.ones(len(B))])
-                # lstsq is more stable than .solve here (handles rank-deficient).
-                coef, *_ = np.linalg.lstsq(B_aug, y.astype(np.float64), rcond=None)
-                base_values = B_aug @ coef
+                if target_type == "binary_classification":
+                    # Logistic regression -> probability scale, then
+                    # converted to logit by the binary branch below.
+                    from sklearn.linear_model import LogisticRegression
+                    lr = LogisticRegression(max_iter=200, C=1.0)
+                    lr.fit(B, y)
+                    base_values = lr.predict_proba(B)[:, 1]
+                else:
+                    B_aug = np.column_stack([B, np.ones(len(B))])
+                    coef, *_ = np.linalg.lstsq(
+                        B_aug, y.astype(np.float64), rcond=None,
+                    )
+                    base_values = B_aug @ coef
                 kept_feats = [e.feature for e, k in zip(chosen, keep_cols) if k]
                 feature_used = "+".join(kept_feats) if kept_feats else chosen[0].feature
             except Exception as exc:
                 logger.info(
-                    "BaselineDiagnostics: init_score OLS combiner failed (%s); "
-                    "falling back to top-1.",
-                    exc,
+                    "BaselineDiagnostics: init_score combiner failed (%s); "
+                    "falling back to top-1.", exc,
                 )
                 feat = chosen[0].feature
                 base_values = X[feat].to_numpy().astype(np.float64)
@@ -705,10 +756,39 @@ class BaselineDiagnostics:
             )
             return None
 
+        # Convert to the right scale for the inner family. LightGBM's
+        # init_score for binary expects a LOGIT, not a probability.
+        if target_type == "binary_classification":
+            # Treat base_values as a probability-scale signal. Squash
+            # through sigmoid first if it's outside [0, 1] (raw feature
+            # scale), else clip to (eps, 1-eps) and take logit.
+            mn, mx = float(np.min(base_values)), float(np.max(base_values))
+            if mn < 0.0 or mx > 1.0:
+                # Not on probability scale; squash via sigmoid relative
+                # to the sample mean so the prior centres on the
+                # observed class balance.
+                base_values = base_values - float(np.mean(base_values))
+                # Scale so std ~= 1 (keeps logit values reasonable).
+                std = float(np.std(base_values)) or 1.0
+                base_values = base_values / std
+                # Centre the logit baseline on the empirical positive
+                # rate so init_score isn't biased toward 50/50.
+                p_pos = float(np.mean(y))
+                p_pos = min(max(p_pos, 1e-3), 1 - 1e-3)
+                init_logit = base_values + math.log(p_pos / (1.0 - p_pos))
+            else:
+                # Probability scale; clip + logit directly.
+                eps = 1e-6
+                p = np.clip(base_values, eps, 1.0 - eps)
+                init_logit = np.log(p / (1.0 - p))
+            init_score_arg = init_logit
+        else:
+            init_score_arg = base_values
+
         try:
             metric_val, _ = self._fit_quick_and_score(
-                X, y, feature_cols, cat_features, "regression",
-                metric_name, init_score=base_values,
+                X, y, feature_cols, cat_features, target_type,
+                metric_name, init_score=init_score_arg,
             )
         except Exception as exc:
             logger.warning(

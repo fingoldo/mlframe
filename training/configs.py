@@ -2045,7 +2045,14 @@ class BaselineDiagnosticsConfig(BaseConfig):
     # features are summed; for K=1 the single base is passed as
     # init_score, for K>1 a quick OLS combines them first.
     init_score_top_k: int = 1
-    init_score_apply_to_target_types: Tuple[str, ...] = ("regression",)
+    # init_score baseline supports both regression and binary classification.
+    # For binary the init_score lives in logit space: top-K dominant
+    # features are LR-combined into a probability-scale score, then
+    # converted to logit and passed as LightGBM's ``init_score=`` so the
+    # booster learns the residual logit.
+    init_score_apply_to_target_types: Tuple[str, ...] = (
+        "regression", "binary_classification",
+    )
 
     # Sample size for ablation/init-score fits. Capped well below the
     # full 4M-row regime so the diagnostic stays under ~1 minute on

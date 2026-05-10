@@ -241,11 +241,37 @@ The `BaselineDiagnostics` recommendation is the canonical signal:
 | target_type | Composite-mode behaviour |
 |---|---|
 | `REGRESSION` | Full support: discovery, wrapper, ensemble, OOF, all strategies |
-| `BINARY_CLASSIFICATION` | `BaselineDiagnostics` runs (default ON); composite-discovery itself skipped with `binary_classification_unsupported_init_score_logit_offset` reason |
+| `BINARY_CLASSIFICATION` | `BaselineDiagnostics` runs (default ON) AND now produces a meaningful `init_score_baseline` via logit offset (LR-combined top-K dominant features -> sigmoid -> logit -> LightGBM init_score). The composite-discovery + wrapper layers themselves still skip with `binary_classification_unsupported_init_score_logit_offset` -- but the actionable diagnostic (init_score baseline AUC vs raw AUC) is delivered. |
 | `MULTICLASS_CLASSIFICATION` | Skipped with `multiclass_unsupported_no_residual_semantics` |
 | `MULTILABEL_CLASSIFICATION` | Skipped with `multilabel_classification_unsupported` |
 | `LEARNING_TO_RANK` | Skipped with `ltr_unsupported_pairwise_breaks_with_residual` |
 | `QUANTILE_REGRESSION` | Skipped with `quantile_regression_unsupported_per_quantile_inverse_undefined` |
+
+### Binary classification: actionable use of the init_score baseline
+
+The `init_score_baseline` field of the diagnostic IS the actionable
+output for binary tasks. Read it like this:
+
+```python
+diag = metadata["baseline_diagnostics"]["binary_classification"]["my_target"]
+isb = diag["init_score_baseline"]
+if isb is not None:
+    # Native LightGBM/XGB init_score offset gives AUC=isb["metric"]
+    # vs raw AUC=diag["headline_metric"]["value"].
+    # If isb is within ~1% of raw, you can deploy the native
+    # init_score path directly:
+    #   lgb.LGBMClassifier(...).fit(X, y, init_score=logit(prior_p))
+    # ...without needing the full composite-discovery layer.
+    print(f"raw AUC = {diag['headline_metric']['value']:.4f}")
+    print(f"init_score AUC = {isb['metric']:.4f} (using {isb['feature_used']!r})")
+    print(f"delta = {isb['delta_vs_raw_pct']:+.2f}%")
+```
+
+If the init_score baseline matches raw within `init_score_optimal_threshold_pct`
+(default 1%), the recommendation will be `unlikely_to_help` -- meaning
+"native init_score offset is enough; don't over-engineer with composite
+wrapping". You ship the simpler init_score path and skip the composite
+infrastructure.
 
 ## Benchmarks + profiling
 

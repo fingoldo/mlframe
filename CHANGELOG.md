@@ -548,6 +548,50 @@ PR-1 of a multi-stage rework. Five parallel audit agents (logical bugs / ineffic
 - **Phase 3**: split `wrappers.py` (1348 lines, 660-line `fit` method, 4 star-imports) into a `wrappers/` package: `_rfecv.py`, `_splitting.py`, `_scoring.py`, `_importance.py`, `_voting.py`, `_candidate_search.py`, `_config.py`, `_enums.py`. Collapse `use_all_fi_runs` / `use_last_fi_run_only` / `use_one_freshest_fi_run` / `use_fi_ranking` (4 booleans for one enum) into `FIAggregationStrategy`. Drop `from typing import *` and three other star imports. Replace `get_parent_func_args() / store_params_in_object()` magic with explicit attribute assignment so static analysis sees `self.*`.
 - **Phase 4**: top-6 ROI extensions identified by the functionality-extensions agent: stability metrics (`self.stability_`), CI on best `n_features_` via 1-SE rule, parallel CV folds (`joblib.Parallel(n_jobs=...)`), `get_feature_names_out()` sklearn-1.x protocol, `must_include` hybrid (current `special_feature_indices` forces a single subset and breaks the search loop after one iter), permutation/SHAP `importance_getter`.
 
+## 2026-05-10 — BaselineDiagnostics: init_score baseline now meaningful for binary classification
+
+User pushed back on the doc claim that composite-mode has zero value for binary classification. Honest answer: there IS value via LightGBM/XGB native ``init_score`` (margin offset) on the logit, just hadn't been implemented.
+
+### What changed
+
+- ``BaselineDiagnosticsConfig.init_score_apply_to_target_types`` default extended from ``("regression",)`` to ``("regression", "binary_classification")``.
+- ``BaselineDiagnostics._fit_init_score_baseline`` learns an OLS combiner for regression and a LogisticRegression combiner for binary; the resulting probability-scale score is converted to logit (with eps-clip + class-balance centring on out-of-[0,1] inputs) and passed as LightGBM's ``init_score=`` so the booster learns the residual logit.
+- ``BaselineDiagnostics._fit_quick_and_score`` now correctly handles the binary + init_score path: training passes ``init_score`` through fit, prediction uses ``predict(X, raw_score=True)`` to get the tree margin, adds ``init_score_va`` back, then numerically-safe sigmoid for ``y_pred``. Previously the binary branch returned ``predict_proba`` directly and silently dropped the init_score offset, reporting a misleading metric.
+- Single ``train_test_split`` call now includes ``init_score`` in the same call so stratification on binary doesn't desync the (X_tr, y_tr, init_score_tr) triple.
+
+### Use cases enabled
+
+CTR prediction with ``base = baseline_click_rate``, fraud detection with ``base = prior_fraud_score``, disease progression with ``base = previous_severity``, or any binary task with a probability-scale or strong-logit dominant feature.
+
+### Smoke output (synthetic n=1500, logit = 3*base + 0.5*x1 - 0.3*x2)
+
+```
+[BaselineDiagnostics] target='y_test' (binary_classification) AUC_raw=0.9120
+[BaselineDiagnostics] Ablation:
+  rank=1 base  delta%=+38.28
+  rank=2 x2    delta%=+2.35
+[BaselineDiagnostics] init_score(base) AUC=0.9093 delta%=+0.30 vs raw
+[BaselineDiagnostics] composite_recommendation=unlikely_to_help
+  reason: init_score baseline matches raw within 1.00pct;
+  native residual learning already captures the dominant signal
+```
+
+The recommendation correctly tells the user to ship the simpler native path:
+
+```python
+lgb.LGBMClassifier(...).fit(X, y, init_score=logit(prior_p))
+```
+
+instead of opting into the full composite-discovery infrastructure. ``docs/examples/composite_targets.md`` now documents the binary recipe alongside the regression one.
+
+### Composite-discovery + wrapper layers stay skip for binary
+
+The init_score path is the actionable output for binary; the full composite-target discovery + wrapper + ensemble pipeline still skips binary with the explicit ``binary_classification_unsupported_init_score_logit_offset`` reason in metadata. Reason: T-scale composite training of a binary target via residual subtraction breaks probability semantics; native init_score is the correct path here.
+
+### Tests
+
+172 / 172 across the full composite suite (was 171; new test exercises the binary init_score path end-to-end on synthetic with a strong logit feature).
+
 ## 2026-05-10 — Composite-target: profile-every-feature audit per CLAUDE.md rule
 
 User flagged that the new CLAUDE.md "Profile every new feature with cProfile + optimize hotspots" rule was only partially followed -- only ``CompositeTargetDiscovery`` had a dedicated profile harness. This entry closes the rule: every composite-target feature now has wall-time + cProfile measurement, hotspots are documented, one new actionable optimisation surfaced.
