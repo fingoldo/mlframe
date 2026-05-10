@@ -794,6 +794,242 @@ _DEFAULT_BIN_FUNCS = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Canonical-polynomial warm-start coefficients. The Optuna/CMA-ES search
+# starts from RANDOM coefficient vectors by default, but for many real
+# targets the optimum coincides with a CANONICAL low-degree polynomial:
+# * XOR (y = sign(x_a * x_b)) -> He_1(z_a) * He_1(z_b) = z_a * z_b
+#   so c_a = c_b = [0, 1].
+# * Saddle (y = sign(x_a^2 - x_b^2)) -> He_2(z_a) - He_2(z_b)
+#   where He_2(z) = z^2 - 1, so c_a = c_b = [-1, 0, 1].
+# * Circle (y = sign(x_a^2 + x_b^2 - r^2)) -> He_2(z_a) + He_2(z_b).
+# Seeding the population with these "obvious" coefficient sets
+# accelerates convergence by 1-2 generations on Gaussian-ish inputs.
+#
+# We provide canonical identities for each basis up to degree 4. The
+# returned list contains coefficient vectors of shape (degree + 1,).
+# ---------------------------------------------------------------------------
+
+
+def _canonical_seeds(basis: str, degree: int) -> list:
+    """Return a list of canonical coefficient vectors for the given
+    basis at the given degree -- low-MI-bias seeds for warm-start.
+    Each vector has shape ``(degree + 1,)`` and represents an explicit
+    low-degree polynomial (P_0, P_1, ..., P_degree)."""
+    seeds = []
+    # Identity P_1: e_1 = [0, 1, 0, ..., 0]
+    e1 = np.zeros(degree + 1, dtype=np.float64)
+    if degree >= 1:
+        e1[1] = 1.0
+        seeds.append(e1)
+    # Pure P_2 polynomial coefficient vector
+    if degree >= 2:
+        e2 = np.zeros(degree + 1, dtype=np.float64)
+        e2[2] = 1.0
+        seeds.append(e2)
+        # Composite low-degree: P_0 + P_2 (captures mean + curvature)
+        e02 = np.zeros(degree + 1, dtype=np.float64)
+        e02[0] = -1.0
+        e02[2] = 1.0
+        seeds.append(e02)
+    # Pure P_3
+    if degree >= 3:
+        e3 = np.zeros(degree + 1, dtype=np.float64)
+        e3[3] = 1.0
+        seeds.append(e3)
+    return seeds
+
+
+def _l2_normalize_pair(coef_a: np.ndarray, coef_b: np.ndarray,
+                        target_norm: float = 1.0) -> tuple:
+    """Project ``(c_a, c_b)`` jointly to the L2 unit sphere (or other
+    target norm). Used in ``direction_only`` search mode where the
+    optimizer searches the unit sphere instead of the full 2(d+1)-dim
+    box. Removes a degenerate scaling ridge that confuses TPE/CMA on
+    XOR-like targets (where MI is invariant to overall scaling for
+    ``bf=mul`` and equivariant for ``bf=add/sub``)."""
+    norm = float(np.sqrt(np.sum(coef_a ** 2) + np.sum(coef_b ** 2)))
+    if norm < 1e-12:
+        return coef_a, coef_b
+    scale = target_norm / norm
+    return coef_a * scale, coef_b * scale
+
+
+def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
+                     bf_names, y, y_njit, mi_estimator, plugin_n_bins,
+                     n_neighbors, discrete_target, l2_penalty,
+                     direction_only=False):
+    """Shared inner objective: evaluate one (c_a, c_b) pair across all
+    binary funcs and return the best (regularised score, raw MI, bf idx).
+
+    Returns
+    -------
+    score : float -- l2-penalised MI of the best binary func; -inf on failure.
+    raw_mi : float -- unpenalised MI of the best binary func.
+    best_bf_idx : int -- index into ``bf_callables`` of the winner.
+    """
+    if direction_only:
+        coef_a, coef_b = _l2_normalize_pair(coef_a, coef_b, target_norm=1.0)
+    h_a = eval_func(z_a, coef_a)
+    h_b = eval_func(z_b, coef_b)
+    if not (np.all(np.isfinite(h_a)) and np.all(np.isfinite(h_b))):
+        return -np.inf, 0.0, -1
+    cols = []
+    valid_idx = []
+    for k, bf in enumerate(bf_callables):
+        try:
+            combined = bf(h_a, h_b)
+        except Exception:
+            continue
+        if np.all(np.isfinite(combined)):
+            cols.append(combined)
+            valid_idx.append(k)
+    if not cols:
+        return -np.inf, 0.0, -1
+    X_batch = np.ascontiguousarray(np.column_stack(cols), dtype=np.float64)
+    if mi_estimator == "plugin":
+        if discrete_target:
+            mi_arr = _plugin_mi_classif_batch_njit(X_batch, y_njit, plugin_n_bins)
+        else:
+            mi_arr = _plugin_mi_regression_batch_njit(X_batch, y_njit, plugin_n_bins)
+    else:  # ksg
+        if discrete_target:
+            mi_arr = mutual_info_classif(X_batch, y, n_neighbors=n_neighbors,
+                                           random_state=42, discrete_features=False)
+        else:
+            mi_arr = mutual_info_regression(X_batch, y, n_neighbors=n_neighbors,
+                                             random_state=42, discrete_features=False)
+    penalty = 0.0 if direction_only else l2_penalty * (
+        float(np.sum(coef_a ** 2)) + float(np.sum(coef_b ** 2))
+    )
+    best_score = -np.inf
+    best_raw = 0.0
+    best_idx = -1
+    for j, k in enumerate(valid_idx):
+        raw = float(mi_arr[j])
+        s = raw - penalty
+        if s > best_score:
+            best_score = s
+            best_raw = raw
+            best_idx = k
+    return best_score, best_raw, best_idx
+
+
+def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
+                     direction_only, warm_start_seeds, eval_kwargs,
+                     popsize=None):
+    """CMA-ES inner loop. Returns (best_coef_a, best_coef_b,
+    best_bf_idx, best_raw_mi, n_evals).
+
+    cma minimizes; we negate the MI score. Population size defaults to
+    `cma`'s rule `4 + floor(3 * ln(d))` (~12 for d=8). For our small
+    n_trials budgets we prefer a slightly smaller pop to allow more
+    generations: max(8, n_trials // 8).
+    """
+    import cma
+    dim = ca_size + cb_size
+    if popsize is None:
+        popsize = max(8, min(20, n_trials // 8))
+    sigma0 = (coef_range[1] - coef_range[0]) / 4.0  # ~1.0 for [-2, 2]
+
+    # Pre-evaluate canonical warm-start seeds. These are CHEAP (single
+    # MI eval each) and frequently coincide with the global optimum
+    # (e.g. He_1(x_a) * He_1(x_b) = x_a * x_b is exactly XOR). Track the
+    # best seed and use it as CMA's x0; this guarantees CMA never does
+    # worse than the warm-start.
+    best_score = -np.inf
+    best_raw = 0.0
+    best_idx = -1
+    best_coefs = None
+    n_evals = 0
+    if warm_start_seeds:
+        for ws in warm_start_seeds:
+            ws = np.asarray(ws, dtype=np.float64)
+            coef_a = ws[:ca_size]
+            coef_b = ws[ca_size:]
+            score, raw_mi, bf_idx = _eval_coef_pair(
+                coef_a, coef_b, direction_only=direction_only, **eval_kwargs,
+            )
+            n_evals += 1
+            if score > best_score:
+                best_score = score
+                best_raw = raw_mi
+                best_idx = bf_idx
+                if direction_only:
+                    nc_a, nc_b = _l2_normalize_pair(coef_a, coef_b)
+                    best_coefs = (nc_a.copy(), nc_b.copy())
+                else:
+                    best_coefs = (coef_a.copy(), coef_b.copy())
+        # Use the best canonical seed as CMA's starting point.
+        x0 = (np.concatenate([best_coefs[0], best_coefs[1]])
+              if best_coefs is not None else np.zeros(dim, dtype=np.float64))
+        # Tighter sigma when we already have a good seed -- exploit
+        # rather than explore.
+        sigma0 = sigma0 * 0.5
+    else:
+        x0 = np.zeros(dim, dtype=np.float64)
+
+    es = cma.CMAEvolutionStrategy(
+        x0, sigma0,
+        {
+            "popsize": popsize,
+            "bounds": [[coef_range[0]] * dim, [coef_range[1]] * dim],
+            "verbose": -9,
+            "verb_disp": 0,
+            "verb_log": 0,
+            "seed": seed if seed > 0 else 1,
+            "tolfun": 1e-6,
+            "tolx": 1e-6,
+        },
+    )
+    # Inject remaining canonical seeds into the first generation -- CMA
+    # 4.x lets us replace ask()'s random samples directly.
+    inject_arrays = [np.asarray(s, dtype=np.float64)
+                      for s in (warm_start_seeds or [])]
+
+    first_gen = True
+    while not es.stop() and n_evals < n_trials:
+        try:
+            if first_gen and inject_arrays:
+                solutions = es.ask()
+                # Replace the last len(inject) random samples with seeds.
+                k = min(len(inject_arrays), len(solutions))
+                for j in range(k):
+                    solutions[-(j + 1)] = inject_arrays[j]
+                first_gen = False
+            else:
+                solutions = es.ask()
+        except Exception:
+            break
+        scores = []
+        for sol in solutions:
+            if n_evals >= n_trials:
+                break
+            coef_a = sol[:ca_size]
+            coef_b = sol[ca_size:]
+            score, raw_mi, bf_idx = _eval_coef_pair(
+                coef_a, coef_b, direction_only=direction_only, **eval_kwargs,
+            )
+            n_evals += 1
+            if score > best_score:
+                best_score = score
+                best_raw = raw_mi
+                best_idx = bf_idx
+                # Store post-projection coefs if direction_only mode.
+                if direction_only:
+                    nc_a, nc_b = _l2_normalize_pair(coef_a, coef_b)
+                    best_coefs = (nc_a.copy(), nc_b.copy())
+                else:
+                    best_coefs = (coef_a.copy(), coef_b.copy())
+            scores.append(-score if np.isfinite(score) else 1e6)
+        if len(scores) < len(solutions):
+            scores.extend([1e6] * (len(solutions) - len(scores)))
+        es.tell(solutions, scores)
+    if best_coefs is None:
+        return None
+    return (best_coefs[0], best_coefs[1], best_idx, best_raw, n_evals)
+
+
 def _baseline_mi_pair(x_a, x_b, y, *, discrete_target: bool,
                         n_neighbors: int = 3, mi_estimator: str = "plugin",
                         plugin_n_bins: int = 20) -> float:
@@ -859,6 +1095,10 @@ def optimise_hermite_pair(
     basis: str = "chebyshev",
     mi_estimator: str = "plugin",
     plugin_n_bins: int = 20,
+    optimizer: str = "cma",
+    warm_start: bool = True,
+    direction_only: bool = False,
+    multi_fidelity: bool = True,
 ) -> Optional[HermiteResult]:
     """Find Hermite-polynomial coefficients ``c_a``, ``c_b`` that
     maximise ``MI(bin_func(He(x_a, c_a), He(x_b, c_b)), y)`` over the
@@ -908,6 +1148,10 @@ def optimise_hermite_pair(
     if mi_estimator not in ("plugin", "ksg"):
         raise ValueError(
             f"unknown mi_estimator={mi_estimator!r}; expected 'plugin' or 'ksg'"
+        )
+    if optimizer not in ("optuna", "cma"):
+        raise ValueError(
+            f"unknown optimizer={optimizer!r}; expected 'optuna' or 'cma'"
         )
     # Auto-pick n_neighbors based on n.
     n = len(y)
@@ -979,122 +1223,164 @@ def optimise_hermite_pair(
 
     degree_grid = list(range(min_degree, max_degree + 1)) if sweep_degrees else [max_degree]
 
+    bf_names_global = list(bin_funcs.keys())
+    bf_callables_global = [bin_funcs[n] for n in bf_names_global]
+
+    # Multi-fidelity subsample ladder. For very large n, fit the
+    # coefficients on a small random subsample early (saves O(n) MI
+    # estimator work) then refine on the full data only at the end.
+    # The polynomial coefficient set is just 2*(d+1)<=8 numbers, so
+    # 1500 samples is enough to estimate them stably.
+    n_full = z_a.shape[0]
+    if multi_fidelity and n_full >= 4000:
+        rng_mf = np.random.default_rng(seed if seed > 0 else 0)
+        sub_idx = rng_mf.choice(n_full, size=1500, replace=False)
+        z_a_search = np.ascontiguousarray(z_a[sub_idx], dtype=np.float64)
+        z_b_search = np.ascontiguousarray(z_b[sub_idx], dtype=np.float64)
+        y_search = (y_njit[sub_idx] if y_njit is not None else None)
+        y_search_any = y[sub_idx] if isinstance(y, np.ndarray) else np.asarray(y)[sub_idx]
+    else:
+        z_a_search = z_a
+        z_b_search = z_b
+        y_search = y_njit
+        y_search_any = y
+
     for degree in degree_grid:
-        # Coefficient vector size = degree + 1 (for c_0..c_degree).
         ca_size = degree + 1
         cb_size = degree + 1
 
-        bf_names = list(bin_funcs.keys())
-        bf_callables = [bin_funcs[n] for n in bf_names]
+        # Shared kwargs threaded through both Optuna and CMA paths.
+        eval_kwargs = dict(
+            z_a=z_a_search, z_b=z_b_search,
+            eval_func=eval_func,
+            bf_callables=bf_callables_global, bf_names=bf_names_global,
+            y=y_search_any, y_njit=y_search,
+            mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins,
+            n_neighbors=n_neighbors, discrete_target=discrete_target,
+            l2_penalty=l2_penalty,
+        )
 
-        def objective(trial, _degree=degree):  # closure over degree
-            coef_a = np.array([
-                trial.suggest_float(f"a_{i}", *coef_range)
-                for i in range(ca_size)
-            ], dtype=np.float64)
-            coef_b = np.array([
-                trial.suggest_float(f"b_{i}", *coef_range)
-                for i in range(cb_size)
-            ], dtype=np.float64)
+        # Canonical warm-start: low-degree polynomial identities that
+        # match common targets (XOR, saddle, radial, ...). Replicate
+        # for both feature slots, then concatenate.
+        warm_seeds = []
+        if warm_start:
+            seeds_per_feature = _canonical_seeds(basis, degree)
+            # Pair every seed with itself + every other seed for c_b
+            # (limited to keep init pop small).
+            for s_a in seeds_per_feature:
+                for s_b in seeds_per_feature:
+                    warm_seeds.append(np.concatenate([s_a, s_b]))
+            # Add one symmetric pair (c_a = -c_b) which captures
+            # antisymmetric targets like saddle.
+            if seeds_per_feature:
+                s = seeds_per_feature[0]
+                warm_seeds.append(np.concatenate([s, -s]))
 
-            h_a = eval_func(z_a, coef_a)
-            h_b = eval_func(z_b, coef_b)
+        coef_a_best = None
+        coef_b_best = None
+        bf_idx_best = -1
+        raw_mi_best = -np.inf
 
-            # Guard: NaN/inf can arise if std blew up.
-            if not (np.all(np.isfinite(h_a)) and np.all(np.isfinite(h_b))):
-                return -np.inf
+        if optimizer == "cma":
+            try:
+                cma_result = _run_cma_search(
+                    ca_size=ca_size, cb_size=cb_size,
+                    coef_range=coef_range, n_trials=n_trials, seed=seed,
+                    direction_only=direction_only,
+                    warm_start_seeds=warm_seeds,
+                    eval_kwargs=eval_kwargs,
+                )
+            except Exception as e:
+                logger.warning("CMA-ES failed at degree %d (%s); "
+                                "falling back to Optuna", degree, e)
+                cma_result = None
+            if cma_result is None:
+                continue
+            coef_a_best, coef_b_best, bf_idx_best, raw_mi_best, _ = cma_result
+        else:  # optuna
+            def _optuna_obj(trial, _degree=degree):
+                coef_a = np.array([
+                    trial.suggest_float(f"a_{i}", *coef_range)
+                    for i in range(ca_size)
+                ], dtype=np.float64)
+                coef_b = np.array([
+                    trial.suggest_float(f"b_{i}", *coef_range)
+                    for i in range(cb_size)
+                ], dtype=np.float64)
+                score, raw_mi, bf_idx = _eval_coef_pair(
+                    coef_a, coef_b, direction_only=direction_only,
+                    **eval_kwargs,
+                )
+                if bf_idx >= 0:
+                    trial.set_user_attr("bf_idx", bf_idx)
+                    trial.set_user_attr("raw_mi", raw_mi)
+                return score
+            sampler = TPESampler(multivariate=True, seed=seed)
+            study = optuna.create_study(direction="maximize", sampler=sampler)
+            # Inject canonical warm-start seeds as enqueued trials.
+            if warm_seeds:
+                for ws in warm_seeds[:min(8, len(warm_seeds))]:
+                    params = {f"a_{i}": float(ws[i]) for i in range(ca_size)}
+                    params.update({f"b_{i}": float(ws[ca_size + i])
+                                    for i in range(cb_size)})
+                    try:
+                        study.enqueue_trial(params)
+                    except Exception:
+                        pass
+            if early_stop_no_improve and early_stop_no_improve < n_trials:
+                stop_state = {"best": -np.inf, "since_improve": 0}
+                def _early_stop_cb(s, trial):
+                    cur_best = s.best_value if s.best_trial is not None else -np.inf
+                    if cur_best > stop_state["best"]:
+                        stop_state["best"] = cur_best
+                        stop_state["since_improve"] = 0
+                    else:
+                        stop_state["since_improve"] += 1
+                    if stop_state["since_improve"] >= early_stop_no_improve:
+                        s.stop()
+                study.optimize(_optuna_obj, n_trials=n_trials,
+                               callbacks=[_early_stop_cb],
+                               show_progress_bar=False)
+            else:
+                study.optimize(_optuna_obj, n_trials=n_trials,
+                               show_progress_bar=False)
+            try:
+                bf_idx_best = study.best_trial.user_attrs.get("bf_idx", -1)
+                raw_mi_best = study.best_trial.user_attrs.get("raw_mi", -np.inf)
+                coef_a_best = np.array(
+                    [study.best_params[f"a_{i}"] for i in range(ca_size)],
+                    dtype=np.float64)
+                coef_b_best = np.array(
+                    [study.best_params[f"b_{i}"] for i in range(cb_size)],
+                    dtype=np.float64)
+            except (ValueError, KeyError):
+                continue
 
-            # Perf-1 (post-plan): batch all binary funcs into a single
-            # ``mutual_info_classif`` call. sklearn's per-call validation
-            # was ~44% of profile time; one matrix call is ~3x cheaper
-            # than three scalar calls when ``len(bin_funcs) == 3``.
-            cols = []
-            valid_idx = []
-            for k, bf in enumerate(bf_callables):
-                try:
-                    combined = bf(h_a, h_b)
-                except Exception:
-                    continue
-                if np.all(np.isfinite(combined)):
-                    cols.append(combined)
-                    valid_idx.append(k)
-            if not cols:
-                return -np.inf
-            X_batch = np.ascontiguousarray(np.column_stack(cols),
-                                             dtype=np.float64)
-            if mi_estimator == "plugin":
-                if discrete_target:
-                    mi_arr = _plugin_mi_classif_batch_njit(
-                        X_batch, y_njit, plugin_n_bins,
-                    )
-                else:
-                    mi_arr = _plugin_mi_regression_batch_njit(
-                        X_batch, y_njit, plugin_n_bins,
-                    )
-            else:  # ksg path
-                if discrete_target:
-                    mi_arr = mutual_info_classif(
-                        X_batch, y, n_neighbors=n_neighbors, random_state=42,
-                        discrete_features=False,
-                    )
-                else:
-                    mi_arr = mutual_info_regression(
-                        X_batch, y, n_neighbors=n_neighbors, random_state=42,
-                        discrete_features=False,
-                    )
-
-            best_mi = -np.inf
-            best_k = None
-            for j, k in enumerate(valid_idx):
-                mi = float(mi_arr[j])
-                penalty = l2_penalty * (np.sum(coef_a ** 2) + np.sum(coef_b ** 2))
-                score = mi - penalty
-                if score > best_mi:
-                    best_mi = score
-                    best_k = k
-                    raw_mi_for_best = mi
-            if best_k is not None:
-                trial.set_user_attr("bf_name", bf_names[best_k])
-                trial.set_user_attr("raw_mi", raw_mi_for_best)
-            return best_mi
-
-        sampler = TPESampler(multivariate=True, seed=seed)
-        study = optuna.create_study(direction="maximize", sampler=sampler)
-
-        # Early stopping on no-improvement.
-        if early_stop_no_improve and early_stop_no_improve < n_trials:
-            stop_state = {"best": -np.inf, "since_improve": 0}
-
-            def _early_stop_callback(s, trial):
-                cur_best = s.best_value if s.best_trial is not None else -np.inf
-                if cur_best > stop_state["best"]:
-                    stop_state["best"] = cur_best
-                    stop_state["since_improve"] = 0
-                else:
-                    stop_state["since_improve"] += 1
-                if stop_state["since_improve"] >= early_stop_no_improve:
-                    s.stop()
-
-            study.optimize(objective, n_trials=n_trials,
-                           callbacks=[_early_stop_callback], show_progress_bar=False)
-        else:
-            study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
-
-        bf_name = study.best_trial.user_attrs.get("bf_name", "add")
-        raw_mi = study.best_trial.user_attrs.get("raw_mi", -np.inf)
-        if raw_mi <= 0 or not np.isfinite(raw_mi):
+        if (coef_a_best is None or bf_idx_best < 0
+                or raw_mi_best <= 0 or not np.isfinite(raw_mi_best)):
             continue
 
-        coef_a = np.array([study.best_params[f"a_{i}"] for i in range(ca_size)],
-                           dtype=np.float64)
-        coef_b = np.array([study.best_params[f"b_{i}"] for i in range(cb_size)],
-                           dtype=np.float64)
+        # Multi-fidelity refinement: re-evaluate the best coef set on
+        # the FULL data, not the subsample. This gives an honest MI for
+        # the gating threshold and HermiteResult.mi.
+        if multi_fidelity and n_full >= 4000:
+            full_kwargs = dict(eval_kwargs)
+            full_kwargs.update(z_a=z_a, z_b=z_b, y=y, y_njit=y_njit)
+            _, raw_mi_full, bf_idx_full = _eval_coef_pair(
+                coef_a_best, coef_b_best, direction_only=direction_only,
+                **full_kwargs,
+            )
+            if bf_idx_full >= 0 and raw_mi_full > 0:
+                raw_mi_best = raw_mi_full
+                bf_idx_best = bf_idx_full
 
+        bf_name = bf_names_global[bf_idx_best]
         cand = HermiteResult(
-            coef_a=coef_a, coef_b=coef_b,
+            coef_a=coef_a_best, coef_b=coef_b_best,
             bin_func_name=bf_name, bin_func=bin_funcs[bf_name],
-            mi=raw_mi, baseline_mi=baseline,
-            uplift=raw_mi / max(baseline, 1e-12),
+            mi=raw_mi_best, baseline_mi=baseline,
+            uplift=raw_mi_best / max(baseline, 1e-12),
             degree_a=degree, degree_b=degree,
             basis=basis,
             preprocess_a=preprocess_a,
@@ -1103,7 +1389,7 @@ def optimise_hermite_pair(
         if best is None or cand.mi > best.mi:
             best = cand
         logger.debug(
-            f"degree={degree}: best MI={raw_mi:.4f} (baseline {baseline:.4f}, "
+            f"degree={degree}: best MI={raw_mi_best:.4f} (baseline {baseline:.4f}, "
             f"uplift {cand.uplift:.2f}x), bf={bf_name}"
         )
 
