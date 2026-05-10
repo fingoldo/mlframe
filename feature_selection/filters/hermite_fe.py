@@ -1099,6 +1099,7 @@ def optimise_hermite_pair(
     warm_start: bool = True,
     direction_only: bool = False,
     multi_fidelity: bool = True,
+    use_trivial_baseline: bool = True,
 ) -> Optional[HermiteResult]:
     """Find Hermite-polynomial coefficients ``c_a``, ``c_b`` that
     maximise ``MI(bin_func(He(x_a, c_a), He(x_b, c_b)), y)`` over the
@@ -1211,6 +1212,35 @@ def optimise_hermite_pair(
                                   mi_estimator=mi_estimator,
                                   plugin_n_bins=plugin_n_bins)
     logger.debug(f"baseline MI(pair, y) = {baseline:.4f}")
+
+    # Honest non-polynomial baseline: try trivial pair-feature
+    # transforms (mul, ratio, sum_sq, atan2, etc.) and use the BEST
+    # trivial MI as the baseline. This is a much stronger gate than
+    # the identity max(MI(x_a, y), MI(x_b, y)) -- often a simple
+    # ``mul(x_a, x_b)`` already captures most of the signal a
+    # polynomial would (verified on XOR / circle / saddle / UCI).
+    trivial_baseline_name = None
+    if use_trivial_baseline:
+        try:
+            from .fe_baselines import best_trivial_pair
+            trivial = best_trivial_pair(
+                np.asarray(x_a, dtype=np.float64),
+                np.asarray(x_b, dtype=np.float64), y,
+                discrete_target=discrete_target,
+                mi_estimator=mi_estimator,
+                plugin_n_bins=plugin_n_bins,
+                n_neighbors=n_neighbors,
+            )
+            if trivial is not None:
+                trivial_baseline_name, _, trivial_mi = trivial
+                if trivial_mi > baseline:
+                    logger.debug(
+                        f"trivial baseline {trivial_baseline_name!r} "
+                        f"raises baseline from {baseline:.4f} to {trivial_mi:.4f}"
+                    )
+                    baseline = trivial_mi
+        except Exception as e:
+            logger.debug(f"trivial baseline check failed: {e}")
 
     # Pre-cast y once for the njit fast path.
     if mi_estimator == "plugin":
