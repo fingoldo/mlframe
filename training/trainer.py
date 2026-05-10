@@ -909,7 +909,7 @@ def _update_model_name_after_training(model_name, train_df_len, train_details, b
     model_name = model_name + "\n" + " ".join([f" trained on {get_human_readable_set_size(train_df_len)} rows", train_details])
 
     if best_iter:
-        print(f"es_best_iter: {best_iter:_}")
+        logger.info(f"es_best_iter: {best_iter:_}")
         model_name = model_name + f" @iter={best_iter:_}"
 
     return model_name
@@ -5392,6 +5392,14 @@ def configure_training_params(
         group_ids=group_ids,
         model_name=model_name,
         callback_params=callback_params,
+        # 2026-05-10: thread target_type through so the ensemble path
+        # (score_ensemble -> _process_single_ensemble_method ->
+        # _build_configs_from_params) can gate render_multi_target_panels
+        # via DataConfig.target_type. Without this the ensemble report
+        # block goes through report_model_perf with target_type=None and
+        # auto_dispatch falls back to "fire LTR/multilabel/multiclass
+        # panels for any target with group_ids set" — wrong on regression.
+        target_type=str(target_type) if target_type is not None else None,
     )
     if common_params:
         common_params_result.update(common_params)

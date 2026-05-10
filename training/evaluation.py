@@ -570,7 +570,7 @@ def report_regression_model_perf(
         )
         if _is_multioutput:
             if print_report:
-                print(
+                logger.info(
                     f"  [multioutput regression: target shape={targets_arr.shape}, "
                     f"skipping scatter plot -- per-output plotting would mix K clouds]"
                 )
@@ -1120,9 +1120,9 @@ def report_probabilistic_model_perf(
             _report_lines.append(f"RICEs: \n\t{', '.join(robust_integral_errors)}")
         logger.info("\n".join(_report_lines))
 
-        print(f"TOTAL INTEGRAL ERROR: {integral_error:.4f}")
+        logger.info(f"TOTAL INTEGRAL ERROR: {integral_error:.4f}")
         if robust_integral_error is not None:
-            print(f"TOTAL ROBUST INTEGRAL ERROR: {robust_integral_error:.4f}")
+            logger.info(f"TOTAL ROBUST INTEGRAL ERROR: {robust_integral_error:.4f}")
 
         # 2026-04-24 Session 4: pluggable multi-output metrics registry.
         # Dispatches hamming_loss / subset_accuracy / jaccard_score_multilabel
@@ -1140,12 +1140,13 @@ def report_probabilistic_model_perf(
                     TargetTypes.MULTILABEL_CLASSIFICATION, targets, probs, preds,
                 ))
                 if extra:
-                    print("MULTILABEL METRICS:")
+                    _ml_lines = ["MULTILABEL METRICS:"]
                     for name, val in extra:
                         try:
-                            print(f"\t{name}={val:.{report_ndigits}f}")
+                            _ml_lines.append(f"\t{name}={val:.{report_ndigits}f}")
                         except Exception:
-                            print(f"\t{name}={val}")
+                            _ml_lines.append(f"\t{name}={val}")
+                    logger.info("\n".join(_ml_lines))
         except Exception as e:
             # Never fail a report because of metrics-registry plumbing.
             logger.debug("multilabel metrics registry skipped: %s", e)

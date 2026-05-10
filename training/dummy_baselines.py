@@ -1574,27 +1574,15 @@ def compute_dummy_baselines(
                 target_name, e,
             )
 
-    # Plot the strongest baseline (D11 + D12). D2: skip plot when TIE.
+    # 2026-05-10: dummy-baselines overlay plot REMOVED per user feedback.
+    # The standard ``report_regression_model_perf`` / ``report_probabilistic_model_perf``
+    # already produce per-model scatter + residual + calibration charts
+    # with full title-metric headers. Re-rendering a separate
+    # baseline-overlay PNG was redundant noise on disk and operators
+    # asked to "see my standard charts and reports, not a new chart
+    # type". The dummy-baselines TABLE (val/test metric grid + strongest
+    # verdict line) remains the actionable artifact.
     plot_path = None
-    n_finite_baselines = (~table[primary_metric].isna()).sum() if primary_metric in table.columns else 0
-    if (
-        strongest is not None
-        and plot_file_prefix
-        and n_finite_baselines >= 2
-        and not tie_flag
-        and target_type in ("regression", "quantile_regression", "binary_classification")
-    ):
-        try:
-            plot_path = _save_overlay_plot(
-                target_type, target_name, strongest,
-                val_preds, test_preds, val_y_arr, test_y_arr,
-                plot_file_prefix,
-            )
-        except Exception as e:
-            logger.info(
-                "[dummy-baselines] target='%s' overlay plot failed (%s); skipping",
-                target_name, e,
-            )
 
     elapsed_s = _time.time() - t0
     return BaselineReport(
@@ -2257,121 +2245,15 @@ def _pick_strongest(
     return strongest, ts_period_used
 
 
-def _save_overlay_plot(
-    target_type: str,
-    target_name: str,
-    strongest: str,
-    val_preds: Dict[str, np.ndarray],
-    test_preds: Dict[str, np.ndarray],
-    val_y: Optional[np.ndarray],
-    test_y: Optional[np.ndarray],
-    plot_file_prefix: str,
-) -> Optional[str]:
-    """Overlay plot for strongest baseline on VAL + TEST (D11 + D12).
-
-    2026-05-10 redesign:
-    - Splits into VAL (top row) + TEST (bottom row) so the operator
-      sees both diagnostic splits side-by-side instead of test-only
-      (which was the pre-fix behavior — discarded VAL signal).
-    - For regression / quantile: 2x2 grid (per-split scatter + per-split
-      residual hist).
-    - For binary: 2x1 (per-split scatter only — residual on probabilities
-      is uninformative).
-    - Inline display: when running inside jupyter (auto-detected via
-      ``__IPYTHON__`` / ``sys.ps1`` or
-      ``MLFRAME_PLOT_INLINE_DISPLAY=1``), call ``plt.show()`` so the
-      figure renders inline in the notebook cell. Save-to-disk always
-      completes regardless.
-    """
-    import matplotlib.pyplot as plt
-
-    plot_dir = plot_file_prefix.rstrip(os.path.sep) if plot_file_prefix else None
-    if not plot_dir:
-        return None
-    os.makedirs(plot_dir, exist_ok=True)
-    plot_path = os.path.join(
-        plot_dir,
-        f"baseline_{_slugify(target_name)}_{_slugify(strongest)}.png",
-    )
-
-    has_val = val_y is not None and strongest in val_preds
-    has_test = test_y is not None and strongest in test_preds
-    if not (has_val or has_test):
-        return None
-
-    is_regression = target_type in ("regression", "quantile_regression")
-    n_rows = 2 if is_regression else 1
-    n_cols = 2  # val | test
-    fig, axes = plt.subplots(
-        n_rows, n_cols,
-        figsize=(12, 4 * n_rows),
-        squeeze=False,
-    )
-    fig.suptitle(
-        f"DUMMY baseline overlay  target='{target_name}'  type={target_type}  strongest={strongest}",
-        fontsize=11, y=1.02,
-    )
-
-    rng = np.random.default_rng(42)
-
-    def _draw_split(col_idx: int, split_label: str, y_arr, pred_arr):
-        if y_arr is None or pred_arr is None:
-            return
-        if target_type == "binary_classification" and pred_arr.ndim == 2:
-            pred_arr = pred_arr[:, 1]
-        n = len(y_arr)
-        if n > 2000:
-            idx = rng.choice(n, size=2000, replace=False)
-            y_s, p_s = y_arr[idx], pred_arr[idx]
-        else:
-            y_s, p_s = y_arr, pred_arr
-        ax_main = axes[0, col_idx]
-        ax_main.scatter(p_s, y_s, alpha=0.3, s=8, color="steelblue")
-        if is_regression:
-            lo, hi = float(min(y_s.min(), p_s.min())), float(max(y_s.max(), p_s.max()))
-            ax_main.plot([lo, hi], [lo, hi], "g--", label="perfect", linewidth=1)
-            ax_main.legend(loc="best", fontsize=8)
-        ax_main.set_xlabel("prediction")
-        ax_main.set_ylabel("actual")
-        ax_main.set_title(f"{split_label} (n={n:_})")
-        ax_main.grid(True, alpha=0.3)
-
-        if is_regression:
-            ax_resid = axes[1, col_idx]
-            resid = y_s - p_s
-            ax_resid.hist(resid, bins=40, color="steelblue", alpha=0.85)
-            ax_resid.axvline(0, color="green", linestyle="--", linewidth=1)
-            ax_resid.set_xlabel(f"{split_label} residual (y - pred)")
-            ax_resid.set_ylabel("count")
-            ax_resid.grid(True, alpha=0.3)
-
-    # Column 0 = VAL, column 1 = TEST
-    _draw_split(0, "VAL", val_y, val_preds.get(strongest))
-    _draw_split(1, "TEST", test_y, test_preds.get(strongest))
-
-    fig.tight_layout()
-    fig.savefig(plot_path, dpi=80)
-
-    # Inline display in jupyter: same auto-detect as render_and_save
-    # (env var override + __IPYTHON__ / sys.ps1 fallback). Save-to-disk
-    # always completes regardless of inline display success.
-    try:
-        from mlframe.reporting.renderers.save import _detect_interactive_session
-        if _detect_interactive_session():
-            try:
-                plt.show()
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    # Close cleanly via the same helper as production paths
-    try:
-        from mlframe.metrics import _close_unless_interactive
-        _close_unless_interactive(fig, was_shown=False)
-    except Exception:
-        plt.close(fig)
-    return plot_path
+# 2026-05-10: ``_save_overlay_plot`` REMOVED per user feedback. The
+# standard ``report_regression_model_perf`` / ``report_probabilistic_model_perf``
+# pipelines already render per-model scatter / residual / calibration
+# charts; the dummy_baselines side rendering its own PNG was redundant
+# noise on disk. The dummy_baselines TABLE (val/test metric grid +
+# strongest verdict line + paired-bootstrap CI) remains the actionable
+# artifact. To re-enable a baseline-overlay PNG in the future, the
+# call site at ``compute_dummy_baselines`` should be the single place
+# to add it back, gated behind a config flag (default off).
 
 
 def _paired_bootstrap_vs_runner_up(

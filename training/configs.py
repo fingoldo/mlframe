@@ -2586,10 +2586,15 @@ class ReportingConfig(BaseConfig):
     # 2026-05-08: backend × output-format DSL. Replaces the legacy
     # ``save_format`` (single-string) knob. See
     # ``mlframe.reporting.output.parse_plot_output_dsl`` for grammar.
-    # Default ``"plotly[html,png]"`` -- interactive HTML for sharing +
-    # static PNG for inline embedding. Users keeping the old behaviour
-    # set ``"matplotlib[png]"``.
-    plot_outputs: str = "plotly[html,png]"
+    # 2026-05-10: default changed from ``"plotly[html,png]"`` to
+    # ``"plotly[html] + matplotlib[png]"`` -- the old default routed PNG
+    # export through kaleido, which spends 12-15s per figure on a
+    # Chromium ``page.reload()``. On a 4-model x VAL+TEST x N-ensemble
+    # suite this ballooned to MINUTES of pure chart-export wall-time.
+    # The new default keeps interactive plotly HTML (for sharing /
+    # jupyter) + matplotlib PNG (10-20x faster, no Chromium). Users who
+    # need plotly PNG explicitly set ``"plotly[html,png]"``.
+    plot_outputs: str = "plotly[html] + matplotlib[png]"
 
     # 2026-05-10: opt-out for jupyter inline plot display.
     # ``None`` (default): auto-detect via ``__IPYTHON__`` / ``sys.ps1``
