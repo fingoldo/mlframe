@@ -319,6 +319,58 @@ ladder buys you nothing. Cache the result, use numpy, move on.
 The `feedback_perf_measure_first.md` rule applies first: measure,
 then optimize, then dispatch.
 
+## Accuracy / performance over legacy / compat / deps
+
+When choosing **defaults** or making **API decisions** in mlframe,
+prioritise accuracy and runtime performance over backward-compatibility,
+dependency-count minimisation, or "safe" legacy behaviour. The
+framework is allowed to evolve aggressively in service of better
+results.
+
+**How this applies in mlframe specifically:**
+
+1. **Default knobs flip when a new path measurably wins.** A new
+   estimator / strategy / hyperparameter that beats the current default
+   on a benchmark becomes the new default. Don't gate behind a feature
+   flag "for safety" -- ship it on as the default and mention the
+   change in CHANGELOG. Users who relied on the old behaviour can pin
+   it explicitly.
+   - Example (2026-05-10, R10b): switched
+     `CompositeTargetDiscoveryConfig.mi_estimator` default from
+     `"knn"` -> `"bin"` because bin is bias-free under monotone
+     transforms; switched `screening` from `"mi"` -> `"hybrid"`
+     because Phase B catches "wrong base" cases the MI-only path
+     misses. Both flips landed without feature-flag gates.
+
+2. **Extra optional deps are fine if they're faster or more accurate.**
+   `numba`, `cupy`, `torch`, `lightgbm`, `xgboost`, `catboost`, `dill`,
+   `polars`, `scipy.stats.wilcoxon` -- all already pulled in and
+   used; users get them via the project's `pip install mlframe[all]`
+   extras. A new feature that requires a single additional optional
+   dep is welcome if it provides meaningful speedup or accuracy
+   improvement. (See user memory `feedback_speed_over_deps`.)
+
+3. **Tighten test assertions to the new path's stronger guarantee.**
+   When a test passes on the OLD path with a weaker bound (e.g. RMSE
+   tolerance 1.10) and the NEW path delivers 1.05, raise the bound to
+   match the new behaviour. Don't keep the loose bound just because
+   the old path happens to pass it.
+
+4. **Don't ship "validated only on this fixture" defaults.** When a
+   benchmark shows the current default is suboptimal on the
+   measured fixture, do the wider benchmark (S1-S16, multi-seed,
+   real-data proxy) NOW. Don't ship the suboptimal default with a
+   "todo: validate broadly" note.
+
+5. **Hard breakages still need care.** Data-format-incompatibility
+   (a saved-model loader that no longer reads v1 pickles) and
+   security regressions still warrant the deliberate path with
+   explicit fallback / migration. But default-knob flips on quality
+   metrics are fair game.
+
+This rule pairs with the user's general-memory entry
+`feedback_accuracy_perf_over_legacy.md`.
+
 ## Open work items
 
 (Nothing tracked here currently. Polars support for MRMR — both the

@@ -2137,16 +2137,30 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # - "nnls_stack": non-negative least squares on per-component preds.
     #
     # Default flipped from "off" -> "oof_weighted" 2026-05-10 (R10b
-    # improvement #5). When two or more specs survive the gate (the
-    # typical case after #6 collapse leaves diff/ratio/logratio for
-    # the same base, or after #9 dedup leaves 2-3 distinct bases),
-    # combining them via gain-over-baseline weighting strictly beats
-    # picking one. Single-spec case is handled by the ensemble class
+    # improvement #5), then "oof_weighted" -> "nnls_stack" 2026-05-10
+    # (R10c) after the wide ensemble shootout
+    # (``mlframe/benchmarks/composite_ensemble_shootout.py``):
+    # 6 scenarios x 3 seeds = 18 (scenario, seed) datapoints, 11
+    # ensemble strategies tested. Results (mean improvement %
+    # vs best_single_by_train, sorted):
+    #
+    #   nnls_stack            +1.24%  (13/18 wins)  <- WINNER
+    #   best_single_by_train  +0.00%  (baseline)
+    #   bma_softmax           -0.60%
+    #   inverse_variance      -1.61%
+    #   linear_stack_ridge    -1.71%
+    #   inverse_rmse          -7.17%
+    #   stacked_gbdt         -12.44%
+    #   oof_weighted         -18.42%  (previous default!)
+    #   median               -19.07%
+    #   trimmed_mean         -19.07%
+    #   mean                 -23.20%
+    #
+    # NNLS is the only strategy with positive mean improvement and
+    # majority wins. Single-spec case is handled by the ensemble class
     # via best-single fallback (no overhead). Set to "off" explicitly
-    # to skip ensemble construction; set ``oof_holdout_frac > 0`` for
-    # honest holdout-based weighting (default uses train-RMSE proxy
-    # which is biased optimistic; the ensemble class auto-warns).
-    cross_target_ensemble_strategy: str = "oof_weighted"
+    # to skip ensemble construction.
+    cross_target_ensemble_strategy: str = "nnls_stack"
 
     # When True AND the per-target ``baseline_diagnostics`` reports
     # ``composite_recommendation == "unlikely_to_help"``, discovery
