@@ -1110,6 +1110,109 @@ class TestNumbaAcceleration:
                 assert 0 < v < 30, f"{idx}: implausible macro log-loss {v}"
 
 
+class TestNumbaBootstrapKernelsEquivalence:
+    """Numba kernels for paired_bootstrap_rmse / mae and bootstrap_ci must
+    produce results statistically equivalent to the Python+sklearn loop
+    (different RNG → different individual resample indices, but
+    distributional equivalence: same point estimate ± small sampling
+    margin on the resample distribution moments)."""
+
+    def test_paired_bootstrap_rmse_distribution_matches_sklearn(self):
+        from mlframe.training.dummy_baselines import (
+            _NUMBA_AVAILABLE, _numba_paired_bootstrap_rmse,
+        )
+        if not _NUMBA_AVAILABLE:
+            pytest.skip("numba not available")
+        from sklearn.metrics import mean_squared_error
+        rng = np.random.default_rng(0)
+        n = 500
+        y = rng.normal(size=n).astype(np.float64)
+        # Two predictors of different quality.
+        p1 = y + rng.normal(0, 0.3, n)  # better
+        p2 = y + rng.normal(0, 0.6, n)  # worse
+        p1 = p1.astype(np.float64); p2 = p2.astype(np.float64)
+
+        # Numba path
+        deltas_numba = _numba_paired_bootstrap_rmse(y, p1, p2, 2000, 42)
+        # sklearn loop equivalent
+        rng_sk = np.random.default_rng(99)  # different seed; distribution match
+        deltas_sk = []
+        for _ in range(2000):
+            idx = rng_sk.integers(0, n, n)
+            r1 = float(np.sqrt(mean_squared_error(y[idx], p1[idx])))
+            r2 = float(np.sqrt(mean_squared_error(y[idx], p2[idx])))
+            deltas_sk.append(r1 - r2)
+        deltas_sk = np.asarray(deltas_sk)
+
+        # Both should agree on directional sign + median is approximately equal
+        # to the population delta. Numba uses LCG; sklearn uses pcg64 — exact
+        # match impossible but distribution moments align tightly.
+        pop_delta = float(np.sqrt(mean_squared_error(y, p1))) - float(
+            np.sqrt(mean_squared_error(y, p2))
+        )
+        # Both medians within 5% of population delta (sample size = 2000)
+        med_n = float(np.median(deltas_numba))
+        med_s = float(np.median(deltas_sk))
+        assert abs(med_n - pop_delta) / abs(pop_delta) < 0.05
+        assert abs(med_s - pop_delta) / abs(pop_delta) < 0.05
+        # Both bootstraps agree on sign of P(strongest beats runner-up)
+        p_n = float(np.mean(deltas_numba < 0))
+        p_s = float(np.mean(deltas_sk < 0))
+        # On a clear-winner case both should report ~100% beat rate.
+        assert p_n > 0.95
+        assert p_s > 0.95
+        # P-rates agree within 5pp.
+        assert abs(p_n - p_s) < 0.05
+
+    def test_bootstrap_rmse_samples_match_sklearn_distribution(self):
+        from mlframe.training.dummy_baselines import (
+            _NUMBA_AVAILABLE, _numba_bootstrap_rmse_samples,
+        )
+        if not _NUMBA_AVAILABLE:
+            pytest.skip("numba not available")
+        from sklearn.metrics import mean_squared_error
+        rng = np.random.default_rng(0)
+        n = 500
+        y = rng.normal(size=n).astype(np.float64)
+        p = (y + rng.normal(0, 0.5, n)).astype(np.float64)
+
+        samples_numba = _numba_bootstrap_rmse_samples(y, p, 2000, 42)
+        # Sklearn loop: ONE idx per resample (paired y/p indices), not two.
+        rng_sk = np.random.default_rng(99)
+        samples_sk = []
+        for _ in range(2000):
+            idx = rng_sk.integers(0, n, n)
+            samples_sk.append(float(np.sqrt(mean_squared_error(y[idx], p[idx]))))
+        samples_sk = np.asarray(samples_sk)
+
+        # Different RNGs → exact distribution differs but moments align.
+        # Both should center near the population RMSE.
+        pop_rmse = float(np.sqrt(mean_squared_error(y, p)))
+        assert abs(float(np.mean(samples_numba)) - pop_rmse) / pop_rmse < 0.05
+        assert abs(float(np.mean(samples_sk)) - pop_rmse) / pop_rmse < 0.05
+        # Spread matches within 30% (bootstrap CI width is the same shape).
+        std_ratio = float(np.std(samples_numba)) / float(np.std(samples_sk))
+        assert 0.7 < std_ratio < 1.3, f"std ratio {std_ratio} outside [0.7, 1.3]"
+
+    def test_paired_bootstrap_mae_finite_and_directional(self):
+        """MAE-paired-bootstrap kernel produces finite deltas with
+        correct directional sign on a clear-winner case."""
+        from mlframe.training.dummy_baselines import (
+            _NUMBA_AVAILABLE, _numba_paired_bootstrap_mae,
+        )
+        if not _NUMBA_AVAILABLE:
+            pytest.skip("numba not available")
+        rng = np.random.default_rng(0)
+        n = 500
+        y = rng.normal(size=n).astype(np.float64)
+        p1 = (y + rng.normal(0, 0.3, n)).astype(np.float64)
+        p2 = (y + rng.normal(0, 0.6, n)).astype(np.float64)
+        deltas = _numba_paired_bootstrap_mae(y, p1, p2, 1000, 7)
+        assert np.isfinite(deltas).all()
+        # p1 better → delta = MAE(p1) - MAE(p2) < 0 in vast majority
+        assert np.mean(deltas < 0) > 0.95
+
+
 # ---------------------------------------------------------------------
 # Auto-dropped high-card cat re-attachment for per_group_mean
 # (use_text_features=False path — well_id with 600+ unique values gets
