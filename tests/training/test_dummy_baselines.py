@@ -1108,3 +1108,174 @@ class TestNumbaAcceleration:
             if pd.notna(v):
                 # Sanity: reasonable bounds for binary-per-label cross-entropy.
                 assert 0 < v < 30, f"{idx}: implausible macro log-loss {v}"
+
+
+# ---------------------------------------------------------------------
+# Auto-dropped high-card cat re-attachment for per_group_mean
+# (use_text_features=False path — well_id with 600+ unique values gets
+# stripped from tree-model frames but should still flow into
+# dummy_baselines per_group_mean diagnostic).
+# ---------------------------------------------------------------------
+
+
+class TestAugmentWithDroppedHighCardCols:
+    """Direct unit tests for the _augment_with_dropped_high_card_cols helper
+    in mlframe.training.core. The helper re-attaches pre-drop column data
+    to OD-filtered frames, sliced by train_od_idx / val_od_idx masks."""
+
+    def _import_helper(self):
+        from mlframe.training.core import _augment_with_dropped_high_card_cols
+        return _augment_with_dropped_high_card_cols
+
+    def test_no_dropped_data_returns_frames_unchanged(self):
+        aug = self._import_helper()
+        train = pd.DataFrame({"x": [1, 2, 3]})
+        val = pd.DataFrame({"x": [4]})
+        test = pd.DataFrame({"x": [5]})
+        t, v, te, added = aug({}, train, val, test)
+        assert added == []
+        # Frames returned as-is when no dropped data.
+        assert t is train
+        assert v is val
+        assert te is test
+
+    def test_pandas_passthrough_no_od_mask(self):
+        aug = self._import_helper()
+        train = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0]})
+        val = pd.DataFrame({"x": [10.0]})
+        test = pd.DataFrame({"x": [20.0, 30.0]})
+        dropped = {
+            "well_id": {
+                "train": np.array(["a", "b", "c", "d"], dtype=object),
+                "val": np.array(["x"], dtype=object),
+                "test": np.array(["y", "z"], dtype=object),
+            }
+        }
+        t, v, te, added = aug(dropped, train, val, test)
+        assert added == ["well_id"]
+        assert "well_id" in t.columns
+        assert "well_id" in v.columns
+        assert "well_id" in te.columns
+        # Original column still there.
+        assert "x" in t.columns
+        # Values match.
+        assert list(t["well_id"]) == ["a", "b", "c", "d"]
+        assert list(te["well_id"]) == ["y", "z"]
+
+    def test_train_od_mask_slicing(self):
+        """When OD applied, captured pre-OD ndarrays get sliced by mask."""
+        aug = self._import_helper()
+        # Pre-OD train had 5 rows; OD kept indices [0, 2, 4] → post-OD has 3 rows.
+        post_od_train = pd.DataFrame({"x": [1.0, 3.0, 5.0]})
+        # train_od_idx is a bool mask of length 5
+        train_od_mask = np.array([True, False, True, False, True])
+        dropped = {
+            "well_id": {
+                "train": np.array(["w0", "w1", "w2", "w3", "w4"], dtype=object),
+            }
+        }
+        t, _, _, added = aug(
+            dropped, post_od_train, None, None, train_od_idx=train_od_mask,
+        )
+        assert added == ["well_id"]
+        assert list(t["well_id"]) == ["w0", "w2", "w4"]
+
+    def test_length_mismatch_silently_skipped(self):
+        """Captured ndarray with wrong length post-slicing → column not added."""
+        aug = self._import_helper()
+        train = pd.DataFrame({"x": [1.0, 2.0, 3.0]})
+        # Captured length 5 but no OD mask → can't align with len(train)=3
+        dropped = {"col_bad": {"train": np.arange(5)}}
+        t, _, _, added = aug(dropped, train, None, None)
+        assert added == []
+        assert "col_bad" not in t.columns
+
+    def test_polars_frame_supported(self):
+        pl = pytest.importorskip("polars")
+        aug = self._import_helper()
+        train = pl.DataFrame({"x": [1.0, 2.0, 3.0]})
+        val = pl.DataFrame({"x": [10.0]})
+        test = pl.DataFrame({"x": [20.0, 30.0]})
+        dropped = {
+            "well_id": {
+                "train": np.array(["a", "b", "c"], dtype=object),
+                "val": np.array(["v"], dtype=object),
+                "test": np.array(["t1", "t2"], dtype=object),
+            }
+        }
+        t, v, te, added = aug(dropped, train, val, test)
+        assert added == ["well_id"]
+        assert isinstance(t, pl.DataFrame)
+        assert "well_id" in t.columns
+        assert t["well_id"].to_list() == ["a", "b", "c"]
+
+
+class TestPerGroupOnDroppedHighCardCol:
+    """End-to-end via compute_dummy_baselines: when caller passes a high-
+    card cat column directly (simulating what core.py does after re-
+    attachment), per_group_mean baseline appears in the table and beats
+    `mean` on group-structured synthetic data."""
+
+    def test_per_group_mean_on_high_card_cat(self, cfg):
+        rng = np.random.default_rng(0)
+        n_groups = 600
+        n_tr, n_va, n_te = 4000, 500, 500
+        # Synthesize y = group_offset[group_id] + noise so per_group_mean
+        # has strong signal vs constant baselines.
+        group_offsets = rng.normal(0, 5, size=n_groups)
+        group_id_tr = rng.integers(0, n_groups, n_tr)
+        group_id_va = rng.integers(0, n_groups, n_va)
+        group_id_te = rng.integers(0, n_groups, n_te)
+        y_tr = group_offsets[group_id_tr] + rng.normal(0, 1, n_tr)
+        y_va = group_offsets[group_id_va] + rng.normal(0, 1, n_va)
+        y_te = group_offsets[group_id_te] + rng.normal(0, 1, n_te)
+
+        # X frames carry the group_id column directly (post-re-attachment).
+        train_X = pd.DataFrame({
+            "x1": rng.normal(size=n_tr),
+            "well_id": [f"grp_{g:04d}" for g in group_id_tr],
+        })
+        val_X = pd.DataFrame({
+            "x1": rng.normal(size=n_va),
+            "well_id": [f"grp_{g:04d}" for g in group_id_va],
+        })
+        test_X = pd.DataFrame({
+            "x1": rng.normal(size=n_te),
+            "well_id": [f"grp_{g:04d}" for g in group_id_te],
+        })
+
+        rep = compute_dummy_baselines(
+            target_type="regression", target_name="y",
+            train_y=y_tr, val_y=y_va, test_y=y_te,
+            train_X=train_X, val_X=val_X, test_X=test_X,
+            cat_features=["well_id"],
+            config=cfg,
+        )
+        # per_group_mean should be in the table (cardinality cap = 0.5*n_train
+        # = 2000; well_id has 600 unique << 2000, so it passes the gate).
+        per_group_rows = [str(idx) for idx in rep.table.index if "per_group" in str(idx)]
+        assert per_group_rows, (
+            f"per_group_mean missing on high-card group key; got {list(rep.table.index)}"
+        )
+        # And it should be the strongest (group structure dominates over mean/median).
+        assert rep.strongest is not None and "per_group" in str(rep.strongest)
+        # Lift over mean should be substantial (group offset std=5 vs noise=1).
+        mean_rmse = rep.table.loc["mean", "val_RMSE"]
+        per_group_rmse = rep.table.loc[rep.strongest, "val_RMSE"]
+        assert per_group_rmse < mean_rmse * 0.5, (
+            f"per_group RMSE {per_group_rmse} not significantly less than mean RMSE {mean_rmse}"
+        )
+
+    def test_helper_present_in_core(self):
+        """Capture-block + call-site augmentation should reference the helper."""
+        from mlframe.training import core as _core
+        assert hasattr(_core, "_augment_with_dropped_high_card_cols"), (
+            "_augment_with_dropped_high_card_cols helper missing from core.py"
+        )
+        # Also verify the helper is callable.
+        result = _core._augment_with_dropped_high_card_cols(
+            {}, None, None, None,
+        )
+        # Empty input returns 4-tuple with empty `added`.
+        assert len(result) == 4
+        assert result[3] == []

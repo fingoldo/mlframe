@@ -258,6 +258,42 @@ A separate `bootstrap_ci` block under the same n-threshold provides a
 95% CI on the strongest baseline's primary metric (1000 resamples,
 ~1s cost on n=10⁴).
 
+## High-cardinality cat columns auto-dropped for trees
+
+When `use_text_features=False`, `mlframe` strips high-cardinality
+text-like columns (`n_unique > cat_text_cardinality_threshold`,
+default 300) from train/val/test_df before model training to prevent
+XGB QuantileDMatrix OOM and CatBoost model-artefact bloat. But these
+columns (well_id with 623 unique values for well-log regression,
+user_id with millions for marketplace data) are EXACTLY the right
+group keys for `per_group_mean` — a simple groupby has no problem
+with thousands of levels.
+
+`train_mlframe_models_suite` captures the dropped column data BEFORE
+the column leaves the frame (function-local `_dropped_high_card_data`),
+then re-attaches it to the X frames passed to `compute_dummy_baselines`
+sliced by `train_od_idx` / `val_od_idx` so the re-added column row-
+aligns to the OD-filtered frame. Tree models continue to see frames
+WITHOUT the high-card cols (no OOM); only `dummy_baselines` sees the
+augmented frames.
+
+Operator implication: even when you set `use_text_features=False` to
+keep XGB safe on a high-cardinality string column, the dummy_baselines
+report still surfaces a `per_group_mean` row over that column. If
+`per_group_mean` ends up beating a trained tree model, that's a strong
+signal that the model isn't capturing the per-entity historical mean
+that's already trivially computable.
+
+Memory cost: O(n_rows * sum(n_dropped_cols * 4-8 bytes per cell)). For
+typical well-log data (5M rows, 1-2 dropped cols at int64 / object):
+~40-80MB. The captured data is released via
+`_dropped_high_card_data.clear()` before suite return.
+
+The cardinality cap (default 0.5 × n_train) still applies — if a
+re-attached column has > 50% unique values relative to train (row-id-
+like), `per_group_mean` is still skipped to avoid the silent perfect-
+prediction oracle.
+
 ## Configuration
 
 ```python

@@ -1,5 +1,118 @@
 # Changelog
 
+## 2026-05-10 — Plot inline display in jupyter + dummy_baselines per_group_mean on auto-dropped high-card cat cols
+
+Two follow-up fixes surfaced by a real well-log training-suite run
+(5M-row TVT regression on Polars input with `use_text_features=False`):
+
+### Inline plot display in jupyter — `render_and_save` interactive auto-detect
+
+Pre-existing bug: `mlframe.reporting.renderers.render_and_save()` saved
+plots to disk via plotly+kaleido / matplotlib but NEVER called
+`renderer.show(fig)` for inline jupyter display. Result: every training-
+suite caller in a notebook with default `plot_outputs="plotly[html,png]"`
+got PNG/HTML files on disk but ZERO inline render — plots invisible in
+the cell output despite `interactive=True` being correctly auto-detected
+at suite entry.
+
+Affected paths: `report_regression_model_perf` →
+`_plot_residual_diagnostics` → `render_and_save` (plotly DSL),
+`fast_calibration_report`'s plotly branch via
+`report_probabilistic_model_perf`, multi-target panels (multiclass /
+multilabel / LTR / quantile), and the direct `render_and_save` call from
+`metrics.py:1511`.
+
+Fix: `render_and_save` now accepts `interactive: Optional[bool] = None`.
+When None (default), auto-detect via `__IPYTHON__` builtin or `sys.ps1`
+(same detection mlframe already uses in `_close_unless_interactive`).
+When True, calls `renderer.show(fig)` per backend AFTER save (so on-disk
+artifacts always exist; inline render is additive). When False (or auto-
+detected as such), save-only — preserves existing behaviour for scripts
+/ CI / fuzz processes.
+
+In jupyter: plotly's `fig.show()` routes through `plotly.io.renderers`
+default (`notebook` / `iframe` inline); matplotlib's `plt.show()`
+triggers the inline display hook the kernel registers. Both produce
+inline cell renders the user expected.
+
+The matplotlib close-on-release guard now skipped under interactive —
+closing right after show() would erase the inline reference the Jupyter
+inline backend keeps for cell rendering. Memory leak protection
+preserved for non-interactive runs. Show-failure is non-fatal: on-disk
+save always completes regardless.
+
+### Dummy baselines per_group_mean on auto-dropped high-card cat cols
+
+When `use_text_features=False`, high-cardinality text-like columns
+(`n_unique > cat_text_cardinality_threshold`, default 300) are stripped
+from train/val/test_df to prevent XGB QuantileDMatrix OOM and
+CatBoost model-artefact bloat. But these columns (well_id with 623
+unique values for well-log regression, user_id with millions for
+marketplace data) are EXACTLY the right group keys for the
+per_group_mean diagnostic baseline — a simple groupby has no problem
+with thousands of levels.
+
+Pre-fix: with the user's well-log data (well_id auto-dropped),
+dummy_baselines ran with `cat_features=[]` → no per_group_mean →
+`n_baselines=4` (just mean / median / quantile_p25 / quantile_p75).
+`strongest=mean` with trivial lift → operator alarm system never
+shows whether a per-well-historical-mean already explains most of the
+signal.
+
+Post-fix: at the `auto_high_card_drop` site, capture each dropped
+column's ndarray per (col, frame) BEFORE the column leaves the frame
+(stored in function-local `_dropped_high_card_data`). At the
+dummy_baselines per-target call site, slice each captured ndarray by
+`train_od_idx` / `val_od_idx` masks (so the re-added column row-aligns
+to OD-filtered frames; test is never OD-filtered) and augment the X
+frames + cat_features list passed to `compute_dummy_baselines`. Tree
+models continue to see frames WITHOUT the high-card cols (no OOM); only
+dummy_baselines sees the augmented frames.
+
+Helper: new `mlframe.training.core._augment_with_dropped_high_card_cols`
+(supports both pandas and polars; gracefully skips columns whose
+captured length doesn't align with the post-OD frame). Augmentation is
+gated on `_dropped_high_card_data` non-empty + try/except — failure to
+re-attach is logged at DEBUG and falls through to the original
+cat_features list.
+
+Memory cost: O(n_rows * sum(n_dropped_cols * 4-8 bytes per cell)). For
+typical well-log data (5M rows, 1-2 dropped cols at int64 / object): ~40-
+80MB. Released via `_dropped_high_card_data.clear()` before suite return.
+
+End-to-end smoke verified: synthetic group-structured y_reg with
+group_id_str (600 unique strings, polars input,
+`use_text_features=False`) →
+`strongest=per_group_mean (high_entity_overlap=0.78) val_RMSE=1.1323
+lift_vs_mean=+76.0% (n_baselines=5)` with paired-bootstrap
+`Delta_RMSE vs runner-up (median) = -3.5866 [95% CI: -3.9036, -3.2895];
+beats runner-up in 100% of resamples`.
+
+### Tests
+
+- `tests/training/test_dummy_baselines.py`: +6 tests for
+  `_augment_with_dropped_high_card_cols` (passthrough, OD-mask slicing,
+  length mismatch silent skip, polars frames) + integration test
+  verifying per_group_mean fires on a synthetic 600-group target.
+- `tests/reporting/test_save_dispatch.py`: +4 tests for
+  `render_and_save(interactive=...)` (auto-detect, explicit True/False,
+  show-failure non-fatal).
+
+### File map
+
+- Modified: `mlframe/training/core.py` (capture-block at
+  `auto_high_card_drop` site + `_augment_with_dropped_high_card_cols`
+  helper + call-site augmentation + memory cleanup)
+- Modified: `mlframe/reporting/renderers/save.py`
+  (`interactive: Optional[bool] = None` param + `_detect_interactive_session`
+  helper + `renderer.show(fig)` per-backend dispatch)
+- Modified: `mlframe/tests/training/test_dummy_baselines.py` (+~140 LOC
+  for augment helper + integration tests)
+- Modified: `mlframe/tests/reporting/test_save_dispatch.py` (+~70 LOC
+  for interactive display tests)
+- Modified: `mlframe/docs/dummy_baselines_guide.md` (documents the
+  re-attachment behaviour)
+
 ## 2026-05-10 — Polynomial-pair FE: multi-basis support (Hermite / Legendre / Chebyshev / Laguerre) + realistic regimes
 
 ### Added

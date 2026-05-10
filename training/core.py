@@ -5922,6 +5922,14 @@ def train_mlframe_models_suite(
             _db_summary_err,
         )
 
+    # Release captured high-card column data — for typical well-log shapes
+    # (5M rows * 1-2 dropped cols * 4-8 bytes per cell) this frees ~40-80MB
+    # before the final metadata save / pickle path. Cheap memory hygiene.
+    try:
+        _dropped_high_card_data.clear()
+    except (NameError, AttributeError):
+        pass
+
     return dict(models), metadata
 
 
