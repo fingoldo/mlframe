@@ -310,10 +310,20 @@ class MRMR(BaseEstimator, TransformerMixin):
                     _w.warn("MRMR.fit: input contains +/-inf values; downstream discretization may produce undefined bins")
             except Exception:
                 pass
-        # All-same y check.
+        # All-same y check. P1-H37 (audit): raise instead of warn -
+        # symmetric with RFECV.fit's single-class y validation. A constant
+        # y has H(y)=0 so every MI(X_j, y) is 0; the entire MRMR pipeline
+        # produces zero-information output. Caller should catch the bad
+        # input upstream rather than letting MRMR silently return [].
         try:
             if len(np.unique(np.asarray(y))) == 1:
-                _w.warn("MRMR.fit: target y has only one unique value; no variable can be informative")
+                raise ValueError(
+                    "MRMR.fit: target y has only 1 unique value. H(y)=0 "
+                    "so all features have MI(X_j, y)=0 by construction. "
+                    "Drop or rebuild y before fitting."
+                )
+        except ValueError:
+            raise  # re-raise our own ValueError
         except Exception:
             pass
         return X

@@ -304,6 +304,60 @@ class TestS4_TiedImportanceOrdering:
 # ----------------------------------------------------------------------------
 # S5 stress: cross-estimator multi-estimator min-aggregation contract
 # ----------------------------------------------------------------------------
+class TestB9_InfInX:
+    def test_inf_in_X_raises(self):
+        rng = np.random.default_rng(0)
+        X = pd.DataFrame(rng.standard_normal((100, 5)), columns=list("abcde"))
+        X.iloc[5, 2] = np.inf
+        y = (X["a"] > 0).astype(int).values
+        with pytest.raises(ValueError, match="\\+/-Inf"):
+            RFECV(
+                estimator=LogisticRegression(max_iter=100),
+                cv=3, max_refits=2, verbose=0, leakage_corr_threshold=None,
+            ).fit(X, y)
+
+
+class TestB11_SmallSample:
+    def test_n_lt_2cv_raises(self):
+        # n=4, cv=3 -> 2*cv=6 > n. Even before A5 catches it via class
+        # imbalance, the b11 check should reject.
+        rng = np.random.default_rng(0)
+        X = pd.DataFrame(rng.standard_normal((4, 5)), columns=list("abcde"))
+        y = np.array([0, 1, 0, 1])
+        with pytest.raises(ValueError):
+            RFECV(
+                estimator=LogisticRegression(max_iter=100),
+                cv=3, max_refits=2, verbose=0, leakage_corr_threshold=None,
+            ).fit(X, y)
+
+
+class TestF26_RuntimeMins:
+    def test_negative_runtime_raises(self):
+        rng = np.random.default_rng(0)
+        X = pd.DataFrame(rng.standard_normal((100, 4)), columns=list("abcd"))
+        y = (X["a"] > 0).astype(int).values
+        with pytest.raises(ValueError, match="max_runtime_mins"):
+            RFECV(
+                estimator=LogisticRegression(max_iter=100),
+                max_runtime_mins=-1.0,
+                cv=3, verbose=0, leakage_corr_threshold=None,
+            ).fit(X, y)
+
+
+class TestH37_MRMRConstantY:
+    def test_constant_y_raises_value_error(self):
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        rng = np.random.default_rng(0)
+        X = pd.DataFrame(rng.standard_normal((100, 5)),
+                         columns=[f"f{i}" for i in range(5)])
+        y = np.zeros(100, dtype=int)
+        try:
+            with pytest.raises(ValueError, match="unique"):
+                MRMR().fit(X, y)
+        except ImportError:
+            pytest.skip("MRMR not importable in this build")
+
+
 class TestS5_CrossEstimator:
     def test_multi_estimator_score_le_each_estimator_alone(self):
         """The min-aggregation rule means multi-estimator's per-fold score

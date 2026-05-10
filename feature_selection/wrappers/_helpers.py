@@ -276,7 +276,7 @@ def knockoff_importance(model_factory, X, y, current_features=None, random_state
 def split_into_train_test(
     X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, np.ndarray], train_index: np.ndarray, test_index: np.ndarray, features_indices: np.ndarray = None
 ) -> tuple:
-    """Split X & y according to indices & dtypes. Basically this accounts for diffeent dtypes (pd.DataFrame, np.ndarray) to perform the same."""
+    """Split X & y according to indices & dtypes. Accounts for different dtypes (pd.DataFrame, np.ndarray, polars) to perform the same operation."""
 
     if isinstance(X, pd.DataFrame):
         # Perf #2 fix: the prior integer-index path did

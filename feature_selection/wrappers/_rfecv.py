@@ -457,6 +457,98 @@ class RFECV(BaseEstimator, TransformerMixin):
                     f"Resolve the conflict in your config."
                 )
 
+        # P1 audit X-side input checks. Run after y validation so common
+        # operator mistakes surface clearly at fit entry.
+        if isinstance(X, pd.DataFrame):
+            # P1-B9: detect Inf cells in numeric columns. Estimator behaviour
+            # on Inf is undefined - LR crashes, CB silently treats as huge.
+            try:
+                _num = X.select_dtypes(include="number")
+                if _num.size > 0:
+                    _inf_mask = np.isinf(_num.to_numpy())
+                    if _inf_mask.any():
+                        _inf_cols = _num.columns[_inf_mask.any(axis=0)].tolist()
+                        raise ValueError(
+                            f"X contains +/-Inf values in column(s) {_inf_cols[:10]}. "
+                            f"Estimator behaviour on Inf is undefined. Drop or "
+                            f"clip these values before fit()."
+                        )
+            except (TypeError, ValueError) as exc:
+                if "+/-Inf" in str(exc):
+                    raise
+
+            # P1-B10: scattered NaN in cells (not whole columns) - warn so
+            # the operator knows a downstream estimator may crash.
+            if getattr(self, "verbose", 0):
+                _nan_count = int(X.isna().to_numpy().sum())
+                if _nan_count > 0:
+                    logger.warning(
+                        "RFECV: X has %d NaN cells. Tree-based estimators "
+                        "(RF/CB/XGB/HGBM) handle NaN; linear models (LR, "
+                        "Ridge, Lasso) do NOT and will crash on .fit(). "
+                        "Pre-impute via SimpleImputer / KNNImputer if using "
+                        "linear estimators.", _nan_count,
+                    )
+
+            # P1-B13: object columns without explicit cat_features - warn.
+            _obj_cols = X.select_dtypes(include=["object", "string", "category"]).columns.tolist()
+            if _obj_cols:
+                _user_cats = set(self.cat_features or [])
+                _unhandled = [c for c in _obj_cols if c not in _user_cats]
+                if _unhandled and getattr(self, "verbose", 0):
+                    logger.warning(
+                        "RFECV: %d object/string/category column(s) %s have "
+                        "NOT been listed in cat_features=. CB/XGB will crash "
+                        "on string columns; LR will fail on .fit(). Either "
+                        "encode them upstream or pass via cat_features.",
+                        len(_unhandled), _unhandled[:10],
+                    )
+
+        # P1-B11: degenerate small-sample. n_samples < 2 * cv breaks every
+        # k-fold split. Reject cleanly.
+        cv_n = self.cv if isinstance(self.cv, int) else getattr(self.cv, "n_splits", 3)
+        if X.shape[0] < 2 * cv_n:
+            raise ValueError(
+                f"n_samples={X.shape[0]} < 2 * cv ({cv_n}); each fold would "
+                f"have <2 train samples. Reduce cv or get more data."
+            )
+
+        # P1-B12: p >> n with no max_nfeatures cap - the candidate space
+        # is len(features) so MBH can iterate forever. Warn loudly.
+        if X.shape[1] >= 5000 and self.max_nfeatures is None and getattr(self, "verbose", 0):
+            logger.warning(
+                "RFECV: p=%d features with no max_nfeatures cap. The "
+                "MBH search space is O(p) and each iter is a CV fit; runtime "
+                "is unbounded. Set max_nfeatures=300 (or use "
+                "stability_selection=True / importance_getter='knockoff' "
+                "for sub-second selection on this scale).",
+                X.shape[1],
+            )
+
+        # P1-F26: max_runtime_mins below 1 second is almost certainly a
+        # mistake (units confusion - user passed seconds instead of mins).
+        if self.max_runtime_mins is not None:
+            if self.max_runtime_mins < 0:
+                raise ValueError(f"max_runtime_mins must be >= 0; got {self.max_runtime_mins}")
+            if 0 < self.max_runtime_mins < (1.0 / 60.0) and getattr(self, "verbose", 0):
+                logger.warning(
+                    "RFECV: max_runtime_mins=%.4f is < 1 second. Did you mean "
+                    "to pass seconds instead of minutes? RFECV will likely "
+                    "exit after iter 1 with an under-fit selection.",
+                    self.max_runtime_mins,
+                )
+
+        # P1-F28: cv >= n_samples (LeaveOneOut on small data) gives 1-sample
+        # test folds where most metrics are undefined.
+        if isinstance(self.cv, int) and self.cv >= X.shape[0] and getattr(self, "verbose", 0):
+            logger.warning(
+                "RFECV: cv=%d >= n_samples=%d (effectively LeaveOneOut). "
+                "Per-fold test set has 1 sample; ROC AUC and many other "
+                "metrics are undefined and will produce NaN scores. Use "
+                "cv <= n_samples / 5 for stable scoring.",
+                self.cv, X.shape[0],
+            )
+
         # ----------------------------------------------------------------------------------------------------------------------------
         # Zero-variance / all-null column filter (2026-04-28 batch 4 followup)
         # ----------------------------------------------------------------------------------------------------------------------------
@@ -1453,6 +1545,26 @@ class RFECV(BaseEstimator, TransformerMixin):
                 if verbose:
                     logger.info("Max # of noimproved iters reached: %s", n_noimproving_iters)
                 break
+
+            # P1-E22 (audit): abort early if every iter so far produced a
+            # NaN final_score. The most common cause is a custom scorer
+            # returning NaN on every fold (e.g. ROC AUC on single-class CV
+            # folds). The legacy noimproving counter would consume
+            # max_noimproving_iters worth of useless CV fits before
+            # surrendering. Detect 5 consecutive NaN iters and bail.
+            if np.isnan(final_score):
+                if not hasattr(self, "_consecutive_nan_iters"):
+                    self._consecutive_nan_iters = 0
+                self._consecutive_nan_iters += 1
+                if self._consecutive_nan_iters >= 5:
+                    raise RuntimeError(
+                        "RFECV: scoring returned NaN on 5 consecutive iters. "
+                        "Likely cause: custom scorer NaN-ing on degenerate folds, "
+                        "or single-class fold with a binary-only metric. Switch "
+                        "to a NaN-safe scorer or pass cv=StratifiedKFold(...)."
+                    )
+            else:
+                self._consecutive_nan_iters = 0
 
             if self.special_feature_indices is not None:
                 if verbose:
