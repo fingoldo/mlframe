@@ -121,6 +121,98 @@ def score_trivial_baselines(
     return dict(sorted(scores.items(), key=lambda kv: -kv[1]))
 
 
+def auto_unary_transforms(x: np.ndarray, y: np.ndarray, *,
+                            discrete_target: bool = True,
+                            mi_estimator: str = "plugin",
+                            plugin_n_bins: int = 20,
+                            n_neighbors: int = 3,
+                            min_uplift: float = 1.05) -> dict:
+    """Phase B3: probe a small set of unary transforms (log, sqrt,
+    1/x, exp clipping) and return ``{name: (transformed_x, mi)}``
+    for those that beat the identity ``MI(x, y)`` by ``min_uplift``.
+
+    Useful as a pre-step: BEFORE the polynomial-pair search, replace
+    each input feature by the unary transform that best correlates
+    with y. Linearises multiplicative / log-normal / exponential
+    relationships; for example ``y = sign(x_a * x_b)`` becomes
+    ``log|x_a| + log|x_b|`` after the unary step, which the pair
+    optimizer can then express trivially.
+    """
+    eps = 1e-9
+    x = np.asarray(x, dtype=np.float64)
+    transforms = {
+        "identity": x,
+        "log_abs": np.log(np.abs(x) + eps),
+        "sqrt_abs_signed": np.sign(x) * np.sqrt(np.abs(x)),
+        "inv": np.sign(x) / (np.abs(x) + eps),
+        "square": x ** 2,
+        "cube": x ** 3,
+        "tanh": np.tanh(x),
+    }
+    base = _mi_1d(x, y, discrete_target=discrete_target,
+                   mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins,
+                   n_neighbors=n_neighbors)
+    out = {}
+    for name, arr in transforms.items():
+        if not np.all(np.isfinite(arr)):
+            continue
+        mi = _mi_1d(arr, y, discrete_target=discrete_target,
+                    mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins,
+                    n_neighbors=n_neighbors)
+        if name == "identity" or mi >= base * min_uplift:
+            out[name] = (arr, float(mi))
+    return out
+
+
+def best_unary_transform(x: np.ndarray, y: np.ndarray, **kwargs) -> tuple:
+    """Single best unary: ``(name, transformed_x, mi)``."""
+    candidates = auto_unary_transforms(x, y, min_uplift=0.0, **kwargs)
+    if not candidates:
+        return "identity", x, 0.0
+    name, (arr, mi) = max(candidates.items(), key=lambda kv: kv[1][1])
+    return name, arr, mi
+
+
+def triplet_pair_features(x_a: np.ndarray, x_b: np.ndarray,
+                            x_c: np.ndarray) -> dict:
+    """Phase D1: 3-way pair-style features. Captures ``y =
+    sign(x_a * x_b * x_c)`` and similar 3-way interactions that
+    pair-FE cannot represent."""
+    x_a = np.asarray(x_a, dtype=np.float64)
+    x_b = np.asarray(x_b, dtype=np.float64)
+    x_c = np.asarray(x_c, dtype=np.float64)
+    eps = 1e-9
+    return {
+        "abc_mul": x_a * x_b * x_c,
+        "ab_minus_c": x_a * x_b - x_c,
+        "ab_div_c": (x_a * x_b) / (x_c + np.sign(x_c) * eps + eps),
+        "a_plus_bc": x_a + x_b * x_c,
+        "a_times_bc": x_a * (x_b + x_c),
+        "ab_plus_ac": x_a * x_b + x_a * x_c,
+        "sum_of_squares": x_a ** 2 + x_b ** 2 + x_c ** 2,
+        "atan2_ab_c": np.arctan2(x_a * x_b, x_c),
+        "geo_mean3": np.sign(x_a * x_b * x_c) * np.cbrt(np.abs(x_a * x_b * x_c) + eps),
+    }
+
+
+def score_triplet_baselines(x_a, x_b, x_c, y, *,
+                              discrete_target: bool = True,
+                              mi_estimator: str = "plugin",
+                              plugin_n_bins: int = 20,
+                              n_neighbors: int = 3) -> dict:
+    """Phase D1: rank 3-way trivial features by MI."""
+    feats = triplet_pair_features(x_a, x_b, x_c)
+    scores = {}
+    for name, f in feats.items():
+        if not np.all(np.isfinite(f)):
+            continue
+        scores[name] = _mi_1d(f, y, discrete_target=discrete_target,
+                              mi_estimator=mi_estimator,
+                              plugin_n_bins=plugin_n_bins,
+                              n_neighbors=n_neighbors)
+    return dict(sorted(scores.items(), key=lambda kv: -kv[1]))
+
+
 def best_trivial_pair(
     x_a: np.ndarray, x_b: np.ndarray, y: np.ndarray, *,
     discrete_target: bool = True,

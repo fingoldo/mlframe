@@ -817,10 +817,40 @@ class HermiteResult:
         return self.bin_func(h_a, h_b)
 
 
+def _safe_div(a, b):
+    """Element-wise division with sign-stable epsilon. Avoids the
+    classic ``x_a / 0`` blowup that prevents polynomials from ever
+    capturing ratio targets."""
+    eps = 1e-9
+    return a / (b + np.sign(b) * eps + eps)
+
+
+def _atan2(a, b):
+    """``arctan2(a, b)`` for angular interactions. Captures targets
+    where the relevant signal is the ANGLE of the (a, b) vector,
+    not the magnitudes."""
+    return np.arctan2(a, b)
+
+
+def _log_abs_signed(a, b):
+    """``sign(a*b) * log(|a|+eps + |b|+eps)``: sign-aware log of
+    multiplicative magnitude. Handles heavy-tail multiplicative
+    targets where polynomials lose precision."""
+    eps = 1e-9
+    return np.sign(a * b + eps) * (np.log(np.abs(a) + eps) + np.log(np.abs(b) + eps))
+
+
 _DEFAULT_BIN_FUNCS = {
     "add": np.add,
     "sub": np.subtract,
     "mul": np.multiply,
+    # Phase B5: bin-function discovery. The optimizer picks the best
+    # binary func per trial via batch MI; adding ratios + angular +
+    # log-multiplicative makes the FE module able to discover targets
+    # that pure {add, sub, mul} cannot represent.
+    "div": _safe_div,
+    "atan2": _atan2,
+    "logabs": _log_abs_signed,
 }
 
 
@@ -839,6 +869,48 @@ _DEFAULT_BIN_FUNCS = {
 # We provide canonical identities for each basis up to degree 4. The
 # returned list contains coefficient vectors of shape (degree + 1,).
 # ---------------------------------------------------------------------------
+
+
+def basis_route_by_moments(x: np.ndarray) -> str:
+    """Pick the polynomial basis empirically best-matching the
+    distribution of ``x`` based on a moment fingerprint.
+
+    Heuristics (Phase B1, ranking validated on the polynomial-bases
+    bench results):
+    * ``|skew| > 1.5`` and one-sided support -> Laguerre (matches its
+      e^{-x} weight on [0, +inf)).
+    * Bounded support (range / std < 4) -> Chebyshev (arc-sine
+      weight + min-max preprocessing is robust on bounded data).
+    * Near-Gaussian (|skew| < 0.5, |excess kurt| < 1) -> Hermite
+      (its weight is N(0,1)).
+    * Otherwise -> Chebyshev (the empirical "never bad" default).
+
+    Returns one of {hermite, legendre, chebyshev, laguerre}. Use as
+    ``basis = basis_route_by_moments(x_a)`` if you don't know which
+    to pick; pair-FE callers that want per-feature routing should
+    pick separately for x_a and x_b."""
+    x = np.asarray(x, dtype=np.float64)
+    if x.size < 30:
+        return "chebyshev"
+    mean = float(np.mean(x))
+    std = float(np.std(x) + 1e-12)
+    z = (x - mean) / std
+    skew = float(np.mean(z ** 3))
+    kurt_excess = float(np.mean(z ** 4)) - 3.0
+    rng = float(np.max(x) - np.min(x))
+    spread_ratio = rng / std
+    one_sided = (np.min(x) >= 0) or (np.max(x) <= 0)
+    # Heavy-tailed positive / one-sided -> Laguerre.
+    if abs(skew) > 1.5 and (one_sided or skew > 0):
+        return "laguerre"
+    # Compact / bounded -> Chebyshev.
+    if spread_ratio < 4.0:
+        return "chebyshev"
+    # Near-Gaussian -> Hermite.
+    if abs(skew) < 0.5 and abs(kurt_excess) < 1.0:
+        return "hermite"
+    # Default fallback: Chebyshev (empirical winner of the rank-stability bench).
+    return "chebyshev"
 
 
 def _canonical_seeds(basis: str, degree: int) -> list:
@@ -868,6 +940,50 @@ def _canonical_seeds(basis: str, degree: int) -> list:
         e3[3] = 1.0
         seeds.append(e3)
     return seeds
+
+
+def detect_pair_symmetry(x_a: np.ndarray, x_b: np.ndarray, y: np.ndarray, *,
+                          discrete_target: bool = True,
+                          mi_estimator: str = "plugin",
+                          plugin_n_bins: int = 20) -> float:
+    """Symmetry score in [0, 1]. Tests whether ``x_a`` and ``x_b`` are
+    interchangeable predictors of ``y``: a target of the form
+    ``f(a, b) = f(b, a)`` (e.g. ``y = sign(a*b)`` or
+    ``y = sign(a^2 + b^2)``) has equal marginal information from
+    a and b; an asymmetric target like ``y = sign(a - 2b)`` does not.
+
+    Compares two indicators:
+    1. Marginal MI ratio: ``min(MI(a, y), MI(b, y)) /
+       max(MI(a, y), MI(b, y))``. Symmetric targets balance both
+       features; asymmetric targets concentrate signal on one.
+    2. Sub/Add MI ratio: ``MI(|a-b|, y) / MI(a+b, y)``. Symmetric
+       (additive) targets favour ``a+b``; antisymmetric ones favour
+       ``|a-b|``. We use the geometric mean of these signals.
+
+    Score >= 0.95 is "highly symmetric" -- caller can constrain
+    ``c_a = c_b`` to halve search dim. Score <= 0.7 is clearly
+    asymmetric -- per-feature basis routing more important."""
+    from .fe_baselines import _mi_1d
+    x_a = np.asarray(x_a, dtype=np.float64)
+    x_b = np.asarray(x_b, dtype=np.float64)
+    # Marginal MI test
+    mi_a = _mi_1d(x_a, y, discrete_target=discrete_target,
+                   mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
+    mi_b = _mi_1d(x_b, y, discrete_target=discrete_target,
+                   mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
+    big_m = max(mi_a, mi_b, 1e-12)
+    small_m = min(mi_a, mi_b)
+    marginal_score = small_m / big_m
+    # Sub vs add test (high = symmetric)
+    mi_add = _mi_1d(x_a + x_b, y, discrete_target=discrete_target,
+                     mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
+    mi_sub_abs = _mi_1d(np.abs(x_a - x_b), y, discrete_target=discrete_target,
+                          mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
+    big_d = max(mi_add, mi_sub_abs, 1e-12)
+    small_d = min(mi_add, mi_sub_abs)
+    diff_score = small_d / big_d if big_d > 1e-9 else 0.0
+    # Geometric mean of both signals.
+    return float(np.sqrt(marginal_score * diff_score))
 
 
 def _l2_normalize_pair(coef_a: np.ndarray, coef_b: np.ndarray,
