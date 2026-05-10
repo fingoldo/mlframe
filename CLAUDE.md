@@ -283,11 +283,13 @@ Examples (canonical, ship with this convention):
 
 | File | Tests inside |
 |---|---|
-| ``tests/feature_selection/test_biz_val_filters_hermite_fe.py`` | optimise_hermite_pair param wins (CMA-ES, plug-in MI, basis choice, multi-mode, honest baseline) |
-| ``tests/feature_selection/test_biz_val_filters_mrmr.py`` | MRMR param wins (interactions_max_order, quantization_nbins, min_relevance_gain, n_workers, fe_smart_polynom) |
-| ``tests/feature_selection/test_biz_val_wrappers_rfecv.py`` | RFECV param wins (n_features_selection_rule, stability_selection, must_include, conditional_permutation, checkpoint resume) |
-| ``tests/training/test_biz_val_composite_discovery.py`` | CompositeTargetDiscovery (screening, mi_estimator, transform selection) -- TODO |
-| ``tests/training/test_biz_val_dummy_baselines.py`` | DummyBaselines (BEST_MODEL_BELOW_DUMMY, per-baseline-method dominance) -- TODO |
+| ``tests/feature_selection/test_biz_val_filters_hermite_fe.py`` | optimise_hermite_pair param wins (CMA-ES, plug-in MI, basis choice, multi-mode, honest baseline) -- 15 tests |
+| ``tests/feature_selection/test_biz_val_filters_mrmr.py`` | MRMR param wins (interactions_max_order, quantization_nbins, min_relevance_gain, n_workers, fe_smart_polynom) -- 5 tests |
+| ``tests/feature_selection/test_biz_val_wrappers_rfecv.py`` | RFECV param wins (n_features_selection_rule, stability_selection, must_include, conditional_permutation, checkpoint resume) -- 5 tests |
+| ``tests/feature_selection/test_biz_val_filters_permutation.py`` | parallel_mi variants (Besag-Clifford 3-9x speedup, prange reproducibility, npermutations=0 guard) -- 5 tests |
+| ``tests/feature_selection/test_biz_val_filters_gpu.py`` | mi_direct_gpu_batched (>=1.5x faster than CPU at n>=10k, scales to n=200k, OOM-safe fallback) -- 4 tests |
+| ``tests/training/test_biz_val_training_composite_discovery.py`` | CompositeTargetDiscovery (screening='hybrid' tiny rerank, mi_estimator='bin' default, fail_on_no_gain, transform-selection schema) -- 6 tests |
+| ``tests/training/test_biz_val_training_baseline_diagnostics.py`` | BaselineDiagnostics (ablation finds dominant feature, sample_n bounds runtime, enabled=False short-circuit) -- 5 tests |
 
 **Why per-class, not per-parameter**: a per-parameter file pattern
 (``test_biz_val_<подпакет>_<класс>_<param>.py``) was considered but
