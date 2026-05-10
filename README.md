@@ -169,6 +169,64 @@ print(format_drift_report(report, target_name="my_target"))
 # WARN: TEST P(y=1)=0.83 vs train 0.74 (Δ=+8.7pp); selection-bias / prior-shift suspected ...
 ```
 
+### Dummy baselines (auto-emitted; default ON)
+
+Sit-alongside `BaselineDiagnostics`: answers "is the *task* even hard?" via
+a per-target table of trivial reference predictors that ignore the features.
+Runs once per `(target_type, target_name)` *before* model training; emits a
+1-3 line verdict at INFO + a full per-baseline metrics table at DEBUG, plus
+a single overlay plot for the strongest baseline. Output lands at
+`metadata["dummy_baselines"][target_type][target_name]`.
+
+Covers all 6 target types (regression / binary / multiclass / multilabel /
+LTR / quantile). Catalog includes `mean` / `median` / `prior` /
+`most_frequent` / `per_group_mean` (with cardinality cap + coverage gate +
+entity-overlap diagnostic) / TS-naive baselines (`naive_lag7`,
+`seasonal_naive_pP` from ACF on first-differenced series, `linear_extrap`)
+/ LTR `random_within_query` (n_repeats averaged) / multilabel
+`per_label_prior` / quantile per-α empirical.
+
+After all models train, a suite-end **cross-target verdict block** emits
+with four canonical UPPERCASE WARN tokens grep-able from any log:
+
+- `[DUMMY_BASELINES] WARN BEST_MODEL_BELOW_DUMMY` — model lift < 1.5x →
+  investigate label encoding / target leak / train-test contamination.
+- `[DUMMY_BASELINES] WARN ALL_BASELINES_BELOW_RANDOM` — every binary
+  baseline AUC < 0.5 → label-flip suspect.
+- `[DUMMY_BASELINES] WARN TS_BEATS_TREES` — TS-naive beats best model on
+  val → verify `val_placement='forward'` / leaked-from-future features.
+- `[DUMMY_BASELINES] WARN PARTIAL_FAILURE` — per-baseline NaN rows; review
+  `metadata["dummy_baselines_failures"]`.
+
+Statistical hygiene: paired bootstrap vs runner-up + 95% CI on Δ_metric
+when n is small enough for noise floor to matter; TIE annotation +
+suppressed plot when `P(strongest beats runner-up) < 0.7`. Numba kernels
+on the multilabel macro/micro log-loss path (~57× microbench, ~14× e2e)
+and dtype-aware fast path on `_per_group_predict` for numeric cat columns
+(~13× microbench, 5× e2e). Fully optional dep — graceful sklearn fallback.
+
+Disable via `dummy_baselines_config=DummyBaselinesConfig(enabled=False)`,
+or shrink `apply_to_target_types` to opt out per target_type.
+Full guide in [docs/dummy_baselines_guide.md](docs/dummy_baselines_guide.md).
+
+```python
+from mlframe.training.configs import DummyBaselinesConfig
+
+models, metadata = train_mlframe_models_suite(
+    df=df, target_name="TVT", model_name="exp",
+    features_and_targets_extractor=fte,
+    mlframe_models=["cb", "lgb"],
+    dummy_baselines_config=DummyBaselinesConfig(
+        ts_extra_periods=(365,),       # force annual seasonality on top of ACF
+        per_group_max_cardinality_ratio=0.3,  # tighter cardinality cap
+    ),
+)
+
+rep = metadata["dummy_baselines"]["regression"]["TVT"]
+print(rep["strongest"], rep["primary_metric"], rep["data"][rep["strongest"]])
+# 'seasonal_naive_p7 (ts)' 'val_RMSE' {'val_RMSE': 497.66, 'val_MAE': 385.34, ...}
+```
+
 ### PU-learning wrapper (selection-biased binary classification)
 
 When the training data is "positives heavily over-observed because the
