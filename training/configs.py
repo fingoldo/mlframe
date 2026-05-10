@@ -1836,7 +1836,16 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # candidate and re-rank by CV-RMSE measured on the y-scale (after
     # inverse). This is the "true objective" -- MI is a proxy. Skip
     # by setting ``screening`` = ``"mi"``.
-    screening: str = "mi"  # "mi" | "tiny_model" | "hybrid"
+    #
+    # Default raised from "mi" -> "hybrid" in 2026-05-10 after a
+    # production case where MI-only screening kept composites whose
+    # bases (spatial coordinates) had trivial pairwise MI(y, x) but
+    # zero structural signal for residual learning. The MI-gain test
+    # passed barely (mi_gain ~ 0.01) but the resulting models had
+    # WORSE OOF RMSE than raw-y because subtracting the base added
+    # noise to the target. Phase B's CV-RMSE-on-y-scale catches this
+    # directly. Cost: ~0.5-2 min per target on a 4M-row dataset.
+    screening: str = "hybrid"  # "mi" | "tiny_model" | "hybrid"
     tiny_model_n_estimators: int = 60
     tiny_model_num_leaves: int = 15
     tiny_model_learning_rate: float = 0.1
@@ -1873,6 +1882,22 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     tiny_screening_models: str = "single_lgbm"  # "single_lgbm" | "per_family"
     tiny_screening_families: Tuple[str, ...] = ("lightgbm",)
     tiny_consensus: str = "union"  # "union" | "borda"
+
+    # Raw-y baseline gate. During tiny-model rerank, also train a tiny
+    # model on the RAW target (no composite transform) on the same
+    # screening sample / folds and use its CV-RMSE as a hard floor:
+    # any composite whose CV-RMSE >= raw_baseline * tolerance is
+    # rejected as a regression. Catches the "wrong base" case where
+    # MI-gain passes but the resulting target is actually harder to
+    # predict (e.g. subtracting a spatial coordinate that has global
+    # trend with y but no structural residual signal).
+    #
+    # Tolerance > 1.0 allows composites that are *slightly* worse on
+    # the screening sample but might still help in the cross-target
+    # ensemble. 1.0 = strict (composite MUST beat raw). Default 1.02
+    # = composite kept if within 2% of raw, rejected if worse.
+    require_beats_raw_baseline: bool = True
+    raw_baseline_tolerance: float = 1.02
 
     @field_validator("screening", mode="before")
     @classmethod

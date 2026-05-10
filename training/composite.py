@@ -2261,6 +2261,91 @@ def _build_tiny_model(family: str, *, n_estimators: int, num_leaves: int,
     )
 
 
+def _tiny_cv_rmse_raw_y(
+    y_train: np.ndarray,
+    x_train_matrix: np.ndarray,
+    *,
+    family: str,
+    n_estimators: int,
+    num_leaves: int,
+    learning_rate: float,
+    cv_folds: int,
+    random_state: int,
+    n_jobs: int = 1,
+    deterministic: bool = False,
+) -> float:
+    """CV-RMSE of a tiny model trained DIRECTLY on raw y (no transform).
+
+    Used as the raw-y baseline against which composite-target tiny CV-RMSEs
+    are compared in :meth:`CompositeTargetDiscovery._tiny_model_rerank`.
+    Composite specs that fail to beat this baseline are rejected -- the
+    primary safeguard that catches "wrong base" cases where MI-gain
+    passes barely but the resulting target is harder for the model to
+    predict than y itself (e.g. subtracting a spatial coordinate that has
+    global trend with y but no structural residual signal).
+
+    Same fit / fold / parallelism contract as :func:`_tiny_cv_rmse_y_scale`
+    so the comparison is apples-to-apples.
+    """
+    from sklearn.model_selection import KFold
+    n = len(y_train)
+    if n < cv_folds * 10:
+        return float("nan")
+    y_clean = y_train.astype(np.float64)
+    if not np.all(np.isfinite(y_clean)):
+        finite_mask = np.isfinite(y_clean)
+        y_clean = y_clean[finite_mask]
+        x_clean = x_train_matrix[finite_mask]
+    else:
+        x_clean = x_train_matrix
+    if len(y_clean) < cv_folds * 10:
+        return float("nan")
+
+    kf = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
+
+    def _one_fold(train_fold: np.ndarray, val_fold: np.ndarray) -> float:
+        try:
+            model = _build_tiny_model(
+                family,
+                n_estimators=n_estimators,
+                num_leaves=num_leaves,
+                learning_rate=learning_rate,
+                random_state=random_state,
+                deterministic=deterministic,
+            )
+            if n_jobs > 1 and hasattr(model, "set_params"):
+                try:
+                    model.set_params(n_jobs=1)
+                except Exception:
+                    pass
+            model.fit(x_clean[train_fold], y_clean[train_fold])
+            y_hat = np.asarray(model.predict(x_clean[val_fold])).reshape(-1)
+            diff = y_hat.astype(np.float64) - y_clean[val_fold]
+            finite = np.isfinite(diff)
+            if finite.sum() == 0:
+                return float("nan")
+            return float(np.sqrt(np.mean(diff[finite] * diff[finite])))
+        except Exception:
+            return float("nan")
+
+    splits = list(kf.split(x_clean))
+    if n_jobs > 1 and len(splits) > 1:
+        try:
+            from joblib import Parallel, delayed
+            fold_rmses = Parallel(
+                n_jobs=min(n_jobs, len(splits)),
+                backend="threading",
+            )(delayed(_one_fold)(tr, va) for tr, va in splits)
+        except ImportError:
+            fold_rmses = [_one_fold(tr, va) for tr, va in splits]
+    else:
+        fold_rmses = [_one_fold(tr, va) for tr, va in splits]
+    fold_rmses = [r for r in fold_rmses if math.isfinite(r)]
+    if not fold_rmses:
+        return float("nan")
+    return float(np.mean(fold_rmses))
+
+
 def _tiny_cv_rmse_y_scale(
     y_train: np.ndarray,
     base_train: np.ndarray,
@@ -2785,6 +2870,27 @@ class CompositeTargetDiscovery:
         """All evaluated candidates including rejected ones with reasons."""
         return list(getattr(self, "report_", []))
 
+    @property
+    def tiny_rerank_scores_(self) -> Dict[str, float]:
+        """Per-spec tiny CV-RMSE on y-scale (after Phase B rerank).
+
+        Empty when ``screening="mi"`` or rerank didn't run. Keyed by
+        spec name. Useful for surfacing "why did this composite get
+        kept / rejected" diagnostics.
+        """
+        return dict(getattr(self, "_tiny_rerank_scores", {}))
+
+    @property
+    def raw_y_baseline_rmse_(self) -> float:
+        """Tiny CV-RMSE of a model trained directly on raw y on the
+        same screening sample / folds / family used by Phase B rerank.
+
+        ``nan`` when the raw-y baseline gate didn't run
+        (``require_beats_raw_baseline=False``, screening="mi", or
+        degenerate sample).
+        """
+        return float(getattr(self, "_raw_y_baseline_rmse", float("nan")))
+
     def filter_drops(self) -> List[Dict[str, Any]]:
         """Columns that were filtered out before MI ranking, with reason
         and the offending value (corr, ptp, n_finite). Useful for audit
@@ -2932,6 +3038,16 @@ class CompositeTargetDiscovery:
         guard against (target encoding, near-constant features,
         derived-from-y).
         """
+        if not usable_features:
+            # Every feature was filtered out (forbidden / non-numeric /
+            # constant / corr-threshold). Don't ask sklearn to do MI on
+            # a 0-column matrix -- it raises ValueError. Return empty
+            # cleanly so discovery falls through to the no-spec path.
+            logger.info(
+                "[CompositeTargetDiscovery] auto-base: 0 usable features "
+                "after filtering; no base candidates available."
+            )
+            return []
         sample_idx = _sample_indices(
             train_idx.size, self.config.mi_sample_n, self.config.random_state,
             strategy=getattr(self.config, "mi_sample_strategy", "random"),
@@ -3090,6 +3206,102 @@ class CompositeTargetDiscovery:
                 agg_scores.append(float(np.mean(finite)))
             else:
                 agg_scores.append(min(finite))
+
+        # Persist tiny CV-RMSE keyed by spec name -- callers read it
+        # via :attr:`CompositeTargetDiscovery.tiny_rerank_scores_`.
+        # CompositeSpec is frozen; we keep the per-spec scoring on the
+        # discovery instance instead of mutating the spec.
+        self._tiny_rerank_scores: Dict[str, float] = {
+            kept_specs[i].name: float(agg_scores[i])
+            for i in range(len(kept_specs))
+        }
+
+        # Raw-y baseline gate. Train a tiny model directly on raw y
+        # using the SAME folds / sample / family as the composite
+        # rerank above, so the comparison is apples-to-apples. Reject
+        # any composite whose tiny RMSE >= raw_baseline * tolerance.
+        # Configured via ``require_beats_raw_baseline`` /
+        # ``raw_baseline_tolerance``.
+        raw_rmse_per_family: Dict[str, float] = {}
+        raw_baseline: float = float("nan")
+        gate_rejected_names: List[Tuple[str, float, float]] = []
+        if getattr(self.config, "require_beats_raw_baseline", True):
+            # Build a feature matrix using ALL usable_features on the
+            # screening sample (raw-y training has no special "base"
+            # to drop, so include everything).
+            x_full = self._build_feature_matrix(
+                df, list(usable_features), train_idx_screen,
+            )
+            for family in families:
+                raw_rmse_per_family[family] = _tiny_cv_rmse_raw_y(
+                    y_train=y_screen,
+                    x_train_matrix=x_full,
+                    family=family,
+                    n_estimators=self.config.tiny_model_n_estimators,
+                    num_leaves=self.config.tiny_model_num_leaves,
+                    learning_rate=self.config.tiny_model_learning_rate,
+                    cv_folds=self.config.tiny_model_cv_folds,
+                    random_state=self.config.random_state,
+                    n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                    deterministic=getattr(
+                        self.config, "deterministic_screening_models", False,
+                    ),
+                )
+            finite_raw = [r for r in raw_rmse_per_family.values()
+                          if math.isfinite(r)]
+            if finite_raw:
+                # Apples-to-apples with consensus aggregation above.
+                if consensus == "union":
+                    raw_baseline = min(finite_raw)
+                else:
+                    raw_baseline = float(np.mean(finite_raw))
+            tol = float(getattr(self.config, "raw_baseline_tolerance", 1.02))
+            threshold = (raw_baseline * tol
+                         if math.isfinite(raw_baseline) else float("inf"))
+            self._raw_y_baseline_rmse = (
+                float(raw_baseline) if math.isfinite(raw_baseline)
+                else float("nan")
+            )
+            if math.isfinite(raw_baseline):
+                survivors = []
+                for i, spec in enumerate(kept_specs):
+                    score = agg_scores[i]
+                    if math.isfinite(score) and score >= threshold:
+                        gate_rejected_names.append(
+                            (spec.name, score, threshold)
+                        )
+                    else:
+                        survivors.append((i, spec, score))
+                if not survivors:
+                    logger.warning(
+                        "[CompositeTargetDiscovery] raw-y baseline gate "
+                        "rejected ALL %d composite candidate(s) "
+                        "(raw_baseline=%.4f, tolerance=%.2f). Examples: %s. "
+                        "Falling back to raw target only -- discovery "
+                        "yields no specs.",
+                        len(gate_rejected_names),
+                        raw_baseline, tol,
+                        ", ".join(
+                            f"{n}=RMSE{r:.4f}>{t:.4f}"
+                            for n, r, t in gate_rejected_names[:3]
+                        ),
+                    )
+                    return []
+                if gate_rejected_names:
+                    logger.info(
+                        "[CompositeTargetDiscovery] raw-y baseline gate "
+                        "rejected %d/%d composite(s) (raw_baseline=%.4f, "
+                        "tolerance=%.2f): %s",
+                        len(gate_rejected_names), len(kept_specs),
+                        raw_baseline, tol,
+                        ", ".join(
+                            f"{n}(RMSE={r:.4f}>{t:.4f})"
+                            for n, r, t in gate_rejected_names
+                        ),
+                    )
+                # Replace kept_specs/agg_scores with survivors only.
+                kept_specs = [s for _, s, _ in survivors]
+                agg_scores = [sc for _, _, sc in survivors]
 
         # Sort by aggregated score (ascending: lowest RMSE wins).
         order = np.argsort(agg_scores)

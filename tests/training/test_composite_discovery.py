@@ -127,9 +127,14 @@ class TestAutoBase:
         assert disc.specs_[0].base_column == "TVT_prev"
 
     def test_discovery_finds_all_4_transforms_when_signal_strong(self) -> None:
+        # screening="mi" pins the legacy MI-only path so this test
+        # measures what MI screening keeps; the default "hybrid" trims
+        # to top_m_after_tiny=3 via Phase B and a different test
+        # (TestRawYBaselineGate) covers that path.
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=800, top_k_after_mi=8,
+            enabled=True, screening="mi",
+            mi_sample_n=800, top_k_after_mi=8,
             eps_mi_gain=0.0, auto_base_top_k=2,
         )
         disc = CompositeTargetDiscovery(cfg)

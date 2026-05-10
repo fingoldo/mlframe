@@ -1,5 +1,44 @@
 # Changelog
 
+## 2026-05-10 — Composite-target hotfix part 2: raw-y baseline gate + default `screening="hybrid"`
+
+Discovered while diagnosing why the production TVT run produced poor RMSE on `TVT__diff__X` and `TVT__diff__Y` composites: a deeper issue beyond just `TVT_prev` being filtered out. Even if discovery had picked the right base, the screening pipeline itself had no safeguard against composites that pass `mi_gain > eps` but actually make the target HARDER for the model to predict (e.g. subtracting a spatial coordinate that has only global trend with `y` but no structural residual signal). MI-gain is a proxy; the actual prediction objective is OOF RMSE on the y-scale.
+
+### Changed
+
+- **`screening` default: `"mi"` -> `"hybrid"`.** Phase B (tiny-model CV-RMSE rerank on y-scale) now runs by default. Cost: ~0.5-2 min per regression target on a 4M-row dataset. The tiny-model rerank is what actually validates that a composite makes the target predictable, vs MI-gain which only checks that the target carries information about features. Set `screening="mi"` to opt out of the Phase B cost when you need the legacy speed.
+
+### Added
+
+- **Raw-y baseline gate.** In Phase B, an additional tiny model is trained directly on raw `y` using the same screening sample / folds / family as the composite rerank. Any composite whose tiny CV-RMSE is `>= raw_baseline * tolerance` is rejected. Logged at INFO with the rejected names and their RMSE values. If ALL composites fail the gate, discovery returns no specs and warns -- caller falls back to raw-y training.
+  - `CompositeTargetDiscoveryConfig.require_beats_raw_baseline: bool = True` -- gate enabled by default. Set False to keep the legacy MI/rerank-only behaviour.
+  - `CompositeTargetDiscoveryConfig.raw_baseline_tolerance: float = 1.02` -- allow composites within 2% of raw-y baseline (small slack for screening noise; the cross-target ensemble in PR2 may still benefit). Set 1.0 for strict beats-raw-or-rejected.
+- **`CompositeTargetDiscovery.tiny_rerank_scores_`** -- per-spec tiny CV-RMSE on y-scale, keyed by spec name. Empty when `screening="mi"`.
+- **`CompositeTargetDiscovery.raw_y_baseline_rmse_`** -- the raw-y tiny CV-RMSE used by the gate (NaN when gate didn't run).
+
+### Fixed
+
+- **Empty `usable_features` after filter no longer crashes auto-base.** Previously, when every feature was dropped (forbidden pattern + non-numeric + constant + corr-threshold), `_auto_base` called `mutual_info_regression` on a `(n, 0)` matrix and sklearn raised `ValueError`. Now returns an empty list cleanly so discovery falls through to the no-spec path.
+
+### Tests
+
+21 new edge-case tests in `test_composite_gate_and_edges.py`:
+
+- **A. Raw-y baseline gate (7 tests):** spatial-coord base rejected on synthetic; dominant-lag base passes; `require_beats_raw_baseline=False` skips gate; `screening="mi"` keeps gate off (legacy behaviour); loose tolerance admits marginal composites; `tolerance=0.5` rejects everything and logs warning + returns empty; `tiny_rerank_scores_` keyed by spec name and immutable to caller mutation.
+- **B. corr-threshold semantics (4 tests):** negative-coef AR(1) lag (corr ~ -0.999) survives default; corr exactly above 0.99999 dropped at boundary; literal y-copy (corr=1.0) always filtered with `forbidden_base_corr_threshold` reason; mostly-NaN column dropped with `insufficient_finite_rows` reason + finite count surfaced.
+- **C. Auto-base ranking (3 tests):** seed determinism; all-features-filtered yields empty specs without crash; `auto_base_top_k > n_features` returns all available.
+- **D. Data-quality (3 tests):** y with partial NaNs handled; base with 5% NaN kept (above finite-row threshold); heavy-tail Cauchy y doesn't crash MI estimation.
+- **E. Integration (4 tests):** default screening pinned to `"hybrid"` (regression guard); default corr threshold pinned to `0.99999`; Polars frame end-to-end through gate; disabled config short-circuits cleanly.
+
+153 composite + 58 integration/ensemble/baseline = 211 tests pass.
+
+### Production failure mode covered
+
+The production case showed `auto-base top-3 by MI(y, x): Z=2.5235, X=1.9738, Y=1.9583` selecting spatial coordinates while ablation correctly identified `TVT_prev` with `delta%=+501.42`. With this hotfix:
+
+1. Hotfix part 1 (commit `6380527`): `TVT_prev` survives the corr filter and ranks #1 by MI.
+2. Hotfix part 2 (this commit): even if discovery had still picked X/Y/Z, the raw-y baseline gate kills any composite whose tiny CV-RMSE doesn't beat raw-y by 2%. The user would see a warning like `raw-y baseline gate rejected 6/8 composite(s) (raw_baseline=10.88, tolerance=1.02): TVT__diff__X(RMSE=15.4>11.1), ...` instead of training expensive models that ship worse-than-raw predictions.
+
 ## 2026-05-10 — Composite-target hotfix: corr-threshold filter no longer drops legitimate autoregressive lag features
 
 ### Fixed
