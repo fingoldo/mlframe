@@ -58,11 +58,133 @@ def _make_polynomial(n=2000, seed=42):
     return x1, x2, y
 
 
+# ---------------------------------------------------------------------------
+# Realistic regimes -- mostly-linear targets with monotonic noise. These
+# are what production tabular data looks like; XOR-like patterns are rare.
+# ---------------------------------------------------------------------------
+
+
+def _make_linear_dominant(n=2000, seed=42):
+    """Pure linear: y = sign(0.7*x1 + 0.3*x2 + noise). Identity baseline
+    should be near-optimal; Hermite should NOT recommend an engineered
+    feature (the strict baseline check should return None)."""
+    rng = np.random.default_rng(seed)
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    score = 0.7 * x1 + 0.3 * x2 + 0.3 * rng.normal(size=n)
+    y = (score > np.median(score)).astype(np.int64)
+    return x1, x2, y
+
+
+def _make_monotonic(n=2000, seed=42):
+    """Smooth monotonic: y depends on log(1+x1**2) - x2 + noise. Hermite
+    can in principle approximate the log; comparable to identity on
+    rank-correlated KSG."""
+    rng = np.random.default_rng(seed)
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    score = np.log(1 + x1 ** 2) - x2 + 0.3 * rng.normal(size=n)
+    y = (score > np.median(score)).astype(np.int64)
+    return x1, x2, y
+
+
+def _make_threshold(n=2000, seed=42):
+    """Hard threshold: y = (x1 > x2). Identity already reveals the
+    decision boundary; Hermite uplift small."""
+    rng = np.random.default_rng(seed)
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    y = (x1 > x2).astype(np.int64)
+    return x1, x2, y
+
+
+def _make_small_synergy(n=2000, seed=42):
+    """Mostly linear with small bilinear synergy:
+    y = sign(0.7*x1 + 0.3*x2 + 0.4*x1*x2 + noise). Realistic FE
+    candidate; Hermite should give modest uplift over identity."""
+    rng = np.random.default_rng(seed)
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    score = 0.7 * x1 + 0.3 * x2 + 0.4 * x1 * x2 + 0.3 * rng.normal(size=n)
+    y = (score > np.median(score)).astype(np.int64)
+    return x1, x2, y
+
+
+def _make_complex_polynomial(n=2000, seed=42):
+    """High-degree target tanh(x1) * sin(x2*pi) needs degree >= 6 to
+    approximate via Hermite expansion."""
+    rng = np.random.default_rng(seed)
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    score = np.tanh(x1) * np.sin(x2 * np.pi / 2)
+    y = (score > 0).astype(np.int64)
+    return x1, x2, y
+
+
+def _make_uniform_xor(n=2000, seed=42):
+    """Same XOR but inputs drawn from Uniform[-1, 1]. Matches Legendre /
+    Chebyshev's natural domain; should highlight basis-mismatch effects."""
+    rng = np.random.default_rng(seed)
+    x1 = rng.uniform(-1, 1, size=n)
+    x2 = rng.uniform(-1, 1, size=n)
+    y = (np.sign(x1 * x2) > 0).astype(np.int64)
+    return x1, x2, y
+
+
+def _make_california_pair(n=None, seed=42):
+    """Realistic regression-derived target from California housing.
+    Take MedInc + AveOccup as the pair; binary y = (MedHouseVal >
+    median). Both inputs heavily skewed (incomes / occupancies);
+    expect Laguerre to do well on raw, Hermite on z-scored."""
+    from sklearn.datasets import fetch_california_housing
+    data = fetch_california_housing()
+    X, y_cont = data.data, data.target
+    if n is not None and n < len(X):
+        rng = np.random.default_rng(seed)
+        idx = rng.choice(len(X), size=n, replace=False)
+        X = X[idx]
+        y_cont = y_cont[idx]
+    x1 = X[:, 0]  # MedInc
+    x2 = X[:, 5]  # AveOccup
+    y = (y_cont > np.median(y_cont)).astype(np.int64)
+    return x1, x2, y
+
+
+def _make_diabetes_pair(n=None, seed=42):
+    """Diabetes regression dataset, BMI + s5 (lamotrigine) as the pair.
+    Smaller sample (n=442 default) -- exercises the small-N branch of
+    the n_neighbors auto-pick."""
+    from sklearn.datasets import load_diabetes
+    data = load_diabetes()
+    X, y_cont = data.data, data.target
+    if n is not None and n < len(X):
+        rng = np.random.default_rng(seed)
+        idx = rng.choice(len(X), size=n, replace=False)
+        X = X[idx]
+        y_cont = y_cont[idx]
+    x1 = X[:, 2]  # BMI
+    x2 = X[:, 8]  # s5
+    y = (y_cont > np.median(y_cont)).astype(np.int64)
+    return x1, x2, y
+
+
 _REGIMES = {
+    # Synthetic Hermite-friendly:
     "xor": _make_xor,
     "circle": _make_circle,
     "saddle": _make_saddle,
     "polynomial": _make_polynomial,
+    # Realistic (mostly linear + monotonic):
+    "linear_dominant": _make_linear_dominant,
+    "monotonic": _make_monotonic,
+    "threshold": _make_threshold,
+    "small_synergy": _make_small_synergy,
+    # High-degree:
+    "complex_polynomial": _make_complex_polynomial,
+    # Different distributions / real datasets:
+    "uniform_xor": _make_uniform_xor,
+    "california_housing": _make_california_pair,
+    "diabetes": _make_diabetes_pair,
 }
 
 
