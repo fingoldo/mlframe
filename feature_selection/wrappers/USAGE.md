@@ -235,9 +235,52 @@ Fitted estimators (`fitted_estimators` dict) are NOT persisted — they
 would dominate file size on CB/RF ensembles and are re-fit on demand by
 the final voting / refit path.
 
+## Truncated SFFS final-pass swap
+
+After the main MBH loop converges, opt in to a one-shot truncated SFFS
+swap pass that tries to refine the best subset. Each of the K worst-FI
+kept features is paired with one of the K best-FI dropped features and
+the swap is evaluated via `sklearn.model_selection.cross_val_score`;
+strict score improvements are accepted.
+
+```python
+RFECV(
+    estimator=LogisticRegression(),
+    cv=5,
+    swap_top_k=5,         # 0 (default) = disabled; >0 = run K paired swaps
+).fit(X, y)
+```
+
+Cost: K extra `cross_val_score` calls at the end of the run (NOT per
+iter). Swap evaluations use sklearn directly, so they do NOT honour
+RFECV-specific knobs (`fit_params`, `val_cv`, early stopping, multi-
+estimator voting). Use as a final-mile refinement on a converged result.
+
+## sklearn 1.6+ tags + tabular `cv_results_`
+
+- `RFECV(...)` exposes `__sklearn_tags__()` that delegates to the inner
+  estimator, so `sklearn.estimator_html_repr`, `set_config(transform_output=...)`,
+  and routing-aware helpers see RFECV as a classifier or regressor as
+  appropriate (instead of a generic transformer).
+- `cv_results_` stays a dict-of-arrays (sklearn parity); `cv_results_df_`
+  is a lazy property that returns the same data as a `pd.DataFrame` for
+  tabular operations (`df.sort_values("cv_mean_perf", ascending=False)`,
+  `df.to_csv(...)`, etc.). Backward-compatible: existing
+  `cv_results_["nfeatures"]` access continues to work.
+
+## Time-series CV auto-detect
+
+When `cv` is left as a plain integer (or default 3) AND `X` carries a
+monotonic `pd.DatetimeIndex` AND `groups` is None, RFECV substitutes
+`TimeSeriesSplit(n_splits=cv)` automatically (avoids future-into-past
+leakage that `KFold` would introduce). Pass `cv=KFold(...)` explicitly
+to override the auto-detect.
+
 ## See also
 
 - `feature_selection/wrappers/TODO.md` — deferred ML improvements
 - `feature_selection/_benchmarks/bench_pr4_methods.py --large` — full bench
+- `feature_selection/_benchmarks/bench_rfecv_vs_sklearn.py` — h2h vs sklearn
 - `feature_selection/_benchmarks/profile_rfecv.py` — cProfile hotspot scan
+- `feature_selection/_benchmarks/profile_new_features.py` — PR-12/13 profile
 - `tests/feature_selection/test_wrappers_*.py` — comprehensive test suite

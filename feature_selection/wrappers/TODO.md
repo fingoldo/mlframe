@@ -155,7 +155,16 @@ only swap among top-5 dropped and top-5 selected.
 Cost: ~6K extra fits on a 50-iter run = ~60s overhead at 10ms/fit. Tractable
 as opt-in flag.
 
-Add `swap_after_each_iter=False` (default) / `swap_top_k=5` parameters.
+DONE in PR-13 as a final-pass (not per-iter) variant: `swap_top_k: int = 0`
+runs K paired swaps on the BEST subset after the main MBH loop converges.
+For each of the K worst-FI kept features, try replacing it with one of the
+K best-FI dropped features and accept any swap that strictly improves the
+CV score. Cost: O(K) extra `cross_val_score` calls at the end of the run
+only (vs O(K * iter_count) for per-iter). Uses `sklearn.cross_val_score`
+directly so swap evals do NOT honour `fit_params` / `val_cv` / early
+stopping; documented in USAGE.md. Tested in `test_wrappers_phase8.py
+::TestSffsSwap` (4 tests: opt-out default, opt-in fires, monotone-or-equal
+to non-swap baseline, regression smoke).
 
 ### 6. Boruta integration
 
@@ -217,6 +226,24 @@ PR-12 closed three high-priority items:
 3. **cProfile pass on post-refactor code** — re-ran
    `_benchmarks/profile_rfecv.py` after the Phase 3 module split (the
    prior profile referenced the now-deleted monolithic `wrappers.py`).
+   PR-13 also profiled all PR-12/PR-13 newly-added features via
+   `_benchmarks/profile_new_features.py` (results in
+   `_benchmarks/_results/profile_pr1213_*.txt`):
+
+   | New feature | Wall time on bench | Hot-spot | Action |
+   |-------------|--------------------|----------|--------|
+   | CPI (RF, n=600, p=40) | 9.77s | 87% in user's `model.score()` (RF predict_proba); CPI's Python orchestration ~5% | none — bottleneck is C-compiled tree ensemble predict |
+   | CPI (Ridge, n=400, p=30) | 0.98s | 67% in `model.score()`, 18% per-feature shallow-tree fit | none — feature-wise loop trivially parallelisable but conflicts with the existing per-fold N3 joblib layer; cost-vs-complexity not warranted |
+   | SFFS swap (LR, n=400, p=20, K=5) | sub-100ms within 6.2s total | not a top-30 hotspot (K=5 swap evals = ~15 LR fits) | none — overhead negligible vs main MBH loop |
+   | __sklearn_tags__ | one-time call | µs | trivial |
+   | cv auto-detect | one-time check | µs | trivial |
+   | cv_results_df_ property | on access | ms | trivial |
+   | resume-from-checkpoint pickle | per outer iter | bounded by IO | not actionable |
+
+   **Conclusion: no actionable @njit / numba candidate in any
+   PR-12/PR-13 feature.** All Python overhead in CPI is dwarfed by the
+   user's compiled `model.score()`; SFFS swap is sub-noise. Documented
+   per `feedback_perf_measure_first` so the same flag isn't re-raised.
    Outcome: **no actionable @njit / numba candidate remains.** Fresh
    profile_*.txt files saved to `_benchmarks/_results/` show that on
    the medium (n=600, p=80) and large (n=1000, p=200) configurations

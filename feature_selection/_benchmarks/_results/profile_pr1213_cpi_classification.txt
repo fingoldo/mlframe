@@ -1,0 +1,38 @@
+         6727027 function calls (6710607 primitive calls) in 10.236 seconds
+
+   Ordered by: cumulative time
+   List reduced from 572 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000   10.373   10.373 profile_new_features.py:64(_cpi_medium)
+        1    0.000    0.000    9.770    9.770 _helpers.py:510(get_feature_importances)
+        1    0.117    0.117    9.770    9.770 _helpers.py:407(_conditional_permutation_importance)
+      201    0.003    0.000    9.058    0.045 base.py:540(score)
+      201    0.004    0.000    8.751    0.044 _forest.py:882(predict)
+      201    0.009    0.000    8.741    0.043 _forest.py:921(predict_proba)
+      202    0.001    0.000    8.367    0.041 parallel.py:54(__call__)
+      202    0.012    0.000    8.364    0.041 parallel.py:1969(__call__)
+    20604    0.127    0.000    8.344    0.000 parallel.py:1888(_get_sequential_output)
+    20200    1.266    0.000    7.522    0.000 parallel.py:140(__call__)
+    20100    0.175    0.000    2.681    0.000 _forest.py:723(_accumulate_prediction)
+    20100    1.164    0.000    2.493    0.000 _classes.py:1035(predict_proba)
+   121200    0.532    0.000    1.300    0.000 warnings.py:130(filterwarnings)
+       41    0.001    0.000    1.115    0.027 base.py:1319(wrapper)
+    20682    0.080    0.000    1.081    0.000 validation.py:1621(check_is_fitted)
+      140    0.642    0.005    0.838    0.006 _classes.py:234(_fit)
+     1831    0.052    0.000    0.797    0.000 validation.py:725(check_array)
+      282    0.004    0.000    0.739    0.003 validation.py:2793(validate_data)
+      201    0.002    0.000    0.726    0.004 _forest.py:628(_validate_X_predict)
+    20402    0.040    0.000    0.684    0.000 parallel.py:83(<genexpr>)
+        1    0.000    0.000    0.596    0.596 _forest.py:327(fit)
+    20301    0.064    0.000    0.593    0.000 _forest.py:956(<genexpr>)
+    42301    0.041    0.000    0.537    0.000 {built-in method builtins.next}
+   267053    0.416    0.000    0.517    0.000 warnings.py:181(_add_filter)
+   145853    0.207    0.000    0.512    0.000 warnings.py:165(simplefilter)
+    20682    0.068    0.000    0.511    0.000 validation.py:1583(_is_fitted)
+    40886    0.089    0.000    0.496    0.000 _config.py:233(config_context)
+       40    0.001    0.000    0.491    0.012 _classes.py:1377(fit)
+21988/21384    0.026    0.000    0.475    0.000 _tags.py:250(get_tags)
+   121200    0.086    0.000    0.451    0.000 __init__.py:225(compile)
+
+

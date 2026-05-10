@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-05-10 — RFECV PR-13: API polish + truncated SFFS final-pass swap
+
+Closes 4 items from `feature_selection/wrappers/TODO.md` (and one usability gap).
+
+### Added
+
+- **`swap_top_k: int = 0`** on `RFECV` — opt-in truncated SFFS final-pass swap (TODO #5). After the main MBH loop converges, runs K paired swap evaluations on the best subset: replace each of the K worst-FI kept features with one of the K best-FI dropped features, accept any swap that strictly improves the CV score. Cost: O(K) extra `cross_val_score` calls at the END of the run only (vs O(K * iter_count) for classical SFFS). Swap evals use `sklearn.model_selection.cross_val_score` directly so they do NOT honour `fit_params` / `val_cv` / early stopping; documented in USAGE.md as a final-mile refinement on a converged result. Default 0 = disabled (matches prior behaviour).
+- **`__sklearn_tags__`** on `RFECV` — sklearn 1.6+ tag protocol. The wrapper delegates `estimator_type` / `classifier_tags` / `regressor_tags` / `target_tags` to the inner estimator (multi-estimator path uses `estimators[0]`), so downstream sklearn helpers (`estimator_html_repr`, `set_config(transform_output=...)`, request routing) see RFECV as a classifier or regressor as appropriate.
+- **`cv_results_df_` property** on `RFECV` — lazy `pd.DataFrame` view of `cv_results_` for tabular operations (`sort_values`, `to_csv`, `query`, `plot`). `cv_results_` itself stays a dict-of-arrays for sklearn parity; existing `cv_results_["nfeatures"]` access continues to work.
+- **`TimeSeriesSplit` auto-detect** — when `cv` is left as a plain integer (or default 3) AND `X` carries a monotonic `pd.DatetimeIndex` AND `groups` is None, RFECV substitutes `TimeSeriesSplit(n_splits=cv)` to avoid future-into-past leakage. Pass an explicit `cv=KFold(...)` to opt out.
+
+### Performance
+
+- **cProfile pass on PR-12 + PR-13 newly-added features** (`_benchmarks/profile_new_features.py`; results in `_benchmarks/_results/profile_pr1213_*.txt`). Per `feedback_profile_new_features`, every new non-trivial feature was profiled. Findings:
+  - **CPI (PR-12)**: 87% of wall-clock is the user's `model.score()` (RandomForest `predict_proba` is the dominant cost on the bench's RF setup); CPI's Python orchestration is ~5%. No actionable @njit candidate. Per-feature loop is trivially parallelisable but conflicts with the existing per-fold N3 joblib layer; cost-vs-complexity not warranted.
+  - **SFFS swap (PR-13)**: K=5 paired swaps add ~15 LR fits at the end of the run; sub-noise vs the main MBH loop, not a top-30 hotspot. No optimization needed.
+  - **Trivial features (`__sklearn_tags__`, `cv` auto-detect, `cv_results_df_`, resume-from-checkpoint pickle)**: µs-to-ms one-time / per-iter costs, not on any hot path.
+
+### Verification
+
+- `test_wrappers_h2h_sklearn.py` (CI guard-rail vs `sklearn.feature_selection.RFECV`) re-run on the post-PR-13 code: 5/5 passed in 38.88s — score parity (LR / Ridge / RF), informative-recall parity, subset-size parity on redundant problems all hold.
+- Standalone `bench_rfecv_vs_sklearn.py` re-runnable end-to-end on current code (was last touched on the original module-split PRs).
+
+### Tests
+
+- `test_wrappers_phase8.py` — 15 new tests covering all 4 added features:
+  - `TestSklearnTags` (4): classifier / regressor / multi-estimator / no-estimator branches.
+  - `TestCvAutoDetect` (3): monotonic DatetimeIndex triggers TSS; non-monotonic does not; explicit cv overrides the auto-detect.
+  - `TestCvResultsDataFrame` (4): property returns DataFrame; columns round-trip with the dict; raises before fit; dict-style access still works.
+  - `TestSffsSwap` (4): default disabled (no swap pass log); opt-in fires the swap pass; swap is monotone-or-equal vs disabled (strict improvement only); regression target works through the pass.
+
 ## 2026-05-10 — Plot inline display in jupyter + dummy_baselines per_group_mean on auto-dropped high-card cat cols
 
 Two follow-up fixes surfaced by a real well-log training-suite run

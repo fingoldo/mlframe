@@ -52,6 +52,7 @@ from sklearn.model_selection import (
     StratifiedGroupKFold,
     StratifiedKFold,
     StratifiedShuffleSplit,  # noqa: F401  (re-exported for callers)
+    TimeSeriesSplit,
 )
 from sklearn.pipeline import Pipeline
 
@@ -321,6 +322,19 @@ class RFECV(BaseEstimator, TransformerMixin):
         # ensembles). Atomic write: tmpfile + os.replace, so a crash
         # mid-write cannot corrupt the previous checkpoint.
         checkpoint_path: Union[str, None] = None,
+        # Phase 8: truncated SFFS final-pass swap (TODO #5).
+        # After the main MBH loop converges, run K paired swap evaluations
+        # on the best subset found: replace each of the K worst-FI features
+        # currently kept with each of the K best-FI features that were
+        # dropped. Accept any swap that improves the CV score. Cost is
+        # O(K) extra CV evaluations at the END of the run only, not
+        # per-iter (classical SFFS would run after every backward step
+        # but that's O(K) per iter * iter_count, often impractical).
+        # Default 0 = disabled (matches prior behaviour).
+        # Swap evaluations use sklearn.cross_val_score directly and so
+        # do NOT honour fit_params / val_cv / early stopping. Use it as
+        # a final-mile refinement on a converged result.
+        swap_top_k: int = 0,
     ):
 
         # checks
@@ -395,6 +409,157 @@ class RFECV(BaseEstimator, TransformerMixin):
         params = get_parent_func_args()
         store_params_in_object(obj=self, params=params)
         self.signature = None
+
+    # ------------------------------------------------------------------------
+    # Phase 8: truncated SFFS final-pass swap (TODO #5)
+    # ------------------------------------------------------------------------
+    def _sffs_swap_pass(
+        self, X, y, estimator, cv, scoring,
+        best_nfeatures: int, best_score_ref: float,
+        selected_features_per_nfeatures: dict, feature_importances: dict,
+        original_features, evaluated_scores_mean: dict,
+        evaluated_scores_std: dict, verbose: int, ndigits: int,
+    ) -> None:
+        """Replace each of the K worst-FI kept features with each of the
+        K best-FI dropped features and accept any swap that improves the
+        CV score. Mutates selected_features_per_nfeatures /
+        evaluated_scores_* in place. Cost: O(K) extra CV evaluations
+        executed via sklearn.model_selection.cross_val_score.
+        """
+        from sklearn.model_selection import cross_val_score
+
+        K = int(self.swap_top_k)
+        best_set = list(selected_features_per_nfeatures.get(best_nfeatures, []))
+        if len(best_set) < 1:
+            return
+
+        # Aggregate FI across all runs (mean of non-NaN values per feature).
+        from collections import defaultdict
+        fi_acc = defaultdict(list)
+        for _key, _fi in feature_importances.items():
+            for feat, val in _fi.items():
+                try:
+                    if val is not None and not (isinstance(val, float) and np.isnan(val)):
+                        fi_acc[feat].append(float(val))
+                except (TypeError, ValueError):
+                    continue
+        fi_mean = {f: float(np.mean(v)) for f, v in fi_acc.items() if v}
+
+        # Worst K kept (lowest FI). Features with no FI history go to the
+        # bottom (treated as 0 importance).
+        kept_sorted = sorted(best_set, key=lambda f: fi_mean.get(f, 0.0))
+        swap_out = kept_sorted[:K]
+        # Best K dropped (highest FI among features NOT in best_set).
+        not_in_set = [f for f in original_features if f not in set(best_set)]
+        not_sorted = sorted(not_in_set, key=lambda f: fi_mean.get(f, 0.0), reverse=True)
+        swap_in = not_sorted[:K]
+
+        cur_set = list(best_set)
+        cur_score = float(best_score_ref)
+        n_swaps_accepted = 0
+        for out_f, in_f in zip(swap_out, swap_in):
+            trial_set = [in_f if f == out_f else f for f in cur_set]
+            # Build the trial-X view. DataFrame: column-by-name slice;
+            # ndarray: integer-index slice via the original_features lookup.
+            try:
+                if isinstance(X, pd.DataFrame):
+                    trial_X = X[trial_set]
+                else:
+                    idx = [list(original_features).index(f) for f in trial_set]
+                    trial_X = X[:, idx]
+                trial_scores = cross_val_score(
+                    clone(estimator), trial_X, y, cv=cv,
+                    scoring=scoring, n_jobs=1,
+                )
+            except Exception as _exc:
+                if verbose:
+                    logger.warning(
+                        "SFFS swap %s -> %s evaluation failed (%s); skipping pair.",
+                        out_f, in_f, _exc,
+                    )
+                continue
+            if trial_scores is None or len(trial_scores) == 0:
+                continue
+            trial_mean = float(np.nanmean(trial_scores))
+            trial_std = float(np.nanstd(trial_scores))
+            if trial_mean > cur_score:
+                if verbose:
+                    logger.info(
+                        f"SFFS swap accepted: {out_f} -> {in_f} improved "
+                        f"{cur_score:.{ndigits}f} -> {trial_mean:.{ndigits}f}"
+                    )
+                cur_set = trial_set
+                cur_score = trial_mean
+                n_swaps_accepted += 1
+                # Persist the swap into the standard tracking dicts. Since
+                # |trial_set| == |best_set|, this overwrites the entry for
+                # that nfeatures count.
+                _n = len(trial_set)
+                selected_features_per_nfeatures[_n] = trial_set
+                evaluated_scores_mean[_n] = trial_mean
+                evaluated_scores_std[_n] = trial_std
+
+        if verbose:
+            logger.info(
+                f"SFFS swap pass: {n_swaps_accepted}/{len(swap_out)} paired "
+                f"swaps accepted (best score {cur_score:.{ndigits}f})."
+            )
+
+    # ------------------------------------------------------------------------
+    # Phase 8: tabular access to cv_results_ via DataFrame property
+    # ------------------------------------------------------------------------
+    # cv_results_ stays a dict-of-arrays (sklearn parity: sklearn.RFECV uses
+    # the same shape). The DataFrame property below is purely additive and
+    # avoids the silent semantics change that "0 in series" would introduce
+    # vs "0 in list" (Series.__contains__ checks the INDEX, not values).
+    @property
+    def cv_results_df_(self) -> "pd.DataFrame":
+        """Return cv_results_ as a pd.DataFrame for tabular operations
+        (sort_values, query, plot, to_csv). Built lazily on access; raises
+        if fit() has not run."""
+        if not hasattr(self, "cv_results_") or "nfeatures" not in self.cv_results_:
+            raise ValueError(
+                "cv_results_df_ requires fit() to have been called and "
+                "cv_results_ to be populated."
+            )
+        return pd.DataFrame(self.cv_results_)
+
+    # ------------------------------------------------------------------------
+    # sklearn-1.6+ tag protocol
+    # ------------------------------------------------------------------------
+    # sklearn 1.6 deprecated _get_tags / _more_tags in favour of the
+    # __sklearn_tags__ method, which returns a sklearn.utils.Tags dataclass
+    # carrying classifier/regressor type info, input contract, and request
+    # metadata. Without overriding it, downstream sklearn helpers
+    # (estimator_html_repr, check_is_fitted, set_config(transform_output=...))
+    # see RFECV as a generic transformer with no estimator-type tag and may
+    # mis-route routing requests. We delegate to the wrapped estimator's
+    # tags so downstream code knows whether RFECV is acting on a classifier
+    # or a regressor.
+    def __sklearn_tags__(self):
+        tags = super().__sklearn_tags__()
+        # Resolve the inner estimator (multi-estimator path uses self.estimators[0]
+        # as the type-determining estimator; single-estimator path uses
+        # self.estimator). Default to whatever super() returned otherwise.
+        inner = None
+        if getattr(self, "estimators", None):
+            try:
+                inner = list(self.estimators)[0]
+            except (TypeError, IndexError):
+                inner = None
+        if inner is None:
+            inner = getattr(self, "estimator", None)
+        if inner is not None and hasattr(inner, "__sklearn_tags__"):
+            try:
+                inner_tags = inner.__sklearn_tags__()
+                tags.estimator_type = inner_tags.estimator_type
+                tags.classifier_tags = inner_tags.classifier_tags
+                tags.regressor_tags = inner_tags.regressor_tags
+                tags.target_tags = inner_tags.target_tags
+            except (AttributeError, TypeError):
+                # Inner estimator's tags failed to surface; keep super()'s defaults.
+                pass
+        return tags
 
     # ------------------------------------------------------------------------
     # Phase 7: resume-from-checkpoint
@@ -996,7 +1161,26 @@ class RFECV(BaseEstimator, TransformerMixin):
         if cv is None or str(cv).isnumeric():
             if cv is None:
                 cv = 3
-            if is_classifier(estimator):
+            # Phase 8: time-series auto-detect. If X carries a monotonic
+            # DatetimeIndex, KFold-style shuffles will leak future into
+            # past; TimeSeriesSplit is the correct choice. Triggers ONLY
+            # when groups is None (group-aware splits already handle the
+            # common temporal-grouping idiom) and the index is strictly
+            # increasing (so we don't apply TSS to randomly-shuffled
+            # datetime data, which has no ordering meaning).
+            _is_time_series = False
+            if groups is None and isinstance(X, pd.DataFrame):
+                _idx = X.index
+                if isinstance(_idx, pd.DatetimeIndex) and _idx.is_monotonic_increasing:
+                    _is_time_series = True
+            if _is_time_series:
+                cv = TimeSeriesSplit(n_splits=cv)
+                if verbose:
+                    logger.info(
+                        "Using cv=%s (auto-detected from monotonic DatetimeIndex; "
+                        "pass cv=KFold(...) explicitly to override).", cv,
+                    )
+            elif is_classifier(estimator):
                 if groups is not None:
                     cv = StratifiedGroupKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state if cv_shuffle else None)
                 else:
@@ -1012,7 +1196,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                         cv = KFold(n_splits=cv, shuffle=True, random_state=random_state)
                     else:
                         cv = KFold(n_splits=cv, shuffle=False)
-            if verbose:
+            if verbose and not _is_time_series:
                 logger.info("Using cv=%s", cv)
 
         if early_stopping_val_nsplits:
@@ -1732,6 +1916,37 @@ class RFECV(BaseEstimator, TransformerMixin):
                 if verbose:
                     logger.info(f"Quitting as special_feature_indices were checked.")
                 break
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Phase 8: truncated SFFS final-pass swap (TODO #5).
+        # Run K paired swaps on the best subset found: replace each of the
+        # K worst-FI kept features with each of the K best-FI dropped
+        # features. Accept any swap that improves the CV score. Uses
+        # sklearn.cross_val_score directly so this is opt-in only and
+        # does NOT honour fit_params / val_cv / early stopping (those
+        # are RFECV-specific knobs that don't pass through cleanly).
+        # ----------------------------------------------------------------------------------------------------------------------------
+        if self.swap_top_k and self.swap_top_k > 0 and best_nfeatures > 0:
+            try:
+                self._sffs_swap_pass(
+                    X=X, y=y, estimator=estimator, cv=cv, scoring=scoring,
+                    best_nfeatures=best_nfeatures, best_score_ref=best_score,
+                    selected_features_per_nfeatures=selected_features_per_nfeatures,
+                    feature_importances=feature_importances,
+                    original_features=original_features,
+                    evaluated_scores_mean=evaluated_scores_mean,
+                    evaluated_scores_std=evaluated_scores_std,
+                    verbose=verbose, ndigits=ndigits,
+                )
+                # After the swap pass best_nfeatures may have changed.
+                if evaluated_scores_mean:
+                    new_best_nf = max(evaluated_scores_mean, key=evaluated_scores_mean.get)
+                    if evaluated_scores_mean[new_best_nf] > best_score:
+                        best_nfeatures = new_best_nf
+                        best_score = evaluated_scores_mean[new_best_nf]
+            except Exception as _swap_exc:
+                if verbose:
+                    logger.warning("RFECV: SFFS swap pass failed (%s); continuing.", _swap_exc)
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Saving best result found so far as final
