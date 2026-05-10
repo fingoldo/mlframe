@@ -4350,38 +4350,107 @@ def train_mlframe_models_suite(
                             "[dummy-baselines] target='%s' full table:\n%s",
                             cur_target_name, _db_report.table.to_string(),
                         )
-                        # 2026-05-11: pre-training overlay chart for
-                        # the strongest dummy baseline. Renders BEFORE
-                        # any process_model() fires so the user sees
-                        # the no-model floor (predictions-vs-actual +
-                        # residual hist for regression; class-prior
-                        # bar for classification) right next to the
-                        # verdict line. Default ON, gated on
-                        # ``dummy_baselines_config.plot_strongest``.
+                        # 2026-05-11 (round 2): report the strongest
+                        # dummy baseline through the SAME
+                        # ``report_model_perf`` pipeline that all
+                        # real models go through. Yields the same
+                        # text report (MAE/RMSE/MaxError/R2 +
+                        # residual_audit verdict) AND the same chart
+                        # (regression scatter + residual hist for
+                        # regression; calibration + prob-hist for
+                        # classification) as cb/xgb/lgb/linear. The
+                        # earlier standalone overlay helper was
+                        # cosmetically different from the model
+                        # reports; user wants ONE format. Gated on
+                        # ``dummy_baselines_config.plot_strongest``
+                        # (default ON).
                         if (getattr(dummy_baselines_config,
                                     "plot_strongest", True)
                                 and _db_report.strongest is not None):
                             try:
-                                from .dummy_baselines import (
-                                    plot_best_dummy_baseline_overlay,
+                                from .evaluation import report_model_perf
+                                _strongest_val_raw = _db_report.extras.get(
+                                    "strongest_val_preds",
                                 )
-                                _save = (
-                                    f"{plot_file}_dummy_baseline_floor.png"
-                                    if plot_file else None
+                                _strongest_test_raw = _db_report.extras.get(
+                                    "strongest_test_preds",
                                 )
-                                plot_best_dummy_baseline_overlay(
-                                    _db_report,
-                                    val_y=current_val_target,
-                                    test_y=current_test_target,
-                                    save_path=_save,
-                                    show=True,
+                                _dummy_name = (
+                                    f"DummyBaseline:{_db_report.strongest}"
                                 )
+
+                                def _split_preds_probs(arr):
+                                    """Regression: 1-D ``preds``;
+                                    classification: 2-D ``probs`` +
+                                    derived 1-D ``preds`` via argmax."""
+                                    if arr is None:
+                                        return None, None
+                                    a = np.asarray(arr)
+                                    if a.ndim == 2:
+                                        # Classification dummy: arr
+                                        # is per-class probability.
+                                        return np.argmax(a, axis=1), a
+                                    return a, None
+
+                                _common = dict(
+                                    columns=list(
+                                        getattr(filtered_train_df,
+                                                "columns", []) or []
+                                    ),
+                                    df=None, model=None,
+                                    model_name=_dummy_name,
+                                    plot_outputs=getattr(
+                                        reporting_config,
+                                        "plot_outputs", None,
+                                    ),
+                                    plot_dpi=getattr(
+                                        reporting_config,
+                                        "plot_dpi", None,
+                                    ),
+                                    show_fi=False,
+                                    target_type=str(target_type),
+                                )
+                                if (_strongest_val_raw is not None
+                                        and current_val_target is not None):
+                                    _vp, _vpr = _split_preds_probs(
+                                        _strongest_val_raw,
+                                    )
+                                    _common_val = dict(_common)
+                                    if plot_file:
+                                        _common_val["plot_file"] = (
+                                            f"{plot_file}"
+                                            f"_dummy_{_db_report.strongest}_val"
+                                        )
+                                    report_model_perf(
+                                        targets=current_val_target,
+                                        preds=_vp, probs=_vpr,
+                                        report_title="VAL (DUMMY) ",
+                                        **_common_val,
+                                    )
+                                if (_strongest_test_raw is not None
+                                        and current_test_target is not None):
+                                    _tp, _tpr = _split_preds_probs(
+                                        _strongest_test_raw,
+                                    )
+                                    _common_test = dict(_common)
+                                    if plot_file:
+                                        _common_test["plot_file"] = (
+                                            f"{plot_file}"
+                                            f"_dummy_{_db_report.strongest}_test"
+                                        )
+                                    report_model_perf(
+                                        targets=current_test_target,
+                                        preds=_tp, probs=_tpr,
+                                        report_title="TEST (DUMMY) ",
+                                        **_common_test,
+                                    )
                             except Exception as _plot_err:
                                 logger.warning(
                                     "[dummy-baselines] target='%s' "
-                                    "overlay-plot failed: %s. "
-                                    "Training continues without "
-                                    "pre-training floor chart.",
+                                    "report_model_perf for dummy "
+                                    "failed: %s. Training continues "
+                                    "without pre-training floor "
+                                    "report.",
                                     cur_target_name, _plot_err,
                                 )
                         metadata.setdefault("dummy_baselines", {}) \

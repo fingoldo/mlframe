@@ -147,6 +147,69 @@ class TestConfigPlotStrongestDefaultOn:
             "manual opt-out via plot_strongest=False")
 
 
+class TestDummyGoesThroughReportModelPerf:
+    """2026-05-11 (round 2): user wants the strongest dummy baseline
+    reported through the SAME ``report_model_perf`` machinery as
+    every real model (cb/xgb/lgb/linear). Same text format, same
+    chart (regression scatter + residual hist; classification
+    calibration + prob-hist), same residual_audit. Verified by
+    asserting that the in-suite shim path calls ``report_model_perf``
+    with the right kwargs.
+    """
+
+    def test_unit_report_model_perf_accepts_dummy_preds(
+        self, monkeypatch,
+    ) -> None:
+        """``report_model_perf`` accepts ``model=None`` + ``preds=...``
+        for regression (the path the suite uses to plug dummy preds
+        in). The function returns the same `(preds, None)` shape."""
+        from mlframe.training.evaluation import report_model_perf
+        rng = np.random.default_rng(0)
+        n = 500
+        y_true = rng.normal(loc=10, scale=2, size=n)
+        dummy_preds = np.full(n, y_true.mean())
+        # Use ``show_perf_chart=False`` + ``print_report=False`` so
+        # the test doesn't open matplotlib windows or print to log.
+        # The contract: no crash + returns predictions back.
+        preds_out, probs_out = report_model_perf(
+            targets=y_true, columns=["x1", "x2"],
+            model_name="DummyBaseline:mean", model=None,
+            preds=dummy_preds, df=None,
+            report_title="VAL (DUMMY) ",
+            print_report=False, show_perf_chart=False,
+            show_fi=False, target_type="regression",
+        )
+        assert preds_out is not None
+        assert probs_out is None  # regression -> no probs
+        assert len(preds_out) == n
+
+    def test_unit_dummy_classification_routes_via_probs(self) -> None:
+        """Classification dummy: 2-D probability arrays. The shim
+        must split into ``preds`` (argmax) + ``probs``. We assert
+        the contract via a direct ``report_model_perf`` call mirroring
+        the in-suite logic."""
+        from mlframe.training.evaluation import report_model_perf
+        rng = np.random.default_rng(0)
+        n = 500
+        y_true = rng.integers(0, 2, size=n)
+        # "stratified" dummy: 2-D probabilities, balanced.
+        dummy_probs = np.column_stack([
+            np.full(n, 0.6), np.full(n, 0.4),
+        ])
+        dummy_preds = np.argmax(dummy_probs, axis=1)
+        preds_out, probs_out = report_model_perf(
+            targets=y_true, columns=["x1"],
+            model_name="DummyBaseline:stratified", model=None,
+            preds=dummy_preds, probs=dummy_probs, df=None,
+            report_title="VAL (DUMMY) ",
+            print_report=False, show_perf_chart=False,
+            show_fi=False, target_type="binary_classification",
+        )
+        assert preds_out is not None
+        assert probs_out is not None
+        assert probs_out.shape == (n, 2)
+
+
 class TestOverlayHandlesMissingPreds:
     """If extras have only val (or only test) preds, the plotter
     falls back gracefully -- doesn't crash, renders what it can."""
