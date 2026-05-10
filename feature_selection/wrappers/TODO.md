@@ -43,16 +43,51 @@ Worth it on highly-collinear feature sets.
 Add as `importance_getter='conditional_permutation'`. Implementation: use
 sklearn DecisionTreeRegressor / DecisionTreeClassifier per feature.
 
-### 3. Knockoffs (Barber & Candès 2015)
+### 2b. SHAP IS biased toward high-cardinality features (correction to PR-3 doc)
 
-Generate a synthetic "knockoff" X_tilde_j with the same correlation structure
-as X_j vs X_{-j} but independent of y. Importance = score with X_j swapped for
-X_tilde_j.
+Earlier docs incorrectly claimed `importance_getter='shap'` is bias-free
+for high-cardinality features. This is **not true**: SHAP TreeExplainer
+follows the SAME tree paths used by Gini/gain, so it inherits the same
+bias toward features with more unique values (more split points = more
+opportunities to randomly improve impurity).
 
-Per-fit cost: Cholesky factorisation of X.T @ X (~p^3) plus the original fit.
-Tractable up to p ~ 10k.
+References:
+- Strobl, Boulesteix, Zeileis, Hothorn 2007, "Bias in random forest variable
+  importance measures: Illustrations, sources and a solution".
+- Sutera et al. 2021 - SHAP-based importance measures inherit the same
+  biases as the underlying tree method.
 
-Reference: `knockpy` Python package.
+For truly high-card-bias-free FI, use:
+- `importance_getter='permutation'` (vanilla, Breiman 2001) - unbiased for
+  cardinality but breaks on correlated features (use 'conditional_permutation'
+  in that case).
+- `importance_getter='knockoff'` (PR-5) - Gaussian knockoffs (Barber-Candes
+  2015), no high-card bias AND robust to correlations.
+
+`importance_getter='shap'` remains useful for:
+- per-prediction local explanations (its actual purpose)
+- global summaries when feature cardinality is comparable
+- tree-based models when speed matters (faster than permutation)
+
+But it is NOT a replacement for permutation/knockoffs on high-card data.
+
+### 3. Knockoffs (Barber & Candès 2015) - DONE in PR-5
+
+`mlframe.feature_selection.wrappers.make_gaussian_knockoffs` and
+`knockoff_importance` now provide equicorrelated Gaussian knockoffs +
+W-statistic computation. Bias-free for high-cardinality and correlation-
+robust. Tested on synthetic data (12 features, 4 informative, class_sep=2.5):
+informative features get W >> noise W.
+
+Future enhancements (not in PR-5):
+- **SDP-optimised s** (Barber-Candes' "SDP knockoffs") for tighter
+  knockoff diagonal. Requires cvxpy. Currently equicorrelated.
+- **Model-X knockoffs** (Candes, Fan, Janson, Lv 2018) - drop the
+  Gaussian assumption; use any conditional distribution estimator.
+- **FDR-controlled selection** at level q: pick features with W_j >= tau
+  where tau = min{t : (1 + #{j: W_j <= -t}) / max(1, #{j: W_j >= t}) <= q}.
+  Provable FDR <= q. Currently the user can compute this themselves from
+  the W dict; could be a built-in `select_features_fdr(W, q=0.1)` helper.
 
 ### 4. Stability Selection (Meinshausen & Bühlmann 2010)
 

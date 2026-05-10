@@ -1,5 +1,35 @@
 # Changelog
 
+## 2026-05-10 — RFECV PR-5: Gaussian Knockoffs + multi-estimator min-aggregation fix + SHAP bias correction
+
+### Gaussian Knockoffs (Barber & Candes 2015)
+
+New helpers: `make_gaussian_knockoffs(X, random_state)` and `knockoff_importance(model_factory, X, y, random_state)`. Equicorrelated Gaussian knockoff construction: for each X_j produces X_tilde_j with the same correlation with X_{-j} but independent of y. Importance W_j = imp(X_j) - imp(X_tilde_j) is computed from a fresh model fit on the 2p-column joint design.
+
+Why this matters: SHAP and tree `feature_importances_` BOTH inherit the high-cardinality bias of Gini/gain (they walk the same tree paths). Vanilla permutation is unbiased for cardinality but breaks on correlated features. Knockoffs solve BOTH problems: bias-free for high-cardinality AND robust to correlations.
+
+Tested: self-corr near 0, cross-correlation structure preserved within 0.25 tolerance, informative features W >> noise W on synthetic.
+
+### Multi-estimator score aggregation: mean -> min (worst-case)
+
+The PR-4 multi-estimator MBH path collapsed to 2-feature optima on the bench (recall 0.25). Root cause: per-fold score = mean(LR_score, RF_score) let the strong estimator hide the weak estimator's need for more features.
+
+Fix: per-fold score = MIN across estimators (worst-case). This forces N where ALL estimators agree the subset is sufficient. Helped on some seeds (0.25 -> 0.75) but not a complete fix - the underlying issue is MBH's flat-score-plateau problem on easy synthetic problems. The robust path remains `stability_selection=True + estimators=[...]` (sidesteps MBH search via bootstrap voting; the bench winner with recall 0.92, stability 0.63).
+
+### Documentation correction: SHAP IS biased toward high-cardinality
+
+Earlier docs (PR-3) claimed `importance_getter='shap'` is bias-free for high-cardinality features. Wrong: SHAP TreeExplainer follows the same tree paths as Gini/gain and inherits the same bias. References: Strobl et al. 2007; Sutera et al. 2021. For truly high-card-bias-free FI: use `permutation` (may break on correlations) or `knockoff` (this PR).
+
+### Tests
+
+- New `test_wrappers_knockoffs.py` (9 tests, all green): K1 sanity (shape, self-corr near 0, cross-corr structure preserved, deterministic with seed, different seeds differ, handles constant cols), K2 importance (informative features get positive W; W is signed dict), K3 multi-estimator min-aggregation (no-collapse on noisy class_sep=1.0 problem).
+
+### TODO updates
+
+- Knockoffs marked DONE in `feature_selection/wrappers/TODO.md`.
+- Added SHAP-bias correction note (PR-3 doc was wrong).
+- Future: SDP-optimised s for tighter knockoffs, Model-X knockoffs, FDR-controlled selection helper.
+
 ## 2026-05-10 — RFECV PR-4: Stability Selection + Multi-estimator voting + 5 tactical fixes
 
 PR-4 of the RFECV rework. Lands every substantive ML improvement surfaced in user discussion of FI bias and alternative selection algorithms.

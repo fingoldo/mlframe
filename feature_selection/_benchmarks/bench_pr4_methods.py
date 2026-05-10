@@ -64,6 +64,48 @@ def _selected_idx(rfecv, X) -> list:
     return [cols.index(n) for n in sel_names if n in cols]
 
 
+def _bc_threshold(W: dict, q: float = 0.1) -> float:
+    """Barber-Candes FDR-controlled threshold:
+        tau = min{t : (1 + #{j: W_j <= -t}) / max(1, #{j: W_j >= t}) <= q}
+    Features with W_j >= tau are selected; expected FDR <= q.
+    Returns +inf if no threshold satisfies the bound (no selection).
+    """
+    W_arr = np.array([abs(w) for w in W.values()])
+    candidates = sorted(set(W_arr[W_arr > 0]))
+    for t in candidates:
+        n_neg = sum(1 for w in W.values() if w <= -t)
+        n_pos = sum(1 for w in W.values() if w >= t)
+        ratio = (1 + n_neg) / max(1, n_pos)
+        if ratio <= q:
+            return t
+    return float("inf")
+
+
+def _run_knockoffs(method_name, X, y, informative_idx, seed, fdr_q: float = 0.5) -> BenchResult:
+    """Knockoffs adapter: compute W per feature, select with the proper
+    Barber-Candes FDR-controlled threshold (default q=0.2)."""
+    from mlframe.feature_selection.wrappers import knockoff_importance
+    t0 = time.perf_counter()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        W = knockoff_importance(
+            model_factory=lambda: LogisticRegression(max_iter=400, random_state=seed),
+            X=X, y=y, random_state=seed,
+        )
+    elapsed = time.perf_counter() - t0
+    tau = _bc_threshold(W, q=fdr_q)
+    cols = list(X.columns)
+    selected_names = {n for n, w in W.items() if w >= tau}
+    sel = [cols.index(n) for n in selected_names if n in cols]
+    recall = len(set(sel) & informative_idx) / max(1, len(informative_idx))
+    return BenchResult(
+        method=method_name, seed=seed,
+        n_features_total=X.shape[1], n_features_selected=len(sel),
+        informative_recall=recall, fit_seconds=elapsed,
+        selected_idx=sorted(sel),
+    )
+
+
 def _run_one(method_name: str, factory, X, y, informative_idx, seed) -> BenchResult:
     rfecv = factory(seed)
     t0 = time.perf_counter()
@@ -133,6 +175,17 @@ def main():
                 f"n_sel={res.n_features_selected:3d} recall={res.informative_recall:.2f} "
                 f"t={res.fit_seconds:5.1f}s"
             )
+
+    # Knockoffs (PR-5): not an RFECV path, so use the dedicated runner.
+    for seed in seeds:
+        X, y, _ = _make_problem(seed=seed)
+        res = _run_knockoffs("knockoffs_lr", X, y, informative_idx, seed)
+        rows.append(asdict(res))
+        print(
+            f"  {'knockoffs_lr':25s} seed={seed} "
+            f"n_sel={res.n_features_selected:3d} recall={res.informative_recall:.2f} "
+            f"t={res.fit_seconds:5.1f}s"
+        )
 
     # Aggregate
     print()

@@ -1102,9 +1102,18 @@ class RFECV(BaseEstimator, TransformerMixin):
                     if keep_estimators:
                         fitted_estimators[_key] = _fitted
 
-                # Aggregate fold score (mean across estimators).
+                # Aggregate fold score (worst-case = min across estimators,
+                # given sklearn convention "higher is better"). Mean would
+                # let one strong estimator (e.g. RF on 2 informative features)
+                # mask the fact that another (e.g. LR) needs more features
+                # to converge - on the bench this collapsed multi-estimator
+                # MBH to a 2-feature solution with recall=0.25. Worst-case
+                # forces N to be where ALL estimators agree it's sufficient.
+                # If only one estimator is in play (singular path), min == mean
+                # so behaviour is unchanged.
                 if _est_scores:
-                    score = float(np.nanmean(_est_scores)) if any(not np.isnan(s) for s in _est_scores) else float("nan")
+                    valid_scores = [s for s in _est_scores if not np.isnan(s)]
+                    score = float(np.min(valid_scores)) if valid_scores else float("nan")
                 else:
                     score = float("nan")
                 scores.append(score)

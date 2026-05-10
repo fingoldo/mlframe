@@ -22,6 +22,8 @@ from ._helpers import (
     get_feature_importances,
     get_next_features_subset,
     get_actual_features_ranking,
+    knockoff_importance,
+    make_gaussian_knockoffs,
     select_appropriate_feature_importances,
     split_into_train_test,
     store_averaged_cv_scores,
@@ -40,4 +42,6 @@ __all__ = [
     "get_actual_features_ranking",
     "select_appropriate_feature_importances",
     "suppress_irritating_3rdparty_warnings",
+    "make_gaussian_knockoffs",
+    "knockoff_importance",
 ]

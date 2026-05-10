@@ -81,6 +81,152 @@ def suppress_irritating_3rdparty_warnings() -> None:
 
 
 # ----------------------------------------------------------------------------
+# Knockoffs (Barber & Candes 2015) - high-card-bias-free feature importance
+# ----------------------------------------------------------------------------
+
+def make_gaussian_knockoffs(X, random_state=None, sdp_solve: bool = False) -> np.ndarray:
+    """Generate fixed-design Gaussian knockoffs (Barber-Candes 2015).
+
+    For each X_j a knockoff X_tilde_j is produced that has the same
+    correlation with X_{-j} as X_j does, but is independent of y. This
+    lets us identify 'real' importance: a feature is selected if its
+    importance >> its knockoff's importance under the same fitted model.
+
+    Equicorrelated construction (default): s_j = s for all j, with
+    s = min(2 * lambda_min(Sigma), 1) where Sigma = corr(X). This is the
+    cheap closed-form path; the SDP-based optimal s requires cvxpy and
+    gives slightly tighter knockoffs but is rarely worth the dependency.
+
+    Parameters
+    ----------
+    X : ndarray (n, p)
+        Numeric design matrix. Will be standardized internally; the
+        returned X_tilde matches the standardized scale.
+    random_state : int or None
+        Seed for the noise injection.
+    sdp_solve : bool
+        Reserved for future SDP-based s; currently raises
+        NotImplementedError if True.
+
+    Returns
+    -------
+    X_tilde : ndarray (n, p)
+        Standardized knockoff matrix, same shape as X.
+    """
+    if sdp_solve:
+        raise NotImplementedError("SDP knockoffs not yet implemented; use equicorrelated default.")
+
+    rng = np.random.default_rng(random_state)
+    X_arr = np.asarray(X, dtype=float)
+    n, p = X_arr.shape
+    if n < 2 or p < 1:
+        raise ValueError(f"X must have at least 2 rows and 1 column; got {X_arr.shape}")
+
+    # Standardise X (zero mean, unit variance per column) so Sigma is correlation
+    means = np.nanmean(X_arr, axis=0)
+    stds = np.nanstd(X_arr, axis=0)
+    stds = np.where(stds > 1e-12, stds, 1.0)
+    X_std = (X_arr - means) / stds
+    # Replace any NaNs (from constant columns) with 0
+    X_std = np.where(np.isnan(X_std), 0.0, X_std)
+
+    # Sigma = correlation matrix. Add tiny ridge so it's positive definite
+    # even on near-collinear inputs.
+    Sigma = (X_std.T @ X_std) / max(1, n - 1)
+    Sigma = Sigma + 1e-8 * np.eye(p)
+
+    # Equicorrelated s: s_j = s for all j, where s = min(2*lambda_min, 1).
+    # This is the standard cheap choice. lambda_min(Sigma) sets the cap.
+    eigvals = np.linalg.eigvalsh(Sigma)
+    lam_min = float(max(eigvals[0], 1e-8))
+    s_val = min(2.0 * lam_min, 1.0) * 0.99  # 0.99 buffer for numerical PSD
+    s = np.full(p, s_val)
+
+    # Knockoff construction:
+    #   X_tilde = X_std (I - Sigma^{-1} diag(s)) + Z C^T
+    # where C C^T = 2 diag(s) - diag(s) Sigma^{-1} diag(s) (must be PSD)
+    Sigma_inv = np.linalg.inv(Sigma)
+    diag_s = np.diag(s)
+    A = np.eye(p) - Sigma_inv @ diag_s
+
+    M = 2.0 * diag_s - diag_s @ Sigma_inv @ diag_s
+    # Ensure M is symmetric PSD (numerically); add ridge if needed.
+    M = 0.5 * (M + M.T)
+    eigvals_M = np.linalg.eigvalsh(M)
+    if eigvals_M[0] < 0:
+        M = M + (-eigvals_M[0] + 1e-8) * np.eye(p)
+    C = np.linalg.cholesky(M)
+
+    Z = rng.standard_normal((n, p))
+    X_tilde_std = X_std @ A + Z @ C.T
+
+    # Return on the original scale to keep callers' downstream maths sane
+    # (estimators don't typically standardise themselves).
+    X_tilde = X_tilde_std * stds + means
+    return X_tilde
+
+
+def knockoff_importance(model_factory, X, y, current_features=None, random_state=None,
+                        importance_getter: str = "auto") -> dict:
+    """Compute knockoff-based importance: W_j = imp(X_j) - imp(X_tilde_j).
+
+    Builds Gaussian knockoffs X_tilde, fits a fresh model on [X, X_tilde]
+    (2p columns), reads the importance of each REAL feature j and its
+    KNOCKOFF j, returns the difference. Real features driving y will have
+    W_j >> 0; noise features have W_j ~ N(0, sigma) symmetric around 0.
+
+    Parameters
+    ----------
+    model_factory : callable
+        ``model_factory()`` must return a fresh unfitted estimator. We don't
+        accept a pre-fit model because knockoffs need a fit on [X, X_tilde].
+    X : DataFrame or ndarray (n, p)
+    y : array-like (n,)
+    current_features : list of feature names (optional)
+        If None, defaults to X.columns or range(p).
+    random_state : int or None
+    importance_getter : same semantics as get_feature_importances
+
+    Returns
+    -------
+    Dict mapping feature_name -> W_j (knockoff statistic).
+    """
+    is_df = hasattr(X, "columns")
+    X_arr = X.values if is_df else np.asarray(X)
+    n, p = X_arr.shape
+    if current_features is None:
+        current_features = list(X.columns) if is_df else list(range(p))
+
+    X_tilde = make_gaussian_knockoffs(X_arr, random_state=random_state)
+    # Stack [X | X_tilde] - the joint design has 2p columns.
+    X_joint = np.hstack([X_arr, X_tilde])
+    real_names = [f"_real_{i}" for i in range(p)]
+    fake_names = [f"_fake_{i}" for i in range(p)]
+    if is_df:
+        X_joint_df = pd.DataFrame(X_joint, columns=real_names + fake_names, index=X.index)
+    else:
+        X_joint_df = X_joint
+
+    model = model_factory()
+    model.fit(X_joint_df, y)
+
+    fi = get_feature_importances(
+        model=model,
+        current_features=real_names + fake_names,
+        data=X_joint_df,
+        target=y,
+        importance_getter=importance_getter,
+    )
+    # W_j = importance(real_j) - importance(fake_j)
+    W = {}
+    for i, fname in enumerate(current_features):
+        imp_real = float(fi.get(f"_real_{i}", 0.0))
+        imp_fake = float(fi.get(f"_fake_{i}", 0.0))
+        W[fname] = imp_real - imp_fake
+    return W
+
+
+# ----------------------------------------------------------------------------
 # Splitting
 # ----------------------------------------------------------------------------
 
