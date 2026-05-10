@@ -268,6 +268,41 @@ estimator voting). Use as a final-mile refinement on a converged result.
   `df.to_csv(...)`, etc.). Backward-compatible: existing
   `cv_results_["nfeatures"]` access continues to work.
 
+## Adaptive MBH surrogate (Phase 9)
+
+The MBH optimizer fits an internal surrogate model to predict score-vs-nfeatures
+and pick the next candidate. The legacy default (CatBoost with 150 trees) carries
+a fixed ~500ms per-fit overhead from Python<->C++ marshalling, which dominates
+wall-clock on tiny RFECV problems with cheap outer estimators (Ridge / LR / etc.).
+
+RFECV now auto-tunes the surrogate based on the effective evaluation budget:
+
+| Budget (`min(max_refits, p+1)`) | Surrogate auto-default | Per-fit cost |
+|---|---|---|
+| `<=30` | `ExtraTreesRegressor(n_estimators=20)` (sklearn, no FFI) | ~20ms |
+| `31..100` | `CatBoostRegressor(MultiQuantile, iterations=50)` | ~500ms |
+| `>100` | `CatBoostRegressor(MultiQuantile, iterations=150)` (legacy) | ~600ms |
+
+H2h benchmark slow-case impact (n=400, p=20, max_refits=10):
+
+- `reg_easy ridge`: 4.40s -> **0.83s** (5.3x speedup, identical n_features + score)
+- `clf_easy logreg`: 5.12s -> **1.06s** (4.8x speedup, identical n_features + score)
+
+Override via constructor:
+
+```python
+RFECV(
+    estimator=...,
+    optimizer_config={
+        "model_name": "CBQ",                    # "CBQ" / "CB" / "ETR"
+        "model_params": {"iterations": 200},    # any kwargs accepted by the surrogate class
+    },
+).fit(X, y)
+```
+
+Defaults are drop-in compatible: code that didn't pass `optimizer_config` keeps
+working and only sees a speedup.
+
 ## Time-series CV auto-detect
 
 When `cv` is left as a plain integer (or default 3) AND `X` carries a

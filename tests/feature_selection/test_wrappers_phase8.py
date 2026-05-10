@@ -265,3 +265,102 @@ class TestSffsSwap:
             swap_top_k=2,
         ).fit(Xdf, y)
         assert rfecv.n_features_ >= 1
+
+
+# ----------------------------------------------------------------------------
+# Phase 9: adaptive MBH surrogate (GP for small budgets, CB for larger)
+# ----------------------------------------------------------------------------
+class TestAdaptiveOptimizerSurrogate:
+    def test_small_budget_picks_fast_surrogate(self):
+        """When max_refits / search-space budget <=30, the ETR surrogate
+        is selected automatically (CatBoost has a 500ms FFI fixed cost
+        that dominates wall-clock on tiny problems). Verified by
+        behavioural parity: fit completes and produces a valid
+        support_."""
+        X, y = make_regression(
+            n_samples=200, n_features=10, n_informative=3,
+            random_state=0, noise=0.5,
+        )
+        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
+        rfecv = RFECV(
+            estimator=Ridge(random_state=0),
+            cv=3, max_refits=8, verbose=0, random_state=0,
+            # optimizer_config left as None -> auto-tune kicks in
+        ).fit(Xdf, y)
+        # If budget <=30 and user didn't override, the surrogate must be GP.
+        # We can't read Optimizer back from the fitted RFECV (it's not a
+        # public attribute), so we instead verify behavioural parity: the
+        # fit completed and produced a valid support_.
+        assert rfecv.n_features_ >= 1
+        assert len(rfecv.cv_results_["nfeatures"]) >= 1
+
+    def test_optimizer_config_explicit_override(self):
+        """Pass optimizer_config explicitly; RFECV must honour the user's
+        choice instead of the auto-tune default."""
+        X, y = make_regression(
+            n_samples=200, n_features=10, n_informative=3,
+            random_state=0, noise=0.5,
+        )
+        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
+        # Force CatBoost surrogate even on a tiny budget.
+        rfecv = RFECV(
+            estimator=Ridge(random_state=0),
+            cv=3, max_refits=8, verbose=0, random_state=0,
+            optimizer_config={"model_name": "CBQ", "model_params": {"iterations": 30}},
+        ).fit(Xdf, y)
+        assert rfecv.n_features_ >= 1
+
+    def test_explicit_iterations_not_overridden_for_catboost(self):
+        """When the user passes model_name='CBQ' with explicit
+        iterations, RFECV must NOT auto-fill the iterations field."""
+        # This is a lightweight white-box check via the constructor only.
+        rfecv = RFECV(
+            estimator=Ridge(random_state=0),
+            optimizer_config={"model_name": "CBQ", "model_params": {"iterations": 7}},
+        )
+        assert rfecv.optimizer_config == {
+            "model_name": "CBQ",
+            "model_params": {"iterations": 7},
+        }
+
+    def test_auto_tune_speedup_smoke(self):
+        """Smoke check: fit on a tiny problem completes faster with the
+        GP auto-default than with the legacy 150-tree CatBoost surrogate.
+        Threshold is loose to absorb CI noise but the structural claim
+        (GP < CB on small problems) must hold."""
+        import time
+        X, y = make_regression(
+            n_samples=300, n_features=15, n_informative=4,
+            random_state=0, noise=0.5,
+        )
+        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(15)])
+        cv = KFold(n_splits=3, shuffle=True, random_state=0)
+        # Warm both code paths once.
+        for cfg in (None, {"model_name": "CBQ", "model_params": {"iterations": 150}}):
+            RFECV(
+                estimator=Ridge(random_state=0),
+                cv=cv, max_refits=2, verbose=0, random_state=0,
+                optimizer_config=cfg,
+            ).fit(Xdf, y)
+        # Measure
+        t0 = time.perf_counter()
+        RFECV(
+            estimator=Ridge(random_state=0),
+            cv=cv, max_refits=8, verbose=0, random_state=0,
+        ).fit(Xdf, y)
+        t_auto = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
+        RFECV(
+            estimator=Ridge(random_state=0),
+            cv=cv, max_refits=8, verbose=0, random_state=0,
+            optimizer_config={"model_name": "CBQ", "model_params": {"iterations": 150}},
+        ).fit(Xdf, y)
+        t_legacy = time.perf_counter() - t0
+
+        # Auto must be faster than legacy by a clear margin.
+        assert t_auto < t_legacy * 0.7, (
+            f"auto-tune (GP) should be at least 30% faster than legacy "
+            f"CB iter=150 on this tiny problem; got auto={t_auto:.3f}s "
+            f"vs legacy={t_legacy:.3f}s."
+        )

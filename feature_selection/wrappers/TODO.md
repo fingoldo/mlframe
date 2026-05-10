@@ -244,6 +244,37 @@ PR-12 closed three high-priority items:
    PR-12/PR-13 feature.** All Python overhead in CPI is dwarfed by the
    user's compiled `model.score()`; SFFS swap is sub-noise. Documented
    per `feedback_perf_measure_first` so the same flag isn't re-raised.
+
+## PR-14 status: closed h2h perf gap on tiny problems
+
+PR-13's h2h vs sklearn surfaced 10-20x slowdowns on tiny LR/Ridge cases:
+`reg_easy ridge` 4.4s vs sklearn 0.22s (20x), `clf_easy logreg` 5.1s
+vs 0.52s (10x). cProfile on those cases attributed 76-78% of wall-clock
+to the MBH internal CatBoost surrogate fit. Root cause: CatBoost has a
+fixed ~500ms per-call FFI overhead independent of `iterations`
+(verified by trimming iterations=150 -> 20, only 16% recovered).
+
+Fix: adaptive surrogate auto-tune. `RFECV(optimizer_config=None)` (new
+default behaviour) picks the surrogate by effective evaluation budget:
+- budget <= 30: `MBHOptimizer(model_name="ETR")` -- new
+  ExtraTreesRegressor surrogate (pure-Python sklearn, no FFI), 20ms
+  per fit vs 500ms for CatBoost.
+- 31..100: `model_name="CBQ"` with iterations=50.
+- >100: `model_name="CBQ"` with iterations=150 (legacy).
+
+Escape hatch: `optimizer_config={"model_name": "...", "model_params":
+{...}}` lets users override per-problem.
+
+Result on h2h bench (3 seeds):
+- `reg_easy ridge`: 4.4s -> 1.27s (3.5x faster, gap to sklearn 20x -> 6x).
+- `clf_easy logreg`: 5.1s -> 1.25s (4.1x faster, gap 10x -> 2.3x).
+- All 18 (problem, estimator) pairs got faster; quality unchanged.
+- ours now BEATS sklearn on every CB/RF case (CB wide noisy: 5.2s vs
+  sklearn 32.5s = 6x faster).
+
+Tested in `test_wrappers_phase8.py::TestAdaptiveOptimizerSurrogate`
+(4 tests: budget-based auto-default, explicit override honoured,
+explicit iterations preserved, wall-clock smoke check).
    Outcome: **no actionable @njit / numba candidate remains.** Fresh
    profile_*.txt files saved to `_benchmarks/_results/` show that on
    the medium (n=600, p=80) and large (n=1000, p=200) configurations

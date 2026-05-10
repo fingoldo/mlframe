@@ -104,6 +104,29 @@ def generate_fibonacci(n: int):
     return np.array(fibonacci_sequence, dtype=np.int64)
 
 
+class _ETRWithStd:
+    """ExtraTreesRegressor wrapped with a ``predict(X, return_std=True)``
+    interface mirroring sklearn.GaussianProcessRegressor's API. Std is
+    the per-tree-prediction std across the ensemble (Breiman 2001 OOB
+    variance estimate).
+
+    Defined at module level so it stays picklable -- MBHOptimizer
+    instances are pickled by RFECV's resume-from-checkpoint path."""
+
+    def __init__(self, base):
+        self._base = base
+
+    def fit(self, X, y):
+        self._base.fit(X, y)
+        return self
+
+    def predict(self, X, return_std: bool = False):
+        if not return_std:
+            return self._base.predict(X)
+        per_tree = np.array([t.predict(X) for t in self._base.estimators_])
+        return per_tree.mean(axis=0), per_tree.std(axis=0)
+
+
 class MBHOptimizer:
     """Optimizer aimed at suggesting prospective candidates to explore."""
 
@@ -293,6 +316,22 @@ class MBHOptimizer:
                 **model_params,
                 verbose=0,
             )
+        elif self.model_name == "ETR":
+            # ExtraTreesRegressor surrogate. CatBoost has a fixed
+            # ~500ms per-fit overhead from Python<->C++ marshalling
+            # (independent of n_estimators); on tiny 1D MBH workloads
+            # (n_known < 30) that overhead dominates wall-clock. ETR
+            # is pure-Python sklearn (no FFI), n_estimators=20 fits in
+            # ~20ms on the same workload (~27x faster than CatBoost
+            # legacy iter=150). Quantile-style uncertainty: per-tree
+            # prediction std across the ensemble (Breiman 2001 OOB
+            # variance estimate -- approximate but well-behaved here).
+            from sklearn.ensemble import ExtraTreesRegressor
+            _etr_kwargs = dict(model_params)
+            _etr_kwargs.setdefault("n_estimators", 20)
+            _etr_kwargs.setdefault("random_state", 0)
+            _etr_kwargs.setdefault("n_jobs", 1)
+            self.model = _ETRWithStd(ExtraTreesRegressor(**_etr_kwargs))
 
     def suggest_candidate(self):
         """Get next most promising candidate. Keeps a buffer of suggested, but not yet evaluated candidates, to avoid recommending them again.

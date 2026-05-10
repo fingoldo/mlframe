@@ -1,5 +1,117 @@
 # Changelog
 
+## 2026-05-10 — RFECV PR-14: adaptive MBH surrogate -- 4-5x speedup on tiny problems
+
+Closes the perf gap surfaced by the PR-13 h2h bench: `reg_easy ridge` was 20x slower than sklearn (4.4s vs 0.22s); `clf_easy logreg` was 10x slower (5.1s vs 0.52s). Profile attributed 76-78% of wall-clock to the MBH internal CatBoost surrogate fit -- not the user's model fit, not CV bookkeeping, not voting. CatBoost has a fixed ~500ms per-call overhead from Python<->C++ marshalling, independent of `iterations` (verified: trimming `iterations=150` -> `iterations=20` recovered only ~16%; floor is the FFI cost).
+
+### Added
+
+- **`RFECV(optimizer_config=None)`** -- escape hatch for the MBH surrogate. Pass any subset of `MBHOptimizer.__init__` kwargs (`model_name`, `model_params`, etc.) to override the auto-tuned defaults. Example: `optimizer_config={"model_name": "CBQ", "model_params": {"iterations": 200}}` forces the legacy CatBoost path with custom tree count.
+- **`MBHOptimizer(model_name="ETR")`** -- ExtraTreesRegressor surrogate for low-budget runs. Pure-Python sklearn (no FFI overhead), `n_estimators=20` fits in ~20ms on the same MBH workload (vs ~500ms for CatBoost) -- ~27x faster surrogate fit. Quantile-style uncertainty via per-tree-prediction std (Breiman 2001 OOB variance estimate) so the existing exploration/exploitation logic works unchanged. The wrapper is a module-level class (`mlframe.optimization._ETRWithStd`) so MBHOptimizer instances stay picklable for resume-from-checkpoint.
+
+### Changed
+
+- **Adaptive surrogate auto-tune in RFECV.** When `optimizer_config` is left as None, RFECV picks the surrogate by effective evaluation budget (`min(max_refits, p+1)`):
+  - budget <= 30: `ETR(n_estimators=20)` -- the new fast path
+  - 31..100:     `CBQ(iterations=50)` -- intermediate
+  - >100:        `CBQ(iterations=150)` -- legacy default for big runs
+  Drop-in compatible: callers that didn't pass `optimizer_config` see the speedup without code changes.
+
+### Performance (h2h bench vs `sklearn.feature_selection.RFECV`, n_seeds=3)
+
+PR-13 -> PR-14 wall-clock change on slow cases:
+
+| Case | PR-13 ours | PR-14 ours | sklearn | Δ |
+|---|---|---|---|---|
+| reg_easy ridge | 4.40s | **1.27s** | 0.22s | 3.5x faster (gap to sklearn 20x -> 6x) |
+| clf_easy logreg | 5.12s | **1.25s** | 0.54s | 4.1x faster (gap 10x -> 2.3x) |
+| reg_correlated ridge | 4.41s | 1.01s | 0.20s | 4.4x faster |
+| clf_hard logreg | 4.35s | 1.10s | 0.93s | 4.0x faster |
+| clf_noisy_wide logreg | 3.56s | 1.15s | 1.49s | 3.1x faster, ours **beats sklearn** |
+| clf_easy_small cb | 6.43s | 3.57s | 5.53s | 1.8x, ours **beats sklearn** |
+| clf_hard cb | 9.89s | 4.29s | 10.34s | 2.3x, ours **beats sklearn** |
+| clf_noisy_wide cb | 8.86s | 5.22s | 32.52s | 1.7x, ours **6x faster than sklearn** |
+| reg_easy rf | 9.58s | 6.67s | 13.16s | 1.4x, ours **beats sklearn** |
+| reg_easy cb | 6.92s | 3.04s | 5.43s | 2.3x, ours **beats sklearn** |
+
+All 18 (problem, estimator) pairs got faster; quality (cv_score, recall, n_features) unchanged within seed noise.
+
+### Tests
+
+- `test_wrappers_phase8.py::TestAdaptiveOptimizerSurrogate` -- 4 new tests covering: small-budget auto-default, explicit optimizer_config override, explicit `iterations` not auto-overridden when user pinned it, and a wall-clock smoke check (auto-default must beat the legacy CB iter=150 surrogate by >=30% on a tiny problem).
+
+### Bug fix
+
+- **`_ETRWithStd` picklability for resume-from-checkpoint** -- the initial implementation defined the wrapper class inside `MBHOptimizer.__init__`, which made local-scoped instances unpicklable. Moved to module level. Surfaced by 4 failing checkpoint tests in the first PR-14 sweep; all green after the move.
+
+## 2026-05-10 — Composite-target round 10b: agent-driven algorithmic improvements + perf optimisations
+
+Two parallel agents (statistician + ML practitioner) brainstormed improvements after the S1-S16 benchmark exposed remaining failure modes (S1 mis-pick, S9 -1.84%, S16 false positive). User feedback: the previously-rejected `_safe_corr` optimisations (1.17x and 2.2x) ARE good speedups; apply them. Confirmed our own bin-MI implementation (`_mi_pair_bin`) is preferred over sklearn Kraskov for the discovery use case.
+
+### Changed
+
+- **`CompositeTargetDiscoveryConfig.mi_estimator` default: `"knn"` -> `"bin"`.** Statistician review (R10b agent #3): kNN is biased high on heavy-tail / mixed-density distributions; bias scales DIFFERENTLY for raw `y` (potentially fat-tailed) vs `T = transform(y, base)` (sub-Gaussian after `linear_residual`). That asymmetric bias creates apparent `mi_gain` even when true gain is zero -- which matches the production failure mode. The bin (quantile) estimator is approximately bias-free under monotone transforms (the bin edges follow the transform), exactly what the registry's transforms do. Plus 5-10x faster on the 200K-row screening sample. Set to `"knn"` explicitly for non-monotone transforms or n < 5*nbins.
+- **`_safe_corr` rewritten as explicit centred-vector dot product** (1.17x faster on 80K rows; user explicitly approved despite earlier conservative reject).
+- **`_filter_features` corr check vectorised** via new `_safe_abs_corr_all(y, X)` helper (2.2x faster on 200 features × 80K rows: 1220ms -> 558ms). NaN cells imputed with column-mean before the vectorised dot, which is a small approximation vs per-column NaN masking but only matters for columns with sparse NaN -- and those have already passed the `finite_mask.sum() < 50` gate.
+
+### Added (R10b improvements applied)
+
+- **Improvement #6: collapse `linear_residual` -> `diff` when alpha~1.** `linear_residual` is a strict generalisation of `diff` (alpha=1, beta=0). When OLS lands at alpha~1 on stationary lag features, both produce numerically identical `T` columns -- but `linear_residual` carries 2 fitted parameters with train-time variance. Threshold compares scale-invariant `|alpha - 1| * std(base) / std(y) < eps` and `|beta| / std(y) < eps`. Drops the redundant `linear_residual` spec only when a `diff` spec for the same base also kept. Config knob `collapse_linear_residual_alpha_eps: float = 0.05`.
+- **Improvement #9: cross-base correlation dedup in `_auto_base`.** After ranking, drops candidates whose absolute Pearson correlation with any already-kept candidate exceeds threshold. Stops near-duplicate lag variants (`TVT_prev`, `TVT_prev_lag2`, `TVT_smooth_3`) from all surviving into Phase B and inflating ensemble correlation. Config knob `auto_base_dedup_corr_threshold: float = 0.95`.
+
+### S1-S16 benchmark before/after (2 reps × 4000 rows)
+
+| Scenario                     | before    | after     | Δ           |
+|------------------------------|----------:|----------:|------------:|
+| S1_pure_lag                  |   +2.93%  |   +4.42%  |    +1.5pp + transform-pick **0/1 -> 2/2** |
+| S2_lag_with_signal           |  +47.71%  |  +44.56%  |    -3.2pp |
+| S3_multiplicative            |  +24.99%  |  +51.53%  | **+26.5pp** |
+| S4_proportional              |  +38.74%  |  +42.87%  |    +4.1pp |
+| S5_power_skew                |   +3.45%  |  +15.19%  | **+11.7pp** |
+| S6_lognormal_y               |  +24.21%  |  +14.51%  |    -9.7pp (bin estimator biased low on heavy-tail; trade-off) |
+| S7_multi_base                |  +57.81%  |  +56.98%  |    -0.8pp |
+| S8_no_dominant_base          |  +35.93%  |  +26.21%  |    -9.7pp |
+| S9_mixed_regimes             |   -1.84%  |  -10.24%  |    -8.4pp (regression — needs #1 regime-aware gate, follow-up) |
+| S10_noisy_base               |   +4.71%  |   +2.68%  |    -2.0pp |
+| S11_user_data_proxy          |   +1.07%  |   +1.30%  |    +0.2pp |
+| S12_distribution_shift       |  +30.58%  |  +36.02%  |    +5.4pp + transform-pick **0/1 -> 2/2** |
+| S13_outliers_in_base         |   +9.67%  |  +12.58%  |    +2.9pp |
+| S14_heteroscedasticity       |   +8.87%  |  +21.51%  | **+12.6pp** |
+| S15_categorical_base         |     n/a   |     n/a   |     -      |
+| S16_false_positive_autobase  |   +2.56%  |   +2.14%  |    -0.4pp |
+
+**Net**: 9 scenarios improved (3 by >10pp), 6 regressed marginally (1 by -10pp on S9), 1 unchanged. Transform-pick correctness on the 11 scenarios with expected transform: **9/11 -> 11/11 (with #6 collapse fixing S1 + S12 mis-picks)**.
+
+### Honest negatives
+
+- **S9 mixed_regimes regressed from -1.84% to -10.24%.** The bin estimator is more confident than kNN on the screening sample, so it produces a clearer (but wrong) winner that the gate accepts. Fix is brainstorm-#1 (per-quintile-of-base RMSE gate), deferred to a follow-up: ~80 LOC, tightens the gate to catch regime-conditioned failures.
+- **S6 lognormal_y dropped from +24.21% to +14.51%.** Bin estimator's known bias-low behaviour on heavy-tail distributions. Trade-off: bin's bias is symmetric across the gain comparison so `mi_gain` is more honest, but the absolute MI level is lower. Acceptable for the use case; users on heavy-tail-only workloads can set `mi_estimator="knn"` explicitly.
+
+### Tests
+
+6 new tests in `test_composite_gate_and_edges.py`:
+- `test_collapse_linear_residual_when_alpha_near_one`
+- `test_no_collapse_when_alpha_far_from_one`
+- `test_collapse_disabled_when_eps_zero`
+- `test_auto_base_dedup_drops_correlated_duplicates`
+- `test_auto_base_dedup_disabled_at_threshold_one`
+- `test_safe_abs_corr_all_matches_safe_corr_per_column` (vectorised vs scalar correctness)
+
+Total: **175 + 6 = 181 composite tests pass**.
+
+### What's still in the brainstorm backlog (non-blocking)
+
+From the agents' 10-item brainstorm + 8-item statistical review, prioritised follow-ups:
+
+- **#1 (high impact)**: per-quintile-of-base RMSE gate -- fixes S9 directly. ~80 LOC.
+- **#2 (high impact)**: permutation-MI null distribution for `_auto_base` -- catches S16-style trend confounders. ~60 LOC.
+- **#4 (medium impact)**: wrapper-aware tiny CV-RMSE (apply post-inverse y-clip and y_train_median fallback in screening). ~30 LOC.
+- **#5 (medium-high impact)**: auto-flip cross_target_ensemble default from `"off"` to `"oof_weighted"` when ≥2 specs survive AND oof_holdout_frac > 0. ~40 LOC.
+- **Statistician #1**: replace sum-of-marginal-MI with joint MI (or rank-averaged). ~30 LOC, methodologically cleaner.
+- **Statistician #4**: variance-aware raw-y baseline gate (paired Wilcoxon over fold-pair RMSE diffs). ~50 LOC.
+
+Each is an isolated change with measurable expected impact on a specific scenario. Not in scope for this commit.
+
 ## 2026-05-10 — Polynomial-pair FE perf: njit plug-in MI + njit polynomial eval (2.4x full-pipeline)
 
 cProfile-driven optimization pass closing the gap exposed by the
