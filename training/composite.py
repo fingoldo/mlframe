@@ -3048,6 +3048,41 @@ class CompositeTargetDiscovery:
                 "after filtering; no base candidates available."
             )
             return []
+
+        # Hint-aware ranking: BaselineDiagnostics ablation already
+        # measured each feature's predictive contribution directly
+        # (drop feature -> RMSE delta). That signal beats pairwise
+        # MI(y, x), which gets fooled by features with global trend
+        # but no structural residual signal (spatial coords on
+        # geographically-trended y is the canonical case). When a
+        # hint is provided, prepend hint features (preserving order)
+        # then fill remaining slots with MI-ranked features.
+        usable_set = set(usable_features)
+        hint_raw = list(getattr(self.config, "dominant_features_hint", None) or [])
+        hint_kept: List[str] = []
+        hint_dropped: List[str] = []
+        for c in hint_raw:
+            if c in usable_set and c not in hint_kept:
+                hint_kept.append(c)
+            else:
+                hint_dropped.append(c)
+        if hint_dropped:
+            logger.info(
+                "[CompositeTargetDiscovery] dominant_features_hint dropped "
+                "%d entries (filtered or not in feature_cols): %s",
+                len(hint_dropped), hint_dropped[:5],
+            )
+        top_k = self.config.auto_base_top_k
+        if hint_kept and len(hint_kept) >= top_k:
+            # Hint already covers requested breadth.
+            top = hint_kept[:top_k]
+            logger.info(
+                "[CompositeTargetDiscovery] auto-base top-%d from "
+                "dominant_features_hint (BaselineDiagnostics ablation): %s",
+                len(top), top,
+            )
+            return top
+
         sample_idx = _sample_indices(
             train_idx.size, self.config.mi_sample_n, self.config.random_state,
             strategy=getattr(self.config, "mi_sample_strategy", "random"),
@@ -3084,10 +3119,33 @@ class CompositeTargetDiscovery:
             zip(mi_per_feature.tolist(), usable_features),
             key=lambda t: -t[0],
         )
-        top = [c for _, c in ranked[: self.config.auto_base_top_k]]
+        # Combine hint (priority) + MI-ranked tail. Hint always wins
+        # the leading slots; MI fills up to auto_base_top_k.
+        if hint_kept:
+            mi_tail: List[str] = []
+            for _, c in ranked:
+                if c in hint_kept:
+                    continue
+                mi_tail.append(c)
+                if len(hint_kept) + len(mi_tail) >= top_k:
+                    break
+            top = hint_kept + mi_tail
+            top = top[:top_k]
+            mi_lookup = {c: mi for mi, c in ranked}
+            scores = ", ".join(
+                f"{c}={mi_lookup.get(c, float('nan')):.4f}{'(hint)' if c in hint_kept else ''}"
+                for c in top
+            )
+            logger.info(
+                "[CompositeTargetDiscovery] auto-base top-%d (%d hint, %d MI): %s",
+                len(top), len(hint_kept), len(mi_tail), scores,
+            )
+            return top
+
+        top = [c for _, c in ranked[: top_k]]
         if top:
             scores = ", ".join(
-                f"{c}={mi:.4f}" for mi, c in ranked[: self.config.auto_base_top_k]
+                f"{c}={mi:.4f}" for mi, c in ranked[: top_k]
             )
             logger.info(
                 "[CompositeTargetDiscovery] auto-base top-%d by MI(y, x): %s",

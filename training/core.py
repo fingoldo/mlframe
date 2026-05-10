@@ -81,6 +81,80 @@ def _entry_metric(entry, split: str, name: str) -> float:
     return float("nan")
 
 
+def _augment_with_dropped_high_card_cols(
+    dropped_data,
+    train_df,
+    val_df,
+    test_df,
+    *,
+    train_od_idx=None,
+    val_od_idx=None,
+):
+    """Re-attach pre-drop high-card cat columns to ``train/val/test_df``.
+
+    Used by the dummy_baselines per-target call site so per_group_mean
+    can use group keys (e.g. ``well_id`` with 600+ unique values) that
+    were stripped from tree-model frames to prevent XGB QuantileDMatrix
+    OOM. Captured pre-drop ndarrays are sliced by ``train_od_idx`` /
+    ``val_od_idx`` so the re-added column row-aligns to the OD-filtered
+    frame; test is never OD-filtered. Returns
+    ``(train_df, val_df, test_df, added_col_names)``.
+    """
+    added = []
+    if not dropped_data:
+        return train_df, val_df, test_df, added
+
+    train_extras, val_extras, test_extras = {}, {}, {}
+    n_train = len(train_df) if train_df is not None else 0
+    n_val = len(val_df) if val_df is not None else 0
+    n_test = len(test_df) if test_df is not None else 0
+
+    for col, data in dropped_data.items():
+        if "train" in data and train_df is not None:
+            arr = data["train"]
+            if train_od_idx is not None and len(arr) != n_train:
+                arr_aligned = arr[train_od_idx] if len(arr) == len(train_od_idx) else None
+            elif len(arr) == n_train:
+                arr_aligned = arr
+            else:
+                arr_aligned = None
+            if arr_aligned is not None and len(arr_aligned) == n_train:
+                train_extras[col] = arr_aligned
+        if "val" in data and val_df is not None:
+            arr = data["val"]
+            if val_od_idx is not None and len(arr) != n_val:
+                arr_aligned = arr[val_od_idx] if len(arr) == len(val_od_idx) else None
+            elif len(arr) == n_val:
+                arr_aligned = arr
+            else:
+                arr_aligned = None
+            if arr_aligned is not None and len(arr_aligned) == n_val:
+                val_extras[col] = arr_aligned
+        if "test" in data and test_df is not None:
+            arr = data["test"]
+            if len(arr) == n_test:
+                test_extras[col] = arr
+        if col in train_extras:
+            added.append(col)
+
+    if not added:
+        return train_df, val_df, test_df, added
+
+    def _attach(frame, extras):
+        if frame is None or not extras:
+            return frame
+        if isinstance(frame, pl.DataFrame):
+            return frame.with_columns([pl.Series(c, v) for c, v in extras.items()])
+        return frame.assign(**extras)
+
+    return (
+        _attach(train_df, train_extras),
+        _attach(val_df, val_extras),
+        _attach(test_df, test_extras),
+        added,
+    )
+
+
 def _build_full_column_from_splits(
     col_name,
     train_df,

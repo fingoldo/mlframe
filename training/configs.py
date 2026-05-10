@@ -1802,6 +1802,28 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     base_candidates: Union[List[str], str] = "auto"
     auto_base_top_k: int = 3
 
+    # Priority-base hint -- features that should be treated as base
+    # candidates regardless of pairwise ``MI(y, x)`` ranking. When
+    # populated, ``_auto_base`` puts these first (in given order) and
+    # fills remaining slots up to ``auto_base_top_k`` with the top
+    # MI-ranked features.
+    #
+    # The hint exists because pairwise MI is fooled by features that
+    # have global trend with y but no structural residual signal
+    # (e.g. spatial coordinates on geographically-trended targets).
+    # ``BaselineDiagnostics``'s ablation (drop feature -> measure RMSE
+    # delta) is a much more reliable signal for "which feature
+    # actually drives prediction": a feature whose removal hurts RMSE
+    # by 500% is unambiguously dominant, regardless of MI estimation
+    # noise. ``train_mlframe_models_suite`` populates the hint from
+    # the ablation output automatically; users can also pass it
+    # explicitly.
+    #
+    # Hint features still go through the standard filters
+    # (forbidden_pattern / non_numeric / constant / corr_threshold);
+    # any that fail are logged and dropped.
+    dominant_features_hint: Optional[List[str]] = None
+
     # Transform names from the registry (mlframe.training.composite).
     transforms: List[str] = Field(
         default_factory=lambda: ["diff", "ratio", "logratio", "linear_residual"]
@@ -2017,6 +2039,26 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # captures the dominance, or no feature dominates strongly).
     # Default False so explicit opt-ins don't get silently overridden.
     auto_skip_on_baseline_optimal: bool = False
+
+    # Use BaselineDiagnostics ablation top-K as priority base
+    # candidates (``dominant_features_hint``) instead of relying on
+    # pairwise MI(y, x) ranking alone. Pairwise MI gets fooled by
+    # features with global trend but no structural residual signal
+    # (spatial coords on geographically-trended y); ablation directly
+    # measures predictive contribution and is much more reliable.
+    #
+    # When True, ``train_mlframe_models_suite`` runs BaselineDiagnostics
+    # inline (cached) before discovery and injects the top-K
+    # ablation-ranked features as the hint. When the inline
+    # diagnostic fails or returns no dominant features, falls back
+    # silently to MI-only ranking.
+    #
+    # Default True since it strictly improves auto-base on the
+    # production failure mode and the inline BD cost is amortised
+    # (the same diagnostic runs in the per-target loop later;
+    # caching reuses it).
+    use_baseline_diagnostics_hint: bool = True
+    baseline_diagnostics_hint_top_k: int = 3
 
     # Cap the number of components combined at predict time. Useful
     # for online single-row latency-sensitive serving where running

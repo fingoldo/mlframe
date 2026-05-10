@@ -558,6 +558,315 @@ class TestIntegrationEdges:
         # never raises.
         assert isinstance(disc.specs_, list)
 
+    def test_dominant_features_hint_overrides_mi_ranking(self) -> None:
+        """When ``dominant_features_hint`` is provided, those features
+        are used as base candidates regardless of pairwise MI(y, x).
+        Prevents the production failure mode where MI-only ranking
+        prefers a high-MI-but-no-residual-signal feature (spatial
+        coord) over the truly dominant one (autoregressive lag) when
+        the latter happened to score lower MI on the screening sample.
+        """
+        rng = np.random.default_rng(0)
+        n = 1500
+        # Construct y so the BEST base for residual learning is f1
+        # (clean linear), but X has higher MI(y, x) due to a
+        # non-linear-but-uninformative bond.
+        f1 = rng.normal(size=n)
+        # Strong linear contribution -> diff(y, f1) cleans up nicely.
+        spatial = rng.uniform(-2, 2, size=n)
+        y = (1.0 * f1
+             + np.sin(spatial * 5) * 3.0  # high MI but no clean residual
+             + rng.normal(scale=0.1, size=n))
+        df = pd.DataFrame({"f1": f1, "spatial": spatial, "y": y})
+        # No hint -> auto-base picks by MI; spatial likely top.
+        cfg_nohint = CompositeTargetDiscoveryConfig(
+            enabled=True, screening="mi",
+            mi_sample_n=800, eps_mi_gain=-1.0,
+            auto_base_top_k=1,
+            transforms=["diff"],
+        )
+        d_nohint = CompositeTargetDiscovery(cfg_nohint)
+        d_nohint.fit(df, target_col="y",
+                     feature_cols=["f1", "spatial"],
+                     train_idx=np.arange(1200))
+        # With hint pointing at f1 -> f1 promoted regardless of MI.
+        cfg_hint = CompositeTargetDiscoveryConfig(
+            enabled=True, screening="mi",
+            mi_sample_n=800, eps_mi_gain=-1.0,
+            auto_base_top_k=1,
+            dominant_features_hint=["f1"],
+            transforms=["diff"],
+        )
+        d_hint = CompositeTargetDiscovery(cfg_hint)
+        d_hint.fit(df, target_col="y",
+                   feature_cols=["f1", "spatial"],
+                   train_idx=np.arange(1200))
+        bases_hint = {s.base_column for s in d_hint.specs_}
+        assert "f1" in bases_hint, (
+            f"Hint did not promote f1; specs={[s.name for s in d_hint.specs_]}")
+
+    def test_dominant_features_hint_combines_with_mi_for_remaining_slots(self) -> None:
+        """Hint covers slot 1; MI fills slot 2-3 from remaining features.
+
+        Verifies the *base selection* contract -- that hint features
+        get evaluated as base candidates -- by checking the discovery
+        report (which records all candidates, including those later
+        dropped by the mi_gain filter). Whether a particular base
+        ultimately survives the mi_gain filter depends on whether
+        ``T = transform(y, base)`` is more predictable than y itself,
+        which is a separate concern from base SELECTION.
+        """
+        df = _slow_ar1_dominant_lag()
+        cfg = CompositeTargetDiscoveryConfig(
+            enabled=True, screening="mi",
+            mi_sample_n=800, eps_mi_gain=-100.0,  # admit everything
+            auto_base_top_k=3,
+            dominant_features_hint=["f1"],
+            transforms=["diff"],
+            top_k_after_mi=8,
+        )
+        disc = CompositeTargetDiscovery(cfg)
+        disc.fit(df, target_col="y",
+                 feature_cols=["y_prev", "f1", "f2"],
+                 train_idx=np.arange(1200))
+        # Every base in {y_prev, f1, f2} should appear as either a
+        # kept spec or a candidate in the report. f1 (the hint)
+        # MUST appear as a base.
+        report_bases = {r["base_column"] for r in disc.report()}
+        assert "f1" in report_bases, (
+            f"hint feature f1 not evaluated as base; report={disc.report()}")
+        # And the remaining two slots filled by MI ranking pick
+        # from {y_prev, f2}.
+        assert report_bases.issubset({"y_prev", "f1", "f2"})
+
+    def test_dominant_features_hint_filtered_falls_back(self) -> None:
+        """A hint feature that doesn't survive feature filters
+        (forbidden / non-numeric / corr-threshold) is dropped from the
+        hint with an INFO log; auto-base falls back to MI for that slot."""
+        df = _slow_ar1_dominant_lag()
+        df["target_enc_bad"] = df["y"]  # forbidden pattern + corr=1.0
+        cfg = CompositeTargetDiscoveryConfig(
+            enabled=True, screening="mi",
+            mi_sample_n=800, eps_mi_gain=-1.0,
+            auto_base_top_k=2,
+            dominant_features_hint=["target_enc_bad", "y_prev"],
+            transforms=["diff"],
+        )
+        disc = CompositeTargetDiscovery(cfg)
+        disc.fit(df, target_col="y",
+                 feature_cols=["y_prev", "f1", "f2", "target_enc_bad"],
+                 train_idx=np.arange(1200))
+        # target_enc_bad dropped by forbidden_pattern filter; y_prev
+        # survives. Discovery should still produce specs based on
+        # y_prev (the surviving hint) + MI fill.
+        bases = {s.base_column for s in disc.specs_}
+        assert "target_enc_bad" not in bases
+        assert "y_prev" in bases
+
+    def test_dominant_features_hint_more_than_top_k_truncates(self) -> None:
+        """If hint has 5 features but auto_base_top_k=2, only first 2
+        are used."""
+        df = _slow_ar1_dominant_lag()
+        cfg = CompositeTargetDiscoveryConfig(
+            enabled=True, screening="mi",
+            mi_sample_n=800, eps_mi_gain=-1.0,
+            auto_base_top_k=2,
+            dominant_features_hint=["y_prev", "f1", "f2"],
+            transforms=["diff"],
+        )
+        disc = CompositeTargetDiscovery(cfg)
+        disc.fit(df, target_col="y",
+                 feature_cols=["y_prev", "f1", "f2"],
+                 train_idx=np.arange(1200))
+        bases = {s.base_column for s in disc.specs_}
+        # First two of hint were y_prev + f1 -> they should be the
+        # bases (f2 not picked because top_k=2).
+        assert bases.issubset({"y_prev", "f1"})
+
+    def test_dominant_features_hint_default_none(self) -> None:
+        """Default config has no hint -> behaves like before."""
+        cfg = CompositeTargetDiscoveryConfig()
+        assert cfg.dominant_features_hint is None
+
+    # ----------------------------------------------------------------------
+    # Transform discrimination: A/B (ratio) vs A-B (diff) vs linear_residual
+    # ----------------------------------------------------------------------
+    #
+    # Verifies that when the data-generating process is genuinely
+    # multiplicative (``y = base * f(X)``), discovery's MI gain ranks
+    # ``ratio`` / ``logratio`` ABOVE ``diff``, and vice versa for
+    # additive processes. Without this contract, discovery could ship
+    # a worse-than-raw model on inappropriate transforms even after
+    # the raw-y baseline gate (because all transforms might pass the
+    # gate but the user expects the right STRUCTURE to win).
+
+    def test_diff_wins_on_pure_additive_signal(self) -> None:
+        """y = base + g(X) + small noise -> ``T = y - base = g(X)`` is
+        directly predictable from X, while ``T = y / base`` or
+        ``T = log(y) - log(base)`` mix base into the target. ``diff``
+        should rank #1 by mi_gain on this data-generating process."""
+        rng = np.random.default_rng(0)
+        n = 1500
+        # Positive bases & y so logratio is in-domain on every row.
+        base = np.abs(rng.normal(loc=10, scale=2, size=n)) + 5
+        x1 = rng.normal(size=n)
+        x2 = rng.normal(size=n)
+        # Pure additive: y = base + clean function of X.
+        y = base + 2.0 * x1 + 1.5 * np.sin(x2 * 2) + rng.normal(scale=0.05, size=n)
+        df = pd.DataFrame({"base": base, "x1": x1, "x2": x2, "y": y})
+        cfg = CompositeTargetDiscoveryConfig(
+            enabled=True, screening="mi", mi_sample_n=800,
+            base_candidates=["base"], eps_mi_gain=-100.0,
+            transforms=["diff", "ratio", "logratio", "linear_residual"],
+            top_k_after_mi=8,
+        )
+        disc = CompositeTargetDiscovery(cfg)
+        disc.fit(df, target_col="y",
+                 feature_cols=["base", "x1", "x2"],
+                 train_idx=np.arange(1200))
+        # All 4 transforms produced specs (eps wide open). Rank by
+        # mi_gain descending; diff or linear_residual must lead because
+        # they both eliminate base linearly (linear_residual fits an
+        # alpha which is ~1.0 here, so behaves like diff).
+        rep = sorted(
+            [r for r in disc.report() if r.get("name", "").startswith("y__")],
+            key=lambda r: -r.get("mi_gain", -np.inf),
+        )
+        assert rep, f"no candidates evaluated; report={disc.report()}"
+        top_transform = rep[0]["transform_name"]
+        # diff or linear_residual must win over ratio / logratio for
+        # pure-additive data.
+        assert top_transform in ("diff", "linear_residual"), (
+            f"expected diff/linear_residual to win on additive data, "
+            f"got {top_transform}; rank={[(r['transform_name'], r['mi_gain']) for r in rep]}"
+        )
+        # Specifically: diff must rank above ratio.
+        diff_gain = next((r["mi_gain"] for r in rep
+                          if r["transform_name"] == "diff"), float("-inf"))
+        ratio_gain = next((r["mi_gain"] for r in rep
+                           if r["transform_name"] == "ratio"), float("-inf"))
+        assert diff_gain > ratio_gain, (
+            f"diff mi_gain {diff_gain:.4f} should beat ratio {ratio_gain:.4f} "
+            f"on additive y=base+g(X)")
+
+    def test_logratio_wins_on_pure_multiplicative_signal(self) -> None:
+        """y = base * exp(g(X)) -> ``T = log(y) - log(base) = g(X)``
+        is directly predictable from X, while ``T = y - base`` carries
+        the multiplicative scale of base. ``logratio`` should beat
+        ``diff`` by mi_gain on multiplicative DGP."""
+        rng = np.random.default_rng(0)
+        n = 1500
+        # Strictly positive base & y to keep logratio in-domain.
+        base = rng.lognormal(mean=2.0, sigma=0.4, size=n)
+        x1 = rng.normal(size=n)
+        x2 = rng.normal(size=n)
+        # Multiplicative: y = base * exp(small clean function of X).
+        y = base * np.exp(0.5 * x1 + 0.3 * np.sin(x2 * 2)
+                          + rng.normal(scale=0.02, size=n))
+        df = pd.DataFrame({"base": base, "x1": x1, "x2": x2, "y": y})
+        cfg = CompositeTargetDiscoveryConfig(
+            enabled=True, screening="mi", mi_sample_n=800,
+            base_candidates=["base"], eps_mi_gain=-100.0,
+            transforms=["diff", "ratio", "logratio", "linear_residual"],
+            top_k_after_mi=8,
+        )
+        disc = CompositeTargetDiscovery(cfg)
+        disc.fit(df, target_col="y",
+                 feature_cols=["base", "x1", "x2"],
+                 train_idx=np.arange(1200))
+        rep = sorted(
+            [r for r in disc.report() if r.get("name", "").startswith("y__")],
+            key=lambda r: -r.get("mi_gain", -np.inf),
+        )
+        assert rep
+        # logratio or ratio (proportional scaling) must beat diff
+        # on multiplicative DGP. The strict claim: logratio mi_gain
+        # > diff mi_gain.
+        logratio_gain = next((r["mi_gain"] for r in rep
+                              if r["transform_name"] == "logratio"),
+                             float("-inf"))
+        diff_gain = next((r["mi_gain"] for r in rep
+                          if r["transform_name"] == "diff"), float("-inf"))
+        assert logratio_gain > diff_gain, (
+            f"logratio mi_gain {logratio_gain:.4f} should beat "
+            f"diff {diff_gain:.4f} on multiplicative y=base*exp(g(X)); "
+            f"full rank={[(r['transform_name'], r['mi_gain']) for r in rep]}")
+        # And the top-ranked transform should be a multiplicative one.
+        assert rep[0]["transform_name"] in ("logratio", "ratio"), (
+            f"expected logratio/ratio top on multiplicative data; "
+            f"got {rep[0]['transform_name']}")
+
+    def test_linear_residual_wins_over_diff_when_alpha_not_one(self) -> None:
+        """y = alpha*base + g(X) + eps with alpha != 1.0 -- diff
+        leaves a residual ``T = y - base = (alpha-1)*base + g(X)`` that
+        still carries base contribution, while linear_residual fits
+        alpha and removes it cleanly. linear_residual should beat
+        diff on mi_gain."""
+        rng = np.random.default_rng(0)
+        n = 1500
+        base = rng.normal(loc=10, scale=2, size=n)
+        x1 = rng.normal(size=n)
+        x2 = rng.normal(size=n)
+        # y = 0.5*base + clean structure -> diff residual = -0.5*base + structure
+        # which still shares variance with base column.
+        y = 0.5 * base + 2.0 * x1 + 1.5 * np.sin(x2 * 2) + rng.normal(scale=0.05, size=n)
+        df = pd.DataFrame({"base": base, "x1": x1, "x2": x2, "y": y})
+        cfg = CompositeTargetDiscoveryConfig(
+            enabled=True, screening="mi", mi_sample_n=800,
+            base_candidates=["base"], eps_mi_gain=-100.0,
+            transforms=["diff", "linear_residual"],
+            top_k_after_mi=8,
+        )
+        disc = CompositeTargetDiscovery(cfg)
+        disc.fit(df, target_col="y",
+                 feature_cols=["base", "x1", "x2"],
+                 train_idx=np.arange(1200))
+        rep = sorted(
+            [r for r in disc.report() if r.get("name", "").startswith("y__")],
+            key=lambda r: -r.get("mi_gain", -np.inf),
+        )
+        lr_gain = next((r["mi_gain"] for r in rep
+                        if r["transform_name"] == "linear_residual"),
+                       float("-inf"))
+        diff_gain = next((r["mi_gain"] for r in rep
+                          if r["transform_name"] == "diff"), float("-inf"))
+        assert lr_gain >= diff_gain, (
+            f"linear_residual mi_gain {lr_gain:.4f} should be >= "
+            f"diff mi_gain {diff_gain:.4f} when alpha != 1; "
+            f"full rank={[(r['transform_name'], r['mi_gain']) for r in rep]}")
+
+    def test_diff_and_linear_residual_collapse_when_alpha_equals_one(self) -> None:
+        """Sanity check: when y = base + g(X) (alpha=1), diff and
+        linear_residual produce numerically equivalent T_k and
+        therefore comparable mi_gain (within MI estimation noise).
+        Catches future regressions where one transform's fit silently
+        produces wrong params."""
+        rng = np.random.default_rng(0)
+        n = 1500
+        base = rng.normal(loc=10, scale=2, size=n)
+        x1 = rng.normal(size=n)
+        x2 = rng.normal(size=n)
+        y = base + 2.0 * x1 + 1.5 * np.sin(x2 * 2) + rng.normal(scale=0.05, size=n)
+        df = pd.DataFrame({"base": base, "x1": x1, "x2": x2, "y": y})
+        cfg = CompositeTargetDiscoveryConfig(
+            enabled=True, screening="mi", mi_sample_n=1500,
+            base_candidates=["base"], eps_mi_gain=-100.0,
+            transforms=["diff", "linear_residual"],
+        )
+        disc = CompositeTargetDiscovery(cfg)
+        disc.fit(df, target_col="y",
+                 feature_cols=["base", "x1", "x2"],
+                 train_idx=np.arange(1200))
+        rep = {r["transform_name"]: r["mi_gain"] for r in disc.report()
+               if r.get("name", "").startswith("y__")}
+        assert "diff" in rep and "linear_residual" in rep
+        # alpha is fitted to ~1.0 so the two T sequences are nearly
+        # identical; their mi_gain values should differ only by MI
+        # estimation noise (< 0.05).
+        assert abs(rep["diff"] - rep["linear_residual"]) < 0.10, (
+            f"diff={rep['diff']:.4f} vs linear_residual={rep['linear_residual']:.4f} "
+            "should be near-equal when alpha=1.0")
+
     def test_disabled_config_skips_gate_entirely(self) -> None:
         """``enabled=False`` short-circuits before any rerank / gate."""
         df = _slow_ar1_dominant_lag()

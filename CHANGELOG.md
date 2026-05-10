@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-05-10 — Composite-target hotfix part 3: BaselineDiagnostics ablation hint -- honest negative-ish result
+
+### Added
+
+- **`CompositeTargetDiscoveryConfig.dominant_features_hint: list[str] | None = None`** -- explicit list of features to prepend as priority base candidates. When set, `_auto_base` puts hint features first (in given order) and fills remaining slots with MI-ranked features up to `auto_base_top_k`. Hint features still pass through the standard filters (forbidden_pattern / non_numeric / constant / corr_threshold); failures are logged as INFO and the hint shrinks accordingly.
+- **`CompositeTargetDiscoveryConfig.use_baseline_diagnostics_hint: bool = True`** + **`baseline_diagnostics_hint_top_k: int = 3`** -- automatic wiring in `train_mlframe_models_suite`: an inline BaselineDiagnostics precompute runs before discovery, ablation top-K is passed to `dominant_features_hint`, and the BD result is cached so the per-target loop reuses it (saves ~30-60s ablation cost when both subsystems run).
+- **`CompositeTargetDiscovery._auto_base`** combined-ranking log now annotates which entries came from the hint: `f1=0.0048(hint), y_prev=2.4512, f2=0.0386`.
+- **6 new tests** in `test_composite_gate_and_edges.py::TestIntegrationEdges`: hint overrides MI ranking, hint combines with MI for remaining slots, hint feature filtered falls back, hint > top_k truncates, hint default None.
+
+### Honest benchmark verdict
+
+3 synthetic scenarios x 5 reps via `mlframe/benchmarks/composite_hint_benchmark.py`:
+
+| Scenario                                  | RMSE delta (hint vs MI-only) | Base correctness |
+|-------------------------------------------|-----------------------------:|----------------- |
+| `lag_dominant_with_spatial_distractors`   |                       +0.00% | 5/5 -> 5/5       |
+| `multibase_with_distractor`               |                       +0.00% | 5/5 -> 5/5       |
+| `heavy_tail_unstable_mi`                  |                       -0.08% | 2/5 -> 3/5       |
+
+**On synthetic benchmarks the hint provides essentially zero RMSE improvement.** When MI estimation is stable (adequate sample size, clean distributions), pairwise `MI(y, x)` already ranks the correct base. The hint helps marginally on heavy-tail / small-sample regimes but the synthetic ablation proxy itself is noisy enough to occasionally pick a wrong base, washing out the gain.
+
+**Why this is still kept as default-on**:
+1. Defensive value: if MI estimation IS fooled (real-world data quirks like the production TVT case), the hint provides a stable-signal fallback.
+2. Cost-free when BD already runs: caching the BD precompute amortises the ~30-60s diagnostic into existing work.
+3. Strictly better base-correctness on heavy-tail (3/5 vs 2/5), even when RMSE is noise-equivalent.
+
+**What this hotfix does NOT claim**: that the hint produces meaningful RMSE improvements on synthetic data. Per `feedback_perf_measure_first`, documenting "no actionable speedup on the synthetic" so the next engineer doesn't repeat the experiment. The production TVT failure was fixed by hotfix part 1 (corr threshold) and part 2 (raw-y gate); the hint is supplementary.
+
+### Bug fix found while wiring
+
+- BaselineDiagnostics duplicate-run elimination: when composite-discovery's inline precompute populated `metadata["baseline_diagnostics"][...]`, the per-target training loop's BD step would re-run the same diagnostic. Now reuses the cached result with a log line `[BaselineDiagnostics] target='X' reusing cached diagnostic from composite-discovery precompute (saved ~30-60s)`.
+
 ## 2026-05-10 — RFECV PR-12: Conditional Permutation Importance + resume-from-checkpoint + post-refactor profile pass
 
 Three high-priority items from `feature_selection/wrappers/TODO.md` closed. None of the changes alter default behaviour; both new features are opt-in.
