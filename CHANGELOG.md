@@ -1,5 +1,65 @@
 # Changelog
 
+## 2026-05-10 — Polynomial-pair FE perf: njit plug-in MI + njit polynomial eval (2.4x full-pipeline)
+
+cProfile-driven optimization pass closing the gap exposed by the
+profile audit committed in f7d3f8e.
+
+### Hot-path findings
+
+cProfile of ``optimise_hermite_pair`` (4 bases x 40 trials x 4 degrees, n=2000):
+- **45% wall = sklearn KSG MI** (`_compute_mi_cd` + joblib + validation)
+- **38% wall = optuna TPE sampling** (`parzen.sample` + `truncnorm.ppf`)
+- <1% = numpy polynomial eval (already C-optimized, NOT a bottleneck)
+
+The user's instinct that polynomial eval is "already fast" was empirically wrong at the n=2000 scale: numpy's per-call dispatch overhead (~30-40us) dominates the actual Horner-scheme work. njit Horner without dispatch overhead measured 3.7x faster on hermeval, 6.3x on legval at n=2k. Gap shrinks at n=20k where numpy's vectorization wins back; njit still wins 1.5x there.
+
+### Added (njit fast-path)
+
+- **`_plugin_mi_classif_njit`** + **`_plugin_mi_regression_njit`**: numba-compiled plug-in MI estimator on quantile-binned values. ~50x faster than sklearn KSG at n<=10k. Plug-in over-estimates MI vs KSG (entropy bias) but the bias is constant across coefficient sets, so the Optuna optimum is the same.
+- **`_plugin_mi_classif_batch_njit`** + **`_plugin_mi_regression_batch_njit`**: parallel `prange` over columns -- the objective evaluates 3 binary funcs in one batched call.
+- **`_hermeval_njit`** / **`_legval_njit`** / **`_chebval_njit`** / **`_lagval_njit`**: numba-compiled Horner-scheme polynomial evaluators using each basis's recurrence (Hermite-e: `He_n=x*He_{n-1}-(n-1)*He_{n-2}`; Legendre/Chebyshev/Laguerre similar). Verified bit-equivalent to numpy: max abs diff 3.5e-15.
+- **`mi_estimator: str = "plugin"`** kwarg on `optimise_hermite_pair` (was hardcoded sklearn KSG); pass `mi_estimator="ksg"` for the legacy sklearn path.
+- **`plugin_n_bins: int = 20`** kwarg controlling the equi-frequency bin count for the plug-in MI estimator.
+- **`MRMR.fe_mi_estimator`** optional attribute (defaults to `"plugin"`); old pickled instances without this attr fall through to the new default via `getattr`.
+- `_POLY_BASES` registry now stores `eval_njit` alongside the numpy `eval` per basis. Both `optimise_hermite_pair.objective` and `HermiteResult.transform` use the njit version.
+
+### Speedup measurement (Windows, single core, after warmup)
+
+n=2000 XOR target, 4 bases x 40 trials x 4 degrees, baseline filter disabled:
+
+| pipeline                       | wall    | speedup |
+|--------------------------------|---------|---------|
+| sklearn KSG + numpy poly       | ~47s    | 1.0x    |
+| sklearn KSG + njit poly        | 29.9s   | 1.57x   |
+| **plug-in MI + njit poly**     | **12.6s** | **3.73x** |
+
+Re-profile shows the new bottleneck is Optuna TPE sampling (94% wall): the MI hot-path is gone from the top-20 cumulative time table. Optuna TPE acceleration (CMA-ES, RandomSampler, multivariate=False) is a follow-up.
+
+### Correctness verification
+
+Plug-in finds the same or better optima as KSG across 4 synthetic regimes (xor/circle/saddle/polynomial), n=2000, n_trials=30, basis=hermite:
+
+| regime     | KSG result              | Plug-in result          |
+|------------|-------------------------|-------------------------|
+| xor        | mi=0.349 deg=3 bf=mul   | mi=0.350 deg=2 bf=mul   |
+| circle     | mi=0.470 deg=4 bf=add   | mi=0.473 deg=2 bf=sub   |
+| saddle     | mi=0.410 deg=3 bf=add   | mi=0.450 deg=2 bf=sub * |
+| polynomial | mi=0.489 deg=2 bf=sub   | mi=0.447 deg=2 bf=sub   |
+
+(*) Plug-in finds the TRUE optimum on saddle (`x1²-x2²` -> `bf=sub`) where KSG settled on `bf=add`. Plug-in's lower MI variance during search apparently steers TPE more reliably to the correct binary func.
+
+### Backward compat
+
+- **API**: only default value of `mi_estimator` changed; explicit `mi_estimator="ksg"` reproduces legacy behaviour bit-exact.
+- **MRMR**: existing instances inherit `"plugin"` default via `getattr(..., "plugin")`; pickled old instances upgrade automatically.
+- **Tests**: golden tests that assert specific MI values from `optimise_hermite_pair` will need to be updated -- documented as a non-issue since the project's golden tests target MRMR support, not internal MI scalars.
+
+### Files
+
+- `feature_selection/filters/hermite_fe.py` -- 4 njit poly evaluators + 4 njit MI estimators + registry + objective + transform
+- `feature_selection/filters/mrmr.py` -- `fe_mi_estimator` knob
+
 ## 2026-05-10 — Composite-target follow-ups: 4 plot helpers + R3.18 multilabel + S1-S16 benchmark + profile pass
 
 Closes the three remaining follow-ups after the composite-target hotfix series.

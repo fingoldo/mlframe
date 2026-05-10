@@ -983,6 +983,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 # and picking the global best.
                 best_res = None
                 fe_basis = getattr(self, "fe_polynomial_basis", "chebyshev")
+                fe_mi_est = getattr(self, "fe_mi_estimator", "plugin")
                 for seed_offset in range(fe_smart_polynom_iters):
                     res = optimise_hermite_pair(
                         x_a=vals_a, x_b=vals_b, y=classes_y,
@@ -996,6 +997,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                         seed=42 + seed_offset,
                         sweep_degrees=True,
                         basis=fe_basis,
+                        mi_estimator=fe_mi_est,
                     )
                     if res is not None and (best_res is None or res.mi > best_res.mi):
                         best_res = res
