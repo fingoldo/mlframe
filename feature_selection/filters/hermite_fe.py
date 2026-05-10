@@ -737,6 +737,36 @@ _POLY_BASES = {
 }
 for _bn in _POLY_BASES:
     _POLY_BASES[_bn]["eval_dispatch"] = _make_dispatch(_bn)
+    _POLY_BASES[_bn]["coef_size_func"] = lambda d: d + 1
+    # Polynomial canonical seeds use _canonical_seeds(basis, degree)
+    # defined later -- bind via late closure.
+    _POLY_BASES[_bn]["canonical_seeds_func"] = None
+    _POLY_BASES[_bn]["kind"] = "polynomial"
+
+
+# Merge non-polynomial basis families (Fourier, RBF, Sigmoid, Pade)
+# from ``bases.py``. Each entry must supply at minimum ``fit``,
+# ``apply``, ``coef_size_func``, ``canonical_seeds_func`` and either
+# ``eval_njit`` (data-independent) OR ``eval_njit_factory(params)``
+# (data-dependent like RBF centres).
+try:
+    from .bases import EXTRA_BASES as _EXTRA_BASES
+    for _bn, _entry in _EXTRA_BASES.items():
+        _POLY_BASES[_bn] = dict(_entry)  # copy
+        # Provide eval_dispatch placeholder -- non-polynomial bases
+        # don't currently use the size-aware CUDA dispatch (they are
+        # rarely n>50k anyway). Just route through eval_njit.
+        if "eval_njit" in _entry:
+            _ev = _entry["eval_njit"]
+            _POLY_BASES[_bn]["eval_dispatch"] = _ev
+        elif "eval_njit_factory" in _entry:
+            # Built lazily per call once params are known.
+            _POLY_BASES[_bn]["eval_dispatch"] = None
+        else:
+            _POLY_BASES[_bn]["eval_dispatch"] = None
+        _POLY_BASES[_bn].setdefault("kind", "non-polynomial")
+except ImportError:
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -917,7 +947,7 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
 
 def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
                      direction_only, warm_start_seeds, eval_kwargs,
-                     popsize=None):
+                     popsize=None, eval_pair_fn=None):
     """CMA-ES inner loop. Returns (best_coef_a, best_coef_b,
     best_bf_idx, best_raw_mi, n_evals).
 
@@ -947,7 +977,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
             ws = np.asarray(ws, dtype=np.float64)
             coef_a = ws[:ca_size]
             coef_b = ws[ca_size:]
-            score, raw_mi, bf_idx = _eval_coef_pair(
+            score, raw_mi, bf_idx = (eval_pair_fn or _eval_coef_pair)(
                 coef_a, coef_b, direction_only=direction_only, **eval_kwargs,
             )
             n_evals += 1
@@ -1007,7 +1037,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
                 break
             coef_a = sol[:ca_size]
             coef_b = sol[ca_size:]
-            score, raw_mi, bf_idx = _eval_coef_pair(
+            score, raw_mi, bf_idx = (eval_pair_fn or _eval_coef_pair)(
                 coef_a, coef_b, direction_only=direction_only, **eval_kwargs,
             )
             n_evals += 1
@@ -1200,12 +1230,24 @@ def optimise_hermite_pair(
     # here; it doesn't change between trials). Saves ~4us/call closure
     # overhead which compounds to ~5ms over 1000+ trial evaluations.
     n_eval = z_a.shape[0]
-    if n_eval < _PAR_THRESHOLD:
-        eval_func = basis_info["eval_njit"]
-    elif n_eval >= _CUDA_THRESHOLD and _CUDA_AVAILABLE:
-        eval_func = basis_info["eval_dispatch"]  # cuda path
+    factory_top = basis_info.get("eval_njit_factory")
+    if factory_top is not None:
+        # Non-polynomial basis with data-dependent eval (RBF/Sigmoid).
+        # Factory is invoked below per-feature once preprocess_a/b are
+        # known; here we just stub eval_func.
+        eval_func = None
+    elif basis in _NJIT_FUNCS:
+        # Polynomial basis -- size-aware ladder applies.
+        if n_eval < _PAR_THRESHOLD:
+            eval_func = basis_info["eval_njit"]
+        elif n_eval >= _CUDA_THRESHOLD and _CUDA_AVAILABLE:
+            eval_func = basis_info["eval_dispatch"]  # cuda path
+        else:
+            eval_func = _NJIT_PAR_FUNCS[basis]
     else:
-        eval_func = _NJIT_PAR_FUNCS[basis]
+        # Other non-polynomial basis with simple eval_njit (Fourier,
+        # Pade) -- use directly.
+        eval_func = basis_info["eval_njit"]
 
     baseline = _baseline_mi_pair(z_a, z_b, y, discrete_target=discrete_target,
                                   n_neighbors=n_neighbors,
@@ -1275,11 +1317,82 @@ def optimise_hermite_pair(
         y_search = y_njit
         y_search_any = y
 
+    # Coef-size lookup: polynomial bases use ``degree + 1``; non-poly
+    # bases (Fourier 2K, RBF up to 9, Pade 2p+1) override via
+    # ``coef_size_func``.
+    coef_size_func = basis_info.get("coef_size_func", lambda d: d + 1)
+    canonical_seeds_func = basis_info.get("canonical_seeds_func")
+
+    # For factory-based bases (RBF, Sigmoid) the eval depends on
+    # train-fold-fitted centres / thresholds -- build the per-basis
+    # eval here once the preprocess params are known.
+    factory = basis_info.get("eval_njit_factory")
+    if factory is not None:
+        eval_func = factory(preprocess_a)
+        # NOTE: RBF/Sigmoid factory uses preprocess_a's centres for
+        # x_a; for x_b we need a separate factory call. Done below
+        # per evaluation via a wrapped eval. For simplicity at this
+        # pass we use ``preprocess_a`` for both -- on UNIVARIATE-
+        # symmetric inputs (z-scored) this is fine; for
+        # heterogeneous a/b inputs you'd need separate evals per
+        # feature, deferred.
+        # TODO: separate eval for x_a and x_b when factory-based.
+        eval_func_b = factory(preprocess_b)
+    else:
+        eval_func_b = eval_func
+
     for degree in degree_grid:
-        ca_size = degree + 1
-        cb_size = degree + 1
+        ca_size = coef_size_func(degree)
+        cb_size = coef_size_func(degree)
 
         # Shared kwargs threaded through both Optuna and CMA paths.
+        # When eval_func differs per feature (factory-based bases like
+        # RBF), wrap the inner _eval_coef_pair to use both.
+        if factory is not None:
+            def _eval_dual(coef_a, coef_b, **kw):
+                # Re-implement just enough of _eval_coef_pair to use
+                # eval_func and eval_func_b separately.
+                from numpy import column_stack, ascontiguousarray, all as npall, isfinite
+                z_a_loc = kw["z_a"]; z_b_loc = kw["z_b"]
+                bf_call = kw["bf_callables"]
+                if kw.get("direction_only"):
+                    coef_a, coef_b = _l2_normalize_pair(coef_a, coef_b, 1.0)
+                h_a = eval_func(z_a_loc, coef_a)
+                h_b = eval_func_b(z_b_loc, coef_b)
+                if not (npall(isfinite(h_a)) and npall(isfinite(h_b))):
+                    return -np.inf, 0.0, -1
+                cols = []; valid_idx = []
+                for k, bf in enumerate(bf_call):
+                    try:
+                        combined = bf(h_a, h_b)
+                    except Exception:
+                        continue
+                    if npall(isfinite(combined)):
+                        cols.append(combined); valid_idx.append(k)
+                if not cols:
+                    return -np.inf, 0.0, -1
+                X_batch = ascontiguousarray(column_stack(cols), dtype=np.float64)
+                if kw["mi_estimator"] == "plugin":
+                    if kw["discrete_target"]:
+                        mi_arr = _plugin_mi_classif_batch_njit(X_batch, kw["y_njit"], kw["plugin_n_bins"])
+                    else:
+                        mi_arr = _plugin_mi_regression_batch_njit(X_batch, kw["y_njit"], kw["plugin_n_bins"])
+                else:
+                    if kw["discrete_target"]:
+                        mi_arr = mutual_info_classif(X_batch, kw["y"], n_neighbors=kw["n_neighbors"], random_state=42, discrete_features=False)
+                    else:
+                        mi_arr = mutual_info_regression(X_batch, kw["y"], n_neighbors=kw["n_neighbors"], random_state=42, discrete_features=False)
+                penalty = 0.0 if kw.get("direction_only") else kw["l2_penalty"] * (float(np.sum(coef_a**2)) + float(np.sum(coef_b**2)))
+                best_score = -np.inf; best_raw = 0.0; best_idx = -1
+                for j, k in enumerate(valid_idx):
+                    raw = float(mi_arr[j]); s = raw - penalty
+                    if s > best_score:
+                        best_score = s; best_raw = raw; best_idx = k
+                return best_score, best_raw, best_idx
+            eval_pair_fn = _eval_dual
+        else:
+            eval_pair_fn = _eval_coef_pair
+
         eval_kwargs = dict(
             z_a=z_a_search, z_b=z_b_search,
             eval_func=eval_func,
@@ -1295,7 +1408,12 @@ def optimise_hermite_pair(
         # for both feature slots, then concatenate.
         warm_seeds = []
         if warm_start:
-            seeds_per_feature = _canonical_seeds(basis, degree)
+            if canonical_seeds_func is not None:
+                # Non-polynomial basis (Fourier, RBF, Sigmoid, Pade)
+                # ships its own canonical seeds via the registry.
+                seeds_per_feature = canonical_seeds_func(degree)
+            else:
+                seeds_per_feature = _canonical_seeds(basis, degree)
             # Pair every seed with itself + every other seed for c_b
             # (limited to keep init pop small).
             for s_a in seeds_per_feature:
@@ -1320,6 +1438,7 @@ def optimise_hermite_pair(
                     direction_only=direction_only,
                     warm_start_seeds=warm_seeds,
                     eval_kwargs=eval_kwargs,
+                    eval_pair_fn=eval_pair_fn,
                 )
             except Exception as e:
                 logger.warning("CMA-ES failed at degree %d (%s); "
@@ -1338,7 +1457,7 @@ def optimise_hermite_pair(
                     trial.suggest_float(f"b_{i}", *coef_range)
                     for i in range(cb_size)
                 ], dtype=np.float64)
-                score, raw_mi, bf_idx = _eval_coef_pair(
+                score, raw_mi, bf_idx = (eval_pair_fn or _eval_coef_pair)(
                     coef_a, coef_b, direction_only=direction_only,
                     **eval_kwargs,
                 )
