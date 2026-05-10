@@ -2809,7 +2809,30 @@ def train_mlframe_models_suite(
     # balloons CB's model artefact. Drop them from the train/val/test
     # splits AND from ``raw_cat_features`` here so every downstream
     # strategy sees the same reduced frame.
+    # 2026-05-10: capture pre-drop high-card column DATA so dummy_baselines
+    # per_group_mean can use these as group keys downstream. Tree models drop
+    # them to avoid XGB QuantileDMatrix OOM, but a simple groupby on the same
+    # column gives an excellent reference baseline (well_id with 600+ unique
+    # values for well-log regression, user_id for marketplace data, etc.).
+    _dropped_high_card_data = {}
     if auto_high_card_drop:
+        for _col in auto_high_card_drop:
+            _col_frames = {}
+            for _label, _frame in (("train", train_df), ("val", val_df), ("test", test_df)):
+                if _frame is None:
+                    continue
+                _cols = _frame.columns if hasattr(_frame, "columns") else []
+                if _col not in _cols:
+                    continue
+                try:
+                    if isinstance(_frame, pl.DataFrame):
+                        _col_frames[_label] = _frame[_col].to_numpy()
+                    else:
+                        _col_frames[_label] = np.asarray(_frame[_col])
+                except Exception:
+                    continue
+            if _col_frames:
+                _dropped_high_card_data[_col] = _col_frames
         train_df = _drop_cols_df(train_df, auto_high_card_drop)
         val_df = _drop_cols_df(val_df, auto_high_card_drop)
         test_df = _drop_cols_df(test_df, auto_high_card_drop)
@@ -4135,20 +4158,44 @@ def train_mlframe_models_suite(
                             if timestamps is not None and test_idx is not None
                             else None
                         )
+                        # Re-attach high-card cat cols dropped earlier so per_group_mean
+                        # can use them as group keys (e.g. well_id with 623 unique values).
+                        _dummy_train_X = filtered_train_df
+                        _dummy_val_X = filtered_val_df
+                        _dummy_test_X = test_df_pd
+                        _dummy_cat_features = list(cat_features or [])
+                        if _dropped_high_card_data:
+                            try:
+                                _dummy_train_X, _dummy_val_X, _dummy_test_X, _added = _augment_with_dropped_high_card_cols(
+                                    _dropped_high_card_data,
+                                    filtered_train_df, filtered_val_df, test_df_pd,
+                                    train_od_idx=train_od_idx, val_od_idx=val_od_idx,
+                                )
+                                if _added:
+                                    _dummy_cat_features.extend(_added)
+                                    logger.debug(
+                                        "[dummy-baselines] re-attached %d auto-dropped high-card cat col(s) for per_group_mean: %s",
+                                        len(_added), _added,
+                                    )
+                            except Exception as _aug_err:
+                                logger.debug(
+                                    "[dummy-baselines] failed to re-attach dropped high-card cat cols (%s); per_group_mean may be missing",
+                                    _aug_err,
+                                )
                         with phase(f"dummy_baselines:{str(target_type)}", target=cur_target_name):
                             _db_report = compute_dummy_baselines(
                                 target_type=str(target_type),
                                 target_name=cur_target_name,
-                                train_X=filtered_train_df,
-                                val_X=filtered_val_df,
-                                test_X=test_df_pd,
+                                train_X=_dummy_train_X,
+                                val_X=_dummy_val_X,
+                                test_X=_dummy_test_X,
                                 train_y=current_train_target,
                                 val_y=current_val_target,
                                 test_y=current_test_target,
                                 timestamps_train=_ts_train,
                                 timestamps_val=_ts_val,
                                 timestamps_test=_ts_test,
-                                cat_features=cat_features,
+                                cat_features=_dummy_cat_features,
                                 config=dummy_baselines_config,
                                 plot_file_prefix=(plot_file or ""),
                             )
