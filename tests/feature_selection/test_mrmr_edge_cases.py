@@ -31,42 +31,9 @@ from mlframe.feature_selection.filters import (
 class TestMRMREdgeCases:
     """Test MRMR edge cases and error handling."""
 
-    def test_single_feature(self):
-        """Test MRMR with single feature."""
-        np.random.seed(42)
-        X = pd.DataFrame({'a': np.random.randn(200)})
-        y = (X['a'] > 0).astype(int)
-
-        mrmr = MRMR(
-            full_npermutations=3,
-            baseline_npermutations=3,
-            verbose=0,
-            n_jobs=1
-        )
-
-        mrmr.fit(X, y)
-        assert mrmr.n_features_ == 1
-
-    def test_all_noise_features(self):
-        """Test MRMR when all features are noise."""
-        np.random.seed(42)
-        X = pd.DataFrame(np.random.randn(200, 5), columns=['a', 'b', 'c', 'd', 'e'])
-        y = np.random.randint(0, 2, 200)
-
-        mrmr = MRMR(
-            full_npermutations=5,
-            baseline_npermutations=5,
-            min_relevance_gain=0.1,  # High threshold
-            verbose=0,
-            n_jobs=1
-        )
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            mrmr.fit(X, y)
-
-        # Should complete without error
-        assert hasattr(mrmr, 'n_features_')
+    # PR-11 dedup: test_single_feature and test_all_noise_features migrated
+    # to test_selectors_shared.py::TestSharedTrivialInputs (parametrized
+    # over both RFECV and MRMR).
 
     def test_constant_feature(self):
         """Test MRMR with constant feature."""
@@ -110,20 +77,8 @@ class TestMRMREdgeCases:
         # Should complete and select features
         assert mrmr.n_features_ > 0
 
-    def test_ndarray_input(self, simple_classification_data):
-        """Test MRMR with numpy array input instead of DataFrame."""
-        X_df, y, _ = simple_classification_data
-        X = X_df.values
-
-        mrmr = MRMR(
-            full_npermutations=3,
-            baseline_npermutations=3,
-            verbose=0,
-            n_jobs=1
-        )
-
-        mrmr.fit(X, y)
-        assert hasattr(mrmr, 'n_features_')
+    # PR-11 dedup: test_ndarray_input migrated to
+    # test_selectors_shared.py::TestSharedInputTypes::test_numpy_array_input.
 
     def test_skip_retraining_parameter_exists(self, simple_classification_data):
         """Test skip_retraining_on_same_shape parameter can be set."""

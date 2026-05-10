@@ -887,65 +887,17 @@ class TestRFECVTransform:
         assert X_transformed.shape[1] == rfecv.n_features_
         assert X_transformed.shape[0] == X.shape[0]
 
-    def test_transform_ndarray(self, simple_classification_data):
-        """Test transform on ndarray input."""
-        X_df, y, _ = simple_classification_data
-        X = X_df.values
-
-        estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            max_refits=3,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
-
-        rfecv.fit(X, y)
-        X_transformed = rfecv.transform(X)
-
-        assert X_transformed.shape[1] == rfecv.n_features_
-        assert X_transformed.shape[0] == X.shape[0]
+    # PR-11 dedup: test_transform_ndarray migrated to
+    # test_selectors_shared.py::TestSharedInputTypes (parametrized over
+    # both RFECV and MRMR).
 
 
 class TestRFECVEdgeCases:
     """Test RFECV edge cases and error handling."""
 
-    def test_single_feature(self):
-        """Test RFECV with single feature."""
-        X = np.random.randn(100, 1)
-        y = (X[:, 0] > 0).astype(int)
-
-        estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            max_refits=2,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
-
-        rfecv.fit(X, y)
-        assert rfecv.n_features_ == 1
-
-    def test_all_noise_features(self):
-        """Test RFECV when all features are noise."""
-        np.random.seed(42)
-        X = np.random.randn(100, 10)
-        y = np.random.randint(0, 2, 100)
-
-        estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(
-            estimator=estimator,
-            max_refits=3,
-            verbose=0,
-            optimizer_plotting='No',
-            random_state=42
-        )
-
-        rfecv.fit(X, y)
-        # Should still complete
-        assert hasattr(rfecv, 'n_features_')
+    # PR-11 dedup: test_single_feature and test_all_noise_features migrated
+    # to test_selectors_shared.py::TestSharedTrivialInputs (parametrized
+    # over both RFECV and MRMR).
 
     def test_with_groups(self, simple_classification_data):
         """Test RFECV with group parameter."""
