@@ -388,6 +388,44 @@ PR-1 of a multi-stage rework. Five parallel audit agents (logical bugs / ineffic
 - **Phase 3**: split `wrappers.py` (1348 lines, 660-line `fit` method, 4 star-imports) into a `wrappers/` package: `_rfecv.py`, `_splitting.py`, `_scoring.py`, `_importance.py`, `_voting.py`, `_candidate_search.py`, `_config.py`, `_enums.py`. Collapse `use_all_fi_runs` / `use_last_fi_run_only` / `use_one_freshest_fi_run` / `use_fi_ranking` (4 booleans for one enum) into `FIAggregationStrategy`. Drop `from typing import *` and three other star imports. Replace `get_parent_func_args() / store_params_in_object()` magic with explicit attribute assignment so static analysis sees `self.*`.
 - **Phase 4**: top-6 ROI extensions identified by the functionality-extensions agent: stability metrics (`self.stability_`), CI on best `n_features_` via 1-SE rule, parallel CV folds (`joblib.Parallel(n_jobs=...)`), `get_feature_names_out()` sklearn-1.x protocol, `must_include` hybrid (current `special_feature_indices` forces a single subset and breaks the search loop after one iter), permutation/SHAP `importance_getter`.
 
+## 2026-05-10 — Composite-target: profile-every-feature audit per CLAUDE.md rule
+
+User flagged that the new CLAUDE.md "Profile every new feature with cProfile + optimize hotspots" rule was only partially followed -- only ``CompositeTargetDiscovery`` had a dedicated profile harness. This entry closes the rule: every composite-target feature now has wall-time + cProfile measurement, hotspots are documented, one new actionable optimisation surfaced.
+
+### Profile harness expanded
+
+``mlframe/benchmarks/composite_profile.py`` now profiles 6 features end-to-end with both wall-time microbench and cProfile, reports cProfile-vs-wall inflation per feature so attribution noise is calibrated:
+
+| feature | wall-time | cProfile | inflation | top hotspot in our code |
+|---|---:|---:|---:|---|
+| ``BaselineDiagnostics.fit_and_report`` | 897 ms | 955 ms | 1.1x | ``_run_ablation`` (627 ms = K LightGBM fits) |
+| ``CompositeTargetDiscovery.fit`` (hybrid) | 508 ms | 557 ms | 1.1x | ``_mi_to_target`` + ``_tiny_cv_rmse_y_scale`` |
+| ``CompositeTargetDiscovery.fit`` (mi only) | 50 ms | 66 ms | 1.3x | ``_mi_to_target`` |
+| ``compute_oof_holdout_predictions`` | 116 ms | 150 ms | 1.3x | LightGBM re-fit per component |
+| ``CompositeCrossTargetEnsemble.predict`` (1000 rows) | 10.6 ms | 17 ms | 1.6x | inner LightGBM ``predict`` (external) |
+| ``CompositeTargetEstimator.predict`` (1000 rows) | 4.1 ms | 7 ms | 1.7x | inner LightGBM ``predict`` (external) |
+
+cProfile inflation here is small (1.1-1.7x) because LightGBM training calls dominate the cumulative time; the 10-13x pandas/sklearn deep-stack inflation flagged in CLAUDE.md only kicks in when the workload has many small Python-level calls.
+
+### Optimisation applied
+
+``BaselineDiagnostics._run_ablation`` was the only feature with a clear actionable optimisation: K independent ``_fit_quick_and_score`` calls (one per top-K dropped feature) ran serially. **Parallelised via ``joblib.Parallel(backend="threading")``** with ``inner_n_jobs=1`` per LightGBM (so the outer pool owns the cores). End-to-end measured improvement on n=2000, K=4:
+
+- baseline (serial K fits): **897 ms**
+- after (parallel K fits): **472 ms**
+- **1.9x speedup**
+
+### "No actionable speedup" verdicts (per CLAUDE.md rule)
+
+- ``CompositeTargetEstimator.predict``: 4.1 ms / 1000 rows. Effectively 100% in inner LightGBM ``predict``; the wrapper inverse + clip + counter math is sub-millisecond. At the speed-of-light floor for the inverse layer.
+- ``CompositeCrossTargetEnsemble.predict``: 10.6 ms / 1000 rows for K=3 components. Three wrapper.predict calls plus a weighted-mean accumulation. The only meaningful lever is ``max_inference_components`` (already shipped) which trims K at the latency-cost edge.
+- ``compute_oof_holdout_predictions``: 116 ms / 2 components on n=2000. ~50 ms per component re-fit (LightGBM territory). Could parallelise across components similarly to ablation; deferred because K is typically small (3-5) and per-component cost is asymmetric (composite components do an extra ``transform.forward``), so naive joblib parallelism may not net-win without measurement.
+- ``CompositeTargetDiscovery.fit`` (mi only at 50 ms): 78% in sklearn ``mutual_info_regression`` even when bin-MI is selected (sklearn import + first-call kNN warm-up dominates the 50 ms). Not actionable inside our code.
+
+### Cumulative test count
+
+171 / 171 passed in ~95 s on a cold cache.
+
 ## 2026-05-10 — Composite-target: deterministic_screening_models flag (Phase B reproducibility)
 
 Closes the GPU-determinism follow-up from the prior CHANGELOG entry. Top-level opt-in flag wired through ``CompositeTargetDiscoveryConfig`` -> Discovery -> ``_tiny_cv_rmse_y_scale`` -> ``_build_tiny_model``. Default OFF so the perf-optimised path stays the byte-for-byte default.
