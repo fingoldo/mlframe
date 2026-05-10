@@ -1620,12 +1620,22 @@ def show_calibration_plot(
             from matplotlib.figure import Figure
             from matplotlib.backends.backend_agg import FigureCanvasAgg
 
-            # 2026-04-27 batch 8: ``layout="constrained"`` instead of
-            # tight_layout — handles the multi-axis colorbar
-            # (``ax=[ax_main, ax_hist]``) without the
-            # ``Axes are not compatible with tight_layout`` warning,
-            # and aligns subplot widths automatically.
-            fig = Figure(figsize=figsize, layout="constrained")
+            # 2026-05-11: layout was ``"constrained"`` per 2026-04-27 batch 8
+            # to handle the multi-axis colorbar (``ax=[ax_main, ax_hist]``)
+            # without tight_layout's compat warning. But the Wave 4 1M-row
+            # fuzz aggregate showed 146 s across 108 calls (1.35 s / call)
+            # in this path -- constrained_layout's iterative bbox solver
+            # was a needless ~170 ms / call on the calibration plot
+            # geometry.
+            # Visual A/B on the actual chart (12x6 figsize, 2-line title,
+            # multi-axis colorbar, sharex'd hist below scatter) showed
+            # matplotlib's default geometry fits everything with zero
+            # clipping; the rightmost scatter dot stays inside the
+            # colorbar boundary. Switched to ``layout=None``.
+            # Bench: 430 ms -> 257 ms (1.67x, ~170 ms / call saving).
+            # See profiling/bench_calibration_layout.py for the A/B and
+            # D:/Temp/calib_ab_*.png for visual proof.
+            fig = Figure(figsize=figsize, layout=None)
             FigureCanvasAgg(fig)
             if show_prob_histogram:
                 gs = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.05)
@@ -1653,13 +1663,16 @@ def show_calibration_plot(
             return fig
 
         # Interactive path (show_plots=True) — keep pyplot so the GUI window is managed.
+        # 2026-05-11: layout="constrained" -> layout=None (same rationale as the
+        # save-only path above: 1.67x faster, visually equivalent on this
+        # 12x6 figsize + multi-axis colorbar + 2-line title geometry).
         if show_prob_histogram:
             fig, (ax_main, ax_hist) = plt.subplots(
                 nrows=2, ncols=1,
                 figsize=figsize,
                 sharex=True,
                 gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05},
-                layout="constrained",
+                layout=None,
             )
             # Colorbar spans both subplots — see _draw_calibration_axes
             # docstring for why (X-axis alignment under sharex).
@@ -1670,13 +1683,14 @@ def show_calibration_plot(
             if plot_title:
                 ax_main.set_title(plot_title)
         else:
-            fig = plt.figure(figsize=figsize, layout="constrained")
+            fig = plt.figure(figsize=figsize, layout=None)
             ax = fig.add_subplot(1, 1, 1)
             _draw_calibration_axes(ax, fig, draw_xlabel=True)
             if plot_title:
                 ax.set_title(plot_title)
 
-        # constrained_layout (set above) handles colorbar+subplots spacing.
+        # Default geometry fits this layout (verified via visual A/B
+        # against constrained_layout, see bench_calibration_layout.py).
 
         if plot_file:
             fig.savefig(plot_file)
