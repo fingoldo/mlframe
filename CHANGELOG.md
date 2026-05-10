@@ -1,5 +1,81 @@
 # Changelog
 
+## 2026-05-10 — MRMR cat-FE: categorical feature interaction generator + recipe-replay contract
+
+### Summary
+
+Opt-in categorical interaction generator inside `MRMR.fit/transform`. Surfaces synergy pairs (canonical Kaggle XOR-style hidden synergies) as engineered features, replayable on test data via a fit-time lookup table. Default-disabled; legacy `MRMR()` behaviour is bit-exact.
+
+```python
+from mlframe.feature_selection.filters import MRMR, CatFEConfig
+
+mrmr = MRMR(cat_fe_config=CatFEConfig(enable=True))
+mrmr.fit(X_train, y_train)
+X_test_enriched = mrmr.transform(X_test)  # base cols + engineered cols
+```
+
+### Two PRs combined into one changeset
+
+**PR-1 (prep): Engineered-feature replay in `transform()`**
+
+Fixes a latent contract bug in the existing numeric `_run_fe_step`: when `fe_max_steps > 1` produced an engineered feature that ended up in the selected set, `transform()` silently dropped it because no replay path existed. Added:
+
+- New `engineered_recipes.py` with `EngineeredRecipe` dataclass and `apply_recipe(recipe, X)` -- replays an engineered feature on any DataFrame/polars frame/structured ndarray.
+- `MRMR._run_fe_step` now captures `EngineeredRecipe(kind="unary_binary")` for each numeric FE column it adds, threading them through `engineered_recipes` dict.
+- `MRMR.transform` appends recomputed engineered columns onto the base-feature output.
+- `MRMR.get_feature_names_out` includes engineered names after base names.
+- `__setstate__` defaults inject `_engineered_recipes_=[]` for legacy pickles.
+
+**PR-2: Cat-FE main implementation**
+
+- `cat_fe_state.py`: `CatFEConfig` dataclass (22 knobs in one container, NOT 22 parallel `cat_fe_*` kwargs) + `CatFEState` (per-fit recipe / diagnostics / search-MI cache).
+- `cat_interactions.py`: `run_cat_interaction_step` orchestrator + njit kernels (`_marginal_screen_njit`, `_pair_search_kernel_njit`).
+- Pair search via Jakulin Interaction Information `II = I(X1,X2;Y) − I(X1;Y) − I(X2;Y)` ranked by argpartition top-K.
+- Optional Miller-Madow re-rank on top-K survivors (`use_miller_madow`) -- catches high-cardinality plug-in bias.
+- Two-stage permutation budget: search at point-estimate (`shortlist_npermutations=0`), confirm survivors with `full_npermutations=100`-shuffle three-MI test (same shuffled Y feeds all three MIs).
+- FWER correction options (`none`/`bonferroni`/`bh_fdr`/`westfall_young`) -- WY is conservative-equivalent Bonferroni in this MVP; full per-shuffle max-II tracking is a future refinement.
+- `EngineeredRecipe(kind="factorize")` with fit-time pre-prune → post-prune lookup table for `transform()` replay.
+- `unknown_strategy` ∈ {`clip`/`sentinel`/`raise`} for test-time category values unseen during fit.
+- B6 lineage filter in `evaluation.should_skip_candidate` -- prevents redundant `(orig_i, kway(orig_i, orig_j))` k-way candidates.
+- Validation gates: constants (`nbins==1`), high-cardinality refusal (`nbins > sqrt(n)*2`), memmap OOM, max_combined_nbins clamp at 10^7.
+
+### Statistical contract (honest naming)
+
+The `confidence` field is named `joint_dependence_confidence` -- the shuffle-Y permutation test rejects "(X1, X2) jointly independent of Y", NOT "no synergy beyond marginals". The plan v3 SB1/I2 documents this: a proper synergy null requires conditional permutation (shuffle X2 within strata of Y); we surface joint-independence today and leave conditional permutation as future work.
+
+Similarly the threshold parameter is `min_interaction_information` (not "min synergy") -- Jakulin II is synergy − redundancy in the Williams-Beer PID sense; positive II can mean "high synergy AND no redundancy" or "moderate synergy AND moderate redundancy" indistinguishably.
+
+### Performance
+
+CPU (numba prange) MVP; GPU shim deferred to a follow-up. On the canonical XOR fixture (n=1500, 8 cat cols), the orchestrator finds the synergy pair in <200ms. Permutation confirmation cost scales linearly with `full_npermutations × top_k_pairs`.
+
+### Test footprint
+
+92 new tests across `test_engineered_recipes.py` (18) + `test_mrmr_engineered_replay.py` (7) + `test_cat_fe_state.py` (30) + `test_cat_interactions.py` (25) + `test_mrmr_cat_fe_integration.py` (6) + `test_lineage_filter.py` (9) + `test_cat_fe_biz_value.py` (4 -- per `mlframe/CLAUDE.md` "Every new ML trick gets a biz_value synthetic test"). Zero regression in 507 pre-existing `feature_selection/` tests.
+
+### Decision tree: when to enable cat-FE
+
+| Signal | Recommendation |
+|---|---|
+| Dataset has ≥5 categorical columns AND you suspect interactions | `cat_fe_config=CatFEConfig(enable=True)` |
+| All cats have cardinality > 50 each | Be careful: set `max_combined_nbins=2500` explicitly; review high-cardinality refusal warnings |
+| One-hot encoding already applied upstream | Probably no -- your pseudo-cats are binary numeric; the existing `fe_smart_polynom_iters` polynomial machinery already finds AND/XOR via `mul`/`max`/`min` |
+| Dataset n < 1000 | Likely NO -- sparse cells bias II hard; sample size guidance per Paninski 2003 §4 |
+| You want only synergy, not redundancy | Default (`select_on="synergy"`) is correct |
+| You want noise-robust feature engineering (redundancy is signal-stabilising) | `select_on="redundancy"` keeps negative II pairs |
+
+### Out of scope for v1 (tracked for future)
+
+- Greedy k-way expansion to triplets / quartets
+- K-fold II stability filter (E6)
+- Anti-redundancy with already-selected MRMR features (E3)
+- GPU dispatch shim `mi_direct_gpu_batched_pairs` (P9)
+- Conditional permutation null for true synergy testing (SB1 future)
+- Full Westfall-Young max-II tracking across all search pairs (currently Bonferroni-equivalent)
+- Profiling bench + cProfile sweep (deferred until production workloads inform thresholds)
+
+---
+
 ## 2026-05-10 — Composite-target R10c: ensemble default 'oof_weighted' -> 'nnls_stack' (wide shootout) + lock-in tests + business-value demo + RFECV/MRMR integration
 
 Closes the R10b cross-target ensemble default with broader evidence + provides a regression net for every R10b feature.

@@ -28,6 +28,11 @@ from ._numba_utils import arr2str, count_cand_nbins, unpack_and_sort
 from .info_theory import compute_mi_from_classes, conditional_mi, entropy, merge_vars
 from .permutation import mi_direct
 from .gpu import mi_direct_gpu
+# tqdmu is referenced inside ``evaluate_candidates`` -- top-level
+# import (not inside the function) so cloudpickle can resolve it
+# when the function is shipped to a joblib worker process for
+# parallel screening.
+from pyutilz.system import tqdmu
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +52,20 @@ def should_skip_candidate(
     selected_vars: list,
     selected_interactions_vars: list,
     only_unknown_interactions: bool = True,
+    engineered_lineage: dict = None,
 ) -> tuple:
     """Decides if current candidate for predictors should be skipped
     ('cause of being already accepted, failed, computed).
+
+    ``engineered_lineage`` (B6): optional mapping ``{engineered_idx ->
+    frozenset(parent_indices)}`` produced by the cat-FE step. When set,
+    a k-way candidate is skipped if it combines an engineered column
+    with one of its own parent columns (e.g. screening enumerates
+    ``(orig_i, kway(orig_i, orig_j))`` -- redundant because the
+    engineered col already contains orig_i's information; conditional
+    MI degenerates and confidence gates waste budget). Cat-FE
+    orchestrator passes this through; the legacy/numeric path leaves
+    it ``None`` for bit-exact behaviour.
     """
 
     nexisting = 0
@@ -58,6 +74,17 @@ def should_skip_candidate(
         return True, nexisting
 
     if interactions_order > 1:  # disabled for single predictors 'cause Fleuret formula won't detect pairs predictors
+
+        # ---------------------------------------------------------------------------------------------------------------
+        # B6: lineage filter -- skip k-way candidates that combine an
+        # engineered column with one of its own parent columns.
+        # ---------------------------------------------------------------------------------------------------------------
+        if engineered_lineage:
+            X_set = set(X)
+            for subel in X:
+                parents = engineered_lineage.get(subel)
+                if parents is not None and not parents.isdisjoint(X_set):
+                    return True, nexisting
 
         # ---------------------------------------------------------------------------------------------------------------
         # Check if any of sub-elements is already selected at this stage

@@ -239,6 +239,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         # by raw MI rank when the screening pass collapses. The chosen
         # features are flagged as "fallback" via ``self.fallback_used_``.
         min_features_fallback: int = 0,
+        # Cat-FE (categorical feature interactions). Single dataclass kwarg
+        # consolidating ~14 cat_fe_* knobs (SB8). ``None`` (the default)
+        # means cat-FE is disabled bit-exact with legacy behaviour. To
+        # opt in, pass ``cat_fe_config=CatFEConfig(enable=True, ...)``.
+        # See ``mlframe.feature_selection.filters.cat_fe_state.CatFEConfig``.
+        cat_fe_config=None,
         # hidden
         stop_file: str = "stop",
     ):
@@ -336,6 +342,18 @@ class MRMR(BaseEstimator, TransformerMixin):
             "max_confirmation_cand_nbins": 50,  # B13 legacy default
             "fe_fallback_to_all": True,         # B15 legacy default
             "_engineered_features_": [],        # B1 new attribute
+            # PR-1 prep: recipes-based replay so transform() can recompute
+            # engineered features on test data. Old pickles have no
+            # recipes -- their engineered cols were never replayable, so
+            # an empty list reproduces the legacy "engineered cols dropped
+            # from transform output" behaviour bit-exact.
+            "_engineered_recipes_": [],
+            # Cat-FE: ``None`` means cat-FE was either disabled or never
+            # ran. Old pickles (pre-cat-FE) had no concept of this attr;
+            # injecting ``None`` makes ``getattr(self, "cat_fe_config",
+            # None)`` consistent with no-op behaviour.
+            "cat_fe_config": None,
+            "_cat_fe_state_": None,
         }
         for k, v in defaults.items():
             state.setdefault(k, v)
@@ -538,6 +556,61 @@ class MRMR(BaseEstimator, TransformerMixin):
 
             engineered_features = set()
             checked_pairs = set()
+        # PR-1 prep: ``engineered_recipes`` (name -> EngineeredRecipe) is
+        # initialised UNCONDITIONALLY -- the splitter at the bottom of
+        # ``fit()`` looks it up on every screening completion regardless
+        # of ``fe_max_steps``. When ``fe_max_steps == 0`` (FE disabled),
+        # the dict simply stays empty and no recipes are persisted.
+        engineered_recipes: dict = {}
+
+        # ---------------------------------------------------------------------
+        # Cat-FE step (categorical interaction generator). Runs ONCE before
+        # the screening loop when ``self.cat_fe_config.enable=True``. The
+        # step augments ``data`` / ``cols`` / ``nbins`` with new ordinal-
+        # encoded columns capturing pair (and future k-way) synergies.
+        # Engineered cols enter the screening pass as 1-way features --
+        # the screening's own k-way enumeration sees them as atomic.
+        # See plan v3 §"Точка интеграции".
+        # ---------------------------------------------------------------------
+        cat_fe_cfg = getattr(self, "cat_fe_config", None)
+        self._cat_fe_state_ = None
+        if cat_fe_cfg is not None and cat_fe_cfg.enable and len(categorical_vars) >= 2:
+            from .cat_interactions import run_cat_interaction_step
+            from .info_theory import merge_vars as _merge_vars_for_cat_fe
+
+            # Pre-compute classes_y / freqs_y for cat-FE (avoids re-binning
+            # the target inside every kernel call -- P2).
+            _classes_y, _freqs_y, _ = _merge_vars_for_cat_fe(
+                factors_data=data, vars_indices=target_indices,
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            _classes_y_safe = _classes_y.copy()
+
+            data, cols, nbins, cat_fe_state = run_cat_interaction_step(
+                data=data, cols=cols, nbins=nbins,
+                target_indices=target_indices,
+                classes_y=_classes_y, classes_y_safe=_classes_y_safe,
+                freqs_y=_freqs_y,
+                categorical_vars=categorical_vars,
+                cfg=cat_fe_cfg,
+                dtype=dtype, verbose=verbose,
+            )
+            self._cat_fe_state_ = cat_fe_state
+            # Cat-FE recipes feed into the same engineered_recipes dict that
+            # numeric FE populates -- the fit-end splitter copies any recipe
+            # whose engineered name shows up in selected_vars_names into
+            # ``self._engineered_recipes_``. This puts cat-FE and numeric-FE
+            # recipes on the same replay path through ``transform()``.
+            for r in cat_fe_state.recipes:
+                engineered_recipes[r.name] = r
+            if verbose and cat_fe_state.recipes:
+                logger.info(
+                    "MRMR cat-FE produced %d engineered feature(s); "
+                    "data extended from %d to %d cols.",
+                    len(cat_fe_state.recipes),
+                    data.shape[1] - len(cat_fe_state.recipes),
+                    data.shape[1],
+                )
 
         num_fs_steps = 0
         while True:
@@ -612,6 +685,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 unary_transformations=unary_transformations,
                 binary_transformations=binary_transformations,
                 engineered_features=engineered_features,
+                engineered_recipes=engineered_recipes,
                 checked_pairs=checked_pairs,
                 times_spent=times_spent,
                 num_fs_steps=num_fs_steps,
@@ -635,6 +709,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                 fe_max_polynom_degree=fe_max_polynom_degree,
                 fe_min_polynom_coeff=fe_min_polynom_coeff,
                 fe_max_polynom_coeff=fe_max_polynom_coeff,
+                fe_unary_preset=fe_unary_preset,
+                fe_binary_preset=fe_binary_preset,
             )
             if fe_result is None:
                 break  # B15 skip / empty screening + fe_fallback_to_all=False
@@ -678,13 +754,24 @@ class MRMR(BaseEstimator, TransformerMixin):
         # B1 (etap 11): tolerate FE-engineered names. The screening output may include
         # synthetic feature names that are NOT in feature_names_in_; record them in
         # self._engineered_features_ instead of raising on the .index() lookup.
+        # PR-1: also surface the matching ``EngineeredRecipe`` from
+        # ``engineered_recipes`` (built during ``_run_fe_step``) so
+        # ``transform()`` can replay each engineered column on test data.
+        # An engineered name in ``selected_vars_names`` without a recipe
+        # (e.g. higher-order interaction whose parents are themselves
+        # engineered) is recorded by name only and dropped from transform
+        # output -- mirrors the legacy behaviour for those cases.
         self._engineered_features_ = []
+        self._engineered_recipes_ = []
         original_indices = []
         for col in selected_vars_names:
             if col in self.feature_names_in_:
                 original_indices.append(self.feature_names_in_.index(col))
             else:
                 self._engineered_features_.append(col)
+                recipe = engineered_recipes.get(col)
+                if recipe is not None:
+                    self._engineered_recipes_.append(recipe)
         selected_vars = original_indices  # !TODO! failing when fe_max_steps>1. need other source.
 
         # ---------------------------------------------------------------------------------------------------------------
@@ -810,6 +897,14 @@ class MRMR(BaseEstimator, TransformerMixin):
         cached_MIs, cached_confident_MIs,
         unary_transformations, binary_transformations,
         engineered_features, checked_pairs,
+        # PR-1 prep: parallel dict (name -> EngineeredRecipe) populated as
+        # new columns are added to `data` / `cols` so `transform()` can
+        # replay them on test data. Mutated in place; `MRMR.fit` reads it
+        # after the FE loop completes and copies the surviving recipes
+        # into `self._engineered_recipes_`. Default to ``None`` for
+        # callers that haven't been updated -- in that case we simply skip
+        # recipe construction (legacy behaviour bit-exact).
+        engineered_recipes=None,
         times_spent,
         num_fs_steps,
         # Service.
@@ -825,6 +920,14 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_smart_polynom_iters, fe_smart_polynom_optimization_steps,
         fe_min_polynom_degree, fe_max_polynom_degree,
         fe_min_polynom_coeff, fe_max_polynom_coeff,
+        # PR-1 prep: snapshot of preset names so recipes can rebuild
+        # the correct registry at replay time. Default to ``"minimal"``
+        # to match the legacy ``MRMR.__init__`` defaults; if a caller
+        # has overridden the presets via ``self.fe_unary_preset`` /
+        # ``self.fe_binary_preset``, ``fit()`` threads the actual
+        # values through.
+        fe_unary_preset: str = "minimal",
+        fe_binary_preset: str = "minimal",
     ):
         """One Feature Engineering iteration.
 
@@ -934,6 +1037,23 @@ class MRMR(BaseEstimator, TransformerMixin):
                     continue
                 if raw_vars_pair[0] in numeric_vars_to_consider and raw_vars_pair[1] in numeric_vars_to_consider:
                     ind_elems_mi_sum = cached_MIs[(raw_vars_pair[0],)] + cached_MIs[(raw_vars_pair[1],)]
+                    # Guard against ZeroDivisionError: when both
+                    # individual features have zero MI with the
+                    # target (canonical 3-way XOR case where
+                    # ``MI(x_i, y) == 0`` for all i but the joint
+                    # signal exists), any positive ``pair_mi``
+                    # qualifies as infinite uplift -- keep the pair.
+                    if ind_elems_mi_sum <= 0:
+                        if pair_mi > 0:
+                            uplift = float("inf")
+                            if verbose >= 2:
+                                logger.info(
+                                    f"Factors pair {raw_vars_pair} has zero individual MI but pair_mi={pair_mi:.4f} -- canonical hidden-pair case (e.g. XOR), keeping for FE"
+                                )
+                            prospective_pairs[(raw_vars_pair, pair_mi)] = vars_usage_counter[raw_vars_pair[0]] + vars_usage_counter[raw_vars_pair[1]]
+                            for var in raw_vars_pair:
+                                vars_usage_counter[var] += 1
+                        continue
                     if pair_mi > ind_elems_mi_sum * fe_min_pair_mi_prevalence:
                         uplift = pair_mi / ind_elems_mi_sum
                         if verbose >= 2:
@@ -1152,6 +1272,59 @@ class MRMR(BaseEstimator, TransformerMixin):
                             for col in new_cols:
                                 X[col] = transformed_vals[:, j]
 
+                        # PR-1 prep: build EngineeredRecipe for each newly-
+                        # appended column so ``transform()`` can replay it.
+                        # Only runs when columns were actually added (i.e.
+                        # ``fe_max_steps > 1`` -- otherwise engineered cols
+                        # never reach the next screening pass and can't be
+                        # selected). Recipe construction is best-effort:
+                        # if a parent column is itself engineered (higher-
+                        # order interaction), we skip and log -- replaying
+                        # nested recipes is future work.
+                        if engineered_recipes is not None:
+                            from .engineered_recipes import build_unary_binary_recipe
+                            for config, j in this_pair_features:
+                                # config = (transformations_pair, bin_func_name, i)
+                                # transformations_pair = ((var_a_idx, unary_a_name),
+                                #                        (var_b_idx, unary_b_name))
+                                transformations_pair, bin_func_name, _ = config
+                                (var_a_idx, unary_a_name) = transformations_pair[0]
+                                (var_b_idx, unary_b_name) = transformations_pair[1]
+                                # Map cols-index -> feature_names_in_-name. If the
+                                # parent is itself engineered, ``cols[var]`` is not
+                                # in ``feature_names_in_`` -- skip with a warning
+                                # rather than producing an unreplayable recipe.
+                                src_a_name_raw = cols[var_a_idx]
+                                src_b_name_raw = cols[var_b_idx]
+                                if (
+                                    src_a_name_raw not in self.feature_names_in_
+                                    or src_b_name_raw not in self.feature_names_in_
+                                ):
+                                    if verbose:
+                                        logger.info(
+                                            "Skipping recipe construction for nested "
+                                            "engineered feature '%s' (parents %s, %s "
+                                            "are not in feature_names_in_); higher-"
+                                            "order replay is future work.",
+                                            get_new_feature_name(config, cols),
+                                            src_a_name_raw, src_b_name_raw,
+                                        )
+                                    continue
+                                eng_name = get_new_feature_name(config, cols)
+                                engineered_recipes[eng_name] = build_unary_binary_recipe(
+                                    name=eng_name,
+                                    src_a_name=src_a_name_raw,
+                                    src_b_name=src_b_name_raw,
+                                    unary_a_name=unary_a_name,
+                                    unary_b_name=unary_b_name,
+                                    binary_name=bin_func_name,
+                                    unary_preset=fe_unary_preset,
+                                    binary_preset=fe_binary_preset,
+                                    quantization_nbins=self.quantization_nbins,
+                                    quantization_method=self.quantization_method,
+                                    quantization_dtype=self.quantization_dtype,
+                                )
+
                     n_recommended_features += len(this_pair_features)
 
                 # !TODO!  handle factors_to_use etc
@@ -1169,7 +1342,13 @@ class MRMR(BaseEstimator, TransformerMixin):
         """sklearn-1.x transformer protocol. Returns the names of selected
         features as an ndarray of str, matching transform() output cols.
         Symmetric with RFECV.get_feature_names_out (added PR-10 audit
-        finding from test_selectors_shared.py)."""
+        finding from test_selectors_shared.py).
+
+        PR-1: when ``self._engineered_recipes_`` is non-empty (FE step
+        produced replayable engineered features), their names are appended
+        AFTER the base-feature names. Order matches ``transform()`` output
+        column order.
+        """
         if not hasattr(self, "support_") or not hasattr(self, "feature_names_in_"):
             from sklearn.exceptions import NotFittedError
             raise NotFittedError(
@@ -1177,15 +1356,15 @@ class MRMR(BaseEstimator, TransformerMixin):
                 "using 'get_feature_names_out'."
             )
         support = self.support_
-        if len(support) == 0:
+        engineered_names = [r.name for r in getattr(self, "_engineered_recipes_", [])]
+        if len(support) == 0 and not engineered_names:
             return np.array([], dtype=object)
         # MRMR's support_ is integer indices into feature_names_in_
-        if isinstance(support[0], (bool, np.bool_)):
-            return np.asarray(
-                [n for n, s in zip(self.feature_names_in_, support) if s],
-                dtype=object,
-            )
-        return np.asarray([self.feature_names_in_[i] for i in support], dtype=object)
+        if len(support) > 0 and isinstance(support[0], (bool, np.bool_)):
+            base_names = [n for n, s in zip(self.feature_names_in_, support) if s]
+        else:
+            base_names = [self.feature_names_in_[i] for i in support]
+        return np.asarray(base_names + engineered_names, dtype=object)
 
     def transform(self, X, y=None):
         # P0-G34 (audit): unfitted -> NotFittedError, sklearn-canonical.
@@ -1197,13 +1376,18 @@ class MRMR(BaseEstimator, TransformerMixin):
                 "using 'transform'."
             )
         support = self.support_
-        if len(support) == 0:
-            # Return empty DataFrame/array with same rows but no columns
-            # This signals that feature selection found no useful features
+        recipes = getattr(self, "_engineered_recipes_", [])
+
+        # Handle the empty-base-support cases. If there are no base
+        # features AND no engineered recipes, return the legacy empty
+        # output. If there are recipes but no base, fall through and
+        # only the engineered cols come out.
+        if len(support) == 0 and not recipes:
             if isinstance(X, pd.DataFrame):
                 return X.iloc[:, []]
             else:
                 return X[:, np.array([], dtype=np.intp)]
+
         if isinstance(X, pd.DataFrame):
             if ENSURE_ARROW_DF_SUPPORT:
                 # Use column names to support Arrow-backed DataFrames (from polars zero-copy conversion).
@@ -1234,11 +1418,69 @@ class MRMR(BaseEstimator, TransformerMixin):
                         f"removal / imputer drop / OD filter) is mutating the "
                         f"column set BETWEEN fit and transform. Investigate."
                     )
-                return X[selected_cols]
+                base_out = X[selected_cols]
             else:
-                return X.iloc[:, support]
+                base_out = X.iloc[:, support]
+            return self._append_engineered(base_out, X, recipes)
         else:
-            return X[:, support]
+            base_out = X[:, support]
+            return self._append_engineered(base_out, X, recipes)
+
+    def _append_engineered(self, base_out, X, recipes):
+        """Append engineered-recipe columns onto ``base_out``.
+
+        Inputs:
+        - ``base_out``: DataFrame / ndarray already restricted to the base
+          ``support_`` columns. Caller's dtype is preserved.
+        - ``X``: full input frame (DataFrame, ndarray, or polars). Recipe
+          replay reads source columns from here BY NAME, so X must
+          contain at least every ``recipe.src_names`` entry.
+        - ``recipes``: list of EngineeredRecipe to replay.
+
+        Behaviour:
+        - Returns ``base_out`` unchanged when ``recipes`` is empty (legacy
+          path, zero overhead).
+        - For pandas / polars input, engineered cols are appended as
+          named columns.
+        - For ndarray input, engineered cols are stacked as additional
+          numeric columns; column names are not preserved (caller is
+          expected to use ``get_feature_names_out`` for naming).
+        """
+        if not recipes:
+            return base_out
+
+        # Lazy import: keeps the import-time cost off MRMR users who
+        # never engage FE.
+        from .engineered_recipes import apply_recipe
+
+        engineered_cols = [apply_recipe(r, X) for r in recipes]
+        if isinstance(base_out, pd.DataFrame):
+            # ``copy=False`` would risk mutating caller's view if base_out
+            # is itself a view into X (it is, when X is pandas). Build a
+            # narrow new frame instead -- the engineered cols are fresh
+            # ndarrays anyway, only the base cols share buffers with X.
+            engineered_df = pd.DataFrame(
+                {r.name: col for r, col in zip(recipes, engineered_cols)},
+                index=base_out.index,
+            )
+            return pd.concat([base_out, engineered_df], axis=1)
+
+        # Try polars first if available (avoid hard import).
+        try:
+            import polars as _pl
+            if isinstance(base_out, _pl.DataFrame):
+                return base_out.with_columns([
+                    _pl.Series(r.name, col) for r, col in zip(recipes, engineered_cols)
+                ])
+        except ImportError:
+            pass
+
+        # ndarray fallback: hstack engineered cols. Loses names but keeps
+        # the row count consistent with ``get_feature_names_out`` order.
+        engineered_arr = np.column_stack(engineered_cols) if engineered_cols else np.empty((base_out.shape[0], 0))
+        if base_out.size == 0:
+            return engineered_arr.astype(base_out.dtype, copy=False)
+        return np.hstack([base_out, engineered_arr.astype(base_out.dtype, copy=False)])
 
 
 # Etap 8: FE block (check_prospective_fe_pairs, compute_pairs_mis,

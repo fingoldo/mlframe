@@ -83,7 +83,20 @@ __all__ = [
     "discretize_2d_array",
     "discretize_sklearn",
     "get_binning_edges",
+    # Cat-FE public surface
+    "CatFEConfig",
+    "CatFEState",
+    "EngineeredRecipe",
+    "run_cat_interaction_step",
 ]
+
+
+# Cat-FE re-exports. Imported here (vs the legacy ``_legacy`` star) so that
+# ``from mlframe.feature_selection.filters import CatFEConfig`` works as
+# advertised in the public ``MRMR(cat_fe_config=CatFEConfig(...))`` API.
+from .cat_fe_state import CatFEConfig, CatFEState  # noqa: E402
+from .cat_interactions import run_cat_interaction_step  # noqa: E402
+from .engineered_recipes import EngineeredRecipe  # noqa: E402
 
 
 # Pickle BC: MRMR was historically saved with __module__="mlframe.feature_selection.filters".
