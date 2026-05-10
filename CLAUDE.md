@@ -181,6 +181,133 @@ wrappers, and new pipeline integration points. It does NOT apply to
 trivial helper additions or pure refactors that don't change the
 hot path.
 
+## Numerical-kernel acceleration ladder + size-aware dispatch
+
+For numerical hot kernels (polynomial eval, MI estimation, distance
+computation, kernel matrix builds, etc.), the project follows a
+**measured ladder** of backends and a **size-aware dispatcher** that
+picks the right one per call. Do not assume "numpy is already
+optimized" — verify with a microbench across `n` first.
+
+### The four backends (in priority order)
+
+1. **numpy / scipy** — the reference. Always implement this first as
+   correctness baseline. Often the per-call dispatch overhead
+   dominates the actual compute at n<10k, even though the C code
+   itself is fast.
+2. **`numba.njit` (single-thread)** — wins for n in 100..50k. Removes
+   per-call dispatch overhead, inlines into surrounding njit
+   functions, runs in machine code with no Python frame transitions.
+   Empirically 3-6x over numpy at n=2k for polynomial Horner eval.
+   `cache=True, fastmath=True` for max speed; safe when we don't need
+   strict IEEE-754 (most ML code).
+3. **`numba.njit(parallel=True)` + `prange`** — wins for n in 50k..500k.
+   `prange` over array elements parallelizes across cores. Spawn
+   overhead (~50us) makes this LOSE to single-thread njit at small n.
+   Sweet spot: when each element's work is large enough to amortise
+   the spawn (e.g. higher-degree polynomials, MI batches).
+4. **CUDA (cupy or RawKernel)** — wins for n >= 500k once
+   host->device transfer is amortised. Two flavours:
+   - **cupy elementwise** (drop-in `import cupy as cp` rewrite of
+     numpy code): simplest, but allocates intermediate arrays per
+     operation. Often 2-3x slower than a custom RawKernel.
+   - **`cp.RawKernel`** (custom CUDA C++ inline): one thread per
+     output element with state in registers. ~10x faster than cupy
+     elementwise for recurrence kernels. Worth the LOC.
+   - **`numba.cuda.jit`** is also valid but rarely beats cupy
+     RawKernel and adds compile latency on first call. Prefer cupy
+     RawKernel for new kernels unless the function must be callable
+     from inside another `numba.cuda.jit` function.
+
+### Pre-implementation rule: BENCH first, dispatch second
+
+**Always microbench all four backends across `n in {500, 2000, 10000,
+100000, 1_000_000}` BEFORE writing the dispatcher.** Save the bench in
+`*/feature_*/_benchmarks/bench_<kernel>_backends.py`. Output a JSON
+results table to `_results/`. Only then write the dispatcher with
+crossover thresholds derived from the actual measurements — never
+guess from "GPU is fast".
+
+Reference implementation: `mlframe/feature_selection/_benchmarks/bench_poly_eval_backends.py`
+benches numpy / njit / njit_par / cupy / cuda_kernel for 4 polynomial
+families. Output → `_results/poly_eval_backends_<basis>.json`.
+
+### Dispatcher contract
+
+The dispatcher is **stateless** and **per-call size-aware**:
+
+```python
+def kernel_dispatch(name: str, x: np.ndarray, *args) -> np.ndarray:
+    forced = os.environ.get("MLFRAME_<KERNEL>_BACKEND", "")
+    n = x.shape[0]
+    if forced == "njit" or n < _PAR_THRESHOLD:
+        return _NJIT_FUNCS[name](x, *args)
+    if (forced == "cuda" or
+            (forced == "" and n >= _CUDA_THRESHOLD and _CUDA_AVAILABLE)):
+        if _CUDA_AVAILABLE:
+            return _CUDA_FUNCS[name](x, *args)
+    return _NJIT_PAR_FUNCS[name](x, *args)
+```
+
+Conventions:
+- Threshold constants exposed as module globals AND override env vars
+  (`MLFRAME_<KERNEL>_PAR_THRESHOLD`, `_CUDA_THRESHOLD`). Lets users
+  retune for their hardware without code change.
+- `MLFRAME_<KERNEL>_BACKEND=njit|njit_par|cuda` forces a specific
+  backend (testing, A/B compare).
+- Lazy CUDA init: compile RawKernels on first call, not at import.
+  `_ensure_<kernel>_kernels()` pattern.
+- CUDA path must auto-fallback to njit_par if cupy is unavailable
+  OR if the GPU is OOM (catch `cp.cuda.runtime.CUDARuntimeError` and
+  log once).
+
+### Hoist dispatch out of hot loops
+
+Per-call dispatch overhead is ~4us (env-var get, size check, dict
+lookup, function call). At 1000 calls per outer iteration this is
+4ms — not free. **In hot loops, hoist the dispatch decision out**:
+pick the right backend ONCE before the loop based on the (known,
+fixed) array size, then call directly through the loop. See
+`optimise_hermite_pair` in `feature_selection/filters/hermite_fe.py`
+for the pattern.
+
+### When to skip the ladder
+
+The four-backend ladder has real maintenance cost (4 implementations,
+4 cross-correctness tests, the dispatcher, the bench). Skip it
+unless the kernel is ALL of:
+
+1. Called >100 times per fit / per request
+2. Profile-confirmed >5% of wall on production-shape inputs
+3. Has well-defined per-element work (kernels that need cross-element
+   coordination — e.g. sorts, k-NN — don't fit the prange model
+   cleanly)
+
+Pure-numpy kernels that are <1% of wall do NOT get the ladder.
+A trivial helper that runs once per fit does NOT get the ladder.
+Document the decision in the kernel's docstring so future maintainers
+don't re-raise.
+
+### Reference implementations to copy from
+
+- **Polynomial eval** (4 bases x 4 backends + dispatcher):
+  `feature_selection/filters/hermite_fe.py` — `_<basis>val_njit`,
+  `_<basis>val_njit_parallel`, `_polyeval_cuda`, `polyeval_dispatch`.
+- **Joint histogram + MI** (CPU njit + CUDA RawKernel):
+  `feature_selection/filters/gpu.py` — `mi_direct_gpu_batched`,
+  `_GpuBufferPool` for persistent device buffers across calls.
+- **Permutation MI** (njit single + parallel):
+  `feature_selection/filters/permutation.py` — `parallel_mi`,
+  `parallel_mi_prange`, `parallel_mi_besag_clifford` (early-stop
+  variant).
+
+### Don't over-engineer
+
+If your kernel is called 10 times per fit and runs in 50us, the
+ladder buys you nothing. Cache the result, use numpy, move on.
+The `feedback_perf_measure_first.md` rule applies first: measure,
+then optimize, then dispatch.
+
 ## Open work items
 
 (Nothing tracked here currently. Polars support for MRMR — both the

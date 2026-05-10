@@ -358,6 +358,309 @@ def _lagval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
+# Parallel-prange variants of the polynomial evaluators. Per-element
+# Horner recurrence runs in registers (no intermediate p_prev / p_curr
+# arrays), so prange over array elements scales linearly with cores at
+# the cost of recomputing the recurrence per element. Wins for n >= 50k
+# where memory bandwidth + thread-spawn overhead is amortised.
+# ---------------------------------------------------------------------------
+
+
+@njit(cache=True, fastmath=True, parallel=True)
+def _hermeval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
+    n = x.shape[0]
+    nc = c.shape[0]
+    out = np.zeros(n, dtype=np.float64)
+    if nc == 0:
+        return out
+    if nc == 1:
+        c0 = c[0]
+        for i in prange(n):
+            out[i] = c0
+        return out
+    for i in prange(n):
+        xi = x[i]
+        p_prev = 1.0
+        p_curr = xi
+        s = c[0] + c[1] * p_curr
+        for k in range(2, nc):
+            p_next = xi * p_curr - (k - 1) * p_prev
+            s += c[k] * p_next
+            p_prev = p_curr
+            p_curr = p_next
+        out[i] = s
+    return out
+
+
+@njit(cache=True, fastmath=True, parallel=True)
+def _legval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
+    n = x.shape[0]
+    nc = c.shape[0]
+    out = np.zeros(n, dtype=np.float64)
+    if nc == 0:
+        return out
+    if nc == 1:
+        c0 = c[0]
+        for i in prange(n):
+            out[i] = c0
+        return out
+    for i in prange(n):
+        xi = x[i]
+        p_prev = 1.0
+        p_curr = xi
+        s = c[0] + c[1] * p_curr
+        for k in range(2, nc):
+            inv_k = 1.0 / k
+            two_km1 = 2 * k - 1
+            km1 = k - 1
+            p_next = (two_km1 * xi * p_curr - km1 * p_prev) * inv_k
+            s += c[k] * p_next
+            p_prev = p_curr
+            p_curr = p_next
+        out[i] = s
+    return out
+
+
+@njit(cache=True, fastmath=True, parallel=True)
+def _chebval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
+    n = x.shape[0]
+    nc = c.shape[0]
+    out = np.zeros(n, dtype=np.float64)
+    if nc == 0:
+        return out
+    if nc == 1:
+        c0 = c[0]
+        for i in prange(n):
+            out[i] = c0
+        return out
+    for i in prange(n):
+        xi = x[i]
+        p_prev = 1.0
+        p_curr = xi
+        s = c[0] + c[1] * p_curr
+        for k in range(2, nc):
+            p_next = 2.0 * xi * p_curr - p_prev
+            s += c[k] * p_next
+            p_prev = p_curr
+            p_curr = p_next
+        out[i] = s
+    return out
+
+
+@njit(cache=True, fastmath=True, parallel=True)
+def _lagval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
+    n = x.shape[0]
+    nc = c.shape[0]
+    out = np.zeros(n, dtype=np.float64)
+    if nc == 0:
+        return out
+    if nc == 1:
+        c0 = c[0]
+        for i in prange(n):
+            out[i] = c0
+        return out
+    for i in prange(n):
+        xi = x[i]
+        p_prev = 1.0
+        p_curr = 1.0 - xi
+        s = c[0] + c[1] * p_curr
+        for k in range(2, nc):
+            inv_k = 1.0 / k
+            two_km1 = 2 * k - 1
+            km1 = k - 1
+            p_next = ((two_km1 - xi) * p_curr - km1 * p_prev) * inv_k
+            s += c[k] * p_next
+            p_prev = p_curr
+            p_curr = p_next
+        out[i] = s
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Optional CUDA RawKernel backend. One thread per output element with
+# the recurrence kept entirely in registers (no per-element intermediate
+# arrays). Wins at n >= 500k once host->device transfer is amortised.
+# ---------------------------------------------------------------------------
+
+_CUDA_AVAILABLE = False
+_CUDA_KERNELS: dict = {}
+
+try:
+    import cupy as _cp  # noqa: F401
+    _CUDA_AVAILABLE = True
+except ImportError:
+    pass
+
+
+def _ensure_cuda_kernels():
+    """Lazy-compile CUDA RawKernels on first use."""
+    global _CUDA_KERNELS
+    if _CUDA_KERNELS or not _CUDA_AVAILABLE:
+        return
+    import cupy as cp
+    _CUDA_KERNELS["hermite"] = cp.RawKernel(r"""
+extern "C" __global__
+void hermeval_kernel(const double* __restrict__ x,
+                     const double* __restrict__ c,
+                     int nc, int n,
+                     double* __restrict__ out)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    double xi = x[i];
+    if (nc == 0) { out[i] = 0.0; return; }
+    if (nc == 1) { out[i] = c[0]; return; }
+    double p_prev = 1.0, p_curr = xi;
+    double s = c[0] + c[1] * p_curr;
+    for (int k = 2; k < nc; ++k) {
+        double p_next = xi * p_curr - (double)(k - 1) * p_prev;
+        s += c[k] * p_next;
+        p_prev = p_curr; p_curr = p_next;
+    }
+    out[i] = s;
+}
+""", "hermeval_kernel")
+    _CUDA_KERNELS["legendre"] = cp.RawKernel(r"""
+extern "C" __global__
+void legval_kernel(const double* __restrict__ x,
+                    const double* __restrict__ c,
+                    int nc, int n,
+                    double* __restrict__ out)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    double xi = x[i];
+    if (nc == 0) { out[i] = 0.0; return; }
+    if (nc == 1) { out[i] = c[0]; return; }
+    double p_prev = 1.0, p_curr = xi;
+    double s = c[0] + c[1] * p_curr;
+    for (int k = 2; k < nc; ++k) {
+        double inv_k = 1.0 / (double)k;
+        double p_next = ((double)(2 * k - 1) * xi * p_curr - (double)(k - 1) * p_prev) * inv_k;
+        s += c[k] * p_next;
+        p_prev = p_curr; p_curr = p_next;
+    }
+    out[i] = s;
+}
+""", "legval_kernel")
+    _CUDA_KERNELS["chebyshev"] = cp.RawKernel(r"""
+extern "C" __global__
+void chebval_kernel(const double* __restrict__ x,
+                     const double* __restrict__ c,
+                     int nc, int n,
+                     double* __restrict__ out)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    double xi = x[i];
+    if (nc == 0) { out[i] = 0.0; return; }
+    if (nc == 1) { out[i] = c[0]; return; }
+    double p_prev = 1.0, p_curr = xi;
+    double s = c[0] + c[1] * p_curr;
+    for (int k = 2; k < nc; ++k) {
+        double p_next = 2.0 * xi * p_curr - p_prev;
+        s += c[k] * p_next;
+        p_prev = p_curr; p_curr = p_next;
+    }
+    out[i] = s;
+}
+""", "chebval_kernel")
+    _CUDA_KERNELS["laguerre"] = cp.RawKernel(r"""
+extern "C" __global__
+void lagval_kernel(const double* __restrict__ x,
+                    const double* __restrict__ c,
+                    int nc, int n,
+                    double* __restrict__ out)
+{
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n) return;
+    double xi = x[i];
+    if (nc == 0) { out[i] = 0.0; return; }
+    if (nc == 1) { out[i] = c[0]; return; }
+    double p_prev = 1.0, p_curr = 1.0 - xi;
+    double s = c[0] + c[1] * p_curr;
+    for (int k = 2; k < nc; ++k) {
+        double inv_k = 1.0 / (double)k;
+        double p_next = (((double)(2 * k - 1) - xi) * p_curr - (double)(k - 1) * p_prev) * inv_k;
+        s += c[k] * p_next;
+        p_prev = p_curr; p_curr = p_next;
+    }
+    out[i] = s;
+}
+""", "lagval_kernel")
+
+
+def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
+    """CUDA RawKernel polynomial eval. Includes host->device transfer
+    of x and c, kernel launch, device->host of output. Worth it only
+    at n >= 500k (per ``bench_poly_eval_backends``)."""
+    import cupy as cp
+    _ensure_cuda_kernels()
+    x_gpu = cp.asarray(x, dtype=cp.float64)
+    c_gpu = cp.asarray(c, dtype=cp.float64)
+    n = x.shape[0]
+    out_gpu = cp.empty(n, dtype=cp.float64)
+    block = 256
+    grid = (n + block - 1) // block
+    _CUDA_KERNELS[basis](
+        (grid,), (block,),
+        (x_gpu, c_gpu, c_gpu.shape[0], n, out_gpu),
+    )
+    return cp.asnumpy(out_gpu)
+
+
+# ---------------------------------------------------------------------------
+# Size + hardware-aware dispatcher. Crossover points measured on this
+# repo's reference hardware (Intel CPU, GTX 1050 Ti) via
+# ``bench_poly_eval_backends.py`` (cpu numpy in, cpu numpy out;
+# includes H2D for CUDA backends):
+#
+#   n < 50k:      njit (single-thread Horner)
+#   50k <= n:     njit_par (prange) -- 1.5-2x over single-thread
+#   500k <= n:    cuda_kernel if cupy available -- ~5x over njit_par
+#
+# These thresholds are conservative -- on faster GPUs the CUDA
+# crossover may be lower. Override via ``MLFRAME_POLYEVAL_BACKEND``
+# env var for testing.
+# ---------------------------------------------------------------------------
+
+_NJIT_FUNCS = {
+    "hermite": _hermeval_njit, "legendre": _legval_njit,
+    "chebyshev": _chebval_njit, "laguerre": _lagval_njit,
+}
+_NJIT_PAR_FUNCS = {
+    "hermite": _hermeval_njit_parallel, "legendre": _legval_njit_parallel,
+    "chebyshev": _chebval_njit_parallel, "laguerre": _lagval_njit_parallel,
+}
+
+# Thresholds in array length n. Tunable via env var.
+import os as _os
+_PAR_THRESHOLD = int(_os.environ.get("MLFRAME_POLYEVAL_PAR_THRESHOLD", "50000"))
+_CUDA_THRESHOLD = int(_os.environ.get("MLFRAME_POLYEVAL_CUDA_THRESHOLD", "500000"))
+
+
+def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
+    """Size + hardware-aware polynomial evaluator. Routes to njit /
+    njit_par / cuda backend based on ``len(x)`` and CUDA availability.
+
+    Override the chosen backend via ``MLFRAME_POLYEVAL_BACKEND`` env
+    var (``njit`` | ``njit_par`` | ``cuda``)."""
+    forced = _os.environ.get("MLFRAME_POLYEVAL_BACKEND", "")
+    n = x.shape[0]
+    if forced == "njit" or n < _PAR_THRESHOLD:
+        return _NJIT_FUNCS[basis](x, c)
+    if (forced == "cuda" or
+            (forced == "" and n >= _CUDA_THRESHOLD and _CUDA_AVAILABLE)):
+        if _CUDA_AVAILABLE:
+            return _polyeval_cuda(basis, x, c)
+        # User asked for cuda but it isn't available; warn once and fallback.
+        # No warning spam: just fallback.
+    if forced == "njit_par" or n >= _PAR_THRESHOLD:
+        return _NJIT_PAR_FUNCS[basis](x, c)
+    return _NJIT_FUNCS[basis](x, c)
+
+
+# ---------------------------------------------------------------------------
 # Polynomial basis registry. Each entry maps a name to (eval_func,
 # preprocess_func, expected_input_distribution_doc).
 #
@@ -403,20 +706,37 @@ def _apply_shift(x, params):
     return x - params["lo"] + 1e-9
 
 
+def _make_dispatch(name):
+    """Bind the registry entry's basis name into a closure for
+    ``polyeval_dispatch``. The returned callable matches the
+    ``(x, c) -> np.ndarray`` signature used by the eval / eval_njit
+    fields, so existing call sites need no change."""
+    def _d(x, c):
+        return polyeval_dispatch(name, x, c)
+    _d.__name__ = f"_polyeval_{name}_dispatched"
+    return _d
+
+
 _POLY_BASES = {
     "hermite": dict(eval=hermeval, eval_njit=_hermeval_njit,
+                     eval_dispatch=None,  # populated below after dispatcher exists
                      fit=_preprocess_zscore, apply=_apply_zscore,
                      dist_note="standard Normal (z-score)"),
     "legendre": dict(eval=legval, eval_njit=_legval_njit,
+                      eval_dispatch=None,
                       fit=_preprocess_minmax_neg1_1, apply=_apply_minmax,
                       dist_note="uniform on [-1, 1]"),
     "chebyshev": dict(eval=chebval, eval_njit=_chebval_njit,
+                       eval_dispatch=None,
                        fit=_preprocess_minmax_neg1_1, apply=_apply_minmax,
                        dist_note="uniform on [-1, 1] with 1/sqrt(1-x^2) weight"),
     "laguerre": dict(eval=lagval, eval_njit=_lagval_njit,
+                      eval_dispatch=None,
                       fit=_preprocess_shift_nonneg, apply=_apply_shift,
                       dist_note="positive on [0, +inf)"),
 }
+for _bn in _POLY_BASES:
+    _POLY_BASES[_bn]["eval_dispatch"] = _make_dispatch(_bn)
 
 logger = logging.getLogger(__name__)
 
@@ -456,11 +776,14 @@ class HermiteResult:
                                      dtype=np.float64)
         z_b = np.ascontiguousarray(basis_info["apply"](x_b, self.preprocess_b),
                                      dtype=np.float64)
-        eval_njit = basis_info["eval_njit"]
+        # eval_dispatch picks njit / njit_par / cuda based on len(z_a)
+        # and CUDA availability. For typical FE pair sizes (n<=10k)
+        # this resolves to njit single-thread.
+        eval_dispatch = basis_info["eval_dispatch"]
         coef_a = np.ascontiguousarray(self.coef_a, dtype=np.float64)
         coef_b = np.ascontiguousarray(self.coef_b, dtype=np.float64)
-        h_a = eval_njit(z_a, coef_a)
-        h_b = eval_njit(z_b, coef_b)
+        h_a = eval_dispatch(z_a, coef_a)
+        h_b = eval_dispatch(z_b, coef_b)
         return self.bin_func(h_a, h_b)
 
 
@@ -627,7 +950,17 @@ def optimise_hermite_pair(
     z_b, preprocess_b = basis_info["fit"](x_b)
     z_a = np.ascontiguousarray(z_a, dtype=np.float64)
     z_b = np.ascontiguousarray(z_b, dtype=np.float64)
-    eval_func = basis_info["eval_njit"]  # njit version: 3-6x faster at n<5k
+    # Hoist size-aware dispatch out of the hot trial loop: pick the
+    # right backend ONCE per ``optimise_hermite_pair`` call (we know n
+    # here; it doesn't change between trials). Saves ~4us/call closure
+    # overhead which compounds to ~5ms over 1000+ trial evaluations.
+    n_eval = z_a.shape[0]
+    if n_eval < _PAR_THRESHOLD:
+        eval_func = basis_info["eval_njit"]
+    elif n_eval >= _CUDA_THRESHOLD and _CUDA_AVAILABLE:
+        eval_func = basis_info["eval_dispatch"]  # cuda path
+    else:
+        eval_func = _NJIT_PAR_FUNCS[basis]
 
     baseline = _baseline_mi_pair(z_a, z_b, y, discrete_target=discrete_target,
                                   n_neighbors=n_neighbors,
