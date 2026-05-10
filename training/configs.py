@@ -1822,6 +1822,15 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     mi_estimator: str = "knn"
     mi_nbins: int = 16  # Bin count when ``mi_estimator == "bin"``.
 
+    # MI sampling strategy. "random" is the cheap default; switch to
+    # "stratified_quantile" on heavy-tail targets (financial returns,
+    # fraud scores, queue lengths) where random sampling can miss the
+    # tail rows that carry most of the signal. Stratified sampling
+    # bins y into ``mi_n_strata`` quantile bins and samples equally
+    # from each, guaranteeing per-bin coverage.
+    mi_sample_strategy: str = "random"
+    mi_n_strata: int = 10
+
     # Phase B: tiny-model rerank. After MI screening narrows to top-K,
     # train a tiny model (LightGBM or per-family) per surviving
     # candidate and re-rank by CV-RMSE measured on the y-scale (after
@@ -1881,6 +1890,17 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
         valid = {"knn", "bin"}
         if v_lower not in valid:
             raise ValueError(f"mi_estimator must be one of {valid}, got '{v}'")
+        return v_lower
+
+    @field_validator("mi_sample_strategy", mode="before")
+    @classmethod
+    def _normalise_mi_sample_strategy(cls, v: str) -> str:
+        v_lower = str(v).lower()
+        valid = {"random", "stratified_quantile"}
+        if v_lower not in valid:
+            raise ValueError(
+                f"mi_sample_strategy must be one of {valid}, got '{v}'"
+            )
         return v_lower
 
     @field_validator("tiny_screening_models", mode="before")

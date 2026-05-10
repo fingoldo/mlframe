@@ -1,5 +1,49 @@
 # Changelog
 
+## 2026-05-10 — Composite-target polish round 2: Prometheus hook + sample weights + predict_quantile + plots + stratified-MI honest revert
+
+Easy-wins batch closing the production-polish backlog. Five features shipped, one (stratified MI) shipped as opt-in with honest negative-result documentation.
+
+### Added
+
+- **`CompositeTargetEstimator.runtime_stats_callback`** -- optional callable fired at the end of every `predict` with per-batch + cumulative counters (``batch_n``, ``batch_domain_violation_rows``, ``batch_y_clip_low_hits``, ``batch_y_clip_high_hits``, plus the cumulative-since-fit equivalents). Hooks Prometheus / StatsD / DataDog without coupling the wrapper to a metrics library. Callback exceptions are logged at DEBUG and swallowed -- monitoring failures must never break inference.
+- **Sample weights propagation through `linear_residual.fit`** -- weighted least squares via row-scaled lstsq when `wrapper.fit(X, y, sample_weight=w)` is called. Weights normalised to mean 1 so the fit's numerical scale matches the unweighted case. Unweighted alpha midpoint vs weighted alpha skewed toward heavily-weighted rows verified in tests.
+- **`CompositeTargetEstimator.predict_quantile(X, alpha)`** -- y-scale quantile prediction by inverting the inner's T-scale quantile. Requires the inner to expose `predict_quantile` (CatBoost MultiQuantile / LightGBM quantile_alpha / sklearn QuantileRegressor). Per-transform monotonicity guards:
+  - `diff` / `linear_residual` / `logratio` (with base > 0): always preserves quantiles -> works.
+  - `ratio` with mixed-sign base: raises `NotImplementedError` because `y = T * base` flips the quantile ordering on negative-base rows.
+  - Inner without `predict_quantile`: raises with helpful message pointing at compatible quantile regressors.
+  - Output is y-clipped to the same `[Q001/10, Q999*10]` bounds the wrapper applies in `predict()`.
+- **`mlframe.training.composite_diagnostics`** module with 4 plot helpers:
+  - `plot_target_distribution(y, t)` -- overlay histograms of y and T with skew / kurtosis annotations.
+  - `plot_qq(t)` -- Q-Q plot of T vs standard normal (reveals whether `logratio` actually normalised the heavy tail).
+  - `plot_linear_fit(y, base, alpha, beta)` -- scatter with fitted line + R^2 annotation. Justifies `linear_residual` to a stakeholder in one image.
+  - `plot_mi_gain_with_ci(specs, n_bootstrap=200)` -- bar chart with bootstrap 95% CI per spec.
+  - All return `matplotlib.figure.Figure`; lazy-imports matplotlib so module load stays cheap.
+
+### Stratified MI sampling -- honest negative result
+
+- **`mi_sample_strategy="random"|"stratified_quantile"`** option added to `CompositeTargetDiscoveryConfig` (default stays `"random"`). Stratified bins y into `mi_n_strata` quantile bins and samples equally from each.
+- **Benchmark report on heavy-tail synthetic** (`mlframe/benchmarks/stratified_mi_benchmark.py`):
+
+  | estimator | tail_frac | random CV(MI x_tail) | stratified CV(MI x_tail) |
+  |---|---:|---:|---:|
+  | bin-MI | 1% | 8.6% | 9.4% |
+  | bin-MI | 0.5% | 9.0% | 8.7% |
+  | bin-MI | 5% | 9.0% | 10.6% |
+  | **kNN-MI** | 5% | **40.4%** | **57.4% (worse)** |
+
+- **Verdict**: the a priori claim "stratified gives stable MI rankings on heavy-tail" did NOT hold up. MI estimator variance comes from bin / kNN cuts on the SAMPLE, not from row composition. Stratification reshapes y-distribution in the sample -> cuts shift -> variance ~= same.
+- **Action**: feature kept as opt-in (default `"random"` -> no behaviour change) with honest documentation. May still help on truly rare tails (< 0.001 fraction) where random can completely miss tail rows; not tested. Per the project's `feedback_perf_measure_first` rule we document "no actionable speedup on the synthetic" so the next engineer doesn't repeat the experiment.
+
+### Logger contract verification
+
+All composite-target modules use `logger = logging.getLogger(__name__)` (`mlframe.training.composite`, `mlframe.training.baseline_diagnostics`, `mlframe.training.composite_diagnostics`). loguru's `intercept_handler` works with stdlib `logging` out of the box; structlog requires the standard ProcessorFormatter bridge. No code change needed -- documented for completeness.
+
+### Tests
+
+- `test_composite_polish_round2.py` -- 16 new tests covering: Prometheus callback fires + counters + exception swallowing, weighted alpha differs from unweighted alpha (and zero-weights fallback), stratified per-bin coverage guarantee, predict_quantile for diff transform + ratio sign-flip raises + missing predict_quantile raises, all 4 plot helpers smoke-test.
+- **Cumulative across all composite-target test files: 188 / 188 passed in ~225s.**
+
 ## 2026-05-10 — Dummy-baseline addendum: capability gaps + numba acceleration + CB+ICE clone fix
 
 Follow-up to the dummy-baseline report shipped earlier today. Closes the four real

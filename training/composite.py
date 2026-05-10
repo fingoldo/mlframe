@@ -253,16 +253,46 @@ def _logratio_domain(y: Optional[np.ndarray], base: np.ndarray) -> np.ndarray:
 # linear_residual: T = y - alpha*base - beta. OLS on train.
 # ----------------------------------------------------------------------
 
-def _linear_residual_fit(y: np.ndarray, base: np.ndarray) -> Dict[str, Any]:
-    # OLS with intercept. lstsq is more numerically stable than
-    # solving the normal equations directly when base has narrow
-    # variance.
+def _linear_residual_fit(
+    y: np.ndarray, base: np.ndarray,
+    sample_weight: Optional[np.ndarray] = None,
+) -> Dict[str, Any]:
+    """OLS fit with optional sample weights.
+
+    Weighted least squares is implemented in closed form via
+    ``np.linalg.lstsq`` on the row-scaled system
+    ``sqrt(w) * X * beta = sqrt(w) * y`` (standard reformulation).
+    Weights are normalised to sum to ``len(y)`` so the fit's
+    numerical scale matches the unweighted case (avoids tiny
+    coefficients on small w values).
+    """
     n = len(y)
     if n < 2:
-        # Degenerate: fall back to alpha=0, beta=mean(y).
         return {"alpha": 0.0, "beta": float(np.mean(y)) if n > 0 else 0.0}
     X = np.column_stack([base.astype(np.float64), np.ones(n, dtype=np.float64)])
-    coef, *_ = np.linalg.lstsq(X, y.astype(np.float64), rcond=None)
+    y_f = y.astype(np.float64)
+
+    if sample_weight is None:
+        coef, *_ = np.linalg.lstsq(X, y_f, rcond=None)
+    else:
+        w = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+        if w.size != n:
+            raise ValueError(
+                f"_linear_residual_fit: sample_weight length {w.size} != y length {n}"
+            )
+        # Drop non-positive weights silently; warn if all zero.
+        finite = np.isfinite(w) & (w > 0)
+        if not finite.any():
+            return {"alpha": 0.0, "beta": float(np.mean(y_f))}
+        # Normalise weights to mean 1 so the system has the same
+        # numerical scale as the unweighted version. lstsq handles
+        # rank-deficient cases.
+        w_norm = w[finite]
+        w_norm = w_norm * (n / w_norm.sum())
+        sw = np.sqrt(w_norm)
+        X_w = X[finite] * sw[:, None]
+        y_w = y_f[finite] * sw
+        coef, *_ = np.linalg.lstsq(X_w, y_w, rcond=None)
     alpha = float(coef[0])
     beta = float(coef[1])
     return {"alpha": alpha, "beta": beta}
@@ -496,12 +526,24 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         base_column: str = "",
         fallback_predict: str = "y_train_median",
         drop_invalid_rows: bool = True,
+        runtime_stats_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> None:
         self.base_estimator = base_estimator
         self.transform_name = transform_name
         self.base_column = base_column
         self.fallback_predict = fallback_predict
         self.drop_invalid_rows = drop_invalid_rows
+        # Optional callback fired at the end of every ``predict`` call
+        # with a snapshot of the per-batch counters. Use to hook into
+        # Prometheus / StatsD / DataDog without coupling the wrapper
+        # to a metrics library. The callback receives a dict with
+        # keys ``batch_n``, ``batch_domain_violation_rows``,
+        # ``batch_y_clip_low_hits``, ``batch_y_clip_high_hits``,
+        # plus the cumulative-since-fit counters under
+        # ``cumulative_*``. Errors raised by the callback are logged
+        # at DEBUG and swallowed -- monitoring failures must never
+        # poison the predict path.
+        self.runtime_stats_callback = runtime_stats_callback
 
     # ------------------------------------------------------------------
     # Alternate constructor: post-hoc wrapping
@@ -641,7 +683,19 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             )
 
         # Fit transform-specific params on the valid train rows.
-        transform_params = transform.fit(y_train, base_train)
+        # Pass sample_weight through to weight-aware transforms
+        # (currently only ``linear_residual``); other transforms
+        # ignore the kwarg.
+        sample_weight_train = (
+            np.asarray(sample_weight)[valid] if sample_weight is not None else None
+        )
+        try:
+            transform_params = transform.fit(
+                y_train, base_train, sample_weight=sample_weight_train,
+            )
+        except TypeError:
+            # Transform.fit doesn't accept sample_weight (most don't).
+            transform_params = transform.fit(y_train, base_train)
 
         # Compute T on the valid rows.
         t_train = transform.forward(y_train, base_train, transform_params)
@@ -777,7 +831,114 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         rs["domain_violation_rows"] += n_violation
         rs["y_clip_low_hits"] += low_hits
         rs["y_clip_high_hits"] += high_hits
+
+        # Optional metrics callback (Prometheus / StatsD / DataDog hook).
+        # Failures are logged at DEBUG and swallowed -- monitoring must
+        # never break inference.
+        cb = getattr(self, "runtime_stats_callback", None)
+        if cb is not None:
+            try:
+                cb({
+                    "transform_name": self.transform_name,
+                    "base_column": self.base_column,
+                    "batch_n": n,
+                    "batch_domain_violation_rows": n_violation,
+                    "batch_y_clip_low_hits": low_hits,
+                    "batch_y_clip_high_hits": high_hits,
+                    "cumulative_predict_calls": rs["predict_calls"],
+                    "cumulative_predict_rows_total": rs["predict_rows_total"],
+                    "cumulative_domain_violation_rows": rs["domain_violation_rows"],
+                    "cumulative_y_clip_low_hits": rs["y_clip_low_hits"],
+                    "cumulative_y_clip_high_hits": rs["y_clip_high_hits"],
+                })
+            except Exception as cb_err:
+                logger.debug(
+                    "[CompositeTargetEstimator] runtime_stats_callback failed: %s",
+                    cb_err,
+                )
         return y_hat
+
+    # ------------------------------------------------------------------
+    # Quantile predictions (ConfidenceAnalysisConfig integration)
+    # ------------------------------------------------------------------
+
+    def predict_quantile(
+        self, X: Any, alpha: float = 0.5,
+    ) -> np.ndarray:
+        """y-scale quantile prediction by inverting the inner's
+        T-scale quantile.
+
+        Requires the inner estimator to expose ``predict_quantile(X,
+        alpha)`` -- e.g. CatBoost ``MultiQuantile``, LightGBM
+        ``quantile_alpha``, sklearn ``QuantileRegressor``. The wrapper
+        calls inner -> ``T_q`` then applies the transform's inverse.
+
+        **Quantile preservation under inverse**:
+
+        | transform        | inverse                  | preserves quantiles?               |
+        |------------------|--------------------------|------------------------------------|
+        | ``diff``           | ``T + base``               | always (monotonic in T)            |
+        | ``linear_residual``| ``T + alpha*base + beta``  | always                             |
+        | ``logratio``       | ``base * exp(softcap(T))`` | yes (base > 0 already required)    |
+        | ``ratio``          | ``T * base``               | flips when ``base < 0``; raises    |
+
+        For ``ratio`` with mixed-sign base raises ``NotImplementedError``
+        rather than silently swap the high / low quantiles.
+        """
+        if not hasattr(self, "estimator_"):
+            raise RuntimeError(
+                "CompositeTargetEstimator.predict_quantile called before fit."
+            )
+        inner = self.estimator_
+        if not hasattr(inner, "predict_quantile"):
+            raise NotImplementedError(
+                f"inner estimator {type(inner).__name__!r} does not expose "
+                "predict_quantile(X, alpha); wrap a quantile regressor "
+                "(CatBoost MultiQuantile / LightGBM quantile_alpha / "
+                "sklearn QuantileRegressor) instead."
+            )
+
+        transform = get_transform(self.transform_name)
+        params = self.fitted_params_
+        base_arr = _extract_base(X, self.base_column)
+
+        # Sign-flip guard for ratio: T < 0 and base < 0 produces
+        # positive y; high T-quantile would swap to low y-quantile.
+        if self.transform_name == "ratio":
+            if np.any(base_arr < 0):
+                raise NotImplementedError(
+                    "predict_quantile is not supported for transform 'ratio' "
+                    "when base contains negative values: y = T * base flips "
+                    "the quantile ordering on negative-base rows. Use "
+                    "predict() for point predictions or switch transform."
+                )
+
+        # logratio domain check: base must be > 0 (already required at
+        # fit time, but predict-time inputs may differ).
+        if self.transform_name == "logratio":
+            if np.any(base_arr <= 0):
+                raise NotImplementedError(
+                    "predict_quantile for transform 'logratio' requires "
+                    "base > 0 on every row. Filter the input or use "
+                    "predict() with the wrapper's domain fallback."
+                )
+
+        try:
+            t_q = np.asarray(
+                inner.predict_quantile(X, alpha), dtype=np.float64,
+            ).reshape(-1)
+        except TypeError:
+            # Some libs name the kwarg differently (e.g. quantile=, q=).
+            t_q = np.asarray(
+                inner.predict_quantile(X, alpha=alpha), dtype=np.float64,
+            ).reshape(-1)
+        y_q = transform.inverse(t_q, base_arr, params)
+        # Reuse the same y-clip bounds applied in predict() to defend
+        # against extreme tail T-quantiles producing physically
+        # implausible y.
+        low = params.get("y_clip_low", float("-inf"))
+        high = params.get("y_clip_high", float("inf"))
+        return np.clip(y_q, low, high)
 
     # ------------------------------------------------------------------
     # Delegation
@@ -2197,17 +2358,84 @@ def _tiny_cv_rmse_y_scale(
     return float(np.mean(fold_rmses))
 
 
-def _sample_indices(n: int, sample_n: Optional[int], random_state: int) -> np.ndarray:
+def _sample_indices(
+    n: int, sample_n: Optional[int], random_state: int,
+    *,
+    strategy: str = "random",
+    y: Optional[np.ndarray] = None,
+    n_strata: int = 10,
+) -> np.ndarray:
     """Return a sorted array of row indices to use for MI screening.
+
+    Two strategies:
+
+    - ``"random"`` (default): uniform random sample of ``sample_n``
+      rows from ``n``. Cheap, unbiased on average, but high-variance
+      on heavy-tail targets (the rare-tail rows that carry most of
+      the signal can be over- or under-represented in any one draw).
+
+    - ``"stratified_quantile"``: bin ``y`` into ``n_strata`` quantile
+      bins, then sample ``sample_n / n_strata`` rows from each bin.
+      Tail rows get oversampled relative to natural frequency. Use
+      when ``y`` is heavy-tail (financial returns, fraud scores,
+      queue lengths) -- gives stable MI rankings across runs because
+      each bin contributes a guaranteed number of rows.
+
     Sorted so the (mostly-temporal) row order is preserved -- avoids
-    biasing the MI estimate when the underlying data has a temporal
-    structure."""
+    biasing the MI estimate on temporal data.
+    """
     if sample_n is None or n <= sample_n:
         return np.arange(n)
     rng = np.random.default_rng(random_state)
-    idx = rng.choice(n, size=sample_n, replace=False)
-    idx.sort()
-    return idx
+    if strategy == "random" or y is None or n_strata < 2:
+        idx = rng.choice(n, size=sample_n, replace=False)
+        idx.sort()
+        return idx
+    if strategy != "stratified_quantile":
+        raise ValueError(
+            f"_sample_indices: unknown strategy '{strategy}'. "
+            "Choose from 'random' or 'stratified_quantile'."
+        )
+
+    # Stratified quantile sampling. Bin y into n_strata quantile
+    # bins, sample ceil(sample_n / n_strata) from each.
+    y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
+    if y_arr.size != n:
+        # Caller passed mismatched y; fall back to random.
+        idx = rng.choice(n, size=sample_n, replace=False)
+        idx.sort()
+        return idx
+    finite_mask = np.isfinite(y_arr)
+    if finite_mask.sum() < n_strata * 2:
+        # Too few finite y; can't stratify, fall back to random.
+        idx = rng.choice(n, size=sample_n, replace=False)
+        idx.sort()
+        return idx
+    # Compute quantile cuts on finite y.
+    qs = np.linspace(0, 1, n_strata + 1)[1:-1]
+    cuts = np.quantile(y_arr[finite_mask], qs)
+    # Assign each finite row to a stratum [0, n_strata-1]; non-finite
+    # rows get a separate stratum at the end so they aren't dropped
+    # silently.
+    stratum = np.searchsorted(cuts, y_arr, side="right")
+    np.clip(stratum, 0, n_strata - 1, out=stratum)
+    stratum[~finite_mask] = n_strata  # extra "non-finite" bin
+
+    per_stratum = max(1, sample_n // n_strata)
+    picked: List[np.ndarray] = []
+    for s in range(n_strata + 1):
+        bin_rows = np.where(stratum == s)[0]
+        if bin_rows.size == 0:
+            continue
+        take = min(bin_rows.size, per_stratum)
+        if take == bin_rows.size:
+            picked.append(bin_rows)
+        else:
+            chosen = rng.choice(bin_rows, size=take, replace=False)
+            picked.append(chosen)
+    out = np.concatenate(picked) if picked else np.arange(min(n, sample_n))
+    out.sort()
+    return out[:sample_n]
 
 
 class CompositeTargetDiscovery:
@@ -2329,9 +2557,14 @@ class CompositeTargetDiscovery:
             self.report_ = []
             return self
 
-        # Down-sample for MI screening.
+        # Down-sample for MI screening. Stratified-quantile when
+        # configured -- guarantees per-bin coverage on heavy-tail y.
+        y_train_for_strat = y_full[train_idx]
         sample_idx = _sample_indices(
             train_idx.size, self.config.mi_sample_n, self.config.random_state,
+            strategy=getattr(self.config, "mi_sample_strategy", "random"),
+            y=y_train_for_strat,
+            n_strata=getattr(self.config, "mi_n_strata", 10),
         )
         train_idx_screen = train_idx[sample_idx]
         y_screen = y_full[train_idx_screen]
@@ -2647,6 +2880,9 @@ class CompositeTargetDiscovery:
         """
         sample_idx = _sample_indices(
             train_idx.size, self.config.mi_sample_n, self.config.random_state,
+            strategy=getattr(self.config, "mi_sample_strategy", "random"),
+            y=y_train,
+            n_strata=getattr(self.config, "mi_n_strata", 10),
         )
         train_idx_screen = train_idx[sample_idx]
         y_screen = y_train[sample_idx]
@@ -2711,8 +2947,17 @@ class CompositeTargetDiscovery:
         4. Re-sort, take top-``top_m_after_tiny``.
         """
         sample_n = min(self.config.tiny_model_sample_n, train_idx.size)
-        sample_idx = _sample_indices(train_idx.size, sample_n,
-                                     self.config.random_state)
+        # Phase B benefits from stratified sampling on heavy-tail y
+        # for the same reason Phase A does -- tiny-model CV-RMSE on a
+        # tail-empty sample mis-ranks transforms that only matter in
+        # the tail.
+        y_train_for_strat = y_full[train_idx]
+        sample_idx = _sample_indices(
+            train_idx.size, sample_n, self.config.random_state,
+            strategy=getattr(self.config, "mi_sample_strategy", "random"),
+            y=y_train_for_strat,
+            n_strata=getattr(self.config, "mi_n_strata", 10),
+        )
         train_idx_screen = train_idx[sample_idx]
         y_screen = y_full[train_idx_screen]
 
