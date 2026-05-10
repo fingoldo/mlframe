@@ -3679,6 +3679,7 @@ def _compute_split_metrics(
     show_inline_population_labels: bool = True,
     title_metrics_tokens: Optional[Tuple[str, ...]] = None,
     plot_outputs: Optional[str] = None,
+    plot_dpi: Optional[int] = None,
     multiclass_panels: Optional[str] = None,
     multilabel_panels: Optional[str] = None,
     ltr_panels: Optional[str] = None,
@@ -3750,6 +3751,7 @@ def _compute_split_metrics(
         show_inline_population_labels=show_inline_population_labels,
         title_metrics_tokens=title_metrics_tokens,
         plot_outputs=plot_outputs,
+        plot_dpi=plot_dpi,
         multiclass_panels=multiclass_panels,
         multilabel_panels=multilabel_panels,
         ltr_panels=ltr_panels,
@@ -4089,6 +4091,7 @@ def _build_configs_from_params(
     show_inline_population_labels=True,
     title_metrics_template="ICE BR_DECOMP ECE CMAEW LL ROC_AUC PR_AUC",
     plot_outputs="plotly[html,png]",
+    plot_dpi=None,
     multiclass_panels="CONFUSION PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC",
     multilabel_panels="PR_F1 CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST",
     ltr_panels="NDCG_K NDCG_DIST LIFT MRR_DIST SCORE_BY_REL",
@@ -4182,6 +4185,7 @@ def _build_configs_from_params(
         show_inline_population_labels=show_inline_population_labels,
         title_metrics_template=title_metrics_template,
         plot_outputs=plot_outputs,
+        plot_dpi=plot_dpi,
         multiclass_panels=multiclass_panels,
         multilabel_panels=multilabel_panels,
         ltr_panels=ltr_panels,
@@ -4357,6 +4361,7 @@ def train_and_evaluate_model(
     show_inline_population_labels = reporting.show_inline_population_labels
     title_metrics_tokens = reporting.title_metrics_tokens
     plot_outputs = reporting.plot_outputs
+    plot_dpi = reporting.plot_dpi
     multiclass_panels = reporting.multiclass_panels
     multilabel_panels = reporting.multilabel_panels
     ltr_panels = reporting.ltr_panels
@@ -4653,6 +4658,7 @@ def train_and_evaluate_model(
             show_inline_population_labels=show_inline_population_labels,
             title_metrics_tokens=title_metrics_tokens,
             plot_outputs=plot_outputs,
+            plot_dpi=plot_dpi,
             multiclass_panels=multiclass_panels,
             multilabel_panels=multilabel_panels,
             ltr_panels=ltr_panels,

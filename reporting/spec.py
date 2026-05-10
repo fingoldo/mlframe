@@ -189,6 +189,11 @@ class FigureSpec:
     suptitle: str = ""
     panels: Tuple[Tuple[PanelSpec, ...], ...] = field(default_factory=tuple)
     figsize: Tuple[float, float] = (12.0, 4.0)
+    # 2026-05-11: per-figure DPI for saved PNG. ``None`` defers to the
+    # matplotlib renderer's default (matches pre-flag behaviour). Set
+    # via ``ReportingConfig.plot_dpi`` to control globally; saves
+    # ~30% chart wall at dpi=80 vs default 100.
+    dpi: Optional[int] = None
     # 2026-05-11: default flipped True -> False per 1M-row c0134 profile.
     # constrained_layout is an iterative tight-bbox solver that adds
     # ~700-800 ms per multi-panel figure (cProfile-attributed 75 s

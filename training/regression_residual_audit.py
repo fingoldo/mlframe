@@ -441,6 +441,7 @@ def plot_residual_diagnostics(
     base_path: Optional[str] = None,
     header_str: str = "",
     metrics_str: str = "",
+    dpi: Optional[int] = None,
 ) -> Optional[ResidualAudit]:
     """Render the residual histogram + residuals-vs-predicted plot
     on the supplied matplotlib axes.
@@ -482,6 +483,9 @@ def plot_residual_diagnostics(
             audit=audit, header_str=header_str, metrics_str=metrics_str,
             plot_sample_size=plot_sample_size, seed=seed,
         )
+        if dpi is not None:
+            import dataclasses as _dc
+            spec = _dc.replace(spec, dpi=dpi)
         render_and_save(spec, parse_plot_output_dsl(plot_outputs), base_path)
         return audit
 

@@ -1447,6 +1447,7 @@ def show_calibration_plot(
     label_histogram: str = "Bin population",
     plot_outputs: Optional[str] = None,
     base_path: Optional[str] = None,
+    dpi: Optional[int] = None,
 ):
     """Plots reliability digaram from the binned predictions.
 
@@ -1635,7 +1636,12 @@ def show_calibration_plot(
             # Bench: 430 ms -> 257 ms (1.67x, ~170 ms / call saving).
             # See profiling/bench_calibration_layout.py for the A/B and
             # D:/Temp/calib_ab_*.png for visual proof.
-            fig = Figure(figsize=figsize, layout=None)
+            # 2026-05-11: honour ``dpi`` kwarg so ReportingConfig.plot_dpi
+            # propagates here; ``None`` defers to matplotlib's default.
+            _fig_kwargs = {"figsize": figsize, "layout": None}
+            if dpi is not None:
+                _fig_kwargs["dpi"] = dpi
+            fig = Figure(**_fig_kwargs)
             FigureCanvasAgg(fig)
             if show_prob_histogram:
                 gs = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.05)
@@ -1667,13 +1673,16 @@ def show_calibration_plot(
         # save-only path above: 1.67x faster, visually equivalent on this
         # 12x6 figsize + multi-axis colorbar + 2-line title geometry).
         if show_prob_histogram:
-            fig, (ax_main, ax_hist) = plt.subplots(
+            _subplots_kwargs = dict(
                 nrows=2, ncols=1,
                 figsize=figsize,
                 sharex=True,
                 gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05},
                 layout=None,
             )
+            if dpi is not None:
+                _subplots_kwargs["dpi"] = dpi
+            fig, (ax_main, ax_hist) = plt.subplots(**_subplots_kwargs)
             # Colorbar spans both subplots — see _draw_calibration_axes
             # docstring for why (X-axis alignment under sharex).
             _draw_calibration_axes(ax_main, fig, draw_xlabel=False,
@@ -1683,7 +1692,10 @@ def show_calibration_plot(
             if plot_title:
                 ax_main.set_title(plot_title)
         else:
-            fig = plt.figure(figsize=figsize, layout=None)
+            _fig_kwargs2 = {"figsize": figsize, "layout": None}
+            if dpi is not None:
+                _fig_kwargs2["dpi"] = dpi
+            fig = plt.figure(**_fig_kwargs2)
             ax = fig.add_subplot(1, 1, 1)
             _draw_calibration_axes(ax, fig, draw_xlabel=True)
             if plot_title:
@@ -2467,6 +2479,7 @@ def fast_calibration_report(
     group_ids: np.ndarray = None,
     binary_threshold: float = 0.5,
     _precomputed_aucs: Optional[Tuple[float, float]] = None,
+    dpi: Optional[int] = None,
     **ice_kwargs,
 ):
     """Bins predictions, then computes regresison-like error metrics between desired and real binned probs.
@@ -2619,6 +2632,7 @@ def fast_calibration_report(
             show_prob_histogram=show_prob_histogram,
             prob_histogram_yscale=prob_histogram_yscale,
             show_inline_population_labels=show_inline_population_labels,
+            dpi=dpi,
         )
 
     return (
@@ -2627,6 +2641,216 @@ def fast_calibration_report(
         roc_auc, pr_auc, ice, ll, precision, recall, f1,
         metrics_string, fig,
     )
+
+
+@numba.njit(fastmath=False, cache=True, nogil=True, parallel=True)
+def _batch_per_class_ice_kernel(
+    y_true_NK: np.ndarray,
+    y_pred_NK: np.ndarray,
+    nbins: int,
+    use_weights: bool,
+    mae_weight: float,
+    std_weight: float,
+    brier_loss_weight: float,
+    roc_auc_weight: float,
+    pr_auc_weight: float,
+    min_roc_auc: float,
+    roc_auc_penalty: float,
+) -> np.ndarray:
+    """Batched per-class ICE: one numba dispatch, prange over K.
+
+    Inlines the work of ``fast_ice_only`` (Brier + calibration binning +
+    AUC + ICE combination) so the Python ``for class_id in range(K)``
+    loop in ``compute_probabilistic_multiclass_error`` collapses to a
+    single Python->numba transition. On 1M-row multiclass workloads
+    this drops the Python-glue overhead from ~10-20 ms per call * K
+    classes to ~10-20 ms total per call.
+
+    Inputs:
+        y_true_NK : (N, K) int8 — per-class indicator matrix
+        y_pred_NK : (N, K) float64 — per-class predicted probability
+
+    Returns ice_per_class : (K,) float64.
+
+    Bit-exact equivalent of looping ``fast_ice_only`` per class
+    (verified against the legacy form in
+    ``bench_compute_multiclass_error.py``).
+    """
+    N = y_true_NK.shape[0]
+    K = y_true_NK.shape[1]
+    ice_per_class = np.empty(K, dtype=np.float64)
+
+    for k in numba.prange(K):
+        y_t = y_true_NK[:, k]
+        y_p = y_pred_NK[:, k]
+
+        # ---- Brier loss (mean squared error vs indicator) ----
+        s = 0.0
+        for i in range(N):
+            d = float(y_t[i]) - y_p[i]
+            s += d * d
+        brier = s / N if N > 0 else 1.0
+
+        # ---- Calibration binning (uniform-strategy, fixed nbins) ----
+        # Replicates fast_calibration_binning + calibration_metrics_from_freqs
+        # logic inline so the kernel stays single-entry.
+        min_val = 1.0
+        max_val = 0.0
+        for i in range(N):
+            v = y_p[i]
+            if v > max_val:
+                max_val = v
+            if v < min_val:
+                min_val = v
+        span = max_val - min_val
+        pockets_pred = np.zeros(nbins, dtype=np.int64)
+        pockets_true = np.zeros(nbins, dtype=np.int64)
+        if span > 0:
+            multiplier = (nbins - 1) / span
+            for i in range(N):
+                ind = int(np.floor((y_p[i] - min_val) * multiplier))
+                pockets_pred[ind] += 1
+                pockets_true[ind] += y_t[i]
+        else:
+            for i in range(N):
+                pockets_pred[0] += 1
+                pockets_true[0] += y_t[i]
+
+        # Collapse to non-empty bins
+        n_nonempty = 0
+        for b in range(nbins):
+            if pockets_pred[b] > 0:
+                n_nonempty += 1
+        freqs_pred = np.empty(n_nonempty, dtype=np.float64)
+        freqs_true = np.empty(n_nonempty, dtype=np.float64)
+        hits = np.empty(n_nonempty, dtype=np.int64)
+        ptr = 0
+        for b in range(nbins):
+            if pockets_pred[b] > 0:
+                freqs_pred[ptr] = min_val + (b + 0.5) * span / nbins
+                freqs_true[ptr] = pockets_true[b] / pockets_pred[b]
+                hits[ptr] = pockets_pred[b]
+                ptr += 1
+
+        # ---- Calibration MAE / std / coverage ----
+        # (calibration_metrics_from_freqs inlined with power-weighting on)
+        if n_nonempty > 0:
+            # Compute weights (power_weighting alpha=0.8 default of use_weights)
+            if use_weights:
+                weights = np.empty(n_nonempty, dtype=np.float64)
+                for b in range(n_nonempty):
+                    weights[b] = hits[b] ** 0.8
+                w_sum = 0.0
+                for b in range(n_nonempty):
+                    w_sum += weights[b]
+                if w_sum > 0:
+                    for b in range(n_nonempty):
+                        weights[b] /= w_sum
+                # Weighted MAE
+                cal_mae = 0.0
+                for b in range(n_nonempty):
+                    cal_mae += abs(freqs_pred[b] - freqs_true[b]) * weights[b]
+                # Weighted std around weighted-mean MAE
+                cal_var = 0.0
+                for b in range(n_nonempty):
+                    d = abs(freqs_pred[b] - freqs_true[b]) - cal_mae
+                    cal_var += d * d * weights[b]
+                cal_std = np.sqrt(cal_var)
+            else:
+                # Unweighted
+                cal_mae = 0.0
+                for b in range(n_nonempty):
+                    cal_mae += abs(freqs_pred[b] - freqs_true[b])
+                cal_mae /= n_nonempty
+                cal_var = 0.0
+                for b in range(n_nonempty):
+                    d = abs(freqs_pred[b] - freqs_true[b]) - cal_mae
+                    cal_var += d * d
+                cal_std = np.sqrt(cal_var / n_nonempty)
+        else:
+            cal_mae = 1.0
+            cal_std = 1.0
+
+        # Coverage: number of distinct rounded freqs_pred values / nbins.
+        # Use the same _round_prec rule as the standalone helper.
+        _round_prec = max(1, int(np.ceil(np.log10(max(nbins, 2)))))
+        # Round and count unique (numba can't use set; sort + unique-counting works).
+        if n_nonempty > 0:
+            rounded = np.empty(n_nonempty, dtype=np.float64)
+            scale = 10.0 ** _round_prec
+            for b in range(n_nonempty):
+                rounded[b] = np.round(freqs_pred[b] * scale) / scale
+            rounded = np.sort(rounded)
+            n_unique = 1
+            for b in range(1, n_nonempty):
+                if rounded[b] != rounded[b - 1]:
+                    n_unique += 1
+            cal_cov = n_unique / nbins
+        else:
+            cal_cov = 0.0
+
+        # ---- ROC AUC + PR AUC (fast_numba_aucs body inline) ----
+        # Descending-sort argsort on y_p, then walk through (y_t, y_p)
+        # in score-desc order, accumulating TP / FP / current_precision /
+        # current_recall as in sklearn.average_precision_score.
+        desc_idx = np.argsort(-y_p)
+        y_t_sorted = y_t[desc_idx]
+        y_p_sorted = y_p[desc_idx]
+        total_pos = 0
+        for i in range(N):
+            total_pos += y_t_sorted[i]
+        total_neg = N - total_pos
+        if total_pos == 0 or total_neg == 0:
+            roc_auc = np.nan
+            pr_auc = np.nan
+        else:
+            last_fps = 0
+            last_tps = 0
+            tps = 0
+            fps = 0
+            roc_acc = 0.0
+            pr_acc = 0.0
+            prev_recall = 0.0
+            for i in range(N):
+                yi = y_t_sorted[i]
+                tps += yi
+                fps += 1 - yi
+                if i == N - 1 or y_p_sorted[i + 1] != y_p_sorted[i]:
+                    delta_fps = fps - last_fps
+                    sum_tps = last_tps + tps
+                    roc_acc += delta_fps * sum_tps
+                    last_fps = fps
+                    last_tps = tps
+                    current_precision = tps / (tps + fps) if (tps + fps) > 0 else 0.0
+                    current_recall = tps / total_pos
+                    delta_recall = current_recall - prev_recall
+                    pr_acc += delta_recall * current_precision
+                    prev_recall = current_recall
+            denom_roc = tps * fps * 2
+            if denom_roc > 0:
+                roc_auc = roc_acc / denom_roc
+            else:
+                roc_auc = np.nan
+            pr_auc = pr_acc
+
+        # ---- Combine into ICE (integral_calibration_error_from_metrics body) ----
+        base_loss = (
+            brier * brier_loss_weight
+            + cal_mae * mae_weight
+            + cal_std * std_weight
+        )
+        roc_term = 0.0 if np.isnan(roc_auc) else np.abs(roc_auc - 0.5) * roc_auc_weight
+        pr_term = 0.0 if np.isnan(pr_auc) else pr_auc * pr_auc_weight
+        ice = base_loss - roc_term - pr_term
+        threshold_width = min_roc_auc - 0.5
+        if threshold_width > 0.0 and not np.isnan(roc_auc):
+            deficit = threshold_width - np.abs(roc_auc - 0.5)
+            if deficit > 0.0:
+                ice += (deficit / threshold_width) * roc_auc_penalty
+
+        ice_per_class[k] = ice
+
+    return ice_per_class
 
 
 def fast_ice_only(
@@ -2756,6 +2980,82 @@ def compute_probabilistic_multiclass_error(
 
     total_error = 0.0
     weights_sum = 0
+
+    # 2026-05-11: batched-numba fastpath. When the hot path applies
+    # (method='multicrit' AND not verbose AND probs convert to a clean
+    # (N, K) float64 stack), process all K classes in one numba dispatch
+    # via _batch_per_class_ice_kernel. Eliminates the per-class
+    # Python->numba transition overhead that dominated the K-class
+    # Python loop (cProfile attributed ~60 ms / call avg, of which
+    # ~30 ms was Python glue for K=3 classes). Bit-exact equivalent
+    # of the legacy fast_ice_only K-loop -- verified in
+    # profiling/bench_compute_multiclass_error.py.
+    if method == "multicrit" and not verbose:
+        # Build the set of class_ids to evaluate (binary case skips 0).
+        _class_ids = [
+            c for c in range(len(probs))
+            if not (len(probs) == 2 and c == 0 and not multilabel)
+        ]
+        try:
+            # Stack y_pred_NK
+            _y_pred_cols = []
+            for _c in _class_ids:
+                _yp = probs[_c]
+                if isinstance(_yp, pl.Series):
+                    _yp = _yp.to_numpy()
+                elif isinstance(_yp, (pd.Series,)):
+                    _yp = _yp.values
+                _y_pred_cols.append(np.ascontiguousarray(_yp, dtype=np.float64))
+            _y_pred_NK = np.column_stack(_y_pred_cols)
+            # Stack y_true_NK (indicator matrix)
+            _y_true_cols = []
+            for _c in _class_ids:
+                if multilabel:
+                    _yt = y_true[:, _c]
+                elif labels is not None:
+                    _yt = y_true == labels[_c]
+                else:
+                    _yt = y_true == _c
+                if isinstance(_yt, pl.Series):
+                    _yt = _yt.cast(pl.Int8).to_numpy()
+                elif isinstance(_yt, (pd.Series,)):
+                    _yt = _yt.values.astype(np.int8)
+                else:
+                    _yt = np.ascontiguousarray(_yt, dtype=np.int8)
+                _y_true_cols.append(_yt)
+            _y_true_NK = np.column_stack(_y_true_cols)
+            # Single-dispatch batched kernel
+            ice_per_class = _batch_per_class_ice_kernel(
+                _y_true_NK, _y_pred_NK, nbins,
+                bool(use_weighted_calibration),
+                float(mae_weight), float(std_weight), float(brier_loss_weight),
+                float(roc_auc_weight), float(pr_auc_weight),
+                float(min_roc_auc), float(roc_auc_penalty),
+            )
+            # Reduce with per-class weights
+            for _k, _cid in enumerate(_class_ids):
+                if weight_by_class_npositives:
+                    weight = int(_y_true_NK[:, _k].sum())
+                else:
+                    weight = 1
+                total_error += float(ice_per_class[_k]) * weight
+                weights_sum += weight
+            if weights_sum > 0:
+                total_error /= weights_sum
+            else:
+                logger.warning(
+                    "compute_probabilistic_multiclass_error: sum of per-class weights is 0; returning NaN."
+                )
+                total_error = float("nan")
+            return total_error
+        except Exception as _exc:
+            # Defensive: any kernel / stacking issue falls through to the
+            # legacy per-class Python loop below. Log at DEBUG so the path
+            # transition stays visible during dev but doesn't spam INFO.
+            logger.debug(
+                "_batch_per_class_ice_kernel fastpath failed (%s); falling back to per-class loop.",
+                _exc,
+            )
 
     for class_id in range(len(probs)):
 

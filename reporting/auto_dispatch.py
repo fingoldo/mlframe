@@ -44,6 +44,7 @@ def render_multi_target_panels(
     suptitle: str = "",
     max_cols: int = 2,
     target_type: Optional[str] = None,
+    plot_dpi: Optional[int] = None,
 ) -> Optional[str]:
     """Pick the right composer for the input shapes and render.
 
@@ -115,6 +116,9 @@ def render_multi_target_panels(
                     panels_template=ltr_panels, suptitle=suptitle,
                     max_cols=max_cols,
                 )
+                if plot_dpi is not None:
+                    import dataclasses as _dc
+                    spec = _dc.replace(spec, dpi=plot_dpi)
                 render_and_save(spec, parse_plot_output_dsl(plot_outputs),
                                 base_path + "_ltr_panels")
                 return "ltr"
@@ -144,6 +148,9 @@ def render_multi_target_panels(
                     panels_template=quantile_panels, suptitle=suptitle,
                     max_cols=max_cols,
                 )
+                if plot_dpi is not None:
+                    import dataclasses as _dc
+                    spec = _dc.replace(spec, dpi=plot_dpi)
                 render_and_save(spec, parse_plot_output_dsl(plot_outputs),
                                 base_path + "_quantile_panels")
                 return "quantile"
@@ -178,6 +185,9 @@ def render_multi_target_panels(
                 panels_template=multilabel_panels, suptitle=suptitle,
                 max_cols=max_cols,
             )
+            if plot_dpi is not None:
+                import dataclasses as _dc
+                spec = _dc.replace(spec, dpi=plot_dpi)
             render_and_save(spec, parse_plot_output_dsl(plot_outputs),
                             base_path + "_multilabel_panels")
             return "multilabel"
@@ -201,6 +211,9 @@ def render_multi_target_panels(
                 panels_template=multiclass_panels, suptitle=suptitle,
                 max_cols=max_cols,
             )
+            if plot_dpi is not None:
+                import dataclasses as _dc
+                spec = _dc.replace(spec, dpi=plot_dpi)
             render_and_save(spec, parse_plot_output_dsl(plot_outputs),
                             base_path + "_multiclass_panels")
             return "multiclass"

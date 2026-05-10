@@ -181,6 +181,7 @@ def report_model_perf(
     title_metrics_tokens: Optional[Tuple[str, ...]] = None,
     multilabel_dispatch_config: Optional["MultilabelDispatchConfig"] = None,
     plot_outputs: Optional[str] = None,
+    plot_dpi: Optional[int] = None,
     target_type: Optional[str] = None,
     multiclass_panels: Optional[str] = None,
     multilabel_panels: Optional[str] = None,
@@ -309,6 +310,7 @@ def report_model_perf(
                 show_inline_population_labels=show_inline_population_labels,
                 title_metrics_tokens=title_metrics_tokens,
                 multilabel_dispatch_config=multilabel_dispatch_config,
+                plot_dpi=plot_dpi,
             )
     else:
         with phase(
@@ -320,7 +322,7 @@ def report_model_perf(
             # uses plot_outputs differently (multi_target_panels at L277);
             # regression's only consumer is the residual-diagnostics chart.
             preds, probs = report_regression_model_perf(
-                **common_params, plot_outputs=plot_outputs,
+                **common_params, plot_outputs=plot_outputs, plot_dpi=plot_dpi,
             )
 
     # 2026-05-08 PR2 wiring: render multiclass / multilabel / LTR panel
@@ -339,6 +341,7 @@ def report_model_perf(
                 classes=classes, group_ids=group_ids,
                 quantile_alphas=quantile_alphas,
                 plot_outputs=plot_outputs,
+                plot_dpi=plot_dpi,
                 multiclass_panels=multiclass_panels,
                 multilabel_panels=multilabel_panels,
                 ltr_panels=ltr_panels,
@@ -395,6 +398,7 @@ def report_regression_model_perf(
     metrics: Optional[Dict[str, Any]] = None,
     n_features: Optional[int] = None,
     plot_outputs: Optional[str] = None,
+    plot_dpi: Optional[int] = None,
 ) -> Tuple[np.ndarray, None]:
     """
     Generate a detailed performance report for regression models.
@@ -595,6 +599,7 @@ def report_regression_model_perf(
                     metrics_str=metrics_str,
                     plot_sample_size=plot_sample_size,
                     seed=DEFAULT_RANDOM_SEED,
+                    dpi=plot_dpi,
                 )
             else:
                 # Legacy matplotlib-only path. Kept for callers that
@@ -610,10 +615,14 @@ def report_regression_model_perf(
                 # Three-panel figure: scatter | residuals histogram | residuals vs predicted.
                 # constrained_layout cached solver state -- ~13s saved
                 # vs tight_layout per-chart on multi-chart reports.
-                fig, axes = plt.subplots(
-                    1, 3, figsize=(figsize[0] * 3 / 2, figsize[1]),
+                # 2026-05-11: honour plot_dpi when caller set it.
+                _reg_subplots_kwargs = dict(
+                    figsize=(figsize[0] * 3 / 2, figsize[1]),
                     layout="constrained",
                 )
+                if plot_dpi is not None:
+                    _reg_subplots_kwargs["dpi"] = plot_dpi
+                fig, axes = plt.subplots(1, 3, **_reg_subplots_kwargs)
                 ax_scatter, ax_hist, ax_resid = axes
 
                 # 2026-05-09 fix: y=1.02 puts the suptitle ABOVE the
@@ -731,6 +740,7 @@ def report_probabilistic_model_perf(
     show_inline_population_labels: bool = True,
     title_metrics_tokens: Optional[Tuple[str, ...]] = None,
     multilabel_dispatch_config: Optional["MultilabelDispatchConfig"] = None,
+    plot_dpi: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Generate a detailed performance report for probabilistic classification models.
@@ -1013,6 +1023,7 @@ def report_probabilistic_model_perf(
             show_prob_histogram=show_prob_histogram,
             prob_histogram_yscale=prob_histogram_yscale,
             show_inline_population_labels=show_inline_population_labels,
+            dpi=plot_dpi,
         )
         if title_metrics_tokens is not None:
             _fcr_kwargs["title_metrics_tokens"] = title_metrics_tokens

@@ -42,7 +42,14 @@ class MatplotlibRenderer:
             raise ValueError("FigureSpec has no panels")
 
         layout = "constrained" if spec.constrained_layout else None
-        fig = Figure(figsize=spec.figsize, layout=layout)
+        # 2026-05-11: honour spec.dpi when set so ReportingConfig.plot_dpi
+        # flows to the rendered PNG (savefig defaults to fig.dpi when no
+        # dpi= kwarg is passed). ``None`` falls through to matplotlib's
+        # rcParams default (typically 100).
+        fig_kwargs = {"figsize": spec.figsize, "layout": layout}
+        if spec.dpi is not None:
+            fig_kwargs["dpi"] = spec.dpi
+        fig = Figure(**fig_kwargs)
         FigureCanvasAgg(fig)
 
         gs_kwargs = {}
