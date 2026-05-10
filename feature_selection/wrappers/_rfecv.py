@@ -263,6 +263,11 @@ class RFECV(BaseEstimator, TransformerMixin):
         # ID columns that encode the target) before the model sees the
         # leaked column. Set None to disable.
         leakage_corr_threshold: Union[float, None] = 0.95,
+        # P0-C18: action on detected leak. 'warn' (legacy) only logs;
+        # 'exclude' auto-drops the column (treats it like must_exclude);
+        # 'raise' aborts the fit. 'exclude' is the safest production
+        # default but 'warn' is preserved as backward-compat.
+        leakage_action: str = "warn",
         # PR-4 tactical: feature_groups for one-hot expansions or other
         # logically-grouped column sets. Maps group_name -> list of column
         # names. RFECV's support_ then reflects an all-or-nothing decision
@@ -270,6 +275,18 @@ class RFECV(BaseEstimator, TransformerMixin):
         # Resolves the docstring's "5 collinear copies" problem at
         # configuration level when the operator knows the groups.
         feature_groups: Union[dict, None] = None,
+        # PR-6: rule for picking n_features_ from cv_results_. 'argmax' is
+        # the legacy behaviour - argmax of (mean - lambda*std - feature_cost*N).
+        # When the score curve is FLAT around the optimum (common with multi-
+        # estimator + class_sep>=2 + few informative features), argmax
+        # collapses to the FIRST N visited that hits near-max, often
+        # under-selecting. 'one_se_max' picks the LARGEST N within 1 SE of
+        # the best mean - more robust on plateau, less likely to drop
+        # marginally-informative features. 'one_se_min' is the sklearn
+        # canonical "smallest N within 1 SE" (parsimonious, but vulnerable
+        # to plateau collapse). 'auto' uses 'one_se_max' when estimators=
+        # is a list (multi-estimator path is plateau-prone), else 'argmax'.
+        n_features_selection_rule: str = "auto",
         # PR-4: Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B).
         # When True, replaces the MBH+CV-fold-voting search with bootstrap
         # subsampling: B replicates of the data (n/2 sample, no replacement),
@@ -326,6 +343,61 @@ class RFECV(BaseEstimator, TransformerMixin):
             X = X.to_pandas()
         if isinstance(y, pl.Series):
             y = y.to_pandas()
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # PR-6 audit: reject pathological y / X early instead of letting
+        # sklearn raise opaque errors deep in the splitter or estimator.
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # P0-A2: y must be finite for regression / numeric for classification.
+        try:
+            y_arr = np.asarray(y)
+        except Exception as exc:
+            raise ValueError(f"y must be array-like; got {type(y).__name__}: {exc}") from exc
+        if y_arr.size == 0:
+            raise ValueError("y is empty; nothing to fit.")
+        # P0-A2/A3: NaN / Inf in y are silent miscompute traps in sklearn folds.
+        if y_arr.dtype.kind in "fc":
+            n_nan_y = int(np.isnan(y_arr).sum())
+            n_inf_y = int(np.isinf(y_arr).sum())
+            if n_nan_y or n_inf_y:
+                raise ValueError(
+                    f"y contains {n_nan_y} NaN and {n_inf_y} +/-inf values. "
+                    f"sklearn CV splitters silently mishandle these. Drop or "
+                    f"impute these rows before passing y to RFECV."
+                )
+        # P0-A1: single-class y for classification is a fold-collapse trap.
+        if is_classifier(self.estimator if self.estimator is not None
+                         else (self.estimators[0] if self.estimators else None)):
+            unique_y = np.unique(y_arr)
+            if len(unique_y) < 2:
+                raise ValueError(
+                    f"y has only {len(unique_y)} unique class(es) "
+                    f"({unique_y.tolist()}). Classification CV requires at "
+                    f"least 2 classes. Check that y is not constant or that "
+                    f"upstream filtering didn't drop the minority class."
+                )
+            # P0-A5: minority-class size must support the requested CV.
+            class_counts = np.bincount(y_arr.astype(int)) if y_arr.dtype.kind in "iu" else None
+            if class_counts is not None and len(class_counts) > 0:
+                min_class = int(class_counts[class_counts > 0].min())
+                cv_n = self.cv if isinstance(self.cv, int) else getattr(self.cv, "n_splits", 3)
+                if min_class < cv_n:
+                    raise ValueError(
+                        f"Minority class has {min_class} samples but cv={cv_n}. "
+                        f"StratifiedKFold requires at least n_splits samples per "
+                        f"class. Reduce cv or oversample the minority class."
+                    )
+
+        # P0-F30: must_include + must_exclude intersection is a confusing config error.
+        if self.must_include and self.must_exclude:
+            mi_set = set(self.must_include)
+            me_set = set(self.must_exclude)
+            overlap = mi_set & me_set
+            if overlap:
+                raise ValueError(
+                    f"must_include and must_exclude both contain {sorted(overlap)}. "
+                    f"Resolve the conflict in your config."
+                )
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Zero-variance / all-null column filter (2026-04-28 batch 4 followup)
@@ -399,13 +471,13 @@ class RFECV(BaseEstimator, TransformerMixin):
         # threshold. Common leak shapes: ID columns that encode the target,
         # post-hoc enrichments, target-encoded categoricals computed on the
         # full set instead of train-only.
+        _suspicious: list = []
         if self.leakage_corr_threshold is not None and isinstance(X, pd.DataFrame) and X.shape[0] >= 30:
             try:
                 _y_arr = np.asarray(y, dtype=float).ravel()
                 if _y_arr.size == X.shape[0] and not np.all(np.isnan(_y_arr)):
                     _y_std = float(np.nanstd(_y_arr))
                     if _y_std > 1e-12:
-                        _suspicious = []
                         for _c in X.select_dtypes(include="number").columns:
                             _x_arr = np.asarray(X[_c].values, dtype=float)
                             _mask = np.isfinite(_x_arr) & np.isfinite(_y_arr)
@@ -417,19 +489,32 @@ class RFECV(BaseEstimator, TransformerMixin):
                             _corr = float(np.corrcoef(_x_arr[_mask], _y_arr[_mask])[0, 1])
                             if abs(_corr) >= float(self.leakage_corr_threshold):
                                 _suspicious.append((_c, round(_corr, 4)))
-                        if _suspicious:
-                            logger.warning(
-                                "RFECV: %d feature(s) have |Pearson(X, y)| >= %.2f, "
-                                "which often indicates target leakage (ID columns, "
-                                "post-hoc enrichments, target-encoded categoricals "
-                                "computed on the full set). Inspect: %s. To suppress, "
-                                "pass ``leakage_corr_threshold=None`` or list these "
-                                "in ``must_exclude``.",
-                                len(_suspicious), self.leakage_corr_threshold,
-                                _suspicious[:20],
-                            )
+                        # Sentinel-based raising: the outer try/except below
+                        # catches only TypeError/ValueError raised by the corr
+                        # computation, NOT our intentional 'raise' action. So
+                        # we collect findings here and raise OUTSIDE the try.
             except (TypeError, ValueError):
                 pass
+            if _suspicious:
+                _msg = (
+                    f"RFECV: {len(_suspicious)} feature(s) have "
+                    f"|Pearson(X, y)| >= {self.leakage_corr_threshold}, "
+                    f"likely target leakage. Inspect: {_suspicious[:20]}. "
+                    f"To suppress, set leakage_corr_threshold=None or "
+                    f"list these in must_exclude."
+                )
+                _action = getattr(self, "leakage_action", "warn")
+                if _action == "raise":
+                    raise ValueError(_msg + " (leakage_action='raise')")
+                elif _action == "exclude":
+                    _leaky_cols = [c for c, _ in _suspicious if c in X.columns]
+                    if _leaky_cols:
+                        logger.warning(
+                            _msg + " (leakage_action='exclude' - dropping these columns)"
+                        )
+                        X = X.drop(columns=_leaky_cols)
+                else:
+                    logger.warning(_msg)
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Compute inputs/outputs signature
@@ -1531,22 +1616,23 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         ultimate_perf = base_perf - np.array(checked_nfeatures) * feature_cost
 
-        sorted_idx = np.argsort(ultimate_perf)[::-1]
-        # F8 fix: defensive defaults so an all-zero checked_nfeatures input
-        # (only the dummy at 0 was ever evaluated, e.g. the search loop
-        # broke on iter 1 with empty current_features) doesn't leave
-        # ``best_idx``/``best_top_n`` unbound and crash 30 lines below at
-        # ``base_perf[best_idx]`` / ``self.n_features_ = best_top_n``.
-        best_idx = None
-        best_top_n = 0
-        for idx in sorted_idx:
-            if checked_nfeatures[idx] != 0:
-                best_idx = idx
-                best_top_n = checked_nfeatures[best_idx]
-                break
-            else:
-                logger.warning(f"Can't allow nfeatures to be zero. Using first non-zero value.")
-        if best_idx is None:
+        # PR-6: resolve the n_features selection rule.
+        # - multi-estimator (estimators=...) -> 'one_se_max' (avoids the
+        #   collapse-to-2 caveat documented in PR-5 - the strong estimator
+        #   masks a weak estimator's need for more features)
+        # - singular estimator -> 'argmax' (legacy default; benchmark shows
+        #   higher recall on small data than one_se_min because MBH's
+        #   sparse exploration of N values means the 1-SE band can be
+        #   dominated by accidental small-N points)
+        # Users who want parsimonious selection (e.g. on n>>p where score
+        # plateau is wide) should opt into 'one_se_min' explicitly.
+        rule = getattr(self, "n_features_selection_rule", "auto")
+        if rule == "auto":
+            rule = "one_se_max" if getattr(self, "estimators", None) else "argmax"
+
+        nfeatures_arr = np.array(checked_nfeatures)
+        nonzero_mask = nfeatures_arr > 0
+        if not nonzero_mask.any():
             logger.warning(
                 "select_optimal_nfeatures_: only nfeatures==0 was evaluated; "
                 "no features can be selected. Returning empty support_."
@@ -1554,6 +1640,39 @@ class RFECV(BaseEstimator, TransformerMixin):
             self.n_features_ = 0
             self.support_ = np.array([])
             return
+
+        if rule == "argmax":
+            # Legacy behaviour: pick the index with the highest ultimate_perf
+            # among the nonzero candidates.
+            sorted_idx = np.argsort(ultimate_perf)[::-1]
+            best_idx = None
+            for idx in sorted_idx:
+                if nfeatures_arr[idx] != 0:
+                    best_idx = idx
+                    break
+        else:
+            # one_se_max / one_se_min: build the SE band around the best
+            # mean (cv_mean_perf, the *unadjusted* score so 1-SE has its
+            # standard interpretation), then pick the largest or smallest
+            # N within the band.
+            mean_arr = np.array(cv_mean_perf)
+            std_arr = np.array(cv_std_perf)
+            nz_idx = np.where(nonzero_mask)[0]
+            best_mean_idx = nz_idx[np.argmax(mean_arr[nz_idx])]
+            threshold = mean_arr[best_mean_idx] - std_arr[best_mean_idx]
+            in_band = [i for i in nz_idx if mean_arr[i] >= threshold]
+            if not in_band:
+                in_band = [int(best_mean_idx)]
+            if rule == "one_se_max":
+                best_idx = max(in_band, key=lambda i: nfeatures_arr[i])
+            elif rule == "one_se_min":
+                best_idx = min(in_band, key=lambda i: nfeatures_arr[i])
+            else:
+                raise ValueError(
+                    f"n_features_selection_rule={rule!r} not supported. "
+                    f"Use 'auto', 'argmax', 'one_se_max', or 'one_se_min'."
+                )
+        best_top_n = int(nfeatures_arr[best_idx])
 
         if show_plot or plot_file:
             plt.rcParams.update({"font.size": font_size})
@@ -1797,10 +1916,17 @@ class RFECV(BaseEstimator, TransformerMixin):
         # (cb_hgb_xgb / pl_nullable / confidence_analysis_cfg=True).
         if isinstance(X, pl.DataFrame):
             X = X.to_pandas()
-        # Use getattr to handle unfitted RFECV (support_ not yet set)
-        support = getattr(self, 'support_', None)
-        if support is None:
-            return X
+        # P0-G34: sklearn convention - transform on unfitted estimator
+        # raises NotFittedError. Prior code silently returned X unchanged,
+        # which mascaraded a config bug as a successful transform and let
+        # downstream pipelines run on the wrong column set.
+        if not hasattr(self, "support_") or not hasattr(self, "feature_names_in_"):
+            from sklearn.exceptions import NotFittedError
+            raise NotFittedError(
+                "This RFECV instance is not fitted yet. Call 'fit' before "
+                "using 'transform'."
+            )
+        support = self.support_
         if len(support) == 0:
             # Return empty DataFrame/array with same rows but no columns
             # This signals that feature selection found no useful features

@@ -988,13 +988,13 @@ class TestRFECVEdgeCases:
         assert len(rfecv.cv_results_['nfeatures']) == len(rfecv.cv_results_['cv_std_perf'])
 
     def test_unfitted_transform(self):
-        """Test RFECV transform when support_ is not set (unfitted or failed fit).
+        """Test RFECV transform when support_ is not set (unfitted).
 
-        This tests the edge case where transform is called but the RFECV
-        either wasn't fitted or the fit failed before setting support_.
-        The transform should return the original data without error.
-        Regression test for AttributeError: 'RFECV' object has no attribute 'support_'.
+        Updated for PR-6 audit P0-G34: transform on an unfitted estimator
+        must raise NotFittedError (sklearn convention). The prior pass-
+        through behaviour silently masked config bugs.
         """
+        from sklearn.exceptions import NotFittedError
         X = np.random.randn(100, 5)
 
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
@@ -1006,10 +1006,8 @@ class TestRFECVEdgeCases:
             random_state=42
         )
 
-        # Transform without fit - should return original data without error
-        X_transformed = rfecv.transform(X)
-        assert X_transformed is not None
-        np.testing.assert_array_equal(X_transformed, X)
+        with pytest.raises(NotFittedError):
+            rfecv.transform(X)
 
     def test_perfect_feature_detection(self):
         """Test RFECV detects a feature with perfect correlation to target.

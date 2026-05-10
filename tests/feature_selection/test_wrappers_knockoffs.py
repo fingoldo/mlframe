@@ -163,3 +163,95 @@ class TestK3_MultiEstimatorMinAggregation:
             f"flat-score-plateau issue; use stability_selection=True for "
             f"robust multi-estimator selection."
         )
+
+
+# ----------------------------------------------------------------------------
+# K4: Plateau-aware n_features_selection_rule (auto + one_se_max + one_se_min)
+# ----------------------------------------------------------------------------
+class TestK4_PlateauRule:
+    def test_auto_uses_one_se_max_for_multi_estimator(self):
+        """On the bench problem (n=600, p=40, 8 informative, class_sep=2.0)
+        multi-estimator MBH with default 'argmax' rule used to collapse to
+        2-3 features (recall=0.42). With 'auto' (= 'one_se_max' for multi-
+        estimator) it should pick a much larger N within 1 SE of best mean,
+        recovering the informative features."""
+        X, y = make_classification(
+            n_samples=600, n_features=40, n_informative=8,
+            n_redundant=0, random_state=0, shuffle=False, class_sep=2.0,
+        )
+        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(40)])
+        rfecv = RFECV(
+            estimators=[
+                LogisticRegression(max_iter=400, random_state=0),
+                RandomForestClassifier(n_estimators=20, random_state=0, n_jobs=1),
+            ],
+            cv=3, max_refits=8, verbose=0, random_state=0,
+            # n_features_selection_rule defaults to 'auto'
+        )
+        rfecv.fit(Xdf, y)
+        # Pre-fix: collapsed to 2-3 features. Post-fix: should pick within
+        # 1 SE band, which on this plateau gives 8+ features.
+        assert rfecv.n_features_ >= 6, (
+            f"Multi-estimator + 'auto' rule still collapsed to "
+            f"{rfecv.n_features_} features; one_se_max should pick "
+            f"the largest N in the SE band."
+        )
+        names = set(rfecv.get_feature_names_out())
+        recall = sum(1 for f in [f"f{i}" for i in range(8)] if f in names) / 8
+        assert recall >= 0.75, (
+            f"Multi-estimator recall too low after plateau fix: {recall}"
+        )
+
+    def test_explicit_argmax_preserves_legacy_behaviour(self):
+        """When user explicitly opts into 'argmax', they get the legacy
+        plateau-vulnerable behaviour."""
+        X, y = make_classification(
+            n_samples=300, n_features=10, n_informative=4, random_state=0,
+            shuffle=False, class_sep=2.0,
+        )
+        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
+        rfecv = RFECV(
+            estimator=LogisticRegression(max_iter=200, random_state=0),
+            cv=3, max_refits=4, verbose=0, random_state=0,
+            n_features_selection_rule="argmax",
+        )
+        rfecv.fit(Xdf, y)
+        assert rfecv.n_features_ >= 1
+
+    def test_one_se_min_picks_smallest_in_band(self):
+        """one_se_min should pick the SMALLEST N in the SE band (parsimonious,
+        sklearn-canonical 1-SE rule)."""
+        X, y = make_classification(
+            n_samples=400, n_features=15, n_informative=5, random_state=0,
+            shuffle=False, class_sep=2.0,
+        )
+        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(15)])
+        # Compare one_se_min vs one_se_max on the same fitted state -
+        # one_se_min should be <= one_se_max.
+        rfecv_min = RFECV(
+            estimator=LogisticRegression(max_iter=200, random_state=0),
+            cv=3, max_refits=6, verbose=0, random_state=0,
+            n_features_selection_rule="one_se_min",
+        )
+        rfecv_min.fit(Xdf, y)
+        rfecv_max = RFECV(
+            estimator=LogisticRegression(max_iter=200, random_state=0),
+            cv=3, max_refits=6, verbose=0, random_state=0,
+            n_features_selection_rule="one_se_max",
+        )
+        rfecv_max.fit(Xdf, y)
+        assert rfecv_min.n_features_ <= rfecv_max.n_features_, (
+            f"one_se_min ({rfecv_min.n_features_}) should pick <= than "
+            f"one_se_max ({rfecv_max.n_features_})."
+        )
+
+    def test_unknown_rule_raises(self):
+        X, y = make_classification(n_samples=100, n_features=4, n_informative=2, random_state=0)
+        Xdf = pd.DataFrame(X, columns=list("abcd"))
+        rfecv = RFECV(
+            estimator=LogisticRegression(max_iter=200, random_state=0),
+            cv=2, max_refits=2, verbose=0,
+            n_features_selection_rule="bogus_rule",
+        )
+        with pytest.raises(ValueError, match="not supported"):
+            rfecv.fit(Xdf, y)

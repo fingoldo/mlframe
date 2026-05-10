@@ -123,13 +123,25 @@ def _run_one(method_name: str, factory, X, y, informative_idx, seed) -> BenchRes
     )
 
 
-def main():
+def main(scale: str = "small"):
+    """scale: 'small' = n=600 p=40 (PR-4 default), 'large' = n=8000 p=200
+    (production-ish, where knockoffs shine). Run small with no args; pass
+    --large to switch.
+    """
     out_dir = Path(__file__).parent / "_results"
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    if scale == "large":
+        n_samples, n_features, n_inform = 8000, 200, 30
+    else:
+        n_samples, n_features, n_inform = 600, 40, 8
+
+    def _make(seed):
+        return _make_problem(n=n_samples, p=n_features, n_inform=n_inform, seed=seed)
+
     seeds = [0, 1, 2]
     rows: list[dict] = []
-    print("# PR-4 methods bench on synthetic (n=600, p=40, 8 informative, class_sep=2.0)")
+    print(f"# PR-4 methods bench on synthetic (n={n_samples}, p={n_features}, {n_inform} informative, class_sep=2.0)")
     print()
 
     methods = {
@@ -161,13 +173,13 @@ def main():
         ),
     }
 
-    X0, y0, informative_idx = _make_problem(seed=0)
+    X0, y0, informative_idx = _make(0)
     print(f"informative={sorted(informative_idx)}")
     print()
 
     for method_name, factory in methods.items():
         for seed in seeds:
-            X, y, _ = _make_problem(seed=seed)
+            X, y, _ = _make(seed)
             res = _run_one(method_name, factory, X, y, informative_idx, seed)
             rows.append(asdict(res))
             print(
@@ -178,7 +190,7 @@ def main():
 
     # Knockoffs (PR-5): not an RFECV path, so use the dedicated runner.
     for seed in seeds:
-        X, y, _ = _make_problem(seed=seed)
+        X, y, _ = _make(seed)
         res = _run_knockoffs("knockoffs_lr", X, y, informative_idx, seed)
         rows.append(asdict(res))
         print(
@@ -232,4 +244,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    scale = "large" if "--large" in sys.argv else "small"
+    main(scale=scale)
