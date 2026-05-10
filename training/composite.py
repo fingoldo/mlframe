@@ -2216,8 +2216,9 @@ def _mi_to_target(
     random_state: int,
     estimator: str = "knn",
     nbins: int = 16,
+    aggregation: str = "mean",
 ) -> float:
-    """Sum MI of each feature column with ``target``.
+    """Aggregated MI of each feature column with ``target``.
 
     Two estimators:
 
@@ -2226,25 +2227,42 @@ def _mi_to_target(
     - ``"bin"``: quantile-bin estimator (``_mi_pair_bin`` per column).
       5-10x faster; biased low on heavy-tail.
 
-    We sum rather than average so the metric scales with information
-    *content*, not feature count.
+    Aggregation across feature columns:
+
+    - ``"mean"`` (default since 2026-05-10, R10b stat #1):
+      ``sum_j MI(x_j, target) / n_features``. Invariant to feature
+      count -- the metric stays comparable when the feature set
+      shrinks (because the base column was excluded). Statistician's
+      review flagged the legacy ``"sum"`` aggregation as biased:
+      sum-of-marginal-MI overcounts shared information when X is
+      correlated, AND the over-count differs between numerator
+      ``MI(T, X_no_base)`` and denominator ``MI(y, X_no_base)``
+      because changing the target reweights how features overlap.
+      Mean is the simplest fix that removes the dimension confound.
+    - ``"sum"``: legacy behaviour. Set explicitly for backward-
+      compatibility on existing benchmarks.
     """
     finite = np.isfinite(target) & np.all(np.isfinite(feature_matrix), axis=1)
     if finite.sum() < 50:
         return 0.0
     target_f = target[finite]
     fm_f = feature_matrix[finite]
+    if fm_f.shape[1] == 0:
+        return 0.0
     if estimator == "bin":
-        total = 0.0
-        for j in range(fm_f.shape[1]):
-            total += _mi_pair_bin(fm_f[:, j], target_f, nbins=nbins)
-        return total
-    # Default: Kraskov kNN.
-    from sklearn.feature_selection import mutual_info_regression
-    mi = mutual_info_regression(
-        fm_f, target_f, n_neighbors=n_neighbors, random_state=random_state,
-    )
-    return float(np.sum(mi))
+        per_feat = np.array([
+            _mi_pair_bin(fm_f[:, j], target_f, nbins=nbins)
+            for j in range(fm_f.shape[1])
+        ])
+    else:
+        from sklearn.feature_selection import mutual_info_regression
+        per_feat = mutual_info_regression(
+            fm_f, target_f, n_neighbors=n_neighbors, random_state=random_state,
+        )
+    if aggregation == "sum":
+        return float(np.sum(per_feat))
+    # Default: mean (statistician #1).
+    return float(np.mean(per_feat))
 
 
 def _build_tiny_model(family: str, *, n_estimators: int, num_leaves: int,
@@ -2458,6 +2476,7 @@ def _tiny_cv_rmse_y_scale_multiseed(
     *args,
     n_seed_repeats: int = 1,
     base_random_state: int = 0,
+    return_per_seed: bool = False,
     **kwargs,
 ):
     """Multi-seed wrapper around :func:`_tiny_cv_rmse_y_scale`.
@@ -2468,12 +2487,26 @@ def _tiny_cv_rmse_y_scale_multiseed(
     of a single point estimate). When ``return_per_bin=True``, also
     returns the per-bin median across seeds.
 
+    R10b statistician #4: when ``return_per_seed=True``, also returns
+    the array of per-seed mean RMSEs so callers can run a paired
+    Wilcoxon test against a reference (raw-y baseline) array.
+
     ``n_seed_repeats=1`` is the legacy single-seed path -- exact
     same numerical result as calling the underlying function once.
     """
     if n_seed_repeats <= 1:
         kwargs["random_state"] = base_random_state
-        return _tiny_cv_rmse_y_scale(*args, **kwargs)
+        result = _tiny_cv_rmse_y_scale(*args, **kwargs)
+        if return_per_seed:
+            mean = result[0] if isinstance(result, tuple) else result
+            per_seed_arr = np.array(
+                [mean] if math.isfinite(mean) else [],
+                dtype=np.float64,
+            )
+            if isinstance(result, tuple):
+                return result + (per_seed_arr,)
+            return result, per_seed_arr
+        return result
     seed_results = []
     seed_per_bins = []
     return_pb = kwargs.get("return_per_bin", False)
@@ -2488,10 +2521,12 @@ def _tiny_cv_rmse_y_scale_multiseed(
         else:
             if math.isfinite(result):
                 seed_results.append(result)
+    seed_arr = np.array(seed_results, dtype=np.float64)
     if not seed_results:
         if return_pb:
-            return float("nan"), np.full(kwargs.get("n_bins", 5), float("nan"))
-        return float("nan")
+            res = float("nan"), np.full(kwargs.get("n_bins", 5), float("nan"))
+            return res + (seed_arr,) if return_per_seed else res
+        return (float("nan"), seed_arr) if return_per_seed else float("nan")
     median_rmse = float(np.median(seed_results))
     if return_pb:
         if seed_per_bins:
@@ -2500,7 +2535,11 @@ def _tiny_cv_rmse_y_scale_multiseed(
                 median_per_bin = np.nanmedian(stack, axis=0)
         else:
             median_per_bin = np.full(kwargs.get("n_bins", 5), float("nan"))
+        if return_per_seed:
+            return median_rmse, median_per_bin, seed_arr
         return median_rmse, median_per_bin
+    if return_per_seed:
+        return median_rmse, seed_arr
     return median_rmse
 
 
@@ -2508,13 +2547,24 @@ def _tiny_cv_rmse_raw_y_multiseed(
     *args,
     n_seed_repeats: int = 1,
     base_random_state: int = 0,
+    return_per_seed: bool = False,
     **kwargs,
 ):
     """Multi-seed wrapper around :func:`_tiny_cv_rmse_raw_y`. See
     :func:`_tiny_cv_rmse_y_scale_multiseed` for the rationale."""
     if n_seed_repeats <= 1:
         kwargs["random_state"] = base_random_state
-        return _tiny_cv_rmse_raw_y(*args, **kwargs)
+        result = _tiny_cv_rmse_raw_y(*args, **kwargs)
+        if return_per_seed:
+            mean = result[0] if isinstance(result, tuple) else result
+            per_seed_arr = np.array(
+                [mean] if math.isfinite(mean) else [],
+                dtype=np.float64,
+            )
+            if isinstance(result, tuple):
+                return result + (per_seed_arr,)
+            return result, per_seed_arr
+        return result
     seed_results = []
     seed_per_bins = []
     return_pb = kwargs.get("return_per_bin", False)
@@ -2529,10 +2579,12 @@ def _tiny_cv_rmse_raw_y_multiseed(
         else:
             if math.isfinite(result):
                 seed_results.append(result)
+    seed_arr = np.array(seed_results, dtype=np.float64)
     if not seed_results:
         if return_pb:
-            return float("nan"), np.full(kwargs.get("n_bins", 5), float("nan"))
-        return float("nan")
+            res = float("nan"), np.full(kwargs.get("n_bins", 5), float("nan"))
+            return res + (seed_arr,) if return_per_seed else res
+        return (float("nan"), seed_arr) if return_per_seed else float("nan")
     median_rmse = float(np.median(seed_results))
     if return_pb:
         if seed_per_bins:
@@ -2541,7 +2593,11 @@ def _tiny_cv_rmse_raw_y_multiseed(
                 median_per_bin = np.nanmedian(stack, axis=0)
         else:
             median_per_bin = np.full(kwargs.get("n_bins", 5), float("nan"))
+        if return_per_seed:
+            return median_rmse, median_per_bin, seed_arr
         return median_rmse, median_per_bin
+    if return_per_seed:
+        return median_rmse, seed_arr
     return median_rmse
 
 
@@ -2907,6 +2963,47 @@ class CompositeTargetDiscovery:
         y_full = _extract_column_array(df, target_col)
         y_train = y_full[train_idx]
 
+        # R10b stat #8: auto-boost mi_n_strata on heavy-tail y. The
+        # default 10 strata produces unstable MI estimates when the
+        # tail dominates the signal -- one or two tail rows per bin.
+        # Detect via skew or kurtosis on train; if either is high,
+        # bump n_strata to ``mi_n_strata_heavy_tail`` (default 30).
+        # User-configured ``mi_n_strata`` remains the floor; we only
+        # bump when the auto-detected boost is HIGHER.
+        y_finite_for_check = y_train[np.isfinite(y_train)]
+        if y_finite_for_check.size >= 100:
+            y_std = float(y_finite_for_check.std())
+            if y_std > 1e-12:
+                z_centered = (y_finite_for_check - y_finite_for_check.mean()) / y_std
+                skew = float(np.mean(z_centered ** 3))
+                kurt = float(np.mean(z_centered ** 4) - 3.0)
+                if abs(skew) > 2.0 or kurt > 5.0:
+                    boost = int(getattr(
+                        self.config, "mi_n_strata_heavy_tail", 30,
+                    ))
+                    cur_n_strata = int(getattr(
+                        self.config, "mi_n_strata", 10,
+                    ))
+                    if boost > cur_n_strata:
+                        # Mutate config in-place ONLY if we own a
+                        # copy (avoid leaking into callers' shared
+                        # config). model_copy is safe here because
+                        # discovery already gets a per-target config
+                        # clone in core.py when hint is enabled.
+                        try:
+                            new_cfg = self.config.model_copy(
+                                update={"mi_n_strata": boost}
+                            )
+                            self.config = new_cfg
+                            logger.info(
+                                "[CompositeTargetDiscovery] heavy-tail y "
+                                "detected (skew=%.2f, kurt=%.2f); boosted "
+                                "mi_n_strata %d -> %d.",
+                                skew, kurt, cur_n_strata, boost,
+                            )
+                        except Exception:
+                            pass  # leave at user-configured value.
+
         # Filter feature_cols by name patterns AND constancy on train.
         usable_features = self._filter_features(df, feature_cols, y_train, train_idx)
 
@@ -2965,6 +3062,7 @@ class CompositeTargetDiscovery:
                 random_state=self.config.random_state,
                 estimator=self.config.mi_estimator,
                 nbins=self.config.mi_nbins,
+                aggregation=getattr(self.config, "mi_aggregation", "mean"),
             )
 
             for transform_name in self.config.transforms:
@@ -3010,6 +3108,7 @@ class CompositeTargetDiscovery:
                     random_state=self.config.random_state,
                     estimator=self.config.mi_estimator,
                     nbins=self.config.mi_nbins,
+                aggregation=getattr(self.config, "mi_aggregation", "mean"),
                 )
                 # When the screening sample shrunk after domain
                 # filtering (logratio with negative rows in train),
@@ -3023,10 +3122,63 @@ class CompositeTargetDiscovery:
                         random_state=self.config.random_state,
                         estimator=self.config.mi_estimator,
                         nbins=self.config.mi_nbins,
+                aggregation=getattr(self.config, "mi_aggregation", "mean"),
                     )
                 else:
                     mi_y_compare = mi_y_for_base
                 mi_gain = mi_t - mi_y_compare
+
+                # R10b stat #8: bootstrap CI on mi_gain. The
+                # point-estimate has a noise floor that scales with
+                # screening-sample size and y-tail heaviness; the
+                # absolute eps_mi_gain threshold misses this. Bootstrap
+                # produces a 95% CI; the gate compares against the
+                # LOWER CI bound (LCB), not the point estimate. Spec
+                # is rejected if LCB <= eps_mi_gain.
+                bootstrap_n = int(getattr(
+                    self.config, "mi_gain_bootstrap_n", 0,
+                ))
+                mi_gain_lcb = mi_gain  # default: point estimate.
+                if bootstrap_n > 0:
+                    boot_rng = np.random.default_rng(
+                        int(getattr(
+                            self.config, "mi_gain_bootstrap_random_state", 12345,
+                        ))
+                    )
+                    n_screen = int(valid_screen.sum())
+                    boot_gains = np.empty(bootstrap_n)
+                    for b in range(bootstrap_n):
+                        idx_b = boot_rng.integers(0, n_screen, size=n_screen)
+                        x_boot = x_screen_valid[idx_b]
+                        t_boot = t_screen[idx_b]
+                        y_boot = y_screen[valid_screen][idx_b]
+                        try:
+                            mi_t_b = _mi_to_target(
+                                x_boot, t_boot,
+                                n_neighbors=self.config.mi_n_neighbors,
+                                random_state=self.config.random_state,
+                                estimator=self.config.mi_estimator,
+                                nbins=self.config.mi_nbins,
+                                aggregation=getattr(
+                                    self.config, "mi_aggregation", "mean",
+                                ),
+                            )
+                            mi_y_b = _mi_to_target(
+                                x_boot, y_boot,
+                                n_neighbors=self.config.mi_n_neighbors,
+                                random_state=self.config.random_state,
+                                estimator=self.config.mi_estimator,
+                                nbins=self.config.mi_nbins,
+                                aggregation=getattr(
+                                    self.config, "mi_aggregation", "mean",
+                                ),
+                            )
+                            boot_gains[b] = mi_t_b - mi_y_b
+                        except Exception:
+                            boot_gains[b] = float("nan")
+                    boot_finite = boot_gains[np.isfinite(boot_gains)]
+                    if boot_finite.size >= bootstrap_n // 2:
+                        mi_gain_lcb = float(np.percentile(boot_finite, 2.5))
 
                 spec = CompositeSpec(
                     name=f"{target_col}__{transform_name}__{base}",
@@ -3044,6 +3196,7 @@ class CompositeTargetDiscovery:
                     "spec": spec,
                     "kept": False,  # set after filtering
                     "reason": "",
+                    "mi_gain_lcb": float(mi_gain_lcb),
                 })
 
         # Filter + sort.
@@ -3052,7 +3205,11 @@ class CompositeTargetDiscovery:
             spec: Optional[CompositeSpec] = entry.get("spec")
             if spec is None:
                 continue  # already a reject
-            if spec.mi_gain <= self.config.eps_mi_gain:
+            # R10b stat #8: gate compares LCB (lower CI bound), not
+            # point estimate, when bootstrap is enabled. Falls back
+            # to point estimate when LCB unavailable.
+            mi_gain_for_gate = entry.get("mi_gain_lcb", spec.mi_gain)
+            if mi_gain_for_gate <= self.config.eps_mi_gain:
                 entry["reason"] = (
                     f"mi_gain={spec.mi_gain:.4f} <= eps={self.config.eps_mi_gain:.4f}"
                 )
@@ -3062,6 +3219,97 @@ class CompositeTargetDiscovery:
 
         kept_specs.sort(key=lambda s: -s.mi_gain)
         kept_specs = kept_specs[: self.config.top_k_after_mi]
+
+        # R10b stat #6: rolling-origin alpha drift detection for
+        # linear_residual specs. Fit alpha on first / second halves
+        # of train; Chow-style z-score on the difference. Specs with
+        # |z| > threshold either rejected or flagged depending on
+        # config.
+        if (getattr(self.config, "detect_linear_residual_alpha_drift", True)
+                and any(s.transform_name == "linear_residual"
+                        for s in kept_specs)):
+            self._alpha_drift_flags: Dict[str, Dict[str, float]] = {}
+            drift_threshold = float(getattr(
+                self.config, "alpha_drift_z_threshold", 3.0,
+            ))
+            reject_on_drift = bool(getattr(
+                self.config, "reject_on_alpha_drift", False,
+            ))
+            half = len(train_idx) // 2
+            if half >= 50:
+                drift_dropped: List[Tuple[str, float]] = []
+                drift_kept: List[CompositeSpec] = []
+                for s in kept_specs:
+                    if s.transform_name != "linear_residual":
+                        drift_kept.append(s)
+                        continue
+                    base_full = _extract_column_array(df, s.base_column)
+                    y_full_arr = y_full
+                    idx1 = train_idx[:half]
+                    idx2 = train_idx[half:]
+                    try:
+                        params1 = _linear_residual_fit(
+                            y_full_arr[idx1], base_full[idx1],
+                        )
+                        params2 = _linear_residual_fit(
+                            y_full_arr[idx2], base_full[idx2],
+                        )
+                    except Exception:
+                        drift_kept.append(s)
+                        continue
+                    a1 = float(params1.get("alpha", 0.0))
+                    a2 = float(params2.get("alpha", 0.0))
+                    # Pooled SE estimate via residual variance / std(base).
+                    base_t = base_full[train_idx]
+                    base_t_finite = base_t[np.isfinite(base_t)]
+                    base_std = (
+                        float(base_t_finite.std()) if base_t_finite.size > 1
+                        else 1.0
+                    )
+                    y_t = y_full_arr[train_idx]
+                    y_t_finite = y_t[np.isfinite(y_t)]
+                    y_std = (
+                        float(y_t_finite.std()) if y_t_finite.size > 1
+                        else 1.0
+                    )
+                    # Approximate SE(alpha_hat) ~ y_std / (sqrt(n_half) *
+                    # base_std). The factor of 2 from the half-sample.
+                    if base_std < 1e-12 or half < 2:
+                        drift_kept.append(s)
+                        continue
+                    se_alpha = y_std / (np.sqrt(half) * base_std)
+                    z = abs(a1 - a2) / max(se_alpha, 1e-12)
+                    self._alpha_drift_flags[s.name] = {
+                        "alpha_first_half": a1,
+                        "alpha_second_half": a2,
+                        "z_score": float(z),
+                    }
+                    if z > drift_threshold:
+                        if reject_on_drift:
+                            drift_dropped.append((s.name, float(z)))
+                            continue
+                        else:
+                            logger.warning(
+                                "[CompositeTargetDiscovery] alpha drift "
+                                "detected for spec=%s (alpha first-half="
+                                "%.4f, second-half=%.4f, z=%.2f > %.2f). "
+                                "Concept drift -- LR may underperform on "
+                                "test. Set reject_on_alpha_drift=True to "
+                                "drop automatically.",
+                                s.name, a1, a2, z, drift_threshold,
+                            )
+                    drift_kept.append(s)
+                if drift_dropped:
+                    logger.info(
+                        "[CompositeTargetDiscovery] alpha drift gate "
+                        "dropped %d linear_residual spec(s): %s",
+                        len(drift_dropped),
+                        ", ".join(
+                            f"{n}(z={z:.2f})"
+                            for n, z in drift_dropped[:5]
+                        ),
+                    )
+                kept_specs = drift_kept
 
         # R10b improvement #6: collapse redundant linear_residual ->
         # diff when alpha ~ 1 and beta ~ 0 (linear_residual has zero
@@ -3795,25 +4043,59 @@ class CompositeTargetDiscovery:
             n_seed_repeats = max(1, int(getattr(
                 self.config, "tiny_model_n_seed_repeats", 1,
             )))
+            use_wilcoxon = bool(getattr(
+                self.config, "use_wilcoxon_gate", False,
+            ))
             for family in families:
-                rmse = _tiny_cv_rmse_y_scale_multiseed(
-                    y_train=y_screen,
-                    base_train=base_screen,
-                    transform=transform,
-                    fitted_params=spec.fitted_params,
-                    x_train_matrix=x_matrix,
-                    family=family,
-                    n_estimators=self.config.tiny_model_n_estimators,
-                    num_leaves=self.config.tiny_model_num_leaves,
-                    learning_rate=self.config.tiny_model_learning_rate,
-                    cv_folds=self.config.tiny_model_cv_folds,
-                    n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
-                    deterministic=getattr(
-                        self.config, "deterministic_screening_models", False,
-                    ),
-                    n_seed_repeats=n_seed_repeats,
-                    base_random_state=self.config.random_state,
-                )
+                if use_wilcoxon:
+                    result = _tiny_cv_rmse_y_scale_multiseed(
+                        y_train=y_screen,
+                        base_train=base_screen,
+                        transform=transform,
+                        fitted_params=spec.fitted_params,
+                        x_train_matrix=x_matrix,
+                        family=family,
+                        n_estimators=self.config.tiny_model_n_estimators,
+                        num_leaves=self.config.tiny_model_num_leaves,
+                        learning_rate=self.config.tiny_model_learning_rate,
+                        cv_folds=self.config.tiny_model_cv_folds,
+                        n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                        deterministic=getattr(
+                            self.config, "deterministic_screening_models", False,
+                        ),
+                        n_seed_repeats=n_seed_repeats,
+                        base_random_state=self.config.random_state,
+                        return_per_seed=True,
+                    )
+                    rmse, per_seed = result[0], result[-1]
+                    # Stash per-seed array on the discovery instance
+                    # (keyed by spec.name + family) for the Wilcoxon
+                    # gate to compare against raw-y per-seed.
+                    self._wilcoxon_per_seed_composite = getattr(
+                        self, "_wilcoxon_per_seed_composite", {}
+                    )
+                    self._wilcoxon_per_seed_composite[
+                        (spec.name, family)
+                    ] = per_seed
+                else:
+                    rmse = _tiny_cv_rmse_y_scale_multiseed(
+                        y_train=y_screen,
+                        base_train=base_screen,
+                        transform=transform,
+                        fitted_params=spec.fitted_params,
+                        x_train_matrix=x_matrix,
+                        family=family,
+                        n_estimators=self.config.tiny_model_n_estimators,
+                        num_leaves=self.config.tiny_model_num_leaves,
+                        learning_rate=self.config.tiny_model_learning_rate,
+                        cv_folds=self.config.tiny_model_cv_folds,
+                        n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                        deterministic=getattr(
+                            self.config, "deterministic_screening_models", False,
+                        ),
+                        n_seed_repeats=n_seed_repeats,
+                        base_random_state=self.config.random_state,
+                    )
                 per_family_scores[family].append(rmse)
 
         # Aggregate -> single score per spec.
@@ -3922,22 +4204,46 @@ class CompositeTargetDiscovery:
             n_seed_repeats_raw = max(1, int(getattr(
                 self.config, "tiny_model_n_seed_repeats", 1,
             )))
+            use_wilcoxon = bool(getattr(
+                self.config, "use_wilcoxon_gate", False,
+            ))
+            raw_per_seed_per_family: Dict[str, np.ndarray] = {}
             for family in families:
-                raw_rmse_per_family[family] = _tiny_cv_rmse_raw_y_multiseed(
-                    y_train=y_screen,
-                    x_train_matrix=x_full,
-                    family=family,
-                    n_estimators=self.config.tiny_model_n_estimators,
-                    num_leaves=self.config.tiny_model_num_leaves,
-                    learning_rate=self.config.tiny_model_learning_rate,
-                    cv_folds=self.config.tiny_model_cv_folds,
-                    n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
-                    deterministic=getattr(
-                        self.config, "deterministic_screening_models", False,
-                    ),
-                    n_seed_repeats=n_seed_repeats_raw,
-                    base_random_state=self.config.random_state,
-                )
+                if use_wilcoxon:
+                    res = _tiny_cv_rmse_raw_y_multiseed(
+                        y_train=y_screen,
+                        x_train_matrix=x_full,
+                        family=family,
+                        n_estimators=self.config.tiny_model_n_estimators,
+                        num_leaves=self.config.tiny_model_num_leaves,
+                        learning_rate=self.config.tiny_model_learning_rate,
+                        cv_folds=self.config.tiny_model_cv_folds,
+                        n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                        deterministic=getattr(
+                            self.config, "deterministic_screening_models", False,
+                        ),
+                        n_seed_repeats=n_seed_repeats_raw,
+                        base_random_state=self.config.random_state,
+                        return_per_seed=True,
+                    )
+                    raw_rmse_per_family[family] = res[0]
+                    raw_per_seed_per_family[family] = res[-1]
+                else:
+                    raw_rmse_per_family[family] = _tiny_cv_rmse_raw_y_multiseed(
+                        y_train=y_screen,
+                        x_train_matrix=x_full,
+                        family=family,
+                        n_estimators=self.config.tiny_model_n_estimators,
+                        num_leaves=self.config.tiny_model_num_leaves,
+                        learning_rate=self.config.tiny_model_learning_rate,
+                        cv_folds=self.config.tiny_model_cv_folds,
+                        n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                        deterministic=getattr(
+                            self.config, "deterministic_screening_models", False,
+                        ),
+                        n_seed_repeats=n_seed_repeats_raw,
+                        base_random_state=self.config.random_state,
+                    )
             # Per-base raw-y per-bin breakdown for the regime gate.
             # Cached by base column so multiple specs sharing a base
             # compute baselines once.
@@ -3986,6 +4292,10 @@ class CompositeTargetDiscovery:
             )
             if math.isfinite(raw_baseline):
                 survivors = []
+                gate_alpha = float(getattr(
+                    self.config, "gate_alpha", 0.05,
+                ))
+                wilcoxon_rejected: List[Tuple[str, float]] = []
                 for i, spec in enumerate(kept_specs):
                     score = agg_scores[i]
                     if math.isfinite(score) and score >= threshold:
@@ -3993,6 +4303,45 @@ class CompositeTargetDiscovery:
                             (spec.name, score, threshold)
                         )
                         continue
+                    # R10b stat #4: paired Wilcoxon signed-rank test
+                    # on per-seed RMSE diffs (composite - raw). Reject
+                    # spec unless the median diff is significantly
+                    # negative at level gate_alpha.
+                    if (use_wilcoxon
+                            and hasattr(self, "_wilcoxon_per_seed_composite")):
+                        family = families[0]
+                        comp_per_seed = self._wilcoxon_per_seed_composite.get(
+                            (spec.name, family)
+                        )
+                        raw_per_seed = raw_per_seed_per_family.get(family)
+                        if (comp_per_seed is not None
+                                and raw_per_seed is not None
+                                and len(comp_per_seed) == len(raw_per_seed)
+                                and len(comp_per_seed) >= 3):
+                            try:
+                                from scipy.stats import wilcoxon
+                                diff = comp_per_seed - raw_per_seed
+                                # One-sided: composite better (less RMSE)
+                                # so we want diff < 0; alternative='less'.
+                                stat_res = wilcoxon(
+                                    diff, alternative="less",
+                                    zero_method="wilcox",
+                                )
+                                p_value = float(stat_res.pvalue)
+                                if p_value > gate_alpha:
+                                    wilcoxon_rejected.append(
+                                        (spec.name, p_value)
+                                    )
+                                    continue
+                            except (ImportError, ValueError) as _wx_err:
+                                # Scipy missing or all-zero diffs ->
+                                # fall through to the threshold-only
+                                # gate (no Wilcoxon rejection).
+                                logger.debug(
+                                    "[CompositeTargetDiscovery] "
+                                    "Wilcoxon gate skipped for spec=%s: %s",
+                                    spec.name, _wx_err,
+                                )
                     # R10b improvement #1: per-bin gate. Composite
                     # passes the global mean test; now check that
                     # per-bin RMSE doesn't blow out vs the raw-y
@@ -4060,6 +4409,17 @@ class CompositeTargetDiscovery:
                         ", ".join(
                             f"{n}@{b}(ratio={r:.2f}>{t:.2f})"
                             for n, b, r, t in per_bin_rejected_names[:5]
+                        ),
+                    )
+                if wilcoxon_rejected:
+                    logger.info(
+                        "[CompositeTargetDiscovery] Wilcoxon gate "
+                        "rejected %d composite(s) (paired one-sided test "
+                        "on per-seed RMSE diffs vs raw, alpha=%.3f): %s",
+                        len(wilcoxon_rejected), gate_alpha,
+                        ", ".join(
+                            f"{n}(p={p:.3f})"
+                            for n, p in wilcoxon_rejected[:5]
                         ),
                     )
                 # Replace kept_specs/agg_scores with survivors only.

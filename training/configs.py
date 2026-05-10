@@ -1860,6 +1860,15 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     mi_estimator: str = "bin"
     mi_nbins: int = 16  # Bin count when ``mi_estimator == "bin"``.
 
+    # R10b statistician #1: aggregation across feature columns when
+    # comparing MI(T, X_no_base) against MI(y, X_no_base). Legacy
+    # ``"sum"`` is biased (overcounts shared information when X is
+    # correlated, and the over-count differs between numerator and
+    # denominator). Mean is invariant to feature count and is the
+    # cleaner default; users on existing benchmarks can pin
+    # ``"sum"`` for reproducibility.
+    mi_aggregation: str = "mean"
+
     # MI sampling strategy. "random" is the cheap default; switch to
     # "stratified_quantile" on heavy-tail targets (financial returns,
     # fraud scores, queue lengths) where random sampling can miss the
@@ -1962,6 +1971,61 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # compatible (single-seed). Set to e.g. 3 or 5 on small screening
     # samples where gate decisions are noisy. Compute scales linearly.
     tiny_model_n_seed_repeats: int = 1
+
+    # R10b statistician #4: paired one-sided Wilcoxon signed-rank
+    # test on per-fold-pair RMSE differences (composite minus raw).
+    # Replaces the static ``raw_baseline * tolerance`` threshold with
+    # a non-parametric significance test: spec is rejected unless
+    # the median of per-fold differences is significantly negative
+    # (composite < raw) at level ``gate_alpha``. Scipy must be
+    # available; falls back to threshold-only gate if not.
+    #
+    # Cost: requires per-fold RMSE pairs from BOTH composite and
+    # raw runs, which we already collect when
+    # ``tiny_model_n_seed_repeats > 1``. With n_seed_repeats=1 the
+    # test has 3 fold pairs total -- the test will be too low-power
+    # to reject anything except egregious cases. Recommended:
+    # n_seed_repeats=5 for the test to have meaningful power.
+    use_wilcoxon_gate: bool = False
+    gate_alpha: float = 0.05
+
+    # R10b statistician #6: detect alpha-drift in linear_residual.
+    # Fit alpha on first half of train and on second half; compare
+    # via Chow-style |Δα| / pooled SE. If the absolute z-score
+    # exceeds ``alpha_drift_z_threshold`` (default 3.0), the
+    # linear_residual spec for that base is flagged in metadata
+    # with reason ``alpha_drift_detected`` and (optionally) rejected.
+    # Catches concept-drift / non-stationary y/base relationships
+    # that LR's point-estimate alpha silently degrades on at test.
+    detect_linear_residual_alpha_drift: bool = True
+    alpha_drift_z_threshold: float = 3.0
+    # When True, drop linear_residual specs that fail the drift
+    # check; when False, keep them but log a warning + record in
+    # metadata. Default False -- drift is informational only by
+    # default; flag to True on series with known non-stationarity.
+    reject_on_alpha_drift: bool = False
+
+    # R10b stat #8: bootstrap CI on mi_gain. The point-estimate
+    # mi_gain has noise floor that scales with the screening sample
+    # size and the heaviness of the y-tail; the eps_mi_gain absolute
+    # threshold misses this. Optional bootstrap (resample the
+    # screening sample, recompute MI, take 2.5/97.5 percentiles)
+    # produces an honest CI; the gate then compares ``eps_mi_gain``
+    # against the lower CI bound, not the point estimate.
+    #
+    # Cost: ``mi_gain_bootstrap_n`` extra MI evaluations per spec
+    # (default 0 = disabled; recommended 50 for confidence band).
+    mi_gain_bootstrap_n: int = 0
+    mi_gain_bootstrap_random_state: int = 12345
+
+    # R10b stat #8 (continued): boost n_strata on heavy-tail targets
+    # when stratified MI sampling is enabled. Default 10 strata is
+    # too few for tail-driven signal -- tail rows get one bin each
+    # and MI estimates become unstable. Auto-detection: when y skew
+    # > 2.0 OR kurtosis > 5.0, boost ``mi_n_strata`` to
+    # ``mi_n_strata_heavy_tail``. Manual override via setting
+    # ``mi_n_strata`` explicitly.
+    mi_n_strata_heavy_tail: int = 30
 
     @field_validator("screening", mode="before")
     @classmethod
