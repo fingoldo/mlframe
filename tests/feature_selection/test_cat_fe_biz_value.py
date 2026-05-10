@@ -79,6 +79,7 @@ def _fit_cat_fe(df, y, **cfg_overrides):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.fast
 def test_biz_cat_fe_recovers_xor_synergy(xor_4way_dataset):
     """Floor 10x; measured (see below). On y = x1 XOR x2, the
     engineered ``kway(x1__x2)`` column has II ≈ ln(2) ≈ 0.69 while
@@ -139,17 +140,21 @@ def test_biz_cat_fe_synergy_pair_beats_independent_pair(xor_4way_dataset):
 
 
 def test_biz_cat_fe_disabled_recovers_no_synergy(xor_4way_dataset):
-    """Counter-test: with cat-FE disabled (the legacy default), MRMR
-    produces ZERO recipes on the same XOR dataset. This pins the
-    BC contract -- ``cat_fe_config=None`` is bit-exact legacy.
+    """Counter-test: with cat-FE EXPLICITLY disabled
+    (``cat_fe_config=CatFEConfig(enable=False)``, the legacy path),
+    MRMR produces ZERO recipes on the same XOR dataset. This pins the
+    BC contract for users who opt back into legacy.
 
-    Captures regressions where cat-FE accidentally activates by
-    default, or where the disabled path still mutates ``_cat_fe_state_``."""
+    2026-05-11: default flipped to enabled, so the legacy path is now
+    opt-in via explicit ``CatFEConfig(enable=False)``.
+
+    Captures regressions where the disable path still mutates
+    ``_cat_fe_state_``."""
     df, y = xor_4way_dataset
     mrmr = MRMR(
         full_npermutations=2, baseline_npermutations=2,
         verbose=0, n_jobs=1,
-        cat_fe_config=None,  # legacy default
+        cat_fe_config=CatFEConfig(enable=False),  # explicit legacy opt-in
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

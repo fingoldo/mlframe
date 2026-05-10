@@ -315,6 +315,8 @@ class TestPairSearchKernel:
 
 
 class TestOrchestratorEndToEnd:
+    @pytest.mark.fast
+    @pytest.mark.fast
     def test_xor_synergy_pair_recovered(self, xor_fixture):
         """Canonical biz-value test: cat-FE on XOR data MUST surface
         the (x1, x2) pair as an engineered feature."""

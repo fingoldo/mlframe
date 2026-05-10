@@ -60,6 +60,7 @@ class TestApplyRecipeUnaryBinary:
     """``apply_recipe`` for ``"unary_binary"`` kind matches the fit-time
     formula on identical inputs and on disjoint test inputs."""
 
+    @pytest.mark.fast
     def test_identity_pair_mul_replays_exactly(self, simple_pair_data):
         """``mul(identity(a), identity(b))`` == ``a * b`` element-wise."""
         recipe = build_unary_binary_recipe(
@@ -292,6 +293,52 @@ class TestRecipeErrors:
 # ---------------------------------------------------------------------------
 # 4. Polars compatibility (optional dep)
 # ---------------------------------------------------------------------------
+
+
+class TestNaNHandlingFactorize:
+    """Tier 2.3: NaN / non-integer values at transform time.
+
+    Test data often has NaN where train was a category. The factorize
+    lookup requires int index; we handle NaN per ``unknown_strategy``.
+    """
+
+    def _build_recipe(self, unknown_strategy):
+        from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
+        lookup = np.array([0, 1, 2, 3], dtype=np.int64)
+        return EngineeredRecipe(
+            name="kway(x1__x2)", kind="factorize",
+            src_names=("x1", "x2"),
+            factorize_nbins=(2, 2),
+            unknown_strategy=unknown_strategy,
+            extra={"lookup_table": lookup, "n_uniq_post_prune": 4},
+        )
+
+    def test_nan_clipped_under_clip_strategy(self):
+        recipe = self._build_recipe(unknown_strategy="clip")
+        df = pd.DataFrame({
+            "x1": [0.0, 1.0, np.nan, 0.0],
+            "x2": [0.0, 1.0, 0.0, np.nan],
+        })
+        out = apply_recipe(recipe, df)
+        # No crash, all output codes are valid
+        assert out.shape == (4,)
+        assert (out >= 0).all()
+        assert (out < 4).all()
+
+    def test_nan_raises_under_raise_strategy(self):
+        recipe = self._build_recipe(unknown_strategy="raise")
+        df = pd.DataFrame({"x1": [0.0, np.nan], "x2": [1.0, 0.0]})
+        with pytest.raises(ValueError, match="NaN"):
+            apply_recipe(recipe, df)
+
+    def test_all_nan_column_under_clip(self):
+        recipe = self._build_recipe(unknown_strategy="clip")
+        df = pd.DataFrame({
+            "x1": [np.nan, np.nan, np.nan],
+            "x2": [0.0, 1.0, 0.0],
+        })
+        out = apply_recipe(recipe, df)
+        assert out.shape == (3,)
 
 
 class TestApplyRecipeFactorize:

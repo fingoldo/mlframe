@@ -204,6 +204,20 @@ python feature_selection/_benchmarks/cat_fe_xor_demo.py
 python feature_selection/_benchmarks/bench_categorical_fe.py
 ```
 
+#### TODO (cat-FE roadmap)
+
+Items deferred to a future PR -- tracked in CHANGELOG and visible
+to downstream contributors:
+
+- **Real-world Kaggle-style head-to-head bench**: cat-FE vs
+  `featuretools` DFS vs `category_encoders.TargetEncoder` vs
+  `CatBoost` native categorical handling on a public dataset
+  (e.g. Tabular Playground / covtype). Synthetic XOR demo (above)
+  shows the canonical hidden-pair case; the Kaggle bench would
+  demonstrate value on REAL categorical-heavy tabular data.
+  Output: wall time / AUC / log-loss comparison + memory footprint.
+  Location: `feature_selection/_benchmarks/bench_cat_fe_vs_alternatives_kaggle.py`.
+
 ### Behavioural defaults (post-2026-05 refactor)
 
 * `max_confirmation_cand_nbins=None` -> resolves to

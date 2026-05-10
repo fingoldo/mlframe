@@ -195,6 +195,61 @@ def _extract_column(X: Any, name: str) -> np.ndarray:
     raise TypeError(f"Unsupported X type for engineered-recipe replay: {type(X)!r}")
 
 
+def _coerce_to_int_with_nan_handling(
+    vals: np.ndarray, n_bins: int, recipe_name: str, col_name: str,
+    unknown_strategy: str,
+) -> np.ndarray:
+    """Tier 2.3: handle NaN / non-integer test values for factorize replay.
+
+    Test-time data may have ``NaN`` where train was a category. The
+    factorize lookup table is indexed by int. Strategy:
+
+    - Float NaN -> ``unknown_strategy`` (clip→max bin, sentinel→new
+      bin, raise→error).
+    - Float non-NaN -> cast to int (rounds toward zero).
+    - Object / categorical -> cast via int(). Non-coercible values
+      handled per ``unknown_strategy``.
+
+    Returns int64 array with NaN/coercion-failures replaced per strategy.
+    """
+    if np.issubdtype(vals.dtype, np.floating):
+        nan_mask = np.isnan(vals)
+        if nan_mask.any():
+            if unknown_strategy == "raise":
+                n_nan = int(nan_mask.sum())
+                raise ValueError(
+                    f"Recipe '{recipe_name}': column '{col_name}' has "
+                    f"{n_nan} NaN value(s) at transform time. Set "
+                    f"unknown_strategy='clip' or 'sentinel' to handle "
+                    f"silently."
+                )
+            # 'clip' / 'sentinel' both leave NaN unhandled at the float
+            # level; we replace NaN with a sentinel int code that
+            # ``apply_recipe`` then resolves via the lookup table
+            # (which has already encoded the strategy for unseen codes
+            # at fit time). Use n_bins - 1 (highest valid code) so the
+            # NaN row maps somewhere in-range; the clip path in
+            # ``_apply_factorize`` then handles the rest via lookup.
+            vals = vals.copy()
+            vals[nan_mask] = n_bins - 1
+        return vals.astype(np.int64, copy=False)
+    if np.issubdtype(vals.dtype, np.integer):
+        return vals.astype(np.int64, copy=False)
+    # Object / categorical / string -- try int conversion
+    try:
+        return vals.astype(np.int64, copy=False)
+    except (ValueError, TypeError) as e:
+        if unknown_strategy == "raise":
+            raise ValueError(
+                f"Recipe '{recipe_name}': column '{col_name}' has "
+                f"non-integer dtype {vals.dtype!r} that cannot be "
+                f"coerced. Pass ordinal-encoded ints or set "
+                f"unknown_strategy='clip'."
+            ) from e
+        # Clip-equivalent fallback: all to 0
+        return np.zeros(len(vals), dtype=np.int64)
+
+
 def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     """Replay ``recipe`` against ``X`` and return the engineered column
     as a 1-D ndarray. The output dtype matches the recipe's recorded
@@ -318,10 +373,13 @@ def _apply_factorize(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
 
     vals_a = _extract_column(X, name_a)
     vals_b = _extract_column(X, name_b)
-    # Cast to int64 for safe multiplication (pre-prune code can exceed int32
-    # for high-cardinality combos, and the lookup is indexed by int64).
-    vals_a_i = vals_a.astype(np.int64, copy=False)
-    vals_b_i = vals_b.astype(np.int64, copy=False)
+    # Tier 2.3: handle NaN / non-integer values per unknown_strategy.
+    vals_a_i = _coerce_to_int_with_nan_handling(
+        vals_a, nbins_a, recipe.name, name_a, recipe.unknown_strategy,
+    )
+    vals_b_i = _coerce_to_int_with_nan_handling(
+        vals_b, nbins_b, recipe.name, name_b, recipe.unknown_strategy,
+    )
 
     # Clip out-of-range to nbins-1. Without this, a test value of
     # ``nbins_a + 1`` would index past the lookup buffer end. Per
@@ -374,8 +432,14 @@ def _apply_factorize_kway(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         )
 
     # Step 1: build running from first two columns
-    vals_0 = _extract_column(X, src_names[0]).astype(np.int64, copy=False)
-    vals_1 = _extract_column(X, src_names[1]).astype(np.int64, copy=False)
+    vals_0 = _coerce_to_int_with_nan_handling(
+        _extract_column(X, src_names[0]), int(nbins_tuple[0]),
+        recipe.name, src_names[0], recipe.unknown_strategy,
+    )
+    vals_1 = _coerce_to_int_with_nan_handling(
+        _extract_column(X, src_names[1]), int(nbins_tuple[1]),
+        recipe.name, src_names[1], recipe.unknown_strategy,
+    )
     vals_0 = np.clip(vals_0, 0, int(nbins_tuple[0]) - 1)
     vals_1 = np.clip(vals_1, 0, int(nbins_tuple[1]) - 1)
     pre_prune = vals_0 + vals_1 * int(nbins_tuple[0])
@@ -384,7 +448,10 @@ def _apply_factorize_kway(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
 
     # Steps 2..k-1: chain forward
     for step in range(2, k):
-        vals_next = _extract_column(X, src_names[step]).astype(np.int64, copy=False)
+        vals_next = _coerce_to_int_with_nan_handling(
+            _extract_column(X, src_names[step]), int(nbins_tuple[step]),
+            recipe.name, src_names[step], recipe.unknown_strategy,
+        )
         vals_next = np.clip(vals_next, 0, int(nbins_tuple[step]) - 1)
         pre_prune = running + vals_next * running_nuniq
         running = chain_lookups[step - 1][pre_prune]

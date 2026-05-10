@@ -503,6 +503,47 @@ results.
 This rule pairs with the user's general-memory entry
 `feedback_accuracy_perf_over_legacy.md`.
 
+## Every new feature: unit + biz_value tests + cProfile-driven optimization (CRITICAL)
+
+Every fix or new feature added to mlframe MUST ship with three things,
+in this order:
+
+1. **Unit tests** covering the new code paths -- happy path, error
+   path, edge cases. Don't merge code without them.
+2. **biz_value test** (per the "Every new ML trick gets a biz_value
+   synthetic test" rule above) -- a quantitative assertion that the
+   trick measurably wins on a synthetic where it should clearly
+   succeed. Threshold set 5-15% below the measured value, so
+   regressions trip but reasonable seed variation doesn't.
+3. **cProfile pass on the hot path** -- profile the new feature at
+   a representative input shape, identify the top 3-5 hotspots, and
+   optimize anything where the wall-time saving is meaningful (>5%
+   of total or >10ms absolute). Document cProfile output and the
+   optimizations applied (or "no actionable speedup" with reason) in
+   the feature's docstring or a sibling `_benchmarks/` script.
+
+Applies to: new functions / classes, new params on existing estimators,
+new branches in hot loops, new file modules, new statistical tests,
+new permutation/null variants, new encoding strategies, new optimizer
+backends. Does NOT apply to: pure refactors, documentation-only
+changes, trivial helper additions, type-annotation passes.
+
+Skip clauses:
+
+- Bug fixes: regression test on the failure mode is sufficient;
+  biz_value + cProfile are not required (unless the bug was a perf
+  regression, in which case profile + restore).
+- Configuration-only changes (e.g. default flips): biz_value tests
+  already exist for the feature; verify they pass with the new
+  defaults.
+- Test-infrastructure additions: skip biz_value (tests testing tests
+  don't need quantitative win assertions).
+
+Why all three: unit tests prevent silent breakage, biz_value tests
+catch silent quality regressions, cProfile prevents "ships latent
+overhead that only surfaces under prod shapes". Skipping any one of
+the three has caused real prod regressions in mlframe history.
+
 ## Multi-agent review: every finding gets explicit disposition (CRITICAL)
 
 When a plan / PR / refactor goes through multi-agent adversarial review

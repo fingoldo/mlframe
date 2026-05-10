@@ -58,15 +58,22 @@ def xor_train_test():
 # ---------------------------------------------------------------------------
 
 
-class TestDefaultDisabled:
-    """The default ``MRMR()`` constructor must NOT activate cat-FE,
-    preserving legacy behaviour."""
+class TestDefaultEnabled:
+    """2026-05-11: ``MRMR()`` now activates cat-FE by default per
+    mlframe rule "Accuracy / performance over legacy". The stored
+    attribute on a freshly-constructed MRMR remains ``None`` (used as
+    sentinel for "default config"), but fit() interprets None as
+    ``CatFEConfig()`` which has ``enable=True``."""
 
-    def test_default_constructor_has_cat_fe_disabled(self):
+    def test_default_constructor_stores_none_as_sentinel(self):
         mrmr = MRMR()
+        # ``None`` is the sentinel for "use default config at fit time".
         assert mrmr.cat_fe_config is None
 
-    def test_default_fit_does_not_populate_cat_fe_state(self, xor_train_test):
+    @pytest.mark.fast
+    def test_default_fit_activates_cat_fe(self, xor_train_test):
+        """Fit on XOR data with default constructor activates cat-FE
+        and produces engineered recipes."""
         df_tr, y_tr, _, _ = xor_train_test
         mrmr = MRMR(
             full_npermutations=2, baseline_npermutations=2,
@@ -75,6 +82,25 @@ class TestDefaultDisabled:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             mrmr.fit(df_tr, y_tr)
+        # Cat-FE ran and surfaced the XOR synergy by default.
+        assert mrmr._cat_fe_state_ is not None
+        recipe_srcs = {r.src_names for r in mrmr._cat_fe_state_.recipes}
+        assert ("x1", "x2") in recipe_srcs or ("x2", "x1") in recipe_srcs, (
+            f"Default cat-FE should recover XOR synergy; got {recipe_srcs}"
+        )
+
+    def test_explicit_disable_restores_legacy(self, xor_train_test):
+        """To get legacy behaviour explicitly: cat_fe_config=CatFEConfig(enable=False)."""
+        df_tr, y_tr, _, _ = xor_train_test
+        mrmr = MRMR(
+            full_npermutations=2, baseline_npermutations=2,
+            verbose=0, n_jobs=1,
+            cat_fe_config=CatFEConfig(enable=False),
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            mrmr.fit(df_tr, y_tr)
+        # Cat-FE skipped; state stays None.
         assert mrmr._cat_fe_state_ is None
         assert mrmr._engineered_recipes_ == []
 

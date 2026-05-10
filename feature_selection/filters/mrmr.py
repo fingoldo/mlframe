@@ -240,10 +240,14 @@ class MRMR(BaseEstimator, TransformerMixin):
         # features are flagged as "fallback" via ``self.fallback_used_``.
         min_features_fallback: int = 0,
         # Cat-FE (categorical feature interactions). Single dataclass kwarg
-        # consolidating ~14 cat_fe_* knobs (SB8). ``None`` (the default)
-        # means cat-FE is disabled bit-exact with legacy behaviour. To
-        # opt in, pass ``cat_fe_config=CatFEConfig(enable=True, ...)``.
-        # See ``mlframe.feature_selection.filters.cat_fe_state.CatFEConfig``.
+        # consolidating ~22 cat_fe_* knobs (SB8). Default (2026-05-11):
+        # ``None`` is now interpreted as "default CatFEConfig() with
+        # ``enable=True`` and conservative production settings". Per
+        # ``mlframe/CLAUDE.md`` accuracy/perf-over-legacy rule: cat-FE
+        # shows measurable wins (XOR biz_value, 0 regressions in 527
+        # tests) so the default flipped from disabled to enabled.
+        # To restore legacy MRMR behaviour explicitly:
+        # ``cat_fe_config=CatFEConfig(enable=False)``.
         cat_fe_config=None,
         # hidden
         stop_file: str = "stop",
@@ -574,7 +578,13 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ---------------------------------------------------------------------
         cat_fe_cfg = getattr(self, "cat_fe_config", None)
         self._cat_fe_state_ = None
-        if cat_fe_cfg is not None and cat_fe_cfg.enable and len(categorical_vars) >= 2:
+        # 2026-05-11 default-flip: ``None`` means "use default CatFEConfig()"
+        # which has ``enable=True`` since the flip. Users who want legacy
+        # behaviour explicitly pass ``CatFEConfig(enable=False)``.
+        if cat_fe_cfg is None:
+            from .cat_fe_state import CatFEConfig as _CatFEConfig
+            cat_fe_cfg = _CatFEConfig()
+        if cat_fe_cfg.enable and len(categorical_vars) >= 2:
             from .cat_interactions import run_cat_interaction_step
             from .info_theory import merge_vars as _merge_vars_for_cat_fe
 

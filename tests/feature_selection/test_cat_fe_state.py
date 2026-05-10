@@ -24,21 +24,34 @@ class TestCatFEConfigDefaults:
     future innocent-looking edit doesn't silently change opt-in
     behaviour."""
 
-    def test_disabled_by_default(self):
+    def test_enabled_by_default(self):
+        """2026-05-11: default flipped to enable=True per mlframe rule
+        'Accuracy / performance over legacy'. To get legacy behaviour
+        explicitly pass ``CatFEConfig(enable=False)``."""
         cfg = CatFEConfig()
-        assert cfg.enable is False, "MUST stay opt-in (legacy BC)"
+        assert cfg.enable is True, (
+            "Default flipped to enable=True since 2026-05-11; "
+            "see CHANGELOG. Legacy: CatFEConfig(enable=False)."
+        )
 
     def test_full_npermutations_nonzero_by_default(self):
         """SB4: zero is an anti-statistical trap. The default keeps
-        users from accidentally surfacing pairs with no FWER guarantee."""
+        users from accidentally surfacing pairs with no FWER guarantee.
+        2026-05-11: default reduced from 100 to 50 for conservative
+        on-by-default tuning; still well above zero."""
         cfg = CatFEConfig()
-        assert cfg.full_npermutations >= 100
+        assert cfg.full_npermutations >= 50
 
-    def test_fwer_correction_default_is_westfall_young(self):
-        """SB2: WY is bundled because the same shuffle cycle does
-        confirmation, so multi-test correction is amortised."""
+    def test_fwer_correction_default_is_none(self):
+        """2026-05-11: default flipped to 'none'. Rationale: with the
+        on-by-default ``full_npermutations=50`` perm budget, BH-FDR/WY
+        on 28+ pair families mathematically can't reject ANYTHING
+        (min raw p=1/51=0.02; BH-corrected = 0.02 * m/k > 0.05 for
+        any reasonable m). Users who want strict FWER control bump
+        permutations to 500-1000 AND set fwer_correction='bh_fdr' or
+        'westfall_young'."""
         cfg = CatFEConfig()
-        assert cfg.fwer_correction == "westfall_young"
+        assert cfg.fwer_correction == "none"
 
     def test_select_on_default_is_synergy(self):
         cfg = CatFEConfig()
@@ -61,8 +74,10 @@ class TestCatFEConfigDefaults:
         assert cfg.max_combined_nbins is None
 
     def test_top_k_pairs_reasonable(self):
+        """2026-05-11: default reduced from 64 to 32 for the
+        now-on-by-default conservative tuning."""
         cfg = CatFEConfig()
-        assert cfg.top_k_pairs == 64
+        assert cfg.top_k_pairs == 32
 
     def test_max_kway_order_pairs_only(self):
         """Default ``2`` = pairs only. K-way greedy requires explicit opt-in."""
@@ -123,6 +138,72 @@ class TestPersistence:
             f"CatFEConfig has {cfg_field_count} fields; if intentional update the pin"
         assert 4 <= state_field_count <= 12, \
             f"CatFEState has {state_field_count} fields; if intentional update the pin"
+
+
+class TestPostInitValidation:
+    """Tier 1.2: __post_init__ validation catches misconfig at
+    construction time (not deep in fit())."""
+
+    def test_zero_top_k_rejected(self):
+        with pytest.raises(ValueError, match="top_k_pairs"):
+            CatFEConfig(top_k_pairs=0)
+
+    def test_negative_top_k_rejected(self):
+        with pytest.raises(ValueError, match="top_k_pairs"):
+            CatFEConfig(top_k_pairs=-5)
+
+    def test_invalid_max_kway_order_rejected(self):
+        with pytest.raises(ValueError, match="max_kway_order"):
+            CatFEConfig(max_kway_order=1)
+
+    def test_negative_permutations_rejected(self):
+        with pytest.raises(ValueError, match="full_npermutations"):
+            CatFEConfig(full_npermutations=-1)
+        with pytest.raises(ValueError, match="shortlist_npermutations"):
+            CatFEConfig(shortlist_npermutations=-1)
+
+    def test_negative_marginal_floor_rejected(self):
+        with pytest.raises(ValueError, match="marginal_floor"):
+            CatFEConfig(marginal_floor=-0.1)
+
+    def test_tiny_max_combined_nbins_rejected(self):
+        with pytest.raises(ValueError, match="max_combined_nbins"):
+            CatFEConfig(max_combined_nbins=2)
+
+    def test_fold_prevalence_out_of_range_rejected(self):
+        with pytest.raises(ValueError, match="min_fold_prevalence"):
+            CatFEConfig(min_fold_prevalence=1.5)
+        with pytest.raises(ValueError, match="min_fold_prevalence"):
+            CatFEConfig(min_fold_prevalence=-0.1)
+
+    def test_negative_anti_redundancy_beta_rejected(self):
+        with pytest.raises(ValueError, match="anti_redundancy_beta"):
+            CatFEConfig(anti_redundancy_beta=-0.5)
+
+    def test_min_n_samples_below_2_rejected(self):
+        with pytest.raises(ValueError, match="min_n_samples"):
+            CatFEConfig(min_n_samples=1)
+
+    def test_min_class_count_below_1_rejected(self):
+        with pytest.raises(ValueError, match="min_class_count"):
+            CatFEConfig(min_class_count=0)
+
+    def test_shortlist_perms_exceeding_full_rejected(self):
+        with pytest.raises(ValueError, match="shortlist_npermutations"):
+            CatFEConfig(shortlist_npermutations=200, full_npermutations=50)
+
+    def test_n_folds_stability_negative_rejected(self):
+        with pytest.raises(ValueError, match="n_folds_stability"):
+            CatFEConfig(n_folds_stability=-1)
+
+    def test_valid_config_accepted(self):
+        # Sanity: well-formed config passes
+        cfg = CatFEConfig(
+            enable=True, top_k_pairs=16,
+            max_kway_order=3, min_n_samples=100,
+            full_npermutations=200, shortlist_npermutations=10,
+        )
+        assert cfg.top_k_pairs == 16
 
 
 class TestConfigSemantics:

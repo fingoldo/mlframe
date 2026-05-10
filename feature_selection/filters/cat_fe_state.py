@@ -58,10 +58,15 @@ class CatFEConfig:
     """
 
     # ----- core (8) -----
-    enable: bool = False
-    """Master switch. ``False`` -- legacy MRMR behaviour, no cat-FE step
-    runs. ``True`` -- the step runs after categorical detection, before
-    screening (see plan §"Точка интеграции")."""
+    enable: bool = True
+    """Master switch. ``True`` (default since 2026-05-11) -- the cat-FE
+    step runs after categorical detection, before screening (see plan
+    §"Точка интеграции"). ``False`` -- legacy MRMR behaviour, no cat-FE
+    step runs. Per ``mlframe/CLAUDE.md`` "Accuracy / performance over
+    legacy / compat / deps": cat-FE shows measurable wins (XOR biz_value
+    test, 0 regressions in 527 tests) so the default flipped. Users who
+    relied on legacy behaviour can pin ``cat_fe_config=None`` or
+    ``CatFEConfig(enable=False)``."""
 
     marginal_floor: float = 0.0
     """Drop categorical columns with ``MI(X_i; Y) < marginal_floor`` from
@@ -75,11 +80,11 @@ class CatFEConfig:
     F18) to prevent OOM via ``cat_fe_max_combined_nbins=10**9``-style
     misconfig."""
 
-    top_k_pairs: int = 64
+    top_k_pairs: int = 32
     """How many top pairs (by II / synergy score) to keep after
-    argpartition over all candidate pairs. Memory linear in this value;
-    the recommended default (64) balances bench time with finding rare
-    synergies. See plan §"Memory model"."""
+    argpartition over all candidate pairs. Memory linear in this value.
+    Default 32 (2026-05-11): conservative for the now-on-by-default
+    cat-FE path. Users who want richer FE can bump to 64+."""
 
     max_kway_order: int = 2
     """Max k for k-way greedy expansion. ``2`` = pairs only;
@@ -104,15 +109,14 @@ class CatFEConfig:
     confirmation pass with ``full_npermutations``."""
 
     # ----- statistical rigor (4) -----
-    full_npermutations: int = 100
+    full_npermutations: int = 50
     """Permutations for the confirmation phase on top-K survivors. ``0``
-    is an anti-statistical trap (SB4) -- ``MRMR(cat_fe_config=
-    CatFEConfig(enable=True))`` with full_npermutations=0 would surface
-    pairs ranked purely by point estimate with full selection bias.
-    Default 100 is the cheapest non-zero floor; bump to 1000 for
-    α=0.001-grade FWER under WY correction."""
+    is an anti-statistical trap (SB4). Default 50 (2026-05-11): cheap
+    sanity check vs the joint-independence null. Users who want strict
+    FWER control bump this to 500-1000 AND switch ``fwer_correction``
+    to bh_fdr/westfall_young."""
 
-    fwer_correction: Literal["none", "bonferroni", "bh_fdr", "westfall_young"] = "westfall_young"
+    fwer_correction: Literal["none", "bonferroni", "bh_fdr", "westfall_young"] = "none"
     """Multiple-testing correction across the search-phase ``N(N-1)/2``
     candidate pairs (SB2). WY is bundled because the same shuffle-Y
     cycle that does confirmation can compute the per-shuffle max-II
@@ -201,6 +205,67 @@ class CatFEConfig:
     """Re-run pair search with ``nbins ± 2`` for numeric columns and
     record per-pair II range (SD2). Surfaces pairs whose ranking is
     sensitive to the discretization scheme."""
+
+    def __post_init__(self):
+        """Tier 1.2: validate ranges + types at construction time so
+        misconfig fails fast (not deep in ``fit()``)."""
+        if self.top_k_pairs <= 0:
+            raise ValueError(
+                f"top_k_pairs must be > 0; got {self.top_k_pairs}"
+            )
+        if self.max_kway_order < 2:
+            raise ValueError(
+                f"max_kway_order must be >= 2 (pairs); got {self.max_kway_order}"
+            )
+        if self.full_npermutations < 0:
+            raise ValueError(
+                f"full_npermutations must be >= 0; got {self.full_npermutations}"
+            )
+        if self.shortlist_npermutations < 0:
+            raise ValueError(
+                f"shortlist_npermutations must be >= 0; got {self.shortlist_npermutations}"
+            )
+        if self.marginal_floor < 0:
+            raise ValueError(
+                f"marginal_floor must be >= 0; got {self.marginal_floor}"
+            )
+        if self.max_combined_nbins is not None and self.max_combined_nbins < 4:
+            raise ValueError(
+                f"max_combined_nbins must be >= 4 if set; got {self.max_combined_nbins}"
+            )
+        if not 0 <= self.min_fold_prevalence <= 1:
+            raise ValueError(
+                f"min_fold_prevalence must be in [0, 1]; got {self.min_fold_prevalence}"
+            )
+        if self.n_folds_stability < 0:
+            raise ValueError(
+                f"n_folds_stability must be >= 0 (0 disables); got {self.n_folds_stability}"
+            )
+        if self.anti_redundancy_beta < 0:
+            raise ValueError(
+                f"anti_redundancy_beta must be >= 0; got {self.anti_redundancy_beta}"
+            )
+        if self.min_n_samples < 2:
+            raise ValueError(
+                f"min_n_samples must be >= 2 (MI estimation degenerates "
+                f"below); got {self.min_n_samples}"
+            )
+        if self.min_class_count < 1:
+            raise ValueError(
+                f"min_class_count must be >= 1; got {self.min_class_count}"
+            )
+        # Cross-field sanity: shortlist_npermutations should not exceed
+        # full_npermutations -- the shortlist is supposed to be cheaper.
+        if (
+            self.shortlist_npermutations > 0
+            and self.full_npermutations > 0
+            and self.shortlist_npermutations > self.full_npermutations
+        ):
+            raise ValueError(
+                f"shortlist_npermutations ({self.shortlist_npermutations}) "
+                f"must be <= full_npermutations ({self.full_npermutations}). "
+                f"Search-phase should be CHEAPER than confirmation."
+            )
 
 
 @dataclass
