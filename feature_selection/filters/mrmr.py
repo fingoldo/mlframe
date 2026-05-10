@@ -950,15 +950,17 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         if fe_smart_polynom_iters:
             # ---------------------------------------------------------------
-            # Improved Hermite-pair FE (post-plan rewrite):
-            # - z-score standardisation, probabilist's He_n basis,
-            #   tight coef range [-2, 2], fixed degree per study,
-            #   L2 regularisation on ||c||^2, identity-baseline filter.
+            # Improved orthogonal-polynomial pair FE:
+            # - Default basis is Chebyshev (empirically robust on real
+            #   tabular data; see ``bench_polynomial_bases``); tight
+            #   coef range [-2, 2], fixed degree per study, L2
+            #   regularisation, identity-baseline filter.
             # - Adds engineered features only when MI uplift > threshold.
-            # - Synthetic XOR test: uplift 39.66x over identity baseline,
-            #   2.05x over the legacy random-degree implementation.
+            # - Allow override via ``self.fe_polynomial_basis`` attr
+            #   (defaults to "chebyshev"); set to "hermite" to recover
+            #   the prior bit-exact Hermite-only behaviour.
             # See ``feature_selection.filters.hermite_fe`` + the
-            # ``bench_hermite_fe`` benchmark.
+            # ``bench_polynomial_bases`` benchmark.
             # ---------------------------------------------------------------
             from .hermite_fe import optimise_hermite_pair
 
@@ -980,6 +982,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 # full optimise_hermite_pair calls with different seeds
                 # and picking the global best.
                 best_res = None
+                fe_basis = getattr(self, "fe_polynomial_basis", "chebyshev")
                 for seed_offset in range(fe_smart_polynom_iters):
                     res = optimise_hermite_pair(
                         x_a=vals_a, x_b=vals_b, y=classes_y,
@@ -992,15 +995,16 @@ class MRMR(BaseEstimator, TransformerMixin):
                         n_neighbors=None,  # auto by n
                         seed=42 + seed_offset,
                         sweep_degrees=True,
+                        basis=fe_basis,
                     )
                     if res is not None and (best_res is None or res.mi > best_res.mi):
                         best_res = res
 
                 if best_res is not None and verbose:
                     logger.info(
-                        "Hermite-pair FE: pair=%s baseline_mi=%.4f best_mi=%.4f uplift=%.2fx "
+                        "Polynomial-pair FE (%s): pair=%s baseline_mi=%.4f best_mi=%.4f uplift=%.2fx "
                         "degree=%d bf=%s |c|2=(%.2f, %.2f)",
-                        raw_vars_pair, best_res.baseline_mi, best_res.mi,
+                        best_res.basis, raw_vars_pair, best_res.baseline_mi, best_res.mi,
                         best_res.uplift, best_res.degree_a, best_res.bin_func_name,
                         np.linalg.norm(best_res.coef_a), np.linalg.norm(best_res.coef_b),
                     )

@@ -1,12 +1,20 @@
-"""Improved Hermite-polynomial pair Feature Engineering.
+"""Improved orthogonal-polynomial pair Feature Engineering.
 
-Idea: Hermite polynomials form a complete orthonormal basis on R under
-the Gaussian weight, so any sufficiently smooth bivariate function
-``f(x_a, x_b)`` can be represented as ``Σ c_{a,i} c_{b,j} H_i(x_a)
-H_j(x_b)`` -- find coefficients via Optuna, MI-against-target as the
-objective. In theory replaces the hand-coded
-``unary x binary transformations`` zoo with a single learned
-parametric family.
+Originally a Hermite-only module (hence the file name and the
+``HermiteResult`` dataclass). Now supports four orthogonal polynomial
+families via the ``basis`` kwarg: Hermite, Legendre, Chebyshev,
+Laguerre. **Default basis is Chebyshev**, picked empirically across
+12 synthetic + UCI regimes -- it never finishes last, has the highest
+minimum MI, and dominates real-world tabular data + threshold targets.
+See ``_benchmarks/bench_polynomial_bases.py`` for the supporting
+table.
+
+Idea: orthogonal polynomials form a complete basis on their natural
+domain, so any sufficiently smooth bivariate function ``f(x_a, x_b)``
+can be represented as ``Σ c_{a,i} c_{b,j} P_i(x_a) P_j(x_b)`` -- find
+coefficients via Optuna, MI-against-target as the objective. In theory
+replaces the hand-coded ``unary x binary transformations`` zoo with a
+single learned parametric family.
 
 In practice the legacy implementation in ``MRMR._run_fe_step``
 (``fe_smart_polynom_iters > 0`` branch) didn't deliver because of six
@@ -130,9 +138,10 @@ class HermiteResult:
     """Result of an Optuna optimisation pass for a single feature pair.
 
     Despite the legacy name, ``HermiteResult`` carries the result for
-    any supported polynomial basis (``basis`` field). Hermite is the
-    default; ``basis`` lets you switch to Legendre / Chebyshev /
-    Laguerre.
+    any supported polynomial basis (``basis`` field). The default
+    basis is ``"chebyshev"`` (empirically robust on real tabular
+    data); pass ``basis="hermite"`` for synthetic-Gaussian inputs or
+    ``basis="laguerre"`` for skewed-positive distributions.
     """
     coef_a: np.ndarray
     coef_b: np.ndarray
@@ -143,7 +152,7 @@ class HermiteResult:
     uplift: float
     degree_a: int
     degree_b: int
-    basis: str = "hermite"
+    basis: str = "chebyshev"
     # Preprocessing parameters for inputs (z-score mean/std, or min-max
     # lo/hi, or shift lo, depending on basis).
     preprocess_a: dict = field(default_factory=dict)
@@ -208,7 +217,7 @@ def optimise_hermite_pair(
     sweep_degrees: bool = True,
     baseline_uplift_threshold: float = 1.01,
     early_stop_no_improve: int = 50,
-    basis: str = "hermite",
+    basis: str = "chebyshev",
 ) -> Optional[HermiteResult]:
     """Find Hermite-polynomial coefficients ``c_a``, ``c_b`` that
     maximise ``MI(bin_func(He(x_a, c_a), He(x_b, c_b)), y)`` over the
@@ -218,6 +227,15 @@ def optimise_hermite_pair(
 
     Knob tuning notes
     -----------------
+    * ``basis="chebyshev"`` is the default after empirical evaluation
+      across 12 regimes (synthetic + UCI California Housing + UCI
+      Diabetes + bounded / heavy-tailed): Chebyshev wins on real
+      tabular data and threshold-style targets, never finishes last,
+      and has the highest minimum MI across the test suite. Pass
+      ``basis="hermite"`` for synthetic Gaussian-input data, or
+      ``basis="laguerre"`` for skewed-positive distributions. See
+      ``_benchmarks/bench_polynomial_bases.py`` for the supporting
+      table.
     * ``l2_penalty=0.05`` (default) is good for XOR-like targets where
       the optimum has small ``|c|``. For radial / saddle targets where
       ``|c| ~ 2-3`` is natural, drop to ``0.01``.

@@ -281,12 +281,18 @@ def main():
         t_legacy = time.perf_counter() - t0
 
         t0 = time.perf_counter()
+        # Pin basis="hermite" -- this bench specifically compares the
+        # legacy Hermite implementation to the improved one; switching
+        # to the package default ("chebyshev") would make the
+        # comparison apples-to-oranges. For cross-basis comparison,
+        # use ``bench_polynomial_bases``.
         res = optimise_hermite_pair(
             x1, x2, y,
             discrete_target=True,
             max_degree=4,
             n_trials=args.n_trials,
             seed=42,
+            basis="hermite",
         )
         t_imp = time.perf_counter() - t0
 

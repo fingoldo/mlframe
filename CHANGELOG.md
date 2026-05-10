@@ -36,7 +36,9 @@
 3. **Laguerre is a surprisingly strong all-rounder.** Wins on 5 regimes despite their inputs not being canonically positive-tailed. The `shift-to-nonneg + e^{-x}` weighting acts as a soft outlier suppressor; combined with Laguerre's tight orthogonality properties, the optimisation converges to slightly higher MI on smooth-monotonic targets (linear_dominant, small_synergy, complex_polynomial).
 4. **Legendre never wins** -- it shares the `[-1, 1]` domain with Chebyshev but the uniform weight is dominated by Chebyshev's arc-sine weight in every tested regime. Kept for completeness; not a default candidate.
 
-**Default basis stays `"hermite"`** -- preserves bit-exact behaviour with the prior implementation. Users who want the empirically-better default for production tabular data should pass `basis="chebyshev"`. A future PR could add an auto-pick heuristic (Shapiro-Wilk on inputs -> hermite if Gaussian, KS-uniform-on-rank -> chebyshev otherwise, large positive skew -> laguerre).
+**Default basis is `"chebyshev"`**. Picked empirically from the table above. Rank-counts: chebyshev finishes 1st(4), 2nd(4), 3rd(4), never last; laguerre finishes 1st(5), 2nd(3), 3rd(2), 4th(2); hermite has 3 wins but 3 last-place finishes. Chebyshev's combination of "never bad" + "wins on real UCI data + threshold targets" makes it the most robust default. **Pass `basis="hermite"` to recover the prior behaviour** (kept available for synthetic-Gaussian-input cases). A future PR could add an auto-pick heuristic (Shapiro-Wilk on inputs -> hermite if Gaussian, KS-uniform-on-rank -> chebyshev otherwise, large positive skew -> laguerre).
+
+`MRMR._run_fe_step` consults a new optional attribute `self.fe_polynomial_basis` (default `"chebyshev"`) so existing pickled models without that attr fall through to the new default automatically. Override via subclass attribute or runtime monkey-patch.
 
 ### Bench timing
 
