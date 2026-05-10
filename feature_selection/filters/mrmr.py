@@ -1453,6 +1453,26 @@ class MRMR(BaseEstimator, TransformerMixin):
         # never engage FE.
         from .engineered_recipes import apply_recipe
 
+        # k-way (k > 2) cat-FE recipes are diagnostic-only at v1: they
+        # surface synergistic groups via _cat_fe_state_.diagnostics but
+        # don't yet have a replay path. Filter them out here so transform
+        # doesn't raise -- users who need replay should set
+        # cat_fe_config.max_kway_order=2.
+        replayable = [
+            r for r in recipes
+            if not r.extra.get("requires_refit_for_replay")
+        ]
+        if len(replayable) < len(recipes) and self.verbose:
+            logger.info(
+                "MRMR.transform: skipping %d k-way (order>2) engineered "
+                "feature(s) -- replay not implemented for k>2 in v1. "
+                "Set CatFEConfig(max_kway_order=2) if you need them in "
+                "transform output.",
+                len(recipes) - len(replayable),
+            )
+        if not replayable:
+            return base_out
+        recipes = replayable
         engineered_cols = [apply_recipe(r, X) for r in recipes]
         if isinstance(base_out, pd.DataFrame):
             # ``copy=False`` would risk mutating caller's view if base_out

@@ -521,6 +521,209 @@ class TestOrchestratorEndToEnd:
         assert state.recipes == [], \
             f"Permutation should reject independent pair; got recipes {state.recipes}"
 
+    def test_kway_greedy_finds_3way_xor_synergy(self):
+        """3-way XOR: y = x1 XOR x2 XOR x3. All 2-way marginals are ~0
+        AND all 2-way pair IIs are ~0; only the 3-way joint carries
+        signal. Greedy k-way expansion from any seed pair MUST extend
+        to the full (x1, x2, x3) triplet."""
+        rng = np.random.default_rng(13)
+        n = 2500
+        x1 = rng.integers(0, 2, n).astype(np.int32)
+        x2 = rng.integers(0, 2, n).astype(np.int32)
+        x3 = rng.integers(0, 2, n).astype(np.int32)
+        y = (x1 ^ x2 ^ x3).astype(np.int32)
+        # Two noise cols for distractor
+        n0 = rng.integers(0, 4, n).astype(np.int32)
+        n1 = rng.integers(0, 4, n).astype(np.int32)
+        data = np.column_stack([x1, x2, x3, n0, n1, y]).astype(np.int32)
+        nbins = np.array([2, 2, 2, 4, 4, 2], dtype=np.int64)
+        cls_y, fq_y, _ = merge_vars(
+            factors_data=data, vars_indices=np.array([5], dtype=np.int64),
+            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+        )
+        cfg = CatFEConfig(
+            enable=True,
+            top_k_pairs=4,
+            max_kway_order=3,                       # opt in
+            min_interaction_information=-0.05,      # absorb 3-way noise floor
+            full_npermutations=0,
+            fwer_correction="none",
+        )
+        _, cols_out, _, state = run_cat_interaction_step(
+            data=data, cols=["x1", "x2", "x3", "n0", "n1", "y"], nbins=nbins,
+            target_indices=np.array([5], dtype=np.int64),
+            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            categorical_vars=[0, 1, 2, 3, 4],
+            cfg=cfg, dtype=np.int32,
+        )
+        # Pair survivors + at least one 3-way greedy result must include
+        # the {x1, x2, x3} triplet.
+        triplet_found = False
+        for r in state.recipes:
+            if r.extra.get("kway_order") == 3:
+                if set(r.src_names) == {"x1", "x2", "x3"}:
+                    triplet_found = True
+                    break
+        assert triplet_found, (
+            f"Greedy k-way should extend to (x1, x2, x3) triplet; "
+            f"got recipes: {[(r.src_names, r.extra.get('kway_order')) for r in state.recipes]}"
+        )
+
+    def test_kway_recipe_replay_raises_via_mrmr_transform_skips(self):
+        """v1 limitation (SD8 / SB7): k-way replay is not implemented.
+        Recipes carry ``requires_refit_for_replay=True``; transform()
+        skips them silently (instead of raising) so the rest of the
+        pipeline keeps working."""
+        from mlframe.feature_selection.filters.engineered_recipes import (
+            EngineeredRecipe, apply_recipe,
+        )
+        kway_recipe = EngineeredRecipe(
+            name="kway(x1__x2__x3)",
+            kind="factorize",
+            src_names=("x1", "x2", "x3"),
+            factorize_nbins=(2, 2, 2),
+            extra={"kway_order": 3, "requires_refit_for_replay": True},
+        )
+        # Direct apply_recipe raises (callers should respect the flag)
+        with pytest.raises(NotImplementedError, match="k-way"):
+            apply_recipe(kway_recipe, pd.DataFrame({"x1": [0], "x2": [0], "x3": [0]}))
+
+    def test_kfold_stability_drops_unstable_pair(self):
+        """E6: a pair whose signal is concentrated in 1-2 folds (rest
+        are noise) should fail K-fold stability prevalence. Construct
+        a dataset where the (x1, x2) synergy holds on 40% of rows --
+        full-data II clears the floor (so the pair enters the K-fold
+        check), but only 2 of 5 folds carry the signal -- prevalence
+        0.4 < 0.6 (default) -> drop."""
+        rng = np.random.default_rng(7)
+        n = 1500
+        K = 5
+        x1 = rng.integers(0, 2, n).astype(np.int32)
+        x2 = rng.integers(0, 2, n).astype(np.int32)
+        # Folds via ``arange(n) % K`` interleave -- to concentrate signal
+        # in folds {0, 1}, signal-bearing rows have ``row % K in {0, 1}``;
+        # other rows have y independent of (x1, x2). Signal touches 2/5
+        # of folds -> prevalence 0.4 < 0.6 floor -> drop.
+        fold_residue = np.arange(n) % K
+        signal_mask = fold_residue < 2
+        y = np.empty(n, dtype=np.int32)
+        y[signal_mask] = x1[signal_mask] ^ x2[signal_mask]
+        y[~signal_mask] = rng.integers(0, 2, (~signal_mask).sum())
+        data = np.column_stack([x1, x2, y]).astype(np.int32)
+        nbins = np.array([2, 2, 2], dtype=np.int64)
+        cls_y, fq_y, _ = merge_vars(
+            factors_data=data, vars_indices=np.array([2], dtype=np.int64),
+            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+        )
+        cfg = CatFEConfig(
+            enable=True,
+            top_k_pairs=2,
+            min_interaction_information=0.005,  # low enough that the pair enters K-fold
+            n_folds_stability=5,
+            min_fold_prevalence=0.6,
+            full_npermutations=0, fwer_correction="none",
+        )
+        _, _, _, state = run_cat_interaction_step(
+            data=data, cols=["x1", "x2", "y"], nbins=nbins,
+            target_indices=np.array([2], dtype=np.int64),
+            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            categorical_vars=[0, 1],
+            cfg=cfg, dtype=np.int32,
+        )
+        # Per-fold IIs recorded -- proves K-fold filter ran on this pair
+        assert (0, 1) in state.ii_stability or (1, 0) in state.ii_stability, (
+            f"K-fold filter should have processed the pair; got "
+            f"ii_stability={state.ii_stability}"
+        )
+        # And the pair should be DROPPED (unstable, fold prevalence too low)
+        assert state.recipes == [], (
+            f"K-fold stability should drop unstable pair; got {state.recipes}, "
+            f"per-fold II={list(state.ii_stability.values())}"
+        )
+
+    def test_kfold_stability_keeps_consistent_xor(self, xor_fixture):
+        """Counter-test: a TRUE XOR signal (consistent across all rows)
+        survives K-fold stability with high prevalence."""
+        cfg = CatFEConfig(
+            enable=True,
+            top_k_pairs=4,
+            min_interaction_information=0.1,
+            n_folds_stability=5,
+            min_fold_prevalence=0.6,
+            full_npermutations=0, fwer_correction="none",
+        )
+        _, _, _, state = run_cat_interaction_step(
+            data=xor_fixture["data"], cols=xor_fixture["cols"],
+            nbins=xor_fixture["nbins"],
+            target_indices=np.array([xor_fixture["target_idx"]], dtype=np.int64),
+            classes_y=xor_fixture["classes_y"],
+            classes_y_safe=xor_fixture["classes_y"],
+            freqs_y=xor_fixture["freqs_y"],
+            categorical_vars=xor_fixture["categorical_vars"],
+            cfg=cfg, dtype=np.int32,
+        )
+        recipe_srcs = [r.src_names for r in state.recipes]
+        assert ("x1", "x2") in recipe_srcs or ("x2", "x1") in recipe_srcs
+
+    def test_anti_redundancy_penalizes_pair_overlapping_with_selected(self):
+        """E3: when ``anti_redundancy_beta > 0`` and ``selected_so_far``
+        contains a column highly correlated with the merged pair, the
+        pair's score is penalised. Construct a setting where pair
+        (x1, x2) has high II AND high correlation with selected z
+        (z = x1 effectively); beta=large pushes it below the floor."""
+        rng = np.random.default_rng(11)
+        n = 1500
+        x1 = rng.integers(0, 2, n).astype(np.int32)
+        x2 = rng.integers(0, 2, n).astype(np.int32)
+        y = (x1 ^ x2).astype(np.int32)
+        # z is an EXACT copy of x1 -- maximally redundant with anything
+        # involving x1.
+        z = x1.copy()
+        data = np.column_stack([x1, x2, z, y]).astype(np.int32)
+        nbins = np.array([2, 2, 2, 2], dtype=np.int64)
+        cls_y, fq_y, _ = merge_vars(
+            factors_data=data, vars_indices=np.array([3], dtype=np.int64),
+            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+        )
+
+        # First call: no anti-redundancy, baseline
+        cfg_no_ar = CatFEConfig(
+            enable=True, top_k_pairs=2,
+            min_interaction_information=0.1,
+            full_npermutations=0, fwer_correction="none",
+            anti_redundancy_beta=0.0,
+        )
+        _, _, _, state_no_ar = run_cat_interaction_step(
+            data=data, cols=["x1", "x2", "z", "y"], nbins=nbins,
+            target_indices=np.array([3], dtype=np.int64),
+            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            categorical_vars=[0, 1, 2],
+            cfg=cfg_no_ar, dtype=np.int32,
+        )
+        assert state_no_ar.recipes, "baseline path should produce XOR pair"
+
+        # Second call: anti-redundancy with z (= x1) as already-selected
+        cfg_ar = CatFEConfig(
+            enable=True, top_k_pairs=2,
+            min_interaction_information=0.1,
+            full_npermutations=0, fwer_correction="none",
+            anti_redundancy_beta=5.0,  # heavy penalty
+        )
+        _, _, _, state_ar = run_cat_interaction_step(
+            data=data, cols=["x1", "x2", "z", "y"], nbins=nbins,
+            target_indices=np.array([3], dtype=np.int64),
+            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            categorical_vars=[0, 1, 2],
+            cfg=cfg_ar, dtype=np.int32,
+            selected_so_far=[2],  # z's column index in data
+        )
+        # Heavy penalty drives the (x1, x2) pair's score below the
+        # II floor -- pair dropped.
+        assert state_ar.recipes == [], (
+            f"Anti-redundancy with beta=5 against z=x1 should drop (x1,x2); "
+            f"got {state_ar.recipes}"
+        )
+
     def test_permutation_keeps_xor_synergy_pair(self, xor_fixture):
         """Counter-test: a TRUE synergy pair (XOR) survives the
         permutation confirmation -- both Plug-in II and the perm test

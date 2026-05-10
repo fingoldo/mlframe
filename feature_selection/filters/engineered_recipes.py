@@ -281,6 +281,18 @@ def _apply_factorize(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     the lookup at fit time, except for ``"raise"`` which keeps -1
     sentinels and surfaces here).
     """
+    # K-way (k > 2) recipes don't yet ship a lookup table -- transform()
+    # replay needs a chained-merge_vars approach that's deferred to a
+    # future PR. Surface a clear error instead of silently producing
+    # wrong codes.
+    if recipe.extra.get("requires_refit_for_replay"):
+        raise NotImplementedError(
+            f"factorize recipe '{recipe.name}' is a k-way (order "
+            f"{recipe.extra.get('kway_order', '?')}) engineered feature. "
+            f"transform() replay for k > 2 is not implemented in v1 -- "
+            f"pair recipes (order=2) replay fine. Disable k-way at fit "
+            f"time via CatFEConfig(max_kway_order=2) if you need replay."
+        )
     if len(recipe.src_names) != 2 or len(recipe.factorize_nbins) != 2:
         raise ValueError(
             f"factorize recipe '{recipe.name}' requires exactly 2 src_names "

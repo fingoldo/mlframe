@@ -393,3 +393,76 @@ def mi_direct_gpu(
         confidence = 1 - nfailed / (i + 1)
 
     return original_mi, confidence
+
+
+# ============================================================================
+# Cat-FE GPU dispatch shim (P9): batched joint MI computation across many
+# pairs, sharing classes_y on device.
+#
+# Use case: cat-FE pair search at N >= 200 cat cols, n >= 500k. CPU prange
+# is memory-bandwidth bound at that scale (~minutes per pair search);
+# GPU drops it to seconds by amortising the H2D copy of classes_y across
+# all pairs.
+#
+# This MVP implements pair-by-pair GPU dispatch (one kernel launch per
+# pair). True kernel-level batching (one launch processes B pairs in
+# parallel via 3D grid) is a future refinement that requires a new
+# RawKernel; the bottleneck at the stated workload is the per-call
+# memory transfer, not kernel launch overhead.
+# ============================================================================
+
+
+def mi_direct_gpu_batched_pairs(
+    factors_data: np.ndarray,
+    pairs_a: np.ndarray,
+    pairs_b: np.ndarray,
+    factors_nbins: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    dtype=np.int32,
+) -> np.ndarray:
+    """Compute ``I(X_i, X_j; Y)`` for every ``(i, j) in zip(pairs_a, pairs_b)``
+    on GPU. Returns a 1-D ``float64`` array of joint MIs aligned with
+    the input order.
+
+    Pre-conditions:
+    - CuPy installed and a GPU is available.
+    - ``classes_y`` / ``freqs_y`` are precomputed by the caller -- the
+      shim does NOT re-merge the target per pair.
+
+    Falls back to a clear error if CuPy is missing -- callers must
+    check ``backend`` resolution before calling.
+    """
+    try:
+        import cupy as cp  # noqa: F401
+    except ImportError as e:
+        raise RuntimeError(
+            "mi_direct_gpu_batched_pairs requires CuPy; install via "
+            "`pip install cupy-cudaXX` matching your CUDA toolkit, "
+            "or set CatFEConfig(backend='cpu')."
+        ) from e
+
+    _ensure_kernels_inited()
+    n_pairs = len(pairs_a)
+    joint_mi_out = np.zeros(n_pairs, dtype=np.float64)
+
+    # Loop pair-by-pair, reusing the single-pair primitive. Each call
+    # re-uses ``_GPU_POOL`` so persistent device buffers cut the H2D
+    # cost on classes_y / freqs_y to ~zero after the first pair.
+    for k in range(n_pairs):
+        i = int(pairs_a[k]); j = int(pairs_b[k])
+        # Compute joint MI WITHOUT permutations -- just the point
+        # estimate. ``mi_direct_gpu`` with ``npermutations=0`` does
+        # exactly this (returns ``original_mi`` and ``confidence=0``).
+        mi_joint, _ = mi_direct_gpu(
+            factors_data=factors_data,
+            x=np.array([i, j], dtype=np.int64),
+            y=None,
+            factors_nbins=factors_nbins,
+            npermutations=0,
+            dtype=dtype,
+            classes_y=classes_y,
+            freqs_y=freqs_y,
+        )
+        joint_mi_out[k] = mi_joint
+    return joint_mi_out

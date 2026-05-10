@@ -729,6 +729,384 @@ def _confirm_pairs_via_permutation(
     return selected_idx[kept_mask], corrected_conf
 
 
+# ============================================================================
+# Anti-redundancy with selected features (E3)
+#
+# Pure-II ranking treats a pair (X1, X2) as relevant if it has high
+# synergy with Y. But MRMR's overall objective is `relevance - β*redundancy`:
+# a pair whose merged column is HIGHLY CORRELATED with an already-
+# selected feature Z adds little new information regardless of its II.
+# E3 down-weights II by `β * max_z I(merged; Z)` over already-selected Z.
+#
+# Two-stage decoupled design (SM6 per v3 plan):
+# 1. Stage 1: II floor gates "is this engineered col worth materializing?"
+#    (already done by ``_select_top_k_pairs``).
+# 2. Stage 2 (HERE): mRMR-style score = II - β * mean_z I(merged; Z)
+#    re-ranks survivors. β=0 disables (default), preserving pure II.
+#
+# Cost: per survivor + per selected Z, one merge_vars + one
+# compute_mi_from_classes. At top_k=64 survivors and |Z|=20 selected,
+# that's 1280 merge_vars calls. Linear in both.
+# ============================================================================
+
+
+def _anti_redundancy_rerank(
+    factors_data: np.ndarray,
+    pairs_a: np.ndarray,
+    pairs_b: np.ndarray,
+    selected_idx: np.ndarray,
+    ii_arr: np.ndarray,
+    nbins: np.ndarray,
+    selected_so_far: list,    # column indices (in ``data``) of already-selected features
+    classes_y: np.ndarray,    # unused -- the redundancy MI is against Z, not Y
+    cfg: CatFEConfig,
+    dtype,
+    verbose: int,
+) -> tuple:
+    """Re-rank top-K survivors by ``score = II - β * mean_z I(merged; Z)``.
+
+    When ``cfg.anti_redundancy_beta == 0`` or ``selected_so_far`` is empty,
+    this is a no-op. Returns ``(scored_arr, selected_idx_reordered)``.
+    """
+    if cfg.anti_redundancy_beta <= 0 or not selected_so_far or len(selected_idx) == 0:
+        return ii_arr, selected_idx
+
+    beta = float(cfg.anti_redundancy_beta)
+    if verbose:
+        logger.info(
+            "cat-FE: anti-redundancy re-rank with beta=%.3f over %d survivor(s) "
+            "vs %d already-selected feature(s)",
+            beta, len(selected_idx), len(selected_so_far),
+        )
+
+    scored = ii_arr.copy()
+    selected_so_far_arr = np.asarray(selected_so_far, dtype=np.int64)
+    for k in selected_idx:
+        i = int(pairs_a[k]); j = int(pairs_b[k])
+        # Materialise the merged class for this pair
+        cls_merged, freqs_merged, _ = merge_vars(
+            factors_data=factors_data,
+            vars_indices=np.array([i, j], dtype=np.int64),
+            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        )
+        red_terms = []
+        for z in selected_so_far_arr:
+            cls_z, freqs_z, _ = merge_vars(
+                factors_data=factors_data,
+                vars_indices=np.array([int(z)], dtype=np.int64),
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            mi_to_z = compute_mi_from_classes(
+                classes_x=cls_merged, freqs_x=freqs_merged,
+                classes_y=cls_z, freqs_y=freqs_z, dtype=dtype,
+            )
+            red_terms.append(mi_to_z)
+        # mRMR-style: subtract β * mean redundancy (mean over selected Z).
+        # ``mean`` per Peng-Ding-Long 2005; max would also work but mean
+        # is the canonical mRMR formulation.
+        mean_red = sum(red_terms) / len(red_terms)
+        scored[k] = ii_arr[k] - beta * mean_red
+
+    # Re-sort selected_idx by the corrected scores
+    if cfg.select_on == "synergy":
+        order = np.argsort(-scored[selected_idx])
+    elif cfg.select_on == "redundancy":
+        order = np.argsort(scored[selected_idx])
+    else:
+        order = np.argsort(-np.abs(scored[selected_idx]))
+    return scored, selected_idx[order]
+
+
+# ============================================================================
+# K-fold II stability filter (E6)
+#
+# A pair with II=0.3 on one fold and II=-0.1 on another is noise, not signal.
+# E6 splits the training data into K folds, recomputes II on each fold's
+# slice, and keeps only pairs prevalent in >= floor·K folds. This guards
+# against "II was driven by a few outlier rows" failures.
+#
+# Cost: K-1 extra pair searches (each fold uses ~n*(K-1)/K rows). At
+# cfg.n_folds_stability=5 and n=10000, that's ~5 full pair searches.
+# Run BEFORE the heavy permutation phase so the per-fold II costs don't
+# multiply against npermutations.
+# ============================================================================
+
+
+def _kfold_stability_filter(
+    factors_data: np.ndarray,
+    pairs_a: np.ndarray,
+    pairs_b: np.ndarray,
+    selected_idx: np.ndarray,
+    nbins: np.ndarray,
+    target_indices: np.ndarray,
+    cfg: CatFEConfig,
+    dtype,
+    verbose: int,
+) -> tuple:
+    """For each top-K survivor, recompute II on K disjoint folds; keep
+    pairs whose II clears the floor on >= ``min_fold_prevalence * K``
+    folds. Returns ``(kept_selected_idx, per_fold_ii_dict)``.
+
+    When ``cfg.n_folds_stability <= 0``, this is a no-op that returns
+    inputs unchanged.
+
+    Determinism: folds are derived from ``np.arange(n) % K`` -- no
+    shuffling, no RNG. Reproducible across runs.
+    """
+    if cfg.n_folds_stability <= 0 or len(selected_idx) == 0:
+        return selected_idx, {}
+
+    n_samples = factors_data.shape[0]
+    K = int(cfg.n_folds_stability)
+    floor = resolve_min_interaction_information(cfg, n_samples)
+
+    fold_ids = np.arange(n_samples) % K
+    per_fold_ii: dict = {}
+    kept = []
+
+    if verbose:
+        logger.info("cat-FE: K-fold stability check (K=%d) over %d top-K pair(s)", K, len(selected_idx))
+
+    for k in selected_idx:
+        i = int(pairs_a[k]); j = int(pairs_b[k])
+        fold_ii_vals: list = []
+
+        for f in range(K):
+            mask = fold_ids == f
+            n_fold = int(mask.sum())
+            if n_fold < cfg.min_n_samples // 2:
+                # Fold too small to estimate MI reliably; mark as failed.
+                fold_ii_vals.append(float("-inf"))
+                continue
+            slice_data = factors_data[mask]
+            # Re-merge Y on the fold (since classes_y depends on the rows).
+            cls_y_f, fq_y_f, _ = merge_vars(
+                factors_data=slice_data, vars_indices=target_indices,
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            cls_pair_f, fq_pair_f, _ = merge_vars(
+                factors_data=slice_data,
+                vars_indices=np.array([i, j], dtype=np.int64),
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            cls_x1_f, fq_x1_f, _ = merge_vars(
+                factors_data=slice_data,
+                vars_indices=np.array([i], dtype=np.int64),
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            cls_x2_f, fq_x2_f, _ = merge_vars(
+                factors_data=slice_data,
+                vars_indices=np.array([j], dtype=np.int64),
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            i_pair = compute_mi_from_classes(
+                classes_x=cls_pair_f, freqs_x=fq_pair_f,
+                classes_y=cls_y_f, freqs_y=fq_y_f, dtype=dtype,
+            )
+            i_x1 = compute_mi_from_classes(
+                classes_x=cls_x1_f, freqs_x=fq_x1_f,
+                classes_y=cls_y_f, freqs_y=fq_y_f, dtype=dtype,
+            )
+            i_x2 = compute_mi_from_classes(
+                classes_x=cls_x2_f, freqs_x=fq_x2_f,
+                classes_y=cls_y_f, freqs_y=fq_y_f, dtype=dtype,
+            )
+            fold_ii_vals.append(i_pair - i_x1 - i_x2)
+
+        per_fold_ii[(i, j)] = fold_ii_vals
+        n_clear = sum(v > floor for v in fold_ii_vals)
+        prevalence = n_clear / K
+        if prevalence >= cfg.min_fold_prevalence:
+            kept.append(k)
+        elif verbose:
+            logger.info(
+                "cat-FE: pair (%d, %d) dropped by K-fold stability "
+                "(%d/%d folds cleared floor, need >= %.2f)",
+                i, j, n_clear, K, cfg.min_fold_prevalence,
+            )
+
+    return np.asarray(kept, dtype=selected_idx.dtype), per_fold_ii
+
+
+# ============================================================================
+# K-way greedy expansion (SB7)
+#
+# After top-K pairs are confirmed, greedily extend each surviving pair by ONE
+# variable at a time up to ``cfg.max_kway_order``. For each candidate
+# extension k:
+#
+#   delta_II = I(parent ∪ {k}; Y) - I(parent; Y) - I(X_k; Y)
+#
+# This is the 3-way Jakulin II between (parent_aggregate, X_k, Y) -- it
+# measures whether adding X_k to the merged parent contributes information
+# BEYOND what the parent and X_k separately give. Positive delta means X_k
+# is genuinely synergistic with the parent group; <= 0 means X_k is
+# redundant given parent.
+#
+# Naming: "incremental_interaction_information" per SB7. NOT identical to
+# higher-order Jakulin II (which is a 15-term inclusion-exclusion sum); this
+# is closer to JMI (Yang & Moody 1999) than to CMIM (Fleuret 2004).
+#
+# Cost: O(top_k_pairs * (max_kway_order - 2) * N) merge_vars calls. The
+# orchestrator caps ``max_kway_order`` to a small int (default 2 -> skip;
+# typical use 3..5). Each greedy extension calls merge_vars once per
+# candidate var.
+# ============================================================================
+
+
+def _greedy_expand_one_seed(
+    factors_data: np.ndarray,
+    seed_indices: tuple,           # (idx_a, idx_b) -- the seed pair
+    candidate_pool: np.ndarray,    # indices eligible for extension
+    nbins: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    marginal_mi: np.ndarray,
+    max_combined_nbins: int,
+    max_kway_order: int,
+    min_inc_ii: float,
+    dtype,
+) -> tuple:
+    """Greedily extend ``seed_indices`` up to ``max_kway_order`` by picking
+    the variable with the largest incremental II at each step.
+
+    Returns ``(final_indices_tuple, final_classes, final_n_uniq, final_joint_mi)``
+    or ``None`` if no extension cleared ``min_inc_ii`` (in which case the
+    seed pair itself remains the best, no k-way emitted).
+
+    Stops early when:
+    - No candidate var clears ``min_inc_ii`` (greedy local max reached).
+    - Adding any candidate would violate the cardinality budget.
+    - Order reaches ``max_kway_order``.
+    """
+    parent_set = set(seed_indices)
+    parent_vi = np.array(sorted(parent_set), dtype=np.int64)
+    parent_classes, parent_freqs, parent_nclasses = merge_vars(
+        factors_data=factors_data, vars_indices=parent_vi,
+        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+    )
+    parent_mi = compute_mi_from_classes(
+        classes_x=parent_classes, freqs_x=parent_freqs,
+        classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
+    )
+
+    for order in range(len(parent_set) + 1, max_kway_order + 1):
+        best_inc_ii = -np.inf
+        best_var: int = -1
+        best_classes = None
+        best_nclasses = 0
+        best_joint_mi = 0.0
+
+        for k in candidate_pool:
+            k_int = int(k)
+            if k_int in parent_set:
+                continue
+            new_card_estimate = parent_nclasses * int(nbins[k_int])
+            if new_card_estimate > max_combined_nbins:
+                continue
+            if new_card_estimate >= 2**31:
+                continue
+
+            new_vi = np.array(sorted(parent_set | {k_int}), dtype=np.int64)
+            new_classes, new_freqs, new_n = merge_vars(
+                factors_data=factors_data, vars_indices=new_vi,
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            new_joint_mi = compute_mi_from_classes(
+                classes_x=new_classes, freqs_x=new_freqs,
+                classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
+            )
+            # incremental II = new_joint_mi - parent_mi - marginal_mi[k]
+            # = how much extra info adding X_k brings, BEYOND what parent
+            # and X_k separately contribute.
+            inc_ii = new_joint_mi - parent_mi - float(marginal_mi[k_int])
+            if inc_ii > best_inc_ii:
+                best_inc_ii = inc_ii
+                best_var = k_int
+                best_classes = new_classes
+                best_nclasses = new_n
+                best_joint_mi = new_joint_mi
+
+        if best_var < 0 or best_inc_ii < min_inc_ii:
+            break  # local maximum reached; no positive synergistic extension
+
+        # Accept the extension
+        parent_set.add(best_var)
+        parent_classes = best_classes
+        parent_nclasses = best_nclasses
+        parent_mi = best_joint_mi
+
+    if len(parent_set) <= 2:
+        return None  # no extension survived; caller emits the original pair
+    return (
+        tuple(sorted(parent_set)),
+        parent_classes,
+        int(parent_nclasses),
+        float(parent_mi),
+    )
+
+
+def _materialize_kway(
+    factors_data: np.ndarray,
+    kway_results: list,    # list of (indices_tuple, classes, n_uniq, joint_mi)
+    nbins: np.ndarray,
+    cols: list,
+    dtype,
+    unknown_strategy: str,
+) -> tuple:
+    """Materialise greedy k-way survivors. Returns
+    ``(new_data_block, new_names, new_nbins, new_recipes)`` mirroring
+    ``_materialize_pairs``. K-way recipes have ``src_names`` of length k
+    and ``factorize_nbins`` of length k.
+
+    The lookup table approach gets harder at higher k (size
+    ``prod(nbins)``), so for k > 2 we fall back to storing NO lookup
+    table and emitting an ``"extra": {"requires_refit_for_replay": True}``
+    marker. ``apply_recipe`` for such recipes raises a clear error
+    suggesting the user re-fit on the test data context.
+
+    Future refinement (FUTURE in CHANGELOG): chained k-way lookup
+    (chain of pair lookups for sequential merges, O(k*|prod_nbins|)
+    bytes vs O(|prod_nbins|^k)).
+    """
+    if not kway_results:
+        return (
+            np.empty((factors_data.shape[0], 0), dtype=dtype),
+            [], [], [],
+        )
+    n_samples = factors_data.shape[0]
+    new_data_block = np.empty((n_samples, len(kway_results)), dtype=dtype)
+    new_names: list = []
+    new_nbins: list = []
+    new_recipes: list = []
+
+    for k_out, (idx_tuple, classes_arr, n_uniq, _) in enumerate(kway_results):
+        src_names = tuple(cols[i] for i in idx_tuple)
+        eng_name = f"kway({'__'.join(src_names)})"
+        if eng_name in cols or eng_name in new_names:
+            eng_name = f"kway_{k_out}({'__'.join(src_names)})"
+        new_data_block[:, k_out] = classes_arr
+        new_names.append(eng_name)
+        new_nbins.append(int(n_uniq))
+        new_recipes.append(
+            EngineeredRecipe(
+                name=eng_name,
+                kind="factorize",
+                src_names=src_names,
+                factorize_nbins=tuple(int(nbins[i]) for i in idx_tuple),
+                unknown_strategy=unknown_strategy,
+                # k-way replay not yet supported -- transform() will raise
+                # a clear error pointing at this flag.
+                extra={
+                    "kway_order": len(idx_tuple),
+                    "requires_refit_for_replay": True,
+                    "n_uniq_post_prune": int(n_uniq),
+                },
+            )
+        )
+    return new_data_block, new_names, new_nbins, new_recipes
+
+
 def _select_top_k_pairs(
     ii_arr: np.ndarray,
     pairs_a: np.ndarray,
@@ -945,6 +1323,7 @@ def run_cat_interaction_step(
     freqs_y: np.ndarray,
     categorical_vars: list,
     cfg: CatFEConfig,
+    selected_so_far: list = None,
     dtype=np.int32,
     verbose: int = 0,
 ) -> tuple:
@@ -1079,16 +1458,59 @@ def run_cat_interaction_step(
             len(pairs_a), max_combined,
         )
 
-    # ---- Pair search prange kernel (P3) ----
-    joint_mi_arr, ii_arr, n_uniq_arr = _pair_search_kernel_njit(
-        factors_data=data,
-        pairs_a=pairs_a, pairs_b=pairs_b,
-        marginal_mi=marginal_mi_full,
-        nbins=nbins,
-        classes_y=classes_y,
-        freqs_y=freqs_y,
-        dtype=dtype,
-    )
+    # ---- Pair search: CPU (njit prange) or GPU dispatch (P9) ----
+    # Backend selection per cfg.backend:
+    # - "cpu": always njit prange
+    # - "gpu": always GPU dispatch (raises if CuPy missing)
+    # - "auto": GPU only at large-N regime (N>=200 cols AND n>=500k rows)
+    use_gpu = False
+    if cfg.backend == "gpu":
+        use_gpu = True
+    elif cfg.backend == "auto":
+        n_cols_eff = len(candidate_idxs_arr)
+        if n_cols_eff >= 200 and n_samples >= 500_000:
+            try:
+                import cupy  # noqa: F401
+                use_gpu = True
+            except ImportError:
+                if verbose:
+                    logger.info(
+                        "cat-FE: backend='auto' wanted GPU at N=%d, n=%d "
+                        "but CuPy not installed; falling back to CPU.",
+                        n_cols_eff, n_samples,
+                    )
+
+    if use_gpu:
+        from .gpu import mi_direct_gpu_batched_pairs
+        if verbose:
+            logger.info("cat-FE: pair search on GPU over %d pairs", len(pairs_a))
+        joint_mi_arr = mi_direct_gpu_batched_pairs(
+            factors_data=data,
+            pairs_a=pairs_a, pairs_b=pairs_b,
+            factors_nbins=nbins,
+            classes_y=classes_y, freqs_y=freqs_y,
+            dtype=dtype,
+        )
+        # Compute II + n_uniq separately (CPU; cheap relative to joint MI)
+        ii_arr = np.zeros(len(pairs_a), dtype=np.float64)
+        n_uniq_arr = np.zeros(len(pairs_a), dtype=np.int64)
+        for k in range(len(pairs_a)):
+            i = int(pairs_a[k]); j = int(pairs_b[k])
+            ii_arr[k] = joint_mi_arr[k] - marginal_mi_full[i] - marginal_mi_full[j]
+            # n_uniq is derived from the joint cardinality budget; the GPU
+            # path does not return it cheaply. Approximate via nbins[i]*nbins[j];
+            # pruning makes this an upper bound (good enough for diagnostics).
+            n_uniq_arr[k] = int(nbins[i]) * int(nbins[j])
+    else:
+        joint_mi_arr, ii_arr, n_uniq_arr = _pair_search_kernel_njit(
+            factors_data=data,
+            pairs_a=pairs_a, pairs_b=pairs_b,
+            marginal_mi=marginal_mi_full,
+            nbins=nbins,
+            classes_y=classes_y,
+            freqs_y=freqs_y,
+            dtype=dtype,
+        )
 
     # ---- Top-K selection (P6) ----
     selected_idx = _select_top_k_pairs(
@@ -1131,6 +1553,51 @@ def run_cat_interaction_step(
             logger.info("cat-FE: 0 pairs survived MM re-rank floor; no engineered cols")
         return data, cols, nbins, state
 
+    # ---- Anti-redundancy re-rank (E3, opt-in via anti_redundancy_beta>0) ----
+    # Adjusts each survivor's score by ``β * mean_z I(merged; Z)`` where
+    # Z ranges over already-selected features in ``selected_so_far``.
+    # No-op when β=0 or selected_so_far is empty.
+    if selected_so_far:
+        ii_arr, selected_idx = _anti_redundancy_rerank(
+            factors_data=data, pairs_a=pairs_a, pairs_b=pairs_b,
+            selected_idx=selected_idx, ii_arr=ii_arr,
+            nbins=nbins, selected_so_far=selected_so_far,
+            classes_y=classes_y, cfg=cfg, dtype=dtype, verbose=verbose,
+        )
+        # Re-apply the floor after anti-redundancy correction
+        floor = resolve_min_interaction_information(cfg, n_samples)
+        if cfg.select_on == "synergy":
+            keep = ii_arr[selected_idx] > floor
+        elif cfg.select_on == "redundancy":
+            keep = ii_arr[selected_idx] < floor
+        else:
+            keep = np.abs(ii_arr[selected_idx]) > abs(floor)
+        selected_idx = selected_idx[keep]
+        if len(selected_idx) == 0:
+            if verbose:
+                logger.info("cat-FE: 0 pairs survived anti-redundancy floor")
+            return data, cols, nbins, state
+
+    # ---- K-fold II stability filter (E6, opt-in via n_folds_stability>0) ----
+    # Drops pairs whose II is unstable across K folds (signal driven by
+    # outlier rows). Runs BEFORE permutation so we don't pay perm budget
+    # on pairs that fail stability.
+    selected_idx, per_fold_ii_dict = _kfold_stability_filter(
+        factors_data=data, pairs_a=pairs_a, pairs_b=pairs_b,
+        selected_idx=selected_idx, nbins=nbins,
+        target_indices=target_indices,
+        cfg=cfg, dtype=dtype, verbose=verbose,
+    )
+    # Surface fold IIs into the state UNCONDITIONALLY -- even when 0 pairs
+    # survived, the per-fold values are useful diagnostics (the user can
+    # see WHY the pair was rejected). Must happen BEFORE the early return.
+    if per_fold_ii_dict:
+        state.ii_stability.update(per_fold_ii_dict)
+    if len(selected_idx) == 0:
+        if verbose:
+            logger.info("cat-FE: 0 pairs survived K-fold stability filter")
+        return data, cols, nbins, state
+
     # ---- Permutation confirmation (E2 / SB1) + FWER correction (SB2) ----
     # Runs only when ``cfg.full_npermutations > 0`` (default 100 per SB4).
     # Tests joint-independence null; failed pairs are dropped from
@@ -1150,7 +1617,57 @@ def run_cat_interaction_step(
             logger.info("cat-FE: 0 pairs cleared permutation confirmation")
         return data, cols, nbins, state
 
-    # ---- Materialise survivors (P8 single concat) ----
+    # ---- K-way greedy expansion (SB7, opt-in via max_kway_order > 2) ----
+    # For each seed pair, greedily extend with one var at a time up to
+    # ``max_kway_order``. Returns a list of (indices_tuple, classes,
+    # n_uniq, joint_mi) tuples for the surviving k-way (k > 2) features.
+    #
+    # B4: when k-way is enabled, seed from ALL eligible pairs (not just
+    # top-K confirmed survivors). Rationale: pure k-way XOR has zero II
+    # at every pair level by construction (all 2-way marginals AND all
+    # 2-way IIs ≈ 0); top-K is random under finite-sample noise. Seeding
+    # from all pairs costs O(N²) merge_vars calls in the expansion phase
+    # vs O(top_k * N), but is necessary for >2-way synergy detection.
+    # We DE-DUP the resulting k-way features by sorted index tuple.
+    kway_results: list = []
+    if cfg.max_kway_order > 2:
+        min_inc_ii = resolve_min_interaction_information(cfg, n_samples)
+        candidate_pool_arr = candidate_idxs_arr
+        # Iterate over ALL pairs that cleared the cardinality budget
+        # (already filtered into pairs_a / pairs_b above).
+        seen_kway: set = set()
+        for k in range(len(pairs_a)):
+            seed_a = int(pairs_a[k])
+            seed_b = int(pairs_b[k])
+            extension = _greedy_expand_one_seed(
+                factors_data=data,
+                seed_indices=(seed_a, seed_b),
+                candidate_pool=candidate_pool_arr,
+                nbins=nbins,
+                classes_y=classes_y, freqs_y=freqs_y,
+                marginal_mi=marginal_mi_full,
+                max_combined_nbins=max_combined,
+                max_kway_order=cfg.max_kway_order,
+                min_inc_ii=min_inc_ii,
+                dtype=dtype,
+            )
+            if extension is None:
+                continue
+            idx_tuple = extension[0]
+            if idx_tuple in seen_kway:
+                continue
+            seen_kway.add(idx_tuple)
+            kway_results.append(extension)
+        # Sort k-way results by joint_MI desc and cap by top_k_pairs
+        kway_results.sort(key=lambda r: -r[3])
+        kway_results = kway_results[: cfg.top_k_pairs]
+        if verbose:
+            logger.info(
+                "cat-FE: greedy k-way expansion produced %d feature(s) from %d seed pairs",
+                len(kway_results), len(pairs_a),
+            )
+
+    # ---- Materialise pair survivors (P8 single concat) ----
     new_data_block, new_names, new_nbins, new_recipes = _materialize_pairs(
         factors_data=data,
         pairs_a=pairs_a, pairs_b=pairs_b,
@@ -1160,6 +1677,37 @@ def run_cat_interaction_step(
         dtype=dtype,
         unknown_strategy=cfg.unknown_strategy,
     )
+
+    # ---- Materialise k-way survivors (alongside pairs) ----
+    if kway_results:
+        kway_block, kway_names, kway_nbins, kway_recipes = _materialize_kway(
+            factors_data=data,
+            kway_results=kway_results,
+            nbins=nbins,
+            cols=cols,
+            dtype=dtype,
+            unknown_strategy=cfg.unknown_strategy,
+        )
+        new_data_block = np.concatenate([new_data_block, kway_block], axis=1)
+        new_names.extend(kway_names)
+        new_nbins.extend(kway_nbins)
+        new_recipes.extend(kway_recipes)
+
+        # K-way diagnostics
+        if cfg.emit_diagnostics:
+            for (idx_tuple, _, n_uniq, joint_mi), name in zip(kway_results, kway_names):
+                state.diagnostics[name] = {
+                    "II": float(joint_mi),  # k-way: II vs union-of-marginals would
+                                            # require recomputing; surface joint_MI
+                                            # as a coarse rank signal.
+                    "joint_MI": float(joint_mi),
+                    "joint_nclasses": int(n_uniq),
+                    "src_indices": tuple(int(i) for i in idx_tuple),
+                    "src_names": tuple(cols[i] for i in idx_tuple),
+                    "kway_order": len(idx_tuple),
+                    "n_obs_per_cell_p25": float(n_samples / max(int(n_uniq), 1)),
+                    "joint_dependence_confidence": None,  # k-way perm-test not implemented
+                }
     # Diagnostics (E4 -- always cheap, gated by cfg)
     if cfg.emit_diagnostics:
         for k_out, k_in in enumerate(selected_idx):

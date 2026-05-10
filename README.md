@@ -147,8 +147,62 @@ became a package under `mlframe/feature_selection/filters/`:
 | `screen.py` | Screening orchestrator (screen_predictors) |
 | `feature_engineering.py` | Pair-discovery FE (check_prospective_fe_pairs, transformations) |
 | `mrmr.py` | The sklearn-compatible MRMR class |
+| `engineered_recipes.py` | EngineeredRecipe dataclass + apply_recipe -- replay engineered features on test data |
+| `cat_fe_state.py` | CatFEConfig (22 knobs in one container) + CatFEState (recipes/diagnostics) |
+| `cat_interactions.py` | Cat-FE orchestrator (run_cat_interaction_step) + njit pair-search kernels |
 
 Module dependency graph is acyclic, enforced by `tests/test_meta/test_filters_numba_invariant.py`.
+
+### Categorical feature interactions (cat-FE)
+
+Opt-in categorical synergy detector. Surfaces hidden-XOR-style pairs (and k-way tuples) where marginal MI is ~0 but joint information is high. Default-disabled; legacy `MRMR()` behaviour is bit-exact.
+
+```python
+from mlframe.feature_selection.filters import MRMR, CatFEConfig
+
+mrmr = MRMR(cat_fe_config=CatFEConfig(enable=True))
+mrmr.fit(X_train, y_train)
+X_test_enriched = mrmr.transform(X_test)  # base cols + engineered kway(...) cols
+```
+
+Pipeline (runs once before screening when `cat_fe_config.enable=True`):
+
+1. **Validation gates** -- drop constants/all-NaN (`nbins==1`), refuse high-cardinality (`nbins > sqrt(n)*2`), clamp `max_combined_nbins` at 10^7, error on memmap inputs that don't fit in RAM.
+2. **Marginal MI screen** -- one `merge_vars + compute_mi_from_classes` per candidate column (njit prange).
+3. **Pair search** -- argpartition top-K by Jakulin II = `I(X1,X2;Y) − I(X1;Y) − I(X2;Y)`. CPU prange by default; GPU dispatch (CuPy) at `backend="auto"` when `N >= 200 AND n >= 500k`.
+4. **Miller-Madow re-rank** (opt-in, `use_miller_madow=True`) -- applies bias correction to all six entropies of the II expansion on top-K survivors. Auto-gates on joint cardinality.
+5. **K-fold II stability** (opt-in, `n_folds_stability > 0`) -- drops pairs whose II clears the floor on fewer than `min_fold_prevalence × K` folds (default 60%).
+6. **Anti-redundancy re-rank** (opt-in, `anti_redundancy_beta > 0`) -- mRMR-style score = II − β · mean_z I(merged; Z) over already-selected features.
+7. **Permutation confirmation** -- same-shuffle three-MI test (`full_npermutations=100` default). Drops pairs whose `joint_dependence_confidence < 0.95`.
+8. **FWER correction** -- `none` / `bonferroni` / `bh_fdr` / `westfall_young` over the search-phase ~N²/2 pair family.
+9. **K-way greedy expansion** (opt-in, `max_kway_order > 2`) -- greedily extends each pair-search candidate by one variable at a time, picking the maximum incremental II.
+10. **Materialise** -- single `np.concatenate` of all surviving pairs/k-way as ordinal-encoded columns into `data` / `cols` / `nbins`. Recipes (with fit-time lookup tables for 2-way replay) land in `self._cat_fe_state_.recipes`.
+
+#### Statistical contract (honest naming)
+
+- `confidence` is named `joint_dependence_confidence` -- the shuffle-Y permutation test rejects "(X1, X2) jointly independent of Y", NOT "no synergy beyond marginals". Conditional permutation for a proper synergy null is future work.
+- Threshold is `min_interaction_information` (not "min synergy") -- Jakulin II is synergy − redundancy per Williams-Beer PID; positive II can mean "high synergy AND low redundancy" or "moderate synergy AND moderate redundancy" indistinguishably.
+
+#### Decision tree: when to enable cat-FE
+
+| Signal | Recommendation |
+|---|---|
+| Dataset has >=5 categorical columns AND you suspect interactions | `cat_fe_config=CatFEConfig(enable=True)` |
+| All cats have cardinality > 50 each | Be careful: set `max_combined_nbins=2500` explicitly; review high-cardinality refusal warnings |
+| One-hot encoding already applied upstream | Probably no -- your pseudo-cats are binary numeric; the existing `fe_smart_polynom_iters` polynomial machinery already finds AND/XOR via `mul`/`max`/`min` |
+| Dataset n < 1000 | Likely NO -- sparse cells bias II hard; sample size guidance per Paninski 2003 §4 |
+| You want only synergy, not redundancy | Default (`select_on="synergy"`) is correct |
+| You want noise-robust feature engineering (redundancy is signal-stabilising) | `select_on="redundancy"` keeps negative II pairs |
+
+#### Demo + bench
+
+```bash
+# Hidden-XOR demo: legacy MRMR fails, cat-FE recovers (x1, x2) synergy
+python feature_selection/_benchmarks/cat_fe_xor_demo.py
+
+# Wall-time bench across (n, n_cat) grid + cProfile attribution
+python feature_selection/_benchmarks/bench_categorical_fe.py
+```
 
 ### Behavioural defaults (post-2026-05 refactor)
 
