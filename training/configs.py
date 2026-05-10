@@ -1838,10 +1838,26 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
 
     # MI estimator. "knn" uses the Kraskov estimator (sklearn default,
     # accurate but slow on n>10k); "bin" uses a quantile-binning
-    # estimator (5-10x faster, biased low on heavy-tail). Default
-    # "knn" for accuracy; flip to "bin" when MI screening is the
-    # bottleneck and y / features are near-Gaussian.
-    mi_estimator: str = "knn"
+    # estimator (5-10x faster, biased low on heavy-tail).
+    #
+    # Default flipped from "knn" -> "bin" 2026-05-10 after a
+    # statistical review noted that:
+    # 1. kNN is biased high on heavy-tail / mixed-density distributions
+    #    and the bias scales DIFFERENTLY for raw y (potentially fat-
+    #    tailed) vs T = transform(y, base) (sub-Gaussian after
+    #    linear_residual). That asymmetric bias inflates apparent
+    #    mi_gain even when the true gain is zero -- which matches the
+    #    production failure mode where MI passes but RMSE doesn't.
+    # 2. bin (quantile) estimator is approximately bias-free under
+    #    monotone transforms because the bin edges follow the
+    #    transformed distribution -- exactly what the registry's
+    #    transforms (diff/ratio/logratio/linear_residual) do.
+    # 3. bin is 10x faster on the 200K-row screening sample we
+    #    typically run.
+    #
+    # Set to "knn" explicitly for non-monotone transforms or when
+    # n < 5*nbins (bin floor needs ~80 rows at default nbins=16).
+    mi_estimator: str = "bin"
     mi_nbins: int = 16  # Bin count when ``mi_estimator == "bin"``.
 
     # MI sampling strategy. "random" is the cheap default; switch to
@@ -1920,6 +1936,32 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # = composite kept if within 2% of raw, rejected if worse.
     require_beats_raw_baseline: bool = True
     raw_baseline_tolerance: float = 1.02
+
+    # R10b improvement #1: regime-aware gate. In addition to the
+    # global mean RMSE comparison, also check per-quintile-of-base
+    # RMSE: a spec is rejected if its tiny CV-RMSE in any quintile
+    # exceeds raw_baseline-in-that-quintile by ``raw_baseline_per_bin_tolerance``.
+    # This catches "two-regime" failure modes where logratio is
+    # correct on multiplicative-regime rows but actively wrong on
+    # additive-regime rows; mean RMSE hides this and the spec
+    # ships even though it's miscalibrated half the time.
+    #
+    # Tolerance defaults looser than the global gate (1.10 vs 1.02)
+    # because per-bin estimates have higher variance on small
+    # screening samples. Set ``per_bin_n_bins=0`` to disable the
+    # per-bin check.
+    raw_baseline_per_bin_tolerance: float = 1.10
+    per_bin_n_bins: int = 5
+
+    # R10b improvement #10: median-of-seeds gate. Tiny CV-RMSE with
+    # 3 folds is variance-prone (one unlucky split can drag the mean).
+    # Optionally repeat the K-fold split with multiple seeds and take
+    # the MEDIAN across (folds × seeds) for both raw-y and per-spec
+    # CV-RMSE. The gate then compares median composite vs median raw,
+    # which is more stable than the mean. Default 1 = backwards-
+    # compatible (single-seed). Set to e.g. 3 or 5 on small screening
+    # samples where gate decisions are noisy. Compute scales linearly.
+    tiny_model_n_seed_repeats: int = 1
 
     @field_validator("screening", mode="before")
     @classmethod
@@ -2029,7 +2071,18 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     #   component if no component clears the baseline.
     # - "linear_stack": Ridge regression on per-component predictions.
     # - "nnls_stack": non-negative least squares on per-component preds.
-    cross_target_ensemble_strategy: str = "off"
+    #
+    # Default flipped from "off" -> "oof_weighted" 2026-05-10 (R10b
+    # improvement #5). When two or more specs survive the gate (the
+    # typical case after #6 collapse leaves diff/ratio/logratio for
+    # the same base, or after #9 dedup leaves 2-3 distinct bases),
+    # combining them via gain-over-baseline weighting strictly beats
+    # picking one. Single-spec case is handled by the ensemble class
+    # via best-single fallback (no overhead). Set to "off" explicitly
+    # to skip ensemble construction; set ``oof_holdout_frac > 0`` for
+    # honest holdout-based weighting (default uses train-RMSE proxy
+    # which is biased optimistic; the ensemble class auto-warns).
+    cross_target_ensemble_strategy: str = "oof_weighted"
 
     # When True AND the per-target ``baseline_diagnostics`` reports
     # ``composite_recommendation == "unlikely_to_help"``, discovery
@@ -2059,6 +2112,67 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # caching reuses it).
     use_baseline_diagnostics_hint: bool = True
     baseline_diagnostics_hint_top_k: int = 3
+
+    # Cross-base correlation dedup (R10b improvement #9). After
+    # auto-base ranking, drop a candidate base if its absolute Pearson
+    # correlation against any already-kept candidate exceeds this
+    # threshold on the screening sample. Stops near-duplicate lag
+    # variants (``TVT_prev``, ``TVT_prev_lag2``, ``TVT_smooth_3``) from
+    # all surviving into Phase B and inflating ensemble correlation.
+    # Set to 1.0 to disable.
+    auto_base_dedup_corr_threshold: float = 0.95
+
+    # R10b improvement #2: permutation-MI null distribution test in
+    # ``_auto_base``. For each candidate feature compute MI(y, x) AND
+    # MI(y, shuffle(x)) on ``auto_base_null_perms`` shuffles, then
+    # require the candidate's MI to exceed ``mean_null + n_sigma *
+    # std_null``. Catches features whose MI(y, x) is non-trivial only
+    # because of a shared monotonic component (time/spatial trend),
+    # not structural information about y.
+    #
+    # Cost: ``auto_base_null_perms`` extra MI evaluations per
+    # candidate (default 20 × ~1ms each on bin-MI estimator = ~20ms
+    # per feature on the screening sample). Set
+    # ``auto_base_null_perms=0`` to disable.
+    auto_base_null_perms: int = 20
+    auto_base_null_z_threshold: float = 3.0
+    # Block-shuffle length for temporal datasets so the null
+    # preserves marginal autocorrelation. ``"auto"`` uses
+    # ``int(sqrt(n))``; explicit int for fixed length; ``1`` for
+    # row-level shuffle (i.i.d. assumption).
+    auto_base_null_block_length: Union[str, int] = "auto"
+
+    # R10b improvement #7: structural detectors for time-index and
+    # spatial-coordinate features. Demote (push to bottom of MI
+    # ranking) features that look like:
+    # - **Time index**: |Spearman(rank(x), arange(n))| > 0.95.
+    #   Catches a row-counter or timestamp masquerading as a base
+    #   candidate; on temporal data the row index correlates with
+    #   y purely from drift, no structural information.
+    # - **Spatial coordinate block**: pairwise correlations among
+    #   3+ numeric features form a block where each pair has
+    #   |corr| > 0.5. Catches X/Y/Z lat-lon-altitude triplets where
+    #   pairwise MI(y, coord) is high purely from spatial drift,
+    #   not structural information.
+    # Demoted features are ALSO available as bases when their MI
+    # genuinely exceeds non-demoted candidates (defensive, not
+    # blocking). Set to False to disable.
+    auto_base_demote_time_index: bool = True
+    auto_base_demote_spatial_coords: bool = True
+
+    # Collapse ``linear_residual`` -> ``diff`` when the fitted alpha
+    # is approximately 1.0 (R10b improvement #6). ``linear_residual``
+    # is a strict generalisation of ``diff`` (diff = linear_residual
+    # with alpha=1, beta=0). When OLS lands at alpha~1 on stationary
+    # lag features, the two transforms produce numerically identical
+    # T columns -- but ``linear_residual`` carries TWO learned
+    # parameters with train-time variance. ``diff`` is the lower-
+    # variance answer. The threshold compares the scale-invariant
+    # ratio ``|alpha - 1| * std(base) / std(y)``; below this value,
+    # the linear_residual spec is considered redundant with diff and
+    # dropped if a diff spec for the same base also kept. Set to 0.0
+    # to disable (always keep both).
+    collapse_linear_residual_alpha_eps: float = 0.05
 
     # R3.18: handling multilabel (multi-output) regression targets,
     # i.e. ``target_by_type[regression][name]`` is a 2-D array of
