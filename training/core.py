@@ -2366,7 +2366,13 @@ def train_mlframe_models_suite(
     # ``train_and_evaluate_model`` and on to ``report_model_perf``'s
     # auto-dispatcher.
     common_params_dict.update(
-        reporting_config.model_dump(exclude={"title_metrics_tokens"})
+        reporting_config.model_dump(exclude={
+            "title_metrics_tokens",
+            # Suite-level only: consumed at line ~2269 above via
+            # ``set_inline_display_mode``; the deep consumer
+            # ``_build_configs_from_params`` does not accept it.
+            "plot_inline_display",
+        })
     )
     if preprocessing_config.scaler is not None:
         common_params_dict["scaler"] = preprocessing_config.scaler
