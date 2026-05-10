@@ -201,8 +201,11 @@ def main():
     p.add_argument("--combo-pool", type=int, default=150,
                    help="Size of the combo space to sample from.")
     p.add_argument("--prefer-models", type=str, default="lgb,xgb,cb",
-                   help="Comma-separated subset of models to prefer when sampling. "
-                        "Combos with at least one model from this list pass the filter.")
+                   help="Comma-separated whitelist of models. Combos pass only "
+                        "when ALL of their models are in this list. Set empty "
+                        "string to disable. Default excludes mlp/ngb/recurrent "
+                        "etc. so the profile doesn't crash on MLP+CUDA Windows "
+                        "access-violations or NGB single-thread tail.")
     p.add_argument("--save-dir", type=str, default=None,
                    help="If set, write one .prof file per combo here for later "
                         "aggregation via aggregate_prof.py.")
@@ -221,8 +224,15 @@ def main():
     combos = enumerate_combos(target=args.combo_pool)
     rng = random.Random(args.seed)
     if args.prefer_models:
-        prefer = set(m.strip() for m in args.prefer_models.split(","))
-        combos = [c for c in combos if set(c.models) & prefer]
+        prefer = set(m.strip() for m in args.prefer_models.split(",") if m.strip())
+        # SUBSET filter: all combo models must be in the whitelist. The
+        # previous semantics (intersection only) let MLP-bearing combos
+        # through whenever they also had cb/lgb/xgb -- and the
+        # MLP+CUDA path on Windows can fault with an access violation
+        # mid-fit, killing the whole profile process before any combo
+        # completes. The whitelist behaviour is closer to what the flag
+        # name suggests anyway.
+        combos = [c for c in combos if set(c.models).issubset(prefer)]
     rng.shuffle(combos)
     sample = combos[: args.combos]
 

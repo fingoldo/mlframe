@@ -189,7 +189,14 @@ def _score_by_rel_panel(y_true, y_score, group_ids) -> ViolinPanelSpec:
     rendering one violin per unique value. Without this, an LTR call
     with continuous relevance produces 50+ overlapping x-tick labels
     that make the chart unreadable.
+
+    Sampling: each group passes through ``subsample_for_density``
+    (cap=5000) before ``violinplot``'s ``gaussian_kde``. On 1M-row LTR
+    each Q1-Q4 quartile holds ~250k scores and would otherwise spend
+    seconds per chart in KDE. Group labels still carry the full
+    pre-sampling counts.
     """
+    from ._sampling import subsample_for_density
     y_true_arr = np.asarray(y_true)
     y_score_arr = np.asarray(y_score, dtype=np.float64)
 
@@ -229,7 +236,7 @@ def _score_by_rel_panel(y_true, y_score, group_ids) -> ViolinPanelSpec:
         edges_unique = np.unique(edges)
         if len(edges_unique) < 2:
             # Degenerate (single-value relevance) → one violin
-            groups = [y_score_arr]
+            groups = [subsample_for_density(y_score_arr, seed=0)]
             labels = [f"rel={edges[0]:.3g} (n={len(y_score_arr)})"]
         else:
             n_bins = len(edges_unique) - 1
@@ -240,7 +247,8 @@ def _score_by_rel_panel(y_true, y_score, group_ids) -> ViolinPanelSpec:
                 else:
                     mask = (y_true_arr >= lo) & (y_true_arr < hi)
                 if mask.any():
-                    groups.append(y_score_arr[mask])
+                    full = y_score_arr[mask]
+                    groups.append(subsample_for_density(full, seed=i))
                     qlabel = ("Q1", "Q2", "Q3", "Q4")[i] if n_bins == 4 else f"B{i+1}"
                     labels.append(
                         f"{qlabel} [{lo:.3g}..{hi:.3g}] (n={int(mask.sum()):_})"
@@ -248,10 +256,11 @@ def _score_by_rel_panel(y_true, y_score, group_ids) -> ViolinPanelSpec:
     else:
         # Discrete-grade path (original behavior, n_unique <= 12)
         grades = sorted(set(int(g) for g in y_true_arr.tolist()))
-        for g in grades:
+        for idx, g in enumerate(grades):
             mask = y_true_arr == g
             if mask.any():
-                groups.append(y_score_arr[mask])
+                full = y_score_arr[mask]
+                groups.append(subsample_for_density(full, seed=idx))
                 labels.append(f"rel={g} (n={int(mask.sum()):_})")
 
     if not groups:

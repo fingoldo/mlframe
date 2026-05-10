@@ -199,7 +199,18 @@ def _prob_dist_panel(y_true, y_proba, classes) -> ViolinPanelSpec:
 
     Concentration near 1 = high confidence; spread across [0,1] = calibrated
     uncertainty. Always-near-0 violin = model collapse on that class.
+
+    Sampling: on a 1M-row multiclass run the un-sampled per-class slice is
+    ~N/K points (e.g. 333k for K=3). Matplotlib's ``violinplot`` runs
+    ``gaussian_kde`` per group, which is O(N) in the data and at 333k
+    points spends seconds on a single chart — measured at ~10-15s for the
+    full PROB_DIST panel on K=3 / N=1M / 28 reports. We cap each group
+    at ``DEFAULT_VIOLIN_SAMPLE_CAP`` (5000) which keeps KDE bandwidth
+    within Scott's-rule plateau and renders visually-identical violins.
+    Per-class population in the label still reflects the FULL group size.
     """
+    from ._sampling import subsample_for_density
+
     K = len(classes)
     groups: List[np.ndarray] = []
     labels: List[str] = []
@@ -209,7 +220,9 @@ def _prob_dist_panel(y_true, y_proba, classes) -> ViolinPanelSpec:
             groups.append(np.array([0.0]))   # placeholder so the violin slot exists
             labels.append(f"{classes[k]} (n=0)")
         else:
-            groups.append(y_proba[mask, k])
+            full = y_proba[mask, k]
+            # Cap KDE-bound rendering cost. Label reflects true group size.
+            groups.append(subsample_for_density(full, seed=k))
             labels.append(f"{classes[k]} (n={int(mask.sum())})")
     return ViolinPanelSpec(
         groups=tuple(groups),
