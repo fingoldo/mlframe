@@ -142,3 +142,103 @@ class TestInteractiveDisplay:
         # Must not raise — show failures are non-fatal.
         render_and_save(trivial_spec, out, base, interactive=True)
         assert os.path.exists(base + ".png")
+
+
+class TestInlineDisplayOptOut:
+    """Process-wide opt-out via ``MLFRAME_PLOT_INLINE_DISPLAY`` env var
+    (set directly or via ``set_inline_display_mode``). Lets batch
+    jupyter runs (papermill / nbconvert / scheduled notebooks) skip the
+    inline render even when ``__IPYTHON__`` is set."""
+
+    def test_env_var_force_false_overrides_ipython(self, trivial_spec, tmp_path, monkeypatch):
+        """Even with __IPYTHON__ set, env var=0 → save-only."""
+        import builtins
+        # Simulate jupyter kernel
+        monkeypatch.setattr(builtins, "__IPYTHON__", True, raising=False)
+        # But operator wants save-only via env
+        monkeypatch.setenv("MLFRAME_PLOT_INLINE_DISPLAY", "0")
+        from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
+        show_calls = []
+        monkeypatch.setattr(
+            MatplotlibRenderer, "show",
+            lambda self, fig: show_calls.append(fig),
+        )
+        out = parse_plot_output_dsl("matplotlib[png]")
+        base = str(tmp_path / "p")
+        render_and_save(trivial_spec, out, base, interactive=None)
+        # Env var won → no inline display.
+        assert show_calls == []
+        assert os.path.exists(base + ".png")
+
+    def test_env_var_force_true_overrides_non_ipython(self, trivial_spec, tmp_path, monkeypatch):
+        """Even outside a kernel, env var=1 → inline display fires."""
+        import builtins
+        import sys
+        if hasattr(builtins, "__IPYTHON__"):
+            monkeypatch.delattr(builtins, "__IPYTHON__")
+        if hasattr(sys, "ps1"):
+            monkeypatch.delattr(sys, "ps1")
+        monkeypatch.setenv("MLFRAME_PLOT_INLINE_DISPLAY", "1")
+        from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
+        show_calls = []
+        monkeypatch.setattr(
+            MatplotlibRenderer, "show",
+            lambda self, fig: show_calls.append(fig),
+        )
+        out = parse_plot_output_dsl("matplotlib[png]")
+        base = str(tmp_path / "p")
+        render_and_save(trivial_spec, out, base, interactive=None)
+        assert len(show_calls) == 1
+        assert os.path.exists(base + ".png")
+
+    def test_setter_helper_writes_env_var(self, monkeypatch):
+        """``set_inline_display_mode`` writes/clears the env var without
+        requiring callers to manipulate ``os.environ`` directly."""
+        from mlframe.reporting.renderers.save import (
+            set_inline_display_mode, _detect_interactive_session,
+        )
+        # Clean slate
+        monkeypatch.delenv("MLFRAME_PLOT_INLINE_DISPLAY", raising=False)
+        # Hide IPython markers so auto-detect is False
+        import builtins
+        import sys
+        if hasattr(builtins, "__IPYTHON__"):
+            monkeypatch.delattr(builtins, "__IPYTHON__")
+        if hasattr(sys, "ps1"):
+            monkeypatch.delattr(sys, "ps1")
+
+        # auto-detect → False (no kernel + no env var)
+        assert _detect_interactive_session() is False
+
+        # Force True
+        set_inline_display_mode(True)
+        assert _detect_interactive_session() is True
+        assert os.environ.get("MLFRAME_PLOT_INLINE_DISPLAY") == "1"
+
+        # Force False
+        set_inline_display_mode(False)
+        assert _detect_interactive_session() is False
+        assert os.environ.get("MLFRAME_PLOT_INLINE_DISPLAY") == "0"
+
+        # Clear → falls back to auto-detect (False with no kernel)
+        set_inline_display_mode(None)
+        assert "MLFRAME_PLOT_INLINE_DISPLAY" not in os.environ
+        assert _detect_interactive_session() is False
+
+        # Reject garbage
+        with pytest.raises(ValueError):
+            set_inline_display_mode("yes")  # type: ignore[arg-type]
+
+    def test_unrecognized_env_value_falls_through_to_auto_detect(self, monkeypatch):
+        """A typo in the env var (``MLFRAME_PLOT_INLINE_DISPLAY=maybe``)
+        must not silently flip behavior — falls through to auto-detect."""
+        from mlframe.reporting.renderers.save import _detect_interactive_session
+        import builtins
+        import sys
+        if hasattr(builtins, "__IPYTHON__"):
+            monkeypatch.delattr(builtins, "__IPYTHON__")
+        if hasattr(sys, "ps1"):
+            monkeypatch.delattr(sys, "ps1")
+        monkeypatch.setenv("MLFRAME_PLOT_INLINE_DISPLAY", "maybe")
+        # Falls through to auto-detect (False without IPython markers).
+        assert _detect_interactive_session() is False

@@ -2366,6 +2366,24 @@ class ReportingConfig(BaseConfig):
     # set ``"matplotlib[png]"``.
     plot_outputs: str = "plotly[html,png]"
 
+    # 2026-05-10: opt-out for jupyter inline plot display.
+    # ``None`` (default): auto-detect via ``__IPYTHON__`` / ``sys.ps1``
+    # in ``render_and_save`` -- inside a notebook kernel, figures render
+    # inline in the cell output AFTER on-disk save (the saved file is
+    # the artifact; the inline render is the operator-feedback path).
+    # ``True``: force inline display (useful for non-standard runtimes
+    # where auto-detection misfires).
+    # ``False``: save-to-disk only -- skips ``renderer.show(fig)`` even
+    # when running inside a kernel. Use for batch jupyter runs (papermill,
+    # nbconvert, scheduled notebooks) that don't need cell-output renders
+    # AND want to skip the per-figure inline render cost
+    # (~50-200ms / figure for plotly, ~20-50ms for matplotlib;
+    # accumulates to seconds on a 4-model x VAL+TEST x 6-ensemble suite).
+    # Also useful when the inline backend is broken (e.g. plotly.io
+    # renderer misconfigured) and the operator wants the on-disk PNG/HTML
+    # without cell-output errors.
+    plot_inline_display: Optional[bool] = None
+
     # 2026-05-08: per-target_type panel templates. Same DSL grammar as
     # ``title_metrics_template`` (space-separated tokens, validator
     # checks against frozen allowed set, no duplicates). All-by-default;

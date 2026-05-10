@@ -2245,6 +2245,20 @@ def train_mlframe_models_suite(
     hyperparams_config = _ensure_config(hyperparams_config, ModelHyperparamsConfig, {})
     behavior_config = _ensure_config(behavior_config, TrainingBehaviorConfig, {})
     reporting_config = _ensure_config(reporting_config, ReportingConfig, {})
+    # 2026-05-10: honor ReportingConfig.plot_inline_display by setting
+    # the process-wide MLFRAME_PLOT_INLINE_DISPLAY env var that
+    # render_and_save consults. ``None`` = clear override (auto-detect
+    # via __IPYTHON__ / sys.ps1 — existing default behavior); ``True`` /
+    # ``False`` = explicit force. Useful for batch jupyter runs
+    # (papermill / nbconvert / scheduled notebooks) that want save-only
+    # despite running inside a kernel — saves ~50-200 ms / figure of
+    # plotly inline render cost on 4-model x VAL+TEST x 6-ensemble
+    # suites (accumulates to seconds).
+    try:
+        from mlframe.reporting.renderers.save import set_inline_display_mode as _set_idm
+        _set_idm(getattr(reporting_config, "plot_inline_display", None))
+    except Exception:
+        pass
     output_config = _ensure_config(output_config, OutputConfig, {})
     outlier_detection_config = _ensure_config(outlier_detection_config, OutlierDetectionConfig, {})
     feature_selection_config = _ensure_config(feature_selection_config, FeatureSelectionConfig, {})

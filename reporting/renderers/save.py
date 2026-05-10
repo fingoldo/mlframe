@@ -27,17 +27,63 @@ logger = logging.getLogger(__name__)
 def _detect_interactive_session() -> bool:
     """True iff we're inside an IPython kernel or interactive Python REPL.
 
-    ``__IPYTHON__`` is a builtin set by IPython / Jupyter kernels;
-    ``sys.ps1`` is set by the bare REPL. The naive
-    ``"IPython" in sys.modules`` heuristic is unreliable — matplotlib
-    + many ML libraries drag IPython in as a transitive dep even from
-    plain Python scripts (giving false positives).
+    Resolution order:
+    1. ``MLFRAME_PLOT_INLINE_DISPLAY`` env var, if set — explicit override.
+       Truthy (``1`` / ``true`` / ``yes`` / ``on``) → True; falsy
+       (``0`` / ``false`` / ``no`` / ``off``) → False. Case-insensitive.
+       Useful for batch jupyter runs (papermill, nbconvert, scheduled
+       notebooks) that want save-only despite ``__IPYTHON__`` being set,
+       or for non-standard runtimes where auto-detection misfires.
+    2. ``__IPYTHON__`` builtin (set by IPython / Jupyter kernels).
+    3. ``sys.ps1`` (set by the bare REPL).
+
+    The naive ``"IPython" in sys.modules`` heuristic is unreliable —
+    matplotlib + many ML libraries drag IPython in as a transitive dep
+    even from plain Python scripts (giving false positives).
     """
+    import os
+    env = os.environ.get("MLFRAME_PLOT_INLINE_DISPLAY")
+    if env is not None:
+        env_lo = env.strip().lower()
+        if env_lo in ("1", "true", "yes", "on"):
+            return True
+        if env_lo in ("0", "false", "no", "off"):
+            return False
+        # Unrecognized value falls through to auto-detect rather than
+        # silently treating as True — operator typo shouldn't accidentally
+        # force inline display.
     try:
         return bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
     except NameError:
         import sys
         return hasattr(sys, "ps1")
+
+
+def set_inline_display_mode(mode):
+    """Set the process-wide inline-display override via env var.
+
+    Mirrors the ``MLFRAME_PLOT_INLINE_DISPLAY`` env var without requiring
+    callers to set it directly. ``mode``:
+      - ``True``  → force inline display (overrides auto-detect).
+      - ``False`` → force save-only (overrides auto-detect).
+      - ``None``  → clear the override; ``_detect_interactive_session``
+        falls back to ``__IPYTHON__`` / ``sys.ps1`` auto-detect.
+
+    Used by ``train_mlframe_models_suite`` to honor
+    ``ReportingConfig.plot_inline_display``.
+    """
+    import os
+    if mode is None:
+        os.environ.pop("MLFRAME_PLOT_INLINE_DISPLAY", None)
+    elif mode is True:
+        os.environ["MLFRAME_PLOT_INLINE_DISPLAY"] = "1"
+    elif mode is False:
+        os.environ["MLFRAME_PLOT_INLINE_DISPLAY"] = "0"
+    else:
+        raise ValueError(
+            f"set_inline_display_mode(mode={mode!r}): expected True, "
+            "False, or None"
+        )
 
 
 def render_and_save(
@@ -125,4 +171,4 @@ def render_and_save(
     return handles if keep_handles else None
 
 
-__all__ = ["render_and_save"]
+__all__ = ["render_and_save", "set_inline_display_mode"]
