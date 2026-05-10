@@ -490,7 +490,14 @@ class BaselineReport(NamedTuple):
             "n_train_finite": self.n_train_finite,
             "n_val_finite": self.n_val_finite,
             "n_test_finite": self.n_test_finite,
-            "extras": self.extras,
+            # 2026-05-11: scrub raw prediction arrays from extras
+            # before serialization (they bloat metadata.pkl and are
+            # not useful at load time -- they're consumed
+            # synchronously by the pre-training overlay plotter).
+            "extras": {
+                k: v for k, v in self.extras.items()
+                if k not in ("strongest_val_preds", "strongest_test_preds")
+            },
         }
 
     def format_text(self, default_level: str = "INFO") -> str:
@@ -1584,6 +1591,24 @@ def compute_dummy_baselines(
     # verdict line) remains the actionable artifact.
     plot_path = None
 
+    # 2026-05-11: expose strongest-baseline val/test predictions via
+    # ``extras`` so a downstream consumer (core.py, between
+    # dummy-baselines computation and the per-target model-training
+    # loop) can render the "best-baseline-overlay" pre-training chart
+    # the user repeatedly asked for. We keep the prediction arrays
+    # OUT of ``BaselineReport``'s top-level fields (they'd bloat
+    # JSON serialization of metadata.pkl) and store them in extras
+    # under explicit keys that the renderer reads by name. Memory
+    # cost: 2 x n_split float arrays per target, freed once the
+    # renderer consumes them.
+    if strongest is not None:
+        sv = val_preds.get(strongest)
+        st = test_preds.get(strongest)
+        if sv is not None:
+            extras["strongest_val_preds"] = np.asarray(sv)
+        if st is not None:
+            extras["strongest_test_preds"] = np.asarray(st)
+
     elapsed_s = _time.time() - t0
     return BaselineReport(
         target_type=target_type,
@@ -2254,6 +2279,219 @@ def _pick_strongest(
 # artifact. To re-enable a baseline-overlay PNG in the future, the
 # call site at ``compute_dummy_baselines`` should be the single place
 # to add it back, gated behind a config flag (default off).
+
+
+def plot_best_dummy_baseline_overlay(
+    report: "BaselineReport",
+    *,
+    val_y: Optional[np.ndarray] = None,
+    test_y: Optional[np.ndarray] = None,
+    save_path: Optional[str] = None,
+    show: bool = True,
+    figsize: Tuple[float, float] = (12, 4.5),
+) -> Optional[Any]:
+    """Pre-training overlay for the strongest dummy baseline.
+
+    Renders, in one figure, the visual floor your trained models will
+    be measured against:
+
+    * **Left** (regression / quantile): predictions-vs-actual scatter
+      for val + test with the diagonal y=x reference.
+    * **Right** (regression / quantile): residual histogram (val + test
+      overlaid).
+    * **Classification** falls back to a class-prior bar (one panel)
+      since the canonical "scatter" is meaningless for class labels.
+
+    The strongest baseline's val/test predictions are pulled from
+    ``report.extras["strongest_val_preds"]`` / ``["strongest_test_preds"]``
+    (populated by ``compute_dummy_baselines``).
+
+    Renders inline in Jupyter via ``IPython.display`` (works regardless
+    of matplotlib backend) and saves PNG to ``save_path`` if given.
+    Returns the ``matplotlib.figure.Figure`` so the caller can take
+    further action; returns ``None`` when the report has no plottable
+    content (no strongest baseline, no val/test y, etc.).
+
+    User-facing rationale: this chart fires BEFORE any model trains so
+    you can eyeball the no-model floor before sinking compute into
+    XGB/CB/LGB.
+    """
+    import matplotlib.pyplot as _plt
+    if report.strongest is None:
+        logger.info(
+            "[dummy-baselines] target='%s' no strongest baseline -- "
+            "overlay plot skipped.", report.target_name,
+        )
+        return None
+    sv = report.extras.get("strongest_val_preds")
+    st = report.extras.get("strongest_test_preds")
+    if sv is None and st is None:
+        logger.info(
+            "[dummy-baselines] target='%s' no strongest preds in "
+            "extras -- overlay plot skipped.", report.target_name,
+        )
+        return None
+    is_regression = report.target_type in (
+        "regression", "quantile_regression",
+    )
+
+    # Sample big arrays to keep render fast on millions of rows.
+    rng = np.random.default_rng(0)
+    plot_sample = 20_000
+
+    def _maybe_subsample(y, p):
+        if y is None or p is None:
+            return None, None
+        n = min(len(y), len(p))
+        if n > plot_sample:
+            idx = rng.choice(n, size=plot_sample, replace=False)
+            return np.asarray(y)[idx], np.asarray(p)[idx]
+        return np.asarray(y[:n]), np.asarray(p[:n])
+
+    val_y_s, val_p_s = _maybe_subsample(val_y, sv)
+    test_y_s, test_p_s = _maybe_subsample(test_y, st)
+
+    if is_regression:
+        fig, (ax_scatter, ax_resid) = _plt.subplots(
+            1, 2, figsize=figsize, constrained_layout=True,
+        )
+        # Left: predictions vs actual scatter.
+        lo, hi = None, None
+        if val_y_s is not None:
+            ax_scatter.scatter(
+                val_y_s, val_p_s, s=4, alpha=0.35,
+                color="tab:blue", label=f"val (n={len(val_y_s)})",
+            )
+            lo = float(np.nanmin(val_y_s))
+            hi = float(np.nanmax(val_y_s))
+        if test_y_s is not None:
+            ax_scatter.scatter(
+                test_y_s, test_p_s, s=4, alpha=0.35,
+                color="tab:orange", label=f"test (n={len(test_y_s)})",
+            )
+            if lo is None:
+                lo, hi = float(np.nanmin(test_y_s)), float(np.nanmax(test_y_s))
+            else:
+                lo = min(lo, float(np.nanmin(test_y_s)))
+                hi = max(hi, float(np.nanmax(test_y_s)))
+        if lo is not None and hi is not None:
+            ax_scatter.plot(
+                [lo, hi], [lo, hi], color="black",
+                linestyle="--", linewidth=1.0, label="y = y_hat",
+            )
+        ax_scatter.set_xlabel("y_true")
+        ax_scatter.set_ylabel("y_hat (strongest baseline)")
+        ax_scatter.set_title(
+            f"Baseline floor: {report.strongest}\n"
+            f"({report.primary_metric}={_safe_metric_for_title(report)})"
+        )
+        ax_scatter.legend(loc="best", fontsize=9)
+        ax_scatter.grid(alpha=0.3)
+
+        # Right: residual histogram.
+        for label, y_s, p_s, color in [
+            ("val",  val_y_s,  val_p_s,  "tab:blue"),
+            ("test", test_y_s, test_p_s, "tab:orange"),
+        ]:
+            if y_s is None or p_s is None:
+                continue
+            res = p_s - y_s
+            res = res[np.isfinite(res)]
+            if res.size == 0:
+                continue
+            ax_resid.hist(
+                res, bins=40, alpha=0.5, color=color,
+                label=f"{label} (n={res.size}, mean={res.mean():+.3g}, "
+                      f"std={res.std():.3g})",
+            )
+        ax_resid.axvline(0, color="black", linestyle="--", linewidth=1.0)
+        ax_resid.set_xlabel("y_hat - y_true (baseline residual)")
+        ax_resid.set_ylabel("count")
+        ax_resid.set_title("Baseline residuals (pre-training floor)")
+        ax_resid.legend(loc="best", fontsize=9)
+        ax_resid.grid(alpha=0.3)
+    else:
+        # Classification: single-panel bar of class-prior probabilities
+        # for the strongest baseline (typically ``majority`` /
+        # ``stratified_random``).
+        fig, ax = _plt.subplots(1, 1, figsize=(figsize[0] / 2, figsize[1]),
+                                constrained_layout=True)
+        # Pull P(y=k) from the strongest baseline's val predictions.
+        if sv is not None and sv.ndim == 1:
+            # Single-label hard-prediction baseline (e.g. majority).
+            uniq, counts = np.unique(sv, return_counts=True)
+            ax.bar(range(len(uniq)),
+                   counts / counts.sum(), color="tab:blue")
+            ax.set_xticks(range(len(uniq)))
+            ax.set_xticklabels([str(u) for u in uniq])
+            ax.set_ylabel("P(predicted class)")
+            ax.set_xlabel("class")
+        elif sv is not None and sv.ndim == 2:
+            # Probabilistic baseline (stratified_random_proba etc.).
+            avg_p = sv.mean(axis=0)
+            ax.bar(range(len(avg_p)), avg_p, color="tab:blue")
+            ax.set_xticks(range(len(avg_p)))
+            ax.set_ylabel("mean P(class) on val")
+            ax.set_xlabel("class")
+        ax.set_title(
+            f"Baseline floor: {report.strongest}\n"
+            f"({report.primary_metric}={_safe_metric_for_title(report)})"
+        )
+        ax.grid(axis="y", alpha=0.3)
+
+    # Suptitle with target name.
+    fig.suptitle(
+        f"Dummy-baseline floor: target='{report.target_name}' "
+        f"(target_type={report.target_type})",
+        fontsize=11, y=1.02,
+    )
+
+    if save_path:
+        try:
+            fig.savefig(save_path, bbox_inches="tight")
+            logger.info(
+                "[dummy-baselines] target='%s' baseline-overlay plot "
+                "saved: %s", report.target_name, save_path,
+            )
+        except Exception as _save_err:
+            logger.warning(
+                "[dummy-baselines] target='%s' baseline-overlay save "
+                "failed: %s", report.target_name, _save_err,
+            )
+
+    # Inline display in Jupyter (mirrors the fix shipped 2026-05-11 in
+    # feature_importance.plot_feature_importance -- use IPython.display
+    # so the chart shows up even when the global matplotlib backend is
+    # Agg).
+    if show:
+        try:
+            _in_kernel = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+        except NameError:
+            _in_kernel = False
+        if _in_kernel:
+            try:
+                from IPython.display import display as _ipy_display
+                _ipy_display(fig)
+            except Exception:
+                _plt.ion()
+                _plt.show()
+        else:
+            # In a script/CI: close after save to avoid figure leak.
+            _plt.close(fig)
+    return fig
+
+
+def _safe_metric_for_title(report: "BaselineReport") -> str:
+    """Pull the strongest baseline's primary metric value as a short
+    string for the chart title. Falls back to '?' on lookup error."""
+    try:
+        col = report.primary_metric
+        val = report.table.loc[report.strongest, col]
+        if isinstance(val, float) and np.isfinite(val):
+            return f"{val:.4g}"
+        return "?"
+    except Exception:
+        return "?"
 
 
 def _paired_bootstrap_vs_runner_up(

@@ -4350,6 +4350,40 @@ def train_mlframe_models_suite(
                             "[dummy-baselines] target='%s' full table:\n%s",
                             cur_target_name, _db_report.table.to_string(),
                         )
+                        # 2026-05-11: pre-training overlay chart for
+                        # the strongest dummy baseline. Renders BEFORE
+                        # any process_model() fires so the user sees
+                        # the no-model floor (predictions-vs-actual +
+                        # residual hist for regression; class-prior
+                        # bar for classification) right next to the
+                        # verdict line. Default ON, gated on
+                        # ``dummy_baselines_config.plot_strongest``.
+                        if (getattr(dummy_baselines_config,
+                                    "plot_strongest", True)
+                                and _db_report.strongest is not None):
+                            try:
+                                from .dummy_baselines import (
+                                    plot_best_dummy_baseline_overlay,
+                                )
+                                _save = (
+                                    f"{plot_file}_dummy_baseline_floor.png"
+                                    if plot_file else None
+                                )
+                                plot_best_dummy_baseline_overlay(
+                                    _db_report,
+                                    val_y=current_val_target,
+                                    test_y=current_test_target,
+                                    save_path=_save,
+                                    show=True,
+                                )
+                            except Exception as _plot_err:
+                                logger.warning(
+                                    "[dummy-baselines] target='%s' "
+                                    "overlay-plot failed: %s. "
+                                    "Training continues without "
+                                    "pre-training floor chart.",
+                                    cur_target_name, _plot_err,
+                                )
                         metadata.setdefault("dummy_baselines", {}) \
                             .setdefault(str(target_type), {})[cur_target_name] = _db_report.to_dict()
                 except Exception as _db_err:

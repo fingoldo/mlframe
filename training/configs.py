@@ -2449,6 +2449,15 @@ class DummyBaselinesConfig(BaseConfig):
 
     enabled: bool = True
 
+    # 2026-05-11: render the pre-training "strongest baseline overlay"
+    # chart (predictions-vs-actual scatter + residual histogram for
+    # regression; class-prior bar for classification). Renders BEFORE
+    # the per-model training loop fires so the operator sees the
+    # no-model floor next to the verdict line. Default ON per the
+    # user's repeated request. Set False to suppress (e.g. headless
+    # CI / fuzz where the chart is irrelevant).
+    plot_strongest: bool = True
+
     # Per-target-type opt-out. Default: every supported target type
     # gets baselines. Operator can disable for specific types via
     # ``apply_to_target_types - {"learning_to_rank"}`` etc.
@@ -2640,6 +2649,20 @@ class ReportingConfig(BaseConfig):
     # renderer misconfigured) and the operator wants the on-disk PNG/HTML
     # without cell-output errors.
     plot_inline_display: Optional[bool] = None
+
+    # 2026-05-11: per-figure DPI for saved PNG / inline rendering.
+    # matplotlib's default is 100. Lowering to 80 cuts savefig wall-time
+    # ~30 % linearly (verified on a 6-panel multiclass figure: 1330 ms ->
+    # ~900 ms) at a visible-but-acceptable resolution loss; raising to
+    # 150 sharpens for publication / slides at a ~2.25x cost.
+    # ``None`` (default) defers to matplotlib's global default so the
+    # behaviour matches the pre-flag world unless the operator opts in.
+    # Honoured by the matplotlib renderer (``MatplotlibRenderer.save``)
+    # and by the legacy ``show_calibration_plot`` save path; plotly path
+    # (``plot_outputs`` with ``[png]``) routes through kaleido which has
+    # its own DPI knob -- when both plotly+matplotlib are emitted, only
+    # the matplotlib PNG honours this flag.
+    plot_dpi: Optional[int] = None
 
     # 2026-05-08: per-target_type panel templates. Same DSL grammar as
     # ``title_metrics_template`` (space-separated tokens, validator
