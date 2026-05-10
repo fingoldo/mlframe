@@ -3695,15 +3695,27 @@ class CompositeTargetDiscovery:
                 len(hint_dropped), hint_dropped[:5],
             )
         top_k = self.config.auto_base_top_k
-        if hint_kept and len(hint_kept) >= top_k:
-            # Hint already covers requested breadth.
-            top = hint_kept[:top_k]
+        # 2026-05-10: cap hint contribution to ~half the top_k slots so
+        # MI-ranked candidates always get evaluated alongside the
+        # ablation-leaders. The pre-fix early-return when
+        # ``len(hint_kept) >= top_k`` produced ZERO composite specs in
+        # the wild for autoregressive targets (e.g. TVT with TVT_prev as
+        # the dominant feature: TVT__diff__TVT_prev is essentially the
+        # first-difference of an auto-correlated series → low MI vs raw
+        # features → no candidate cleared mi_gain > 0.01 → 0 specs).
+        # Hybrid hint+MI guarantees that at least one MI-leader gets
+        # tried even when the hint dominates the ablation ranking.
+        # Cap = max(1, top_k // 2): with top_k=3 → at most 1 hint + 2 MI;
+        # with top_k=5 → at most 2 hint + 3 MI; etc.
+        hint_cap = max(1, top_k // 2)
+        if len(hint_kept) > hint_cap:
             logger.info(
-                "[CompositeTargetDiscovery] auto-base top-%d from "
-                "dominant_features_hint (BaselineDiagnostics ablation): %s",
-                len(top), top,
+                "[CompositeTargetDiscovery] auto-base capping hint contribution "
+                "to %d/%d slots (was %d hint candidates) so MI-leaders also get "
+                "evaluated; full hint list preserved as feature ordering source.",
+                hint_cap, top_k, len(hint_kept),
             )
-            return top
+            hint_kept = hint_kept[:hint_cap]
 
         sample_idx = _sample_indices(
             train_idx.size, self.config.mi_sample_n, self.config.random_state,

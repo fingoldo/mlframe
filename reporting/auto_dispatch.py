@@ -43,29 +43,66 @@ def render_multi_target_panels(
     base_path: str = "",
     suptitle: str = "",
     max_cols: int = 2,
+    target_type: Optional[str] = None,
 ) -> Optional[str]:
     """Pick the right composer for the input shapes and render.
 
     Returns the chosen target_type tag (``"multiclass"`` /
-    ``"multilabel"`` / ``"ltr"``) or ``None`` if nothing was rendered
-    (binary, regression, missing inputs, or all panel templates empty).
+    ``"multilabel"`` / ``"ltr"`` / ``"quantile"``) or ``None`` if nothing
+    was rendered (binary, regression, missing inputs, or all panel
+    templates empty).
 
     No-op short-circuits (silent):
     - ``base_path`` empty -> nothing to write to.
     - ``plot_outputs`` empty -> no backend selected.
     - The matched branch's panel template is empty.
+
+    Authoritative gate: when ``target_type`` is set (caller knows the
+    target_type explicitly), only the matching branch fires. When
+    ``target_type`` is None, falls back to shape-based heuristics for
+    back-compat — but those heuristics misfire for regression-with-
+    ``group_ids`` (a common pattern when ``FTE.group_field`` is set
+    for grouped CV splits, NOT for ranking). Always pass ``target_type``
+    when available.
     """
     if not base_path or not plot_outputs:
         return None
 
     targets_arr = np.asarray(targets) if targets is not None else None
 
+    # Per-target_type gate (when caller provided target_type explicitly).
+    # The shape-based heuristics below were ambiguous for regression
+    # targets that happen to carry ``group_ids`` (FTE grouped-split
+    # pattern) — the LTR branch's ``group_ids is not None AND scores.ndim
+    # == 1`` condition fired incorrectly + paid 10-30s of NDCG/MRR
+    # computation per split. Authoritative target_type fixes this:
+    # regression / binary / quantile_regression / multilabel /
+    # multiclass / learning_to_rank each gate exactly one branch.
+    tt = (target_type or "").lower()
+    if tt:
+        # Regression and binary classification have their own dedicated
+        # report charts (regression scatter / calibration plot); panels
+        # from this dispatcher would be redundant or semantically wrong.
+        if tt in ("regression", "binary_classification"):
+            return None
+        # Each remaining target_type maps to exactly one branch.
+        # When the matching panel template is empty, return None
+        # silently (operator opted out of that target_type's panels).
+        if tt == "learning_to_rank" and not ltr_panels:
+            return None
+        if tt == "quantile_regression" and not quantile_panels:
+            return None
+        if tt == "multilabel_classification" and not multilabel_panels:
+            return None
+        if tt == "multiclass_classification" and not multiclass_panels:
+            return None
+
     # LTR: opt-in via group_ids + 1-D score (preds for rankers). When
-    # the LTR guard rejects (no 1-D score available), we fall through
-    # to multilabel/multiclass dispatch -- this lets a multiclass run
-    # that happens to have group_ids in scope still emit multiclass
-    # panels via the same call site.
-    if group_ids is not None and ltr_panels and targets_arr is not None:
+    # ``target_type`` is provided, gate strictly on it; otherwise the
+    # back-compat shape heuristic fires (note: misfires for
+    # regression-with-group_ids — pass target_type to avoid).
+    _ltr_allowed = (tt == "" or tt == "learning_to_rank")
+    if _ltr_allowed and group_ids is not None and ltr_panels and targets_arr is not None:
         scores = preds if preds is not None else probs
         if scores is not None and np.ndim(scores) == 1:
             try:
@@ -89,8 +126,10 @@ def render_multi_target_panels(
     # LTR, this is order-sensitive vs the multilabel branch (multilabel
     # also wants 2-D preds), so check QR FIRST and fall through if the
     # caller didn't supply quantile_alphas.
+    _quantile_allowed = (tt == "" or tt == "quantile_regression")
     if (
-        quantile_panels and quantile_alphas is not None
+        _quantile_allowed
+        and quantile_panels and quantile_alphas is not None
         and preds is not None and targets_arr is not None
     ):
         preds_arr_q = np.asarray(preds)
@@ -118,7 +157,8 @@ def render_multi_target_panels(
     probs_arr = np.asarray(probs)
 
     # Multilabel: 2-D targets aligned with 2-D probs.
-    if targets_arr.ndim == 2 and probs_arr.ndim == 2 and multilabel_panels:
+    _ml_allowed = (tt == "" or tt == "multilabel_classification")
+    if _ml_allowed and targets_arr.ndim == 2 and probs_arr.ndim == 2 and multilabel_panels:
         if targets_arr.shape != probs_arr.shape:
             logger.warning(
                 "render_multi_target_panels: multilabel targets %s != probs %s; "
@@ -146,7 +186,8 @@ def render_multi_target_panels(
             return None
 
     # Multiclass: 1-D targets, K>=3 classes in the proba matrix.
-    if (targets_arr.ndim == 1 and probs_arr.ndim == 2
+    _mc_allowed = (tt == "" or tt == "multiclass_classification")
+    if (_mc_allowed and targets_arr.ndim == 1 and probs_arr.ndim == 2
             and probs_arr.shape[1] >= 3 and multiclass_panels):
         try:
             from mlframe.reporting.charts.multiclass import compose_multiclass_figure

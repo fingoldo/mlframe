@@ -181,23 +181,83 @@ def _score_by_rel_panel(y_true, y_score, group_ids) -> ViolinPanelSpec:
 
     Well-separated violins = ranker correctly orders grades. Heavily
     overlapping = ranker is confused (or grades are noisy).
+
+    Continuous-relevance handling: when relevance grades have many
+    unique values (continuous regression-style scores leaking into
+    LTR, or fine-grained graded relevance > 12 levels), the panel
+    BINS the relevance into quartile buckets (Q1..Q4) rather than
+    rendering one violin per unique value. Without this, an LTR call
+    with continuous relevance produces 50+ overlapping x-tick labels
+    that make the chart unreadable.
     """
     y_true_arr = np.asarray(y_true)
     y_score_arr = np.asarray(y_score, dtype=np.float64)
-    grades = sorted(set(int(g) for g in y_true_arr.tolist()))
+
+    if y_true_arr.size == 0:
+        return ViolinPanelSpec(
+            groups=(np.array([0.0]),), group_labels=("(no data)",),
+            title="Predicted score by relevance grade",
+            xlabel="Relevance grade", ylabel="Predicted score",
+        )
+
+    # Decide: discrete-grade path or quartile-bin path?
+    # - Float dtype with non-integer values → quartile path.
+    # - Integer dtype with > 12 unique values → quartile path.
+    # - Otherwise → original discrete-grade path.
+    is_float_continuous = (
+        y_true_arr.dtype.kind == "f"
+        and not np.array_equal(y_true_arr, np.round(y_true_arr))
+    )
+    if is_float_continuous:
+        n_unique = int(np.unique(y_true_arr).size)
+    else:
+        # Cheap path: cap at 13 unique values to avoid full unique scan
+        # on N=5M when grades are integer with thousands of levels.
+        n_unique = int(np.unique(y_true_arr[:50_000]).size)
+        if n_unique > 12:
+            # Confirm on full array to be safe
+            n_unique = int(np.unique(y_true_arr).size)
+
+    use_quartile_bins = is_float_continuous or n_unique > 12
+
     groups: List[np.ndarray] = []
     labels: List[str] = []
-    for g in grades:
-        mask = y_true_arr == g
-        if mask.any():
-            groups.append(y_score_arr[mask])
-            labels.append(f"rel={g} (n={int(mask.sum())})")
+    if use_quartile_bins:
+        # 4 quartile buckets — readable, captures rank monotonicity.
+        edges = np.quantile(y_true_arr, [0.0, 0.25, 0.5, 0.75, 1.0])
+        # Deduplicate edges in case of heavy ties.
+        edges_unique = np.unique(edges)
+        if len(edges_unique) < 2:
+            # Degenerate (single-value relevance) → one violin
+            groups = [y_score_arr]
+            labels = [f"rel={edges[0]:.3g} (n={len(y_score_arr)})"]
         else:
-            groups.append(np.array([0.0]))
-            labels.append(f"rel={g} (n=0)")
+            n_bins = len(edges_unique) - 1
+            for i in range(n_bins):
+                lo, hi = edges_unique[i], edges_unique[i + 1]
+                if i == n_bins - 1:
+                    mask = (y_true_arr >= lo) & (y_true_arr <= hi)
+                else:
+                    mask = (y_true_arr >= lo) & (y_true_arr < hi)
+                if mask.any():
+                    groups.append(y_score_arr[mask])
+                    qlabel = ("Q1", "Q2", "Q3", "Q4")[i] if n_bins == 4 else f"B{i+1}"
+                    labels.append(
+                        f"{qlabel} [{lo:.3g}..{hi:.3g}] (n={int(mask.sum()):_})"
+                    )
+    else:
+        # Discrete-grade path (original behavior, n_unique <= 12)
+        grades = sorted(set(int(g) for g in y_true_arr.tolist()))
+        for g in grades:
+            mask = y_true_arr == g
+            if mask.any():
+                groups.append(y_score_arr[mask])
+                labels.append(f"rel={g} (n={int(mask.sum()):_})")
+
     if not groups:
         groups = [np.array([0.0])]
         labels = ["(no data)"]
+
     return ViolinPanelSpec(
         groups=tuple(groups),
         group_labels=tuple(labels),

@@ -3684,6 +3684,7 @@ def _compute_split_metrics(
     ltr_panels: Optional[str] = None,
     quantile_panels: Optional[str] = None,
     quantile_alphas: Optional[Tuple[float, ...]] = None,
+    target_type: Optional[str] = None,
 ):
     """Unified metrics computation for train/val/test splits."""
     # Only skip if we can't compute metrics (no probs AND no df to make predictions)
@@ -3754,6 +3755,7 @@ def _compute_split_metrics(
         ltr_panels=ltr_panels,
         quantile_panels=quantile_panels,
         quantile_alphas=quantile_alphas,
+        target_type=target_type,
     )
     return preds, probs, columns
 
@@ -4041,6 +4043,7 @@ def _build_configs_from_params(
     target_label_encoder=None,
     skip_infinity_checks=False,
     n_features=None,
+    target_type=None,  # 2026-05-10: thread through for downstream chart dispatch gate
     # Control params
     verbose=False,
     # 2026-04-27: use_cache default flipped False -> True for consistency
@@ -4131,6 +4134,7 @@ def _build_configs_from_params(
         target_label_encoder=target_label_encoder,
         skip_infinity_checks=skip_infinity_checks,
         n_features=n_features,
+        target_type=str(target_type) if target_type is not None else None,
     )
 
     control_config = TrainingControlConfig(
@@ -4654,6 +4658,10 @@ def train_and_evaluate_model(
             ltr_panels=ltr_panels,
             quantile_panels=quantile_panels,
             quantile_alphas=quantile_alphas,
+            # Authoritative target_type — gates auto_dispatch's
+            # render_multi_target_panels so regression+group_ids doesn't
+            # incorrectly render LTR/multilabel/multiclass panels.
+            target_type=getattr(data, "target_type", None),
         )
 
         has_val = (val_idx is not None and len(val_idx) > 0) or val_df is not None

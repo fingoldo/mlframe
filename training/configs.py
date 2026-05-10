@@ -1605,6 +1605,15 @@ class DataConfig(BaseConfig):
     val_target: Optional[Any] = None  # np.ndarray or pd.Series
     test_target: Optional[Any] = None  # np.ndarray or pd.Series
 
+    # 2026-05-10: target_type for downstream-correct chart dispatch.
+    # When set (caller knows the target_type), gates
+    # ``render_multi_target_panels`` to fire ONLY the matching branch
+    # (regression suppresses LTR / multilabel / multiclass panels;
+    # learning_to_rank suppresses regression-specific panels; etc.).
+    # Default None preserves shape-based heuristic behavior for
+    # back-compat callers.
+    target_type: Optional[str] = None
+
     # Indices
     train_idx: Optional[Any] = None  # np.ndarray
     val_idx: Optional[Any] = None  # np.ndarray

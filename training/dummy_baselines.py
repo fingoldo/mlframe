@@ -160,30 +160,30 @@ if _NUMBA_AVAILABLE:
     def _numba_within_group_descending_rank(group_ids: np.ndarray) -> np.ndarray:
         """Descending within-group rank: row 0 of each group → highest score.
 
-        Two-pass: pass 1 counts group sizes; pass 2 emits ``count - 1 - i``
-        per row. Robust against non-contiguous group_ids (uses dict-of-int).
+        Single-pass over a stable-sorted index. Output[i] = -within_group_idx
+        so the first row of each group has the highest score. Robust
+        against non-contiguous group_ids; works on any integer dtype.
+        Replaces the prior dict-based 2-pass (which produced a numba
+        ``unsafe cast from int64 to undefined`` warning at module load
+        from the typed-dict default-value type inference).
         """
         n = len(group_ids)
         out = np.empty(n, dtype=np.float64)
-        # Numba's typed dict requires explicit specification at top-level;
-        # use a simple dict-from-Python pattern via two arrays for speed.
-        # Pass 1: count per group via two-array mapping.
-        # Use np.unique-emulated linear scan since group_ids may be small int64.
-        # Simplest: iterate twice with dict. Numba supports dict() since 0.43.
-        counts = {}
-        for i in range(n):
+        if n == 0:
+            return out
+        # argsort is stable; sequential scan over sorted indices counts
+        # within-group position via prev-group equality check.
+        order = np.argsort(group_ids, kind="mergesort")
+        prev_g = group_ids[order[0]]
+        c = 0
+        for k in range(n):
+            i = order[k]
             g = group_ids[i]
-            if g in counts:
-                counts[g] += 1
-            else:
-                counts[g] = 1
-        # Pass 2: assign decreasing rank within group via running counter.
-        running = {}
-        for i in range(n):
-            g = group_ids[i]
-            c = running.get(g, 0)
+            if g != prev_g:
+                c = 0
+                prev_g = g
             out[i] = -float(c)
-            running[g] = c + 1
+            c += 1
         return out
 
     @njit(parallel=True, fastmath=True, cache=False)
@@ -2267,7 +2267,22 @@ def _save_overlay_plot(
     test_y: Optional[np.ndarray],
     plot_file_prefix: str,
 ) -> Optional[str]:
-    """Custom 50-line overlay plot for strongest baseline (D11 + D12)."""
+    """Overlay plot for strongest baseline on VAL + TEST (D11 + D12).
+
+    2026-05-10 redesign:
+    - Splits into VAL (top row) + TEST (bottom row) so the operator
+      sees both diagnostic splits side-by-side instead of test-only
+      (which was the pre-fix behavior — discarded VAL signal).
+    - For regression / quantile: 2x2 grid (per-split scatter + per-split
+      residual hist).
+    - For binary: 2x1 (per-split scatter only — residual on probabilities
+      is uninformative).
+    - Inline display: when running inside jupyter (auto-detected via
+      ``__IPYTHON__`` / ``sys.ps1`` or
+      ``MLFRAME_PLOT_INLINE_DISPLAY=1``), call ``plt.show()`` so the
+      figure renders inline in the notebook cell. Save-to-disk always
+      completes regardless.
+    """
     import matplotlib.pyplot as plt
 
     plot_dir = plot_file_prefix.rstrip(os.path.sep) if plot_file_prefix else None
@@ -2279,34 +2294,77 @@ def _save_overlay_plot(
         f"baseline_{_slugify(target_name)}_{_slugify(strongest)}.png",
     )
 
-    fig, axes = plt.subplots(2, 1, figsize=(10, 6), gridspec_kw={"height_ratios": [3, 1]})
-    ax_main, ax_resid = axes
+    has_val = val_y is not None and strongest in val_preds
+    has_test = test_y is not None and strongest in test_preds
+    if not (has_val or has_test):
+        return None
 
-    if test_y is not None and strongest in test_preds:
-        pred = test_preds[strongest]
-        if target_type == "binary_classification" and pred.ndim == 2:
-            pred = pred[:, 1]
-        # Subsample for plot if large
-        n = len(test_y)
+    is_regression = target_type in ("regression", "quantile_regression")
+    n_rows = 2 if is_regression else 1
+    n_cols = 2  # val | test
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=(12, 4 * n_rows),
+        squeeze=False,
+    )
+    fig.suptitle(
+        f"DUMMY baseline overlay  target='{target_name}'  type={target_type}  strongest={strongest}",
+        fontsize=11, y=1.02,
+    )
+
+    rng = np.random.default_rng(42)
+
+    def _draw_split(col_idx: int, split_label: str, y_arr, pred_arr):
+        if y_arr is None or pred_arr is None:
+            return
+        if target_type == "binary_classification" and pred_arr.ndim == 2:
+            pred_arr = pred_arr[:, 1]
+        n = len(y_arr)
         if n > 2000:
-            idx = np.random.default_rng(42).choice(n, size=2000, replace=False)
-            y_s, p_s = test_y[idx], pred[idx]
+            idx = rng.choice(n, size=2000, replace=False)
+            y_s, p_s = y_arr[idx], pred_arr[idx]
         else:
-            y_s, p_s = test_y, pred
-        ax_main.scatter(p_s, y_s, alpha=0.3, s=8, label="test")
-        if target_type in ("regression", "quantile_regression"):
-            ax_main.plot([y_s.min(), y_s.max()], [y_s.min(), y_s.max()], "g--", label="perfect")
-            resid = y_s - p_s
-            ax_resid.hist(resid, bins=40, color="steelblue")
-            ax_resid.set_xlabel("residual (y - pred)")
-            ax_resid.axvline(0, color="green", linestyle="--")
+            y_s, p_s = y_arr, pred_arr
+        ax_main = axes[0, col_idx]
+        ax_main.scatter(p_s, y_s, alpha=0.3, s=8, color="steelblue")
+        if is_regression:
+            lo, hi = float(min(y_s.min(), p_s.min())), float(max(y_s.max(), p_s.max()))
+            ax_main.plot([lo, hi], [lo, hi], "g--", label="perfect", linewidth=1)
+            ax_main.legend(loc="best", fontsize=8)
         ax_main.set_xlabel("prediction")
         ax_main.set_ylabel("actual")
-        ax_main.set_title(f"baseline={strongest}  target={target_name}  type={target_type}")
-        ax_main.legend()
+        ax_main.set_title(f"{split_label} (n={n:_})")
+        ax_main.grid(True, alpha=0.3)
+
+        if is_regression:
+            ax_resid = axes[1, col_idx]
+            resid = y_s - p_s
+            ax_resid.hist(resid, bins=40, color="steelblue", alpha=0.85)
+            ax_resid.axvline(0, color="green", linestyle="--", linewidth=1)
+            ax_resid.set_xlabel(f"{split_label} residual (y - pred)")
+            ax_resid.set_ylabel("count")
+            ax_resid.grid(True, alpha=0.3)
+
+    # Column 0 = VAL, column 1 = TEST
+    _draw_split(0, "VAL", val_y, val_preds.get(strongest))
+    _draw_split(1, "TEST", test_y, test_preds.get(strongest))
 
     fig.tight_layout()
     fig.savefig(plot_path, dpi=80)
+
+    # Inline display in jupyter: same auto-detect as render_and_save
+    # (env var override + __IPYTHON__ / sys.ps1 fallback). Save-to-disk
+    # always completes regardless of inline display success.
+    try:
+        from mlframe.reporting.renderers.save import _detect_interactive_session
+        if _detect_interactive_session():
+            try:
+                plt.show()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     # Close cleanly via the same helper as production paths
     try:
         from mlframe.metrics import _close_unless_interactive

@@ -181,6 +181,7 @@ def report_model_perf(
     title_metrics_tokens: Optional[Tuple[str, ...]] = None,
     multilabel_dispatch_config: Optional["MultilabelDispatchConfig"] = None,
     plot_outputs: Optional[str] = None,
+    target_type: Optional[str] = None,
     multiclass_panels: Optional[str] = None,
     multilabel_panels: Optional[str] = None,
     ltr_panels: Optional[str] = None,
@@ -344,6 +345,12 @@ def report_model_perf(
                 quantile_panels=quantile_panels,
                 base_path=plot_file,
                 suptitle=(report_title + " " + model_name).strip(),
+                # Authoritative target_type gate — prevents regression
+                # targets that happen to carry group_ids from FTE
+                # (grouped-CV pattern) from incorrectly triggering the
+                # LTR panels branch, which used to render NDCG/MRR
+                # nonsense for regression + paid 10-30s on 5M rows.
+                target_type=target_type,
             )
 
     if show_fi:
@@ -650,20 +657,29 @@ def report_regression_model_perf(
                 _close_unless_interactive(fig, was_shown=show_perf_chart)
 
     if print_report:
-        print(report_title + " " + model_name)
-        print(f"MAE: {MAE:.{report_ndigits}f}")
-        print(f"RMSE: {RMSE:.{report_ndigits}f}")
-        print(f"MaxError: {MaxError:.{report_ndigits}f}")
-        print(f"R2: {R2:.{report_ndigits}f}")
-
-        # Print residual-distribution audit + noise hypothesis. Reuses
-        # the audit computed once above so we don't recompute moments
-        # twice.
+        # 2026-05-10: route through logger so file handlers (e.g.
+        # pyutilz.logginglib.init_logging) capture the report block.
+        # Pre-fix: bare print() bypassed the logging system entirely
+        # → cell output ✓ but file handler ✗. Operators using
+        # init_logging in jupyter notebooks lost the metric blocks
+        # from on-disk logs.
+        _report_lines = [
+            report_title + " " + model_name,
+            f"MAE: {MAE:.{report_ndigits}f}",
+            f"RMSE: {RMSE:.{report_ndigits}f}",
+            f"MaxError: {MaxError:.{report_ndigits}f}",
+            f"R2: {R2:.{report_ndigits}f}",
+        ]
         if _residual_audit is not None:
             from .regression_residual_audit import (
                 format_residual_audit_report as _fmt_residual_audit,
             )
-            print(_fmt_residual_audit(_residual_audit))
+            _report_lines.append(_fmt_residual_audit(_residual_audit))
+        # Single multi-line logger.info call so the file handler picks
+        # up one record per report block (vs N records for the original
+        # per-line prints). Cell renderers join multiline messages
+        # cleanly under one record.
+        logger.info("\n".join(_report_lines))
 
     if subgroups:
         fairness_report = compute_fairness_metrics(
@@ -1061,7 +1077,9 @@ def report_probabilistic_model_perf(
             metrics.update({class_id: class_metrics})
 
     if print_report:
-        print(report_title + " " + model_name)
+        # 2026-05-10: route through logger so file handlers (e.g.
+        # pyutilz.logginglib.init_logging) capture the report block.
+        # See sibling fix in report_regression_model_perf at line 659.
         # 2026-04-29: replace sklearn's ``classification_report`` with the
         # njit-backed ``format_classification_report``. cProfile of fuzz
         # c0014 traced 90ms (55 %) of the warm-path
@@ -1070,6 +1088,7 @@ def report_probabilistic_model_perf(
         # path, which is overkill for single-label classification. The
         # njit version computes the same numbers in ~1ms warm and formats
         # to the identical text shape.
+        _cls_report_text = ""
         try:
             from mlframe.metrics import format_classification_report
             _y_true = np.asarray(targets).astype(np.int64) if not is_multilabel else None
@@ -1080,21 +1099,26 @@ def report_probabilistic_model_perf(
                 and len(_y_true) == len(_y_pred)
             ):
                 _nclasses = max(int(_y_true.max()) + 1, int(_y_pred.max()) + 1, 2) if len(_y_true) else 2
-                print(format_classification_report(
+                _cls_report_text = format_classification_report(
                     _y_true, _y_pred, nclasses=_nclasses, digits=report_ndigits, zero_division=0,
-                ))
+                )
             else:
-                print(classification_report(targets, preds, zero_division=0, digits=report_ndigits))
+                _cls_report_text = classification_report(targets, preds, zero_division=0, digits=report_ndigits)
         except Exception:
-            print(classification_report(targets, preds, zero_division=0, digits=report_ndigits))
-        print(f"ROC AUCs: {', '.join(roc_aucs)}")
-        print(f"PR AUCs: {', '.join(pr_aucs)}")
-        print(f"CALIBRATIONs: \n{', '.join(calibs)}")
-        print(f"BRIER LOSSes: \n\t{', '.join(brs)}")
-        print(f"LOG_LOSSes: \n\t{', '.join(log_losses)}")
-        print(f"ICEs: \n\t{', '.join(integral_errors)}")
+            _cls_report_text = classification_report(targets, preds, zero_division=0, digits=report_ndigits)
+        _report_lines = [
+            report_title + " " + model_name,
+            _cls_report_text,
+            f"ROC AUCs: {', '.join(roc_aucs)}",
+            f"PR AUCs: {', '.join(pr_aucs)}",
+            f"CALIBRATIONs: \n{', '.join(calibs)}",
+            f"BRIER LOSSes: \n\t{', '.join(brs)}",
+            f"LOG_LOSSes: \n\t{', '.join(log_losses)}",
+            f"ICEs: \n\t{', '.join(integral_errors)}",
+        ]
         if custom_ice_metric != custom_rice_metric:
-            print(f"RICEs: \n\t{', '.join(robust_integral_errors)}")
+            _report_lines.append(f"RICEs: \n\t{', '.join(robust_integral_errors)}")
+        logger.info("\n".join(_report_lines))
 
         print(f"TOTAL INTEGRAL ERROR: {integral_error:.4f}")
         if robust_integral_error is not None:
