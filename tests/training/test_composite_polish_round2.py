@@ -349,3 +349,72 @@ class TestPlotHelpers:
         ]
         fig = plot_mi_gain_with_ci(specs, n_bootstrap=20)
         assert fig is not None
+
+    def test_plot_per_fold_tiny_rmse(self) -> None:
+        from mlframe.training.composite_diagnostics import plot_per_fold_tiny_rmse
+        per_fold = {
+            "spec_a": [1.2, 1.3, 1.1, 1.25],
+            "spec_b": [0.9, 1.0, 0.95, 0.92],
+        }
+        fig = plot_per_fold_tiny_rmse(per_fold, raw_baseline=1.5)
+        assert fig is not None and hasattr(fig, "savefig")
+
+    def test_plot_per_fold_tiny_rmse_empty(self) -> None:
+        from mlframe.training.composite_diagnostics import plot_per_fold_tiny_rmse
+        fig = plot_per_fold_tiny_rmse({})
+        assert fig is not None  # graceful empty-state plot
+
+    def test_plot_per_family_disagreement(self) -> None:
+        from mlframe.training.composite_diagnostics import plot_per_family_disagreement
+        # 3 families, 4 specs.
+        per_family = {
+            "lightgbm": [1.0, 0.9, 1.2, 1.1],
+            "xgboost":  [1.1, 0.85, 1.3, 1.2],
+            "catboost": [0.95, 0.9, 1.25, 1.05],
+        }
+        fig = plot_per_family_disagreement(per_family,
+                                            spec_names=["s1", "s2", "s3", "s4"])
+        assert fig is not None
+
+    def test_plot_per_family_disagreement_single_family(self) -> None:
+        """One-family input -> graceful "need >= 2 families" placeholder."""
+        from mlframe.training.composite_diagnostics import plot_per_family_disagreement
+        fig = plot_per_family_disagreement(
+            {"lightgbm": [1.0, 0.9, 1.2]}, spec_names=["s1", "s2", "s3"],
+        )
+        assert fig is not None
+
+    def test_plot_alpha_stability(self) -> None:
+        from mlframe.training.composite_diagnostics import plot_alpha_stability
+        alphas = [0.95, 0.97, 0.93, 0.96, 0.98, 0.94, 0.95]
+        fig = plot_alpha_stability(alphas, expected_alpha=0.95)
+        assert fig is not None
+
+    def test_plot_alpha_stability_empty(self) -> None:
+        from mlframe.training.composite_diagnostics import plot_alpha_stability
+        fig = plot_alpha_stability([])
+        assert fig is not None
+
+    def test_plot_predictions_vs_actual(self) -> None:
+        from mlframe.training.composite_diagnostics import plot_predictions_vs_actual
+        rng = np.random.default_rng(0)
+        y_true = rng.normal(size=500)
+        y_preds = {
+            "spec_a": y_true + rng.normal(scale=0.1, size=500),
+            "spec_b": y_true + rng.normal(scale=0.5, size=500),
+        }
+        fig = plot_predictions_vs_actual(y_true, y_preds, sample_n=500)
+        assert fig is not None
+
+    def test_plot_predictions_vs_actual_size_mismatch_handled(self) -> None:
+        """Mismatched y_pred size for a spec doesn't crash; that
+        sub-plot just shows a placeholder error message."""
+        from mlframe.training.composite_diagnostics import plot_predictions_vs_actual
+        rng = np.random.default_rng(0)
+        y_true = rng.normal(size=500)
+        y_preds = {
+            "spec_a": y_true + rng.normal(scale=0.1, size=500),
+            "spec_b": rng.normal(size=300),  # wrong size
+        }
+        fig = plot_predictions_vs_actual(y_true, y_preds, sample_n=500)
+        assert fig is not None

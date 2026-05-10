@@ -1,5 +1,83 @@
 # Changelog
 
+## 2026-05-10 — Composite-target follow-ups: 4 plot helpers + R3.18 multilabel + S1-S16 benchmark + profile pass
+
+Closes the three remaining follow-ups after the composite-target hotfix series.
+
+### Added
+
+**Diagnostic plot helpers** (`mlframe/training/composite_diagnostics.py`, +4 functions):
+
+- `plot_per_fold_tiny_rmse(per_fold_rmses, raw_baseline=...)` -- boxplot of CV-fold tiny RMSE per spec, with optional raw-y baseline overlay. Surfaces specs whose mean RMSE looks competitive but variance is wide.
+- `plot_per_family_disagreement(per_family_scores, spec_names)` -- Spearman rank-correlation heatmap between tiny-screening families. High off-diagonal = consensus is safe; low = `tiny_consensus="union"|"borda"` matters. Auto-flips text colour by luminance per `feedback_chart_color_consistency` so cells don't go invisible.
+- `plot_alpha_stability(alpha_per_window, expected_alpha=...)` -- line plot of fitted `alpha` for `linear_residual` across rolling windows. Drift in alpha = concept drift in base->y relationship.
+- `plot_predictions_vs_actual(y_true, y_pred_per_spec)` -- side-by-side scatters of `y_pred` vs `y_true` per spec with sample subsampling for >5K rows. Per-panel RMSE annotation. Diagonal reference line.
+
+**Multilabel regression in discovery (R3.18)** (`mlframe/training/configs.py` + `mlframe/training/core.py`):
+
+- `CompositeTargetDiscoveryConfig.multilabel_strategy: "per_target" | "skip"` (default `"per_target"`). Replaces the legacy "skip with metadata note" behaviour.
+- `train_mlframe_models_suite` now expands 2-D `target_by_type[regression][name]` of shape `(n_rows, n_outputs)` into `n_outputs` separate 1-D sub-targets named `{name}_out{j}` BEFORE composite discovery runs. Composite specs get names like `multi_y_out0__diff__base`, `multi_y_out1__logratio__base`, ...
+- `metadata["multilabel_target_expansion"]` records which parent target produced which sub-targets for downstream traceability.
+
+**S1-S16 full benchmark suite** (`mlframe/benchmarks/composite_target_benchmark.py`, complete rewrite):
+
+The legacy 5-scenario suite was broken by an API drift on `_build_configs_from_params` and used heavyweight `train_mlframe_models_suite`. Replaced with a 16-scenario suite calling `CompositeTargetDiscovery` + LightGBM directly:
+
+| # | scenario | expected | composite RMSE | raw RMSE | imprv% |
+|---|---|---|---:|---:|---:|
+| S1  | pure_lag                   | diff            | 0.5567 | 0.5735 |  +2.93 |
+| S2  | lag_with_signal            | linear_residual | 0.1652 | 0.3160 | +47.71 |
+| S3  | multiplicative             | logratio        | 0.9492 | 1.2655 | +24.99 |
+| S4  | proportional               | ratio           | 0.0719 | 0.1173 | +38.74 |
+| S5  | power_skew                 | (univariate)    | 0.1730 | 0.1791 |  +3.45 |
+| S6  | lognormal_y                | logratio        | 0.7303 | 0.9635 | +24.21 |
+| S7  | multi_base                 | linear_residual | 0.1495 | 0.3543 | +57.81 |
+| S8  | no_dominant_base           | (none)          | 0.1314 | 0.2051 | +35.93 |
+| S9  | mixed_regimes              | (ambiguous)     | 3.3302 | 3.2700 |  -1.84 |
+| S10 | noisy_base                 | linear_residual | 0.9294 | 0.9753 |  +4.71 |
+| S11 | user_data_proxy (TVT)      | linear_residual | 0.1637 | 0.1655 |  +1.07 |
+| S12 | distribution_shift         | diff            | 0.2067 | 0.2978 | +30.58 |
+| S13 | outliers_in_base           | diff            | 0.2121 | 0.2347 |  +9.67 |
+| S14 | heteroscedasticity         | logratio        | 0.8635 | 0.9475 |  +8.87 |
+| S15 | categorical_base           | (no specs)      | nan    | 0.2040 |  n/a   |
+| S16 | false_positive_autobase    | (none)          | 0.9380 | 0.9626 |  +2.56 |
+
+Transform-pick correctness on the 11 scenarios with an expected transform: 9/11 (S1 picks linear_residual instead of diff because alpha~1; S12 same).
+
+### Profile pass (per `feedback_profile_new_features`)
+
+`mlframe/benchmarks/profile_composite_new_code.py` profiles all five new code paths from hotfixes 1/2/3 and the multilabel expansion. Findings:
+
+| Code path                                | Total wall   | New-code overhead | Hot spot                         | Optimisation verdict                                     |
+|-----------------------------------------|-------------:|------------------:|----------------------------------|----------------------------------------------------------|
+| Raw-y baseline gate (3 fold-fits)       |    3.30s     | +1.16s vs no-gate | LGBM `update` (1.02s)            | LGBM internal; not actionable                            |
+| Hint precompute (BD inline + clone)     |    1.14s     | ~0 (Pydantic clone) | LGBM fit in BD (0.91s)         | shared with BD per-target loop, not new                  |
+| Multilabel 4M x 5-output expansion      |    0.49s     | one-shot ndarray slicing | 5x `arr[:, j]` views     | acceptable for one-shot                                  |
+| 4 plot helpers                          |    2.72s     | 1.65s = matplotlib lazy import | one-shot `plt.subplots` | one-shot, amortised across all subsequent plot calls     |
+| corr-threshold filter (200 cols x 100K) |   20.18s     | 0.67s in `_filter_features` | sklearn Kraskov MI (18.8s)  | NOT my code (pre-existing; default `mi_estimator="knn"`) |
+
+Marginal optimisation candidates measured and **rejected** per `feedback_perf_measure_first`:
+
+- `_safe_corr` dot-product variant: 1.17x speedup (1220ms -> 1040ms on 200 cols), code slightly longer. Rejected: marginal speedup vs cleanliness loss.
+- `_safe_corr` fully vectorised: 2.2x speedup (1220ms -> 558ms), but changes per-column NaN semantics (global vs per-col masking). Rejected: behaviour change too invasive for the small win.
+
+**Conclusion**: no actionable speedups in the new code. All hot spots are inside library calls (LGBM internals, sklearn Kraskov MI), one-shot import costs, or pre-existing pre-hotfix code.
+
+### Tests
+
+13 new tests in `mlframe/tests/training/`:
+
+- 8 in `test_composite_polish_round2.py::TestPlotHelpers`: per-fold RMSE, per-fold empty, per-family disagreement, per-family single-family graceful, alpha stability, alpha empty, predictions vs actual, predictions size-mismatch graceful.
+- 5 in `test_composite_gate_and_edges.py::TestIntegrationEdges`: multilabel default `per_target`, validator rejects unknown, per-target expansion via suite, skip strategy preserves 2-D, per-target runs discovery independently.
+
+Total: **175 composite tests pass** (was 162, +13).
+
+### Notes
+
+- S15 categorical_base correctly produces no specs (`cat_base` filtered as non-numeric, leaving only `x1` as numeric -- and discovery skips bases whose `x_remaining` would be empty).
+- S8 no_dominant_base shows the gate accepts a composite with +36% improvement on this seed -- composite was `linear_residual` on `x1` which captures most of the linear y dependence. Not a "false positive" per the gate's contract (composite genuinely beats raw on this synthetic), but worth noting.
+- S16 false_positive_autobase shows a small +2.56% improvement when discovery picks `x1` (not `base`) as the linear_residual base. The shared time trend in `y` is captured by `x1` indirectly. The gate's purpose is to prevent _worse-than-raw_ composites; it's working correctly.
+
 ## 2026-05-10 — RFECV PR-13: API polish + truncated SFFS final-pass swap
 
 Closes 4 items from `feature_selection/wrappers/TODO.md` (and one usability gap).

@@ -3366,6 +3366,43 @@ def train_mlframe_models_suite(
             tt: dict(named) if isinstance(named, dict) else named
             for tt, named in target_by_type.items()
         }
+        # R3.18: multilabel regression -- 2-D target arrays of shape
+        # (n_rows, n_outputs). Expand each into n_outputs separate
+        # 1-D regression targets named ``{target}_out{j}`` so the
+        # rest of the pipeline (composite discovery + per-target
+        # training) treats them independently. Caller can opt out
+        # via ``multilabel_strategy="skip"`` to fall back to the
+        # legacy "skip with metadata note" behaviour.
+        _ml_strategy = str(getattr(
+            composite_target_discovery_config,
+            "multilabel_strategy", "per_target",
+        ))
+        if _ml_strategy == "per_target":
+            _expanded = dict(target_by_type[TargetTypes.REGRESSION])
+            _ml_expanded_map: Dict[str, List[str]] = {}
+            for _tn, _tv in list(target_by_type[TargetTypes.REGRESSION].items()):
+                _arr = np.asarray(_tv)
+                if _arr.ndim == 2 and _arr.shape[1] >= 1:
+                    sub_names = []
+                    for _j in range(_arr.shape[1]):
+                        _sub_name = f"{_tn}_out{_j}"
+                        _expanded[_sub_name] = _arr[:, _j]
+                        sub_names.append(_sub_name)
+                    # Drop the original 2-D entry; sub-targets now
+                    # cover it.
+                    _expanded.pop(_tn, None)
+                    _ml_expanded_map[_tn] = sub_names
+                    logger.info(
+                        "[CompositeTargetDiscovery] R3.18: multilabel "
+                        "target '%s' (shape=%s) expanded into %d 1-D "
+                        "sub-targets: %s",
+                        _tn, _arr.shape, _arr.shape[1], sub_names,
+                    )
+            target_by_type[TargetTypes.REGRESSION] = _expanded
+            if _ml_expanded_map:
+                metadata.setdefault("multilabel_target_expansion", {})[
+                    str(TargetTypes.REGRESSION)
+                ] = _ml_expanded_map
         # Get the "filtered" feature columns: training feature columns at
         # the OD-filtered DataFrame. Discovery reads from filtered_train_df
         # to keep one row-set semantics.

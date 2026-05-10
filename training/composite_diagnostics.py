@@ -271,9 +271,266 @@ def plot_mi_gain_with_ci(
     return fig
 
 
+def plot_per_fold_tiny_rmse(
+    per_fold_rmses: Dict[str, Sequence[float]],
+    *,
+    raw_baseline: Optional[float] = None,
+    title: str = "Per-fold tiny CV-RMSE per composite spec",
+    figsize: Tuple[float, float] = (10, 5),
+):
+    """Boxplot of per-fold tiny CV-RMSE (y-scale, after inverse) per
+    composite spec. Shows the cross-fold variance directly so a spec
+    whose mean RMSE is best-by-a-hair but has wide fold spread can be
+    flagged as unstable.
+
+    ``per_fold_rmses`` is ``{spec_name: [rmse_fold_0, rmse_fold_1, ...]}``.
+    Pass ``raw_baseline`` to overlay the raw-y baseline RMSE as a
+    dashed horizontal line; specs whose box sits entirely above this
+    line are gate-rejected.
+    """
+    plt = _lazy_pyplot()
+    if not per_fold_rmses:
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.text(0.5, 0.5, "no per-fold RMSE data",
+                ha="center", va="center", transform=ax.transAxes)
+        ax.set_title(title)
+        return fig
+    names = list(per_fold_rmses.keys())
+    data = [
+        [float(v) for v in per_fold_rmses[n] if np.isfinite(v)]
+        for n in names
+    ]
+    fig, ax = plt.subplots(figsize=figsize)
+    bp = ax.boxplot(data, tick_labels=names, showfliers=True, patch_artist=True)
+    for patch in bp["boxes"]:
+        patch.set_facecolor("tab:blue")
+        patch.set_alpha(0.6)
+    if raw_baseline is not None and np.isfinite(raw_baseline):
+        ax.axhline(raw_baseline, color="black", linestyle="--",
+                   linewidth=1.0,
+                   label=f"raw-y baseline = {raw_baseline:.4f}")
+        ax.legend(loc="best", fontsize=9)
+    ax.set_ylabel("CV-RMSE on y-scale (after inverse)")
+    ax.set_xticklabels(names, rotation=30, ha="right", fontsize=8)
+    ax.set_title(title)
+    ax.grid(axis="y", alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
+def plot_per_family_disagreement(
+    per_family_scores: Dict[str, Sequence[float]],
+    spec_names: Sequence[str],
+    *,
+    title: str = "Per-family rerank rank-correlation",
+    figsize: Tuple[float, float] = (6, 5),
+):
+    """Heatmap of Spearman rank-correlation between tiny-model
+    families' rerank rankings.
+
+    ``per_family_scores`` is ``{family: [score_for_spec_0, score_for_spec_1, ...]}``
+    aligned to ``spec_names``. When per-family screening is enabled,
+    different families (LightGBM / XGBoost / CatBoost / linear) can
+    disagree on which composite is best -- this heatmap surfaces how
+    aligned they are. High off-diagonal correlation = consensus is
+    safe; low = "union" or "borda" aggregation matters.
+    """
+    plt = _lazy_pyplot()
+    families = list(per_family_scores.keys())
+    if len(families) < 2:
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.text(0.5, 0.5,
+                "need >= 2 families for disagreement plot",
+                ha="center", va="center", transform=ax.transAxes)
+        ax.set_title(title)
+        return fig
+    # Lower CV-RMSE is better -> rank ascending.
+    score_matrix = np.array(
+        [list(per_family_scores[f]) for f in families], dtype=np.float64
+    )
+    n_specs = score_matrix.shape[1]
+    if n_specs < 2:
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.text(0.5, 0.5, "need >= 2 specs for disagreement plot",
+                ha="center", va="center", transform=ax.transAxes)
+        ax.set_title(title)
+        return fig
+    # Spearman = Pearson on ranks.
+    rank_matrix = np.argsort(np.argsort(score_matrix, axis=1), axis=1)
+    n_fam = len(families)
+    corr = np.zeros((n_fam, n_fam))
+    for i in range(n_fam):
+        for j in range(n_fam):
+            if i == j:
+                corr[i, j] = 1.0
+            else:
+                a = rank_matrix[i].astype(np.float64)
+                b = rank_matrix[j].astype(np.float64)
+                if a.std() == 0 or b.std() == 0:
+                    corr[i, j] = float("nan")
+                else:
+                    corr[i, j] = float(np.corrcoef(a, b)[0, 1])
+    fig, ax = plt.subplots(figsize=figsize)
+    im = ax.imshow(corr, cmap="RdYlGn", vmin=-1.0, vmax=1.0, aspect="auto")
+    ax.set_xticks(range(n_fam))
+    ax.set_xticklabels(families, rotation=30, ha="right")
+    ax.set_yticks(range(n_fam))
+    ax.set_yticklabels(families)
+    # Auto-flip text colour by background luminance: dark text on
+    # light cells (corr near 0) was unreadable on white-on-yellow
+    # cells (memory note feedback_chart_color_consistency).
+    for i in range(n_fam):
+        for j in range(n_fam):
+            v = corr[i, j]
+            text_color = "white" if abs(v) > 0.55 else "black"
+            ax.text(j, i, f"{v:.2f}" if np.isfinite(v) else "NA",
+                    ha="center", va="center",
+                    color=text_color, fontsize=10)
+    fig.colorbar(im, ax=ax, label="Spearman rank corr")
+    ax.set_title(title + f" ({n_specs} specs)")
+    fig.tight_layout()
+    return fig
+
+
+def plot_alpha_stability(
+    alpha_per_window: Sequence[float],
+    *,
+    window_indices: Optional[Sequence[Any]] = None,
+    title: str = "linear_residual alpha stability over windows",
+    figsize: Tuple[float, float] = (10, 4),
+    expected_alpha: Optional[float] = None,
+):
+    """Line plot of fitted ``alpha`` (linear_residual coefficient)
+    across rolling windows of the train data.
+
+    A drift in ``alpha`` over time signals concept drift in the
+    base->y relationship. ``alpha_per_window`` is the sequence of
+    fitted alphas; ``window_indices`` gives x-axis labels (e.g.
+    timestamps or window IDs). ``expected_alpha`` overlays a
+    horizontal reference line (e.g. the alpha fitted on the full
+    train).
+    """
+    plt = _lazy_pyplot()
+    alpha_arr = np.asarray(alpha_per_window, dtype=np.float64)
+    if alpha_arr.size == 0:
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.text(0.5, 0.5, "no alpha samples",
+                ha="center", va="center", transform=ax.transAxes)
+        ax.set_title(title)
+        return fig
+    if window_indices is None:
+        x = np.arange(alpha_arr.size)
+    else:
+        x = np.arange(len(window_indices))
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.plot(x, alpha_arr, marker="o", linewidth=1.5,
+            color="tab:blue", label="alpha per window")
+    if expected_alpha is not None and np.isfinite(expected_alpha):
+        ax.axhline(expected_alpha, color="black", linestyle="--",
+                   linewidth=1.0,
+                   label=f"reference alpha = {expected_alpha:.4f}")
+    if window_indices is not None:
+        ax.set_xticks(x)
+        ax.set_xticklabels(
+            [str(w) for w in window_indices], rotation=30, ha="right",
+            fontsize=8,
+        )
+    finite = alpha_arr[np.isfinite(alpha_arr)]
+    if finite.size:
+        ax.text(0.02, 0.98,
+                f"mean={finite.mean():.4f}\n"
+                f"std ={finite.std():.4f}\n"
+                f"range=[{finite.min():.4f}, {finite.max():.4f}]",
+                transform=ax.transAxes, va="top", fontsize=9,
+                family="monospace",
+                bbox={"facecolor": "white", "alpha": 0.7,
+                      "edgecolor": "gray"})
+    ax.set_xlabel("window")
+    ax.set_ylabel("fitted alpha")
+    ax.set_title(title)
+    ax.grid(alpha=0.3)
+    ax.legend(loc="best", fontsize=9)
+    fig.tight_layout()
+    return fig
+
+
+def plot_predictions_vs_actual(
+    y_true: np.ndarray,
+    y_pred_per_spec: Dict[str, np.ndarray],
+    *,
+    title: str = "Predictions vs actual per composite",
+    figsize: Tuple[float, float] = (12, 4),
+    sample_n: int = 5000,
+    random_state: int = 42,
+):
+    """Side-by-side scatter ``y_pred`` vs ``y_true`` per composite.
+
+    ``y_pred_per_spec`` is ``{spec_name: y_hat_array}`` where each
+    ``y_hat_array`` is in the y-scale (post-inverse). On large
+    datasets we subsample to ``sample_n`` rows for plot legibility.
+    The diagonal y=x is overlaid for reference; tight clusters along
+    it = good predictions.
+    """
+    plt = _lazy_pyplot()
+    n_specs = len(y_pred_per_spec)
+    if n_specs == 0:
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.text(0.5, 0.5, "no predictions to plot",
+                ha="center", va="center", transform=ax.transAxes)
+        ax.set_title(title)
+        return fig
+    rng = np.random.default_rng(random_state)
+    if y_true.size > sample_n:
+        sample_idx = rng.choice(y_true.size, size=sample_n, replace=False)
+    else:
+        sample_idx = np.arange(y_true.size)
+    y_sample = y_true[sample_idx]
+    fig, axes = plt.subplots(
+        1, n_specs, figsize=(figsize[0], figsize[1]), sharey=True,
+    )
+    if n_specs == 1:
+        axes = [axes]
+    lo = float(np.nanmin(y_sample))
+    hi = float(np.nanmax(y_sample))
+    for ax, (name, y_hat) in zip(axes, y_pred_per_spec.items()):
+        y_hat_arr = np.asarray(y_hat)
+        if y_hat_arr.size != y_true.size:
+            ax.text(0.5, 0.5,
+                    f"size mismatch:\n{y_hat_arr.size} vs {y_true.size}",
+                    ha="center", va="center", transform=ax.transAxes)
+            ax.set_title(name)
+            continue
+        y_hat_sample = y_hat_arr[sample_idx]
+        finite = np.isfinite(y_sample) & np.isfinite(y_hat_sample)
+        ax.scatter(y_sample[finite], y_hat_sample[finite],
+                   s=4, alpha=0.4, color="tab:blue")
+        ax.plot([lo, hi], [lo, hi], color="black",
+                linestyle="--", linewidth=1.0, label="y = ŷ")
+        # RMSE annotation for the rendered sample.
+        diff = y_hat_sample[finite] - y_sample[finite]
+        rmse = float(np.sqrt(np.mean(diff * diff))) if finite.any() else float("nan")
+        ax.text(0.02, 0.98,
+                f"RMSE = {rmse:.4f}\nn = {int(finite.sum())}",
+                transform=ax.transAxes, va="top",
+                fontsize=9, family="monospace",
+                bbox={"facecolor": "white", "alpha": 0.7,
+                      "edgecolor": "gray"})
+        ax.set_xlabel("y_true")
+        ax.set_title(name, fontsize=10)
+        ax.grid(alpha=0.3)
+    axes[0].set_ylabel("y_pred (post-inverse)")
+    fig.suptitle(title)
+    fig.tight_layout()
+    return fig
+
+
 __all__ = [
     "plot_target_distribution",
     "plot_qq",
     "plot_linear_fit",
     "plot_mi_gain_with_ci",
+    "plot_per_fold_tiny_rmse",
+    "plot_per_family_disagreement",
+    "plot_alpha_stability",
+    "plot_predictions_vs_actual",
 ]

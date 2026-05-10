@@ -1,402 +1,604 @@
-"""Synthetic benchmark suite for composite-target discovery.
+"""Composite-target full S1-S16 benchmark suite.
 
-Runs ``train_mlframe_models_suite`` on N pre-defined synthetic
-scenarios with composite-target discovery enabled and disabled, then
-emits a leaderboard table comparing y-scale RMSE on a held-out test
-slice.
+Runs each scenario through CompositeTargetDiscovery + final tiny LGBM
+fit, measures per-scenario test RMSE on a held-out split, and emits a
+leaderboard. Drives the choice of defaults that
+``CompositeTargetDiscoveryConfig`` ships with.
 
-The synthetic scenarios are calibrated so that the "expected winner"
-is known a priori. If a discovered composite target ranks first on
-a scenario where it was designed to win (S1, S2, S3, S4) the
-benchmark passes that row; otherwise it fails. S5 ("no_dominant")
-is a control: composite mode should NOT noticeably beat raw, so
-"composite wins by < 1%" is the pass condition.
+Replaces the legacy 5-scenario benchmark that called
+``train_mlframe_models_suite`` (heavy, currently broken by an API
+drift on ``_build_configs_from_params``). The new version uses
+``CompositeTargetDiscovery`` directly + LightGBM for the final fit;
+no full suite invocation, no API-drift fragility.
 
-Usage
------
+Scenarios (16 total)
+--------------------
 
-::
+- S1  pure_lag                       diff should win
+- S2  lag_with_signal                linear_residual should win
+- S3  multiplicative                 logratio should win
+- S4  proportional                   ratio should win
+- S5  power_skew                     univariate transforms (out of scope)
+- S6  lognormal_y                    logratio should win
+- S7  multi_base                     linear_residual on stronger base
+- S8  no_dominant_base               raw-y baseline gate should fire
+- S9  mixed_regimes                  ambiguous winner (ensemble territory)
+- S10 noisy_base                     linear_residual + raw-y gate
+- S11 user_data_proxy                AR(1) lag + spatial coords (TVT-like)
+- S12 distribution_shift             stationarity check
+- S13 outliers_in_base               domain-validity skips
+- S14 heteroscedasticity             logratio stabilises variance
+- S15 categorical_base               type-check skip diff/ratio
+- S16 false_positive_autobase        composite shouldn't help
+
+Per scenario we report:
+- chosen base + transform (top-1 spec from discovery)
+- composite test RMSE
+- raw-y test RMSE (baseline)
+- improvement % vs raw (negative = composite worse)
+
+Usage::
 
     python -m mlframe.benchmarks.composite_target_benchmark
     python -m mlframe.benchmarks.composite_target_benchmark --fast
-    python -m mlframe.benchmarks.composite_target_benchmark --output ./bench.json
+    python -m mlframe.benchmarks.composite_target_benchmark --scenario S3_multiplicative
 
-Outputs
--------
-
-- JSON file with per-scenario per-mode metrics and the verdict.
-- Markdown leaderboard table on stdout (and optionally to a file).
-
-Where outputs go
-----------------
-
-By default writes ``composite_target_benchmark_results.json`` in the
-current working directory and prints the Markdown summary to stdout.
-The script lives inside the package so it is reachable as
-``python -m mlframe.benchmarks.composite_target_benchmark`` after
-``pip install``.
+Outputs JSON and a matplotlib heatmap to ``benchmarks/``.
 """
 from __future__ import annotations
 
 import argparse
 import json
-import logging
-import os
 import sys
-import tempfile
 import time
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+from sklearn.metrics import mean_squared_error
 
-logger = logging.getLogger(__name__)
+sys.path.insert(0, "D:/Upd/Programming/PythonCodeRepository/mlframe")
+sys.path.insert(0, "D:/Upd/Programming/PythonCodeRepository")
 
 
 # ----------------------------------------------------------------------
-# Scenario generators
+# Synthetic data generators
 # ----------------------------------------------------------------------
 
 
-def _seed(rng_seed: int) -> np.random.Generator:
-    return np.random.default_rng(rng_seed)
-
-
-def _scenario_pure_lag(n: int, seed: int = 0) -> Tuple[pd.DataFrame, str]:
-    """y = base + small_noise. No structural signal beyond the lag.
-    Expected winner: ``diff`` (pure-residual transform)."""
-    rng = _seed(seed)
-    base = rng.normal(loc=10.0, scale=3.0, size=n)
-    y = base + rng.normal(scale=0.05 * 3.0, size=n)
-    df = pd.DataFrame({
-        "TVT_prev": base,
-        "x1": rng.normal(size=n),
-        "x2": rng.normal(size=n),
-        "x3": rng.normal(size=n),
-        "target": y,
-    })
-    return df, "diff"
-
-
-def _scenario_lag_with_signal(n: int, seed: int = 0) -> Tuple[pd.DataFrame, str]:
-    """y = 0.95 * base + structural_signal + noise.
-    Expected winner: ``linear_residual`` (captures the 0.95 explicitly)."""
-    rng = _seed(seed)
-    base = rng.normal(loc=10.0, scale=3.0, size=n)
+def s1_pure_lag(n: int = 4000, seed: int = 0):
+    """y = base + small noise. diff is the canonical winner."""
+    rng = np.random.default_rng(seed)
+    base = rng.normal(loc=10, scale=3, size=n)
     x1 = rng.normal(size=n)
     x2 = rng.normal(size=n)
-    y = 0.95 * base + 0.5 * x1 - 0.3 * x2 + rng.normal(scale=0.3, size=n)
-    df = pd.DataFrame({
-        "TVT_prev": base, "x1": x1, "x2": x2,
-        "x3": rng.normal(size=n),
-        "target": y,
-    })
-    return df, "linear_residual"
+    y = base + rng.normal(scale=0.5, size=n)
+    df = pd.DataFrame({"base": base, "x1": x1, "x2": x2, "y": y})
+    return df, "y", ["base", "x1", "x2"], "base", "diff"
 
 
-def _scenario_multiplicative(n: int, seed: int = 0) -> Tuple[pd.DataFrame, str]:
-    """y = base * exp(structural_signal + noise). Strictly positive.
-    Expected winner: ``logratio`` (variance stabilisation)."""
-    rng = _seed(seed)
+def s2_lag_with_signal(n: int = 4000, seed: int = 0):
+    """y = 0.95*base + g(X) + epsilon. linear_residual should win."""
+    rng = np.random.default_rng(seed)
+    base = rng.normal(loc=10, scale=3, size=n)
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    y = (0.95 * base + 1.5 * x1 - 0.8 * np.sin(x2 * 2)
+         + rng.normal(scale=0.1, size=n))
+    df = pd.DataFrame({"base": base, "x1": x1, "x2": x2, "y": y})
+    return df, "y", ["base", "x1", "x2"], "base", "linear_residual"
+
+
+def s3_multiplicative(n: int = 4000, seed: int = 0):
+    """y = base * exp(g(X) + eps). logratio should win."""
+    rng = np.random.default_rng(seed)
     base = rng.lognormal(mean=2.0, sigma=0.4, size=n)
     x1 = rng.normal(size=n)
     x2 = rng.normal(size=n)
-    y = base * np.exp(0.3 * x1 - 0.2 * x2 + rng.normal(scale=0.1, size=n))
-    df = pd.DataFrame({
-        "TVT_prev": base, "x1": x1, "x2": x2,
-        "x3": rng.normal(size=n),
-        "target": y,
-    })
-    return df, "logratio"
+    y = base * np.exp(0.5 * x1 + 0.3 * np.sin(x2 * 2)
+                      + rng.normal(scale=0.05, size=n))
+    df = pd.DataFrame({"base": base, "x1": x1, "x2": x2, "y": y})
+    return df, "y", ["base", "x1", "x2"], "base", "logratio"
 
 
-def _scenario_proportional(n: int, seed: int = 0) -> Tuple[pd.DataFrame, str]:
-    """y = base * (1 + 0.1 * structural_signal) + small_noise.
-    Expected winner: ``ratio``."""
-    rng = _seed(seed)
-    base = rng.uniform(low=2.0, high=20.0, size=n)
+def s4_proportional(n: int = 4000, seed: int = 0):
+    """y = base * (1 + 0.1*g(X)) + small noise. ratio should win."""
+    rng = np.random.default_rng(seed)
+    base = rng.uniform(low=2.0, high=10.0, size=n)
     x1 = rng.normal(size=n)
     x2 = rng.normal(size=n)
-    y = base * (1.0 + 0.1 * x1 - 0.05 * x2) + rng.normal(scale=0.05, size=n)
+    y = base * (1.0 + 0.1 * (x1 + 0.5 * np.sin(x2 * 3))
+                + rng.normal(scale=0.005, size=n))
+    df = pd.DataFrame({"base": base, "x1": x1, "x2": x2, "y": y})
+    return df, "y", ["base", "x1", "x2"], "base", "ratio"
+
+
+def s5_power_skew(n: int = 4000, seed: int = 0):
+    """y = base^2 + g(X). Univariate sqrt_y / log_y is OUT of the
+    default registry. Sanity: composite shouldn't outperform raw by
+    much; raw-y gate should keep things sensible."""
+    rng = np.random.default_rng(seed)
+    base = rng.uniform(low=1.0, high=5.0, size=n)
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    y = base ** 2 + 0.5 * x1 - 0.3 * x2 + rng.normal(scale=0.1, size=n)
+    df = pd.DataFrame({"base": base, "x1": x1, "x2": x2, "y": y})
+    return df, "y", ["base", "x1", "x2"], "base", None
+
+
+def s6_lognormal_y(n: int = 4000, seed: int = 0):
+    """log(y) = a*log(base) + g(X), y > 0. logratio should win."""
+    rng = np.random.default_rng(seed)
+    base = rng.lognormal(mean=2.0, sigma=0.4, size=n)
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    log_y = (0.9 * np.log(base) + 0.4 * x1 - 0.2 * np.sin(x2 * 2)
+             + rng.normal(scale=0.05, size=n))
+    y = np.exp(log_y)
+    df = pd.DataFrame({"base": base, "x1": x1, "x2": x2, "y": y})
+    return df, "y", ["base", "x1", "x2"], "base", "logratio"
+
+
+def s7_multi_base(n: int = 4000, seed: int = 0):
+    """y = beta1*base1 + beta2*base2 + g(X). Single-base mode:
+    linear_residual on the stronger of base1/base2 wins."""
+    rng = np.random.default_rng(seed)
+    base1 = rng.normal(loc=10, scale=3, size=n)
+    base2 = rng.normal(loc=5, scale=2, size=n)
+    x1 = rng.normal(size=n)
+    y = (1.5 * base1 + 0.8 * base2 + 0.5 * x1
+         + rng.normal(scale=0.1, size=n))
+    df = pd.DataFrame({"base1": base1, "base2": base2, "x1": x1, "y": y})
+    return df, "y", ["base1", "base2", "x1"], "base1", "linear_residual"
+
+
+def s8_no_dominant_base(n: int = 4000, seed: int = 0):
+    """y = g(X) + noise. No dominant base. Composite shouldn't help
+    raw-y; raw-y gate should reject every composite."""
+    rng = np.random.default_rng(seed)
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    x3 = rng.normal(size=n)
+    y = (1.5 * x1 - 0.8 * np.sin(x2 * 2) + 0.5 * x3
+         + rng.normal(scale=0.1, size=n))
+    df = pd.DataFrame({"x1": x1, "x2": x2, "x3": x3, "y": y})
+    return df, "y", ["x1", "x2", "x3"], None, None
+
+
+def s9_mixed_regimes(n: int = 4000, seed: int = 0):
+    """50% rows from S2 (additive lag), 50% from S3 (multiplicative).
+    Single-spec winner: ambiguous; cross-target ensemble territory."""
+    rng = np.random.default_rng(seed)
+    base = rng.lognormal(mean=2.0, sigma=0.4, size=n)
+    x1 = rng.normal(size=n)
+    x2 = rng.normal(size=n)
+    additive_mask = rng.random(n) < 0.5
+    y = np.zeros(n)
+    y[additive_mask] = (
+        0.95 * base[additive_mask]
+        + 1.5 * x1[additive_mask]
+        - 0.8 * np.sin(x2[additive_mask] * 2)
+        + rng.normal(scale=0.1, size=int(additive_mask.sum()))
+    )
+    y[~additive_mask] = (
+        base[~additive_mask] * np.exp(
+            0.5 * x1[~additive_mask]
+            + 0.3 * np.sin(x2[~additive_mask] * 2)
+            + rng.normal(scale=0.05, size=int((~additive_mask).sum()))
+        )
+    )
+    df = pd.DataFrame({"base": base, "x1": x1, "x2": x2, "y": y})
+    return df, "y", ["base", "x1", "x2"], "base", None
+
+
+def s10_noisy_base(n: int = 4000, seed: int = 0):
+    """y = 0.95*base_clean + epsilon, observed base = base_clean +
+    measurement noise. linear_residual fits alpha properly."""
+    rng = np.random.default_rng(seed)
+    base_clean = rng.normal(loc=10, scale=3, size=n)
+    measurement_noise = rng.normal(scale=1.0, size=n)
+    base = base_clean + measurement_noise
+    x1 = rng.normal(size=n)
+    y = 0.95 * base_clean + 0.5 * x1 + rng.normal(scale=0.2, size=n)
+    df = pd.DataFrame({"base": base, "x1": x1, "y": y})
+    return df, "y", ["base", "x1"], "base", "linear_residual"
+
+
+def s11_user_data_proxy(n: int = 4000, seed: int = 0):
+    """AR(1) lag + spatial coordinates (TVT production failure mode
+    proxy until privacy review allows real data)."""
+    rng = np.random.default_rng(seed)
+    X = rng.uniform(-2, 2, size=n)
+    Y = rng.uniform(-2, 2, size=n)
+    Z = rng.uniform(-2, 2, size=n)
+    spatial_trend = 1.5 * np.sin(X) + 1.0 * np.cos(Y) + 0.7 * Z
+    y = np.zeros(n)
+    y[0] = spatial_trend[0]
+    for i in range(1, n):
+        y[i] = (0.92 * y[i - 1]
+                + 0.06 * spatial_trend[i]
+                + rng.normal(scale=0.15))
+    y_prev = np.r_[y[0], y[:-1]]
+    f1 = rng.normal(size=n)
     df = pd.DataFrame({
-        "TVT_prev": base, "x1": x1, "x2": x2,
-        "x3": rng.normal(size=n),
-        "target": y,
+        "X": X, "Y": Y, "Z": Z, "y_prev": y_prev, "f1": f1, "y": y,
     })
-    return df, "ratio"
+    return df, "y", ["X", "Y", "Z", "y_prev", "f1"], "y_prev", "linear_residual"
 
 
-def _scenario_no_dominant(n: int, seed: int = 0) -> Tuple[pd.DataFrame, str]:
-    """y = sum_i 0.3 * x_i + noise. No feature dominates.
-    Expected: composite mode shows mi_recommendation=unlikely_to_help;
-    enabling it should NOT meaningfully beat raw."""
-    rng = _seed(seed)
-    X = rng.normal(size=(n, 4))
-    y = 0.3 * X.sum(axis=1) + rng.normal(scale=2.0, size=n)
-    df = pd.DataFrame(X, columns=["TVT_prev", "x1", "x2", "x3"])
-    df["target"] = y
-    return df, ""  # no expected winner
+def s12_distribution_shift(n: int = 4000, seed: int = 0):
+    """base distribution shifts between train and test halves."""
+    rng = np.random.default_rng(seed)
+    base = np.concatenate([
+        rng.normal(loc=10, scale=2, size=n // 2),
+        rng.normal(loc=15, scale=3, size=n - n // 2),
+    ])
+    x1 = rng.normal(size=n)
+    y = base + 0.5 * x1 + rng.normal(scale=0.2, size=n)
+    df = pd.DataFrame({"base": base, "x1": x1, "y": y})
+    return df, "y", ["base", "x1"], "base", "diff"
 
 
-SCENARIOS: List[Tuple[str, Callable[[int, int], Tuple[pd.DataFrame, str]]]] = [
-    ("pure_lag", _scenario_pure_lag),
-    ("lag_with_signal", _scenario_lag_with_signal),
-    ("multiplicative", _scenario_multiplicative),
-    ("proportional", _scenario_proportional),
-    ("no_dominant", _scenario_no_dominant),
-]
+def s13_outliers_in_base(n: int = 4000, seed: int = 0):
+    """5% near-zero in base: ratio/logratio should skip via
+    domain_check; diff/linear_residual remain fine."""
+    rng = np.random.default_rng(seed)
+    base = rng.uniform(low=2.0, high=10.0, size=n)
+    near_zero_mask = rng.random(n) < 0.05
+    base[near_zero_mask] = rng.uniform(low=-0.01, high=0.01,
+                                        size=int(near_zero_mask.sum()))
+    x1 = rng.normal(size=n)
+    y = base + 0.5 * x1 + rng.normal(scale=0.2, size=n)
+    df = pd.DataFrame({"base": base, "x1": x1, "y": y})
+    return df, "y", ["base", "x1"], "base", "diff"
+
+
+def s14_heteroscedasticity(n: int = 4000, seed: int = 0):
+    """y variance scales with base. logratio stabilises log-domain."""
+    rng = np.random.default_rng(seed)
+    base = rng.lognormal(mean=2.0, sigma=0.4, size=n)
+    x1 = rng.normal(size=n)
+    y = base * (1.0 + 0.3 * x1) + rng.normal(scale=base * 0.1, size=n)
+    y = np.maximum(y, 1e-3)
+    df = pd.DataFrame({"base": base, "x1": x1, "y": y})
+    return df, "y", ["base", "x1"], "base", "logratio"
+
+
+def s15_categorical_base(n: int = 4000, seed: int = 0):
+    """Categorical base column. diff/ratio/logratio should skip via
+    numeric type check; linear_residual via OHE not in default
+    registry. Expected: NO composite kept; raw-y wins."""
+    rng = np.random.default_rng(seed)
+    cat_base = rng.choice(["a", "b", "c"], size=n)
+    cat_offset = (
+        pd.Series(cat_base).map({"a": 0.0, "b": 5.0, "c": 10.0}).to_numpy()
+    )
+    x1 = rng.normal(size=n)
+    y = cat_offset + 0.5 * x1 + rng.normal(scale=0.2, size=n)
+    df = pd.DataFrame({"cat_base": cat_base, "x1": x1, "y": y})
+    return df, "y", ["cat_base", "x1"], None, None
+
+
+def s16_false_positive_autobase(n: int = 4000, seed: int = 0):
+    """y and base correlated only via shared time trend. Composite
+    shouldn't help; raw-y gate should reject."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(n) / n
+    base = 5.0 * t + rng.normal(scale=0.5, size=n)
+    x1 = rng.normal(size=n)
+    y = 5.0 * t + 0.5 * x1 + rng.normal(scale=0.2, size=n)
+    df = pd.DataFrame({"base": base, "x1": x1, "y": y})
+    return df, "y", ["base", "x1"], None, None
+
+
+SCENARIOS: Dict[str, Tuple[Callable, Optional[str]]] = {
+    "S1_pure_lag":              (s1_pure_lag, "diff"),
+    "S2_lag_with_signal":       (s2_lag_with_signal, "linear_residual"),
+    "S3_multiplicative":        (s3_multiplicative, "logratio"),
+    "S4_proportional":          (s4_proportional, "ratio"),
+    "S5_power_skew":            (s5_power_skew, None),
+    "S6_lognormal_y":           (s6_lognormal_y, "logratio"),
+    "S7_multi_base":            (s7_multi_base, "linear_residual"),
+    "S8_no_dominant_base":      (s8_no_dominant_base, None),
+    "S9_mixed_regimes":         (s9_mixed_regimes, None),
+    "S10_noisy_base":           (s10_noisy_base, "linear_residual"),
+    "S11_user_data_proxy":      (s11_user_data_proxy, "linear_residual"),
+    "S12_distribution_shift":   (s12_distribution_shift, "diff"),
+    "S13_outliers_in_base":     (s13_outliers_in_base, "diff"),
+    "S14_heteroscedasticity":   (s14_heteroscedasticity, "logratio"),
+    "S15_categorical_base":     (s15_categorical_base, None),
+    "S16_false_positive_autobase": (s16_false_positive_autobase, None),
+}
 
 
 # ----------------------------------------------------------------------
-# Benchmark runner
+# Run one scenario
 # ----------------------------------------------------------------------
 
 
-@dataclass
-class BenchResult:
-    scenario: str
-    n_samples: int
-    expected_winner: str
-    raw_test_rmse: float
-    composite_test_rmse: float
-    composite_relative_improvement_pct: float
-    discovered_top_transform: str
-    elapsed_raw_s: float
-    elapsed_composite_s: float
-    verdict: str
+def _run_scenario(
+    scenario_fn: Callable,
+    *,
+    n: int, seed: int,
+    expected_transform: Optional[str],
+) -> Dict:
+    from mlframe.training.composite import (
+        CompositeTargetDiscovery, get_transform,
+    )
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+    from lightgbm import LGBMRegressor
 
-    def to_dict(self) -> Dict[str, Any]:
+    df, target_col, feature_cols, expected_base, _ = scenario_fn(
+        n=n, seed=seed,
+    )
+    cut = int(len(df) * 0.8)
+    train_idx = np.arange(cut)
+    test_idx = np.arange(cut, len(df))
+
+    cfg = CompositeTargetDiscoveryConfig(
+        enabled=True, screening="hybrid",
+        mi_sample_n=1500,
+        tiny_model_sample_n=1200,
+        tiny_model_n_estimators=60,
+        tiny_model_cv_folds=3,
+        eps_mi_gain=-1.0,
+        auto_base_top_k=3,
+        top_k_after_mi=8,
+        top_m_after_tiny=2,
+        require_beats_raw_baseline=True,
+        raw_baseline_tolerance=1.05,
+        random_state=seed,
+        transforms=["diff", "ratio", "logratio", "linear_residual"],
+        use_baseline_diagnostics_hint=False,
+    )
+    disc = CompositeTargetDiscovery(cfg)
+    try:
+        disc.fit(df=df, target_col=target_col, feature_cols=feature_cols,
+                 train_idx=train_idx)
+    except Exception as exc:
         return {
-            "scenario": self.scenario,
-            "n_samples": self.n_samples,
-            "expected_winner": self.expected_winner or None,
-            "raw_test_rmse": float(self.raw_test_rmse),
-            "composite_test_rmse": float(self.composite_test_rmse),
-            "composite_relative_improvement_pct": float(self.composite_relative_improvement_pct),
-            "discovered_top_transform": self.discovered_top_transform or None,
-            "elapsed_raw_s": float(self.elapsed_raw_s),
-            "elapsed_composite_s": float(self.elapsed_composite_s),
-            "verdict": self.verdict,
+            "n_specs": 0, "top_base": None, "top_transform": None,
+            "test_rmse": float("nan"), "raw_rmse": float("nan"),
+            "expected_transform": expected_transform,
+            "expected_base": expected_base,
+            "discovery_error": str(exc),
         }
 
-
-def _run_one(
-    df: pd.DataFrame,
-    *,
-    composite_enabled: bool,
-    work_dir: str,
-    fast: bool = False,
-) -> Tuple[float, str, float]:
-    """Run ``train_mlframe_models_suite`` once on ``df``; return
-    ``(test_rmse_or_nan, top_composite_transform_name, elapsed_s)``."""
-    from mlframe.training.configs import (
-        CompositeTargetDiscoveryConfig, TrainingSplitConfig,
+    # Build numeric feature matrix.
+    numeric_x_cols: List[str] = []
+    df_lgbm = df.copy()
+    for c in feature_cols:
+        if not pd.api.types.is_numeric_dtype(df_lgbm[c]):
+            df_lgbm[c] = pd.Categorical(df_lgbm[c]).codes.astype(np.float64)
+        numeric_x_cols.append(c)
+    y_train = df[target_col].to_numpy()[train_idx]
+    y_test = df[target_col].to_numpy()[test_idx]
+    inner = LGBMRegressor(
+        n_estimators=200, num_leaves=31, learning_rate=0.05,
+        random_state=seed, verbosity=-1,
     )
-    from mlframe.training.core import train_mlframe_models_suite
-    from mlframe.tests.training.shared import SimpleFeaturesAndTargetsExtractor
+    raw_X_train = df_lgbm[numeric_x_cols].to_numpy()[train_idx]
+    raw_X_test = df_lgbm[numeric_x_cols].to_numpy()[test_idx]
+    inner.fit(raw_X_train, y_train)
+    raw_rmse = float(np.sqrt(mean_squared_error(
+        y_test, inner.predict(raw_X_test))))
 
-    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
+    if not disc.specs_:
+        return {
+            "n_specs": 0, "top_base": None, "top_transform": None,
+            "test_rmse": float("nan"), "raw_rmse": raw_rmse,
+            "expected_transform": expected_transform,
+            "expected_base": expected_base,
+        }
 
-    cfg = (CompositeTargetDiscoveryConfig(
-        enabled=True,
-        base_candidates=["TVT_prev"],
-        transforms=["diff", "ratio", "logratio", "linear_residual"],
-        mi_sample_n=200 if fast else 1000,
-        top_k_after_mi=4,
-        eps_mi_gain=-1.0,
-        cross_target_ensemble_strategy="oof_weighted",
-    ) if composite_enabled else None)
-
-    t0 = time.perf_counter()
-    models, metadata = train_mlframe_models_suite(
-        df=df,
-        target_name="target",
-        model_name="bench",
-        features_and_targets_extractor=fte,
-        mlframe_models=["linear"],
-        split_config=TrainingSplitConfig(test_size=0.2, val_size=0.1),
-        output_config={"data_dir": work_dir, "models_dir": "models"},
-        verbose=0,
-        composite_target_discovery_config=cfg,
+    spec = disc.specs_[0]
+    transform = get_transform(spec.transform_name)
+    base_train = df[spec.base_column].to_numpy()[train_idx]
+    base_test = df[spec.base_column].to_numpy()[test_idx]
+    valid_train = transform.domain_check(y_train, base_train)
+    if valid_train.sum() < 50:
+        return {
+            "n_specs": len(disc.specs_),
+            "top_base": spec.base_column,
+            "top_transform": spec.transform_name,
+            "test_rmse": float("nan"), "raw_rmse": raw_rmse,
+            "expected_transform": expected_transform,
+            "expected_base": expected_base,
+        }
+    t_train = transform.forward(
+        y_train[valid_train], base_train[valid_train], spec.fitted_params,
     )
-    elapsed = time.perf_counter() - t0
-
-    # Pull test RMSE for the raw target. For composite mode, prefer
-    # the cross-target ensemble's test RMSE if it exists.
-    test_rmse = float("nan")
-    top_transform = ""
-    if composite_enabled:
-        y_metrics = metadata.get("composite_target_y_scale_metrics", {})
-        regression = y_metrics.get("regression") or y_metrics.get("regression")
-        if regression:
-            # Find the best composite target by test RMSE.
-            best = float("inf")
-            for cname, entries in regression.items():
-                for e in entries:
-                    test = e.get("metrics", {}).get("test", {})
-                    rmse = test.get("RMSE")
-                    if rmse is not None and rmse < best:
-                        best = rmse
-                        # transform name = part between last two __
-                        if "__" in cname:
-                            parts = cname.split("__")
-                            if len(parts) >= 3:
-                                top_transform = parts[-2]
-            if best < float("inf"):
-                test_rmse = best
-        # Fallback: walk the per-target loop's metrics for the raw target.
-        if not (test_rmse == test_rmse):  # NaN check
-            test_rmse = _extract_raw_test_rmse(metadata)
-    else:
-        test_rmse = _extract_raw_test_rmse(metadata)
-
-    return test_rmse, top_transform, elapsed
-
-
-def _extract_raw_test_rmse(metadata: Dict[str, Any]) -> float:
-    """Best-effort extraction of test RMSE for the raw target from
-    the suite's standard metrics dict. Falls back to NaN if the suite
-    doesn't surface it in a known shape."""
-    fr = metadata.get("fairness_report") or metadata.get("metrics") or {}
-    # We don't strictly need this for the benchmark to be useful --
-    # composite RMSE is what we compare against itself across modes.
-    if not isinstance(fr, dict):
-        return float("nan")
-    # Walk the dict looking for an entry with a "test" key holding RMSE.
-    for v in fr.values():
-        if isinstance(v, dict):
-            for vv in v.values():
-                if isinstance(vv, dict):
-                    test = vv.get("test")
-                    if isinstance(test, dict) and "RMSE" in test:
-                        return float(test["RMSE"])
-    return float("nan")
-
-
-def run_benchmark(*, n: int, fast: bool = False, seed: int = 0) -> List[BenchResult]:
-    results: List[BenchResult] = []
-    for name, gen in SCENARIOS:
-        df, expected = gen(n, seed)
-        with tempfile.TemporaryDirectory(prefix="composite_bench_") as work:
-            try:
-                raw_rmse, _, t_raw = _run_one(df, composite_enabled=False,
-                                              work_dir=work, fast=fast)
-            except Exception as exc:
-                logger.warning("[bench] %s raw run failed: %s", name, exc)
-                raw_rmse, t_raw = float("nan"), 0.0
-            try:
-                comp_rmse, top_transform, t_comp = _run_one(
-                    df, composite_enabled=True, work_dir=work, fast=fast,
-                )
-            except Exception as exc:
-                logger.warning("[bench] %s composite run failed: %s", name, exc)
-                comp_rmse, top_transform, t_comp = float("nan"), "", 0.0
-
-        if (not np.isfinite(raw_rmse)) or raw_rmse <= 0:
-            improvement_pct = float("nan")
-        else:
-            improvement_pct = (raw_rmse - comp_rmse) / raw_rmse * 100.0
-
-        # Verdict logic.
-        if expected:
-            # Expected-winner scenarios: composite wins if (a) it ran,
-            # (b) it picked the right top transform OR composite RMSE
-            # is meaningfully lower than raw.
-            picked_right = (top_transform == expected)
-            if picked_right or (np.isfinite(improvement_pct) and improvement_pct > 1.0):
-                verdict = "PASS"
-            else:
-                verdict = "FAIL"
-        else:
-            # No-dominant control: composite shouldn't meaningfully
-            # beat raw. PASS if |improvement| < 5%, otherwise NOTE.
-            if not np.isfinite(improvement_pct):
-                verdict = "PASS"
-            elif abs(improvement_pct) < 5.0:
-                verdict = "PASS"
-            else:
-                verdict = "NOTE"
-
-        results.append(BenchResult(
-            scenario=name,
-            n_samples=n,
-            expected_winner=expected,
-            raw_test_rmse=raw_rmse,
-            composite_test_rmse=comp_rmse,
-            composite_relative_improvement_pct=improvement_pct,
-            discovered_top_transform=top_transform,
-            elapsed_raw_s=t_raw,
-            elapsed_composite_s=t_comp,
-            verdict=verdict,
-        ))
-    return results
-
-
-def render_markdown(results: List[BenchResult]) -> str:
-    """Stakeholder-friendly leaderboard table."""
-    lines = []
-    lines.append("# Composite-target discovery benchmark")
-    lines.append("")
-    lines.append("| scenario | expected | discovered | raw RMSE | composite RMSE | improvement % | verdict |")
-    lines.append("|----------|----------|------------|----------|----------------|---------------|---------|")
-    for r in results:
-        lines.append(
-            f"| `{r.scenario}` | `{r.expected_winner or '-'}` | "
-            f"`{r.discovered_top_transform or '-'}` | "
-            f"{r.raw_test_rmse:.4f} | {r.composite_test_rmse:.4f} | "
-            f"{r.composite_relative_improvement_pct:+.2f} | "
-            f"{r.verdict} |"
-        )
-    lines.append("")
-    n_pass = sum(1 for r in results if r.verdict == "PASS")
-    lines.append(f"**{n_pass}/{len(results)} scenarios passed.**")
-    return "\n".join(lines)
-
-
-def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Composite-target discovery benchmark suite.",
+    inner_c = LGBMRegressor(
+        n_estimators=200, num_leaves=31, learning_rate=0.05,
+        random_state=seed, verbosity=-1,
     )
-    parser.add_argument("--fast", action="store_true",
-                        help="Smaller dataset / fewer iterations for quick smoke runs.")
-    parser.add_argument("--n", type=int, default=None,
-                        help="Per-scenario row count (default: 800 fast / 3000 full).")
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--output", type=str, default="composite_target_benchmark_results.json",
-                        help="Path for JSON results file.")
-    parser.add_argument("--markdown-output", type=str, default=None,
-                        help="Optional path for Markdown leaderboard.")
-    args = parser.parse_args(argv)
-
-    n = args.n if args.n is not None else (800 if args.fast else 3000)
-
-    logging.basicConfig(level=logging.WARNING, format="%(message)s")
-    print(f"[bench] running on n={n} ({'fast' if args.fast else 'full'} mode)")
-
-    results = run_benchmark(n=n, fast=args.fast, seed=args.seed)
-
-    md = render_markdown(results)
-    print()
-    print(md)
-
-    payload = {
-        "n_samples": n,
-        "fast": args.fast,
-        "seed": args.seed,
-        "results": [r.to_dict() for r in results],
+    x_cols_no_base = [c for c in numeric_x_cols if c != spec.base_column]
+    if not x_cols_no_base:
+        return {
+            "n_specs": len(disc.specs_),
+            "top_base": spec.base_column,
+            "top_transform": spec.transform_name,
+            "test_rmse": float("nan"), "raw_rmse": raw_rmse,
+            "expected_transform": expected_transform,
+            "expected_base": expected_base,
+        }
+    X_train_c = df_lgbm[x_cols_no_base].to_numpy()[train_idx][valid_train]
+    X_test_c = df_lgbm[x_cols_no_base].to_numpy()[test_idx]
+    inner_c.fit(X_train_c, t_train)
+    t_hat_test = inner_c.predict(X_test_c)
+    y_hat_test = transform.inverse(t_hat_test, base_test, spec.fitted_params)
+    finite = np.isfinite(y_hat_test - y_test)
+    composite_rmse = (
+        float(np.sqrt(mean_squared_error(
+            y_test[finite], y_hat_test[finite])))
+        if finite.any() else float("nan")
+    )
+    return {
+        "n_specs": len(disc.specs_),
+        "top_base": spec.base_column,
+        "top_transform": spec.transform_name,
+        "test_rmse": composite_rmse,
+        "raw_rmse": raw_rmse,
+        "expected_transform": expected_transform,
+        "expected_base": expected_base,
     }
-    with open(args.output, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2, sort_keys=True)
-    print(f"\n[bench] wrote {args.output}")
 
-    if args.markdown_output:
-        with open(args.markdown_output, "w", encoding="utf-8") as f:
-            f.write(md)
-        print(f"[bench] wrote {args.markdown_output}")
 
-    n_fail = sum(1 for r in results if r.verdict == "FAIL")
-    return 1 if n_fail > 0 else 0
+# ----------------------------------------------------------------------
+# Main
+# ----------------------------------------------------------------------
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--reps", type=int, default=3)
+    parser.add_argument("--n", type=int, default=4000)
+    parser.add_argument("--fast", action="store_true",
+                        help="reps=1, n=2000")
+    parser.add_argument("--scenario", type=str, default=None,
+                        choices=list(SCENARIOS.keys()))
+    args = parser.parse_args()
+
+    if args.fast:
+        args.reps = 1
+        args.n = 2000
+
+    scenarios = (
+        [args.scenario] if args.scenario else list(SCENARIOS.keys())
+    )
+
+    print("Composite-target full S1-S16 benchmark")
+    print(f"  reps      = {args.reps}")
+    print(f"  n         = {args.n}")
+    print(f"  scenarios = {len(scenarios)}\n")
+
+    summary: List[Dict] = []
+
+    for scenario_name in scenarios:
+        gen, expected_transform = SCENARIOS[scenario_name]
+        print(f"--- {scenario_name} (expected_transform={expected_transform}) ---")
+        per_rep_results: List[Dict] = []
+        for rep in range(args.reps):
+            t0 = time.perf_counter()
+            r = _run_scenario(
+                gen, n=args.n, seed=rep,
+                expected_transform=expected_transform,
+            )
+            dt = time.perf_counter() - t0
+            r["elapsed_s"] = dt
+            per_rep_results.append(r)
+            ce = r.get("discovery_error")
+            print(f"  rep={rep}: base={r['top_base']!s:>10s} "
+                  f"transform={r['top_transform']!s:>16s} "
+                  f"test_rmse={r['test_rmse']:.4f} "
+                  f"raw_rmse={r['raw_rmse']:.4f} "
+                  f"({dt:.1f}s)"
+                  + (f" ERROR={ce}" if ce else ""))
+
+        valid = [r for r in per_rep_results
+                 if np.isfinite(r["test_rmse"])
+                 and np.isfinite(r["raw_rmse"])]
+        if valid:
+            mean_composite = float(np.mean([r["test_rmse"] for r in valid]))
+            mean_raw = float(np.mean([r["raw_rmse"] for r in valid]))
+            improvement_pct = (
+                (mean_raw - mean_composite) / mean_raw * 100.0
+                if mean_raw > 0 else float("nan")
+            )
+        else:
+            mean_composite = float("nan")
+            mean_raw = float(np.mean(
+                [r["raw_rmse"] for r in per_rep_results
+                 if np.isfinite(r["raw_rmse"])]
+            )) if per_rep_results else float("nan")
+            improvement_pct = float("nan")
+
+        if expected_transform:
+            correct_count = sum(
+                1 for r in per_rep_results
+                if r["top_transform"] == expected_transform
+            )
+        else:
+            correct_count = None
+
+        any_specs = sum(1 for r in per_rep_results
+                        if r.get("n_specs", 0) > 0)
+
+        print(f"  Summary: composite RMSE={mean_composite:.4f} "
+              f"raw RMSE={mean_raw:.4f} "
+              f"improvement={improvement_pct:+.2f}%"
+              + (f"  transform_correct={correct_count}/{args.reps}"
+                 if correct_count is not None else "")
+              + f"  any_specs={any_specs}/{args.reps}\n")
+
+        summary.append({
+            "scenario": scenario_name,
+            "expected_transform": expected_transform,
+            "mean_composite_rmse": mean_composite,
+            "mean_raw_rmse": mean_raw,
+            "improvement_pct": improvement_pct,
+            "transform_correct_count": correct_count,
+            "any_specs_count": any_specs,
+            "n_reps": args.reps,
+            "per_rep_results": per_rep_results,
+        })
+
+    print("=" * 92)
+    print("LEADERBOARD")
+    print("=" * 92)
+    print(f"{'scenario':<32s} {'expected':>16s} {'composite':>10s} "
+          f"{'raw':>10s} {'imprv%':>8s}  pick")
+    for row in summary:
+        et = row["expected_transform"] or "-"
+        c = row["mean_composite_rmse"]
+        r_ = row["mean_raw_rmse"]
+        i = row["improvement_pct"]
+        cc = (f"{row['transform_correct_count']}/{row['n_reps']}"
+              if row["transform_correct_count"] is not None
+              else "n/a")
+        c_str = f"{c:.4f}" if np.isfinite(c) else "  nan"
+        r_str = f"{r_:.4f}" if np.isfinite(r_) else "  nan"
+        i_str = f"{i:+.2f}" if np.isfinite(i) else "  nan"
+        print(f"{row['scenario']:<32s} {et:>16s} {c_str:>10s} "
+              f"{r_str:>10s} {i_str:>8s}  {cc}")
+
+    out_path = "benchmarks/composite_target_benchmark_results.json"
+    with open(out_path, "w") as f:
+        json.dump(summary, f, indent=2)
+    print(f"\nResults written to {out_path}")
+
+    # Heatmap.
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        names = [row["scenario"] for row in summary]
+        improvs = np.array([
+            row["improvement_pct"] if np.isfinite(row["improvement_pct"])
+            else 0.0
+            for row in summary
+        ]).reshape(1, -1)
+        fig, ax = plt.subplots(figsize=(16, 3))
+        im = ax.imshow(improvs, cmap="RdYlGn", aspect="auto",
+                       vmin=-10, vmax=50)
+        ax.set_xticks(range(len(names)))
+        ax.set_xticklabels(names, rotation=45, ha="right", fontsize=8)
+        ax.set_yticks([0])
+        ax.set_yticklabels(["improvement % vs raw"])
+        for i in range(len(names)):
+            v = improvs[0, i]
+            text_color = "white" if abs(v) > 25 else "black"
+            ax.text(i, 0, f"{v:+.1f}", ha="center", va="center",
+                    color=text_color, fontsize=8)
+        fig.colorbar(im, ax=ax, label="improvement % vs raw-y")
+        ax.set_title("Composite-target benchmark: per-scenario improvement vs raw")
+        fig.tight_layout()
+        plot_path = "benchmarks/composite_target_benchmark_heatmap.png"
+        fig.savefig(plot_path, dpi=110)
+        print(f"Heatmap written to {plot_path}")
+    except Exception as plot_err:
+        print(f"(heatmap skipped: {plot_err})")
+    return 0
 
 
 if __name__ == "__main__":

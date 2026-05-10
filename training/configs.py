@@ -2060,6 +2060,20 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     use_baseline_diagnostics_hint: bool = True
     baseline_diagnostics_hint_top_k: int = 3
 
+    # R3.18: handling multilabel (multi-output) regression targets,
+    # i.e. ``target_by_type[regression][name]`` is a 2-D array of
+    # shape ``(n_rows, n_outputs)``.
+    # - ``"per_target"`` (default): expand into ``n_outputs`` separate
+    #   1-D regression targets named ``{name}_out{j}``; discovery
+    #   runs independently per output, naming composites
+    #   ``{name}_out{j}__{transform}__{base}``. Per-target training
+    #   loop downstream sees them as ordinary 1-D targets.
+    # - ``"skip"``: legacy behaviour -- mark with metadata note,
+    #   produce no composites for that target. Useful when the
+    #   caller knows they don't want the per-output expansion (e.g.
+    #   the training loop downstream expects the 2-D shape intact).
+    multilabel_strategy: str = "per_target"
+
     # Cap the number of components combined at predict time. Useful
     # for online single-row latency-sensitive serving where running
     # K=8 wrappers per row blows the SLA. When > 0, the ensemble
@@ -2100,6 +2114,16 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
         valid = {"fallback_raw", "raise", "warn"}
         if v_lower not in valid:
             raise ValueError(f"fail_on_no_gain must be one of {valid}, got '{v}'")
+        return v_lower
+
+    @field_validator("multilabel_strategy", mode="before")
+    @classmethod
+    def _normalise_multilabel_strategy(cls, v: str) -> str:
+        v_lower = str(v).lower()
+        valid = {"per_target", "skip"}
+        if v_lower not in valid:
+            raise ValueError(
+                f"multilabel_strategy must be one of {valid}, got '{v}'")
         return v_lower
 
 

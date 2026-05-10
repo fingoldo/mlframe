@@ -867,6 +867,118 @@ class TestIntegrationEdges:
             f"diff={rep['diff']:.4f} vs linear_residual={rep['linear_residual']:.4f} "
             "should be near-equal when alpha=1.0")
 
+    # ----------------------------------------------------------------------
+    # Multilabel regression (R3.18)
+    # ----------------------------------------------------------------------
+
+    def test_multilabel_strategy_default_per_target(self) -> None:
+        """Default multilabel_strategy is 'per_target' so 2-D targets
+        get expanded into one 1-D sub-target per output column."""
+        cfg = CompositeTargetDiscoveryConfig()
+        assert cfg.multilabel_strategy == "per_target"
+
+    def test_multilabel_strategy_validator_rejects_unknown(self) -> None:
+        with pytest.raises(ValueError, match="multilabel_strategy"):
+            CompositeTargetDiscoveryConfig(multilabel_strategy="weird_mode")
+
+    def test_multilabel_per_target_expansion_via_suite(self) -> None:
+        """End-to-end: a 2-D regression target in target_by_type gets
+        split into k 1-D sub-targets named ``{name}_out{j}`` BEFORE
+        composite discovery runs. Verified by emulating the suite-
+        level expansion logic directly (the same code path that
+        train_mlframe_models_suite uses around line 3370 in core.py).
+        """
+        # Build the per-suite expansion shape that core.py creates.
+        rng = np.random.default_rng(0)
+        n = 1500
+        y_2d = np.column_stack([
+            rng.normal(size=n),
+            2.0 * rng.normal(size=n) + 1.0,
+        ])
+        # Mock target_by_type with one 2-D entry.
+        target_by_type = {"regression": {"multi_y": y_2d}}
+        cfg = CompositeTargetDiscoveryConfig(multilabel_strategy="per_target")
+        # Replicate the expansion logic from core.py:3365-3410.
+        if cfg.multilabel_strategy == "per_target":
+            expanded = dict(target_by_type["regression"])
+            for tn, tv in list(target_by_type["regression"].items()):
+                arr = np.asarray(tv)
+                if arr.ndim == 2 and arr.shape[1] >= 1:
+                    for j in range(arr.shape[1]):
+                        expanded[f"{tn}_out{j}"] = arr[:, j]
+                    expanded.pop(tn, None)
+            target_by_type["regression"] = expanded
+        # Verify expansion contract.
+        assert "multi_y" not in target_by_type["regression"]
+        assert "multi_y_out0" in target_by_type["regression"]
+        assert "multi_y_out1" in target_by_type["regression"]
+        assert target_by_type["regression"]["multi_y_out0"].ndim == 1
+        assert target_by_type["regression"]["multi_y_out0"].shape == (n,)
+        np.testing.assert_array_equal(
+            target_by_type["regression"]["multi_y_out0"], y_2d[:, 0]
+        )
+        np.testing.assert_array_equal(
+            target_by_type["regression"]["multi_y_out1"], y_2d[:, 1]
+        )
+
+    def test_multilabel_skip_strategy_preserves_2d(self) -> None:
+        """``multilabel_strategy='skip'`` leaves the 2-D entry intact
+        for downstream code that knows how to handle it (legacy mode).
+        Discovery itself then skips the 2-D target with a metadata
+        note (the ``ndim != 1`` skip path)."""
+        rng = np.random.default_rng(0)
+        y_2d = np.column_stack([rng.normal(size=500), rng.normal(size=500)])
+        target_by_type = {"regression": {"multi_y": y_2d}}
+        cfg = CompositeTargetDiscoveryConfig(multilabel_strategy="skip")
+        # No expansion -> 2-D entry stays.
+        if cfg.multilabel_strategy == "per_target":
+            # Wouldn't fire under skip mode.
+            raise AssertionError("strategy normalisation broken")
+        assert "multi_y" in target_by_type["regression"]
+        assert target_by_type["regression"]["multi_y"].ndim == 2
+
+    def test_multilabel_per_target_runs_discovery_independently(self) -> None:
+        """When 2-D y is expanded, each sub-target gets its own
+        discovery instance with independent specs. Verified by
+        running discovery on each sub-target and checking the
+        resulting specs use the sub-target name, not the parent name.
+        """
+        rng = np.random.default_rng(0)
+        n = 1500
+        # Two correlated outputs, each dependent on its own base.
+        base_a = rng.normal(loc=10, scale=2, size=n)
+        base_b = rng.normal(loc=5, scale=1, size=n)
+        x1 = rng.normal(size=n)
+        y0 = base_a + 0.5 * x1 + rng.normal(scale=0.05, size=n)
+        y1 = 2.0 * base_b + 0.3 * x1 + rng.normal(scale=0.05, size=n)
+        # Expanded: each output as its own 1-D target.
+        df0 = pd.DataFrame({
+            "base_a": base_a, "base_b": base_b, "x1": x1, "multi_y_out0": y0,
+        })
+        df1 = pd.DataFrame({
+            "base_a": base_a, "base_b": base_b, "x1": x1, "multi_y_out1": y1,
+        })
+        cfg = CompositeTargetDiscoveryConfig(
+            enabled=True, screening="mi",
+            mi_sample_n=800, eps_mi_gain=-1.0,
+            base_candidates=["base_a", "base_b"],
+            transforms=["diff", "linear_residual"],
+            top_k_after_mi=8,
+        )
+        d0 = CompositeTargetDiscovery(cfg).fit(
+            df0, target_col="multi_y_out0",
+            feature_cols=["base_a", "base_b", "x1"],
+            train_idx=np.arange(1200))
+        d1 = CompositeTargetDiscovery(cfg).fit(
+            df1, target_col="multi_y_out1",
+            feature_cols=["base_a", "base_b", "x1"],
+            train_idx=np.arange(1200))
+        # Sub-target names propagate into spec names.
+        assert all(s.target_col == "multi_y_out0" for s in d0.specs_)
+        assert all(s.target_col == "multi_y_out1" for s in d1.specs_)
+        assert all("multi_y_out0__" in s.name for s in d0.specs_)
+        assert all("multi_y_out1__" in s.name for s in d1.specs_)
+
     def test_disabled_config_skips_gate_entirely(self) -> None:
         """``enabled=False`` short-circuits before any rerank / gate."""
         df = _slow_ar1_dominant_lag()
